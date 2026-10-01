@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+dist/
+build/
+target/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# Environment & local credentials
+.env
+.env.local
+accounts_secret.json
+vault.key
+
+# OS & IDE
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.bak
+app.asar.bak
