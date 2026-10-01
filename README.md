@@ -21,11 +21,13 @@ Unlike proxy-based or man-in-the-middle routing solutions, Antigravity Swiss Kni
 - **Active Session Preservation**: Maintains active pane layouts and conversation IDs (`cascadeId` in `app_storage.json`), ensuring seamless resumption without lost context or `state.vscdb` missing errors.
 
 ### 2. 🖥️ Google Gemini-Inspired Desktop UI & Multi-Feature Architecture
-- **Fixed Left Panel**: Collapsible/fixed navigation rail switching between primary modules (Account Switcher, Brain Cache Manager, Device Fingerprints, App Settings).
-- **Sub-Page Top Ribbon**: Inside Account Switcher, toggle seamlessly between:
+- **Fixed Left Panel**: Collapsible/fixed navigation rail switching between top-level Swiss Knife suite tools (Account Switcher, Tools Marketplace / Extensions, App & Tray Settings).
+- **Account Switcher Top Ribbon**: Inside the Account Switcher tool page, a high-level sub-navigation ribbon hosts all core switcher capabilities:
   1. *Quota Dashboard* (Front Page): Live gauge meters for Gemini 3.8 Flash, Flash Lite, Pro, and Claude models, active account status, reset countdowns, and 1-click manual switch.
-  2. *Accounts & MFA Vault*: Account management with integrated RFC 6238 TOTP/MFA generator (live 6-digit codes, countdown progress rings, backup codes).
-  3. *Automation Settings*: Auto-switch thresholds, polling frequencies, and warmup keep-alive toggles.
+  2. *Accounts & MFA Vault*: Account inventory with integrated RFC 6238 TOTP/MFA generator (live 6-digit codes, countdown progress rings, backup codes).
+  3. *Device Fingerprints*: Inspect, generate, and isolate per-account hardware profiles (`machineid`, `.updaterId`, `installation_id`, `installation_uuid`) with anti-ban virtualization.
+  4. *Brain Cache Manager*: Storage and token cache inspector for `~/.gemini/antigravity/brain/` and conversation logs with disk usage breakdown and cleanup actions.
+  5. *Switcher Settings*: Auto-switch thresholds, polling frequencies, and post-reset warmup keep-alive toggles.
 - **Gemini Design Language**: Clean Material Design 3 dark surfaces (`#131314` / `#1e1f20`), pill-shaped tabs, subtle glowing borders, and crisp typography.
 
 ### 3. 🛡️ Per-Account Device Fingerprint Virtualization
