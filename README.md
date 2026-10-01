@@ -20,9 +20,13 @@ Unlike proxy-based or man-in-the-middle routing solutions, Antigravity Swiss Kni
 - **Atomic Credential Rotation**: Automatically switches credentials in the system keyring before exhaustion thresholds are reached.
 - **Active Session Preservation**: Maintains active pane layouts and conversation IDs (`cascadeId` in `app_storage.json`), ensuring seamless resumption without lost context or `state.vscdb` missing errors.
 
-### 2. 🖥️ Direct Sidebar UI Injection
-- **Native Entry Point**: Mounts an integrated launcher button directly above the **Projects** panel in the Antigravity 2.0 sidebar (below `Scheduled Tasks` / `Market Place`).
-- **Comprehensive In-App Dashboard**: Displays real-time model quota gauges, active account switcher, reset countdowns, and quick actions directly inside the Antigravity desktop window.
+### 2. 🖥️ Google Gemini-Inspired Desktop UI & Multi-Feature Architecture
+- **Fixed Left Panel**: Collapsible/fixed navigation rail switching between primary modules (Account Switcher, Brain Cache Manager, Device Fingerprints, App Settings).
+- **Sub-Page Top Ribbon**: Inside Account Switcher, toggle seamlessly between:
+  1. *Quota Dashboard* (Front Page): Live gauge meters for Gemini 3.8 Flash, Flash Lite, Pro, and Claude models, active account status, reset countdowns, and 1-click manual switch.
+  2. *Accounts & MFA Vault*: Account management with integrated RFC 6238 TOTP/MFA generator (live 6-digit codes, countdown progress rings, backup codes).
+  3. *Automation Settings*: Auto-switch thresholds, polling frequencies, and warmup keep-alive toggles.
+- **Gemini Design Language**: Clean Material Design 3 dark surfaces (`#131314` / `#1e1f20`), pill-shaped tabs, subtle glowing borders, and crisp typography.
 
 ### 3. 🛡️ Per-Account Device Fingerprint Virtualization
 - **Anti-False-Ban Protection**: Prevents multi-account correlation by managing independent device profiles per account.
