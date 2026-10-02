@@ -55,6 +55,15 @@ class TotpEngine:
             raise ValueError(f"Invalid Base32 secret key: {exc}") from exc
 
     @classmethod
+    def validate_secret(cls, secret: str) -> bool:
+        """Checks if a secret is valid Base32 format."""
+        try:
+            cls.decode_secret(secret)
+            return True
+        except Exception:
+            return False
+
+    @classmethod
     def generate_code_at_step(
         cls,
         secret: str,
@@ -127,3 +136,8 @@ class TotpEngine:
             if hmac.compare_digest(clean_code, expected):
                 return True
         return False
+
+
+TOTPEngine = TotpEngine
+
+__all__ = ["TotpEngine", "TOTPEngine", "TotpResult"]

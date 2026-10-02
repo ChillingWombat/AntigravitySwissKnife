@@ -1,31 +1,45 @@
 """
-Brain & Context Cache Optimizer (Requirement R5).
-=================================================
-Public exports for CacheInspector, CachePruner, PromptCacheOptimizer, and cache models.
+Brain & Context Cache Optimizer (Features F12, F13, F14).
+=========================================================
+Public exports for Cache Inspector, Cache Pruner, and Prompt Cache Optimizer.
 """
 
-from antigravity_swiss.cache_optimizer.inspector import CacheInspector
+from antigravity_swiss.cache_optimizer.inspector import (
+    BrainCacheInspector,
+    CacheInspector,
+)
 from antigravity_swiss.cache_optimizer.models import (
     CacheBreakdown,
+    CacheCategory,
     CacheCategoryUsage,
+    CacheItem,
     ConversationCacheSummary,
+    PromptCacheAnalysis,
     PruneOptions,
     PruneResult,
-)
-from antigravity_swiss.cache_optimizer.prompt_cache import (
-    PromptCacheOptimizer,
+    RedundancyMetrics,
     TokenBloatReport,
 )
-from antigravity_swiss.cache_optimizer.pruner import CachePruner
+from antigravity_swiss.cache_optimizer.prompt_cache import PromptCacheOptimizer
+from antigravity_swiss.cache_optimizer.pruner import (
+    BrainCachePruner,
+    CachePruner,
+)
 
 __all__ = [
-    "CacheBreakdown",
-    "CacheCategoryUsage",
+    "BrainCacheInspector",
     "CacheInspector",
+    "BrainCachePruner",
     "CachePruner",
-    "ConversationCacheSummary",
     "PromptCacheOptimizer",
+    "CacheCategory",
+    "CacheItem",
+    "CacheCategoryUsage",
+    "ConversationCacheSummary",
+    "CacheBreakdown",
     "PruneOptions",
     "PruneResult",
+    "PromptCacheAnalysis",
     "TokenBloatReport",
+    "RedundancyMetrics",
 ]

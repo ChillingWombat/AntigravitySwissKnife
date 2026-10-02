@@ -450,6 +450,14 @@ class AccountVault:
                 data["active_account"] = email
             return record
 
+    def set_totp_secret(self, email: str, totp_secret: str) -> bool:
+        with self.transaction() as data:
+            accounts = data.get("accounts", {})
+            if not isinstance(accounts, dict) or email not in accounts:
+                return False
+            accounts[email]["totp_secret"] = totp_secret
+            return True
+
     def remove_account(self, email: str) -> bool:
         with self.transaction() as data:
             accounts = data.get("accounts", {})
@@ -479,9 +487,14 @@ class AccountStore:
                 "is_active": r.email == active,
                 "is_healthy": r.is_healthy,
                 "last_used_at": r.last_used_at,
+                "has_totp": bool(r.totp_secret),
+                "totp_secret": r.totp_secret,
             }
             for r in records
         ]
+
+    def set_totp_secret(self, email: str, totp_secret: str) -> bool:
+        return self.vault.set_totp_secret(email, totp_secret)
 
     def get_account(self, email: str) -> AccountRecord | None:
         return self.vault.get_account(email)

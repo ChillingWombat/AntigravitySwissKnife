@@ -38,6 +38,11 @@ class SwissKnifeController(ABC):
         ...
 
     @abstractmethod
+    def set_totp_secret(self, email: str, totp_secret: str) -> bool:
+        """Store or update TOTP secret for an account."""
+        ...
+
+    @abstractmethod
     def switch_account(self, email: str, force: bool = False, relaunch: bool = True) -> dict[str, Any]:
         """Switch active account and preserve conversation session."""
         ...
@@ -62,6 +67,36 @@ class SwissKnifeController(ABC):
         """Update rule engine configuration."""
         ...
 
+    @abstractmethod
+    def get_fingerprint_profile(self) -> dict[str, Any]:
+        """Fetch active device fingerprint profile."""
+        ...
+
+    @abstractmethod
+    def list_fingerprint_profiles(self) -> dict[str, Any]:
+        """List registered device fingerprint profiles."""
+        ...
+
+    @abstractmethod
+    def swap_fingerprint(self, email: str) -> dict[str, Any]:
+        """Swap hardware profile for target account."""
+        ...
+
+    @abstractmethod
+    def get_cache_breakdown(self, active_conversation_id: str | None = None) -> dict[str, Any]:
+        """Retrieve categorized cache breakdown and reclaimable estimates."""
+        ...
+
+    @abstractmethod
+    def prune_cache(self, options: dict[str, Any] | None = None, active_conversation_id: str | None = None) -> dict[str, Any]:
+        """Execute cache pruning and return PruneResult dictionary."""
+        ...
+
+    @abstractmethod
+    def analyze_prompt_cache(self, conversation_id: str | None = None, transcript_path: str | None = None) -> dict[str, Any]:
+        """Analyze prompt context bloat and return recommendations."""
+        ...
+
 
 class RemoteDaemonController(SwissKnifeController):
     """Dispatches calls over Unix Domain Socket to running daemon."""
@@ -79,6 +114,13 @@ class RemoteDaemonController(SwissKnifeController):
     def list_accounts(self) -> list[dict[str, Any]]:
         return self._client.call("accounts.list")
 
+    def set_totp_secret(self, email: str, totp_secret: str) -> bool:
+        try:
+            res = self._client.call("accounts.set_totp", {"email": email, "totp_secret": totp_secret})
+            return bool(res.get("success", True))
+        except Exception:
+            return False
+
     def switch_account(self, email: str, force: bool = False, relaunch: bool = True) -> dict[str, Any]:
         return self._client.call("accounts.switch", {"email": email, "force": force, "relaunch": relaunch})
 
@@ -95,6 +137,32 @@ class RemoteDaemonController(SwissKnifeController):
 
     def set_rule_config(self, **kwargs: Any) -> dict[str, Any]:
         return self._client.call("rules.set_config", kwargs)
+
+    def get_fingerprint_profile(self) -> dict[str, Any]:
+        return self._client.call("fingerprint.get_profile")
+
+    def list_fingerprint_profiles(self) -> dict[str, Any]:
+        return self._client.call("fingerprint.list_profiles")
+
+    def swap_fingerprint(self, email: str) -> dict[str, Any]:
+        return self._client.call("fingerprint.swap", {"email": email})
+
+    def get_cache_breakdown(self, active_conversation_id: str | None = None) -> dict[str, Any]:
+        params = {"active_conversation_id": active_conversation_id} if active_conversation_id else {}
+        return self._client.call("cache.get_breakdown", params)
+
+    def prune_cache(self, options: dict[str, Any] | None = None, active_conversation_id: str | None = None) -> dict[str, Any]:
+        params = {"options": options or {}, "active_conversation_id": active_conversation_id}
+        return self._client.call("cache.prune", params)
+
+    def analyze_prompt_cache(self, conversation_id: str | None = None, transcript_path: str | None = None) -> dict[str, Any]:
+        params = {}
+        if conversation_id:
+            params["conversation_id"] = conversation_id
+        if transcript_path:
+            params["transcript_path"] = transcript_path
+        return self._client.call("cache.analyze_prompts", params)
+
 
 
 class StandaloneController(SwissKnifeController):
@@ -135,6 +203,11 @@ class StandaloneController(SwissKnifeController):
         from antigravity_swiss.keyring.switcher import AccountStore
         store = AccountStore(self.config.accounts_file)
         return store.list_accounts()
+
+    def set_totp_secret(self, email: str, totp_secret: str) -> bool:
+        from antigravity_swiss.keyring.switcher import AccountStore
+        store = AccountStore(self.config.accounts_file)
+        return store.set_totp_secret(email, totp_secret)
 
     def switch_account(self, email: str, force: bool = False, relaunch: bool = True) -> dict[str, Any]:
         from antigravity_swiss.keyring.switcher import KeyringSwitcher
@@ -199,6 +272,89 @@ class StandaloneController(SwissKnifeController):
             self.config.auto_switch_threshold = max(0.0, min(1.0, float(kwargs["auto_switch_threshold"])))
         self.config.save_settings()
         return self.get_rule_config()
+
+    def get_fingerprint_profile(self) -> dict[str, Any]:
+        from antigravity_swiss.fingerprint.manager import FingerprintManager
+        mgr = FingerprintManager(
+            config_dir=self.config.antigravity_config_dir,
+            data_dir=self.config.antigravity_data_dir,
+        )
+        return mgr.get_active_profile().to_dict()
+
+    def list_fingerprint_profiles(self) -> dict[str, Any]:
+        from antigravity_swiss.fingerprint.manager import FingerprintManager
+        mgr = FingerprintManager(
+            config_dir=self.config.antigravity_config_dir,
+            data_dir=self.config.antigravity_data_dir,
+        )
+        accounts = mgr.store.list_accounts()
+        res = {}
+        for acc in accounts:
+            p = mgr.store.get_profile(acc)
+            if p:
+                res[acc] = p.to_dict()
+        return res
+
+    def swap_fingerprint(self, email: str) -> dict[str, Any]:
+        from antigravity_swiss.fingerprint.manager import FingerprintManager
+        mgr = FingerprintManager(
+            config_dir=self.config.antigravity_config_dir,
+            data_dir=self.config.antigravity_data_dir,
+        )
+        profile = mgr.swap_profile_for_account(email)
+        return {"success": True, "account_email": email, "profile": profile.to_dict()}
+
+    def get_cache_breakdown(self, active_conversation_id: str | None = None) -> dict[str, Any]:
+        from antigravity_swiss.cache_optimizer.inspector import BrainCacheInspector
+        inspector = BrainCacheInspector(
+            data_dir=self.config.antigravity_data_dir,
+            config_dir=self.config.antigravity_config_dir,
+        )
+        return inspector.scan_breakdown(active_conversation_id=active_conversation_id).to_dict()
+
+    def prune_cache(self, options: dict[str, Any] | None = None, active_conversation_id: str | None = None) -> dict[str, Any]:
+        from antigravity_swiss.cache_optimizer.models import PruneOptions
+        from antigravity_swiss.cache_optimizer.pruner import BrainCachePruner
+        pruner = BrainCachePruner(
+            data_dir=self.config.antigravity_data_dir,
+            config_dir=self.config.antigravity_config_dir,
+        )
+        opts_dict = options or {}
+        prune_opts = PruneOptions(
+            prune_scratch=opts_dict.get("prune_scratch", True),
+            prune_steps=opts_dict.get("prune_steps", True),
+            prune_tasks=opts_dict.get("prune_tasks", True),
+            prune_screenshots=opts_dict.get("prune_screenshots", True),
+            vacuum_databases=opts_dict.get("vacuum_databases", True),
+            prune_wal=opts_dict.get("prune_wal", False),
+            min_age_days=float(opts_dict.get("min_age_days", 3.0)),
+            dry_run=bool(opts_dict.get("dry_run", False)),
+        )
+        return pruner.prune(options=prune_opts, active_conversation_id=active_conversation_id).to_dict()
+
+    def analyze_prompt_cache(self, conversation_id: str | None = None, transcript_path: str | None = None) -> dict[str, Any]:
+        from antigravity_swiss.cache_optimizer.inspector import BrainCacheInspector
+        from antigravity_swiss.cache_optimizer.prompt_cache import PromptCacheOptimizer
+        opt = PromptCacheOptimizer(data_dir=self.config.antigravity_data_dir)
+        if transcript_path:
+            analysis = opt.analyze_transcript(transcript_path)
+        elif conversation_id:
+            analysis = opt.analyze_conversation(conversation_id, data_dir=self.config.antigravity_data_dir)
+        else:
+            inspector = BrainCacheInspector(
+                data_dir=self.config.antigravity_data_dir,
+                config_dir=self.config.antigravity_config_dir,
+            )
+            active_id = inspector.get_active_conversation_id()
+            if active_id:
+                analysis = opt.analyze_conversation(active_id, data_dir=self.config.antigravity_data_dir)
+            else:
+                results = opt.scan_all_conversations(data_dir=self.config.antigravity_data_dir, limit=1)
+                analysis = results[0] if results else None
+        if not analysis:
+            return {"error": "No conversation transcript found to analyze"}
+        return analysis.to_dict()
+
 
 
 def create_controller(

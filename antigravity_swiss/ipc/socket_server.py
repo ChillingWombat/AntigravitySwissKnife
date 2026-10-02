@@ -179,6 +179,99 @@ class AsyncUnixSocketServer:
 
             return rpc_rules_get_config()
 
+    def register_fingerprint_handlers(self, fingerprint_manager: Any) -> None:
+        """Register Device Fingerprint RPC methods."""
+        @self.register("fingerprint.get_profile")
+        def rpc_fingerprint_get_profile() -> dict[str, Any]:
+            profile = fingerprint_manager.get_active_profile()
+            return profile.to_dict() if hasattr(profile, "to_dict") else profile
+
+        @self.register("fingerprint.list_profiles")
+        def rpc_fingerprint_list_profiles() -> dict[str, Any]:
+            accounts = fingerprint_manager.store.list_accounts()
+            result = {}
+            for acc in accounts:
+                p = fingerprint_manager.store.get_profile(acc)
+                if p:
+                    result[acc] = p.to_dict() if hasattr(p, "to_dict") else p
+            return result
+
+        @self.register("fingerprint.swap")
+        def rpc_fingerprint_swap(email: str | None = None, account_email: str | None = None) -> dict[str, Any]:
+            target = email or account_email
+            if not target:
+                raise InvalidParamsError("Target email or account_email parameter required")
+            profile = fingerprint_manager.swap_profile_for_account(target)
+            payload = {
+                "success": True,
+                "account_email": target,
+                "profile": profile.to_dict() if hasattr(profile, "to_dict") else profile,
+            }
+            self.broadcast_event_threadsafe("notify.profile_swapped", payload)
+            return payload
+
+    def register_cache_handlers(
+        self,
+        inspector: Any,
+        pruner: Any,
+        prompt_optimizer: Any = None,
+    ) -> None:
+        """Register Cache Optimizer RPC methods."""
+        @self.register("cache.get_breakdown")
+        def rpc_cache_get_breakdown(active_conversation_id: str | None = None) -> dict[str, Any]:
+            breakdown = inspector.scan_breakdown(active_conversation_id=active_conversation_id)
+            return breakdown.to_dict() if hasattr(breakdown, "to_dict") else breakdown
+
+        @self.register("cache.prune")
+        def rpc_cache_prune(
+            options: dict[str, Any] | None = None,
+            active_conversation_id: str | None = None,
+            **kwargs: Any,
+        ) -> dict[str, Any]:
+            opts_dict = options or kwargs or {}
+            from antigravity_swiss.cache_optimizer.models import PruneOptions
+            prune_opts = PruneOptions(
+                prune_scratch=opts_dict.get("prune_scratch", True),
+                prune_steps=opts_dict.get("prune_steps", True),
+                prune_tasks=opts_dict.get("prune_tasks", True),
+                prune_screenshots=opts_dict.get("prune_screenshots", True),
+                vacuum_databases=opts_dict.get("vacuum_databases", True),
+                prune_wal=opts_dict.get("prune_wal", False),
+                min_age_days=float(opts_dict.get("min_age_days", 3.0)),
+                dry_run=bool(opts_dict.get("dry_run", False)),
+            )
+            res = pruner.prune(options=prune_opts, active_conversation_id=active_conversation_id)
+            res_dict = res.to_dict() if hasattr(res, "to_dict") else res
+            self.broadcast_event_threadsafe("notify.cache_pruned", res_dict)
+            return res_dict
+
+        @self.register("cache.analyze_prompts")
+        def rpc_cache_analyze_prompts(
+            conversation_id: str | None = None,
+            transcript_path: str | None = None,
+        ) -> dict[str, Any]:
+            if not prompt_optimizer:
+                from antigravity_swiss.cache_optimizer.prompt_cache import PromptCacheOptimizer
+                optimizer = PromptCacheOptimizer(data_dir=getattr(inspector, "data_dir", None))
+            else:
+                optimizer = prompt_optimizer
+
+            if transcript_path:
+                analysis = optimizer.analyze_transcript(transcript_path)
+            elif conversation_id:
+                analysis = optimizer.analyze_conversation(conversation_id)
+            else:
+                active_id = getattr(inspector, "get_active_conversation_id", lambda: None)()
+                if active_id:
+                    analysis = optimizer.analyze_conversation(active_id)
+                else:
+                    results = optimizer.scan_all_conversations(limit=1)
+                    analysis = results[0] if results else None
+
+            if not analysis:
+                return {"error": "No conversation transcript found to analyze"}
+            return analysis.to_dict() if hasattr(analysis, "to_dict") else analysis
+
     async def start(self) -> None:
         """Bind socket, set permissions to 0600, and start listening."""
         if self._running:

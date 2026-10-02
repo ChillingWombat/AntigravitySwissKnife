@@ -117,6 +117,11 @@ def run_daemon(args: argparse.Namespace) -> int:
     @server.register("accounts.switch")
     def rpc_accounts_switch(email: str, force: bool = False, relaunch: bool = True) -> dict[str, Any]:
         res = keyring_switcher.switch_to_account(email, force=force)
+        try:
+            fingerprint_manager.swap_profile_for_account(email)
+        except Exception as exc:
+            logger.warning("Could not swap fingerprint profile on switch: %s", exc)
+
         relaunch_pid = None
         if relaunch:
             pm.terminate_gracefully(config.process_timeout_sec)
@@ -133,6 +138,31 @@ def run_daemon(args: argparse.Namespace) -> int:
         }
         server.broadcast_event_threadsafe("notify.account_switched", {"email": email, "reason": "manual_rpc"})
         return result_payload
+
+    # Initialize Fingerprint Manager
+    from antigravity_swiss.fingerprint.manager import FingerprintManager
+    fingerprint_manager = FingerprintManager(
+        config_dir=config.antigravity_config_dir,
+        data_dir=config.antigravity_data_dir,
+    )
+    server.register_fingerprint_handlers(fingerprint_manager)
+
+    # Initialize Cache Optimizer
+    from antigravity_swiss.cache_optimizer.inspector import BrainCacheInspector
+    from antigravity_swiss.cache_optimizer.pruner import BrainCachePruner
+    from antigravity_swiss.cache_optimizer.prompt_cache import PromptCacheOptimizer
+    cache_inspector = BrainCacheInspector(
+        data_dir=config.antigravity_data_dir,
+        config_dir=config.antigravity_config_dir,
+    )
+    cache_pruner = BrainCachePruner(
+        data_dir=config.antigravity_data_dir,
+        config_dir=config.antigravity_config_dir,
+    )
+    prompt_optimizer = PromptCacheOptimizer(
+        data_dir=config.antigravity_data_dir,
+    )
+    server.register_cache_handlers(cache_inspector, cache_pruner, prompt_optimizer)
 
     # Wire Quota & Rule Engine RPC methods
     server.register_quota_handlers(
@@ -264,6 +294,184 @@ def run_gui(args: argparse.Namespace) -> int:
         return 1
 
 
+def run_cache_breakdown(args: argparse.Namespace) -> int:
+    """Display categorized cache breakdown."""
+    config = SwissKnifeConfig.load()
+    controller = create_controller(config, prefer_daemon=True)
+    try:
+        data = controller.get_cache_breakdown()
+    except Exception as exc:
+        print(f"[ERROR] Failed to retrieve cache breakdown: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(data, indent=2))
+        return 0
+
+    print("═" * 66)
+    print("                 ANTIGRAVITY CACHE BREAKDOWN")
+    print("═" * 66)
+    print(f"Total Cache Size     : {data.get('total_mb', 0)} MB ({data.get('total_bytes', 0):,} bytes)")
+    print(f"Brain Storage        : {data.get('brain_total_mb', 0)} MB")
+    print(f"Conversations DBs    : {data.get('conversations_total_mb', 0)} MB")
+    print(f"Active Session       : {data.get('active_session_mb', 0)} MB")
+    print(f"Reclaimable Cache    : {data.get('reclaimable_mb', 0)} MB")
+    print(f"Conversations Count  : {data.get('conversation_count', 0)}")
+    print("─" * 66)
+    print(f"{'Category':<16} {'Size (MB)':<12} {'Files':<10} {'Reclaimable (MB)'}")
+    print("─" * 66)
+    categories = data.get("categories", {})
+    for cat_name, cat in categories.items():
+        if cat_name in ("steps", "scratch", "tasks", "messages", "logs", "artifacts"):
+            continue
+        print(f"{cat_name:<16} {cat.get('total_mb', 0):<12} {cat.get('file_count', 0):<10} {cat.get('reclaimable_mb', 0)}")
+    print("═" * 66)
+    return 0
+
+
+def run_cache_prune(args: argparse.Namespace) -> int:
+    """Execute cache pruning with active session protection."""
+    config = SwissKnifeConfig.load()
+    controller = create_controller(config, prefer_daemon=True)
+    options = {
+        "min_age_days": args.min_age_days,
+        "dry_run": args.dry_run,
+        "prune_scratch": not args.no_scratch,
+        "prune_steps": not args.no_steps,
+        "prune_tasks": not args.no_tasks,
+    }
+    try:
+        data = controller.prune_cache(options=options)
+    except Exception as exc:
+        print(f"[ERROR] Failed to prune cache: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(data, indent=2))
+        return 0
+
+    prefix = "[DRY RUN] " if data.get("dry_run") else "[SUCCESS] "
+    print(f"{prefix}Cache cleanup complete:")
+    print(f"  Freed Space        : {data.get('bytes_freed_mb', 0)} MB ({data.get('bytes_freed', 0):,} bytes)")
+    print(f"  Files Deleted      : {data.get('files_deleted', 0)}")
+    print(f"  Databases Vacuumed : {data.get('databases_vacuumed', 0)}")
+    print(f"  Protected Session  : {data.get('protected_active_id') or 'None'}")
+    return 0
+
+
+def run_cache_analyze_prompts(args: argparse.Namespace) -> int:
+    """Analyze prompt context bloat and display recommendations."""
+    config = SwissKnifeConfig.load()
+    controller = create_controller(config, prefer_daemon=True)
+    try:
+        data = controller.analyze_prompt_cache(
+            conversation_id=args.conversation_id,
+            transcript_path=args.transcript_path,
+        )
+    except Exception as exc:
+        print(f"[ERROR] Failed to analyze prompt cache: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(data, indent=2))
+        return 0
+
+    print("═" * 66)
+    print("            PROMPT CACHE & CONTEXT BLOAT ANALYSIS")
+    print("═" * 66)
+    print(f"Conversation ID      : {data.get('conversation_id', 'Unknown')}")
+    print(f"Total Steps          : {data.get('total_steps', 0)}")
+    print(f"Model Turns          : {data.get('turn_count', 0)}")
+    print(f"Cumulative Tokens    : {data.get('total_prompt_tokens', 0):,}")
+    print(f"Redundant Tokens     : {data.get('estimated_redundant_tokens', 0):,}")
+    print(f"Potential Savings    : {data.get('potential_savings_percent', 0)}%")
+    print(f"Oversized Outputs    : {data.get('oversized_tool_outputs_count', 0)}")
+    print("─" * 66)
+    print("Recommendations:")
+    for rec in data.get("optimization_recommendations", []):
+        print(f"  • {rec}")
+    print("═" * 66)
+    return 0
+
+
+def run_fingerprint_status(args: argparse.Namespace) -> int:
+    """Display active hardware fingerprint profile."""
+    config = SwissKnifeConfig.load()
+    controller = create_controller(config, prefer_daemon=True)
+    try:
+        data = controller.get_fingerprint_profile()
+    except Exception as exc:
+        print(f"[ERROR] Failed to fetch fingerprint status: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(data, indent=2))
+        return 0
+
+    print("═" * 66)
+    print("             ACTIVE DEVICE FINGERPRINT PROFILE")
+    print("═" * 66)
+    print(f"Account Email       : {data.get('account_email') or 'Host Default'}")
+    print(f"Machine ID          : {data.get('machine_id')}")
+    print(f"Updater ID          : {data.get('updater_id')}")
+    print(f"Installation ID     : {data.get('installation_id')}")
+    print(f"Installation UUID   : {data.get('installation_uuid')}")
+    print(f"Is Active           : {data.get('is_active', True)}")
+    print("═" * 66)
+    return 0
+
+
+def run_fingerprint_list(args: argparse.Namespace) -> int:
+    """List registered device profiles."""
+    config = SwissKnifeConfig.load()
+    controller = create_controller(config, prefer_daemon=True)
+    try:
+        data = controller.list_fingerprint_profiles()
+    except Exception as exc:
+        print(f"[ERROR] Failed to list fingerprint profiles: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(data, indent=2))
+        return 0
+
+    print("═" * 66)
+    print("             REGISTERED DEVICE FINGERPRINT PROFILES")
+    print("═" * 66)
+    if not data:
+        print("No device profiles registered in store.")
+    else:
+        for email, prof in data.items():
+            print(f"• {email}:")
+            print(f"    Machine ID: {prof.get('machine_id')}")
+            print(f"    Updater ID: {prof.get('updater_id')}")
+    print("═" * 66)
+    return 0
+
+
+def run_fingerprint_swap(args: argparse.Namespace) -> int:
+    """Swap hardware fingerprint profile for target account."""
+    config = SwissKnifeConfig.load()
+    controller = create_controller(config, prefer_daemon=True)
+    try:
+        data = controller.swap_fingerprint(args.email)
+    except Exception as exc:
+        print(f"[ERROR] Failed to swap fingerprint: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(data, indent=2))
+        return 0
+
+    print(f"[SUCCESS] Swapped hardware fingerprint for {data.get('account_email')}:")
+    prof = data.get("profile", {})
+    print(f"  Machine ID        : {prof.get('machine_id')}")
+    print(f"  Updater ID        : {prof.get('updater_id')}")
+    print(f"  Installation ID   : {prof.get('installation_id')}")
+    print(f"  Installation UUID : {prof.get('installation_uuid')}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="python -m antigravity_swiss",
@@ -294,6 +502,46 @@ def main() -> int:
     p_switch.add_argument("--no-relaunch", action="store_true", help="Do not relaunch Antigravity")
     p_switch.set_defaults(func=run_switch)
 
+    # cache
+    p_cache = subparsers.add_parser("cache", help="Manage storage and prompt token caches")
+    c_sub = p_cache.add_subparsers(dest="cache_command", required=True)
+
+    p_c_break = c_sub.add_parser("breakdown", help="Inspect categorized disk usage")
+    p_c_break.add_argument("--json", action="store_true", help="Output raw JSON")
+    p_c_break.set_defaults(func=run_cache_breakdown)
+
+    p_c_prune = c_sub.add_parser("prune", help="Clean stale scratchpads, logs, and artifacts")
+    p_c_prune.add_argument("--min-age-days", type=float, default=3.0, help="Minimum age in days (default: 3.0)")
+    p_c_prune.add_argument("--dry-run", action="store_true", help="Simulate prune without deleting files")
+    p_c_prune.add_argument("--no-scratch", action="store_true", help="Do not prune scratchpad directories")
+    p_c_prune.add_argument("--no-steps", action="store_true", help="Do not prune step log outputs")
+    p_c_prune.add_argument("--no-tasks", action="store_true", help="Do not prune background task logs")
+    p_c_prune.add_argument("--json", action="store_true", help="Output raw JSON")
+    p_c_prune.set_defaults(func=run_cache_prune)
+
+    p_c_prompt = c_sub.add_parser("analyze-prompts", help="Analyze conversation prompt token bloat")
+    p_c_prompt.add_argument("--conversation-id", type=str, help="Target conversation ID")
+    p_c_prompt.add_argument("--transcript-path", type=str, help="Direct path to transcript.jsonl")
+    p_c_prompt.add_argument("--json", action="store_true", help="Output raw JSON")
+    p_c_prompt.set_defaults(func=run_cache_analyze_prompts)
+
+    # fingerprint
+    p_fp = subparsers.add_parser("fingerprint", help="Manage virtual hardware identity profiles")
+    fp_sub = p_fp.add_subparsers(dest="fingerprint_command", required=True)
+
+    p_fp_status = fp_sub.add_parser("status", help="Query active device fingerprint profile")
+    p_fp_status.add_argument("--json", action="store_true", help="Output raw JSON")
+    p_fp_status.set_defaults(func=run_fingerprint_status)
+
+    p_fp_list = fp_sub.add_parser("list", help="List configured device profiles")
+    p_fp_list.add_argument("--json", action="store_true", help="Output raw JSON")
+    p_fp_list.set_defaults(func=run_fingerprint_list)
+
+    p_fp_swap = fp_sub.add_parser("swap", help="Swap device profile for target account")
+    p_fp_swap.add_argument("email", type=str, help="Target account email")
+    p_fp_swap.add_argument("--json", action="store_true", help="Output raw JSON")
+    p_fp_swap.set_defaults(func=run_fingerprint_swap)
+
     # gui
     p_gui = subparsers.add_parser("gui", help="Launch Material Design 3 Desktop GUI")
     p_gui.add_argument("--standalone", action="store_true", help="Run in standalone mode without daemon")
@@ -301,6 +549,7 @@ def main() -> int:
 
     args = parser.parse_args()
     return args.func(args)
+
 
 
 if __name__ == "__main__":

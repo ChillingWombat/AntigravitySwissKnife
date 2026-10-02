@@ -135,7 +135,10 @@ class AppStorageManager:
         1. Checks conversation_summaries.db for the latest modified conversation.
         2. Falls back to scanning app_storage.json layout keys.
         """
-        if self.conv_summaries_db.exists():
+        is_testing = bool(os.environ.get("ANTIGRAVITY_SWISS_TESTING") or os.environ.get("PYTEST_CURRENT_TEST"))
+        is_host_db = self.conv_summaries_db == DEFAULT_CONV_SUMMARIES_DB.resolve()
+
+        if self.conv_summaries_db.exists() and not (is_testing and is_host_db):
             try:
                 con = sqlite3.connect(f"file:{self.conv_summaries_db}?mode=ro", uri=True)
                 cur = con.cursor()
@@ -156,6 +159,27 @@ class AppStorageManager:
             if k.startswith(LAYOUT_PREFIX) and k != LAYOUT_INDEX_KEY:
                 return k[len(LAYOUT_PREFIX):]
         return None
+
+    def get_active_cascade_id(self) -> str | None:
+        """Alias for get_active_conversation_id."""
+        return self.get_active_conversation_id()
+
+    def get_pinned_conversation_ids(self) -> list[str]:
+        """Reads pinned conversation IDs from app_storage.json (pinned_conversations_order)."""
+        storage = self.read_raw()
+        raw = storage.get("pinned_conversations_order")
+        if not raw:
+            return []
+        if isinstance(raw, list):
+            return [str(x) for x in raw]
+        if isinstance(raw, str):
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    return [str(x) for x in parsed]
+            except Exception:
+                pass
+        return []
 
     def preserve_active_conversation(
         self,

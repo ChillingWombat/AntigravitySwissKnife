@@ -1,143 +1,303 @@
 """
-Device Fingerprint Profile Dataclass and Store (Feature F10).
-=============================================================
-Manages per-account hardware/device identity profiles:
-- machineid (UUIDv4)
-- .updaterId (UUIDv4)
-- installation_id (UUIDv4)
-- installation_uuid (UUIDv4)
-Stored in ~/.config/antigravity-swiss/device_profiles.json with mode 0600.
+Device Fingerprint Profile Store (Feature F10).
+===============================================
+Manages persistent storage of device profiles in:
+  ~/.config/antigravity-swiss/profiles.json (mode 0600)
+Protected by fcntl.flock concurrency control, atomic tempfile replacement,
+and automated quarantine of corrupted JSON stores.
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+import contextlib
+import datetime
+import fcntl
 import json
 import logging
 import os
 from pathlib import Path
+import shutil
 import tempfile
-from typing import Any, Dict, List, Optional
-import uuid
+import threading
+import time
+from typing import Any, Dict, Generator, List, Optional
 
 from antigravity_swiss.core.constants import DEFAULT_SWISS_CONFIG_DIR
+from antigravity_swiss.core.errors import FingerprintError
+from antigravity_swiss.fingerprint.models import DeviceProfile
 
 logger = logging.getLogger("antigravity_swiss.fingerprint.profile_store")
 
-
-@dataclass
-class DeviceProfile:
-    """Hardware and environment identity parameters bound to a specific account."""
-    machine_id: str         # UUIDv4 or 64-char hex
-    updater_id: str         # UUIDv4
-    installation_id: str    # UUIDv4
-    installation_uuid: str  # UUIDv4
-
-    @classmethod
-    def generate_random(cls) -> DeviceProfile:
-        """Generates a fresh, realistic device profile using standard UUIDv4 values."""
-        return cls(
-            machine_id=str(uuid.uuid4()),
-            updater_id=str(uuid.uuid4()),
-            installation_id=str(uuid.uuid4()),
-            installation_uuid=str(uuid.uuid4()),
-        )
-
-    def to_dict(self) -> Dict[str, str]:
-        return {
-            "machine_id": self.machine_id,
-            "updater_id": self.updater_id,
-            "installation_id": self.installation_id,
-            "installation_uuid": self.installation_uuid,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> DeviceProfile:
-        return cls(
-            machine_id=str(data.get("machine_id") or uuid.uuid4()),
-            updater_id=str(data.get("updater_id") or uuid.uuid4()),
-            installation_id=str(data.get("installation_id") or uuid.uuid4()),
-            installation_uuid=str(data.get("installation_uuid") or uuid.uuid4()),
-        )
+DEFAULT_PROFILES_FILE = Path(DEFAULT_SWISS_CONFIG_DIR).expanduser() / "profiles.json"
 
 
-class DeviceProfileStore:
+class ProfileStoreCorruptedError(FingerprintError):
+    """Raised when profiles.json is malformed or corrupted."""
+    pass
+
+
+class ProfileStore:
     """
     Manages persistent storage of device profiles mapped to account emails.
-    Atomic writes ensure zero corruption during sudden shutdowns.
+    Enforces mode 0600 on the file, mode 0700 on the directory,
+    and protects all read/write transactions via fcntl.flock and threading.RLock.
     """
 
-    def __init__(self, storage_path: Optional[Path | str] = None) -> None:
+    _lock_registry: Dict[Path, tuple[threading.RLock, Dict[str, Any]]] = {}
+    _registry_lock = threading.Lock()
+
+    @classmethod
+    def _get_lock_state(cls, lock_path: Path) -> tuple[threading.RLock, Dict[str, Any]]:
+        norm_path = lock_path.resolve()
+        with cls._registry_lock:
+            if norm_path not in cls._lock_registry:
+                cls._lock_registry[norm_path] = (
+                    threading.RLock(),
+                    {"fd": None, "owner": None, "depth": 0},
+                )
+            return cls._lock_registry[norm_path]
+
+    def __init__(
+        self,
+        storage_path: Optional[Path | str] = None,
+        lock_path: Optional[Path | str] = None,
+    ) -> None:
         if storage_path:
             self.storage_path = Path(storage_path).expanduser().resolve()
         else:
-            self.storage_path = (Path(DEFAULT_SWISS_CONFIG_DIR).expanduser().resolve() / "device_profiles.json")
-        self._profiles: Dict[str, DeviceProfile] = {}
-        self.load()
+            self.storage_path = DEFAULT_PROFILES_FILE.resolve()
 
-    def load(self) -> None:
-        """Loads profiles from JSON disk store."""
+        self.config_dir = self.storage_path.parent
+        if lock_path:
+            self.lock_path = Path(lock_path).expanduser().resolve()
+        else:
+            self.lock_path = self.config_dir / f"{self.storage_path.stem}.lock"
+
+        self._ensure_dir()
+        self._check_legacy_migration()
+
+    def _ensure_dir(self) -> None:
+        for d in (self.config_dir, self.lock_path.parent):
+            if not d.exists():
+                d.mkdir(parents=True, mode=0o700, exist_ok=True)
+            else:
+                try:
+                    current_mode = d.stat().st_mode & 0o777
+                    if current_mode != 0o700:
+                        d.chmod(0o700)
+                except OSError:
+                    pass
+
+    def _check_legacy_migration(self) -> None:
+        legacy_path = self.config_dir / "device_profiles.json"
+        if not self.storage_path.exists() and legacy_path.exists():
+            try:
+                shutil.copy2(legacy_path, self.storage_path)
+                logger.info("Migrated legacy device_profiles.json to %s", self.storage_path)
+            except Exception as exc:
+                logger.warning("Could not auto-migrate legacy profiles file: %s", exc)
+
+    def _lock(self) -> int:
+        self._ensure_dir()
+        thread_lock, state = self._get_lock_state(self.lock_path)
+        thread_lock.acquire()
+        current_thread = threading.get_ident()
+        if state["depth"] > 0 and state["owner"] == current_thread:
+            state["depth"] += 1
+            return state["fd"]
+
+        lock_fd = os.open(str(self.lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            os.fchmod(lock_fd, 0o600)
+        except OSError:
+            pass
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        state["fd"] = lock_fd
+        state["owner"] = current_thread
+        state["depth"] = 1
+        return lock_fd
+
+    def _unlock(self, lock_fd: int) -> None:
+        thread_lock, state = self._get_lock_state(self.lock_path)
+        current_thread = threading.get_ident()
+        if state["owner"] == current_thread:
+            state["depth"] -= 1
+            if state["depth"] == 0:
+                fd = state["fd"]
+                state["fd"] = None
+                state["owner"] = None
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                    os.close(fd)
+                except OSError:
+                    pass
+        thread_lock.release()
+
+    @contextlib.contextmanager
+    def lock_context(self) -> Generator[None, None, None]:
+        lock_fd = self._lock()
+        try:
+            yield
+        finally:
+            self._unlock(lock_fd)
+
+    def _quarantine_corrupted(self) -> None:
+        try:
+            if self.storage_path.exists():
+                ts = int(time.time() * 1000)
+                quarantine_path = self.storage_path.with_name(
+                    f"{self.storage_path.name}.corrupted.{ts}"
+                )
+                shutil.copy2(str(self.storage_path), str(quarantine_path))
+                try:
+                    os.chmod(str(quarantine_path), 0o600)
+                except OSError:
+                    pass
+                logger.warning("Quarantined corrupted profile store to %s", quarantine_path)
+        except Exception as exc:
+            logger.error("Failed to quarantine corrupted profiles file: %s", exc)
+
+    def _load_unlocked(self) -> Dict[str, Any]:
         if not self.storage_path.exists():
-            self._profiles = {}
-            return
+            return {"version": 1, "active_account": None, "profiles": {}}
 
         try:
             with open(self.storage_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            self._profiles = {
-                email: DeviceProfile.from_dict(prof_data)
-                for email, prof_data in data.items()
-                if isinstance(prof_data, dict)
-            }
-        except Exception as exc:
-            logger.error("Failed to load device profiles from %s: %s", self.storage_path, exc)
-            self._profiles = {}
+                content = f.read().strip()
+                if not content:
+                    return {"version": 1, "active_account": None, "profiles": {}}
+                data = json.loads(content)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            self._quarantine_corrupted()
+            raise ProfileStoreCorruptedError(f"Malformed JSON in {self.storage_path}: {exc}") from exc
 
-    def save(self) -> None:
-        """Atomically saves profiles to JSON disk store with 0600 permissions."""
-        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {email: prof.to_dict() for email, prof in self._profiles.items()}
+        if not isinstance(data, dict):
+            self._quarantine_corrupted()
+            raise ProfileStoreCorruptedError(f"Root object must be dict, got {type(data).__name__}")
 
-        tmp_file = self.storage_path.with_suffix(".tmp")
+        # Support both flat schema {email: prof} and structured schema {"profiles": {email: prof}}
+        if "profiles" not in data:
+            data = {"version": 1, "active_account": None, "profiles": data}
+
         try:
-            with open(tmp_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
+            st = self.storage_path.stat()
+            if (st.st_mode & 0o777) != 0o600:
+                self.storage_path.chmod(0o600)
+        except OSError:
+            pass
+
+        return data
+
+    def _save_unlocked(self, data: Dict[str, Any]) -> None:
+        self._ensure_dir()
+        fd, tmp_path_str = tempfile.mkstemp(
+            dir=self.config_dir,
+            prefix=f".{self.storage_path.name}.tmp.",
+            text=True,
+        )
+        tmp_path = Path(tmp_path_str)
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, sort_keys=True)
                 f.flush()
                 os.fsync(f.fileno())
-
-            # Enforce 0600 (read/write only by owner)
-            os.chmod(tmp_file, 0o600)
-            os.replace(tmp_file, self.storage_path)
-        except Exception as exc:
-            logger.error("Failed to save device profiles to %s: %s", self.storage_path, exc)
-            if tmp_file.exists():
-                tmp_file.unlink(missing_ok=True)
+            os.replace(str(tmp_path), str(self.storage_path))
+        except Exception:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
             raise
 
+    @contextlib.contextmanager
+    def transaction(self) -> Generator[Dict[str, Any], None, None]:
+        lock_fd = self._lock()
+        try:
+            try:
+                data = self._load_unlocked()
+            except ProfileStoreCorruptedError:
+                data = {"version": 1, "active_account": None, "profiles": {}}
+            yield data
+            self._save_unlocked(data)
+        finally:
+            self._unlock(lock_fd)
+
+    def load(self) -> None:
+        """Loads and verifies profiles store (backward compatibility)."""
+        with self.lock_context():
+            self._load_unlocked()
+
+    def save(self) -> None:
+        """Saves current state (backward compatibility)."""
+        with self.lock_context():
+            data = self._load_unlocked()
+            self._save_unlocked(data)
+
     def get_profile(self, account_email: str) -> Optional[DeviceProfile]:
-        """Returns the device profile for the account, or None if not registered."""
-        return self._profiles.get(account_email)
+        """Retrieves profile associated with given account email."""
+        with self.lock_context():
+            data = self._load_unlocked()
+            profiles = data.get("profiles", {})
+            prof_data = profiles.get(account_email)
+            if isinstance(prof_data, dict):
+                return DeviceProfile.from_dict(prof_data, account_email=account_email)
+            return None
 
     def set_profile(self, account_email: str, profile: DeviceProfile) -> None:
-        """Sets and persists the device profile for the account."""
-        self._profiles[account_email] = profile
-        self.save()
+        """Persists profile associated with given account email."""
+        profile.account_email = account_email
+        with self.transaction() as data:
+            profiles = data.setdefault("profiles", {})
+            profiles[account_email] = profile.to_dict()
 
     def get_or_create_profile(self, account_email: str) -> DeviceProfile:
-        """Retrieves existing profile or generates and saves a fresh profile."""
-        if account_email not in self._profiles:
-            self._profiles[account_email] = DeviceProfile.generate_random()
-            self.save()
-        return self._profiles[account_email]
+        """Retrieves existing profile or creates, saves, and returns a new random profile."""
+        with self.transaction() as data:
+            profiles = data.setdefault("profiles", {})
+            if account_email in profiles and isinstance(profiles[account_email], dict):
+                return DeviceProfile.from_dict(profiles[account_email], account_email=account_email)
+            fresh = DeviceProfile.generate_random(account_email=account_email)
+            profiles[account_email] = fresh.to_dict()
+            return fresh
 
     def list_accounts(self) -> List[str]:
-        """Returns list of account emails with registered device profiles."""
-        return list(self._profiles.keys())
+        """Lists all registered account emails."""
+        with self.lock_context():
+            data = self._load_unlocked()
+            return sorted(list(data.get("profiles", {}).keys()))
 
     def delete_profile(self, account_email: str) -> bool:
-        """Deletes profile for given account."""
-        if account_email in self._profiles:
-            del self._profiles[account_email]
-            self.save()
-            return True
-        return False
+        """Deletes profile associated with given account email."""
+        with self.transaction() as data:
+            profiles = data.get("profiles", {})
+            if account_email in profiles:
+                del profiles[account_email]
+                if data.get("active_account") == account_email:
+                    data["active_account"] = None
+                return True
+            return False
+
+    def get_active_account(self) -> Optional[str]:
+        """Returns currently active account email in profile store."""
+        with self.lock_context():
+            return self._load_unlocked().get("active_account")
+
+    def set_active_account(self, account_email: Optional[str]) -> None:
+        """Sets active account email and updates last_used_at timestamp."""
+        with self.transaction() as data:
+            data["active_account"] = account_email
+            profiles = data.get("profiles", {})
+            now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            for email, p_data in profiles.items():
+                if isinstance(p_data, dict):
+                    if email == account_email:
+                        p_data["last_used_at"] = now_iso
+                        p_data["is_active"] = True
+                    else:
+                        p_data["is_active"] = False
+
+
+# Backwards compatibility alias
+DeviceProfileStore = ProfileStore
