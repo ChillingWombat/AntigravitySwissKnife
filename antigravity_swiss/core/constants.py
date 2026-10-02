@@ -23,6 +23,8 @@ KEYRING_LABEL = "Password for 'antigravity' on 'gemini'"
 DEFAULT_ANTIGRAVITY_BIN = Path("/opt/Antigravity/antigravity")
 DEFAULT_ANTIGRAVITY_CONFIG_DIR = Path.home() / ".config" / "Antigravity"
 DEFAULT_ANTIGRAVITY_DATA_DIR = Path.home() / ".gemini" / "antigravity"
+DEFAULT_SWISS_CONFIG_DIR = Path.home() / ".config" / APP_NAME
+DEFAULT_SWISS_DATA_DIR = Path.home() / ".local" / "share" / APP_NAME
 
 # Antigravity File Names
 SINGLETON_LOCK_NAME = "SingletonLock"
