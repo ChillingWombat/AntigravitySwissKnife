@@ -1,0 +1,64 @@
+{
+  "timestamp": "2026-10-02T09:00:39Z",
+  "summary": {
+    "total": 7,
+    "passed": 7,
+    "failed": 0
+  },
+  "results": [
+    {
+      "name": "1.1 Multi-Process Concurrent Account Addition",
+      "expected": 200,
+      "actual": 200,
+      "lost": 0,
+      "pass": true
+    },
+    {
+      "name": "1.2 Multi-Thread Concurrent Account Addition",
+      "expected": 200,
+      "actual": 200,
+      "lost": 0,
+      "thread_errors": 0,
+      "pass": true
+    },
+    {
+      "name": "1.3 Concurrent Switching & Credential Integrity",
+      "switches": 100,
+      "errors": 0,
+      "cross_contaminated": 0,
+      "contaminated_details": [],
+      "pass": true
+    },
+    {
+      "name": "1.4 Concurrent Switch & Read",
+      "switches": 120,
+      "reads": 44,
+      "switch_errors": 0,
+      "read_errors": 0,
+      "pass": true
+    },
+    {
+      "name": "2. Malformed / Corrupted accounts.json Recovery",
+      "truncated_raised": true,
+      "repair_succeeded": true,
+      "binary_raised": true,
+      "non_dict_clean_error": true,
+      "record_corrupt_clean": true,
+      "diagnostics": {},
+      "pass": true
+    },
+    {
+      "name": "3. Trailing Newline & Binary Payload Injections",
+      "case_3_1_failures": 0,
+      "case_3_2_handled": true,
+      "case_3_3_lookup_stripped": true,
+      "case_3_4_null_preserved": true,
+      "pass": true
+    },
+    {
+      "name": "4. Rapid Account Rotation & Active State Synchronization",
+      "mismatches": 0,
+      "pass": true
+    }
+  ]
+}
