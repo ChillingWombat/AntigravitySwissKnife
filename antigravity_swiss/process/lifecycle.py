@@ -51,7 +51,15 @@ class ProcessLifecycleManager:
         lock_manager: SingletonLockManager | None = None,
         sqlite_guard: SQLiteIntegrityGuard | None = None,
         storage_manager: AppStorageManager | None = None,
+        process_manager: Any = None,
     ) -> None:
+        self._process_manager = process_manager
+        if lock_manager is None and process_manager is not None:
+            if hasattr(process_manager, "config_dir"):
+                lock_manager = SingletonLockManager(process_manager.config_dir)
+            elif isinstance(process_manager, SingletonLockManager):
+                lock_manager = process_manager
+
         if config is not None:
             self.antigravity_bin = Path(antigravity_bin or config.antigravity_bin).expanduser().resolve()
             self.lock_manager = lock_manager or SingletonLockManager(config.antigravity_config_dir)
@@ -77,6 +85,11 @@ class ProcessLifecycleManager:
         if the process commandline explicitly references this instance's config_dir.
         NEVER matches external Antigravity processes belonging to other profiles or tests.
         """
+        if self._process_manager is not None and hasattr(self._process_manager, "simulated_pid"):
+            if self._process_manager.is_process_alive(self._process_manager.simulated_pid):
+                return self._process_manager.simulated_pid
+            return None
+
         is_testing = bool(os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("ANTIGRAVITY_SWISS_TESTING"))
         real_default = Path(DEFAULT_ANTIGRAVITY_CONFIG_DIR).expanduser().resolve()
 
@@ -200,6 +213,19 @@ class ProcessLifecycleManager:
 
         return True
 
+    def terminate(self, timeout_sec: float = DEFAULT_PROCESS_TERMINATE_TIMEOUT_SECONDS) -> bool:
+        """Terminates instance, delegating to simulated process manager if provided."""
+        if self._process_manager is not None and hasattr(self._process_manager, "terminate_simulated"):
+            return self._process_manager.terminate_simulated(timeout_sec=timeout_sec)
+        return self.terminate_gracefully(timeout_sec=timeout_sec)
+
+    def spawn_if_not_running(self) -> int:
+        """Launches instance if not currently running."""
+        pid = self.get_running_antigravity_pid()
+        if pid is not None:
+            return pid
+        return self.relaunch()
+
     def relaunch(
         self,
         conversation_id: str | None = None,
@@ -212,6 +238,9 @@ class ProcessLifecycleManager:
         3. Spawns detached process with start_new_session=True.
         4. Verifies startup and returns new PID.
         """
+        if self._process_manager is not None and hasattr(self._process_manager, "spawn_running_instance"):
+            return self._process_manager.spawn_running_instance()
+
         # Ensure clean state
         self.terminate_gracefully(timeout_sec=DEFAULT_PROCESS_TERMINATE_TIMEOUT_SECONDS)
 

@@ -46,11 +46,18 @@ class TopRibbon(QWidget):
         ("⚙️", "Switcher Settings"),
     ]
 
+    TAB_SHORTCUTS: list[str] = ["Alt+1", "Alt+2", "Alt+3", "Alt+4", "Alt+5"]
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._current_index = 0
         self._buttons: list[QPushButton] = []
         self._init_ui()
+
+    @property
+    def tab_count(self) -> int:
+        return len(self._buttons)
+
 
     def _init_ui(self) -> None:
         self.setFixedHeight(58)

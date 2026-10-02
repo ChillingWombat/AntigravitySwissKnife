@@ -229,3 +229,28 @@ def test_main_window_full_integration(qapp, mock_controller):
 
     # Trigger status sync
     window._sync_status()
+
+    # Verify tray
+    assert hasattr(window, "tray")
+    assert window.tray is not None
+
+
+def test_system_tray_integration(qapp, mock_controller):
+    """Test SwissKnifeTray icon badges, menu generation, and notification dispatch."""
+    from antigravity_swiss.gui.tray import SwissKnifeTray
+    tray = SwissKnifeTray(controller=mock_controller)
+
+    # Test badge pixmaps
+    for status in ("HEALTHY", "WARNING", "EXHAUSTED"):
+        tray.update_icon(status)
+        assert tray._current_health == status
+
+    # Test context menu items
+    tray.refresh_menu()
+    actions = [a.text() for a in tray._menu.actions()]
+    assert any("Open Dashboard" in a for a in actions)
+    assert any("Refresh Quota" in a for a in actions)
+    assert any("Switch Account" in a for a in actions)
+
+    # Test notification dispatch
+    tray.dispatch_notification("Test Title", "Test Body")

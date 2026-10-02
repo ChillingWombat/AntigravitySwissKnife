@@ -27,9 +27,14 @@ def create_app(
 
     app.setStyleSheet(GEMINI_QSS)
 
+    from antigravity_swiss.gui.tray import SwissKnifeTray
+    if SwissKnifeTray.is_tray_available():
+        app.setQuitOnLastWindowClosed(False)
+
     ctrl = controller or create_controller(config=config, prefer_daemon=True)
     window = MainWindow(controller=ctrl)
     return app, window
+
 
 
 def run_gui(

@@ -21,7 +21,14 @@ def _shielded_os_kill(pid: int, sig: int):
         if os.path.exists(cmdline_path):
             with open(cmdline_path, "rb") as f:
                 cmdline = f.read().decode("utf-8", errors="ignore")
-            if "/opt/Antigravity" in cmdline:
+            cmdline_lower = cmdline.lower()
+            if (
+                "/opt/antigravity" in cmdline_lower
+                or "antigravity-manager" in cmdline_lower
+                or "/usr/lib/antigravity" in cmdline_lower
+                or "language_server" in cmdline_lower
+                or ".config/antigravity" in cmdline_lower
+            ):
                 import logging
                 logging.getLogger("conftest").critical(
                     "SAFETY SHIELD: Blocked attempt to kill host Antigravity (PID %d, signal %s)!",
@@ -145,5 +152,20 @@ def _patch_qmessagebox(monkeypatch):
         monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
     except ImportError:
         pass
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    """Provides offscreen QApplication instance for GUI and system tray tests."""
+    os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    try:
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication(sys.argv)
+        yield app
+    except ImportError:
+        yield None
+
 
 

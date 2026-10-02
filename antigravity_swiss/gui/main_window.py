@@ -48,6 +48,15 @@ class MainWindow(QMainWindow):
 
         self._init_ui()
 
+        # System Tray Integration (Feature F24)
+        from antigravity_swiss.gui.tray import SwissKnifeTray
+        self.tray = SwissKnifeTray(controller=self.controller, parent=self)
+        self.tray.show_window_requested.connect(self._restore_from_tray)
+        self.tray.open_settings_requested.connect(self._open_settings_from_tray)
+        self.tray.account_switch_requested.connect(self.page_account_switcher._on_account_switched)
+        self.tray.show()
+
+
         # Status sync timer (every 10s)
         self._sync_timer = QTimer(self)
         self._sync_timer.setInterval(10000)
@@ -102,3 +111,20 @@ class MainWindow(QMainWindow):
         except Exception:
             self.nav_rail.set_daemon_status(False)
             self.nav_rail.set_antigravity_status(False)
+
+    def _restore_from_tray(self) -> None:
+        self.showNormal()
+        self.activateWindow()
+
+    def _open_settings_from_tray(self) -> None:
+        self._restore_from_tray()
+        self.nav_rail.set_current_index(2)
+
+    def closeEvent(self, event) -> None:
+        if hasattr(self, "tray") and self.tray.is_available() and self.tray.isVisible():
+            self.hide()
+            self.tray.dispatch_notification(APP_TITLE, "Minimized to system tray. Running in background.")
+            event.ignore()
+        else:
+            event.accept()
+

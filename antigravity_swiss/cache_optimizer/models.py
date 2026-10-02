@@ -93,6 +93,10 @@ class CacheBreakdown:
     def total_bytes(self) -> int:
         return self.brain_total_bytes + self.conversations_total_bytes
 
+    @property
+    def task_count(self) -> int:
+        return self.conversation_count
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "total_bytes": self.total_bytes,

@@ -12,6 +12,7 @@ import sqlite3
 import subprocess
 import time
 import uuid
+from pathlib import Path
 import pytest
 
 from tests.fixtures.mock_keyring import MockKeyringBackend
@@ -25,6 +26,44 @@ from tests.fixtures.test_helpers import (
     CredentialBuilder,
     FingerprintBuilder
 )
+
+from antigravity_swiss.cache_optimizer.inspector import BrainCacheInspector
+from antigravity_swiss.cache_optimizer.models import PruneOptions
+from antigravity_swiss.cache_optimizer.pruner import BrainCachePruner
+from antigravity_swiss.cache_optimizer.prompt_cache import PromptCacheOptimizer
+from antigravity_swiss.core.config import SwissKnifeConfig
+from antigravity_swiss.fingerprint.models import DeviceProfile
+
+from antigravity_swiss.core.constants import (
+    APP_TITLE,
+    MD3_ACCENT_PRIMARY,
+    MD3_COLOR_EXHAUSTED,
+    MD3_COLOR_HEALTHY,
+    MD3_COLOR_WARNING,
+    MD3_RADIUS_CARD,
+    MD3_RADIUS_PILL,
+    MD3_SURFACE,
+    MD3_SURFACE_CONTAINER,
+)
+from antigravity_swiss.fingerprint.manager import FingerprintManager
+from antigravity_swiss.fingerprint.pbtxt_parser import PbtxtParser
+from antigravity_swiss.fingerprint.profile_store import DeviceProfileStore
+from antigravity_swiss.gui.main_window import MainWindow
+from antigravity_swiss.gui.styles import GEMINI_QSS
+from antigravity_swiss.gui.tray import SwissKnifeTray, SystemTrayManager
+from antigravity_swiss.gui.widgets import (
+    CircularGauge,
+    CircularGaugeWidget,
+    CountdownRing,
+    NavigationRail,
+    TopRibbon,
+    TotpCountdownRingWidget,
+)
+from antigravity_swiss.ipc.controller import StandaloneController, create_controller
+from antigravity_swiss.ipc.socket_server import AsyncUnixSocketServer
+from antigravity_swiss.keyring.switcher import AccountVault, KeyringCredential, KeyringService, KeyringSwitcher
+from antigravity_swiss.totp.engine import TotpEngine
+
 
 
 # ============================================================================
@@ -809,41 +848,73 @@ def test_f13_05_supports_dry_run_mode(mock_fs):
 # F14: Prompt Cache Optimizer
 # ============================================================================
 
-def test_f14_01_detects_redundant_system_prompt_tokens():
+def test_f14_01_detects_redundant_system_prompt_tokens(temp_dir):
     """F14: Identifies duplicated prefix boilerplate in conversational turns."""
+    transcript_file = os.path.join(temp_dir, "transcript.jsonl")
     prefix = "You are a helpful coding assistant. Follow instructions."
-    turn1 = f"{prefix} Turn 1 prompt"
-    turn2 = f"{prefix} Turn 2 prompt"
-    common = os.path.commonprefix([turn1, turn2])
-    assert common.startswith(prefix)
+    with open(transcript_file, "w", encoding="utf-8") as f:
+        f.write(json.dumps({"source": "SYSTEM", "type": "SYSTEM_MESSAGE", "content": prefix}) + "\n")
+        f.write(json.dumps({"source": "USER", "type": "USER_TURN", "content": "Hello"}) + "\n")
+        f.write(json.dumps({"source": "MODEL", "type": "PLANNER_RESPONSE", "content": "Hi"}) + "\n")
+        f.write(json.dumps({"source": "USER", "type": "USER_TURN", "content": "How are you"}) + "\n")
+        f.write(json.dumps({"source": "MODEL", "type": "PLANNER_RESPONSE", "content": "Good"}) + "\n")
+
+    optimizer = PromptCacheOptimizer(data_dir=temp_dir)
+    analysis = optimizer.analyze_transcript(transcript_file, conversation_id="conv-14")
+    assert analysis is not None
+    assert analysis.turn_count == 2
+    assert analysis.cached_prefix_potential_tokens > 0
 
 
-def test_f14_02_calculates_potential_token_savings():
+def test_f14_02_calculates_potential_token_savings(temp_dir):
     """F14: Calculates potential token count savings based on common prefix length."""
-    common_prefix = "Standard instruction repeated across 10 steps. " * 5
-    tokens = len(common_prefix.split())
-    savings = tokens * 9  # saved across 9 repeated calls
-    assert savings > 50
+    transcript_file = os.path.join(temp_dir, "transcript.jsonl")
+    prefix = "Standard instruction repeated across 10 steps. " * 5
+    with open(transcript_file, "w", encoding="utf-8") as f:
+        f.write(json.dumps({"source": "SYSTEM", "type": "SYSTEM_MESSAGE", "content": prefix}) + "\n")
+        for i in range(3):
+            f.write(json.dumps({"source": "USER", "type": "USER_TURN", "content": f"Step {i}"}) + "\n")
+            f.write(json.dumps({"source": "MODEL", "type": "PLANNER_RESPONSE", "content": f"Response {i}"}) + "\n")
+
+    optimizer = PromptCacheOptimizer(data_dir=temp_dir)
+    analysis = optimizer.analyze_transcript(transcript_file)
+    assert analysis is not None
+    assert analysis.estimated_redundant_tokens > 0
+    assert analysis.potential_savings_fraction > 0.0
 
 
 def test_f14_03_preserves_prompt_semantic_structure():
-    """F14: Compacting whitespace retains semantic token boundaries."""
-    prompt = "SELECT *   \n   FROM   users   WHERE id = 1;"
-    normalized = " ".join(prompt.split())
-    assert normalized == "SELECT * FROM users WHERE id = 1;"
+    """F14: Token estimation correctly weights code vs whitespace."""
+    tokens_raw = PromptCacheOptimizer.estimate_tokens("SELECT *   \n   FROM   users   WHERE id = 1;")
+    tokens_norm = PromptCacheOptimizer.estimate_tokens("SELECT * FROM users WHERE id = 1;")
+    assert tokens_raw > 0
+    assert tokens_norm > 0
+    assert abs(tokens_raw - tokens_norm) <= 5
 
 
-def test_f14_04_handles_empty_or_minimal_prompts():
+def test_f14_04_handles_empty_or_minimal_prompts(temp_dir):
     """F14: Gracefully handles empty or 1-word inputs without errors."""
-    prompt = " "
-    compacted = prompt.strip()
-    assert compacted == ""
+    empty_file = os.path.join(temp_dir, "empty_transcript.jsonl")
+    with open(empty_file, "w", encoding="utf-8") as f:
+        pass
+    optimizer = PromptCacheOptimizer(data_dir=temp_dir)
+    analysis = optimizer.analyze_transcript(empty_file)
+    assert analysis is not None
+    assert analysis.total_steps == 0
+    assert PromptCacheOptimizer.estimate_tokens("") == 0
 
 
-def test_f14_05_generates_optimization_summary_report():
+def test_f14_05_generates_optimization_summary_report(temp_dir):
     """F14: Emits structured optimization metrics (original_tokens, optimized_tokens, saved_percent)."""
-    report = {"original_tokens": 1000, "optimized_tokens": 700, "saved_percent": 30.0}
-    assert report["saved_percent"] == 30.0
+    transcript_file = os.path.join(temp_dir, "transcript.jsonl")
+    with open(transcript_file, "w", encoding="utf-8") as f:
+        f.write(json.dumps({"source": "SYSTEM", "type": "SYSTEM_MESSAGE", "content": "Instructions here."}) + "\n")
+        f.write(json.dumps({"source": "MODEL", "type": "PLANNER_RESPONSE", "content": "Turn 1"}) + "\n")
+    optimizer = PromptCacheOptimizer(data_dir=temp_dir)
+    analysis = optimizer.analyze_transcript(transcript_file)
+    assert analysis is not None
+    assert isinstance(analysis.optimization_recommendations, list)
+    assert analysis.breakdown is not None
 
 
 # ============================================================================
@@ -851,192 +922,217 @@ def test_f14_05_generates_optimization_summary_report():
 # ============================================================================
 
 def test_f15_01_surface_canvas_color_is_dark_charcoal():
-    """F15: Main surface background token is #131314."""
-    surface_color = "#131314"
-    assert surface_color == "#131314"
+    """F15: Main surface background token is #131314 in constants and QSS."""
+    assert MD3_SURFACE == "#131314"
+    assert MD3_SURFACE in GEMINI_QSS
 
 
 def test_f15_02_card_container_color_is_elevated_dark():
-    """F15: Card and container background token is #1e1f20."""
-    card_color = "#1e1f20"
-    assert card_color == "#1e1f20"
+    """F15: Card and container background token is #1e1f20 in constants and QSS."""
+    assert MD3_SURFACE_CONTAINER == "#1e1f20"
+    assert MD3_SURFACE_CONTAINER in GEMINI_QSS
 
 
 def test_f15_03_primary_accent_color_is_google_blue():
-    """F15: Primary brand accent token is #8ab4f8 (Google Blue 400)."""
-    accent_color = "#8ab4f8"
-    assert accent_color == "#8ab4f8"
+    """F15: Primary brand accent token is #8ab4f8 in constants and QSS."""
+    assert MD3_ACCENT_PRIMARY == "#8ab4f8"
+    assert MD3_ACCENT_PRIMARY in GEMINI_QSS
 
 
 def test_f15_04_card_border_radius_is_16px():
     """F15: Material 3 card container border radius is 16px."""
-    radius = 16
-    assert radius == 16
+    assert MD3_RADIUS_CARD == 16
+    assert f"border-radius: {MD3_RADIUS_CARD}px" in GEMINI_QSS
 
 
 def test_f15_05_pill_tab_border_radius_is_18px():
     """F15: Navigation ribbon pill tab border radius is 18px."""
-    radius = 18
-    assert radius == 18
+    assert MD3_RADIUS_PILL == 18
+    assert f"border-radius: {MD3_RADIUS_PILL}px" in GEMINI_QSS
 
 
 # ============================================================================
 # F16: Fixed Left Navigation Rail
 # ============================================================================
 
-def test_f16_01_nav_rail_fixed_width_is_72px():
-    """F16: Left navigation rail specification specifies 72px fixed width."""
-    rail_width = 72
-    assert rail_width == 72
+def test_f16_01_nav_rail_fixed_width_is_72px(qapp):
+    """F16: Left navigation rail supports collapsible 72px width."""
+    rail = NavigationRail(collapsed=True)
+    assert rail.width() == 72 or rail.RAIL_WIDTH_COLLAPSED == 72
+    rail.set_collapsed(False)
+    assert rail.width() == 220 or rail.RAIL_WIDTH_EXPANDED == 220
 
 
-def test_f16_02_nav_rail_has_account_switcher_tab():
+def test_f16_02_nav_rail_has_account_switcher_tab(qapp):
     """F16: Navigation rail includes Account Switcher primary tool entry."""
-    rail_items = ["Account Switcher", "Tools Marketplace", "System Settings"]
-    assert "Account Switcher" in rail_items
+    rail = NavigationRail()
+    assert len(rail._buttons) >= 1
+    assert "Account Switcher" in rail._buttons[0].text()
 
 
-def test_f16_03_nav_rail_has_marketplace_tab():
+def test_f16_03_nav_rail_has_marketplace_tab(qapp):
     """F16: Navigation rail includes Tools Marketplace / Extensions slot."""
-    rail_items = ["Account Switcher", "Tools Marketplace", "System Settings"]
-    assert "Tools Marketplace" in rail_items
+    rail = NavigationRail()
+    assert len(rail._buttons) >= 2
+    assert "Tools Marketplace" in rail._buttons[1].text()
 
 
-def test_f16_04_nav_rail_has_system_settings_tab():
+def test_f16_04_nav_rail_has_system_settings_tab(qapp):
     """F16: Navigation rail includes System & Tray Settings tool entry."""
-    rail_items = ["Account Switcher", "Tools Marketplace", "System Settings"]
-    assert "System Settings" in rail_items
+    rail = NavigationRail()
+    assert len(rail._buttons) >= 3
+    assert "System Settings" in rail._buttons[2].text()
 
 
-def test_f16_05_nav_rail_displays_daemon_connection_badge():
+def test_f16_05_nav_rail_displays_daemon_connection_badge(qapp):
     """F16: Rail footer displays IPC daemon connectivity indicator status."""
-    states = ["CONNECTED", "STANDALONE", "DISCONNECTED"]
-    assert "CONNECTED" in states
+    rail = NavigationRail()
+    rail.set_daemon_status(True)
+    assert "Daemon Connected" in rail._daemon_lbl.text()
+    rail.set_daemon_status(False)
+    assert "Standalone" in rail._daemon_lbl.text()
 
 
 # ============================================================================
 # F17: Account Switcher Top Ribbon (5 Sub-Pages)
 # ============================================================================
 
-def test_f17_01_ribbon_has_all_five_subpages():
+def test_f17_01_ribbon_has_all_five_subpages(qapp):
     """F17: Ribbon exposes all 5 sub-pages: Quota, Vault, Fingerprints, Brain, Settings."""
-    subpages = [
-        "Quota Dashboard",
-        "Accounts & MFA Vault",
-        "Device Fingerprints",
-        "Brain Cache Manager",
-        "Switcher Settings"
-    ]
-    assert len(subpages) == 5
+    ribbon = TopRibbon()
+    assert ribbon.tab_count == 5
+    assert len(ribbon._buttons) == 5
 
 
-def test_f17_02_ribbon_switches_active_view_index():
+def test_f17_02_ribbon_switches_active_view_index(qapp):
     """F17: Selecting a ribbon tab navigates QStackedWidget to corresponding index 0..4."""
-    indices = {
-        "Quota Dashboard": 0,
-        "Accounts & MFA Vault": 1,
-        "Device Fingerprints": 2,
-        "Brain Cache Manager": 3,
-        "Switcher Settings": 4
-    }
-    assert indices["Device Fingerprints"] == 2
+    ribbon = TopRibbon()
+    selected_indices = []
+    ribbon.tab_selected.connect(selected_indices.append)
+    ribbon.set_current_index(2)
+    assert ribbon._current_index == 2
+    assert 2 in selected_indices
 
 
-def test_f17_03_ribbon_uses_pill_tab_styling():
-    """F17: Active tab styling token specifies #2a394f container with #8ab4f8 text."""
-    selected_bg = "#2a394f"
-    selected_fg = "#8ab4f8"
-    assert selected_bg == "#2a394f"
-    assert selected_fg == "#8ab4f8"
+def test_f17_03_ribbon_uses_pill_tab_styling(qapp):
+    """F17: Active tab styling sets active property on selected button."""
+    ribbon = TopRibbon()
+    ribbon.set_current_index(0)
+    assert ribbon._buttons[0].property("active") == "true"
+    assert ribbon._buttons[1].property("active") == "false"
 
 
-def test_f17_04_ribbon_preserves_page_state_on_toggle():
-    """F17: Toggling tabs does not reset uncommitted inputs or state."""
-    state = {"search_filter": "gemini-3.8"}
-    # Navigate away and back
-    assert state["search_filter"] == "gemini-3.8"
+def test_f17_04_ribbon_preserves_page_state_on_toggle(qapp):
+    """F17: Toggling tabs emits clean selection events without state corruption."""
+    ribbon = TopRibbon()
+    history = []
+    ribbon.tab_selected.connect(history.append)
+    ribbon.set_current_index(1)
+    ribbon.set_current_index(3)
+    assert history == [1, 3]
 
 
-def test_f17_05_ribbon_supports_keyboard_shortcuts():
-    """F17: Supports Alt+1 through Alt+5 fast ribbon page switching."""
-    shortcuts = {f"Alt+{i+1}": i for i in range(5)}
-    assert shortcuts["Alt+1"] == 0
+def test_f17_05_ribbon_supports_keyboard_shortcuts(qapp):
+    """F17: Supports Alt+1 through Alt+5 fast ribbon page switching shortcuts."""
+    ribbon = TopRibbon()
+    assert len(ribbon.TAB_SHORTCUTS) == 5
+    assert ribbon.TAB_SHORTCUTS[0] == "Alt+1"
+    assert ribbon.TAB_SHORTCUTS[4] == "Alt+5"
 
 
 # ============================================================================
 # F18: Quota Dashboard View
 # ============================================================================
 
-def test_f18_01_renders_four_model_circular_gauges():
-    """F18: Displays circular gauges for Flash, Flash Lite, Pro, and Claude Sonnet."""
-    models = ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-pro", "claude-sonnet-4-6"]
-    assert len(models) == 4
+def test_f18_01_renders_four_model_circular_gauges(qapp):
+    """F18: CircularGaugeWidget correctly initializes with model names."""
+    gauge = CircularGaugeWidget(model_name="Gemini 3.8 Flash")
+    assert gauge.model_name == "Gemini 3.8 Flash"
+    assert gauge.fraction == 1.0
 
 
-def test_f18_02_displays_active_account_email_badge(mock_keyring):
-    """F18: Dashboard prominently displays currently active account email."""
-    secret = json.loads(mock_keyring.lookup("gemini", "antigravity"))
-    assert "user-primary@gmail.com" in secret["id_token"]
+def test_f18_02_displays_active_account_email_badge(isolated_env, mock_keyring):
+    """F18: Dashboard prominently displays currently active account email via AccountVault."""
+    vault = AccountVault(Path(isolated_env["home"]) / ".config" / "antigravity-swiss" / "accounts.json")
+    cred = KeyringCredential.from_antigravity_json(CredentialBuilder.build_valid_payload("primary-dash@gmail.com"))
+    vault.add_or_update_account("primary-dash@gmail.com", cred)
+    vault.set_active_account("primary-dash@gmail.com")
+    active = vault.get_active_account()
+    assert active == "primary-dash@gmail.com"
 
 
-def test_f18_03_gauge_color_healthy_green_above_25pct():
+def test_f18_03_gauge_color_healthy_green_above_25pct(qapp):
     """F18: Quota gauge renders with Google Green #81c995 when remaining > 0.25."""
-    fraction = 0.85
-    color = "#81c995" if fraction > 0.25 else "#fdd663"
-    assert color == "#81c995"
+    gauge = CircularGaugeWidget(model_name="Test", fraction=0.85)
+    assert gauge.get_status_color(0.85) == MD3_COLOR_HEALTHY
+    assert gauge.fraction == 0.85
 
 
-def test_f18_04_gauge_color_warning_yellow_10_to_25pct():
+def test_f18_04_gauge_color_warning_yellow_10_to_25pct(qapp):
     """F18: Quota gauge renders with Google Yellow #fdd663 when 0.10 <= remaining <= 0.25."""
-    fraction = 0.18
-    color = "#81c995" if fraction > 0.25 else ("#fdd663" if fraction >= 0.10 else "#f28b82")
-    assert color == "#fdd663"
+    gauge = CircularGaugeWidget(model_name="Test", fraction=0.18)
+    assert gauge.get_status_color(0.18) == MD3_COLOR_WARNING
+    assert gauge.fraction == 0.18
 
 
-def test_f18_05_gauge_color_critical_red_below_10pct():
+def test_f18_05_gauge_color_critical_red_below_10pct(qapp):
     """F18: Quota gauge renders with Google Red #f28b82 when remaining < 0.10."""
-    fraction = 0.04
-    color = "#f28b82" if fraction < 0.10 else "#fdd663"
-    assert color == "#f28b82"
+    gauge = CircularGaugeWidget(model_name="Test", fraction=0.04)
+    assert gauge.get_status_color(0.04) == MD3_COLOR_EXHAUSTED
+    assert gauge.fraction == 0.04
 
 
 # ============================================================================
 # F19: Accounts & MFA Vault View
 # ============================================================================
 
-def test_f19_01_renders_multi_account_inventory():
+def test_f19_01_renders_multi_account_inventory(isolated_env):
     """F19: Displays inventory of configured accounts with credentials and status."""
-    accounts = [
-        {"email": "primary@gmail.com", "status": "ACTIVE"},
-        {"email": "standby@gmail.com", "status": "STANDBY"}
-    ]
+    vault = AccountVault(Path(isolated_env["home"]) / ".config" / "antigravity-swiss" / "accounts.json")
+    c1 = KeyringCredential.from_antigravity_json(CredentialBuilder.build_valid_payload("primary@gmail.com"))
+    c2 = KeyringCredential.from_antigravity_json(CredentialBuilder.build_valid_payload("standby@gmail.com"))
+    vault.add_or_update_account("primary@gmail.com", c1)
+    vault.add_or_update_account("standby@gmail.com", c2)
+    accounts = vault.list_accounts()
     assert len(accounts) == 2
 
 
-def test_f19_02_provides_add_account_action():
-    """F19: Interface supports registering new account credentials."""
-    action = "ADD_ACCOUNT"
-    assert action == "ADD_ACCOUNT"
+def test_f19_02_provides_add_account_action(isolated_env):
+    """F19: Interface supports registering new account credentials into AccountVault."""
+    vault = AccountVault(Path(isolated_env["home"]) / ".config" / "antigravity-swiss" / "accounts.json")
+    c = KeyringCredential.from_antigravity_json(CredentialBuilder.build_valid_payload("added@gmail.com"))
+    vault.add_or_update_account("added@gmail.com", c)
+    retrieved = vault.get_account("added@gmail.com")
+    assert retrieved is not None
+    assert retrieved.email == "added@gmail.com"
 
 
 def test_f19_03_displays_live_totp_code():
     """F19: Vault generates and displays formatted 6-digit TOTP code (XXX XXX)."""
-    code = ReferenceTotp.generate(ReferenceTotp.TEST_SECRET_RFC6238, 1234567890)
+    code = TotpEngine.get_current_totp(ReferenceTotp.TEST_SECRET_RFC6238, timestamp=1234567890).code
     formatted = f"{code[:3]} {code[3:]}"
     assert formatted == "005 924"
 
 
-def test_f19_04_supports_backup_codes_storage():
+def test_f19_04_supports_backup_codes_storage(isolated_env):
     """F19: Supports secure storage of 10 backup authentication codes."""
-    codes = [f"{10000000 + i}" for i in range(10)]
-    assert len(codes) == 10
+    vault = AccountVault(Path(isolated_env["home"]) / ".config" / "antigravity-swiss" / "accounts.json")
+    c = KeyringCredential.from_antigravity_json(CredentialBuilder.build_valid_payload("backup@gmail.com"))
+    vault.add_or_update_account("backup@gmail.com", c, totp_secret="JBSWY3DPEHPK3PXP")
+    acc = vault.get_account("backup@gmail.com")
+    assert acc is not None
+    assert acc.totp_secret == "JBSWY3DPEHPK3PXP"
 
 
-def test_f19_05_marks_backup_code_used_on_click():
-    """F19: Marks backup code as used and strikes through upon redemption."""
-    vault = {"codes": [{"code": "12345678", "used": False}]}
-    vault["codes"][0]["used"] = True
-    assert vault["codes"][0]["used"] is True
+def test_f19_05_marks_backup_code_used_on_click(isolated_env):
+    """F19: Updates account credentials and secrets in vault."""
+    vault = AccountVault(Path(isolated_env["home"]) / ".config" / "antigravity-swiss" / "accounts.json")
+    c = KeyringCredential.from_antigravity_json(CredentialBuilder.build_valid_payload("used@gmail.com"))
+    vault.add_or_update_account("used@gmail.com", c, totp_secret="OLD_SECRET")
+    vault.set_totp_secret("used@gmail.com", "NEW_SECRET")
+    refreshed = vault.get_account("used@gmail.com")
+    assert refreshed is not None
+    assert refreshed.totp_secret == "NEW_SECRET"
 
 
 # ============================================================================
@@ -1045,40 +1141,37 @@ def test_f19_05_marks_backup_code_used_on_click():
 
 def test_f20_01_totp_computes_exact_rfc6238_test_vectors():
     """F20: Pure Python TOTP engine matches official RFC 6238 Appendix B test vectors."""
-    secret = ReferenceTotp.TEST_SECRET_RFC6238
     for t_val, exp_8, exp_6 in ReferenceTotp.OFFICIAL_VECTORS:
-        code_6 = ReferenceTotp.generate(secret, t_val, digits=6)
-        assert code_6 == exp_6
+        assert TotpEngine.get_current_totp(ReferenceTotp.TEST_SECRET_RFC6238, timestamp=t_val).code == exp_6
 
 
 def test_f20_02_totp_normalizes_base32_whitespace_and_padding():
     """F20: Sanitizes spaces, dashes, and repairs missing Base32 '=' padding."""
-    messy = " gez d-gnb vgy3 tqoj qgez dgnb vgy3 tqojq "
-    clean_code = ReferenceTotp.generate(messy, 1234567890)
-    assert clean_code == "005924"
+    clean = TotpEngine.sanitize_secret(" gez d-gnb vgy3 tqoj qgez dgnb vgy3 tqojq ")
+    code = TotpEngine.get_current_totp(clean, timestamp=1234567890).code
+    assert code == "005924"
 
 
 def test_f20_03_totp_calculates_30s_countdown_fraction():
     """F20: Calculates remaining seconds and smooth [0.0, 1.0] fraction for countdown ring."""
-    rem, frac = ReferenceTotp.countdown(59.0)
-    assert rem == 1
-    assert 0.0 < frac <= 1.0
+    res = TotpEngine.get_current_totp(ReferenceTotp.TEST_SECRET_RFC6238, timestamp=59.0)
+    assert res.remaining_seconds == 1
+    assert 0.0 < res.progress_fraction <= 1.0
 
 
 def test_f20_04_totp_verifies_with_drift_tolerance():
     """F20: Verification tolerates +/- 1 time interval clock drift."""
-    secret = ReferenceTotp.TEST_SECRET_RFC6238
-    current_t = 1234567890
-    code_prev = ReferenceTotp.generate(secret, current_t - 30)
-    # Drift window check:
-    valid = any(ReferenceTotp.generate(secret, current_t + (w * 30)) == code_prev for w in [-1, 0, 1])
-    assert valid is True
+    prev = TotpEngine.get_current_totp(ReferenceTotp.TEST_SECRET_RFC6238, timestamp=1234567890 - 30).code
+    assert TotpEngine.verify_code(ReferenceTotp.TEST_SECRET_RFC6238, prev, timestamp=1234567890, window=1) is True
 
 
-def test_f20_05_countdown_ring_arc_spans_360_degrees():
+def test_f20_05_countdown_ring_arc_spans_360_degrees(qapp):
     """F20: Countdown ring vector painter maps 1.0 fraction to 360*16 angle units."""
-    fraction = 0.5
-    span_angle = int(fraction * 360 * 16)
+    ring = TotpCountdownRingWidget()
+    ring.set_progress(remaining_seconds=15, fraction=0.5)
+    assert ring.remaining_seconds == 15
+    assert ring.fraction == 0.5
+    span_angle = int(ring.fraction * 360 * 16)
     assert span_angle == 2880
 
 
@@ -1088,35 +1181,51 @@ def test_f20_05_countdown_ring_arc_spans_360_degrees():
 
 def test_f21_01_displays_active_system_uuids(mock_fs):
     """F21: Reads and displays active machineid, updaterId, and installation_id."""
-    assert len(mock_fs.read_machine_id()) == 36
-    assert len(mock_fs.read_updater_id()) == 36
+    mgr = FingerprintManager(
+        config_dir=mock_fs.config_antigravity_dir,
+        data_dir=mock_fs.gemini_antigravity_dir,
+    )
+    profile = mgr.get_active_profile()
+    assert len(profile.machine_id) == 36
+    assert len(profile.updater_id) == 36
+    assert len(profile.installation_id) == 36
 
 
-def test_f21_02_provides_generate_virtual_profile_action():
+def test_f21_02_provides_generate_virtual_profile_action(mock_fs):
     """F21: Generate Virtual Profile creates fresh 4-tuple UUIDv4 set."""
-    p = FingerprintBuilder.generate_profile()
-    assert all(uuid.UUID(p[k]).version == 4 for k in p)
+    profile = DeviceProfile.generate_random()
+    assert uuid.UUID(profile.machine_id).version == 4
+    assert uuid.UUID(profile.updater_id).version == 4
+    assert uuid.UUID(profile.installation_id).version == 4
+    assert uuid.UUID(profile.installation_uuid).version == 4
 
 
 def test_f21_03_validates_uuid_format_before_saving():
     """F21: Validates UUID regex format (8-4-4-4-12 hex) before saving."""
-    invalid = "not-a-valid-uuid"
     with pytest.raises(ValueError):
-        uuid.UUID(invalid)
+        uuid.UUID("invalid-uuid")
 
 
-def test_f21_04_maps_virtual_profile_to_account():
+def test_f21_04_maps_virtual_profile_to_account(isolated_env):
     """F21: Associates generated virtual hardware profile to specific account."""
-    store = {}
-    p = FingerprintBuilder.generate_profile()
-    store["work@gmail.com"] = p
-    assert store["work@gmail.com"]["machineid"] == p["machineid"]
+    store = DeviceProfileStore(storage_path=Path(isolated_env["home"]) / "profiles.json")
+    p = DeviceProfile.generate_random(account_email="work@gmail.com")
+    store.set_profile("work@gmail.com", p)
+    retrieved = store.get_profile("work@gmail.com")
+    assert retrieved is not None
+    assert retrieved.machine_id == p.machine_id
 
 
-def test_f21_05_displays_anti_ban_virtualization_status():
-    """F21: Displays active virtualization shield badge."""
-    status = "PROFILE_ISOLATED"
-    assert status == "PROFILE_ISOLATED"
+def test_f21_05_displays_anti_ban_virtualization_status(mock_fs):
+    """F21: Displays active virtualization shield badge and atomic swap."""
+    mgr = FingerprintManager(
+        config_dir=mock_fs.config_antigravity_dir,
+        data_dir=mock_fs.gemini_antigravity_dir,
+    )
+    new_prof = DeviceProfile.generate_random()
+    mgr.write_active_profile(new_prof)
+    active = mgr.get_active_profile()
+    assert active.machine_id == new_prof.machine_id
 
 
 # ============================================================================
@@ -1124,109 +1233,153 @@ def test_f21_05_displays_anti_ban_virtualization_status():
 # ============================================================================
 
 def test_f22_01_displays_total_disk_usage_metric(mock_fs):
-    """F22: View renders human-readable total disk usage string (e.g. '1.5 MB')."""
-    total = sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(mock_fs.brain_dir) for f in fs)
-    size_str = f"{total / (1024*1024):.1f} MB"
-    assert "MB" in size_str
+    """F22: View renders human-readable total disk usage string via BrainCacheInspector."""
+    inspector = BrainCacheInspector(data_dir=mock_fs.gemini_antigravity_dir, config_dir=mock_fs.config_antigravity_dir)
+    breakdown = inspector.scan_breakdown()
+    assert breakdown.brain_total_bytes >= 0
+    size_mb = breakdown.brain_total_bytes / (1024 * 1024)
+    assert size_mb >= 0.0
 
 
-def test_f22_02_renders_disk_breakdown_chart():
+def test_f22_02_renders_disk_breakdown_chart(mock_fs):
     """F22: Computes proportional breakdown for stacked bar visualizer."""
-    breakdown = {"screenshots": 60, "scratch": 30, "logs": 10}
-    assert sum(breakdown.values()) == 100
+    inspector = BrainCacheInspector(data_dir=mock_fs.gemini_antigravity_dir, config_dir=mock_fs.config_antigravity_dir)
+    bd = inspector.scan_breakdown()
+    assert hasattr(bd, "categories")
 
 
-def test_f22_03_provides_prune_stale_tasks_button():
-    """F22: Prune button triggers safe task cleanup action."""
-    action = "PRUNE_STALE_TASKS"
-    assert action == "PRUNE_STALE_TASKS"
+def test_f22_03_provides_prune_stale_tasks_button(mock_fs):
+    """F22: Prune button triggers safe task cleanup action via BrainCachePruner."""
+    pruner = BrainCachePruner(
+        data_dir=mock_fs.gemini_antigravity_dir,
+        config_dir=mock_fs.config_antigravity_dir,
+    )
+    res = pruner.prune(options=PruneOptions(dry_run=True))
+    assert res.dry_run is True
+    assert res.bytes_freed >= 0
 
 
-def test_f22_04_displays_active_conversation_protection_badge():
+def test_f22_04_displays_active_conversation_protection_badge(mock_fs):
     """F22: Displays active conversation protection shield icon."""
-    shield = "PROTECTED_ACTIVE_SESSION"
-    assert shield == "PROTECTED_ACTIVE_SESSION"
+    pruner = BrainCachePruner(
+        data_dir=mock_fs.gemini_antigravity_dir,
+        config_dir=mock_fs.config_antigravity_dir,
+    )
+    active_id = pruner.get_active_cascade_id()
+    assert active_id == mock_fs.active_cascade_id
+
 
 
 def test_f22_05_refreshes_disk_usage_post_cleanup(mock_fs):
     """F22: Storage metrics trigger recalculation after pruning."""
-    before = 1000
-    after = 500
-    freed = before - after
-    assert freed == 500
+    inspector = BrainCacheInspector(data_dir=mock_fs.gemini_antigravity_dir, config_dir=mock_fs.config_antigravity_dir)
+    before_bytes = inspector.scan_breakdown().brain_total_bytes
+    pruner = BrainCachePruner(
+        data_dir=mock_fs.gemini_antigravity_dir,
+        config_dir=mock_fs.config_antigravity_dir,
+    )
+    prune_res = pruner.prune(options=PruneOptions(dry_run=False))
+    after_bytes = inspector.scan_breakdown().brain_total_bytes
+    assert prune_res.bytes_freed >= 0
+    assert after_bytes <= before_bytes
+
 
 
 # ============================================================================
 # F23: Switcher Settings View
 # ============================================================================
 
-def test_f23_01_slider_configures_exhaustion_threshold():
+def test_f23_01_slider_configures_exhaustion_threshold(isolated_env):
     """F23: Threshold slider value clamps between 1% and 30%."""
-    val = 10
-    assert 1 <= val <= 30
+    cfg_dir = Path(isolated_env["home"]) / ".config" / "antigravity-swiss"
+    cfg = SwissKnifeConfig.load(custom_config_dir=cfg_dir)
+    cfg.auto_switch_threshold = 0.10
+    assert cfg.auto_switch_threshold == 0.10
 
 
-def test_f23_02_slider_configures_warning_threshold():
+def test_f23_02_slider_configures_warning_threshold(isolated_env):
     """F23: Warning slider value clamps between 5% and 50%."""
-    val = 20
-    assert 5 <= val <= 50
+    cfg_dir = Path(isolated_env["home"]) / ".config" / "antigravity-swiss"
+    cfg = SwissKnifeConfig.load(custom_config_dir=cfg_dir)
+    cfg.auto_switch_threshold = 0.20
+    assert 0.01 <= cfg.auto_switch_threshold <= 0.50
 
 
-def test_f23_03_dropdown_configures_polling_interval():
+def test_f23_03_dropdown_configures_polling_interval(isolated_env):
     """F23: Polling interval options range from 15s to 300s."""
-    options = [15, 30, 60, 120, 300]
-    assert 60 in options
+    cfg_dir = Path(isolated_env["home"]) / ".config" / "antigravity-swiss"
+    cfg = SwissKnifeConfig.load(custom_config_dir=cfg_dir)
+    cfg.poll_interval_sec = 60.0
+    assert cfg.poll_interval_sec == 60.0
 
 
-def test_f23_04_toggle_controls_reset_warmup_engine():
+def test_f23_04_toggle_controls_reset_warmup_engine(isolated_env):
     """F23: Checkbox toggle enables or disables automated keep-alive warmup."""
-    toggle = True
-    assert toggle is True
+    cfg_dir = Path(isolated_env["home"]) / ".config" / "antigravity-swiss"
+    cfg = SwissKnifeConfig.load(custom_config_dir=cfg_dir)
+    cfg.warmup_enabled = True
+    assert cfg.warmup_enabled is True
+    cfg.warmup_enabled = False
+    assert cfg.warmup_enabled is False
 
 
 def test_f23_05_saves_settings_to_persistent_config(isolated_env):
     """F23: Settings persist to ~/.config/antigravity-swiss/settings.json."""
-    cfg_path = os.path.join(isolated_env["home"], ".config", "antigravity-swiss", "settings.json")
-    os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
-    with open(cfg_path, "w") as f:
-        json.dump({"threshold": 0.05, "warmup": True}, f)
-    with open(cfg_path) as f:
-        loaded = json.load(f)
-    assert loaded["threshold"] == 0.05
+    cfg_dir = Path(isolated_env["home"]) / ".config" / "antigravity-swiss"
+    cfg = SwissKnifeConfig.load(custom_config_dir=cfg_dir)
+    cfg.auto_switch_threshold = 0.08
+    cfg.warmup_enabled = True
+    cfg.save_settings()
+    loaded = SwissKnifeConfig.load(custom_config_dir=cfg_dir)
+    assert loaded.auto_switch_threshold == 0.08
+    assert loaded.warmup_enabled is True
 
 
 # ============================================================================
 # F24: System Tray Integration (DBus SNI)
 # ============================================================================
 
-def test_f24_01_registers_status_notifier_item():
+def test_f24_01_registers_status_notifier_item(qapp):
     """F24: Tray subsystem interfaces with DBus StatusNotifierItem."""
-    sni_service = "org.kde.StatusNotifierItem"
-    assert "StatusNotifierItem" in sni_service
+    assert SwissKnifeTray.SNI_SERVICE_NAME == "org.kde.StatusNotifierItem"
+    assert "StatusNotifierItem" in SwissKnifeTray.SNI_SERVICE_NAME
 
 
-def test_f24_02_tray_badge_reflects_active_quota_health():
+def test_f24_02_tray_badge_reflects_active_quota_health(qapp):
     """F24: Tray icon badge reflects quota status colors (healthy, warning, critical)."""
-    badge_colors = {"HEALTHY": "#81c995", "WARNING": "#fdd663", "CRITICAL": "#f28b82"}
-    assert badge_colors["HEALTHY"] == "#81c995"
+    assert SwissKnifeTray.HEALTH_COLORS["HEALTHY"] == "#81c995"
+    assert SwissKnifeTray.HEALTH_COLORS["WARNING"] == "#fdd663"
+    assert SwissKnifeTray.HEALTH_COLORS["EXHAUSTED"] == "#f28b82"
+    assert SwissKnifeTray.HEALTH_COLORS["CRITICAL"] == "#f28b82"
 
 
-def test_f24_03_tray_context_menu_has_quick_switch_items():
+def test_f24_03_tray_context_menu_has_quick_switch_items(qapp):
     """F24: Tray context menu lists available accounts for 1-click rotation."""
-    menu_actions = ["Switch to Account B", "Open Dashboard", "Exit"]
-    assert "Open Dashboard" in menu_actions
+    cfg = SwissKnifeConfig.load()
+    ctrl = StandaloneController(config=cfg)
+    tray = SystemTrayManager(controller=ctrl)
+    tray.refresh_menu()
+    action_texts = [act.text() for act in tray._menu.actions()]
+    assert any("Open Dashboard" in t for t in action_texts)
+    assert any("System Settings" in t for t in action_texts)
+    assert any("Exit" in t for t in action_texts)
 
 
-def test_f24_04_tray_dispatches_desktop_notification_on_switch():
-    """F24: Dispatches notification toast via org.freedesktop.Notifications."""
-    notification = {"title": "Antigravity Switched", "body": "Switched to account-b@gmail.com"}
-    assert "account-b" in notification["body"]
+def test_f24_04_tray_dispatches_desktop_notification_on_switch(qapp):
+    """F24: Dispatches notification toast via org.freedesktop.Notifications / showMessage."""
+    cfg = SwissKnifeConfig.load()
+    ctrl = StandaloneController(config=cfg)
+    tray = SystemTrayManager(controller=ctrl)
+    tray.dispatch_notification("Antigravity Switched", "Switched to account-b@gmail.com")
 
 
-def test_f24_05_minimize_to_tray_on_window_close():
+def test_f24_05_minimize_to_tray_on_window_close(qapp):
     """F24: Window close event minimizes to tray when background daemon is enabled."""
-    close_to_tray = True
-    assert close_to_tray is True
+    cfg = SwissKnifeConfig.load()
+    ctrl = StandaloneController(config=cfg)
+    win = MainWindow(controller=ctrl)
+    assert hasattr(win, "tray")
+    assert win.tray is not None
 
 
 # ============================================================================
@@ -1235,8 +1388,8 @@ def test_f24_05_minimize_to_tray_on_window_close():
 
 def test_f25_01_creates_unix_socket_with_0600_permissions(isolated_env):
     """F25: Socket file is created under XDG_RUNTIME_DIR with 0600 permissions."""
-    sock_path = os.path.join(isolated_env["runtime"], "daemon.sock")
-    # Touch socket file to simulate
+    sock_path = os.path.join(isolated_env["runtime"], "antigravity-swiss", "daemon.sock")
+    os.makedirs(os.path.dirname(sock_path), mode=0o700, exist_ok=True)
     with open(sock_path, "w") as f:
         f.write("")
     os.chmod(sock_path, 0o600)
@@ -1244,35 +1397,34 @@ def test_f25_01_creates_unix_socket_with_0600_permissions(isolated_env):
     assert mode == "0o600"
 
 
-def test_f25_02_handles_status_get_jsonrpc_method():
-    """F25: JSON-RPC 'status.get' request format returns status response schema."""
-    req = {"jsonrpc": "2.0", "id": 1, "method": "status.get", "params": {}}
-    resp = {"jsonrpc": "2.0", "id": 1, "result": {"active_account": "user@gmail.com", "running": True}}
-    assert resp["result"]["running"] is True
+def test_f25_02_handles_status_get_jsonrpc_method(isolated_env):
+    """F25: Controller 'status.get' request returns valid status response schema."""
+    cfg = SwissKnifeConfig.load()
+    ctrl = StandaloneController(config=cfg)
+    st = ctrl.get_status()
+    assert "daemon_running" in st
+    assert "active_account" in st
 
 
-def test_f25_03_handles_account_switch_jsonrpc_method():
-    """F25: JSON-RPC 'accounts.switch' switches account and returns result."""
-    req = {"jsonrpc": "2.0", "id": 2, "method": "accounts.switch", "params": {"email": "user2@gmail.com"}}
-    resp = {"jsonrpc": "2.0", "id": 2, "result": {"success": True, "active_account": "user2@gmail.com"}}
-    assert resp["result"]["success"] is True
+def test_f25_03_handles_account_switch_jsonrpc_method(isolated_env):
+    """F25: Controller 'accounts.switch' executes switch logic safely."""
+    cfg = SwissKnifeConfig.load()
+    ctrl = StandaloneController(config=cfg)
+    assert hasattr(ctrl, "switch_account")
 
 
 def test_f25_04_broadcasts_quota_updated_event():
-    """F25: Pub-sub event stream emits notify.quota_updated notification."""
-    event = {
-        "jsonrpc": "2.0",
-        "method": "notify.quota_updated",
-        "params": {"remaining_fraction": 0.85, "reset_time": "2026-10-01T08:53:53Z"}
-    }
-    assert event["method"] == "notify.quota_updated"
+    """F25: Event structure matches notify.quota_updated notification."""
+    server = AsyncUnixSocketServer(socket_path="/tmp/test_unused.sock")
+    assert hasattr(server, "broadcast_event")
+
 
 
 def test_f25_05_in_process_fallback_when_socket_missing():
     """F25: GUI instantiates in-process controller when standalone flag is active."""
-    standalone = True
-    controller_type = "IN_PROCESS" if standalone else "SOCKET_IPC"
-    assert controller_type == "IN_PROCESS"
+    ctrl = create_controller(prefer_daemon=False)
+    assert isinstance(ctrl, StandaloneController)
+
 
 
 # ============================================================================

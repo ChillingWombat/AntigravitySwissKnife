@@ -192,12 +192,13 @@ class AutoSwitchRuleEngine:
     def select_best_standby_account(
         self,
         current_email: str,
-        threshold: float,
+        threshold: float | None = None,
     ) -> Tuple[Optional[str], float, bool]:
         """
         Select highest scoring standby account meeting threshold and margin.
         Returns: (best_email, best_score, all_exhausted)
         """
+        active_thresh = self.config.default_threshold if threshold is None else threshold
         records = self.vault.list_account_records()
         candidates: List[Tuple[str, float, AccountRecord]] = []
 
@@ -217,7 +218,7 @@ class AutoSwitchRuleEngine:
             # Eligibility requirements:
             # 1. Burst remaining must exceed threshold + switch_margin
             # 2. Weekly remaining must exceed weekly_threshold
-            required_min = threshold + self.config.switch_margin
+            required_min = active_thresh + self.config.switch_margin
             if burst_remaining <= required_min or weekly_remaining <= self.config.weekly_threshold:
                 continue
 

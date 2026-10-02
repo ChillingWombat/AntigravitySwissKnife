@@ -568,6 +568,14 @@ class KeyringService:
             label=label,
         )
 
+    def write_credential(self, cred: KeyringCredential) -> None:
+        """Convenience alias for set_active_credential."""
+        self.set_active_credential(cred)
+
+    def read_credential(self) -> KeyringCredential:
+        """Convenience alias for get_active_credential."""
+        return self.get_active_credential()
+
     def list_accounts(self) -> list[str]:
         accounts = self.vault.list_accounts()
         if not accounts:
@@ -642,17 +650,45 @@ class KeyringService:
         return None
 
 
+class SwitchResult(dict):
+    @property
+    def email(self) -> str:
+        return self.get("email", "")
+
+    @property
+    def active_account(self) -> str:
+        return self.get("active_account", "")
+
+    @property
+    def cascade_id(self) -> str | None:
+        return self.get("cascade_id")
+
+    @property
+    def success(self) -> bool:
+        return self.get("success", False)
+
+
 class KeyringSwitcher:
     """Convenience wrapper around KeyringService and AccountVault for Swiss Knife controllers."""
 
-    def __init__(self, config: Any = None) -> None:
+    def __init__(
+        self,
+        config: Any = None,
+        vault: AccountVault | None = None,
+        keyring_service: KeyringService | None = None,
+    ) -> None:
         from antigravity_swiss.core.config import SwissKnifeConfig
         cfg = config or SwissKnifeConfig.load()
         self.config = cfg
-        self.vault = AccountVault(config_path=cfg.accounts_file)
-        self.service = KeyringService(vault=self.vault)
+        self.vault = vault or AccountVault(config_path=cfg.accounts_file)
+        if keyring_service is not None:
+            self.service = keyring_service
+            if vault is not None:
+                self.service.vault = vault
+        else:
+            self.service = KeyringService(vault=self.vault)
 
-    def switch_to_account(self, email: str, force: bool = False) -> dict[str, Any]:
+    def switch_to_account(self, email: str, force: bool = False) -> SwitchResult:
         """Switches to account and returns dictionary summary."""
         from antigravity_swiss.session.app_storage import AppStorageManager
         app_storage = AppStorageManager(
@@ -665,8 +701,9 @@ class KeyringSwitcher:
         if cascade_id:
             app_storage.preserve_active_conversation(cascade_id, account_email=email)
 
-        return {
+        return SwitchResult({
             "success": True,
             "active_account": email,
+            "email": email,
             "cascade_id": cascade_id,
-        }
+        })

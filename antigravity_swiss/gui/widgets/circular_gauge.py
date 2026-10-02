@@ -80,6 +80,16 @@ class CircularGauge(QWidget):
     def sizeHint(self) -> QSize:
         return QSize(160, 180)
 
+    def get_status_color(self, fraction: float | None = None) -> str:
+        """Returns the hex color corresponding to healthy, warning, or exhausted quota."""
+        f = self._fraction if fraction is None else fraction
+        if f > 0.30:
+            return MD3_COLOR_HEALTHY
+        elif f >= 0.10:
+            return MD3_COLOR_WARNING
+        else:
+            return MD3_COLOR_EXHAUSTED
+
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -106,12 +116,8 @@ class CircularGauge(QWidget):
         painter.drawArc(rect, 0, 360 * 16)
 
         # Determine Progress Arc Color
-        if self._fraction > 0.30:
-            arc_color = QColor(MD3_COLOR_HEALTHY)
-        elif self._fraction >= 0.10:
-            arc_color = QColor(MD3_COLOR_WARNING)
-        else:
-            arc_color = QColor(MD3_COLOR_EXHAUSTED)
+        arc_color = QColor(self.get_status_color())
+
 
         # Draw Foreground Progress Arc (starts at 90 deg = 12 o'clock, clockwise negative span)
         if self._fraction > 0:

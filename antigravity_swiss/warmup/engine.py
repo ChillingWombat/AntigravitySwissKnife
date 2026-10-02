@@ -196,7 +196,10 @@ class WarmupEngine:
         circuit_breaker: Optional[CircuitBreaker] = None,
         retry_policy: Optional[WarmupRetryPolicy] = None,
         timeout_seconds: float = 15.0,
+        cloudcode_port: Optional[int] = None,
     ) -> None:
+        if cloudcode_port is not None:
+            endpoint_url = f"http://127.0.0.1:{cloudcode_port}/v1internal:generateContent"
         self.endpoint_url = endpoint_url
         self.user_agent = user_agent
         self.calibrator = calibrator or ClockDriftCalibrator()
@@ -351,6 +354,15 @@ class WarmupEngine:
         """PROJECT.md interface contract: returns True if keepalive succeeded."""
         res = await self.send_keepalive_async(access_token, model_id=model_id)
         return res.success
+
+    def send_warmup_prompt(
+        self,
+        access_token: str,
+        model_id: str = DEFAULT_WARMUP_MODEL_ID,
+        project: str = "",
+    ) -> WarmupResult:
+        """Alias for send_keepalive."""
+        return self.send_keepalive(access_token=access_token, model_id=model_id, project=project)
 
 
 class WarmupScheduler:

@@ -45,6 +45,8 @@ class TotpEngine:
         Decodes a Base32 secret into bytes, padding with '=' as required by RFC 4648.
         """
         clean = cls.sanitize_secret(secret)
+        if not clean:
+            raise ValueError("Base32 secret cannot be empty")
         # Pad to multiple of 8
         missing_padding = len(clean) % 8
         if missing_padding:

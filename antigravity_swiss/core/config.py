@@ -129,6 +129,26 @@ class SwissKnifeConfig:
         except OSError:
             pass
 
+    def get(self, key: str, default: Any = None) -> Any:
+        mapping = {
+            "poll_interval_seconds": "poll_interval_sec",
+            "keepalive_warmup_enabled": "warmup_enabled",
+        }
+        attr = mapping.get(key, key)
+        return getattr(self, attr, default)
+
+    def set(self, key: str, value: Any) -> None:
+        mapping = {
+            "poll_interval_seconds": "poll_interval_sec",
+            "keepalive_warmup_enabled": "warmup_enabled",
+        }
+        attr = mapping.get(key, key)
+        if hasattr(self, attr):
+            setattr(self, attr, value)
+
+    def save(self) -> None:
+        self.save_settings()
+
     def save_settings(self) -> None:
         """Persist mutable settings to settings.json atomically."""
         self.ensure_directories()

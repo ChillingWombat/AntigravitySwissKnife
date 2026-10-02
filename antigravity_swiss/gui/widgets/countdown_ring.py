@@ -69,6 +69,21 @@ class CountdownRing(QWidget):
     def current_code(self) -> str:
         return self._current_code
 
+    @property
+    def remaining_seconds(self) -> int:
+        return self._remaining_sec
+
+    @property
+    def fraction(self) -> float:
+        return self._progress
+
+    def set_progress(self, remaining_seconds: int, fraction: float) -> None:
+        """Manually sets progress state and triggers update."""
+        self._remaining_sec = max(0, int(remaining_seconds))
+        self._progress = max(0.0, min(1.0, float(fraction)))
+        self.update()
+
+
     def _refresh_state(self) -> None:
         if self._secret:
             try:

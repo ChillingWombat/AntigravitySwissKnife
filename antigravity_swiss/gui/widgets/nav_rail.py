@@ -32,19 +32,32 @@ from antigravity_swiss.core.constants import (
 
 class NavigationRail(QWidget):
     """
-    Fixed left vertical navigation panel.
+    Fixed / Collapsible left vertical navigation panel.
     Emits `tool_selected(int)` when an item is clicked.
     """
 
     tool_selected = Signal(int)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    RAIL_WIDTH_EXPANDED: int = 220
+    RAIL_WIDTH_COLLAPSED: int = 72
+
+    def __init__(self, parent: QWidget | None = None, collapsed: bool = False) -> None:
         super().__init__(parent)
-        self.setFixedWidth(220)
+        self._collapsed = collapsed
+        self.setFixedWidth(self.RAIL_WIDTH_COLLAPSED if collapsed else self.RAIL_WIDTH_EXPANDED)
         self._current_index = 0
         self._buttons: list[QPushButton] = []
 
         self._init_ui()
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        """Toggles between 72px icon rail and 220px expanded panel."""
+        self._collapsed = collapsed
+        self.setFixedWidth(self.RAIL_WIDTH_COLLAPSED if collapsed else self.RAIL_WIDTH_EXPANDED)
+
+    def is_collapsed(self) -> bool:
+        return self._collapsed
+
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
