@@ -115,16 +115,21 @@ func GenerateCSS(cfg *Config) string {
   font-weight: 600 !important;
 }
 
-/* Hover Action Bar Gradient Blending */
+/* Action Bar & Buttons on Hover: 100%% Seamless, no dark overlapping gradient strip */
 [data-swiss-project="%s"][data-testid="conversation-row-sidebar"] div[style*="linear-gradient"],
-[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"] div[style*="linear-gradient"] {
-  background: linear-gradient(to right, transparent 0%%, rgba(%d, %d, %d, %.2f) 30%%) !important;
-}
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"] div[style*="linear-gradient"],
 [data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"],
 [data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"] {
-  background: linear-gradient(to right, transparent 0%%, rgba(%d, %d, %d, %.2f) 30%%) !important;
+  background: transparent !important;
 }
-`, safeName, safeName, hex, safeName, safeName, safeName, safeName, safeName, safeName, safeName, r, g, b, opacity, r, g, b, opacity, r, g, b, opacity, borderStyle, safeName, safeName, r, g, b, hoverOpacity, safeName, safeName, r, g, b, selectedOpacity, safeName, safeName, r, g, b, opacity, safeName, safeName, r, g, b, hoverOpacity))
+
+/* Natural translucent hover on action buttons */
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"] button:hover,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"] button:hover {
+  background-color: rgba(255, 255, 255, 0.45) !important;
+  border-radius: 6px !important;
+}
+`, safeName, safeName, hex, safeName, safeName, safeName, safeName, safeName, safeName, safeName, r, g, b, opacity, r, g, b, opacity, r, g, b, opacity, borderStyle, safeName, safeName, r, g, b, hoverOpacity, safeName, safeName, r, g, b, selectedOpacity, safeName, safeName, safeName, safeName, safeName, safeName))
 		}
 	}
 
