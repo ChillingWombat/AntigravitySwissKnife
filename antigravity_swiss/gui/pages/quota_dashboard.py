@@ -104,20 +104,26 @@ class QuotaDashboardPage(QWidget):
 
         # Card A: Managed Accounts Fleet Card
         fleet_card = QFrame()
-        fleet_card.setStyleSheet(f"""
-            QFrame {{
-                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
-                border: 1px solid {MD3_LIGHT_OUTLINE};
+        fleet_card.setObjectName("fleetCard")
+        fleet_card.setStyleSheet("""
+            QFrame#fleetCard {
+                background-color: #ffffff;
+                border: 1px solid #e2e8f0;
                 border-radius: 12px;
-                padding: 16px;
-            }}
+            }
+            QFrame#fleetCard QLabel {
+                background: transparent;
+                border: none;
+                padding: 0px;
+            }
         """)
         f_layout = QVBoxLayout(fleet_card)
-        f_layout.setSpacing(10)
+        f_layout.setContentsMargins(20, 20, 20, 20)
+        f_layout.setSpacing(8)
 
         f_header_row = QHBoxLayout()
         f_title = QLabel("MANAGED ACCOUNTS FLEET")
-        f_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 1px;")
+        f_title.setStyleSheet("font-size: 11px; font-weight: 700; color: #64748b; letter-spacing: 0.8px;")
         f_header_row.addWidget(f_title)
         f_header_row.addStretch()
 
@@ -128,93 +134,110 @@ class QuotaDashboardPage(QWidget):
         f_layout.addLayout(f_header_row)
 
         self._total_accounts_lbl = QLabel("0 Accounts Managed")
-        self._total_accounts_lbl.setStyleSheet(f"font-size: 24px; font-weight: 700; color: {MD3_LIGHT_TEXT_PRIMARY};")
+        self._total_accounts_lbl.setStyleSheet("font-size: 26px; font-weight: 700; color: #1e293b; margin-top: 4px;")
         f_layout.addWidget(self._total_accounts_lbl)
 
-        self._acc_label = QLabel("Active Account: Not Logged In")
-        self._acc_label.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {MD3_LIGHT_ACCENT_PRIMARY};")
+        self._acc_label = QLabel("● Active: Not Logged In")
+        self._acc_label.setStyleSheet("font-size: 13px; font-weight: 600; color: #0b57d0;")
         f_layout.addWidget(self._acc_label)
 
         self._last_poll_label = QLabel("Last Quota Sync: Never")
-        self._last_poll_label.setStyleSheet(f"font-size: 11px; color: {MD3_LIGHT_TEXT_SECONDARY};")
+        self._last_poll_label.setStyleSheet("font-size: 11px; color: #64748b;")
         f_layout.addWidget(self._last_poll_label)
+
+        f_layout.addStretch()
 
         # Quick Switcher & Refresh Row
         switch_row = QHBoxLayout()
         switch_row.setSpacing(8)
 
         self._account_combo = QComboBox()
-        self._account_combo.setMinimumWidth(160)
-        self._account_combo.setStyleSheet(f"""
-            QComboBox {{
-                background-color: {MD3_LIGHT_SURFACE_CONTAINER_HIGH};
-                color: {MD3_LIGHT_TEXT_PRIMARY};
-                border: 1px solid {MD3_LIGHT_OUTLINE};
+        self._account_combo.setMinimumWidth(180)
+        self._account_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #f8fafd;
+                color: #1e293b;
+                border: 1px solid #d3dbe5;
                 border-radius: 8px;
-                padding: 6px 10px;
+                padding: 6px 12px;
                 font-size: 12px;
-            }}
-            QComboBox::drop-down {{
+            }
+            QComboBox::drop-down {
                 border: none;
-            }}
+            }
+            QComboBox QAbstractItemView {
+                background-color: #ffffff;
+                color: #1e293b;
+                border: 1px solid #d3dbe5;
+                border-radius: 8px;
+                selection-background-color: #e8f0fe;
+                selection-color: #0b57d0;
+            }
         """)
         switch_row.addWidget(self._account_combo, stretch=1)
 
-        self._switch_btn = QPushButton("Switch")
-        self._switch_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {MD3_LIGHT_ACCENT_PRIMARY};
+        self._switch_btn = QPushButton("⇄ Switch")
+        self._switch_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1a73e8;
                 color: #ffffff;
                 border: none;
                 border-radius: 8px;
-                padding: 6px 14px;
+                padding: 7px 16px;
                 font-size: 12px;
                 font-weight: 600;
-            }}
-            QPushButton:hover {{
-                background-color: #1a73e8;
-            }}
+            }
+            QPushButton:hover {
+                background-color: #1557b0;
+            }
         """)
         self._switch_btn.clicked.connect(self._on_manual_switch)
         switch_row.addWidget(self._switch_btn)
 
-        self._refresh_btn = QPushButton("Refresh")
-        self._refresh_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
-                color: {MD3_LIGHT_TEXT_PRIMARY};
-                border: 1px solid {MD3_LIGHT_OUTLINE};
+        self._refresh_btn = QPushButton("↻")
+        self._refresh_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ffffff;
+                color: #475569;
+                border: 1px solid #d3dbe5;
                 border-radius: 8px;
-                padding: 6px 12px;
-                font-size: 12px;
-                font-weight: 500;
-            }}
-            QPushButton:hover {{
-                border-color: {MD3_LIGHT_ACCENT_PRIMARY};
-                background-color: {MD3_LIGHT_SURFACE_CONTAINER_HIGH};
-            }}
+                padding: 7px 12px;
+                font-size: 14px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                border-color: #1a73e8;
+                background-color: #f8fafd;
+            }
         """)
         self._refresh_btn.clicked.connect(self.refresh_quota)
         switch_row.addWidget(self._refresh_btn)
 
         f_layout.addLayout(switch_row)
-        top_row.addWidget(fleet_card, stretch=5)
+        top_row.addWidget(fleet_card, stretch=1)
 
         # Card B: Merged Total Quota Progress Rings Card
         total_quota_card = QFrame()
-        total_quota_card.setStyleSheet(f"""
-            QFrame {{
-                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
-                border: 1px solid {MD3_LIGHT_OUTLINE};
+        total_quota_card.setObjectName("totalQuotaCard")
+        total_quota_card.setStyleSheet("""
+            QFrame#totalQuotaCard {
+                background-color: #ffffff;
+                border: 1px solid #e2e8f0;
                 border-radius: 12px;
-                padding: 16px;
-            }}
+            }
+            QFrame#totalQuotaCard QLabel {
+                background: transparent;
+                border: none;
+                padding: 0px;
+            }
         """)
         tq_layout = QVBoxLayout(total_quota_card)
-        tq_layout.setSpacing(6)
+        tq_layout.setContentsMargins(20, 20, 20, 20)
+        tq_layout.setSpacing(8)
+
         tq_title = QLabel("TOTAL QUOTA")
-        tq_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        tq_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
+        tq_title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        tq_title.setStyleSheet("font-size: 11px; font-weight: 700; color: #64748b; letter-spacing: 0.8px;")
         tq_layout.addWidget(tq_title)
 
         rings_row = QHBoxLayout()
@@ -239,7 +262,7 @@ class QuotaDashboardPage(QWidget):
         rings_row.addWidget(self._ring_weekly, alignment=Qt.AlignmentFlag.AlignCenter)
 
         tq_layout.addLayout(rings_row)
-        top_row.addWidget(total_quota_card, stretch=6)
+        top_row.addWidget(total_quota_card, stretch=1)
 
         c_layout.addLayout(top_row)
 
@@ -247,27 +270,37 @@ class QuotaDashboardPage(QWidget):
         # 2. BOTTOM SECTION: Accounts Inventory Table & Detail Click
         # ==============================================================
         table_card = QFrame()
-        table_card.setStyleSheet(f"""
-            QFrame {{
-                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
-                border: 1px solid {MD3_LIGHT_OUTLINE};
+        table_card.setObjectName("tableCard")
+        table_card.setStyleSheet("""
+            QFrame#tableCard {
+                background-color: #ffffff;
+                border: 1px solid #e2e8f0;
                 border-radius: 12px;
-                padding: 16px;
-            }}
+            }
+            QFrame#tableCard QLabel {
+                background: transparent;
+                border: none;
+                padding: 0px;
+            }
         """)
         t_vbox = QVBoxLayout(table_card)
-        t_vbox.setSpacing(10)
+        t_vbox.setContentsMargins(0, 0, 0, 0)
+        t_vbox.setSpacing(0)
 
-        t_header_hbox = QHBoxLayout()
+        header_container = QWidget()
+        header_container.setStyleSheet("background: transparent; border-bottom: 1px solid #e2e8f0;")
+        t_header_hbox = QHBoxLayout(header_container)
+        t_header_hbox.setContentsMargins(20, 16, 20, 14)
+
         t_title = QLabel("ALL MANAGED ACCOUNTS (STATUS & QUOTAS)")
-        t_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 1px;")
+        t_title.setStyleSheet("font-size: 11px; font-weight: 700; color: #64748b; letter-spacing: 0.8px;")
         t_header_hbox.addWidget(t_title)
         t_header_hbox.addStretch()
 
         hint_lbl = QLabel("Click any row to inspect details, modify credentials, or configure MFA")
-        hint_lbl.setStyleSheet(f"font-size: 11px; color: {MD3_LIGHT_TEXT_SECONDARY};")
+        hint_lbl.setStyleSheet("font-size: 11px; color: #94a3b8;")
         t_header_hbox.addWidget(hint_lbl)
-        t_vbox.addLayout(t_header_hbox)
+        t_vbox.addWidget(header_container)
 
         self._table = QTableWidget(0, 7)
         self._table.setFrameShape(QFrame.Shape.NoFrame)
@@ -275,44 +308,70 @@ class QuotaDashboardPage(QWidget):
         self._table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._table.setHorizontalHeaderLabels([
-            "Account Identity",
-            "Plan Tier",
-            "Status",
-            "Next 5h Quota",
-            "Weekly Available",
-            "Reset Horizon",
-            "Action",
+            "ACCOUNT IDENTITY",
+            "PLAN TIER",
+            "STATUS",
+            "NEXT 5H QUOTA",
+            "WEEKLY AVAILABLE",
+            "RESET HORIZON",
+            "ACTION",
         ])
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.horizontalHeader().setStretchLastSection(False)
-        self._table.horizontalHeader().setMinimumSectionSize(100)
-        self._table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        self._table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+        self._table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
 
-        self._table.setAlternatingRowColors(True)
+        self._table.setColumnWidth(1, 95)
+        self._table.setColumnWidth(2, 80)
+        self._table.setColumnWidth(3, 130)
+        self._table.setColumnWidth(4, 140)
+        self._table.setColumnWidth(5, 155)
+        self._table.setColumnWidth(6, 115)
+        self._table.horizontalHeader().setStretchLastSection(False)
+        self._table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._table.horizontalHeader().setFixedHeight(40)
+
+        self._table.setAlternatingRowColors(False)
+        self._table.setShowGrid(False)
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._table.setStyleSheet(f"""
-            QTableWidget {{
-                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
-                gridline-color: {MD3_LIGHT_OUTLINE};
+        self._table.setStyleSheet("""
+            QTableWidget {
+                background-color: #ffffff;
                 border: none;
-                color: {MD3_LIGHT_TEXT_PRIMARY};
-            }}
-            QHeaderView::section {{
-                background-color: {MD3_LIGHT_SURFACE_CONTAINER_HIGH};
-                color: {MD3_LIGHT_TEXT_SECONDARY};
-                padding: 8px;
+                gridline-color: transparent;
+                selection-background-color: #f8fafc;
+            }
+            QHeaderView {
+                background-color: #f8fafd;
+                border: none;
+                border-bottom: 1px solid #e2e8f0;
+            }
+            QHeaderView::section {
+                background-color: #f8fafd;
+                color: #64748b;
+                padding: 10px 14px;
                 font-weight: 600;
                 font-size: 11px;
+                letter-spacing: 0.5px;
+                text-transform: uppercase;
                 border: none;
-            }}
+                border-bottom: 1px solid #e2e8f0;
+            }
+            QTableWidget::item {
+                border-bottom: 1px solid #f1f5f9;
+                background-color: #ffffff;
+            }
+            QTableWidget::item:hover {
+                background-color: #f8fafc;
+            }
+            QTableWidget::item:selected {
+                background-color: #f1f5f9;
+            }
         """)
         self._table.cellClicked.connect(self._on_table_cell_clicked)
         t_vbox.addWidget(self._table)
@@ -335,37 +394,37 @@ class QuotaDashboardPage(QWidget):
 
     def _update_auto_switch_button_ui(self) -> None:
         if self._auto_switch_enabled:
-            self.btn_auto_switch.setText("Auto-Switch: ON")
-            self.btn_auto_switch.setStyleSheet(f"""
-                QPushButton {{
+            self.btn_auto_switch.setText("⚡ Auto-Switch: ON")
+            self.btn_auto_switch.setStyleSheet("""
+                QPushButton {
                     background-color: #e6f4ea;
-                    color: {MD3_LIGHT_COLOR_HEALTHY};
-                    border: 1px solid #b7e1cd;
+                    color: #137333;
+                    border: 1px solid #ceead6;
                     border-radius: 14px;
                     padding: 5px 14px;
                     font-size: 11px;
                     font-weight: 700;
-                }}
-                QPushButton:hover {{
+                }
+                QPushButton:hover {
                     background-color: #ceead6;
-                }}
+                }
             """)
         else:
             self.btn_auto_switch.setText("Auto-Switch: OFF")
-            self.btn_auto_switch.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {MD3_LIGHT_SURFACE_CONTAINER_HIGH};
-                    color: {MD3_LIGHT_TEXT_SECONDARY};
-                    border: 1px solid {MD3_LIGHT_OUTLINE};
+            self.btn_auto_switch.setStyleSheet("""
+                QPushButton {
+                    background-color: #f1f5f9;
+                    color: #64748b;
+                    border: 1px solid #e2e8f0;
                     border-radius: 14px;
                     padding: 5px 14px;
                     font-size: 11px;
-                    font-weight: 600;
-                }}
-                QPushButton:hover {{
-                    border-color: {MD3_LIGHT_ACCENT_PRIMARY};
-                    color: {MD3_LIGHT_TEXT_PRIMARY};
-                }}
+                    font-weight: 700;
+                }
+                QPushButton:hover {
+                    background-color: #e2e8f0;
+                    color: #1e293b;
+                }
             """)
 
     def _on_toggle_auto_switch(self) -> None:
@@ -383,19 +442,39 @@ class QuotaDashboardPage(QWidget):
             status = self.controller.get_status()
             self._active_account = status.get("active_account")
             if self._active_account:
-                self._acc_label.setText(f"Active Account: {self._active_account}")
+                self._acc_label.setText(f"● Active: {self._active_account}")
             else:
-                self._acc_label.setText("Active Account: Not Logged In")
+                self._acc_label.setText("● Active: Not Logged In")
 
             self._sync_auto_switch_state()
             self.refresh_quota()
         except Exception as exc:
             self._last_poll_label.setText(f"Sync error: {exc}")
 
+    def _create_identity_cell(self, email: str, label: Optional[str]) -> QWidget:
+        container = QWidget()
+        container.setStyleSheet("background: transparent; border: none;")
+        vbox = QVBoxLayout(container)
+        vbox.setContentsMargins(16, 6, 8, 6)
+        vbox.setSpacing(2)
+        vbox.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+
+        email_lbl = QLabel(email)
+        email_lbl.setStyleSheet("font-size: 13px; font-weight: 600; color: #1e293b; background: transparent; border: none;")
+        vbox.addWidget(email_lbl)
+
+        if label and label.strip() and label.strip() != email:
+            label_lbl = QLabel(label.strip())
+            label_lbl.setStyleSheet("font-size: 11px; color: #64748b; background: transparent; border: none;")
+            vbox.addWidget(label_lbl)
+
+        return container
+
     def _create_plan_tier_badge(self, tier: str) -> QWidget:
         container = QWidget()
+        container.setStyleSheet("background: transparent; border: none;")
         layout = QHBoxLayout(container)
-        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         t = (tier or "Free").strip()
@@ -403,30 +482,118 @@ class QuotaDashboardPage(QWidget):
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         if t == "Plus":
-            bg, fg, border = "#e6f4ea", "#137333", "#ceead6"
+            bg, fg, border = "#e6f4ea", "#137333", "none"
         elif t == "Pro":
-            bg, fg, border = "#e8f0fe", "#1a73e8", "#d2e3fc"
+            bg, fg, border = "#e8f0fe", "#1a73e8", "none"
         elif t == "Pro - Trial":
-            bg, fg, border = "#e0f7fa", "#007b83", "#b2ebf2"
+            bg, fg, border = "#e0f7fa", "#007b83", "none"
         elif t == "Edu":
-            bg, fg, border = "#ede7f6", "#512da8", "#d1c4e9"
+            bg, fg, border = "#ede7f6", "#512da8", "none"
+        elif "Ultra 5X" in t:
+            bg, fg, border = "#fce7f3", "#db2777", "none"
+        elif "Ultra 10X" in t:
+            bg, fg, border = "#fae8ff", "#c026d3", "none"
+        elif "Ultra 20X" in t:
+            bg, fg, border = "#ede9fe", "#7c3aed", "1px solid #d1c4e9"
         elif "Ultra" in t:
-            bg, fg, border = "#f3e8fd", "#7b1fa2", "#e1bee7"
+            bg, fg, border = "#f3e8fd", "#7b1fa2", "none"
         else:
-            bg, fg, border = "#f1f3f4", "#5f6368", "#dadce0"
+            bg, fg, border = "#f1f5f9", "#475569", "none"
 
         lbl.setStyleSheet(f"""
             QLabel {{
                 background-color: {bg};
                 color: {fg};
-                border: 1px solid {border};
-                border-radius: 10px;
-                padding: 3px 10px;
+                border: {border};
+                border-radius: 12px;
+                padding: 3px 8px;
                 font-size: 11px;
                 font-weight: 600;
             }}
         """)
         layout.addWidget(lbl)
+        return container
+
+    def _create_status_cell(self, is_active: bool, status: str) -> QWidget:
+        container = QWidget()
+        container.setStyleSheet("background: transparent; border: none;")
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        if is_active:
+            lbl = QLabel("ACTIVE")
+            lbl.setStyleSheet("""
+                QLabel {
+                    background-color: #e6f4ea;
+                    color: #137333;
+                    border-radius: 10px;
+                    padding: 3px 8px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    border: none;
+                }
+            """)
+        else:
+            lbl = QLabel("STANDBY")
+            lbl.setStyleSheet("""
+                QLabel {
+                    background-color: transparent;
+                    color: #64748b;
+                    font-size: 11px;
+                    font-weight: 600;
+                    border: none;
+                }
+            """)
+        layout.addWidget(lbl)
+        return container
+
+    def _create_reset_horizon_cell(self, reset_text: str) -> QWidget:
+        container = QWidget()
+        container.setStyleSheet("background: transparent; border: none;")
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(8, 0, 8, 0)
+        layout.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        layout.setSpacing(6)
+
+        clock_lbl = QLabel("🕒")
+        clock_lbl.setStyleSheet("font-size: 12px; background: transparent; border: none;")
+        layout.addWidget(clock_lbl)
+
+        text_str = reset_text.strip() if reset_text and reset_text.strip() else "Active cycle"
+        text_lbl = QLabel(text_str)
+        text_lbl.setStyleSheet("font-size: 12px; color: #64748b; background: transparent; border: none;")
+        layout.addWidget(text_lbl)
+        layout.addStretch()
+
+        return container
+
+    def _create_action_cell(self, row_idx: int) -> QWidget:
+        container = QWidget()
+        container.setStyleSheet("background: transparent; border: none;")
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        btn_edit = QPushButton("Edit Details")
+        btn_edit.setStyleSheet("""
+            QPushButton {
+                background-color: #f8fafc;
+                color: #334155;
+                border: 1px solid #e2e8f0;
+                border-radius: 6px;
+                padding: 4px 10px;
+                font-size: 11px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #f1f5f9;
+                border-color: #cbd5e1;
+                color: #0f172a;
+            }
+        """)
+        btn_edit.clicked.connect(lambda checked=False, idx=row_idx: self._open_account_detail(idx))
+        layout.addWidget(btn_edit)
         return container
 
     def refresh_quota(self) -> None:
@@ -440,7 +607,7 @@ class QuotaDashboardPage(QWidget):
                 pass
 
             self._accounts_cache = build_account_quota_states(raw_accounts, active_summary)
-            now_str = datetime.datetime.now().strftime("%H:%M:%S")
+            now_str = datetime.datetime.now().strftime("%I:%M:%S %p")
             self._last_poll_label.setText(f"Last Quota Sync: {now_str}")
 
             # 1. Update Top Section Metrics
@@ -456,33 +623,28 @@ class QuotaDashboardPage(QWidget):
             # Update Dropdown
             self._account_combo.clear()
             for acc in self._accounts_cache:
-                self._account_combo.addItem(acc.email)
+                display_label = f"{acc.email} ({acc.label})" if acc.label and acc.label != acc.email else acc.email
+                self._account_combo.addItem(display_label, acc.email)
             if self._active_account:
-                idx = self._account_combo.findText(self._active_account)
-                if idx >= 0:
-                    self._account_combo.setCurrentIndex(idx)
+                for i in range(self._account_combo.count()):
+                    if self._account_combo.itemData(i) == self._active_account:
+                        self._account_combo.setCurrentIndex(i)
+                        break
 
             # 2. Populate Bottom Section Accounts Table
             self._table.setRowCount(0)
             for r, acc in enumerate(self._accounts_cache):
                 self._table.insertRow(r)
 
-                # Col 0: Identity (Email & Label)
-                display_label = f"{acc.email}\n({acc.label})" if acc.label and acc.label != acc.email else acc.email
-                item_name = QTableWidgetItem(display_label)
-                item_name.setFont(self.font())
-                self._table.setItem(r, 0, item_name)
+                # Col 0: Identity (Email & Label, 2-line layout)
+                self._table.setCellWidget(r, 0, self._create_identity_cell(acc.email, acc.label))
 
                 # Col 1: Plan Tier Badge
                 tier_badge = self._create_plan_tier_badge(getattr(acc, "plan_tier", "Free"))
                 self._table.setCellWidget(r, 1, tier_badge)
 
                 # Col 2: Status Pill
-                status_text = "ACTIVE" if acc.is_active else acc.status
-                item_status = QTableWidgetItem(status_text)
-                if acc.is_active:
-                    item_status.setForeground(Qt.GlobalColor.darkGreen)
-                self._table.setItem(r, 2, item_status)
+                self._table.setCellWidget(r, 2, self._create_status_cell(acc.is_active, acc.status))
 
                 # Col 3: 5h Available Quota (Horizontal Bar + Text %)
                 bar_5h_widget = AccountQuotaBarWidget(acc.quota_5h_available)
@@ -493,30 +655,11 @@ class QuotaDashboardPage(QWidget):
                 self._table.setCellWidget(r, 4, bar_wk_widget)
 
                 # Col 5: Reset Horizon Text
-                item_reset = QTableWidgetItem(acc.reset_horizon_text)
-                self._table.setItem(r, 5, item_reset)
+                self._table.setCellWidget(r, 5, self._create_reset_horizon_cell(acc.reset_horizon_text))
 
-                # Col 6: Manage Button
-                btn_manage = QPushButton("Edit")
-                btn_manage.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {MD3_LIGHT_SURFACE_CONTAINER_HIGH};
-                        color: {MD3_LIGHT_ACCENT_PRIMARY};
-                        border: 1px solid {MD3_LIGHT_OUTLINE};
-                        border-radius: 6px;
-                        padding: 4px 10px;
-                        font-size: 11px;
-                        font-weight: 600;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {MD3_LIGHT_ACCENT_CONTAINER};
-                    }}
-                """)
-                # Capture row index
-                row_idx = r
-                btn_manage.clicked.connect(lambda checked=False, idx=row_idx: self._open_account_detail(idx))
-                self._table.setCellWidget(r, 6, btn_manage)
-                self._table.setRowHeight(r, 48)
+                # Col 6: Manage Button (Edit Details)
+                self._table.setCellWidget(r, 6, self._create_action_cell(r))
+                self._table.setRowHeight(r, 56)
 
             self._adjust_table_height()
 
@@ -528,7 +671,7 @@ class QuotaDashboardPage(QWidget):
         self._table.doItemsLayout()
         header_h = self._table.horizontalHeader().height()
         if header_h <= 0:
-            header_h = self._table.horizontalHeader().sizeHint().height() or 38
+            header_h = self._table.horizontalHeader().sizeHint().height() or 40
         total_rows_h = sum(self._table.rowHeight(r) for r in range(self._table.rowCount()))
         total_h = header_h + total_rows_h + 6
         self._table.setFixedHeight(max(80, total_h))
@@ -552,14 +695,17 @@ class QuotaDashboardPage(QWidget):
         self.account_switched.emit(email)
 
     def _on_manual_switch(self) -> None:
-        target_account = self._account_combo.currentText().strip()
+        target_account = self._account_combo.currentData()
+        if not target_account:
+            txt = self._account_combo.currentText().strip()
+            target_account = txt.split(" ")[0].strip()
         if not target_account or target_account == self._active_account:
             return
 
         try:
             self.controller.switch_account(target_account, force=True, relaunch=True)
             self._active_account = target_account
-            self._acc_label.setText(f"Active Account: {target_account}")
+            self._acc_label.setText(f"● Active: {target_account}")
             self.account_switched.emit(target_account)
             self.refresh_quota()
         except Exception as exc:

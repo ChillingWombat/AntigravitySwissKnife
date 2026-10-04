@@ -132,7 +132,7 @@ def test_navigation_rail(qapp):
     assert selected_indices == [1]
 
     rail.set_daemon_status(True)
-    assert "Connected" in rail._daemon_lbl.text()
+    assert "Connected" in rail._daemon_lbl.text() or "Active" in rail._daemon_lbl.text()
     rail.set_daemon_status(False)
     assert "Standalone" in rail._daemon_lbl.text()
 

@@ -100,14 +100,14 @@ class NavigationRail(QFrame):
         tools_lbl.setStyleSheet(f"font-size: 10px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 1.2px; padding-left: 6px; margin-bottom: 4px;")
         layout.addWidget(tools_lbl)
 
-        # Navigation Items (Google AI Studio pill nav items)
+        # Navigation Items (Matching Google Web App)
         items = [
-            ("Account Switcher", 0),
-            ("App Enhancements", 1),
-            ("Custom Models", 2),
-            ("Scheduled Templates", 3),
-            ("Tools Marketplace", 4),
-            ("Archived Projects", 5),
+            ("👤 Account Switcher", 0),
+            ("🧠 Custom Models", 1),
+            ("⚡ App Enhancements", 2),
+            ("🕒 Task Automations", 3),
+            ("▦ Tools Marketplace", 4),
+            ("🗄 Archived Projects", 5),
         ]
 
         for label, idx in items:
@@ -142,30 +142,35 @@ class NavigationRail(QFrame):
 
         # Bottom System Status Card (Sleek Google AI Studio tonal container)
         status_card = QFrame()
+        status_card.setObjectName("statusCard")
         status_card.setStyleSheet(f"""
-            QFrame {{
+            QFrame#statusCard {{
                 background-color: {MD3_LIGHT_SURFACE};
                 border: 1px solid {MD3_LIGHT_OUTLINE};
                 border-radius: 12px;
                 padding: 10px 14px;
             }}
+            QFrame#statusCard QLabel {{
+                background: transparent;
+                border: none;
+            }}
         """)
         sc_layout = QVBoxLayout(status_card)
-        sc_layout.setContentsMargins(4, 4, 4, 4)
+        sc_layout.setContentsMargins(0, 0, 0, 0)
         sc_layout.setSpacing(4)
 
-        self._daemon_lbl = QLabel("Daemon Active")
+        self._daemon_lbl = QLabel("✔ Daemon Active")
         self._daemon_lbl.setStyleSheet(f"color: {MD3_LIGHT_COLOR_HEALTHY}; font-size: 11px; font-weight: 600;")
         sc_layout.addWidget(self._daemon_lbl)
 
-        self._host_lbl = QLabel("Antigravity 2.0")
+        self._host_lbl = QLabel("🛡 Host Idle")
         self._host_lbl.setStyleSheet(f"color: {MD3_LIGHT_TEXT_SECONDARY}; font-size: 11px;")
         sc_layout.addWidget(self._host_lbl)
 
         layout.addWidget(status_card)
 
         # Dedicated System Settings button pinned at bottom-left of whole GUI
-        self.btn_system_settings = QPushButton("System Settings")
+        self.btn_system_settings = QPushButton("⚙ System Settings")
         self.btn_system_settings.setObjectName("btnNavSystemSettings")
         self.btn_system_settings.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_system_settings.setStyleSheet(f"""
@@ -213,16 +218,19 @@ class NavigationRail(QFrame):
 
     def set_daemon_status(self, is_running: bool) -> None:
         if is_running:
-            self._daemon_lbl.setText("Daemon Connected")
+            self._daemon_lbl.setText("✔ Daemon Active")
             self._daemon_lbl.setStyleSheet(f"color: {MD3_LIGHT_COLOR_HEALTHY}; font-size: 11px; font-weight: 600;")
         else:
-            self._daemon_lbl.setText("Standalone Mode")
+            self._daemon_lbl.setText("● Standalone Mode")
             self._daemon_lbl.setStyleSheet(f"color: {MD3_LIGHT_TEXT_SECONDARY}; font-size: 11px; font-weight: 500;")
 
     def set_antigravity_status(self, is_running: bool, pid: int | None = None) -> None:
-        if is_running:
-            self._host_lbl.setText(f"Host Running (PID {pid})")
-            self._host_lbl.setStyleSheet(f"color: {MD3_LIGHT_COLOR_HEALTHY}; font-size: 11px; font-weight: 500;")
+        if is_running and pid:
+            self._host_lbl.setText(f"🛡 Host PID {pid}")
+            self._host_lbl.setStyleSheet(f"color: {MD3_LIGHT_TEXT_SECONDARY}; font-size: 11px;")
+        elif is_running:
+            self._host_lbl.setText("🛡 Host Running")
+            self._host_lbl.setStyleSheet(f"color: {MD3_LIGHT_TEXT_SECONDARY}; font-size: 11px;")
         else:
             self._host_lbl.setText("Host Idle")
             self._host_lbl.setStyleSheet(f"color: {MD3_LIGHT_TEXT_SECONDARY}; font-size: 11px;")

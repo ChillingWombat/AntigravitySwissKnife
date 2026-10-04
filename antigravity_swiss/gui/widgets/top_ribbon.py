@@ -44,7 +44,7 @@ class TopRibbon(QFrame):
 
     TABS = [
         "Dashboard",
-        "Accounts & MFA",
+        "Accounts && MFA",
         "Fingerprints",
         "Cache Manager",
         "Settings",
@@ -122,7 +122,7 @@ class TopRibbon(QFrame):
         layout.addStretch()
 
         # Active Account Pill Badge on Right (Google User Identity Chip)
-        self._active_badge = QLabel("No Active Account")
+        self._active_badge = QLabel("👤 No Active Account")
         self._active_badge.setStyleSheet(f"""
             QLabel {{
                 background-color: #e8f0fe;
@@ -153,6 +153,6 @@ class TopRibbon(QFrame):
 
     def set_active_account(self, email: str | None) -> None:
         if email:
-            self._active_badge.setText(email)
+            self._active_badge.setText(f"👤 {email}")
         else:
-            self._active_badge.setText("No Active Account")
+            self._active_badge.setText("👤 No Active Account")

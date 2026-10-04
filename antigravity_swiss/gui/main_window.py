@@ -126,15 +126,15 @@ class MainWindow(QMainWindow):
         self.page_account_switcher = AccountSwitcherToolPage(self.controller, self)
         self.tool_stack.addWidget(self.page_account_switcher)
 
-        # Tool 1: App Enhancements & Usability
-        self.page_enhancements = AppEnhancementsPage(self)
-        self.tool_stack.addWidget(self.page_enhancements)
-
-        # Tool 2: Custom Model Providers (BYOM)
+        # Tool 1: Custom Model Providers (BYOM)
         self.page_custom_models = CustomModelsPage(self)
         self.tool_stack.addWidget(self.page_custom_models)
 
-        # Tool 3: Scheduled Agent Templates
+        # Tool 2: App Enhancements & Usability
+        self.page_enhancements = AppEnhancementsPage(self)
+        self.tool_stack.addWidget(self.page_enhancements)
+
+        # Tool 3: Task Automations (Scheduled Agent Templates)
         self.page_scheduled_templates = ScheduledTemplatesPage(self)
         self.tool_stack.addWidget(self.page_scheduled_templates)
 

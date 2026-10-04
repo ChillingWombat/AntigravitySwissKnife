@@ -114,12 +114,12 @@ class CircularGauge(QWidget):
     def get_display_arc_color(self, fraction: float | None = None) -> str:
         """Returns accessible status color for light-surface rendering."""
         f = self._fraction if fraction is None else fraction
-        if f > 0.30:
-            return MD3_LIGHT_COLOR_HEALTHY
-        elif f >= 0.10:
-            return MD3_LIGHT_COLOR_WARNING
+        if f >= 0.50:
+            return "#137333"
+        elif f >= 0.20:
+            return "#b06000"
         else:
-            return MD3_LIGHT_COLOR_EXHAUSTED
+            return "#b3261e"
 
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
@@ -127,12 +127,12 @@ class CircularGauge(QWidget):
 
         width = self.width()
         height = self.height()
-        side = min(width, height - 40)
+        side = min(width, height - 36)
         radius = side / 2.0
         center_x = width / 2.0
-        center_y = radius + 8.0
+        center_y = radius + 6.0
 
-        track_width = max(8.0, side * 0.08)
+        track_width = max(9.0, side * 0.085)
         rect = QRectF(
             center_x - radius + track_width,
             center_y - radius + track_width,
@@ -140,8 +140,8 @@ class CircularGauge(QWidget):
             (radius - track_width) * 2,
         )
 
-        # Draw Background Track (Clean light gray)
-        track_pen = QPen(QColor(MD3_LIGHT_SURFACE_CONTAINER_HIGH), track_width)
+        # Draw Background Track (Clean light gray matching web app)
+        track_pen = QPen(QColor("#e5e9f0"), track_width)
         track_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(track_pen)
         painter.drawArc(rect, 0, 360 * 16)
@@ -160,8 +160,8 @@ class CircularGauge(QWidget):
 
         # Draw Center Percentage Text (Crisp text, perfectly centered)
         percent_str = "N/A" if self._empty_grey else f"{int(round(self._fraction * 100))}%"
-        painter.setPen(QColor(MD3_LIGHT_TEXT_SECONDARY if self._empty_grey else MD3_LIGHT_TEXT_PRIMARY))
-        font_pct = QFont("Google Sans", int(side * (0.18 if self._empty_grey else 0.20)), QFont.Weight.Bold)
+        painter.setPen(QColor("#64748b" if self._empty_grey else "#1e293b"))
+        font_pct = QFont("Google Sans", int(side * (0.19 if self._empty_grey else 0.22)), QFont.Weight.Bold)
         painter.setFont(font_pct)
         painter.drawText(
             QRectF(center_x - radius, center_y - 20, radius * 2, 40),
@@ -170,8 +170,8 @@ class CircularGauge(QWidget):
         )
 
         # Draw Model Name at bottom (Crisp dark text)
-        painter.setPen(QColor(MD3_LIGHT_TEXT_PRIMARY))
-        font_title = QFont("Google Sans", 11, QFont.Weight.DemiBold)
+        painter.setPen(QColor("#475569"))
+        font_title = QFont("Google Sans", 10, QFont.Weight.DemiBold)
         painter.setFont(font_title)
         painter.drawText(
             QRectF(0, height - 36, width, 18),

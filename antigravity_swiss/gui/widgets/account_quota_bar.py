@@ -74,39 +74,39 @@ class AccountQuotaBarWidget(QWidget):
         pct = int(round(self._fraction * 100))
         pct_text = f"{pct}%"
 
-        text_w = 40
+        text_w = 42
         margin_x = 4
-        spacing = 8
+        spacing = 10
         bar_w = max(20, w - text_w - margin_x * 2 - spacing)
-        bar_h = 6
+        bar_h = 8
         bar_y = (h - bar_h) // 2
 
         # 1. Background track
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(MD3_LIGHT_SURFACE_CONTAINER_HIGH))
-        painter.drawRoundedRect(margin_x, bar_y, bar_w, bar_h, 3, 3)
+        painter.setBrush(QColor("#e5e9f0"))
+        painter.drawRoundedRect(margin_x, bar_y, bar_w, bar_h, 4, 4)
 
         # 2. Fill chunk
-        if self._fraction > 0.30:
-            chunk_color = QColor(MD3_LIGHT_COLOR_HEALTHY)
-        elif self._fraction >= 0.10:
-            chunk_color = QColor(MD3_LIGHT_COLOR_WARNING)
+        if self._fraction >= 0.50:
+            chunk_color = QColor("#137333")  # Google green
+        elif self._fraction >= 0.20:
+            chunk_color = QColor("#b06000")  # Warning amber
         else:
-            chunk_color = QColor(MD3_LIGHT_COLOR_EXHAUSTED)
+            chunk_color = QColor("#b3261e")  # Exhausted red
 
         fill_w = int(bar_w * self._fraction)
         if fill_w > 0:
             painter.setBrush(chunk_color)
-            painter.drawRoundedRect(margin_x, bar_y, fill_w, bar_h, 3, 3)
+            painter.drawRoundedRect(margin_x, bar_y, fill_w, bar_h, 4, 4)
 
         # 3. Percentage text
         font = painter.font()
-        font.setPointSize(9)
+        font.setPointSize(10)
         font.setBold(True)
         painter.setFont(font)
-        painter.setPen(QColor(MD3_LIGHT_TEXT_PRIMARY))
+        painter.setPen(QColor("#1e293b"))
 
         text_x = margin_x + bar_w + spacing
         text_rect = QRect(text_x, 0, text_w, h)
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, pct_text)
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, pct_text)
         painter.end()
