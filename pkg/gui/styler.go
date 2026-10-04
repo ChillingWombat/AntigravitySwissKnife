@@ -51,6 +51,17 @@ func GenerateCSS(cfg *Config) string {
 		selectedOpacity = 1.0
 	}
 
+	isBorderMode := cfg.ActiveConversationIndicator == "border"
+	fontWeight := "600"
+	if !cfg.ActiveConversationBold {
+		fontWeight = "400"
+	}
+
+	borderOpacity := opacity + 0.40
+	if borderOpacity > 0.85 {
+		borderOpacity = 0.85
+	}
+
 	var sb strings.Builder
 	sb.WriteString("/* Antigravity Swiss Knife - Project Panel Custom Colors */\n")
 
@@ -67,8 +78,69 @@ func GenerateCSS(cfg *Config) string {
 		safeName := strings.ReplaceAll(project, `"`, `\"`)
 
 		borderStyle := "border: none !important; border-left: none !important;"
+		if isBorderMode {
+			borderStyle = ""
+		}
 		if cfg.SolidLeftEdge {
 			borderStyle = fmt.Sprintf("border-left: 3px solid %s !important;", hex)
+		}
+
+		var rowCSS string
+		if isBorderMode {
+			rowCSS = fmt.Sprintf(`
+/* Conversation Row: Clean rounded corners, light tint, border-mode */
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"],
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"] {
+  --sidebar-secondary: rgba(%d, %d, %d, %.2f) !important;
+  --sidebar-muted: rgba(%d, %d, %d, %.2f) !important;
+  background-color: rgba(%d, %d, %d, %.2f) !important;
+  border: 1.5px solid transparent !important;
+  %s
+  border-radius: 8px !important;
+  transition: background-color 0.15s ease, border-color 0.15s ease !important;
+}
+
+/* Hover & Selected States */
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:hover,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:hover {
+  background-color: rgba(%d, %d, %d, %.2f) !important;
+}
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-selected="true"],
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-selected="true"] {
+  background-color: rgba(%d, %d, %d, %.2f) !important;
+  border: 1.5px solid rgba(%d, %d, %d, %.2f) !important;
+  font-weight: %s !important;
+}
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-selected="true"]:hover,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-selected="true"]:hover {
+  background-color: rgba(%d, %d, %d, %.2f) !important;
+  border: 1.5px solid rgba(%d, %d, %d, %.2f) !important;
+}
+`, safeName, safeName, r, g, b, opacity, r, g, b, opacity, r, g, b, opacity, borderStyle, safeName, safeName, r, g, b, hoverOpacity, safeName, safeName, r, g, b, opacity, r, g, b, borderOpacity, fontWeight, safeName, safeName, r, g, b, hoverOpacity, r, g, b, borderOpacity)
+		} else {
+			rowCSS = fmt.Sprintf(`
+/* Conversation Row: Clean rounded corners, light tint, solid edge optional */
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"],
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"] {
+  --sidebar-secondary: rgba(%d, %d, %d, %.2f) !important;
+  --sidebar-muted: rgba(%d, %d, %d, %.2f) !important;
+  background-color: rgba(%d, %d, %d, %.2f) !important;
+  %s
+  border-radius: 8px !important;
+  transition: background-color 0.15s ease !important;
+}
+
+/* Hover & Selected States */
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:hover,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:hover {
+  background-color: rgba(%d, %d, %d, %.2f) !important;
+}
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-selected="true"],
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-selected="true"] {
+  background-color: rgba(%d, %d, %d, %.2f) !important;
+  font-weight: %s !important;
+}
+`, safeName, safeName, r, g, b, opacity, r, g, b, opacity, r, g, b, opacity, borderStyle, safeName, safeName, r, g, b, hoverOpacity, safeName, safeName, r, g, b, selectedOpacity, fontWeight)
 		}
 
 		sb.WriteString(fmt.Sprintf(`
@@ -92,29 +164,7 @@ func GenerateCSS(cfg *Config) string {
   color: #ffffff !important;
   fill: #ffffff !important;
 }
-
-/* Conversation Row: Clean rounded corners, light tint, solid edge optional */
-[data-swiss-project="%s"][data-testid="conversation-row-sidebar"],
-[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"] {
-  --sidebar-secondary: rgba(%d, %d, %d, %.2f) !important;
-  --sidebar-muted: rgba(%d, %d, %d, %.2f) !important;
-  background-color: rgba(%d, %d, %d, %.2f) !important;
-  %s
-  border-radius: 8px !important;
-  transition: background-color 0.15s ease !important;
-}
-
-/* Hover & Selected States */
-[data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:hover,
-[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:hover {
-  background-color: rgba(%d, %d, %d, %.2f) !important;
-}
-[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-selected="true"],
-[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-selected="true"] {
-  background-color: rgba(%d, %d, %d, %.2f) !important;
-  font-weight: 600 !important;
-}
-
+%s
 /* Action Bar & Buttons on Hover: 100%% Seamless, no dark overlapping gradient strip */
 [data-swiss-project="%s"][data-testid="conversation-row-sidebar"] div[style*="linear-gradient"],
 [data-swiss-project="%s"] [data-testid="conversation-row-sidebar"] div[style*="linear-gradient"],
@@ -129,7 +179,7 @@ func GenerateCSS(cfg *Config) string {
   background-color: rgba(255, 255, 255, 0.45) !important;
   border-radius: 6px !important;
 }
-`, safeName, safeName, hex, safeName, safeName, safeName, safeName, safeName, safeName, safeName, r, g, b, opacity, r, g, b, opacity, r, g, b, opacity, borderStyle, safeName, safeName, r, g, b, hoverOpacity, safeName, safeName, r, g, b, selectedOpacity, safeName, safeName, safeName, safeName, safeName, safeName))
+`, safeName, safeName, hex, safeName, safeName, safeName, safeName, safeName, rowCSS, safeName, safeName, safeName, safeName, safeName, safeName))
 		}
 	}
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../api'
-import type { EnhancementsConfig } from '../types'
+import type { EnhancementsConfig, GUIConfig } from '../types'
 
 const PRESET_COLORS = [
   { name: 'Google Blue', hex: '#0b57d0' },
@@ -57,6 +57,7 @@ function hslToHex(hsl: string): string {
 
 export const AppEnhancementsPage: React.FC = () => {
   const [config, setConfig] = useState<EnhancementsConfig | null>(null)
+  const [guiConfig, setGuiConfig] = useState<GUIConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [applying, setApplying] = useState(false)
@@ -71,12 +72,14 @@ export const AppEnhancementsPage: React.FC = () => {
   const loadConfig = async () => {
     try {
       setLoading(true)
-      const [data, projList] = await Promise.all([
+      const [data, projList, gData] = await Promise.all([
         api.getEnhancements(),
         api.getGUIProjects().catch(() => []),
+        api.getGUIConfig().catch(() => null),
       ])
       setConfig(data)
       setProjects((projList || []).map((p) => p.name))
+      if (gData) setGuiConfig(gData)
     } catch (err: any) {
       setStatusMsg({ text: 'Failed to load enhancements config: ' + err.message, type: 'error' })
     } finally {
@@ -85,11 +88,13 @@ export const AppEnhancementsPage: React.FC = () => {
   }
 
   const handleSave = async () => {
-    if (!config) return
     try {
       setSaving(true)
-      await api.updateEnhancements(config)
-      setStatusMsg({ text: 'Enhancement settings saved successfully', type: 'success' })
+      const promises: Promise<any>[] = []
+      if (config) promises.push(api.updateEnhancements(config))
+      if (guiConfig) promises.push(api.updateGUIConfig(guiConfig))
+      await Promise.all(promises)
+      setStatusMsg({ text: 'Settings saved successfully', type: 'success' })
       setTimeout(() => setStatusMsg(null), 3500)
     } catch (err: any) {
       setStatusMsg({ text: 'Failed to save settings: ' + err.message, type: 'error' })
@@ -99,11 +104,13 @@ export const AppEnhancementsPage: React.FC = () => {
   }
 
   const handleApplyLive = async () => {
-    if (!config) return
     try {
       setApplying(true)
-      await api.updateEnhancements(config)
-      const res = await api.applyEnhancements()
+      const promises: Promise<any>[] = []
+      if (config) promises.push(api.updateEnhancements(config))
+      if (guiConfig) promises.push(api.updateGUIConfig(guiConfig))
+      await Promise.all(promises)
+      const res = await api.applyGUI().catch(() => api.applyEnhancements())
       setStatusMsg({
         text: res.message || 'Successfully injected and applied enhancements live to Antigravity!',
         type: 'success',
@@ -819,6 +826,387 @@ export const AppEnhancementsPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Feature 5: Project Colors & Active Conversation Tab Indicator */}
+      {guiConfig && (
+        <div
+          style={{
+            background: '#ffffff',
+            borderRadius: '12px',
+            border: '1px solid #e2e8f0',
+            padding: '24px',
+            marginBottom: '24px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '18px' }}>🎨</span>
+                <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
+                  Project Colors & Active Conversation Indicator
+                </h2>
+              </div>
+              <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
+                Assign custom accent colors to projects and configure how the current open conversation tab is highlighted in the sidebar.
+              </p>
+            </div>
+
+            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={guiConfig.color_styling_enabled}
+                onChange={(e) =>
+                  setGuiConfig({
+                    ...guiConfig,
+                    color_styling_enabled: e.target.checked,
+                  })
+                }
+                style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#0b57d0' }}
+              />
+            </label>
+          </div>
+
+          {guiConfig.color_styling_enabled && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(280px, 1fr)', gap: '28px', marginTop: '16px' }}>
+              {/* Settings Controls */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#1e293b', marginBottom: '8px' }}>
+                    Open Conversation Highlight Mode:
+                  </label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {/* Mode 1: Denser Background */}
+                    <div
+                      onClick={() =>
+                        setGuiConfig({
+                          ...guiConfig,
+                          active_conversation_indicator: 'background',
+                        })
+                      }
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '12px',
+                        padding: '12px 14px',
+                        borderRadius: '8px',
+                        border: `1.5px solid ${
+                          guiConfig.active_conversation_indicator !== 'border' ? '#0b57d0' : '#e2e8f0'
+                        }`,
+                        background:
+                          guiConfig.active_conversation_indicator !== 'border' ? '#eff6ff' : '#f8fafc',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="active_indicator"
+                        checked={guiConfig.active_conversation_indicator !== 'border'}
+                        onChange={() =>
+                          setGuiConfig({
+                            ...guiConfig,
+                            active_conversation_indicator: 'background',
+                          })
+                        }
+                        style={{ marginTop: '2px', accentColor: '#0b57d0', cursor: 'pointer' }}
+                      />
+                      <div>
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
+                          Darker / Denser Background Tint (Default)
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px', lineHeight: 1.4 }}>
+                          Deepens the background color of the active conversation tab compared to ordinary tabs.
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Mode 2: Denser Border Outline */}
+                    <div
+                      onClick={() =>
+                        setGuiConfig({
+                          ...guiConfig,
+                          active_conversation_indicator: 'border',
+                        })
+                      }
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '12px',
+                        padding: '12px 14px',
+                        borderRadius: '8px',
+                        border: `1.5px solid ${
+                          guiConfig.active_conversation_indicator === 'border' ? '#0b57d0' : '#e2e8f0'
+                        }`,
+                        background:
+                          guiConfig.active_conversation_indicator === 'border' ? '#eff6ff' : '#f8fafc',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="active_indicator"
+                        checked={guiConfig.active_conversation_indicator === 'border'}
+                        onChange={() =>
+                          setGuiConfig({
+                            ...guiConfig,
+                            active_conversation_indicator: 'border',
+                          })
+                        }
+                        style={{ marginTop: '2px', accentColor: '#0b57d0', cursor: 'pointer' }}
+                      />
+                      <div>
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
+                          Denser Border Outline (Light Background)
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px', lineHeight: 1.4 }}>
+                          Adds a border matching the denser project color, while the background remains as light as ordinary tabs.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bold text option */}
+                <div style={{ paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      color: '#1e293b',
+                      fontWeight: 500,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={guiConfig.active_conversation_bold ?? true}
+                      onChange={(e) =>
+                        setGuiConfig({
+                          ...guiConfig,
+                          active_conversation_bold: e.target.checked,
+                        })
+                      }
+                      style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#0b57d0' }}
+                    />
+                    <span>Bold text on current open conversation tab</span>
+                  </label>
+                  <p style={{ margin: '3px 0 0 26px', fontSize: '11px', color: '#64748b' }}>
+                    When unchecked, the open conversation tab title uses regular font weight matching ordinary tabs.
+                  </p>
+                </div>
+
+                {/* Solid left edge option */}
+                <div style={{ paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      color: '#1e293b',
+                      fontWeight: 500,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={guiConfig.solid_left_edge ?? false}
+                      onChange={(e) =>
+                        setGuiConfig({
+                          ...guiConfig,
+                          solid_left_edge: e.target.checked,
+                        })
+                      }
+                      style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#0b57d0' }}
+                    />
+                    <span>Solid 3px color bar on left edge of conversation tabs</span>
+                  </label>
+                </div>
+
+                {/* Opacity slider */}
+                <div style={{ paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <label style={{ fontSize: '13px', fontWeight: 500, color: '#1e293b' }}>
+                      Conversation Tab Tint Opacity:
+                    </label>
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: '#0b57d0' }}>
+                      {Math.round((guiConfig.tint_opacity || 0.14) * 100)}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="5"
+                    max="35"
+                    value={Math.round((guiConfig.tint_opacity || 0.14) * 100)}
+                    onChange={(e) =>
+                      setGuiConfig({
+                        ...guiConfig,
+                        tint_opacity: parseInt(e.target.value) / 100,
+                      })
+                    }
+                    style={{ width: '100%', cursor: 'pointer', accentColor: '#0b57d0' }}
+                  />
+                </div>
+              </div>
+
+              {/* Real-time Interactive Preview */}
+              <div
+                style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '10px',
+                  padding: '16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                    Sidebar Live Preview
+                  </span>
+                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>Antigravity 2.0</span>
+                </div>
+
+                {/* Preview Sidebar Snippet */}
+                <div
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '10px',
+                    padding: '10px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+                  }}
+                >
+                  {/* Project Header */}
+                  <div
+                    style={{
+                      background: '#0b57d0',
+                      color: '#ffffff',
+                      borderRadius: '8px',
+                      padding: '6px 10px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      userSelect: 'none',
+                    }}
+                  >
+                    <span>📁</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      Antigravity Swiss Knife
+                    </span>
+                  </div>
+
+                  {/* Active Open Conversation Tab */}
+                  <div
+                    style={{
+                      backgroundColor:
+                        guiConfig.active_conversation_indicator === 'border'
+                          ? `rgba(11, 87, 208, ${guiConfig.tint_opacity || 0.14})`
+                          : `rgba(11, 87, 208, ${(guiConfig.tint_opacity || 0.14) + 0.16})`,
+                      border:
+                        guiConfig.active_conversation_indicator === 'border'
+                          ? '1.5px solid rgba(11, 87, 208, 0.60)'
+                          : '1.5px solid transparent',
+                      borderLeft: guiConfig.solid_left_edge
+                        ? '3px solid #0b57d0'
+                        : guiConfig.active_conversation_indicator === 'border'
+                        ? '1.5px solid rgba(11, 87, 208, 0.60)'
+                        : '1.5px solid transparent',
+                      borderRadius: '8px',
+                      padding: '6px 10px',
+                      fontSize: '13px',
+                      fontWeight: (guiConfig.active_conversation_bold ?? true) ? 700 : 400,
+                      color: '#0f172a',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      boxSizing: 'border-box',
+                      transition: 'all 0.15s ease',
+                      userSelect: 'none',
+                    }}
+                  >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      Task Completion Check
+                    </span>
+                    <span style={{ fontSize: '11px', color: '#64748b', opacity: 0.7 }}>⟳</span>
+                  </div>
+
+                  {/* Ordinary Conversation Tab 1 */}
+                  <div
+                    style={{
+                      backgroundColor: `rgba(11, 87, 208, ${guiConfig.tint_opacity || 0.14})`,
+                      border: '1.5px solid transparent',
+                      borderLeft: guiConfig.solid_left_edge ? '3px solid #0b57d0' : '1.5px solid transparent',
+                      borderRadius: '8px',
+                      padding: '6px 10px',
+                      fontSize: '13px',
+                      fontWeight: 400,
+                      color: '#475569',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      boxSizing: 'border-box',
+                      userSelect: 'none',
+                    }}
+                  >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      Matching Font and UI ...
+                    </span>
+                    <span style={{ fontSize: '11px', color: '#64748b' }}>6h</span>
+                  </div>
+
+                  {/* Ordinary Conversation Tab 2 */}
+                  <div
+                    style={{
+                      backgroundColor: `rgba(11, 87, 208, ${guiConfig.tint_opacity || 0.14})`,
+                      border: '1.5px solid transparent',
+                      borderLeft: guiConfig.solid_left_edge ? '3px solid #0b57d0' : '1.5px solid transparent',
+                      borderRadius: '8px',
+                      padding: '6px 10px',
+                      fontSize: '13px',
+                      fontWeight: 400,
+                      color: '#475569',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      boxSizing: 'border-box',
+                      userSelect: 'none',
+                    }}
+                  >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      Antigravity Manager Pl...
+                    </span>
+                    <span style={{ fontSize: '11px', color: '#64748b' }}>6h</span>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: '11px', color: '#64748b', textAlign: 'center', lineHeight: 1.4 }}>
+                  {guiConfig.active_conversation_indicator === 'border' ? (
+                    <span>
+                      ✓ Active tab has <strong>denser border outline</strong> with <strong>light background</strong>
+                    </span>
+                  ) : (
+                    <span>
+                      ✓ Active tab has <strong>darker/denser background tint</strong>
+                    </span>
+                  )}
+                  {(guiConfig.active_conversation_bold ?? true) ? ' (bold title)' : ' (regular title)'}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

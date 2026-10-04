@@ -48,7 +48,9 @@ class AppEnhancementsPage(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._config_path = Path.home() / ".config" / "antigravity-swiss" / "enhancements.json"
+        self._gui_config_path = Path.home() / ".config" / "antigravity-swiss" / "gui_improvements.json"
         self._data = self._load_data()
+        self._gui_data = self._load_gui_data()
         self._init_ui()
 
     def _load_data(self) -> dict[str, Any]:
@@ -72,11 +74,39 @@ class AppEnhancementsPage(QWidget):
                 pass
         return defaults
 
+    def _load_gui_data(self) -> dict[str, Any]:
+        defaults = {
+            "enabled": True,
+            "color_styling_enabled": True,
+            "solid_left_edge": False,
+            "tint_opacity": 0.14,
+            "active_conversation_indicator": "background",
+            "active_conversation_bold": True,
+        }
+        if self._gui_config_path.exists():
+            try:
+                with open(self._gui_config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    defaults.update(data)
+            except Exception:
+                pass
+        return defaults
+
     def _save_data(self) -> None:
         self._config_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with open(self._config_path, "w", encoding="utf-8") as f:
                 json.dump(self._data, f, indent=2)
+        except Exception:
+            pass
+
+    def _save_gui_data(self) -> None:
+        self._gui_config_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(self._gui_config_path, "w", encoding="utf-8") as f:
+                json.dump(self._gui_data, f, indent=2)
+            import subprocess
+            subprocess.run(["swiss", "patch", "sync"], capture_output=True, text=True)
         except Exception:
             pass
 
@@ -204,6 +234,53 @@ class AppEnhancementsPage(QWidget):
         po_layout.addLayout(proj_row)
 
         c_layout.addWidget(po_card)
+
+        # Card 4: Project Colors & Active Conversation Indicator
+        pc_card, pc_layout = self._create_card("Project Colors & Active Conversation Indicator")
+
+        self.cb_color_styling = QCheckBox("Enable Project Color Tinting across sidebar")
+        self.cb_color_styling.setChecked(bool(self._gui_data.get("color_styling_enabled", True)))
+        self.cb_color_styling.stateChanged.connect(self._on_color_styling_changed)
+        pc_layout.addWidget(self.cb_color_styling)
+
+        ind_row = QHBoxLayout()
+        ind_lbl = QLabel("Open Conversation Highlight Mode:")
+        ind_lbl.setStyleSheet(f"font-size: 12px; color: {MD3_LIGHT_TEXT_PRIMARY};")
+        ind_row.addWidget(ind_lbl)
+
+        self.combo_active_indicator = QComboBox()
+        self.combo_active_indicator.addItems([
+            "Darker / Denser Background Tint (Default)",
+            "Denser Border Outline (Light Background)"
+        ])
+        current_ind = self._gui_data.get("active_conversation_indicator", "background")
+        self.combo_active_indicator.setCurrentIndex(1 if current_ind == "border" else 0)
+        self.combo_active_indicator.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER_HIGH};
+                color: {MD3_LIGHT_TEXT_PRIMARY};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 6px;
+                padding: 4px 8px;
+                font-size: 11px;
+            }}
+        """)
+        self.combo_active_indicator.currentIndexChanged.connect(self._on_active_indicator_changed)
+        ind_row.addWidget(self.combo_active_indicator)
+        ind_row.addStretch()
+        pc_layout.addLayout(ind_row)
+
+        self.cb_active_bold = QCheckBox("Bold text on current open conversation tab")
+        self.cb_active_bold.setChecked(bool(self._gui_data.get("active_conversation_bold", True)))
+        self.cb_active_bold.stateChanged.connect(self._on_active_bold_changed)
+        pc_layout.addWidget(self.cb_active_bold)
+
+        self.cb_solid_edge = QCheckBox("Solid 3px color bar on left edge of conversation tabs")
+        self.cb_solid_edge.setChecked(bool(self._gui_data.get("solid_left_edge", False)))
+        self.cb_solid_edge.stateChanged.connect(self._on_solid_edge_changed)
+        pc_layout.addWidget(self.cb_solid_edge)
+
+        c_layout.addWidget(pc_card)
         c_layout.addStretch()
 
         scroll.setWidget(container)
@@ -268,3 +345,19 @@ class AppEnhancementsPage(QWidget):
     def _on_fixed_project_changed(self, state: int) -> None:
         self._data["fixed_project_enabled"] = bool(state)
         self._save_data()
+
+    def _on_color_styling_changed(self, state: int) -> None:
+        self._gui_data["color_styling_enabled"] = bool(state)
+        self._save_gui_data()
+
+    def _on_active_indicator_changed(self, idx: int) -> None:
+        self._gui_data["active_conversation_indicator"] = "border" if idx == 1 else "background"
+        self._save_gui_data()
+
+    def _on_active_bold_changed(self, state: int) -> None:
+        self._gui_data["active_conversation_bold"] = bool(state)
+        self._save_gui_data()
+
+    def _on_solid_edge_changed(self, state: int) -> None:
+        self._gui_data["solid_left_edge"] = bool(state)
+        self._save_gui_data()

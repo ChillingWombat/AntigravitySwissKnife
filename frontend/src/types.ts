@@ -226,4 +226,18 @@ export interface SidecarTaskInfo {
   path: string
 }
 
+export interface GUIConfig {
+  enabled: boolean
+  color_styling_enabled: boolean
+  solid_left_edge: boolean
+  tint_opacity: number
+  active_conversation_indicator: 'background' | 'border'
+  active_conversation_bold: boolean
+  project_colors: Record<string, string>
+  drag_rearrange_enabled: boolean
+  project_order: string[]
+  archived_projects: string[]
+  auto_inject: boolean
+}
+
 

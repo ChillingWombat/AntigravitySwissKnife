@@ -61,6 +61,15 @@ func (s *Store) load() error {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return err
 	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err == nil {
+		if _, ok := raw["active_conversation_bold"]; !ok {
+			cfg.ActiveConversationBold = true
+		}
+	}
+	if cfg.ActiveConversationIndicator == "" {
+		cfg.ActiveConversationIndicator = "background"
+	}
 	if cfg.ProjectColors == nil {
 		cfg.ProjectColors = make(map[string]string)
 	}
@@ -138,21 +147,26 @@ func (s *Store) GetConfig() Config {
 	copy(archivedCopy, s.config.ArchivedProjects)
 
 	return Config{
-		Enabled:              s.config.Enabled,
-		ColorStylingEnabled:  s.config.ColorStylingEnabled,
-		SolidLeftEdge:        s.config.SolidLeftEdge,
-		DragRearrangeEnabled: s.config.DragRearrangeEnabled,
-		ProjectColors:        colorsCopy,
-		ProjectOrder:         orderCopy,
-		ArchivedProjects:     archivedCopy,
-		TintOpacity:          s.config.TintOpacity,
-		AutoInject:           s.config.AutoInject,
+		Enabled:                     s.config.Enabled,
+		ColorStylingEnabled:         s.config.ColorStylingEnabled,
+		SolidLeftEdge:               s.config.SolidLeftEdge,
+		DragRearrangeEnabled:        s.config.DragRearrangeEnabled,
+		ActiveConversationIndicator: s.config.ActiveConversationIndicator,
+		ActiveConversationBold:      s.config.ActiveConversationBold,
+		ProjectColors:               colorsCopy,
+		ProjectOrder:                orderCopy,
+		ArchivedProjects:            archivedCopy,
+		TintOpacity:                 s.config.TintOpacity,
+		AutoInject:                  s.config.AutoInject,
 	}
 }
 
 // UpdateConfig updates the full configuration and saves it.
 func (s *Store) UpdateConfig(cfg *Config) error {
 	s.mu.Lock()
+	if cfg.ActiveConversationIndicator == "" {
+		cfg.ActiveConversationIndicator = "background"
+	}
 	if cfg.ProjectColors == nil {
 		cfg.ProjectColors = make(map[string]string)
 	}

@@ -124,6 +124,42 @@ func TestGenerateCSS(t *testing.T) {
 	if !strings.Contains(cssWithoutEdge, `border-left: none !important`) {
 		t.Errorf("CSS with SolidLeftEdge=false should have border-left: none, got: %s", cssWithoutEdge)
 	}
+
+	// 5. Test ActiveConversationIndicator="border" and ActiveConversationBold=false
+	cfgBorderMode := &Config{
+		Enabled:                     true,
+		ColorStylingEnabled:         true,
+		ActiveConversationIndicator: "border",
+		ActiveConversationBold:      false,
+		ProjectColors: map[string]string{
+			"Arbitrager": "#7c3aed",
+		},
+		TintOpacity: 0.14,
+	}
+	cssBorderMode := GenerateCSS(cfgBorderMode)
+	// Active row should have light background tint (0.14) same as ordinary tabs
+	if !strings.Contains(cssBorderMode, `background-color: rgba(124, 58, 237, 0.14) !important;
+  border: 1.5px solid rgba(124, 58, 237, 0.54) !important;
+  font-weight: 400 !important;`) {
+		t.Errorf("CSS with ActiveConversationIndicator='border' should have light background and denser border, got: %s", cssBorderMode)
+	}
+
+	// 6. Test ActiveConversationIndicator="background" (default) and ActiveConversationBold=true
+	cfgDefaultMode := &Config{
+		Enabled:                     true,
+		ColorStylingEnabled:         true,
+		ActiveConversationIndicator: "background",
+		ActiveConversationBold:      true,
+		ProjectColors: map[string]string{
+			"Arbitrager": "#7c3aed",
+		},
+		TintOpacity: 0.14,
+	}
+	cssDefaultMode := GenerateCSS(cfgDefaultMode)
+	if !strings.Contains(cssDefaultMode, `background-color: rgba(124, 58, 237, 0.30) !important;
+  font-weight: 600 !important;`) {
+		t.Errorf("CSS with default indicator should have darker background and font-weight 600, got: %s", cssDefaultMode)
+	}
 }
 
 func TestGenerateScript(t *testing.T) {

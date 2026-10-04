@@ -15,6 +15,7 @@ import type {
   ScheduledTemplate,
   DeployTaskRequest,
   SidecarTaskInfo,
+  GUIConfig,
 } from './types'
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
@@ -202,6 +203,20 @@ export const api = {
 
   getGUIProjects: () =>
     request<Array<{ name: string; color: string; order: number; is_archived: boolean }>>('/api/gui/projects'),
+
+  getGUIConfig: () => request<GUIConfig>('/api/gui/config'),
+
+  updateGUIConfig: (cfg: Partial<GUIConfig>) =>
+    request<GUIConfig>('/api/gui/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg),
+    }),
+
+  applyGUI: () =>
+    request<{ success: boolean; message: string }>('/api/gui/apply', {
+      method: 'POST',
+    }),
 
   // Scheduled Task Templates (Automations)
   getTemplates: () => request<ScheduledTemplate[]>('/api/templates'),

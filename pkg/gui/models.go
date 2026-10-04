@@ -7,24 +7,28 @@ import (
 
 // Config holds user customization settings for Antigravity desktop GUI improvements.
 type Config struct {
-	Enabled              bool              `json:"enabled"`                // Master toggle for GUI improvements
-	ColorStylingEnabled  bool              `json:"color_styling_enabled"` // Toggle: Custom project colors & conversation tinting
-	SolidLeftEdge        bool              `json:"solid_left_edge"`       // Toggle: Include solid color edge on conversation tabs (default false)
-	TintOpacity          float64           `json:"tint_opacity"`          // Conversation tab tint opacity (default 0.14)
-	ProjectColors        map[string]string `json:"project_colors"`        // Map of project name -> hex color
-	DragRearrangeEnabled bool              `json:"drag_rearrange_enabled"`// Toggle: Drag to rearrange projects order
-	ProjectOrder         []string          `json:"project_order"`         // Custom ordering of projects
-	ArchivedProjects     []string          `json:"archived_projects"`     // Names or IDs of hidden/archived projects
-	AutoInject           bool              `json:"auto_inject"`           // Automatically inject into Antigravity desktop app
+	Enabled                     bool              `json:"enabled"`                       // Master toggle for GUI improvements
+	ColorStylingEnabled         bool              `json:"color_styling_enabled"`        // Toggle: Custom project colors & conversation tinting
+	SolidLeftEdge               bool              `json:"solid_left_edge"`              // Toggle: Include solid color edge on conversation tabs (default false)
+	TintOpacity                 float64           `json:"tint_opacity"`                 // Conversation tab tint opacity (default 0.14)
+	ActiveConversationIndicator string            `json:"active_conversation_indicator"`// "background" (default denser bg) or "border" (denser border outline with light bg)
+	ActiveConversationBold      bool              `json:"active_conversation_bold"`     // Toggle: Bold text on open conversation tab (default true)
+	ProjectColors               map[string]string `json:"project_colors"`               // Map of project name -> hex color
+	DragRearrangeEnabled        bool              `json:"drag_rearrange_enabled"`       // Toggle: Drag to rearrange projects order
+	ProjectOrder                []string          `json:"project_order"`                // Custom ordering of projects
+	ArchivedProjects            []string          `json:"archived_projects"`            // Names or IDs of hidden/archived projects
+	AutoInject                  bool              `json:"auto_inject"`                  // Automatically inject into Antigravity desktop app
 }
 
 // DefaultConfig returns the default GUI improvement configuration.
 func DefaultConfig() *Config {
 	return &Config{
-		Enabled:              true,
-		ColorStylingEnabled:  true,
-		SolidLeftEdge:        false, // Off by default: background of tab is 1 color without solid edge
-		TintOpacity:          0.14,
+		Enabled:                     true,
+		ColorStylingEnabled:         true,
+		SolidLeftEdge:               false, // Off by default: background of tab is 1 color without solid edge
+		TintOpacity:                 0.14,
+		ActiveConversationIndicator: "background", // "background" (darker background) or "border" (denser border outline)
+		ActiveConversationBold:      true,         // Bold text on open conversation tab by default
 		ProjectColors: map[string]string{
 			"Antigravity Swiss Knife": "#0b57d0", // Gemini blue
 			"Arbitrager":              "#7c3aed", // Vibrant purple
