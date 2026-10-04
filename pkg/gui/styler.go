@@ -84,7 +84,7 @@ func GenerateCSS(cfg *Config) string {
 }
 
 /* Project Header Action Buttons (⋮ and + buttons) */
-[data-swiss-project="%s"] .group\/header button,
+[data-swiss-project="%s"] [class*="group/header"] button,
 [data-swiss-project="%s"] button[aria-label="Project options"] svg,
 [data-swiss-project="%s"] button[aria-label*="conversation"] svg {
   color: #ffffff !important;
@@ -208,107 +208,110 @@ func GenerateScript(cfg *Config) string {
       });
 
       let offsetAdjustment = 0;
-      document.querySelectorAll("[data-index]").forEach(el => {
-        const idx = parseInt(el.getAttribute("data-index"), 10);
-        const item = items[idx];
-        if (!item) return;
+      const itemsList = container.querySelectorAll(":scope > [data-index]");
+      itemsList.forEach(el => {
+        try {
+          const idx = parseInt(el.getAttribute("data-index"), 10);
+          const item = items[idx];
+          if (!item) return;
 
-        const isArchived = (item.type === "header" && (activeArchived.includes(item.label) || activeArchived.includes(item.id.replace("header-", "")))) ||
-                           (item.type === "row" && (activeArchived.includes(headerMap[item.groupId]) || activeArchived.includes(item.groupId)));
+          const isArchived = (item.type === "header" && (activeArchived.includes(item.label) || activeArchived.includes(item.id.replace("header-", "")))) ||
+                             (item.type === "row" && (activeArchived.includes(headerMap[item.groupId]) || activeArchived.includes(item.groupId)));
 
-        if (isArchived) {
-          el.style.display = "none";
-          offsetAdjustment += (item.type === "header" ? 37 : 33);
-          return;
-        }
-
-        el.style.display = "";
-        const origTransform = el.style.transform;
-        const m = origTransform ? origTransform.match(/translateY\((\d+(\.\d+)?)px\)/) : null;
-        if (m) {
-          if (!el.dataset.origTranslateY || Math.abs(parseFloat(el.dataset.origTranslateY) - parseFloat(m[1])) > (offsetAdjustment + 5)) {
-            el.dataset.origTranslateY = m[1];
-          }
-          if (offsetAdjustment > 0) {
-            const origY = parseFloat(el.dataset.origTranslateY);
-            const newY = Math.max(0, origY - offsetAdjustment);
-            el.style.transform = "translateY(" + newY + "px)";
-          } else if (el.dataset.origTranslateY) {
-            el.style.transform = "translateY(" + el.dataset.origTranslateY + "px)";
-            delete el.dataset.origTranslateY;
-          }
-        }
-
-        if (item.type === "header") {
-          const btn = el.querySelector("[data-project-card]");
-          if (btn) {
-            if (isColorEnabled) btn.setAttribute("data-swiss-project", item.label);
-            else btn.removeAttribute("data-swiss-project");
-          }
-          const headerGroup = el.querySelector(".group\\\\/header") || el;
-          if (headerGroup && isColorEnabled) {
-            headerGroup.setAttribute("data-swiss-project", item.label);
+          if (isArchived) {
+            el.style.display = "none";
+            offsetAdjustment += (item.type === "header" ? 37 : 33);
+            return;
           }
 
-          // Drag-and-drop reordering on project headers
-          if (isDragEnabled) {
-            headerGroup.setAttribute("draggable", "true");
-            headerGroup.style.cursor = "grab";
-            headerGroup.setAttribute("data-project-id", item.id.replace("header-", ""));
-            headerGroup.setAttribute("data-project-label", item.label);
-
-            if (!headerGroup.__swissDragBound) {
-              headerGroup.__swissDragBound = true;
-              headerGroup.addEventListener("dragstart", (e) => {
-                e.dataTransfer.setData("text/plain", headerGroup.getAttribute("data-project-id"));
-                headerGroup.style.opacity = "0.5";
-              });
-              headerGroup.addEventListener("dragend", () => {
-                headerGroup.style.opacity = "1";
-              });
-              headerGroup.addEventListener("dragover", (e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "move";
-              });
-              headerGroup.addEventListener("drop", async (e) => {
-                e.preventDefault();
-                const srcId = e.dataTransfer.getData("text/plain");
-                const targetId = headerGroup.getAttribute("data-project-id");
-                if (srcId && targetId && srcId !== targetId) {
-                  // Get current projects order from nativeStorage
-                  const curItems = await window.nativeStorage?.getItems();
-                  let pOrder = [];
-                  try { pOrder = JSON.parse(curItems?.projectsOrder || "[]"); } catch(_) {}
-                  if (!pOrder.length) {
-                    pOrder = items.filter(it => it.type === "header").map(h => h.id.replace("header-", ""));
-                  }
-                  const srcIdx = pOrder.indexOf(srcId);
-                  const tgtIdx = pOrder.indexOf(targetId);
-                  if (srcIdx !== -1 && tgtIdx !== -1) {
-                    pOrder.splice(srcIdx, 1);
-                    pOrder.splice(tgtIdx, 0, srcId);
-                    await window.nativeStorage?.updateItems({
-                      projectsOrder: JSON.stringify(pOrder),
-                      projectsSortBy: "custom"
-                    });
-                  }
-                }
-              });
+          el.style.display = "";
+          const origTransform = el.style.transform;
+          const m = origTransform ? origTransform.match(/translateY\((\d+(\.\d+)?)px\)/) : null;
+          if (m) {
+            if (!el.dataset.origTranslateY || Math.abs(parseFloat(el.dataset.origTranslateY) - parseFloat(m[1])) > (offsetAdjustment + 5)) {
+              el.dataset.origTranslateY = m[1];
             }
-          } else {
-            headerGroup.removeAttribute("draggable");
-            headerGroup.style.cursor = "";
-          }
-        } else if (item.type === "row") {
-          const pName = headerMap[item.groupId];
-          if (pName) {
-            const row = el.querySelector("[data-testid=\"conversation-row-sidebar\"]");
-            if (row) {
-              if (isColorEnabled) row.setAttribute("data-swiss-project", pName);
-              else row.removeAttribute("data-swiss-project");
+            if (offsetAdjustment > 0) {
+              const origY = parseFloat(el.dataset.origTranslateY);
+              const newY = Math.max(0, origY - offsetAdjustment);
+              el.style.transform = "translateY(" + newY + "px)";
+            } else if (el.dataset.origTranslateY) {
+              el.style.transform = "translateY(" + el.dataset.origTranslateY + "px)";
+              delete el.dataset.origTranslateY;
             }
           }
-        }
+
+          if (item.type === "header") {
+            const btn = el.querySelector("[data-project-card]");
+            if (btn) {
+              if (isColorEnabled) btn.setAttribute("data-swiss-project", item.label);
+              else btn.removeAttribute("data-swiss-project");
+            }
+            const headerGroup = el.querySelector('[class*="group/header"]') || el;
+            if (headerGroup && isColorEnabled) {
+              headerGroup.setAttribute("data-swiss-project", item.label);
+            }
+
+            // Drag-and-drop reordering on project headers
+            if (isDragEnabled) {
+              headerGroup.setAttribute("draggable", "true");
+              headerGroup.style.cursor = "grab";
+              headerGroup.setAttribute("data-project-id", item.id.replace("header-", ""));
+              headerGroup.setAttribute("data-project-label", item.label);
+
+              if (!headerGroup.__swissDragBound) {
+                headerGroup.__swissDragBound = true;
+                headerGroup.addEventListener("dragstart", (e) => {
+                  e.dataTransfer.setData("text/plain", headerGroup.getAttribute("data-project-id"));
+                  headerGroup.style.opacity = "0.5";
+                });
+                headerGroup.addEventListener("dragend", () => {
+                  headerGroup.style.opacity = "1";
+                });
+                headerGroup.addEventListener("dragover", (e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                });
+                headerGroup.addEventListener("drop", async (e) => {
+                  e.preventDefault();
+                  const srcId = e.dataTransfer.getData("text/plain");
+                  const targetId = headerGroup.getAttribute("data-project-id");
+                  if (srcId && targetId && srcId !== targetId) {
+                    // Get current projects order from nativeStorage
+                    const curItems = await window.nativeStorage?.getItems();
+                    let pOrder = [];
+                    try { pOrder = JSON.parse(curItems?.projectsOrder || "[]"); } catch(_) {}
+                    if (!pOrder.length) {
+                      pOrder = items.filter(it => it.type === "header").map(h => h.id.replace("header-", ""));
+                    }
+                    const srcIdx = pOrder.indexOf(srcId);
+                    const tgtIdx = pOrder.indexOf(targetId);
+                    if (srcIdx !== -1 && tgtIdx !== -1) {
+                      pOrder.splice(srcIdx, 1);
+                      pOrder.splice(tgtIdx, 0, srcId);
+                      await window.nativeStorage?.updateItems({
+                        projectsOrder: JSON.stringify(pOrder),
+                        projectsSortBy: "custom"
+                      });
+                    }
+                  }
+                });
+              }
+            } else {
+              headerGroup.removeAttribute("draggable");
+              headerGroup.style.cursor = "";
+            }
+          } else if (item.type === "row") {
+            const pName = headerMap[item.groupId];
+            if (pName) {
+              const row = el.querySelector("[data-testid=\"conversation-row-sidebar\"]");
+              if (row) {
+                if (isColorEnabled) row.setAttribute("data-swiss-project", pName);
+                else row.removeAttribute("data-swiss-project");
+              }
+            }
+          }
+        } catch (_) {}
       });
 
       // Apply initial configured order if specified and not yet synced
@@ -621,7 +624,7 @@ func GenerateScript(cfg *Config) string {
     if (!window.__swissContextMenuBound) {
       window.__swissContextMenuBound = true;
       document.addEventListener("contextmenu", (e) => {
-        const header = e.target.closest("[data-project-card], .group\\/header, [data-project-id], [data-project-label]");
+        const header = e.target.closest('[data-project-card], [class*="group/header"], [data-project-id], [data-project-label]');
         if (header) {
           e.preventDefault();
           e.stopPropagation();
@@ -659,7 +662,7 @@ func GenerateScript(cfg *Config) string {
         requestAnimationFrame(window.__swissUpdateTagsAndDraggables);
       }
     });
-    ob.observe(document.body, { childList: true, subtree: true });
+    ob.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-selected"] });
   }
 
   return {
