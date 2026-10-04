@@ -106,10 +106,10 @@ func TestStore_CRUDAndBindings(t *testing.T) {
 		t.Fatalf("failed to create store: %v", err)
 	}
 
-	// Store should initialize with sample preset models
+	// Store should initialize clean and empty with no dummy models
 	initialModels := store.ListModels()
-	if len(initialModels) == 0 {
-		t.Errorf("expected sample preset models to be initialized")
+	if len(initialModels) != 0 {
+		t.Errorf("expected clean empty models list, got %d models", len(initialModels))
 	}
 
 	// Add new custom model

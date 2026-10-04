@@ -91,20 +91,11 @@ func GenerateCustomModelsScript(cfg *Config) string {
       const trigger = document.querySelector('[data-testid="model-selector-trigger"]');
       const curProject = getActiveProjectName();
 
-      // Check if a custom model is bound to this project
+      // Check if a custom model is explicitly bound to this project
       const boundModelId = customConfig?.project_binds?.[curProject];
       let activeCustomModel = null;
       if (boundModelId && boundModelId !== "native") {
-        activeCustomModel = (customConfig?.models || []).find(m => m.id === boundModelId && m.enabled);
-      } else if (boundModelId === "native") {
-        activeCustomModel = null;
-      } else {
-        // Fallback: check matching models (exact match preferred over wildcard)
-        const models = (customConfig?.models || []).filter(m => m.enabled);
-        activeCustomModel = models.find(m => (m.project_mappings || []).some(p => p.toLowerCase() === curProject.toLowerCase()));
-        if (!activeCustomModel) {
-          activeCustomModel = models.find(m => (m.project_mappings || []).some(p => p === "*"));
-        }
+        activeCustomModel = (customConfig?.models || []).find(m => m.id === boundModelId && m.enabled) || null;
       }
 
       // Update trigger pill text if custom model is bound
@@ -112,9 +103,6 @@ func GenerateCustomModelsScript(cfg *Config) string {
         const label = trigger.querySelector("span") || trigger;
         if (activeCustomModel) {
           if (trigger.getAttribute("data-swiss-custom-bound") !== activeCustomModel.id) {
-            if (!trigger.getAttribute("data-swiss-native-label")) {
-              trigger.setAttribute("data-swiss-native-label", label.textContent.trim());
-            }
             trigger.setAttribute("data-swiss-custom-bound", activeCustomModel.id);
             const cleanActiveName = (activeCustomModel.display_name || "")
               .replace(/\s*\((Anthropic|OpenAI)\)/gi, "")
@@ -124,11 +112,23 @@ func GenerateCustomModelsScript(cfg *Config) string {
           }
         } else if (trigger.hasAttribute("data-swiss-custom-bound")) {
           trigger.removeAttribute("data-swiss-custom-bound");
-          const nativeLbl = trigger.getAttribute("data-swiss-native-label");
-          if (nativeLbl) {
-            label.textContent = nativeLbl;
-            trigger.removeAttribute("data-swiss-native-label");
-          }
+          trigger.removeAttribute("data-swiss-native-label");
+          try {
+            const k = Object.keys(trigger).find(key => key.startsWith("__reactFiber"));
+            if (k && trigger[k]) {
+              const ch = trigger[k].memoizedProps?.children;
+              const collect = (node) => {
+                if (!node) return "";
+                if (typeof node === "string") return node;
+                if (typeof node === "number") return String(node);
+                if (Array.isArray(node)) return node.map(collect).join("");
+                if (node.props?.children) return collect(node.props.children);
+                return "";
+              };
+              const nativeText = collect(ch?.[0]);
+              if (nativeText) label.textContent = nativeText;
+            }
+          } catch (_) {}
         }
       }
 

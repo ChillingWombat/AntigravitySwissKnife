@@ -38,11 +38,7 @@ func NewStore(configDir string) (*Store, error) {
 		return nil, err
 	}
 
-	// Initialize sample presets if the file was empty/new
-	if len(s.config.Models) == 0 {
-		s.config.Models = SamplePresetModels()
-		_ = s.saveLocked()
-	}
+
 
 	return s, nil
 }
