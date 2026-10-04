@@ -73,12 +73,17 @@ class SystemSettingsPage(QWidget):
 
         # Header Info Card
         header_card = QFrame()
+        header_card.setObjectName("headerCard")
         header_card.setStyleSheet(f"""
-            QFrame {{
+            QFrame#headerCard {{
                 background-color: {MD3_LIGHT_SURFACE};
                 border: 1px solid {MD3_LIGHT_OUTLINE};
                 border-radius: 12px;
                 padding: 16px;
+            }}
+            QFrame#headerCard QLabel {{
+                border: none;
+                background: transparent;
             }}
         """)
         h_layout = QHBoxLayout(header_card)
@@ -86,9 +91,9 @@ class SystemSettingsPage(QWidget):
         h_vbox.setSpacing(4)
 
         t1 = QLabel("SYSTEM & PROCESS SETTINGS")
-        t1.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
+        t1.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px; border: none; background: transparent;")
         t2 = QLabel("Runtime diagnostics, IPC Unix domain sockets, and Antigravity process safety shield.")
-        t2.setStyleSheet(f"font-size: 13px; color: {MD3_LIGHT_TEXT_PRIMARY};")
+        t2.setStyleSheet(f"font-size: 13px; color: {MD3_LIGHT_TEXT_PRIMARY}; border: none; background: transparent;")
         h_vbox.addWidget(t1)
         h_vbox.addWidget(t2)
         h_layout.addLayout(h_vbox)
@@ -96,23 +101,28 @@ class SystemSettingsPage(QWidget):
 
         # Diagnostics & Safety Shield Card
         diag_card = QFrame()
+        diag_card.setObjectName("diagCard")
         diag_card.setStyleSheet(f"""
-            QFrame {{
+            QFrame#diagCard {{
                 background-color: {MD3_LIGHT_SURFACE};
                 border: 1px solid {MD3_LIGHT_OUTLINE};
                 border-radius: 12px;
                 padding: 20px;
+            }}
+            QFrame#diagCard QLabel {{
+                border: none;
+                background: transparent;
             }}
         """)
         dc_layout = QVBoxLayout(diag_card)
         dc_layout.setSpacing(14)
 
         dc_title = QLabel("PROCESS SAFETY SHIELD & ENVIRONMENT")
-        dc_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
+        dc_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px; border: none; background: transparent;")
         dc_layout.addWidget(dc_title)
 
         shield_status = QLabel("Host Process Shield: ACTIVE (Host IDE PID protected against accidental signals)")
-        shield_status.setStyleSheet(f"font-size: 12px; color: {MD3_LIGHT_COLOR_HEALTHY}; font-weight: 600;")
+        shield_status.setStyleSheet(f"font-size: 12px; color: {MD3_LIGHT_COLOR_HEALTHY}; font-weight: 600; border: none; background: transparent;")
         dc_layout.addWidget(shield_status)
 
         # Fields

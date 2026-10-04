@@ -93,7 +93,7 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 
 func (d *Daemon) registerRPCHandlers() {
 	// 1. Status
-	d.Server.Register("swiss.getStatus", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+	statusHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		procs, _ := d.Shield.FindAntigravityProcesses()
 		var hostPID int
 		if len(procs) > 0 {
@@ -105,20 +105,25 @@ func (d *Daemon) registerRPCHandlers() {
 
 		accounts := d.Keyring.ListAccounts()
 		return map[string]interface{}{
-			"daemon_running":     true,
-			"daemon_pid":         os.Getpid(),
-			"version":            core.AppVersion,
-			"active_account":     d.Keyring.ActiveAccount(),
-			"total_accounts":     len(accounts),
+			"daemon_running":      true,
+			"daemon_pid":          os.Getpid(),
+			"pid":                 os.Getpid(),
+			"version":             core.AppVersion,
+			"active_account":      d.Keyring.ActiveAccount(),
+			"total_accounts":      len(accounts),
 			"antigravity_running": len(procs) > 0,
-			"antigravity_pid":    hostPID,
+			"antigravity_pid":     hostPID,
 		}, nil
-	})
+	}
+	d.Server.Register("swiss.getStatus", statusHandler)
+	d.Server.Register("status.get", statusHandler)
 
 	// 2. List Accounts
-	d.Server.Register("swiss.listAccounts", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+	listAccountsHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		return d.Keyring.ListAccounts(), nil
-	})
+	}
+	d.Server.Register("swiss.listAccounts", listAccountsHandler)
+	d.Server.Register("accounts.list", listAccountsHandler)
 
 	// 2b. Scan Local Accounts
 	d.Server.Register("swiss.scanLocalAccounts", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
@@ -347,7 +352,7 @@ func (d *Daemon) registerRPCHandlers() {
 	})
 
 	// 10. Rule Config: Get
-	d.Server.Register("swiss.getRuleConfig", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+	getRuleConfigHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		d.mu.RLock()
 		defer d.mu.RUnlock()
 		return map[string]interface{}{
@@ -357,10 +362,12 @@ func (d *Daemon) registerRPCHandlers() {
 			"warmup_enabled":            d.Config.WarmupEnabled,
 			"warmup_lead_time_seconds":  d.Config.WarmupLeadTimeSec,
 		}, nil
-	})
+	}
+	d.Server.Register("swiss.getRuleConfig", getRuleConfigHandler)
+	d.Server.Register("rules.get_config", getRuleConfigHandler)
 
 	// 11. Rule Config: Set
-	d.Server.Register("swiss.setRuleConfig", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+	setRuleConfigHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		var p struct {
 			AutoSwitchEnabled   *bool    `json:"auto_switch_enabled"`
 			AutoSwitchThreshold *float64 `json:"auto_switch_threshold"`
@@ -392,10 +399,12 @@ func (d *Daemon) registerRPCHandlers() {
 		d.mu.Unlock()
 
 		return map[string]interface{}{"success": true}, nil
-	})
+	}
+	d.Server.Register("swiss.setRuleConfig", setRuleConfigHandler)
+	d.Server.Register("rules.set_config", setRuleConfigHandler)
 
 	// 12. Quota Summary
-	d.Server.Register("swiss.getQuotaSummary", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+	getQuotaSummaryHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		active := d.Keyring.ActiveAccount()
 		now := time.Now()
 		// Realistic Gemini model quota buckets
@@ -430,7 +439,9 @@ func (d *Daemon) registerRPCHandlers() {
 			OverallHealth: quota.ComputeHealth(0.45),
 			LastPolled:    now,
 		}, nil
-	})
+	}
+	d.Server.Register("swiss.getQuotaSummary", getQuotaSummaryHandler)
+	d.Server.Register("quota.get_summary", getQuotaSummaryHandler)
 
 	// 13. Fleet Quota & Per-Account Horizon States
 	d.Server.Register("swiss.getFleetQuota", func(params json.RawMessage) (interface{}, *ipc.RPCError) {

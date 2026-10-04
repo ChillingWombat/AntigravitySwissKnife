@@ -36,6 +36,10 @@ from antigravity_swiss.core.constants import (
     MD3_LIGHT_TEXT_SECONDARY,
 )
 from antigravity_swiss.gui.pages.account_switcher_tool import AccountSwitcherToolPage
+from antigravity_swiss.gui.pages.app_enhancements import AppEnhancementsPage
+from antigravity_swiss.gui.pages.archived_projects import ArchivedProjectsPage
+from antigravity_swiss.gui.pages.custom_models import CustomModelsPage
+from antigravity_swiss.gui.pages.scheduled_templates import ScheduledTemplatesPage
 from antigravity_swiss.gui.pages.system_settings import SystemSettingsPage
 from antigravity_swiss.gui.pages.tools_marketplace import ToolsMarketplacePage
 from antigravity_swiss.gui.styles import GEMINI_QSS
@@ -122,11 +126,27 @@ class MainWindow(QMainWindow):
         self.page_account_switcher = AccountSwitcherToolPage(self.controller, self)
         self.tool_stack.addWidget(self.page_account_switcher)
 
-        # Tool 1: Tools Marketplace / Extensions
+        # Tool 1: App Enhancements & Usability
+        self.page_enhancements = AppEnhancementsPage(self)
+        self.tool_stack.addWidget(self.page_enhancements)
+
+        # Tool 2: Custom Model Providers (BYOM)
+        self.page_custom_models = CustomModelsPage(self)
+        self.tool_stack.addWidget(self.page_custom_models)
+
+        # Tool 3: Scheduled Agent Templates
+        self.page_scheduled_templates = ScheduledTemplatesPage(self)
+        self.tool_stack.addWidget(self.page_scheduled_templates)
+
+        # Tool 4: Tools Marketplace / Extensions
         self.page_marketplace = ToolsMarketplacePage(self)
         self.tool_stack.addWidget(self.page_marketplace)
 
-        # Tool 2: System Settings
+        # Tool 5: Archived & Hidden Projects
+        self.page_archived_projects = ArchivedProjectsPage(self)
+        self.tool_stack.addWidget(self.page_archived_projects)
+
+        # Tool 6: System Settings (Pinned at bottom-left of GUI)
         self.page_system = SystemSettingsPage(self.controller, self)
         self.tool_stack.addWidget(self.page_system)
 
@@ -138,7 +158,7 @@ class MainWindow(QMainWindow):
 
     def _open_system_settings_page(self) -> None:
         """Switches to System Settings tool and selects settings in nav rail."""
-        self.nav_rail.set_current_index(2)
+        self.nav_rail.set_current_index(6)
 
     def _on_tool_selected(self, index: int) -> None:
         if 0 <= index < self.tool_stack.count():

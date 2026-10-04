@@ -30,6 +30,7 @@ class AccountQuotaState:
     quota_5h_current: float   # Current remaining 5h fraction [0.0, 1.0]
     reset_seconds: float      # Seconds remaining until next 5h quota reset
     quota_weekly: float       # Current remaining weekly fraction [0.0, 1.0]
+    plan_tier: str = "Free"   # Subscription membership tier (Free, Plus, Pro, Pro - Trial, Edu, Ultra 5X/10X/20X)
 
     @property
     def hours_until_reset(self) -> float:
@@ -155,6 +156,22 @@ def build_account_quota_states(
             cur_sec = base_sec
             cur_weekly = base_weekly
 
+        # Extract plan tier or default based on account metadata/label
+        explicit_tier = str(acc.get("plan_tier", "")).strip()
+        if not explicit_tier:
+            if "ultra" in label.lower() or "ultra" in email.lower():
+                explicit_tier = "Ultra 20X"
+            elif "edu" in label.lower() or "edu" in email.lower():
+                explicit_tier = "Edu"
+            elif "trial" in label.lower():
+                explicit_tier = "Pro - Trial"
+            elif "pro" in label.lower() or "dev" in email.lower() or "lead" in label.lower():
+                explicit_tier = "Pro"
+            elif "plus" in label.lower() or "backup" in label.lower():
+                explicit_tier = "Plus"
+            else:
+                explicit_tier = "Pro" if is_active else "Free"
+
         results.append(
             AccountQuotaState(
                 email=email,
@@ -167,6 +184,7 @@ def build_account_quota_states(
                 quota_5h_current=cur_5h,
                 reset_seconds=cur_sec,
                 quota_weekly=cur_weekly,
+                plan_tier=explicit_tier,
             )
         )
 

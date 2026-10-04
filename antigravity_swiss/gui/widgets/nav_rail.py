@@ -103,7 +103,11 @@ class NavigationRail(QFrame):
         # Navigation Items (Google AI Studio pill nav items)
         items = [
             ("Account Switcher", 0),
-            ("Tools Marketplace", 1),
+            ("App Enhancements", 1),
+            ("Custom Models", 2),
+            ("Scheduled Templates", 3),
+            ("Tools Marketplace", 4),
+            ("Archived Projects", 5),
         ]
 
         for label, idx in items:
@@ -185,7 +189,7 @@ class NavigationRail(QFrame):
                 font-weight: 600;
             }}
         """)
-        self.btn_system_settings.clicked.connect(lambda: self.set_current_index(2))
+        self.btn_system_settings.clicked.connect(lambda: self.set_current_index(6))
         layout.addWidget(self.btn_system_settings)
 
         self._update_button_styles()
@@ -202,7 +206,7 @@ class NavigationRail(QFrame):
             btn.style().unpolish(btn)
             btn.style().polish(btn)
 
-        is_settings_active = (self._current_index == 2)
+        is_settings_active = (self._current_index == 6)
         self.btn_system_settings.setProperty("active", "true" if is_settings_active else "false")
         self.btn_system_settings.style().unpolish(self.btn_system_settings)
         self.btn_system_settings.style().polish(self.btn_system_settings)

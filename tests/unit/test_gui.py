@@ -239,21 +239,37 @@ def test_switcher_settings_page(qapp, mock_controller):
 def test_main_window_full_integration(qapp, mock_controller):
     """Test complete MainWindow with rail navigation and ribbon switching."""
     window = MainWindow(controller=mock_controller)
-    assert window.tool_stack.count() == 3
+    assert window.tool_stack.count() == 7
     assert hasattr(window, "v_separator")
     assert window.v_separator.frameShape() == QFrame.Shape.VLine
     assert window.v_separator.width() == 1 or window.v_separator.maximumWidth() == 1
 
-    # Switch to Marketplace
+    # Switch to App Enhancements (index 1)
     window.nav_rail.set_current_index(1)
     assert window.tool_stack.currentIndex() == 1
 
-    # Switch to Settings via bottom-right button
-    assert hasattr(window, "btn_system_settings")
-    window.btn_system_settings.click()
+    # Switch to Custom Models (index 2)
+    window.nav_rail.set_current_index(2)
     assert window.tool_stack.currentIndex() == 2
 
-    # Switch back to Account Switcher
+    # Switch to Scheduled Templates (index 3)
+    window.nav_rail.set_current_index(3)
+    assert window.tool_stack.currentIndex() == 3
+
+    # Switch to Marketplace (index 4)
+    window.nav_rail.set_current_index(4)
+    assert window.tool_stack.currentIndex() == 4
+
+    # Switch to Archived Projects (index 5)
+    window.nav_rail.set_current_index(5)
+    assert window.tool_stack.currentIndex() == 5
+
+    # Switch to Settings via bottom button (index 6)
+    assert hasattr(window, "btn_system_settings")
+    window.btn_system_settings.click()
+    assert window.tool_stack.currentIndex() == 6
+
+    # Switch back to Account Switcher (index 0)
     window.nav_rail.set_current_index(0)
     assert window.tool_stack.currentIndex() == 0
 

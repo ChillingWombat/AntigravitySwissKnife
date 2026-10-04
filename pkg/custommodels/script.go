@@ -116,7 +116,11 @@ func GenerateCustomModelsScript(cfg *Config) string {
               trigger.setAttribute("data-swiss-native-label", label.textContent.trim());
             }
             trigger.setAttribute("data-swiss-custom-bound", activeCustomModel.id);
-            label.textContent = activeCustomModel.display_name + " \u25be";
+            const cleanActiveName = (activeCustomModel.display_name || "")
+              .replace(/\s*\((Anthropic|OpenAI)\)/gi, "")
+              .replace(/^(OpenAI|Anthropic)\s+/gi, "")
+              .trim();
+            label.textContent = cleanActiveName + " \u25be";
           }
         } else if (trigger.hasAttribute("data-swiss-custom-bound")) {
           trigger.removeAttribute("data-swiss-custom-bound");
@@ -246,8 +250,13 @@ func GenerateCustomModelsScript(cfg *Config) string {
 
             const providerLabel = formatProvider(m.provider_type);
 
+            const cleanDisplayName = (m.display_name || "")
+              .replace(/\s*\((Anthropic|OpenAI)\)/gi, "")
+              .replace(/^(OpenAI|Anthropic)\s+/gi, "")
+              .trim();
+
             itemEl.innerHTML = '<span class="flex items-center gap-1.5 min-w-0 flex-1 truncate" style="display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow: hidden;">' +
-              '<span class="truncate text-xs text-left" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 400; color: inherit;">' + m.display_name + '</span>' +
+              '<span class="truncate text-xs text-left" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 400; color: inherit;">' + cleanDisplayName + '</span>' +
               '</span>' +
               '<span style="display: flex; align-items: center; gap: 4px; flex-shrink: 0; padding-left: 8px;">' +
               (quotaText ? '<span style="font-size: 11px; color: var(--muted-foreground, #64748b); opacity: 0.75; font-weight: 400; white-space: nowrap;">' + quotaText + '</span>' : '') +
@@ -263,7 +272,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
                 if (!trigger.getAttribute("data-swiss-native-label")) {
                   trigger.setAttribute("data-swiss-native-label", label.textContent.trim());
                 }
-                label.textContent = m.display_name + " \u25be";
+                label.textContent = cleanDisplayName + " \u25be";
                 trigger.setAttribute("data-swiss-custom-bound", m.id);
               }
               try {

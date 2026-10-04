@@ -200,9 +200,9 @@ class QuotaDashboardPage(QWidget):
         f_layout.addLayout(switch_row)
         top_row.addWidget(fleet_card, stretch=5)
 
-        # Card B: Next 5 Hours Quota Progress Ring Card
-        ring_5h_card = QFrame()
-        ring_5h_card.setStyleSheet(f"""
+        # Card B: Merged Total Quota Progress Rings Card
+        total_quota_card = QFrame()
+        total_quota_card.setStyleSheet(f"""
             QFrame {{
                 background-color: {MD3_LIGHT_SURFACE_CONTAINER};
                 border: 1px solid {MD3_LIGHT_OUTLINE};
@@ -210,49 +210,36 @@ class QuotaDashboardPage(QWidget):
                 padding: 16px;
             }}
         """)
-        r5_layout = QVBoxLayout(ring_5h_card)
-        r5_layout.setSpacing(6)
-        r5_title = QLabel("NEXT 5 HOURS QUOTA")
-        r5_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        r5_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
-        r5_layout.addWidget(r5_title)
+        tq_layout = QVBoxLayout(total_quota_card)
+        tq_layout.setSpacing(6)
+        tq_title = QLabel("TOTAL QUOTA")
+        tq_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tq_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
+        tq_layout.addWidget(tq_title)
+
+        rings_row = QHBoxLayout()
+        rings_row.setSpacing(24)
 
         self._ring_5h = CircularGauge(
             model_name="5h Available",
             fraction=1.0,
-            reset_text="Weighted reset horizon",
+            reset_text="",
             parent=self,
         )
         self._gauges["next_5h"] = self._ring_5h
-        r5_layout.addWidget(self._ring_5h, alignment=Qt.AlignmentFlag.AlignCenter)
-        top_row.addWidget(ring_5h_card, stretch=3)
-
-        # Card C: Weekly Horizon Quota Progress Ring Card
-        ring_wk_card = QFrame()
-        ring_wk_card.setStyleSheet(f"""
-            QFrame {{
-                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
-                border: 1px solid {MD3_LIGHT_OUTLINE};
-                border-radius: 12px;
-                padding: 16px;
-            }}
-        """)
-        rw_layout = QVBoxLayout(ring_wk_card)
-        rw_layout.setSpacing(6)
-        rw_title = QLabel("WEEKLY HORIZON QUOTA")
-        rw_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        rw_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
-        rw_layout.addWidget(rw_title)
+        rings_row.addWidget(self._ring_5h, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self._ring_weekly = CircularGauge(
-            model_name="Weekly Left",
+            model_name="Weekly Available",
             fraction=1.0,
-            reset_text="7-day rolling allowance",
+            reset_text="",
             parent=self,
         )
         self._gauges["weekly"] = self._ring_weekly
-        rw_layout.addWidget(self._ring_weekly, alignment=Qt.AlignmentFlag.AlignCenter)
-        top_row.addWidget(ring_wk_card, stretch=3)
+        rings_row.addWidget(self._ring_weekly, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        tq_layout.addLayout(rings_row)
+        top_row.addWidget(total_quota_card, stretch=6)
 
         c_layout.addLayout(top_row)
 
@@ -282,27 +269,29 @@ class QuotaDashboardPage(QWidget):
         t_header_hbox.addWidget(hint_lbl)
         t_vbox.addLayout(t_header_hbox)
 
-        self._table = QTableWidget(0, 6)
+        self._table = QTableWidget(0, 7)
         self._table.setFrameShape(QFrame.Shape.NoFrame)
         self._table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._table.setHorizontalHeaderLabels([
             "Account Identity",
+            "Plan Tier",
             "Status",
             "Next 5h Quota",
-            "Weekly Quota Left",
+            "Weekly Available",
             "Reset Horizon",
             "Action",
         ])
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self._table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
         self._table.horizontalHeader().setStretchLastSection(False)
-        self._table.horizontalHeader().setMinimumSectionSize(110)
+        self._table.horizontalHeader().setMinimumSectionSize(100)
         self._table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
         self._table.setAlternatingRowColors(True)
@@ -403,6 +392,43 @@ class QuotaDashboardPage(QWidget):
         except Exception as exc:
             self._last_poll_label.setText(f"Sync error: {exc}")
 
+    def _create_plan_tier_badge(self, tier: str) -> QWidget:
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        t = (tier or "Free").strip()
+        lbl = QLabel(t)
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        if t == "Plus":
+            bg, fg, border = "#e6f4ea", "#137333", "#ceead6"
+        elif t == "Pro":
+            bg, fg, border = "#e8f0fe", "#1a73e8", "#d2e3fc"
+        elif t == "Pro - Trial":
+            bg, fg, border = "#e0f7fa", "#007b83", "#b2ebf2"
+        elif t == "Edu":
+            bg, fg, border = "#ede7f6", "#512da8", "#d1c4e9"
+        elif "Ultra" in t:
+            bg, fg, border = "#f3e8fd", "#7b1fa2", "#e1bee7"
+        else:
+            bg, fg, border = "#f1f3f4", "#5f6368", "#dadce0"
+
+        lbl.setStyleSheet(f"""
+            QLabel {{
+                background-color: {bg};
+                color: {fg};
+                border: 1px solid {border};
+                border-radius: 10px;
+                padding: 3px 10px;
+                font-size: 11px;
+                font-weight: 600;
+            }}
+        """)
+        layout.addWidget(lbl)
+        return container
+
     def refresh_quota(self) -> None:
         """Calculates fleet quota metrics and repopulates the accounts table."""
         try:
@@ -422,10 +448,10 @@ class QuotaDashboardPage(QWidget):
             self._total_accounts_lbl.setText(f"{total_count} Account{'s' if total_count != 1 else ''} Managed")
 
             self._ring_5h.fraction = fleet_5h
-            self._ring_5h.reset_text = f"Synthesized from {total_count} accounts"
+            self._ring_5h.reset_text = ""
 
             self._ring_weekly.fraction = fleet_weekly
-            self._ring_weekly.reset_text = "7-day rolling allowance"
+            self._ring_weekly.reset_text = ""
 
             # Update Dropdown
             self._account_combo.clear()
@@ -447,27 +473,31 @@ class QuotaDashboardPage(QWidget):
                 item_name.setFont(self.font())
                 self._table.setItem(r, 0, item_name)
 
-                # Col 1: Status Pill
+                # Col 1: Plan Tier Badge
+                tier_badge = self._create_plan_tier_badge(getattr(acc, "plan_tier", "Free"))
+                self._table.setCellWidget(r, 1, tier_badge)
+
+                # Col 2: Status Pill
                 status_text = "ACTIVE" if acc.is_active else acc.status
                 item_status = QTableWidgetItem(status_text)
                 if acc.is_active:
                     item_status.setForeground(Qt.GlobalColor.darkGreen)
-                self._table.setItem(r, 1, item_status)
+                self._table.setItem(r, 2, item_status)
 
-                # Col 2: 5h Available Quota (Horizontal Bar + Text %)
+                # Col 3: 5h Available Quota (Horizontal Bar + Text %)
                 bar_5h_widget = AccountQuotaBarWidget(acc.quota_5h_available)
-                self._table.setCellWidget(r, 2, bar_5h_widget)
+                self._table.setCellWidget(r, 3, bar_5h_widget)
 
-                # Col 3: Weekly Quota Left (Horizontal Bar + Text %)
+                # Col 4: Weekly Available (Horizontal Bar + Text %)
                 bar_wk_widget = AccountQuotaBarWidget(acc.quota_weekly)
-                self._table.setCellWidget(r, 3, bar_wk_widget)
+                self._table.setCellWidget(r, 4, bar_wk_widget)
 
-                # Col 4: Reset Horizon Text
+                # Col 5: Reset Horizon Text
                 item_reset = QTableWidgetItem(acc.reset_horizon_text)
-                self._table.setItem(r, 4, item_reset)
+                self._table.setItem(r, 5, item_reset)
 
-                # Col 5: Manage Button
-                btn_manage = QPushButton("Edit Details")
+                # Col 6: Manage Button
+                btn_manage = QPushButton("Edit")
                 btn_manage.setStyleSheet(f"""
                     QPushButton {{
                         background-color: {MD3_LIGHT_SURFACE_CONTAINER_HIGH};
@@ -485,7 +515,7 @@ class QuotaDashboardPage(QWidget):
                 # Capture row index
                 row_idx = r
                 btn_manage.clicked.connect(lambda checked=False, idx=row_idx: self._open_account_detail(idx))
-                self._table.setCellWidget(r, 5, btn_manage)
+                self._table.setCellWidget(r, 6, btn_manage)
                 self._table.setRowHeight(r, 48)
 
             self._adjust_table_height()

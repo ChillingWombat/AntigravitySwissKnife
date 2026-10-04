@@ -149,7 +149,7 @@ func SamplePresetModels() []CustomModel {
 		{
 			ID:              "openai-gpt4o",
 			Name:            "gpt-4o",
-			DisplayName:     "OpenAI GPT-4o",
+			DisplayName:     "GPT-4o",
 			ProviderType:    ProviderOpenAI,
 			BaseURL:         "https://api.openai.com/v1",
 			APIKey:          "sk-demo-key-configured",
@@ -167,7 +167,7 @@ func SamplePresetModels() []CustomModel {
 		{
 			ID:              "anthropic-claude-37",
 			Name:            "claude-3-7-sonnet-20250219",
-			DisplayName:     "Claude 3.7 Sonnet (Anthropic)",
+			DisplayName:     "Claude 3.7 Sonnet",
 			ProviderType:    ProviderAnthropic,
 			BaseURL:         "https://api.anthropic.com/v1",
 			APIKey:          "sk-ant-demo-key",
@@ -185,7 +185,7 @@ func SamplePresetModels() []CustomModel {
 		{
 			ID:              "ollama-local-llama3",
 			Name:            "llama3.3:70b",
-			DisplayName:     "Ollama Llama 3.3 (Local)",
+			DisplayName:     "Llama 3.3 70B (Local)",
 			ProviderType:    ProviderLocal,
 			BaseURL:         "http://localhost:11434/v1",
 			APIKey:          "",
