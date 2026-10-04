@@ -249,3 +249,46 @@ func TestTester_EndpointResponses(t *testing.T) {
 		t.Errorf("expected 401 status code, got %d", resFail.StatusCode)
 	}
 }
+
+func TestGenerateCustomModelsScript_CategoryHeaders(t *testing.T) {
+	cfg := &Config{
+		Models: []CustomModel{
+			{
+				ID:           "test-model",
+				Name:         "gpt-4o",
+				DisplayName:  "GPT-4o",
+				ProviderType: ProviderOpenAI,
+				Enabled:      true,
+			},
+		},
+	}
+	script := GenerateCustomModelsScript(cfg)
+
+	// Verify "Native Model" header renaming logic is present
+	if !containsSubstring(script, `"Native Model"`) {
+		t.Errorf("expected script to contain 'Native Model', got none")
+	}
+
+	// Verify "Custom Model" header text is present
+	if !containsSubstring(script, `customHeader.textContent = "Custom Model"`) {
+		t.Errorf("expected script to set customHeader.textContent to 'Custom Model'")
+	}
+
+	// Verify model-selector-header data-testid lookup is present
+	if !containsSubstring(script, `model-selector-header`) {
+		t.Errorf("expected script to target 'model-selector-header'")
+	}
+}
+
+func containsSubstring(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || (len(s) > 0 && len(substr) > 0 && stringSearch(s, substr)))
+}
+
+func stringSearch(s, substr string) bool {
+	for i := 0; i+len(substr) <= len(s); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

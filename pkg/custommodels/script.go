@@ -146,6 +146,24 @@ func GenerateCustomModelsScript(cfg *Config) string {
       });
 
       if (!isModelMenu) return;
+
+      // Rename factory category header "Model" to "Native Model"
+      const nativeHeader = popover.querySelector('[data-testid="model-selector-header"]') ||
+        Array.from(popover.querySelectorAll('div')).find(d => {
+          const t = (d.textContent || "").trim();
+          return d.children.length === 0 && (t === "Model" || t === "Native Models");
+        });
+      if (nativeHeader && nativeHeader.textContent.trim() !== "Native Model") {
+        nativeHeader.textContent = "Native Model";
+      }
+
+      // Rename existing custom category header to "Custom Model"
+      const existingCustomHeader = popover.querySelector('[data-testid="custom-models-header"]');
+      if (existingCustomHeader && existingCustomHeader.textContent.trim() !== "Custom Model") {
+        existingCustomHeader.textContent = "Custom Model";
+      }
+
+      if (popover.__swissCustomGrouped) return;
       popover.__swissCustomGrouped = true;
 
       function formatProvider(pt) {
@@ -196,7 +214,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
 
       const parentEl = menuItems[0]?.parentElement;
       if (parentEl) {
-        // Create "Custom Models" container
+        // Create "Custom Model" container
         const customContainer = document.createElement("div");
         customContainer.className = "swiss-custom-models-menu-group";
 
@@ -210,7 +228,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
         const customHeader = document.createElement("div");
         customHeader.setAttribute("data-testid", "custom-models-header");
         customHeader.className = "text-xs px-2 pt-1 pb-1 text-muted-foreground font-medium select-none";
-        customHeader.textContent = "Custom Models";
+        customHeader.textContent = "Custom Model";
         customHeader.style.cssText = "padding: 3px 8px 3px 8px; font-size: 12px; font-weight: 500; color: var(--muted-foreground, #71717a); user-select: none;";
         customContainer.appendChild(customHeader);
 
@@ -330,7 +348,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
       section.__lastConfigKey = configKey;
 
       let html = '<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">' +
-        '<div style="font-size: 13px; font-weight: 500; color: var(--foreground, #101010);">Custom Models</div>' +
+        '<div style="font-size: 13px; font-weight: 500; color: var(--foreground, #101010);">Custom Model</div>' +
         '<span style="font-size: 11px; color: var(--muted-foreground, #64748b); font-weight: 400; background: var(--secondary, rgba(0,0,0,0.06)); padding: 2px 8px; border-radius: 9999px;">Custom Endpoints</span>' +
         '</div>';
 
