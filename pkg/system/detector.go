@@ -1,0 +1,266 @@
+package system
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"sync"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/process"
+)
+
+const (
+	LatestDesktopVersion   = "2.19.1"
+	LatestExtensionVersion = "1.6.0"
+)
+
+// InstallationInfo represents installation and update status for a component.
+type InstallationInfo struct {
+	Installed     bool   `json:"installed"`
+	Path          string `json:"path"`
+	Version       string `json:"version"`
+	UpToDate      bool   `json:"up_to_date"`
+	LatestVersion string `json:"latest_version"`
+	ProcessState  string `json:"process_state,omitempty"`
+	TargetType    string `json:"target_type"`
+}
+
+// SystemInstallations aggregates installation status for both the desktop app and VS Code extension.
+type SystemInstallations struct {
+	DesktopApp      InstallationInfo `json:"desktop_app"`
+	VSCodeExtension InstallationInfo `json:"vscode_extension"`
+	Platform        string           `json:"platform"`
+	Arch            string           `json:"arch"`
+}
+
+// Detector handles cross-platform detection of Antigravity installations and updates.
+type Detector struct {
+	mu           sync.RWMutex
+	lastResult   *SystemInstallations
+	processShield *process.Shield
+}
+
+// NewDetector initializes a new system detector.
+func NewDetector() *Detector {
+	return &Detector{
+		processShield: process.NewShield(0),
+	}
+}
+
+// DetectAll scans the host system for Antigravity Desktop App and VS Code Extension.
+func (d *Detector) DetectAll() *SystemInstallations {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	desktop := d.detectDesktopApp()
+	extension := d.detectVSCodeExtension()
+
+	res := &SystemInstallations{
+		DesktopApp:      desktop,
+		VSCodeExtension: extension,
+		Platform:        runtime.GOOS,
+		Arch:            runtime.GOARCH,
+	}
+
+	d.lastResult = res
+	return res
+}
+
+// CheckUpdates performs a re-scan and updates version check.
+func (d *Detector) CheckUpdates() (*SystemInstallations, error) {
+	return d.DetectAll(), nil
+}
+
+func (d *Detector) detectDesktopApp() InstallationInfo {
+	appPath := core.GetAntigravityDesktopAppPath()
+	resDir := core.GetAntigravityDesktopResourcesDir()
+
+	info := InstallationInfo{
+		Installed:     false,
+		Path:          appPath,
+		Version:       "",
+		UpToDate:      false,
+		LatestVersion: LatestDesktopVersion,
+		TargetType:    "desktop_app",
+		ProcessState:  "Stopped",
+	}
+
+	// 1. Check if executable / bundle or resources dir exists
+	appExists := pathExists(appPath)
+	resExists := pathExists(resDir)
+
+	if !appExists && !resExists {
+		// Try fallback common paths
+		fallbacks := []string{
+			"/opt/Antigravity",
+			"/usr/lib/Antigravity",
+			filepath.Join(os.Getenv("HOME"), "Applications", "Antigravity.app"),
+		}
+		for _, fb := range fallbacks {
+			if pathExists(fb) {
+				appPath = fb
+				appExists = true
+				break
+			}
+		}
+	}
+
+	if appExists || resExists {
+		info.Installed = true
+		info.Path = appPath
+
+		// Attempt to extract version from package.json
+		version := readPackageJSONVersion(
+			filepath.Join(resDir, "app", "package.json"),
+			filepath.Join(resDir, "package.json"),
+			filepath.Join(appPath, "resources", "app", "package.json"),
+			filepath.Join(appPath, "resources", "package.json"),
+			filepath.Join(appPath, "package.json"),
+		)
+
+		if version == "" {
+			// Fallback to active release baseline if detected
+			version = LatestDesktopVersion
+		}
+
+		info.Version = version
+		info.UpToDate = compareVersions(version, LatestDesktopVersion) >= 0
+	}
+
+	// Check running process state
+	if d.processShield != nil {
+		if procs, err := d.processShield.FindAntigravityProcesses(); err == nil && len(procs) > 0 {
+			info.ProcessState = fmt.Sprintf("Running (PID %d)", procs[0].PID)
+		}
+	}
+
+	return info
+}
+
+func (d *Detector) detectVSCodeExtension() InstallationInfo {
+	info := InstallationInfo{
+		Installed:     false,
+		Path:          "",
+		Version:       "",
+		UpToDate:      false,
+		LatestVersion: LatestExtensionVersion,
+		TargetType:    "vscode_extension",
+	}
+
+	candidateDirs := core.GetVSCodeExtensionsDirs()
+
+	for _, parentDir := range candidateDirs {
+		if !pathExists(parentDir) {
+			continue
+		}
+
+		entries, err := os.ReadDir(parentDir)
+		if err != nil {
+			continue
+		}
+
+		// Look for google.google-antigravity-* or google.antigravity-*
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			name := entry.Name()
+			if strings.HasPrefix(name, "google.google-antigravity-") ||
+				strings.HasPrefix(name, "google.antigravity-") ||
+				strings.Contains(name, "antigravity") {
+				extPath := filepath.Join(parentDir, name)
+				pkgJSON := filepath.Join(extPath, "package.json")
+				version := ""
+				if data, err := os.ReadFile(pkgJSON); err == nil {
+					var pkg struct {
+						Version string `json:"version"`
+					}
+					if err := json.Unmarshal(data, &pkg); err == nil && pkg.Version != "" {
+						version = pkg.Version
+					}
+				}
+
+				if version == "" {
+					// Extract version from directory name e.g. google.google-antigravity-1.6.0
+					parts := strings.Split(name, "-")
+					if len(parts) > 1 {
+						last := parts[len(parts)-1]
+						if strings.Count(last, ".") >= 1 {
+							version = last
+						}
+					}
+				}
+
+				if version == "" {
+					version = LatestExtensionVersion
+				}
+
+				info.Installed = true
+				info.Path = extPath
+				info.Version = version
+				info.UpToDate = compareVersions(version, LatestExtensionVersion) >= 0
+				return info
+			}
+		}
+	}
+
+	return info
+}
+
+func readPackageJSONVersion(paths ...string) string {
+	for _, p := range paths {
+		if data, err := os.ReadFile(p); err == nil {
+			var pkg struct {
+				Version string `json:"version"`
+			}
+			if err := json.Unmarshal(data, &pkg); err == nil && pkg.Version != "" {
+				return pkg.Version
+			}
+		}
+	}
+	return ""
+}
+
+func pathExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// compareVersions returns 1 if v1 > v2, -1 if v1 < v2, 0 if v1 == v2.
+func compareVersions(v1, v2 string) int {
+	v1 = strings.TrimPrefix(v1, "v")
+	v2 = strings.TrimPrefix(v2, "v")
+
+	parts1 := strings.Split(v1, ".")
+	parts2 := strings.Split(v2, ".")
+
+	maxLen := len(parts1)
+	if len(parts2) > maxLen {
+		maxLen = len(parts2)
+	}
+
+	for i := 0; i < maxLen; i++ {
+		var num1, num2 int
+		if i < len(parts1) {
+			num1, _ = strconv.Atoi(parts1[i])
+		}
+		if i < len(parts2) {
+			num2, _ = strconv.Atoi(parts2[i])
+		}
+		if num1 > num2 {
+			return 1
+		}
+		if num1 < num2 {
+			return -1
+		}
+	}
+	return 0
+}

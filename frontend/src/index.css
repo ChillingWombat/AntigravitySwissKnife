@@ -1,0 +1,187 @@
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap');
+
+:root {
+  --canvas: #f8fafd;
+  --surface: #ffffff;
+  --border: #e0e2e5;
+  --border-subtle: #f0f2f5;
+  --primary: #0b57d0;
+  --primary-hover: #0842a0;
+  --primary-container: #c2e7ff;
+  --on-primary-container: #041e49;
+  --tonal: #e9eef6;
+  --tonal-hover: #d3e3fd;
+  --text: #1f1f1f;
+  --text-muted: #444746;
+  --text-subtle: #747775;
+  --green: #137333;
+  --green-bg: #e6f4ea;
+  --yellow: #b06000;
+  --yellow-bg: #fef7e0;
+  --red: #b3261e;
+  --red-bg: #fce8e6;
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background-color: var(--canvas);
+  color: var(--text);
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #c4c7c5;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #8e918f;
+}
+
+/* Base button resets and utility classes */
+button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+
+input, select, textarea {
+  font-family: inherit;
+  font-size: 13px;
+  border: 1px solid var(--text-subtle);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: #ffffff;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--primary);
+  border-width: 2px;
+  padding: 7px 11px;
+}
+
+/* Google Pill Button Styles */
+.btn-pill-primary {
+  background-color: var(--primary);
+  color: #ffffff;
+  border-radius: 20px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-pill-primary:hover {
+  background-color: var(--primary-hover);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-pill-tonal {
+  background-color: var(--tonal);
+  color: var(--on-primary-container);
+  border-radius: 20px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-pill-tonal:hover {
+  background-color: var(--tonal-hover);
+}
+
+.btn-pill-outlined {
+  background-color: transparent;
+  color: var(--text);
+  border: 1px solid var(--text-subtle);
+  border-radius: 20px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-pill-outlined:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+  border-color: var(--text);
+}
+
+.btn-pill-danger {
+  background-color: var(--red-bg);
+  color: var(--red);
+  border: 1px solid #fad2cf;
+  border-radius: 20px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-pill-danger:hover {
+  background-color: #fad2cf;
+}
+
+/* Card Surface */
+.google-card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* Chip Badges */
+.badge-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.badge-green {
+  background-color: var(--green-bg);
+  color: var(--green);
+}
+.badge-yellow {
+  background-color: var(--yellow-bg);
+  color: var(--yellow);
+}
+.badge-red {
+  background-color: var(--red-bg);
+  color: var(--red);
+}
+.badge-neutral {
+  background-color: var(--tonal);
+  color: var(--text-muted);
+}

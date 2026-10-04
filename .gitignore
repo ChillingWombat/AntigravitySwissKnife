@@ -1,9 +1,16 @@
 # Dependencies
 node_modules/
 .pnpm-store/
-dist/
+frontend/dist/
 build/
 target/
+
+# Binaries and scratch scripts
+bin/
+scratch/
+
+# Embed web assets exception
+!pkg/webgui/dist/
 
 # Logs
 *.log

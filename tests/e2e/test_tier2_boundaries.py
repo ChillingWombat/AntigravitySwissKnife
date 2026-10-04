@@ -917,9 +917,9 @@ def test_f16_b03_rail_rapid_tab_clicking(qapp):
 
 
 def test_f16_b04_rail_nav_items_count(qapp):
-    """F16 [Boundary]: Navigation rail contains account, marketplace, and settings items."""
+    """F16 [Boundary]: Navigation rail contains account and marketplace items."""
     rail = NavigationRail()
-    assert len(rail._buttons) == 3
+    assert len(rail._buttons) == 2
 
 
 def test_f16_b05_rail_zero_height_window_resize(qapp):

@@ -1,0 +1,389 @@
+package gui
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestHexToRGB(t *testing.T) {
+	tests := []struct {
+		hex     string
+		wantR   int
+		wantG   int
+		wantB   int
+		wantErr bool
+	}{
+		{"#7c3aed", 124, 58, 237, false},
+		{"7c3aed", 124, 58, 237, false},
+		{"#fff", 255, 255, 255, false},
+		{"000", 0, 0, 0, false},
+		{"#0b57d0", 11, 87, 208, false},
+		{"invalid", 0, 0, 0, true},
+		{"#12", 0, 0, 0, true},
+		{"#1234567", 0, 0, 0, true},
+	}
+
+	for _, tt := range tests {
+		r, g, b, err := HexToRGB(tt.hex)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("HexToRGB(%q) error = %v, wantErr %v", tt.hex, err, tt.wantErr)
+			continue
+		}
+		if !tt.wantErr {
+			if r != tt.wantR || g != tt.wantG || b != tt.wantB {
+				t.Errorf("HexToRGB(%q) = (%d, %d, %d), want (%d, %d, %d)", tt.hex, r, g, b, tt.wantR, tt.wantG, tt.wantB)
+			}
+		}
+	}
+}
+
+func TestGenerateCSS(t *testing.T) {
+	// 1. Disabled config
+	disabledCfg := &Config{
+		Enabled:             false,
+		ColorStylingEnabled: true,
+		ProjectColors: map[string]string{
+			"Arbitrager": "#7c3aed",
+		},
+	}
+	css := GenerateCSS(disabledCfg)
+	if !strings.Contains(css, "Disabled") {
+		t.Errorf("Expected disabled notice in CSS, got: %s", css)
+	}
+
+	// 2. Color styling disabled individually
+	colorDisabledCfg := &Config{
+		Enabled:             true,
+		ColorStylingEnabled: false,
+		ProjectColors: map[string]string{
+			"Arbitrager": "#7c3aed",
+		},
+	}
+	css = GenerateCSS(colorDisabledCfg)
+	if !strings.Contains(css, "Disabled") {
+		t.Errorf("Expected disabled notice in CSS when ColorStylingEnabled=false, got: %s", css)
+	}
+
+	// 3. Enabled config with project colors (check NO solid border, check hover options)
+	cfg := &Config{
+		Enabled:              true,
+		ColorStylingEnabled:  true,
+		DragRearrangeEnabled: true,
+		ProjectColors: map[string]string{
+			"Arbitrager":              "#7c3aed",
+			"Antigravity Swiss Knife": "#0b57d0",
+		},
+		TintOpacity: 0.14,
+	}
+	css = GenerateCSS(cfg)
+	if !strings.Contains(css, `[data-swiss-project="Arbitrager"][data-project-card="true"]`) {
+		t.Errorf("CSS missing Arbitrager card selector: %s", css)
+	}
+	if !strings.Contains(css, `[data-swiss-project="Arbitrager"][data-testid="conversation-row-sidebar"]`) {
+		t.Errorf("CSS missing Arbitrager conversation selector: %s", css)
+	}
+	if !strings.Contains(css, `rgba(124, 58, 237, 0.14)`) {
+		t.Errorf("CSS missing light tint rgba: %s", css)
+	}
+	// Verify no left solid border
+	if strings.Contains(css, `border-left: 3px solid`) {
+		t.Errorf("CSS should NOT have solid left border: %s", css)
+	}
+	// Verify hover options gradient styling
+	if !strings.Contains(css, `linear-gradient`) {
+		t.Errorf("CSS missing hover options linear-gradient styling")
+	}
+
+	// 3. Test SolidLeftEdge toggle
+	cfgWithEdge := &Config{
+		Enabled:             true,
+		ColorStylingEnabled: true,
+		SolidLeftEdge:       true,
+		ProjectColors: map[string]string{
+			"Arbitrager": "#7c3aed",
+		},
+	}
+	cssWithEdge := GenerateCSS(cfgWithEdge)
+	if !strings.Contains(cssWithEdge, `border-left: 3px solid #7c3aed`) {
+		t.Errorf("CSS with SolidLeftEdge=true should have solid border-left, got: %s", cssWithEdge)
+	}
+
+	// 4. Test SolidLeftEdge=false
+	cfgWithoutEdge := &Config{
+		Enabled:             true,
+		ColorStylingEnabled: true,
+		SolidLeftEdge:       false,
+		ProjectColors: map[string]string{
+			"Arbitrager": "#7c3aed",
+		},
+	}
+	cssWithoutEdge := GenerateCSS(cfgWithoutEdge)
+	if !strings.Contains(cssWithoutEdge, `border-left: none !important`) {
+		t.Errorf("CSS with SolidLeftEdge=false should have border-left: none, got: %s", cssWithoutEdge)
+	}
+}
+
+func TestGenerateScript(t *testing.T) {
+	cfg := DefaultConfig()
+	script := GenerateScript(cfg)
+	if !strings.Contains(script, "antigravity-swiss-styles") {
+		t.Errorf("Script missing style tag ID")
+	}
+	if !strings.Contains(script, "updateTagsAndDraggables") {
+		t.Errorf("Script missing updateTagsAndDraggables function")
+	}
+	if !strings.Contains(script, "dragstart") {
+		t.Errorf("Script missing dragstart event listener")
+	}
+	if !strings.Contains(script, "MutationObserver") {
+		t.Errorf("Script missing MutationObserver")
+	}
+
+	// Verify Context Menu Polish: Round swatches and rainbow conic-gradient button
+	if !strings.Contains(script, "border-radius: 50%") {
+		t.Errorf("Script missing 50%% round border-radius for swatches")
+	}
+	if !strings.Contains(script, "swiss-custom-trigger") {
+		t.Errorf("Script missing swiss-custom-trigger button ID")
+	}
+	if !strings.Contains(script, "conic-gradient(red, yellow, lime, aqua, blue, magenta, red)") {
+		t.Errorf("Script missing rainbow conic-gradient on custom palette trigger")
+	}
+	if !strings.Contains(script, "swiss-custom-grid-container") {
+		t.Errorf("Script missing swiss-custom-grid-container ID")
+	}
+	if !strings.Contains(script, "display: none") {
+		t.Errorf("Script should have custom grid collapsed (display: none) by default")
+	}
+}
+
+func TestStorePersistence(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "swiss_gui_test_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	// Verify defaults
+	cfg := store.GetConfig()
+	if !cfg.Enabled || !cfg.ColorStylingEnabled || !cfg.DragRearrangeEnabled {
+		t.Errorf("Expected defaults enabled: %+v", cfg)
+	}
+	if cfg.ProjectColors["Arbitrager"] != "#7c3aed" {
+		t.Errorf("Expected default Arbitrager color #7c3aed, got %s", cfg.ProjectColors["Arbitrager"])
+	}
+
+	// Set new color
+	if err := store.SetProjectColor("CustomProject", "#123456"); err != nil {
+		t.Fatalf("SetProjectColor failed: %v", err)
+	}
+
+	cfg = store.GetConfig()
+	if cfg.ProjectColors["CustomProject"] != "#123456" {
+		t.Errorf("Expected CustomProject color #123456, got %s", cfg.ProjectColors["CustomProject"])
+	}
+
+	// Test reordering
+	if err := store.ReorderProject("CustomProject", "Arbitrager"); err != nil {
+		t.Fatalf("ReorderProject failed: %v", err)
+	}
+	cfgReordered := store.GetConfig()
+	if len(cfgReordered.ProjectOrder) == 0 {
+		t.Errorf("ProjectOrder should not be empty")
+	}
+
+	// Check file on disk
+	data, err := os.ReadFile(filepath.Join(tmpDir, "gui_improvements.json"))
+	if err != nil {
+		t.Fatalf("Failed to read config file from disk: %v", err)
+	}
+	if !strings.Contains(string(data), "CustomProject") {
+		t.Errorf("Config file missing CustomProject: %s", string(data))
+	}
+
+	// Test reload from disk
+	storeReloaded, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore reload error: %v", err)
+	}
+	reloadedCfg := storeReloaded.GetConfig()
+	if reloadedCfg.ProjectColors["CustomProject"] != "#123456" {
+		t.Errorf("Reloaded config missing CustomProject color")
+	}
+
+	// Remove project color
+	if err := store.RemoveProjectColor("CustomProject"); err != nil {
+		t.Fatalf("RemoveProjectColor failed: %v", err)
+	}
+	cfgAfterRemove := store.GetConfig()
+	if _, exists := cfgAfterRemove.ProjectColors["CustomProject"]; exists {
+		t.Errorf("CustomProject should have been removed")
+	}
+}
+
+func TestDetectProjects(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "swiss_gui_detect_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	projects, err := store.DetectProjects()
+	if err != nil {
+		t.Fatalf("DetectProjects failed: %v", err)
+	}
+
+	foundArbitrager := false
+	for _, p := range projects {
+		if p.Name == "Arbitrager" {
+			foundArbitrager = true
+			if p.Color != "#7c3aed" {
+				t.Errorf("Expected Arbitrager color #7c3aed, got %s", p.Color)
+			}
+			if !p.IsConfigured {
+				t.Errorf("Expected Arbitrager IsConfigured=true")
+			}
+		}
+	}
+
+	if !foundArbitrager {
+		t.Errorf("DetectProjects should have returned Arbitrager")
+	}
+}
+
+func TestLiveInjection(t *testing.T) {
+	inj := NewInjector(0)
+	_, err := inj.FindDevToolsPort()
+	if err != nil {
+		t.Skip("Antigravity DevTools not running, skipping live injection test")
+	}
+	res, err := inj.ApplyConfig(DefaultConfig())
+	if err != nil {
+		t.Fatalf("Live injection failed: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Expected success, got: %+v", res)
+	}
+	t.Logf("Live injection succeeded: %+v", res)
+}
+
+func TestFormatRelativeTime(t *testing.T) {
+	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name     string
+		t        time.Time
+		expected string
+	}{
+		{"Zero time", time.Time{}, "No conversations"},
+		{"Just now", now.Add(-20 * time.Second), "Just now"},
+		{"1 minute ago", now.Add(-1 * time.Minute), "1 minute ago"},
+		{"25 minutes ago", now.Add(-25 * time.Minute), "25 minutes ago"},
+		{"59 minutes ago", now.Add(-59 * time.Minute), "59 minutes ago"},
+		{"1 hour ago (promoted at 60m)", now.Add(-60 * time.Minute), "1 hour ago"},
+		{"5 hours ago", now.Add(-5 * time.Hour), "5 hours ago"},
+		{"23 hours ago", now.Add(-23 * time.Hour), "23 hours ago"},
+		{"1 day ago (promoted at 24h)", now.Add(-24 * time.Hour), "1 day ago"},
+		{"5 days ago", now.Add(-5 * 24 * time.Hour), "5 days ago"},
+		{"29 days ago", now.Add(-29 * 24 * time.Hour), "29 days ago"},
+		{"1 month ago (promoted at 30d)", now.Add(-30 * 24 * time.Hour), "1 month ago"},
+		{"6 months ago", now.Add(-180 * 24 * time.Hour), "6 months ago"},
+		{"11 months ago", now.Add(-350 * 24 * time.Hour), "11 months ago"},
+		{"1 year ago (promoted at 365d)", now.Add(-365 * 24 * time.Hour), "1 year ago"},
+		{"2 years ago", now.Add(-730 * 24 * time.Hour), "2 years ago"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FormatRelativeTime(tc.t, now)
+			if got != tc.expected {
+				t.Errorf("FormatRelativeTime(%v) = %q, expected %q", tc.t, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestArchiveAndRestoreProject(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "swiss_gui_archive_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	// Archive a project
+	if err := store.ArchiveProject("TestProject"); err != nil {
+		t.Fatalf("ArchiveProject failed: %v", err)
+	}
+
+	cfg := store.GetConfig()
+	if len(cfg.ArchivedProjects) != 1 || cfg.ArchivedProjects[0] != "TestProject" {
+		t.Fatalf("Expected TestProject to be archived, got: %v", cfg.ArchivedProjects)
+	}
+
+	// Archive same project again (idempotent)
+	if err := store.ArchiveProject("TestProject"); err != nil {
+		t.Fatalf("ArchiveProject idempotent failed: %v", err)
+	}
+	if len(store.GetConfig().ArchivedProjects) != 1 {
+		t.Errorf("Expected 1 archived project after duplicate archive call")
+	}
+
+	// Get archived projects list
+	archivedList, err := store.GetArchivedProjects()
+	if err != nil {
+		t.Fatalf("GetArchivedProjects failed: %v", err)
+	}
+	if len(archivedList) != 1 || archivedList[0].Name != "TestProject" {
+		t.Errorf("Unexpected archived list: %+v", archivedList)
+	}
+
+	// Restore project
+	if err := store.RestoreProject("TestProject"); err != nil {
+		t.Fatalf("RestoreProject failed: %v", err)
+	}
+	if len(store.GetConfig().ArchivedProjects) != 0 {
+		t.Errorf("Expected 0 archived projects after restore")
+	}
+
+	// Archive and delete project
+	_ = store.ArchiveProject("DeleteMe")
+	if err := store.DeleteProject("DeleteMe"); err != nil {
+		t.Fatalf("DeleteProject failed: %v", err)
+	}
+	if len(store.GetConfig().ArchivedProjects) != 0 {
+		t.Errorf("Expected 0 archived projects after delete")
+	}
+}
+
+func TestArchivedCSS(t *testing.T) {
+	cfg := &Config{
+		Enabled:             true,
+		ColorStylingEnabled: true,
+		ArchivedProjects:    []string{"HiddenProject"},
+	}
+	css := GenerateCSS(cfg)
+	if !strings.Contains(css, `[data-swiss-project="HiddenProject"]`) {
+		t.Errorf("Expected hidden project selector in CSS, got: %s", css)
+	}
+	if !strings.Contains(css, `display: none !important;`) {
+		t.Errorf("Expected display: none !important in CSS for hidden project")
+	}
+}

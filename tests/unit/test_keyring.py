@@ -161,3 +161,26 @@ def test_account_store_facade(temp_dir):
     assert listed[0]["email"] == "accA@gmail.com"
     assert listed[0]["is_active"] is True
     assert listed[0]["status"] == "ACTIVE"
+
+
+def test_account_record_plan_tier(temp_dir):
+    """Verify AccountRecord and AccountStore correctly preserve and update plan_tier."""
+    vault_file = Path(temp_dir) / "store" / "accounts_tier.json"
+    store = AccountStore(accounts_file=vault_file)
+
+    cred = KeyringCredential("tokTier", "refTier")
+    rec = store.add_or_update("tier@gmail.com", cred, label="Tier Account", plan_tier="Pro")
+    assert rec.plan_tier == "Pro"
+
+    listed = store.list_accounts()
+    assert len(listed) == 1
+    assert listed[0]["plan_tier"] == "Pro"
+
+    # Update plan tier
+    updated = store.update_account("tier@gmail.com", plan_tier="Ultra 20X")
+    assert updated is True
+    acc = store.get_account("tier@gmail.com")
+    assert acc is not None
+    assert acc.plan_tier == "Ultra 20X"
+    assert store.list_accounts()[0]["plan_tier"] == "Ultra 20X"
+

@@ -36,6 +36,18 @@ from antigravity_swiss.core.constants import (
     MD3_COLOR_EXHAUSTED,
     MD3_COLOR_HEALTHY,
     MD3_COLOR_WARNING,
+    MD3_LIGHT_ACCENT_CONTAINER,
+    MD3_LIGHT_ACCENT_ON_CONTAINER,
+    MD3_LIGHT_ACCENT_PRIMARY,
+    MD3_LIGHT_COLOR_EXHAUSTED,
+    MD3_LIGHT_COLOR_HEALTHY,
+    MD3_LIGHT_COLOR_WARNING,
+    MD3_LIGHT_OUTLINE,
+    MD3_LIGHT_SURFACE,
+    MD3_LIGHT_SURFACE_CONTAINER,
+    MD3_LIGHT_SURFACE_CONTAINER_HIGH,
+    MD3_LIGHT_TEXT_PRIMARY,
+    MD3_LIGHT_TEXT_SECONDARY,
     MD3_OUTLINE,
     MD3_SURFACE_CONTAINER,
     MD3_SURFACE_CONTAINER_HIGH,
@@ -86,9 +98,9 @@ class MfaVaultPage(QWidget):
         auth_card = QFrame()
         auth_card.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 12px;
                 padding: 20px;
             }}
         """)
@@ -96,16 +108,16 @@ class MfaVaultPage(QWidget):
         ac_layout.setSpacing(14)
 
         card_title = QLabel("LIVE MFA / TOTP AUTHENTICATOR")
-        card_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_TEXT_SECONDARY}; letter-spacing: 1px;")
+        card_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
         ac_layout.addWidget(card_title)
 
         # Live Code Display Box
         code_box = QFrame()
         code_box.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER_HIGH};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 12px;
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 8px;
                 padding: 16px;
             }}
         """)
@@ -124,7 +136,7 @@ class MfaVaultPage(QWidget):
         code_vbox.setSpacing(2)
 
         self._target_account_lbl = QLabel("Select an account below")
-        self._target_account_lbl.setStyleSheet(f"font-size: 13px; font-weight: 500; color: {MD3_TEXT_SECONDARY};")
+        self._target_account_lbl.setStyleSheet(f"font-size: 13px; font-weight: 500; color: {MD3_LIGHT_TEXT_SECONDARY};")
         code_vbox.addWidget(self._target_account_lbl)
 
         self._code_label = QLabel("------")
@@ -135,7 +147,7 @@ class MfaVaultPage(QWidget):
                 font-size: 32px;
                 font-weight: 700;
                 letter-spacing: 6px;
-                color: {MD3_ACCENT_PRIMARY};
+                color: {MD3_LIGHT_ACCENT_PRIMARY};
             }}
         """)
         code_vbox.addWidget(self._code_label)
@@ -144,20 +156,19 @@ class MfaVaultPage(QWidget):
         cb_layout.addStretch()
 
         # Copy Button
-        self._copy_btn = QPushButton("📋 Copy Code")
+        self._copy_btn = QPushButton("Copy Code")
         self._copy_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: #2b394f;
-                color: {MD3_ACCENT_PRIMARY};
-                border: 1px solid {MD3_ACCENT_PRIMARY};
-                border-radius: 18px;
-                padding: 10px 20px;
-                font-size: 13px;
+                background-color: {MD3_LIGHT_ACCENT_CONTAINER};
+                color: {MD3_LIGHT_ACCENT_PRIMARY};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 6px;
+                padding: 9px 18px;
+                font-size: 12px;
                 font-weight: 600;
             }}
             QPushButton:hover {{
-                background-color: {MD3_ACCENT_PRIMARY};
-                color: #041e42;
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER_HIGH};
             }}
         """)
         self._copy_btn.clicked.connect(self._on_copy_code)
@@ -170,9 +181,9 @@ class MfaVaultPage(QWidget):
         inv_card = QFrame()
         inv_card.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 12px;
                 padding: 16px;
             }}
         """)
@@ -180,7 +191,7 @@ class MfaVaultPage(QWidget):
         ic_layout.setSpacing(10)
 
         ic_title = QLabel("REGISTERED ACCOUNTS INVENTORY")
-        ic_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_TEXT_SECONDARY}; letter-spacing: 1px;")
+        ic_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
         ic_layout.addWidget(ic_title)
 
         self._table = QTableWidget(0, 4)
@@ -195,18 +206,20 @@ class MfaVaultPage(QWidget):
         self._table.itemSelectionChanged.connect(self._on_table_row_selected)
         self._table.setStyleSheet(f"""
             QTableWidget {{
-                background-color: transparent;
-                gridline-color: {MD3_OUTLINE};
-                border: none;
-                color: {MD3_TEXT_PRIMARY};
+                background-color: {MD3_LIGHT_SURFACE};
+                gridline-color: {MD3_LIGHT_OUTLINE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 8px;
+                color: {MD3_LIGHT_TEXT_PRIMARY};
             }}
             QHeaderView::section {{
-                background-color: {MD3_SURFACE_CONTAINER_HIGH};
-                color: {MD3_TEXT_SECONDARY};
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
+                color: {MD3_LIGHT_TEXT_SECONDARY};
                 padding: 6px;
                 font-weight: 600;
                 font-size: 11px;
                 border: none;
+                border-bottom: 1px solid {MD3_LIGHT_OUTLINE};
             }}
         """)
         ic_layout.addWidget(self._table)
@@ -216,9 +229,9 @@ class MfaVaultPage(QWidget):
         config_card = QFrame()
         config_card.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 12px;
                 padding: 20px;
             }}
         """)
@@ -226,7 +239,7 @@ class MfaVaultPage(QWidget):
         cfg_layout.setSpacing(14)
 
         cfg_title = QLabel("CONFIGURE TOTP SECRET KEY")
-        cfg_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_TEXT_SECONDARY}; letter-spacing: 1px;")
+        cfg_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
         cfg_layout.addWidget(cfg_title)
 
         secret_hbox = QHBoxLayout()
@@ -236,15 +249,15 @@ class MfaVaultPage(QWidget):
         self._secret_input.setPlaceholderText("Enter Base32 TOTP secret (e.g. JBSWY3DPEHPK3PXP)")
         self._secret_input.setStyleSheet(f"""
             QLineEdit {{
-                background-color: {MD3_SURFACE_CONTAINER_HIGH};
-                color: {MD3_TEXT_PRIMARY};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 8px;
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
+                color: {MD3_LIGHT_TEXT_PRIMARY};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 6px;
                 padding: 8px 12px;
                 font-family: monospace;
             }}
             QLineEdit:focus {{
-                border: 1px solid {MD3_ACCENT_PRIMARY};
+                border: 1px solid {MD3_LIGHT_ACCENT_PRIMARY};
             }}
         """)
         self._secret_input.textChanged.connect(self._on_secret_changed)
@@ -253,16 +266,16 @@ class MfaVaultPage(QWidget):
         self._save_secret_btn = QPushButton("Save Secret")
         self._save_secret_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {MD3_ACCENT_PRIMARY};
-                color: #041e42;
+                background-color: {MD3_LIGHT_ACCENT_PRIMARY};
+                color: #ffffff;
                 border: none;
-                border-radius: 16px;
+                border-radius: 6px;
                 padding: 8px 18px;
                 font-weight: 600;
                 font-size: 12px;
             }}
             QPushButton:hover {{
-                background-color: #a8c7fa;
+                background-color: #1a73e8;
             }}
         """)
         self._save_secret_btn.clicked.connect(self._on_save_secret)
@@ -271,16 +284,16 @@ class MfaVaultPage(QWidget):
         self._clear_secret_btn = QPushButton("Remove MFA")
         self._clear_secret_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: #3b2323;
-                color: {MD3_COLOR_EXHAUSTED};
-                border: 1px solid #5c2b29;
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
+                color: {MD3_LIGHT_COLOR_EXHAUSTED};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 6px;
                 padding: 8px 14px;
                 font-weight: 500;
                 font-size: 12px;
             }}
             QPushButton:hover {{
-                background-color: #4f2929;
+                background-color: #fce8e6;
             }}
         """)
         self._clear_secret_btn.clicked.connect(self._on_clear_secret)
@@ -289,12 +302,12 @@ class MfaVaultPage(QWidget):
         cfg_layout.addLayout(secret_hbox)
 
         self._val_feedback = QLabel("Enter valid Base32 secret (A-Z, 2-7)")
-        self._val_feedback.setStyleSheet(f"font-size: 11px; color: {MD3_TEXT_SECONDARY};")
+        self._val_feedback.setStyleSheet(f"font-size: 11px; color: {MD3_LIGHT_TEXT_SECONDARY};")
         cfg_layout.addWidget(self._val_feedback)
 
         # Backup Codes subsection
         backup_title = QLabel("EMERGENCY BACKUP CODES (OPTIONAL)")
-        backup_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_TEXT_SECONDARY}; letter-spacing: 1px; margin-top: 8px;")
+        backup_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px; margin-top: 8px;")
         cfg_layout.addWidget(backup_title)
 
         self._backup_text = QPlainTextEdit()
@@ -302,10 +315,10 @@ class MfaVaultPage(QWidget):
         self._backup_text.setMaximumHeight(80)
         self._backup_text.setStyleSheet(f"""
             QPlainTextEdit {{
-                background-color: {MD3_SURFACE_CONTAINER_HIGH};
-                color: {MD3_TEXT_PRIMARY};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 8px;
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
+                color: {MD3_LIGHT_TEXT_PRIMARY};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 6px;
                 padding: 8px;
                 font-family: monospace;
             }}
@@ -334,7 +347,7 @@ class MfaVaultPage(QWidget):
                 r = self._table.rowCount()
                 self._table.insertRow(r)
 
-                email_str = f"★ {email}" if is_active else email
+                email_str = f"[Active] {email}" if is_active else email
                 self._table.setItem(r, 0, QTableWidgetItem(email_str))
                 self._table.setItem(r, 1, QTableWidgetItem(label))
 
@@ -377,21 +390,21 @@ class MfaVaultPage(QWidget):
         cleaned = text.strip().replace(" ", "").upper()
         if not cleaned:
             self._val_feedback.setText("Enter valid Base32 secret (A-Z, 2-7)")
-            self._val_feedback.setStyleSheet(f"font-size: 11px; color: {MD3_TEXT_SECONDARY};")
+            self._val_feedback.setStyleSheet(f"font-size: 11px; color: {MD3_LIGHT_TEXT_SECONDARY};")
             return
 
         is_valid = TOTPEngine.validate_secret(cleaned)
         if is_valid:
             try:
                 preview_code, _ = TOTPEngine.generate_code(cleaned)
-                self._val_feedback.setText(f"✓ Valid Base32 Secret (Sample preview code: {preview_code})")
-                self._val_feedback.setStyleSheet(f"font-size: 11px; color: {MD3_COLOR_HEALTHY}; font-weight: 500;")
+                self._val_feedback.setText(f"Valid Base32 Secret (Sample preview code: {preview_code})")
+                self._val_feedback.setStyleSheet(f"font-size: 11px; color: {MD3_LIGHT_COLOR_HEALTHY}; font-weight: 500;")
             except Exception as exc:
                 self._val_feedback.setText(f"Validation error: {exc}")
-                self._val_feedback.setStyleSheet(f"font-size: 11px; color: {MD3_COLOR_EXHAUSTED};")
+                self._val_feedback.setStyleSheet(f"font-size: 11px; color: {MD3_LIGHT_COLOR_EXHAUSTED};")
         else:
-            self._val_feedback.setText("✗ Invalid Base32 characters detected (must be A-Z, 2-7)")
-            self._val_feedback.setStyleSheet(f"font-size: 11px; color: {MD3_COLOR_EXHAUSTED};")
+            self._val_feedback.setText("Invalid Base32 characters detected (must be A-Z, 2-7)")
+            self._val_feedback.setStyleSheet(f"font-size: 11px; color: {MD3_LIGHT_COLOR_EXHAUSTED};")
 
     def _on_save_secret(self) -> None:
         if not self._selected_account:
@@ -408,8 +421,8 @@ class MfaVaultPage(QWidget):
             self._selected_secret = secret
             self._countdown_ring.secret = secret
             self._update_code_display()
-            self._val_feedback.setText("✓ MFA Secret saved successfully.")
-            self._val_feedback.setStyleSheet(f"font-size: 11px; color: {MD3_COLOR_HEALTHY};")
+            self._val_feedback.setText("MFA Secret saved successfully.")
+            self._val_feedback.setStyleSheet(f"font-size: 11px; color: {MD3_LIGHT_COLOR_HEALTHY};")
             self.account_updated.emit(self._selected_account)
             self.load_accounts()
         except Exception as exc:
@@ -450,5 +463,5 @@ class MfaVaultPage(QWidget):
         if raw_code and raw_code != "------":
             clipboard: QClipboard = QGuiApplication.clipboard()
             clipboard.setText(raw_code)
-            self._copy_btn.setText("✓ Copied!")
-            QTimer.singleShot(1500, lambda: self._copy_btn.setText("📋 Copy Code"))
+            self._copy_btn.setText("Copied!")
+            QTimer.singleShot(1500, lambda: self._copy_btn.setText("Copy Code"))

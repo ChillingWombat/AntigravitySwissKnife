@@ -43,6 +43,23 @@ class SwissKnifeController(ABC):
         ...
 
     @abstractmethod
+    def update_account(
+        self,
+        email: str,
+        label: str | None = None,
+        totp_secret: str | None = None,
+        refresh_token: str | None = None,
+        set_active: bool = False,
+    ) -> dict[str, Any]:
+        """Update account metadata and credentials."""
+        ...
+
+    @abstractmethod
+    def remove_account(self, email: str) -> bool:
+        """Remove account from credential vault."""
+        ...
+
+    @abstractmethod
     def switch_account(self, email: str, force: bool = False, relaunch: bool = True) -> dict[str, Any]:
         """Switch active account and preserve conversation session."""
         ...
@@ -120,6 +137,51 @@ class RemoteDaemonController(SwissKnifeController):
             return bool(res.get("success", True))
         except Exception:
             return False
+
+    def update_account(
+        self,
+        email: str,
+        label: str | None = None,
+        totp_secret: str | None = None,
+        refresh_token: str | None = None,
+        set_active: bool = False,
+        plan_tier: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            return self._client.call(
+                "accounts.update",
+                {
+                    "email": email,
+                    "label": label,
+                    "plan_tier": plan_tier,
+                    "totp_secret": totp_secret,
+                    "refresh_token": refresh_token,
+                    "set_active": set_active,
+                },
+            )
+        except Exception:
+            from antigravity_swiss.core.config import SwissKnifeConfig
+            from antigravity_swiss.keyring.switcher import AccountStore
+            store = AccountStore(SwissKnifeConfig.load().accounts_file)
+            success = store.update_account(
+                email=email,
+                label=label,
+                totp_secret=totp_secret,
+                refresh_token=refresh_token,
+                set_active=set_active,
+                plan_tier=plan_tier,
+            )
+            return {"success": success, "email": email}
+
+    def remove_account(self, email: str) -> bool:
+        try:
+            res = self._client.call("accounts.remove", {"email": email})
+            return bool(res.get("success", False))
+        except Exception:
+            from antigravity_swiss.core.config import SwissKnifeConfig
+            from antigravity_swiss.keyring.switcher import AccountStore
+            store = AccountStore(SwissKnifeConfig.load().accounts_file)
+            return store.remove_account(email)
 
     def switch_account(self, email: str, force: bool = False, relaunch: bool = True) -> dict[str, Any]:
         return self._client.call("accounts.switch", {"email": email, "force": force, "relaunch": relaunch})
@@ -208,6 +270,37 @@ class StandaloneController(SwissKnifeController):
         from antigravity_swiss.keyring.switcher import AccountStore
         store = AccountStore(self.config.accounts_file)
         return store.set_totp_secret(email, totp_secret)
+
+    def update_account(
+        self,
+        email: str,
+        label: str | None = None,
+        totp_secret: str | None = None,
+        refresh_token: str | None = None,
+        set_active: bool = False,
+        plan_tier: str | None = None,
+    ) -> dict[str, Any]:
+        from antigravity_swiss.keyring.switcher import AccountStore
+        store = AccountStore(self.config.accounts_file)
+        success = store.update_account(
+            email=email,
+            label=label,
+            totp_secret=totp_secret,
+            refresh_token=refresh_token,
+            set_active=set_active,
+            plan_tier=plan_tier,
+        )
+        if set_active:
+            try:
+                self.switch_account(email, force=True, relaunch=False)
+            except Exception:
+                pass
+        return {"success": success, "email": email}
+
+    def remove_account(self, email: str) -> bool:
+        from antigravity_swiss.keyring.switcher import AccountStore
+        store = AccountStore(self.config.accounts_file)
+        return store.remove_account(email)
 
     def switch_account(self, email: str, force: bool = False, relaunch: bool = True) -> dict[str, Any]:
         from antigravity_swiss.keyring.switcher import KeyringSwitcher

@@ -37,6 +37,17 @@ from antigravity_swiss.core.constants import (
     MD3_COLOR_EXHAUSTED,
     MD3_COLOR_HEALTHY,
     MD3_COLOR_WARNING,
+    MD3_LIGHT_ACCENT_CONTAINER,
+    MD3_LIGHT_ACCENT_PRIMARY,
+    MD3_LIGHT_COLOR_EXHAUSTED,
+    MD3_LIGHT_COLOR_HEALTHY,
+    MD3_LIGHT_COLOR_WARNING,
+    MD3_LIGHT_OUTLINE,
+    MD3_LIGHT_SURFACE,
+    MD3_LIGHT_SURFACE_CONTAINER,
+    MD3_LIGHT_SURFACE_CONTAINER_HIGH,
+    MD3_LIGHT_TEXT_PRIMARY,
+    MD3_LIGHT_TEXT_SECONDARY,
     MD3_OUTLINE,
     MD3_SURFACE_CONTAINER,
     MD3_SURFACE_CONTAINER_HIGH,
@@ -86,9 +97,9 @@ class BrainCachePage(QWidget):
         header_card = QFrame()
         header_card.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 12px;
                 padding: 16px;
             }}
         """)
@@ -97,29 +108,28 @@ class BrainCachePage(QWidget):
         h_vbox.setSpacing(4)
 
         t1 = QLabel("BRAIN CACHE & CONTEXT OPTIMIZER")
-        t1.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_TEXT_SECONDARY}; letter-spacing: 1px;")
+        t1.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
         t2 = QLabel("Inspect disk usage in ~/.gemini/antigravity/ and reclaim gigabytes of stale scratch data safely.")
-        t2.setStyleSheet(f"font-size: 13px; color: {MD3_TEXT_PRIMARY};")
+        t2.setStyleSheet(f"font-size: 13px; color: {MD3_LIGHT_TEXT_PRIMARY};")
         h_vbox.addWidget(t1)
         h_vbox.addWidget(t2)
         h_layout.addLayout(h_vbox)
 
         h_layout.addStretch()
 
-        self._scan_btn = QPushButton("🔍 Scan Storage Now")
+        self._scan_btn = QPushButton("Scan Storage")
         self._scan_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: #2b394f;
-                color: {MD3_ACCENT_PRIMARY};
-                border: 1px solid {MD3_ACCENT_PRIMARY};
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
+                color: {MD3_LIGHT_TEXT_PRIMARY};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 6px;
                 padding: 8px 16px;
                 font-size: 12px;
                 font-weight: 600;
             }}
             QPushButton:hover {{
-                background-color: {MD3_ACCENT_PRIMARY};
-                color: #041e42;
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER_HIGH};
             }}
         """)
         self._scan_btn.clicked.connect(self.scan_cache)
@@ -130,9 +140,9 @@ class BrainCachePage(QWidget):
         stats_card = QFrame()
         stats_card.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 12px;
                 padding: 20px;
             }}
         """)
@@ -140,7 +150,7 @@ class BrainCachePage(QWidget):
         sc_layout.setSpacing(14)
 
         sc_title = QLabel("STORAGE BREAKDOWN")
-        sc_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_TEXT_SECONDARY}; letter-spacing: 1px;")
+        sc_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
         sc_layout.addWidget(sc_title)
 
         stats_row = QHBoxLayout()
@@ -159,9 +169,9 @@ class BrainCachePage(QWidget):
         cat_card = QFrame()
         cat_card.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 12px;
                 padding: 16px;
             }}
         """)
@@ -169,7 +179,7 @@ class BrainCachePage(QWidget):
         cc_layout.setSpacing(10)
 
         cc_title = QLabel("CATEGORY USAGE DETAILS")
-        cc_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_TEXT_SECONDARY}; letter-spacing: 1px;")
+        cc_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
         cc_layout.addWidget(cc_title)
 
         self._table = QTableWidget(0, 4)
@@ -182,18 +192,20 @@ class BrainCachePage(QWidget):
         self._table.verticalHeader().setVisible(False)
         self._table.setStyleSheet(f"""
             QTableWidget {{
-                background-color: transparent;
-                gridline-color: {MD3_OUTLINE};
-                border: none;
-                color: {MD3_TEXT_PRIMARY};
+                background-color: {MD3_LIGHT_SURFACE};
+                gridline-color: {MD3_LIGHT_OUTLINE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 8px;
+                color: {MD3_LIGHT_TEXT_PRIMARY};
             }}
             QHeaderView::section {{
-                background-color: {MD3_SURFACE_CONTAINER_HIGH};
-                color: {MD3_TEXT_SECONDARY};
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
+                color: {MD3_LIGHT_TEXT_SECONDARY};
                 padding: 6px;
                 font-weight: 600;
                 font-size: 11px;
                 border: none;
+                border-bottom: 1px solid {MD3_LIGHT_OUTLINE};
             }}
         """)
         cc_layout.addWidget(self._table)
@@ -203,9 +215,9 @@ class BrainCachePage(QWidget):
         prune_card = QFrame()
         prune_card.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 12px;
                 padding: 20px;
             }}
         """)
@@ -213,11 +225,11 @@ class BrainCachePage(QWidget):
         pc_layout.setSpacing(14)
 
         pc_title = QLabel("SAFE CACHE PRUNING & RECLAIM")
-        pc_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_TEXT_SECONDARY}; letter-spacing: 1px;")
+        pc_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
         pc_layout.addWidget(pc_title)
 
-        shield_lbl = QLabel("🛡️ Active Conversation Shield: The currently active cascadeId is permanently protected from pruning.")
-        shield_lbl.setStyleSheet(f"font-size: 12px; color: {MD3_COLOR_HEALTHY}; font-weight: 500;")
+        shield_lbl = QLabel("Active Conversation Shield: The currently active cascadeId is permanently protected from pruning.")
+        shield_lbl.setStyleSheet(f"font-size: 12px; color: {MD3_LIGHT_COLOR_HEALTHY}; font-weight: 500;")
         pc_layout.addWidget(shield_lbl)
 
         # Checkbox Options
@@ -226,22 +238,22 @@ class BrainCachePage(QWidget):
 
         self._chk_scratch = QCheckBox("Prune Scratchpads (scratch/)")
         self._chk_scratch.setChecked(True)
-        self._chk_scratch.setStyleSheet(f"color: {MD3_TEXT_PRIMARY}; font-size: 12px;")
+        self._chk_scratch.setStyleSheet(f"color: {MD3_LIGHT_TEXT_PRIMARY}; font-size: 12px;")
         opts_box.addWidget(self._chk_scratch)
 
         self._chk_steps = QCheckBox("Prune Execution Steps (steps/)")
         self._chk_steps.setChecked(True)
-        self._chk_steps.setStyleSheet(f"color: {MD3_TEXT_PRIMARY}; font-size: 12px;")
+        self._chk_steps.setStyleSheet(f"color: {MD3_LIGHT_TEXT_PRIMARY}; font-size: 12px;")
         opts_box.addWidget(self._chk_steps)
 
         self._chk_tasks = QCheckBox("Prune Completed Task Logs (tasks/)")
         self._chk_tasks.setChecked(True)
-        self._chk_tasks.setStyleSheet(f"color: {MD3_TEXT_PRIMARY}; font-size: 12px;")
+        self._chk_tasks.setStyleSheet(f"color: {MD3_LIGHT_TEXT_PRIMARY}; font-size: 12px;")
         opts_box.addWidget(self._chk_tasks)
 
         self._chk_wal = QCheckBox("Vacuum Inactive DBs")
         self._chk_wal.setChecked(False)
-        self._chk_wal.setStyleSheet(f"color: {MD3_TEXT_PRIMARY}; font-size: 12px;")
+        self._chk_wal.setStyleSheet(f"color: {MD3_LIGHT_TEXT_PRIMARY}; font-size: 12px;")
         opts_box.addWidget(self._chk_wal)
 
         opts_box.addStretch()
@@ -252,7 +264,7 @@ class BrainCachePage(QWidget):
         action_row.setSpacing(12)
 
         age_lbl = QLabel("Minimum Inactivity Age:")
-        age_lbl.setStyleSheet(f"color: {MD3_TEXT_SECONDARY}; font-size: 12px;")
+        age_lbl.setStyleSheet(f"color: {MD3_LIGHT_TEXT_SECONDARY}; font-size: 12px;")
         action_row.addWidget(age_lbl)
 
         self._age_combo = QComboBox()
@@ -260,10 +272,10 @@ class BrainCachePage(QWidget):
         self._age_combo.setCurrentIndex(1)
         self._age_combo.setStyleSheet(f"""
             QComboBox {{
-                background-color: {MD3_SURFACE_CONTAINER_HIGH};
-                color: {MD3_TEXT_PRIMARY};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 8px;
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
+                color: {MD3_LIGHT_TEXT_PRIMARY};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 6px;
                 padding: 6px 12px;
                 font-size: 12px;
             }}
@@ -272,19 +284,19 @@ class BrainCachePage(QWidget):
 
         action_row.addStretch()
 
-        self._prune_btn = QPushButton("🗑️ Prune Cache Safely")
+        self._prune_btn = QPushButton("Prune Cache")
         self._prune_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {MD3_ACCENT_PRIMARY};
-                color: #041e42;
+                background-color: {MD3_LIGHT_ACCENT_PRIMARY};
+                color: #ffffff;
                 border: none;
-                border-radius: 16px;
+                border-radius: 6px;
                 padding: 10px 22px;
                 font-size: 12px;
                 font-weight: 600;
             }}
             QPushButton:hover {{
-                background-color: #a8c7fa;
+                background-color: #1a73e8;
             }}
         """)
         self._prune_btn.clicked.connect(self._on_prune_clicked)
@@ -303,9 +315,9 @@ class BrainCachePage(QWidget):
         box = QFrame()
         box.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER_HIGH};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 12px;
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 8px;
                 padding: 12px;
             }}
         """)
@@ -313,11 +325,11 @@ class BrainCachePage(QWidget):
         b_layout.setSpacing(4)
 
         t_lbl = QLabel(label)
-        t_lbl.setStyleSheet(f"font-size: 11px; color: {MD3_TEXT_SECONDARY}; font-weight: 500;")
+        t_lbl.setStyleSheet(f"font-size: 11px; color: {MD3_LIGHT_TEXT_SECONDARY}; font-weight: 500;")
         b_layout.addWidget(t_lbl)
 
         v_lbl = QLabel(value)
-        val_color = MD3_COLOR_HEALTHY if highlight else MD3_TEXT_PRIMARY
+        val_color = MD3_LIGHT_COLOR_HEALTHY if highlight else MD3_LIGHT_TEXT_PRIMARY
         v_lbl.setStyleSheet(f"font-size: 18px; font-weight: 700; color: {val_color};")
         b_layout.addWidget(v_lbl)
 

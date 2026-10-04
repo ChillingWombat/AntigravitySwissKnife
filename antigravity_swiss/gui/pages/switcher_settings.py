@@ -31,6 +31,13 @@ from antigravity_swiss.core.constants import (
     DEFAULT_WARMUP_LEAD_TIME_SECONDS,
     MD3_ACCENT_PRIMARY,
     MD3_COLOR_HEALTHY,
+    MD3_LIGHT_ACCENT_PRIMARY,
+    MD3_LIGHT_OUTLINE,
+    MD3_LIGHT_SURFACE,
+    MD3_LIGHT_SURFACE_CONTAINER,
+    MD3_LIGHT_SURFACE_CONTAINER_HIGH,
+    MD3_LIGHT_TEXT_PRIMARY,
+    MD3_LIGHT_TEXT_SECONDARY,
     MD3_OUTLINE,
     MD3_SURFACE_CONTAINER,
     MD3_SURFACE_CONTAINER_HIGH,
@@ -75,9 +82,9 @@ class SwitcherSettingsPage(QWidget):
         header_card = QFrame()
         header_card.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 12px;
                 padding: 16px;
             }}
         """)
@@ -86,28 +93,28 @@ class SwitcherSettingsPage(QWidget):
         h_vbox.setSpacing(4)
 
         t1 = QLabel("ACCOUNT SWITCHER & WARMUP SETTINGS")
-        t1.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_TEXT_SECONDARY}; letter-spacing: 1px;")
+        t1.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
         t2 = QLabel("Tune auto-rotation rules, anti-thrash hysteresis, and keep-alive triggers.")
-        t2.setStyleSheet(f"font-size: 13px; color: {MD3_TEXT_PRIMARY};")
+        t2.setStyleSheet(f"font-size: 13px; color: {MD3_LIGHT_TEXT_PRIMARY};")
         h_vbox.addWidget(t1)
         h_vbox.addWidget(t2)
         h_layout.addLayout(h_vbox)
 
         h_layout.addStretch()
 
-        self._save_btn = QPushButton("💾 Save Configuration")
+        self._save_btn = QPushButton("Save Configuration")
         self._save_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {MD3_ACCENT_PRIMARY};
-                color: #041e42;
+                background-color: {MD3_LIGHT_ACCENT_PRIMARY};
+                color: #ffffff;
                 border: none;
-                border-radius: 16px;
+                border-radius: 6px;
                 padding: 8px 20px;
                 font-size: 12px;
                 font-weight: 600;
             }}
             QPushButton:hover {{
-                background-color: #a8c7fa;
+                background-color: #1a73e8;
             }}
         """)
         self._save_btn.clicked.connect(self._on_save_settings)
@@ -118,9 +125,9 @@ class SwitcherSettingsPage(QWidget):
         rules_card = QFrame()
         rules_card.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 12px;
                 padding: 20px;
             }}
         """)
@@ -128,13 +135,13 @@ class SwitcherSettingsPage(QWidget):
         rc_layout.setSpacing(16)
 
         rc_title = QLabel("AUTO-SWITCH TRIGGER RULES")
-        rc_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_TEXT_SECONDARY}; letter-spacing: 1px;")
+        rc_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
         rc_layout.addWidget(rc_title)
 
         # Auto Switch Enable Toggle
         self._chk_auto_switch = QCheckBox("Enable Automatic Keyring Account Switching")
         self._chk_auto_switch.setChecked(True)
-        self._chk_auto_switch.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {MD3_TEXT_PRIMARY};")
+        self._chk_auto_switch.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {MD3_LIGHT_TEXT_PRIMARY};")
         rc_layout.addWidget(self._chk_auto_switch)
 
         # Threshold Slider
@@ -143,9 +150,9 @@ class SwitcherSettingsPage(QWidget):
 
         thresh_header = QHBoxLayout()
         th_lbl = QLabel("Switch Threshold (% Quota Remaining):")
-        th_lbl.setStyleSheet(f"font-size: 12px; color: {MD3_TEXT_PRIMARY};")
+        th_lbl.setStyleSheet(f"font-size: 12px; color: {MD3_LIGHT_TEXT_PRIMARY};")
         self._thresh_val_lbl = QLabel("5%")
-        self._thresh_val_lbl.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {MD3_ACCENT_PRIMARY};")
+        self._thresh_val_lbl.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {MD3_LIGHT_ACCENT_PRIMARY};")
         thresh_header.addWidget(th_lbl)
         thresh_header.addStretch()
         thresh_header.addWidget(self._thresh_val_lbl)
@@ -161,7 +168,7 @@ class SwitcherSettingsPage(QWidget):
         # Polling Interval
         poll_row = QHBoxLayout()
         poll_lbl = QLabel("Quota Polling Frequency:")
-        poll_lbl.setStyleSheet(f"font-size: 12px; color: {MD3_TEXT_PRIMARY};")
+        poll_lbl.setStyleSheet(f"font-size: 12px; color: {MD3_LIGHT_TEXT_PRIMARY};")
         poll_row.addWidget(poll_lbl)
 
         self._poll_combo = QComboBox()
@@ -169,10 +176,10 @@ class SwitcherSettingsPage(QWidget):
         self._poll_combo.setCurrentIndex(1)
         self._poll_combo.setStyleSheet(f"""
             QComboBox {{
-                background-color: {MD3_SURFACE_CONTAINER_HIGH};
-                color: {MD3_TEXT_PRIMARY};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 8px;
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
+                color: {MD3_LIGHT_TEXT_PRIMARY};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 6px;
                 padding: 6px 12px;
                 font-size: 12px;
             }}
@@ -187,9 +194,9 @@ class SwitcherSettingsPage(QWidget):
         warmup_card = QFrame()
         warmup_card.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 12px;
                 padding: 20px;
             }}
         """)
@@ -197,24 +204,24 @@ class SwitcherSettingsPage(QWidget):
         wc_layout.setSpacing(16)
 
         wc_title = QLabel("POST-RESET HORIZON KEEP-ALIVE WARMUP")
-        wc_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_TEXT_SECONDARY}; letter-spacing: 1px;")
+        wc_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
         wc_layout.addWidget(wc_title)
 
         self._chk_warmup = QCheckBox("Enable Automated 1-Token Keep-Alive Ping")
         self._chk_warmup.setChecked(True)
-        self._chk_warmup.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {MD3_TEXT_PRIMARY};")
+        self._chk_warmup.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {MD3_LIGHT_TEXT_PRIMARY};")
         wc_layout.addWidget(self._chk_warmup)
 
         warmup_desc = QLabel(
             "Immediately enters the next quota reset horizon upon resetTime arrival by issuing a lightweight\n"
             "ping (maxOutputTokens: 1) without requiring user interaction or wasting quota."
         )
-        warmup_desc.setStyleSheet(f"font-size: 12px; color: {MD3_TEXT_SECONDARY}; line-height: 1.4;")
+        warmup_desc.setStyleSheet(f"font-size: 12px; color: {MD3_LIGHT_TEXT_SECONDARY}; line-height: 1.4;")
         wc_layout.addWidget(warmup_desc)
 
         lead_row = QHBoxLayout()
         lead_lbl = QLabel("Warmup Lead Time Ahead of Horizon:")
-        lead_lbl.setStyleSheet(f"font-size: 12px; color: {MD3_TEXT_PRIMARY};")
+        lead_lbl.setStyleSheet(f"font-size: 12px; color: {MD3_LIGHT_TEXT_PRIMARY};")
         lead_row.addWidget(lead_lbl)
 
         self._lead_combo = QComboBox()
@@ -222,10 +229,10 @@ class SwitcherSettingsPage(QWidget):
         self._lead_combo.setCurrentIndex(1)
         self._lead_combo.setStyleSheet(f"""
             QComboBox {{
-                background-color: {MD3_SURFACE_CONTAINER_HIGH};
-                color: {MD3_TEXT_PRIMARY};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 8px;
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
+                color: {MD3_LIGHT_TEXT_PRIMARY};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 6px;
                 padding: 6px 12px;
                 font-size: 12px;
             }}

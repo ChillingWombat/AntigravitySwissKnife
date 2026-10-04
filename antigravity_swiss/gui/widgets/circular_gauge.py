@@ -16,6 +16,12 @@ from antigravity_swiss.core.constants import (
     MD3_COLOR_EXHAUSTED,
     MD3_COLOR_HEALTHY,
     MD3_COLOR_WARNING,
+    MD3_LIGHT_COLOR_EXHAUSTED,
+    MD3_LIGHT_COLOR_HEALTHY,
+    MD3_LIGHT_COLOR_WARNING,
+    MD3_LIGHT_SURFACE_CONTAINER_HIGH,
+    MD3_LIGHT_TEXT_PRIMARY,
+    MD3_LIGHT_TEXT_SECONDARY,
     MD3_OUTLINE,
     MD3_SURFACE_CONTAINER_HIGH,
     MD3_TEXT_PRIMARY,
@@ -27,21 +33,23 @@ class CircularGauge(QWidget):
     """
     Circular gauge displaying remaining quota percentage for a model.
     Colors dynamically adapt:
-    - > 30%: Healthy (Green #81c995)
-    - 10% - 30%: Warning (Yellow #fdd663)
-    - < 10%: Exhausted (Red #f28b82)
+    - > 30%: Healthy (Green)
+    - 10% - 30%: Warning (Yellow/Amber)
+    - < 10%: Exhausted (Red)
     """
 
     def __init__(
         self,
         model_name: str = "Gemini Model",
-        fraction: float = 1.0,
+        fraction: float | None = 1.0,
         reset_text: str = "",
+        empty_grey: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._model_name = model_name
-        self._fraction = max(0.0, min(1.0, fraction))
+        self._empty_grey = empty_grey or (fraction is None)
+        self._fraction = 0.0 if fraction is None else max(0.0, min(1.0, float(fraction)))
         self._reset_text = reset_text
 
         self.setMinimumSize(140, 160)
@@ -51,12 +59,25 @@ class CircularGauge(QWidget):
         )
 
     @property
+    def empty_grey(self) -> bool:
+        return self._empty_grey
+
+    @empty_grey.setter
+    def empty_grey(self, val: bool) -> None:
+        self._empty_grey = bool(val)
+        self.update()
+
+    @property
     def fraction(self) -> float:
         return self._fraction
 
     @fraction.setter
-    def fraction(self, val: float) -> None:
-        self._fraction = max(0.0, min(1.0, float(val)))
+    def fraction(self, val: float | None) -> None:
+        if val is None:
+            self._empty_grey = True
+            self._fraction = 0.0
+        else:
+            self._fraction = max(0.0, min(1.0, float(val)))
         self.update()
 
     @property
@@ -90,6 +111,16 @@ class CircularGauge(QWidget):
         else:
             return MD3_COLOR_EXHAUSTED
 
+    def get_display_arc_color(self, fraction: float | None = None) -> str:
+        """Returns accessible status color for light-surface rendering."""
+        f = self._fraction if fraction is None else fraction
+        if f > 0.30:
+            return MD3_LIGHT_COLOR_HEALTHY
+        elif f >= 0.10:
+            return MD3_LIGHT_COLOR_WARNING
+        else:
+            return MD3_LIGHT_COLOR_EXHAUSTED
+
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -109,18 +140,17 @@ class CircularGauge(QWidget):
             (radius - track_width) * 2,
         )
 
-        # Draw Background Track
-        track_pen = QPen(QColor(MD3_SURFACE_CONTAINER_HIGH), track_width)
+        # Draw Background Track (Clean light gray)
+        track_pen = QPen(QColor(MD3_LIGHT_SURFACE_CONTAINER_HIGH), track_width)
         track_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(track_pen)
         painter.drawArc(rect, 0, 360 * 16)
 
         # Determine Progress Arc Color
-        arc_color = QColor(self.get_status_color())
-
+        arc_color = QColor(self.get_display_arc_color())
 
         # Draw Foreground Progress Arc (starts at 90 deg = 12 o'clock, clockwise negative span)
-        if self._fraction > 0:
+        if not self._empty_grey and self._fraction > 0:
             arc_pen = QPen(arc_color, track_width)
             arc_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             painter.setPen(arc_pen)
@@ -128,30 +158,19 @@ class CircularGauge(QWidget):
             span_angle = int(-self._fraction * 360 * 16)
             painter.drawArc(rect, start_angle, span_angle)
 
-        # Draw Center Percentage Text
-        percent_str = f"{int(round(self._fraction * 100))}%"
-        painter.setPen(QColor(MD3_TEXT_PRIMARY))
-        font_pct = QFont("Google Sans", int(side * 0.18), QFont.Weight.Bold)
+        # Draw Center Percentage Text (Crisp text, perfectly centered)
+        percent_str = "N/A" if self._empty_grey else f"{int(round(self._fraction * 100))}%"
+        painter.setPen(QColor(MD3_LIGHT_TEXT_SECONDARY if self._empty_grey else MD3_LIGHT_TEXT_PRIMARY))
+        font_pct = QFont("Google Sans", int(side * (0.18 if self._empty_grey else 0.20)), QFont.Weight.Bold)
         painter.setFont(font_pct)
         painter.drawText(
-            QRectF(center_x - radius, center_y - 18, radius * 2, 28),
+            QRectF(center_x - radius, center_y - 20, radius * 2, 40),
             Qt.AlignmentFlag.AlignCenter,
             percent_str,
         )
 
-        # Draw Fraction Subtext (e.g. 0.85)
-        painter.setPen(QColor(MD3_TEXT_SECONDARY))
-        font_sub = QFont("Roboto", int(side * 0.08))
-        painter.setFont(font_sub)
-        fraction_str = f"{self._fraction:.2f} remaining"
-        painter.drawText(
-            QRectF(center_x - radius, center_y + 12, radius * 2, 20),
-            Qt.AlignmentFlag.AlignCenter,
-            fraction_str,
-        )
-
-        # Draw Model Name at bottom
-        painter.setPen(QColor(MD3_TEXT_PRIMARY))
+        # Draw Model Name at bottom (Crisp dark text)
+        painter.setPen(QColor(MD3_LIGHT_TEXT_PRIMARY))
         font_title = QFont("Google Sans", 11, QFont.Weight.DemiBold)
         painter.setFont(font_title)
         painter.drawText(
@@ -162,7 +181,7 @@ class CircularGauge(QWidget):
 
         # Draw Reset Horizon text at very bottom
         if self._reset_text:
-            painter.setPen(QColor(MD3_TEXT_SECONDARY))
+            painter.setPen(QColor(MD3_LIGHT_TEXT_SECONDARY))
             font_reset = QFont("Roboto", 9)
             painter.setFont(font_reset)
             painter.drawText(

@@ -1,12 +1,13 @@
 """
-Account Switcher Top Ribbon Sub-Navigation.
-===========================================
-Horizontal ribbon across the top of the Account Switcher page toggling between:
-1. Quota Dashboard (Front Page)
+Account Switcher Top Ribbon Sub-Navigation (Minimalist Edition).
+==============================================================
+Horizontal ribbon across the top of the Account Switcher page:
+1. Quota Dashboard
 2. Accounts & MFA Vault
 3. Device Fingerprints
 4. Brain Cache Manager
 5. Switcher Settings
+Clean typographic design with zero emojis or noisy symbols.
 """
 
 from __future__ import annotations
@@ -21,84 +22,95 @@ from PySide6.QtWidgets import (
 )
 
 from antigravity_swiss.core.constants import (
-    MD3_ACCENT_PRIMARY,
-    MD3_OUTLINE,
-    MD3_SURFACE_CONTAINER,
-    MD3_SURFACE_CONTAINER_HIGH,
-    MD3_TEXT_PRIMARY,
-    MD3_TEXT_SECONDARY,
+    MD3_LIGHT_ACCENT_CONTAINER,
+    MD3_LIGHT_ACCENT_ON_CONTAINER,
+    MD3_LIGHT_ACCENT_PRIMARY,
+    MD3_LIGHT_OUTLINE,
+    MD3_LIGHT_SURFACE,
+    MD3_LIGHT_SURFACE_CONTAINER,
+    MD3_LIGHT_SURFACE_CONTAINER_HIGH,
+    MD3_LIGHT_TEXT_PRIMARY,
+    MD3_LIGHT_TEXT_SECONDARY,
 )
 
 
-class TopRibbon(QWidget):
+class TopRibbon(QFrame):
     """
-    Sub-navigation ribbon with Google Material 3 pill tabs.
+    Sub-navigation ribbon with minimalist pill tabs.
     Emits `tab_selected(int)` when a tab is clicked.
     """
 
     tab_selected = Signal(int)
 
     TABS = [
-        ("📊", "Quota Dashboard"),
-        ("🔐", "Accounts & MFA Vault"),
-        ("💻", "Device Fingerprints"),
-        ("🧠", "Brain Cache Manager"),
-        ("⚙️", "Switcher Settings"),
+        "Dashboard",
+        "Accounts & MFA",
+        "Fingerprints",
+        "Cache Manager",
+        "Settings",
     ]
 
     TAB_SHORTCUTS: list[str] = ["Alt+1", "Alt+2", "Alt+3", "Alt+4", "Alt+5"]
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._current_index = 0
         self._buttons: list[QPushButton] = []
+        self.setObjectName("topRibbon")
+        self.setStyleSheet(f"""
+            QFrame#topRibbon {{
+                background-color: {MD3_LIGHT_SURFACE};
+                border-bottom: 1px solid {MD3_LIGHT_OUTLINE};
+            }}
+        """)
         self._init_ui()
 
     @property
     def tab_count(self) -> int:
         return len(self._buttons)
 
-
     def _init_ui(self) -> None:
-        self.setFixedHeight(58)
+        self.setFixedHeight(54)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(20, 10, 20, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(16, 6, 16, 6)
+        layout.setSpacing(12)
 
-        # Tab container frame
+        # Tab container frame (Google AI Studio Segmented Pill Track)
         tabs_frame = QFrame()
         tabs_frame.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER};
-                border: 1px solid {MD3_OUTLINE};
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER_HIGH};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
                 border-radius: 20px;
-                padding: 2px 4px;
+                padding: 2px;
             }}
         """)
         tf_layout = QHBoxLayout(tabs_frame)
-        tf_layout.setContentsMargins(4, 2, 4, 2)
-        tf_layout.setSpacing(4)
+        tf_layout.setContentsMargins(2, 2, 2, 2)
+        tf_layout.setSpacing(2)
 
-        for idx, (icon, label) in enumerate(self.TABS):
-            btn = QPushButton(f"{icon}  {label}")
+        for idx, label in enumerate(self.TABS):
+            btn = QPushButton(label)
             btn.setProperty("class", "ribbon-tab")
             btn.setStyleSheet(f"""
                 QPushButton {{
                     background-color: transparent;
-                    color: {MD3_TEXT_SECONDARY};
+                    color: {MD3_LIGHT_TEXT_SECONDARY};
                     border: none;
                     border-radius: 16px;
-                    padding: 6px 14px;
-                    font-size: 13px;
+                    padding: 6px 16px;
+                    font-size: 12px;
                     font-weight: 500;
                 }}
                 QPushButton:hover {{
-                    background-color: {MD3_SURFACE_CONTAINER_HIGH};
-                    color: {MD3_TEXT_PRIMARY};
+                    background-color: rgba(255, 255, 255, 0.6);
+                    color: {MD3_LIGHT_TEXT_PRIMARY};
                 }}
                 QPushButton[active="true"] {{
-                    background-color: #2b394f;
-                    color: {MD3_ACCENT_PRIMARY};
+                    background-color: #ffffff;
+                    color: {MD3_LIGHT_ACCENT_PRIMARY};
+                    border: 1px solid {MD3_LIGHT_OUTLINE};
                     font-weight: 600;
                 }}
             """)
@@ -109,17 +121,17 @@ class TopRibbon(QWidget):
         layout.addWidget(tabs_frame)
         layout.addStretch()
 
-        # Active Account Pill Badge on Right
-        self._active_badge = QLabel("👤 No Active Account")
+        # Active Account Pill Badge on Right (Google User Identity Chip)
+        self._active_badge = QLabel("No Active Account")
         self._active_badge.setStyleSheet(f"""
             QLabel {{
-                background-color: {MD3_SURFACE_CONTAINER};
-                color: {MD3_ACCENT_PRIMARY};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 14px;
-                padding: 5px 12px;
+                background-color: #e8f0fe;
+                color: {MD3_LIGHT_ACCENT_PRIMARY};
+                border: 1px solid {MD3_LIGHT_ACCENT_CONTAINER};
+                border-radius: 16px;
+                padding: 6px 16px;
                 font-size: 12px;
-                font-weight: 500;
+                font-weight: 600;
             }}
         """)
         layout.addWidget(self._active_badge)
@@ -141,6 +153,6 @@ class TopRibbon(QWidget):
 
     def set_active_account(self, email: str | None) -> None:
         if email:
-            self._active_badge.setText(f"👤 {email}")
+            self._active_badge.setText(email)
         else:
-            self._active_badge.setText("👤 No Active Account")
+            self._active_badge.setText("No Active Account")

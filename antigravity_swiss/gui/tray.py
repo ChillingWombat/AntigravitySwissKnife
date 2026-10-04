@@ -125,26 +125,26 @@ class SwissKnifeTray(QSystemTrayIcon):
         self._menu.clear()
 
         # Header Title (disabled action)
-        title_act = self._menu.addAction(f"✦ {APP_TITLE}")
+        title_act = self._menu.addAction(APP_TITLE)
         title_act.setEnabled(False)
         self._menu.addSeparator()
 
         # Open Window
-        open_act = self._menu.addAction("📊 Open Dashboard")
+        open_act = self._menu.addAction("Open Dashboard")
         open_act.triggered.connect(self._on_open_dashboard)
 
         # Settings
-        settings_act = self._menu.addAction("⚙️ System Settings")
+        settings_act = self._menu.addAction("System Settings")
         settings_act.triggered.connect(self._on_open_settings)
 
         # Refresh Quota
-        refresh_act = self._menu.addAction("🔄 Refresh Quota Now")
+        refresh_act = self._menu.addAction("Refresh Quota Now")
         refresh_act.triggered.connect(self._on_refresh_quota)
 
         self._menu.addSeparator()
 
         # Accounts submenu for 1-click rotation
-        switch_menu = self._menu.addMenu("👤 Switch Account")
+        switch_menu = self._menu.addMenu("Switch Account")
         try:
             status = self.controller.get_status()
             self._active_account = status.get("active_account")
@@ -156,7 +156,7 @@ class SwissKnifeTray(QSystemTrayIcon):
                     if not email:
                         continue
                     is_active = (email == self._active_account)
-                    prefix = "✓ " if is_active else "  "
+                    prefix = "[Active] " if is_active else "  "
                     act = switch_menu.addAction(f"{prefix}{email}")
                     if is_active:
                         font = act.font()
@@ -172,7 +172,7 @@ class SwissKnifeTray(QSystemTrayIcon):
         self._menu.addSeparator()
 
         # Exit action
-        exit_act = self._menu.addAction("❌ Exit Swiss Knife")
+        exit_act = self._menu.addAction("Exit Swiss Knife")
         exit_act.triggered.connect(self._on_exit)
 
     def dispatch_notification(self, title: str, body: str, is_warning: bool = False) -> None:

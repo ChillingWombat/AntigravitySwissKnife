@@ -14,8 +14,7 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 os.environ["ANTIGRAVITY_SWISS_TESTING"] = "1"
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPaintEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QFrame
 
 from antigravity_swiss.core.config import SwissKnifeConfig
 from antigravity_swiss.fingerprint.profile_store import DeviceProfileStore
@@ -88,6 +87,22 @@ def test_circular_gauge(qapp):
     gauge.repaint()
 
 
+def test_circular_gauge_empty_grey(qapp):
+    """Test CircularGauge with empty_grey=True and fraction=None renders N/A."""
+    gauge = CircularGauge(model_name="Custom Untracked", fraction=None, empty_grey=True)
+    assert gauge.empty_grey is True
+    assert gauge.fraction == 0.0
+
+    gauge.resize(160, 180)
+    gauge.repaint()
+
+    gauge.fraction = 0.5
+    gauge.empty_grey = False
+    assert gauge.empty_grey is False
+    assert gauge.fraction == 0.5
+    gauge.repaint()
+
+
 def test_countdown_ring(qapp):
     """Test CountdownRing widget with valid Base32 secret."""
     ring = CountdownRing(secret="JBSWY3DPEHPK3PXP")
@@ -140,13 +155,30 @@ def test_top_ribbon(qapp):
 
 
 def test_quota_dashboard_page(qapp, mock_controller):
-    """Test QuotaDashboardPage data loading and model gauges."""
+    """Test QuotaDashboardPage fleet overview, rings, auto-switch, and account rows."""
     page = QuotaDashboardPage(controller=mock_controller)
     assert page._active_account == "test_user@gmail.com"
     assert "test_user@gmail.com" in page._acc_label.text()
-    assert len(page._gauges) == 4
-    assert "gemini-3.8-flash" in page._gauges
-    assert page._table.rowCount() == 4
+    assert "Account" in page._total_accounts_lbl.text()
+    assert "next_5h" in page._gauges
+    assert "weekly" in page._gauges
+    assert 0.0 <= page._ring_5h.fraction <= 1.0
+    assert 0.0 <= page._ring_weekly.fraction <= 1.0
+    assert page._table.rowCount() >= 1
+
+    # Test auto-switch toggle button
+    initial_switch = page._auto_switch_enabled
+    page._on_toggle_auto_switch()
+    assert page._auto_switch_enabled != initial_switch
+    assert ("ON" in page.btn_auto_switch.text()) if page._auto_switch_enabled else ("OFF" in page.btn_auto_switch.text())
+
+    # Test opening detail dialog
+    assert len(page._accounts_cache) >= 1
+    acc_state = page._accounts_cache[0]
+    from antigravity_swiss.gui.dialogs.account_detail_dialog import AccountDetailDialog
+    dialog = AccountDetailDialog(account=acc_state, controller=mock_controller)
+    assert dialog.account.email == acc_state.email
+    assert hasattr(dialog, "btn_save")
 
 
 def test_mfa_vault_page(qapp, mock_controller):
@@ -208,13 +240,17 @@ def test_main_window_full_integration(qapp, mock_controller):
     """Test complete MainWindow with rail navigation and ribbon switching."""
     window = MainWindow(controller=mock_controller)
     assert window.tool_stack.count() == 3
+    assert hasattr(window, "v_separator")
+    assert window.v_separator.frameShape() == QFrame.Shape.VLine
+    assert window.v_separator.width() == 1 or window.v_separator.maximumWidth() == 1
 
     # Switch to Marketplace
     window.nav_rail.set_current_index(1)
     assert window.tool_stack.currentIndex() == 1
 
-    # Switch to Settings
-    window.nav_rail.set_current_index(2)
+    # Switch to Settings via bottom-right button
+    assert hasattr(window, "btn_system_settings")
+    window.btn_system_settings.click()
     assert window.tool_stack.currentIndex() == 2
 
     # Switch back to Account Switcher
@@ -254,3 +290,96 @@ def test_system_tray_integration(qapp, mock_controller):
 
     # Test notification dispatch
     tray.dispatch_notification("Test Title", "Test Body")
+
+
+def test_account_quota_bar_widget(qapp):
+    """Test AccountQuotaBarWidget progress bar clamping, colors, and percentage labels."""
+    from antigravity_swiss.gui.widgets.account_quota_bar import AccountQuotaBarWidget
+    
+    # Healthy (85%)
+    bar1 = AccountQuotaBarWidget(0.85)
+    assert bar1.fraction == 0.85
+    assert bar1.lbl.text() == "85%"
+    assert bar1.bar.value() == 85
+    
+    # Warning (20%)
+    bar2 = AccountQuotaBarWidget(0.20)
+    assert bar2.fraction == 0.20
+    assert bar2.lbl.text() == "20%"
+    assert bar2.bar.value() == 20
+    
+    # Exhausted (5%)
+    bar3 = AccountQuotaBarWidget(0.05)
+    assert bar3.fraction == 0.05
+    assert bar3.lbl.text() == "5%"
+    assert bar3.bar.value() == 5
+    
+    # Clamping
+    bar_over = AccountQuotaBarWidget(1.5)
+    assert bar_over.fraction == 1.0
+    assert bar_over.bar.value() == 100
+    
+    bar_under = AccountQuotaBarWidget(-0.2)
+    assert bar_under.fraction == 0.0
+    assert bar_under.bar.value() == 0
+
+
+def test_account_detail_dialog_full_flow(qapp, mock_controller):
+    """Test AccountDetailDialog editing label, TOTP secret, refresh token, and saving."""
+    from antigravity_swiss.gui.dialogs.account_detail_dialog import AccountDetailDialog
+    from antigravity_swiss.quota.calculator import AccountQuotaState
+    from antigravity_swiss.keyring.switcher import AccountStore
+    from PySide6.QtWidgets import QLineEdit
+
+    acc_state = AccountQuotaState(
+        email="test_user@gmail.com",
+        label="Original Label",
+        is_active=True,
+        status="ACTIVE",
+        has_totp=True,
+        totp_secret="JBSWY3DPEHPK3PXP",
+        refresh_token="1//original_refresh",
+        quota_5h_current=0.75,
+        reset_seconds=7200.0,
+        quota_weekly=0.88,
+    )
+
+    dialog = AccountDetailDialog(account=acc_state, controller=mock_controller)
+    assert dialog.label_edit.text() == "Original Label"
+    assert dialog.totp_edit.text() == "JBSWY3DPEHPK3PXP"
+    assert dialog.totp_edit.echoMode() == QLineEdit.EchoMode.Password
+
+    # Toggle echo mode
+    dialog._toggle_totp_echo()
+    assert dialog.totp_edit.echoMode() == QLineEdit.EchoMode.Normal
+    assert dialog.btn_toggle_totp.text() == "Hide"
+    dialog._toggle_totp_echo()
+    assert dialog.totp_edit.echoMode() == QLineEdit.EchoMode.Password
+    assert dialog.btn_toggle_totp.text() == "Show"
+
+    # Toggle refresh token echo mode
+    assert dialog.ref_edit.echoMode() == QLineEdit.EchoMode.Password
+    dialog._toggle_ref_echo()
+    assert dialog.ref_edit.echoMode() == QLineEdit.EchoMode.Normal
+    assert dialog.btn_toggle_ref.text() == "Hide"
+
+    # Edit fields
+    dialog.label_edit.setText("Updated Engineering Lead")
+    dialog.totp_edit.setText("HXDMVJECJJWSRB3HWIZR4IFUGFTMXBOZ")
+    assert "Live MFA Preview" in dialog.totp_preview_lbl.text()
+    dialog.ref_edit.setText("1//updated_refresh_token")
+
+    # Save
+    saved_signals = []
+    dialog.account_saved.connect(lambda em: saved_signals.append(em))
+    dialog._on_save_changes()
+
+    assert saved_signals == ["test_user@gmail.com"]
+
+    # Verify store updated
+    store = AccountStore(mock_controller.config.accounts_file)
+    acc = store.vault.get_account("test_user@gmail.com")
+    assert acc.label == "Updated Engineering Lead"
+    assert acc.totp_secret == "HXDMVJECJJWSRB3HWIZR4IFUGFTMXBOZ"
+    assert acc.credential.refresh_token == "1//updated_refresh_token"
+

@@ -978,10 +978,11 @@ def test_f16_03_nav_rail_has_marketplace_tab(qapp):
 
 
 def test_f16_04_nav_rail_has_system_settings_tab(qapp):
-    """F16: Navigation rail includes System & Tray Settings tool entry."""
+    """F16: Navigation rail has account & marketplace, while System Settings is accessible via bottom-right button."""
     rail = NavigationRail()
-    assert len(rail._buttons) >= 3
-    assert "System Settings" in rail._buttons[2].text()
+    assert len(rail._buttons) == 2
+    assert "Account Switcher" in rail._buttons[0].text()
+    assert "Tools Marketplace" in rail._buttons[1].text()
 
 
 def test_f16_05_nav_rail_displays_daemon_connection_badge(qapp):

@@ -22,6 +22,15 @@ from PySide6.QtWidgets import (
 from antigravity_swiss.core.constants import (
     MD3_ACCENT_PRIMARY,
     MD3_COLOR_HEALTHY,
+    MD3_LIGHT_ACCENT_CONTAINER,
+    MD3_LIGHT_ACCENT_PRIMARY,
+    MD3_LIGHT_COLOR_HEALTHY,
+    MD3_LIGHT_OUTLINE,
+    MD3_LIGHT_SURFACE,
+    MD3_LIGHT_SURFACE_CONTAINER,
+    MD3_LIGHT_SURFACE_CONTAINER_HIGH,
+    MD3_LIGHT_TEXT_PRIMARY,
+    MD3_LIGHT_TEXT_SECONDARY,
     MD3_OUTLINE,
     MD3_SURFACE_CONTAINER,
     MD3_SURFACE_CONTAINER_HIGH,
@@ -58,9 +67,9 @@ class ToolsMarketplacePage(QWidget):
         header_card = QFrame()
         header_card.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 12px;
                 padding: 16px;
             }}
         """)
@@ -69,9 +78,9 @@ class ToolsMarketplacePage(QWidget):
         h_vbox.setSpacing(4)
 
         t1 = QLabel("SWISS KNIFE TOOLS MARKETPLACE")
-        t1.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_TEXT_SECONDARY}; letter-spacing: 1px;")
+        t1.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
         t2 = QLabel("Extend your Antigravity companion with native productivity and automation modules.")
-        t2.setStyleSheet(f"font-size: 13px; color: {MD3_TEXT_PRIMARY};")
+        t2.setStyleSheet(f"font-size: 13px; color: {MD3_LIGHT_TEXT_PRIMARY};")
         h_vbox.addWidget(t1)
         h_vbox.addWidget(t2)
         h_layout.addLayout(h_vbox)
@@ -82,50 +91,61 @@ class ToolsMarketplacePage(QWidget):
         grid.setSpacing(16)
 
         modules = [
-            ("🔄", "Account Switcher", "Atomic zero-loss OAuth credential rotation with session preservation & MFA.", "ACTIVE", MD3_COLOR_HEALTHY),
-            ("🧠", "Brain Cache Optimizer", "Deep scanner & safe disk reclamation for ~/.gemini/ with cascade immunity.", "INSTALLED", MD3_COLOR_HEALTHY),
-            ("💻", "Fingerprint Virtualizer", "Anti-ban per-account hardware & UUID profile virtualization.", "INSTALLED", MD3_COLOR_HEALTHY),
-            ("📊", "Token Cost Tracker", "Real-time consumption analytics and quota burn rate forecasting.", "COMING SOON", MD3_TEXT_SECONDARY),
-            ("📑", "Prompt Bloat Compressor", "Automatic context bloat stripper and JSON-RPC deduplicator.", "BETA", MD3_ACCENT_PRIMARY),
-            ("🔖", "Session Bookmarker", "Preserve named workspace states and quick-jump between tasks.", "COMING SOON", MD3_TEXT_SECONDARY),
+            ("CORE", "Account Switcher", "Atomic zero-loss OAuth credential rotation with session preservation & MFA.", "ACTIVE", MD3_LIGHT_COLOR_HEALTHY),
+            ("CACHE", "Brain Cache Optimizer", "Deep scanner & safe disk reclamation for ~/.gemini/ with cascade immunity.", "INSTALLED", MD3_LIGHT_COLOR_HEALTHY),
+            ("SECURITY", "Fingerprint Virtualizer", "Anti-ban per-account hardware & UUID profile virtualization.", "INSTALLED", MD3_LIGHT_COLOR_HEALTHY),
+            ("METRICS", "Token Cost Tracker", "Real-time consumption analytics and quota burn rate forecasting.", "COMING SOON", MD3_LIGHT_TEXT_SECONDARY),
+            ("PROMPT", "Prompt Bloat Compressor", "Automatic context bloat stripper and JSON-RPC deduplicator.", "BETA", MD3_LIGHT_ACCENT_PRIMARY),
+            ("SESSION", "Session Bookmarker", "Preserve named workspace states and quick-jump between tasks.", "COMING SOON", MD3_LIGHT_TEXT_SECONDARY),
         ]
 
-        for idx, (icon, title, desc, badge, badge_color) in enumerate(modules):
+        for idx, (category, title, desc, badge, badge_color) in enumerate(modules):
             row = idx // 2
             col = idx % 2
 
             card = QFrame()
             card.setStyleSheet(f"""
                 QFrame {{
-                    background-color: {MD3_SURFACE_CONTAINER};
-                    border: 1px solid {MD3_OUTLINE};
-                    border-radius: 16px;
+                    background-color: {MD3_LIGHT_SURFACE};
+                    border: 1px solid {MD3_LIGHT_OUTLINE};
+                    border-radius: 12px;
                     padding: 18px;
                 }}
                 QFrame:hover {{
-                    border-color: {MD3_ACCENT_PRIMARY};
+                    border-color: {MD3_LIGHT_ACCENT_PRIMARY};
                 }}
             """)
             card_vbox = QVBoxLayout(card)
             card_vbox.setSpacing(10)
 
             top_row = QHBoxLayout()
-            icon_lbl = QLabel(icon)
-            icon_lbl.setStyleSheet("font-size: 24px;")
-            top_row.addWidget(icon_lbl)
+            cat_badge = QLabel(category)
+            cat_badge.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {MD3_LIGHT_SURFACE_CONTAINER};
+                    color: {MD3_LIGHT_TEXT_SECONDARY};
+                    border: 1px solid {MD3_LIGHT_OUTLINE};
+                    border-radius: 4px;
+                    padding: 2px 6px;
+                    font-size: 10px;
+                    font-weight: 700;
+                    letter-spacing: 0.5px;
+                }}
+            """)
+            top_row.addWidget(cat_badge)
 
             title_lbl = QLabel(title)
-            title_lbl.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {MD3_TEXT_PRIMARY};")
+            title_lbl.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {MD3_LIGHT_TEXT_PRIMARY};")
             top_row.addWidget(title_lbl)
             top_row.addStretch()
 
             badge_lbl = QLabel(badge)
             badge_lbl.setStyleSheet(f"""
                 QLabel {{
-                    background-color: {MD3_SURFACE_CONTAINER_HIGH};
+                    background-color: {MD3_LIGHT_SURFACE_CONTAINER};
                     color: {badge_color};
-                    border: 1px solid {MD3_OUTLINE};
-                    border-radius: 10px;
+                    border: 1px solid {MD3_LIGHT_OUTLINE};
+                    border-radius: 8px;
                     padding: 3px 8px;
                     font-size: 10px;
                     font-weight: 700;
@@ -136,7 +156,7 @@ class ToolsMarketplacePage(QWidget):
 
             desc_lbl = QLabel(desc)
             desc_lbl.setWordWrap(True)
-            desc_lbl.setStyleSheet(f"font-size: 12px; color: {MD3_TEXT_SECONDARY}; line-height: 1.4;")
+            desc_lbl.setStyleSheet(f"font-size: 12px; color: {MD3_LIGHT_TEXT_SECONDARY}; line-height: 1.4;")
             card_vbox.addWidget(desc_lbl)
 
             card_vbox.addStretch()

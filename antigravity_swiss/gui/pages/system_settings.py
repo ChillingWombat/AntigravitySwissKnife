@@ -27,6 +27,12 @@ from antigravity_swiss.core.constants import (
     DEFAULT_SWISS_CONFIG_DIR,
     MD3_ACCENT_PRIMARY,
     MD3_COLOR_HEALTHY,
+    MD3_LIGHT_COLOR_HEALTHY,
+    MD3_LIGHT_OUTLINE,
+    MD3_LIGHT_SURFACE,
+    MD3_LIGHT_SURFACE_CONTAINER,
+    MD3_LIGHT_TEXT_PRIMARY,
+    MD3_LIGHT_TEXT_SECONDARY,
     MD3_OUTLINE,
     MD3_SURFACE_CONTAINER,
     MD3_SURFACE_CONTAINER_HIGH,
@@ -69,9 +75,9 @@ class SystemSettingsPage(QWidget):
         header_card = QFrame()
         header_card.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 12px;
                 padding: 16px;
             }}
         """)
@@ -80,9 +86,9 @@ class SystemSettingsPage(QWidget):
         h_vbox.setSpacing(4)
 
         t1 = QLabel("SYSTEM & PROCESS SETTINGS")
-        t1.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_TEXT_SECONDARY}; letter-spacing: 1px;")
+        t1.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
         t2 = QLabel("Runtime diagnostics, IPC Unix domain sockets, and Antigravity process safety shield.")
-        t2.setStyleSheet(f"font-size: 13px; color: {MD3_TEXT_PRIMARY};")
+        t2.setStyleSheet(f"font-size: 13px; color: {MD3_LIGHT_TEXT_PRIMARY};")
         h_vbox.addWidget(t1)
         h_vbox.addWidget(t2)
         h_layout.addLayout(h_vbox)
@@ -92,9 +98,9 @@ class SystemSettingsPage(QWidget):
         diag_card = QFrame()
         diag_card.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 12px;
                 padding: 20px;
             }}
         """)
@@ -102,11 +108,11 @@ class SystemSettingsPage(QWidget):
         dc_layout.setSpacing(14)
 
         dc_title = QLabel("PROCESS SAFETY SHIELD & ENVIRONMENT")
-        dc_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_TEXT_SECONDARY}; letter-spacing: 1px;")
+        dc_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
         dc_layout.addWidget(dc_title)
 
-        shield_status = QLabel("🛡️ Host Process Shield: ACTIVE (Host IDE PID protected against accidental signals)")
-        shield_status.setStyleSheet(f"font-size: 12px; color: {MD3_COLOR_HEALTHY}; font-weight: 600;")
+        shield_status = QLabel("Host Process Shield: ACTIVE (Host IDE PID protected against accidental signals)")
+        shield_status.setStyleSheet(f"font-size: 12px; color: {MD3_LIGHT_COLOR_HEALTHY}; font-weight: 600;")
         dc_layout.addWidget(shield_status)
 
         # Fields
@@ -122,16 +128,16 @@ class SystemSettingsPage(QWidget):
             row.setSpacing(10)
             lbl = QLabel(label)
             lbl.setFixedWidth(160)
-            lbl.setStyleSheet(f"color: {MD3_TEXT_SECONDARY}; font-size: 12px; font-weight: 500;")
+            lbl.setStyleSheet(f"color: {MD3_LIGHT_TEXT_SECONDARY}; font-size: 12px; font-weight: 500;")
             row.addWidget(lbl)
 
             inp = QLineEdit(val)
             inp.setReadOnly(True)
             inp.setStyleSheet(f"""
                 QLineEdit {{
-                    background-color: {MD3_SURFACE_CONTAINER_HIGH};
-                    color: {MD3_TEXT_PRIMARY};
-                    border: 1px solid {MD3_OUTLINE};
+                    background-color: {MD3_LIGHT_SURFACE_CONTAINER};
+                    color: {MD3_LIGHT_TEXT_PRIMARY};
+                    border: 1px solid {MD3_LIGHT_OUTLINE};
                     border-radius: 6px;
                     padding: 6px 10px;
                     font-family: monospace;

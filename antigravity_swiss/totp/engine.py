@@ -36,17 +36,45 @@ class TotpEngine:
 
     @staticmethod
     def sanitize_secret(secret: str) -> str:
-        """Strips whitespace, hyphens, and converts to uppercase."""
-        return secret.replace(" ", "").replace("-", "").upper()
+        """
+        Parses and strips secret from:
+        1. Raw Base32 string (with spaces, hyphens, lowercase)
+        2. otpauth://totp/... URI string
+        3. Hexadecimal seed string
+        """
+        s = secret.strip()
+        if s.lower().startswith("otpauth://"):
+            from urllib.parse import urlparse, parse_qs
+            try:
+                parsed = urlparse(s)
+                qs = parse_qs(parsed.query)
+                if "secret" in qs and qs["secret"]:
+                    s = qs["secret"][0]
+            except Exception:
+                if "secret=" in s:
+                    s = s.split("secret=")[1].split("&")[0]
+
+        cleaned = s.replace(" ", "").replace("-", "").upper()
+
+        # Check if hexadecimal format (e.g. 32 or 40 hex chars)
+        if len(cleaned) >= 16 and len(cleaned) % 2 == 0 and all(c in "0123456789ABCDEF" for c in cleaned):
+            if any(c in "8901" for c in cleaned) or len(cleaned) in (32, 40):
+                try:
+                    raw_bytes = bytes.fromhex(cleaned)
+                    return base64.b32encode(raw_bytes).decode("ascii").rstrip("=")
+                except Exception:
+                    pass
+
+        return cleaned
 
     @classmethod
     def decode_secret(cls, secret: str) -> bytes:
         """
-        Decodes a Base32 secret into bytes, padding with '=' as required by RFC 4648.
+        Decodes a secret into bytes, padding with '=' as required by RFC 4648.
         """
         clean = cls.sanitize_secret(secret)
         if not clean:
-            raise ValueError("Base32 secret cannot be empty")
+            raise ValueError("Secret cannot be empty")
         # Pad to multiple of 8
         missing_padding = len(clean) % 8
         if missing_padding:
@@ -142,4 +170,22 @@ class TotpEngine:
 
 TOTPEngine = TotpEngine
 
-__all__ = ["TotpEngine", "TOTPEngine", "TotpResult"]
+
+def sanitize_secret(secret: str) -> str:
+    """Parses and strips secret from Base32, otpauth:// URI, or hex."""
+    return TotpEngine.sanitize_secret(secret)
+
+
+def generate_totp_code(secret: str) -> Tuple[str, int]:
+    """Generates current 6-digit TOTP code and remaining seconds."""
+    res = TotpEngine.get_current_totp(secret)
+    return res.code, res.remaining_seconds
+
+
+__all__ = [
+    "TotpEngine",
+    "TOTPEngine",
+    "TotpResult",
+    "sanitize_secret",
+    "generate_totp_code",
+]

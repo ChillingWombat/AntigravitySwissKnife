@@ -161,6 +161,7 @@ class AccountRecord:
     last_used_at: str | None = None
     totp_secret: str = ""
     is_healthy: bool = True
+    plan_tier: str = "Free"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -171,6 +172,7 @@ class AccountRecord:
             "last_used_at": self.last_used_at,
             "totp_secret": self.totp_secret,
             "is_healthy": self.is_healthy,
+            "plan_tier": self.plan_tier,
         }
 
     @classmethod
@@ -183,6 +185,7 @@ class AccountRecord:
             last_used_at=data.get("last_used_at"),
             totp_secret=str(data.get("totp_secret", "")),
             is_healthy=bool(data.get("is_healthy", True)),
+            plan_tier=str(data.get("plan_tier", "Free")),
         )
 
 
@@ -422,6 +425,7 @@ class AccountVault:
         label: str = "",
         totp_secret: str = "",
         is_healthy: bool = True,
+        plan_tier: str | None = None,
     ) -> AccountRecord:
         with self.transaction() as data:
             accounts = data.setdefault("accounts", {})
@@ -435,6 +439,8 @@ class AccountVault:
                 if totp_secret:
                     record.totp_secret = totp_secret
                 record.is_healthy = is_healthy
+                if plan_tier:
+                    record.plan_tier = plan_tier
             else:
                 record = AccountRecord(
                     email=email,
@@ -443,6 +449,7 @@ class AccountVault:
                     added_at=now_iso,
                     totp_secret=totp_secret,
                     is_healthy=is_healthy,
+                    plan_tier=plan_tier or "Free",
                 )
 
             accounts[email] = record.to_dict()
@@ -468,6 +475,34 @@ class AccountVault:
                 data["active_account"] = next(iter(accounts.keys())) if accounts else None
             return True
 
+    def update_account_info(
+        self,
+        email: str,
+        label: str | None = None,
+        totp_secret: str | None = None,
+        refresh_token: str | None = None,
+        set_active: bool = False,
+        plan_tier: str | None = None,
+    ) -> bool:
+        with self.transaction() as data:
+            accounts = data.get("accounts", {})
+            if not isinstance(accounts, dict) or email not in accounts:
+                return False
+            rec_dict = accounts[email]
+            if label is not None:
+                rec_dict["label"] = label
+            if plan_tier is not None and plan_tier.strip():
+                rec_dict["plan_tier"] = plan_tier.strip()
+            if totp_secret is not None:
+                rec_dict["totp_secret"] = totp_secret
+            if refresh_token is not None and refresh_token.strip():
+                if "credential" not in rec_dict or not isinstance(rec_dict["credential"], dict):
+                    rec_dict["credential"] = {}
+                rec_dict["credential"]["refresh_token"] = refresh_token.strip()
+            if set_active:
+                data["active_account"] = email
+            return True
+
 
 # Facade/Alias for AccountVault
 class AccountStore:
@@ -489,6 +524,8 @@ class AccountStore:
                 "last_used_at": r.last_used_at,
                 "has_totp": bool(r.totp_secret),
                 "totp_secret": r.totp_secret,
+                "plan_tier": getattr(r, "plan_tier", "Free"),
+                "refresh_token": r.credential.refresh_token if r.credential else "",
             }
             for r in records
         ]
@@ -496,11 +533,38 @@ class AccountStore:
     def set_totp_secret(self, email: str, totp_secret: str) -> bool:
         return self.vault.set_totp_secret(email, totp_secret)
 
+    def update_account(
+        self,
+        email: str,
+        label: str | None = None,
+        totp_secret: str | None = None,
+        refresh_token: str | None = None,
+        set_active: bool = False,
+        plan_tier: str | None = None,
+    ) -> bool:
+        return self.vault.update_account_info(
+            email=email,
+            label=label,
+            totp_secret=totp_secret,
+            refresh_token=refresh_token,
+            set_active=set_active,
+            plan_tier=plan_tier,
+        )
+
+    def remove_account(self, email: str) -> bool:
+        return self.vault.remove_account(email)
+
     def get_account(self, email: str) -> AccountRecord | None:
         return self.vault.get_account(email)
 
-    def add_or_update(self, email: str, credential: KeyringCredential, label: str = "") -> AccountRecord:
-        return self.vault.add_or_update_account(email, credential, label)
+    def add_or_update(
+        self,
+        email: str,
+        credential: KeyringCredential,
+        label: str = "",
+        plan_tier: str | None = None,
+    ) -> AccountRecord:
+        return self.vault.add_or_update_account(email, credential, label, plan_tier=plan_tier)
 
 
 def get_default_keyring_backend() -> KeyringBackendProtocol:

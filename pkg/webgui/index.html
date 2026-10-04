@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Antigravity Swiss Knife</title>
+<style>
+  :root {
+    --surface: #f0f4f9;
+    --card: #ffffff;
+    --border: #d3dbe5;
+    --outline: #d3dbe5;
+    --text-primary: #1f1f1f;
+    --text-secondary: #444746;
+    --accent: #0b57d0;
+    --accent-light: #d3e3fd;
+    --accent-dark: #041e42;
+    --healthy: #137333;
+    --healthy-bg: #e6f4ea;
+    --warning: #b06000;
+    --warning-bg: #fef7e0;
+    --exhausted: #b3261e;
+    --exhausted-bg: #fce8e6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Google Sans", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  body { background-color: var(--surface); color: var(--text-primary); display: flex; height: 100vh; overflow: hidden; }
+  
+  /* Left Nav Rail */
+  #nav { width: 220px; background: #ffffff; display: flex; flex-direction: column; padding: 24px 16px 16px; flex-shrink: 0; }
+  .logo-title { font-size: 16px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.3px; }
+  .logo-sub { font-size: 11px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+  .nav-sep { height: 1px; background: var(--border); margin: 16px 0 12px; }
+  .nav-header { font-size: 10px; font-weight: 700; color: var(--text-secondary); letter-spacing: 1.2px; margin-bottom: 8px; padding-left: 4px; }
+  .nav-btn { display: block; width: 100%; text-align: left; background: transparent; border: none; padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; color: var(--text-secondary); cursor: pointer; transition: all 0.15s; margin-bottom: 4px; }
+  .nav-btn:hover { background: #f1f3f4; color: var(--text-primary); }
+  .nav-btn.active { background: var(--accent-light); color: var(--accent-dark); font-weight: 600; }
+  
+  /* Vertical Separation Line */
+  .v-separator { width: 1px; background: var(--border); height: 100vh; flex-shrink: 0; }
+
+  /* Main Container */
+  #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); }
+  
+  /* Top Bar */
+  #topbar { height: 54px; background: #ffffff; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; flex-shrink: 0; }
+  .ribbon-tabs { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 2px; gap: 4px; }
+  .ribbon-btn { background: transparent; border: none; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--text-secondary); cursor: pointer; transition: all 0.15s; }
+  .ribbon-btn:hover { color: var(--text-primary); }
+  .ribbon-btn.active { background: #ffffff; color: var(--accent); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+  .account-badge { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 500; }
+
+  /* View Panels */
+  .panel { flex: 1; overflow-y: auto; padding: 24px; display: none; }
+  .panel.active { display: block; }
+
+  /* Cards */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+  .card-header { font-size: 11px; font-weight: 700; color: var(--text-secondary); letter-spacing: 0.8px; margin-bottom: 12px; text-transform: uppercase; }
+  
+  /* Top Horizon Row Grid */
+  .top-horizon-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  @media (max-width: 1024px) {
+    .top-horizon-grid { grid-template-columns: 1fr; }
+  }
+
+  /* Fleet Card */
+  .fleet-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; justify-content: space-between; }
+  .fleet-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .fleet-count { font-size: 26px; font-weight: 700; color: var(--text-primary); }
+  .fleet-active-acc { font-size: 13px; font-weight: 600; color: var(--accent); margin-top: 4px; }
+  .fleet-sync-time { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+  .fleet-actions { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
+
+  /* Progress Ring Card */
+  .ring-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  .ring-container { position: relative; width: 108px; height: 108px; display: flex; align-items: center; justify-content: center; margin: 6px 0; }
+  .progress-ring { transform: rotate(-90deg); }
+  .progress-ring-bg { stroke: #e5e9f0; stroke-width: 9; fill: none; }
+  .progress-ring-bar { stroke: var(--accent); stroke-width: 9; stroke-linecap: round; fill: none; transition: stroke-dashoffset 0.5s ease; }
+  .ring-number { position: absolute; font-size: 22px; font-weight: 700; color: var(--text-primary); }
+  .ring-title { font-size: 11px; font-weight: 700; color: var(--text-secondary); letter-spacing: 0.8px; text-transform: uppercase; margin-top: 4px; }
+  .ring-sub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+
+  /* Auto-Switch Button */
+  .btn-toggle { border-radius: 20px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; border: 1px solid var(--border); }
+  .btn-toggle.off { background: #ffffff; color: var(--text-secondary); border-color: var(--border); }
+  .btn-toggle.on { background: var(--healthy-bg); color: var(--healthy); border-color: #a8dab5; }
+
+  /* Horizontal Quota Bar inside Table */
+  .h-quota-cell { display: flex; align-items: center; gap: 10px; width: 100%; max-width: 180px; }
+  .h-quota-bar-bg { flex: 1; height: 8px; background: #e5e9f0; border-radius: 4px; overflow: hidden; }
+  .h-quota-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+  .h-quota-text { font-size: 12px; font-weight: 700; color: var(--text-primary); min-width: 36px; text-align: right; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 12px 14px; background: var(--surface); color: var(--text-secondary); font-size: 11px; font-weight: 700; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); text-transform: uppercase; }
+  td { padding: 14px; border-bottom: 1px solid var(--border); color: var(--text-primary); vertical-align: middle; }
+  tbody tr { cursor: pointer; transition: background 0.15s; }
+  tbody tr:hover td { background: #f4f8fe; }
+  .pill { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .pill-healthy { background: var(--healthy-bg); color: var(--healthy); }
+  .pill-warning { background: var(--warning-bg); color: var(--warning); }
+  .pill-exhausted { background: var(--exhausted-bg); color: var(--exhausted); }
+  .pill-standby { background: #f1f3f4; color: var(--text-secondary); }
+
+  /* Buttons */
+  .btn-primary { background: var(--accent); color: #ffffff; border: none; border-radius: 6px; padding: 8px 16px; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+  .btn-primary:hover { background: #1a73e8; }
+  .btn-secondary { background: #ffffff; color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; padding: 8px 14px; font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+  .btn-secondary:hover { background: #f8fafd; border-color: #bcc6d4; }
+  .btn-danger { background: #ffffff; color: var(--exhausted); border: 1px solid #f5c6cb; border-radius: 6px; padding: 8px 16px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+  .btn-danger:hover { background: var(--exhausted-bg); }
+
+  /* Bottom Left Nav Footer & Settings */
+  .nav-status-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+  .nav-settings-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; background: #ffffff; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 12px; font-weight: 600; color: var(--text-primary); cursor: pointer; transition: all 0.15s; }
+  .nav-settings-btn:hover { background: #f1f3f4; border-color: var(--accent); color: var(--accent); }
+  .nav-settings-btn.active { background: var(--accent-light); color: var(--accent-dark); border-color: var(--accent); font-weight: 700; }
+
+  /* Detail Pop-up Modal */
+  .modal-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+  .modal-card { background: #ffffff; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.15); width: 560px; max-width: 90vw; max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column; }
+  .modal-header { padding: 18px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .modal-title { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+  .modal-close { background: transparent; border: none; font-size: 22px; line-height: 1; color: var(--text-secondary); cursor: pointer; }
+  .modal-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
+  .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; gap: 10px; align-items: center; background: #fbfcfe; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; }
+
+  .detail-identity-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; }
+  .detail-email { font-size: 14px; font-weight: 700; color: var(--text-primary); }
+  .detail-quota-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .detail-quota-col { background: #f8fafd; border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .detail-quota-label { font-size: 11px; font-weight: 700; color: var(--text-secondary); margin-bottom: 8px; text-transform: uppercase; }
+  .detail-quota-sub { font-size: 11px; color: var(--text-secondary); margin-top: 6px; }
+
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-group label { font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+  .form-group input[type="text"], .form-group input[type="password"] { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: monospace; outline: none; }
+  .form-group input:focus { border-color: var(--accent); }
+  .input-with-button { display: flex; gap: 8px; }
+  .totp-preview-line { font-size: 11px; color: var(--text-secondary); background: #f1f3f4; padding: 6px 10px; border-radius: 4px; }
+
+  /* TOTP Box */
+  .totp-container { display: flex; align-items: center; justify-content: space-between; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; }
+  .totp-code { font-family: 'JetBrains Mono', monospace; font-size: 32px; font-weight: 700; letter-spacing: 6px; color: var(--accent); }
+
+  /* Quota Gauges Grid */
+  .gauge-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 12px; }
+  .gauge-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; text-align: center; }
+  .gauge-val { font-size: 28px; font-weight: 700; color: var(--text-primary); }
+  .gauge-model { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-top: 4px; }
+  .gauge-reset { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<!-- Left Rail -->
+<div id="nav">
+  <div class="logo-title">Antigravity</div>
+  <div class="logo-sub">Swiss Knife</div>
+  <div class="nav-sep"></div>
+  <div class="nav-header">NAVIGATION</div>
+  <button class="nav-btn active" id="nav-btn-0" onclick="switchNav(0)">Account Switcher</button>
+  <button class="nav-btn" id="nav-btn-1" onclick="switchNav(1)">Tools Marketplace</button>
+
+  <div style="flex: 1;"></div>
+
+  <!-- Bottom System Status Card -->
+  <div class="nav-status-card">
+    <div id="footer-daemon-status" style="font-size: 11px; font-weight: 600; color: var(--healthy);">Daemon Active</div>
+    <div id="footer-shield-status" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Shield Active</div>
+  </div>
+
+  <!-- Dedicated System Settings button pinned at bottom-left of whole GUI -->
+  <button class="nav-settings-btn" id="nav-settings-btn" onclick="openSystemSettings()">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+    </svg>
+    System Settings
+  </button>
+</div>
+
+<!-- Vertical Separation Line -->
+<div class="v-separator"></div>
+
+<!-- Main Area -->
+<div id="main">
+  <!-- Top Ribbon -->
+  <div id="topbar">
+    <div class="ribbon-tabs">
+      <button class="ribbon-btn active" id="ribbon-0" onclick="showSub(0)">Dashboard</button>
+      <button class="ribbon-btn" id="ribbon-1" onclick="showSub(1)">Accounts & MFA</button>
+      <button class="ribbon-btn" id="ribbon-2" onclick="showSub(2)">Fingerprints</button>
+      <button class="ribbon-btn" id="ribbon-3" onclick="showSub(3)">Cache Manager</button>
+      <button class="ribbon-btn" id="ribbon-4" onclick="showSub(4)">Settings</button>
+    </div>
+    <div class="account-badge" id="active-acc-badge">Loading...</div>
+  </div>
+
+  <!-- Sub-page 0: Dashboard -->
+  <div class="panel active" id="sub-0">
+    <!-- Top Section: 3 Cards (Fleet Info + 5h Progress Ring + Weekly Progress Ring) -->
+    <div class="top-horizon-grid">
+      <!-- Card A: Managed Accounts Fleet Card -->
+      <div class="fleet-card">
+        <div>
+          <div class="fleet-header">
+            <span class="card-header" style="margin-bottom: 0;">MANAGED ACCOUNTS FLEET</span>
+            <button class="btn-toggle off" id="btn-auto-switch" onclick="toggleAutoSwitch()">Auto-Switch: OFF</button>
+          </div>
+          <div class="fleet-count" id="fleet-count-text">0 Accounts Managed</div>
+          <div class="fleet-active-acc" id="fleet-active-text">Active: Standby</div>
+          <div class="fleet-sync-time" id="fleet-sync-time">Last Quota Sync: Just now</div>
+        </div>
+        <div class="fleet-actions">
+          <select id="quick-switch-select" style="flex: 1; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; outline: none; background: #ffffff;" onchange="onQuickSwitchSelect(this.value)">
+            <option value="">Select Account...</option>
+          </select>
+          <button class="btn-secondary" onclick="loadData()">Refresh</button>
+        </div>
+      </div>
+
+      <!-- Card B: 5-Hour Available Quota Ring -->
+      <div class="ring-card">
+        <span class="card-header" style="margin-bottom: 4px;">NEXT 5-HOUR QUOTA</span>
+        <div class="ring-container">
+          <svg class="progress-ring" width="108" height="108">
+            <circle class="progress-ring-bg" cx="54" cy="54" r="44"/>
+            <circle class="progress-ring-bar" id="ring-5h-circle" cx="54" cy="54" r="44" stroke-dasharray="276.46" stroke-dashoffset="276.46"/>
+          </svg>
+          <div class="ring-number" id="ring-5h-val">0%</div>
+        </div>
+        <div class="ring-title">Dynamic Reset Available</div>
+        <div class="ring-sub">Calculated across fleet horizons</div>
+      </div>
+
+      <!-- Card C: Weekly Quota Ring -->
+      <div class="ring-card">
+        <span class="card-header" style="margin-bottom: 4px;">WEEKLY QUOTA LEFT</span>
+        <div class="ring-container">
+          <svg class="progress-ring" width="108" height="108">
+            <circle class="progress-ring-bg" cx="54" cy="54" r="44"/>
+            <circle class="progress-ring-bar" id="ring-weekly-circle" cx="54" cy="54" r="44" stroke-dasharray="276.46" stroke-dashoffset="276.46"/>
+          </svg>
+          <div class="ring-number" id="ring-weekly-val">0%</div>
+        </div>
+        <div class="ring-title">7-Day Rolling Capacity</div>
+        <div class="ring-sub">Fleet-wide capacity reserve</div>
+      </div>
+    </div>
+
+    <!-- Bottom Section: Accounts Inventory & Horizons Table -->
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+        <div>
+          <div class="card-header" style="margin-bottom: 2px;">ACCOUNTS INVENTORY & HORIZONS</div>
+          <div style="font-size: 12px; color: var(--text-secondary);">Click on any account row to view details, update labels, MFA secret, or tokens.</div>
+        </div>
+        <button class="btn-primary" onclick="showSub(1); toggleImportForm();">+ Import Account</button>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Account Identity</th>
+            <th>Status</th>
+            <th>Next 5h Quota</th>
+            <th>Weekly Quota Left</th>
+            <th>Reset Horizon</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="dashboard-accounts-table"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Sub-page 1: Accounts & MFA -->
+  <div class="panel" id="sub-1">
+    <div class="card">
+      <div class="card-header">Live MFA / TOTP Authenticator</div>
+      <div class="totp-container">
+        <div>
+          <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;" id="totp-target">Active Account</div>
+          <div class="totp-code" id="totp-code">------</div>
+        </div>
+        <button class="btn-primary" onclick="copyTOTP()">Copy Code</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <div class="card-header" style="margin-bottom: 0;">Registered Accounts Inventory</div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-secondary" onclick="scanLocalAccounts()">Scan Local Machine</button>
+          <button class="btn-primary" onclick="toggleImportForm()">+ Import Account</button>
+        </div>
+      </div>
+
+      <!-- Import Account Form (Collapsible) -->
+      <div id="import-form-card" style="display: none; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+        <div style="font-size: 12px; font-weight: 700; color: var(--text-primary); margin-bottom: 12px;">Import Account Credentials</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+          <div>
+            <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">Account Email *</div>
+            <input type="text" id="imp-email" placeholder="user@gmail.com" />
+          </div>
+          <div>
+            <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">Account Label</div>
+            <input type="text" id="imp-label" placeholder="e.g. Work Primary" />
+          </div>
+        </div>
+        <div style="margin-bottom: 12px;">
+          <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">OAuth Refresh Token (1//...)</div>
+          <input type="text" id="imp-refresh" placeholder="1//06..." />
+        </div>
+        <div style="margin-bottom: 12px;">
+          <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">MFA Seed Token (Base32 or otpauth:// URI)</div>
+          <input type="text" id="imp-totp" placeholder="JBSWY3... or otpauth://totp/..." />
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 8px;">
+          <button class="btn-secondary" onclick="toggleImportForm()">Cancel</button>
+          <button class="btn-primary" onclick="submitImport()">Save & Import</button>
+        </div>
+      </div>
+
+      <!-- Scanned Local Accounts Result Table (Conditional) -->
+      <div id="scanned-card" style="display: none; background: #f8fafd; border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+        <div style="font-size: 12px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;">Discovered Accounts on Local Machine</div>
+        <table style="margin-bottom: 8px;">
+          <thead>
+            <tr>
+              <th>Discovered Email</th>
+              <th>Local Source</th>
+              <th>Tokens</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="scanned-table"></tbody>
+        </table>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Account Email</th>
+            <th>Label</th>
+            <th>MFA Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="accounts-table"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Sub-page 2: Fingerprints -->
+  <div class="panel" id="sub-2">
+    <div class="card">
+      <div class="card-header">Device Telemetry Isolation</div>
+      <div style="margin-bottom: 16px; display: flex; gap: 12px;">
+        <button class="btn-secondary" onclick="generateProfile()">Generate Fresh Profile</button>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 12px;" id="fp-fields">
+        <div>
+          <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">Machine ID (64-char hex)</div>
+          <input type="text" id="fp-machine" readonly />
+        </div>
+        <div>
+          <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">Updater ID (UUIDv4)</div>
+          <input type="text" id="fp-updater" readonly />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sub-page 3: Cache Manager -->
+  <div class="panel" id="sub-3">
+    <div class="card">
+      <div class="card-header">Storage Breakdown & Shield</div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div style="font-size: 13px; color: var(--text-secondary);">Active Cascade Conversation Shield is permanently protecting running sessions.</div>
+        <button class="btn-primary" onclick="pruneCache()">Prune Cache</button>
+      </div>
+      <div class="gauge-grid" id="cache-stats">
+        <div class="gauge-card"><div class="gauge-val" id="cache-brain">-- MB</div><div class="gauge-model">Brain Data</div></div>
+        <div class="gauge-card"><div class="gauge-val" id="cache-reclaim">-- MB</div><div class="gauge-model">Reclaimable</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sub-page 4: System / Switcher Settings -->
+  <div class="panel" id="sub-4">
+    <div class="card">
+      <div class="card-header">Switcher & Quota Rules Configuration</div>
+      <div style="display: flex; flex-direction: column; gap: 16px; max-width: 600px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div style="font-size: 13px; font-weight: 600;">Autonomous Quota Auto-Switch</div>
+            <div style="font-size: 11px; color: var(--text-secondary);">Automatically rotates to next account when active quota crosses threshold.</div>
+          </div>
+          <button class="btn-toggle off" id="settings-auto-switch-toggle" onclick="toggleAutoSwitch()">OFF</button>
+        </div>
+
+        <div class="form-group">
+          <label>Auto-Switch Threshold: <span id="threshold-val" style="font-weight: 700; color: var(--accent);">10%</span></label>
+          <input type="range" id="threshold-range" min="5" max="30" value="10" oninput="document.getElementById('threshold-val').innerText = this.value + '%'" style="width: 100%; accent-color: var(--accent);" />
+        </div>
+
+        <div class="form-group">
+          <label>Polling Interval: <span id="polling-val" style="font-weight: 700; color: var(--accent);">30s</span></label>
+          <input type="range" id="polling-range" min="10" max="120" step="5" value="30" oninput="document.getElementById('polling-val').innerText = this.value + 's'" style="width: 100%; accent-color: var(--accent);" />
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+          <button class="btn-primary" onclick="saveSettingsRules()">Save Configuration</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tools Marketplace (Placeholder) -->
+  <div class="panel" id="market-panel">
+    <div class="card">
+      <div class="card-header">Tools Marketplace</div>
+      <div style="font-size: 13px; color: var(--text-secondary);">Browse, install, and configure Antigravity extension tools and plugins.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Account Detail Pop-up Modal -->
+<div id="account-detail-modal" class="modal-backdrop" style="display: none;">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="modal-title">Account Details & Credentials</div>
+      <button class="modal-close" onclick="closeAccountDetail()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <!-- Identity & Status Header Box -->
+      <div class="detail-identity-box">
+        <div>
+          <div class="detail-email" id="modal-acc-email">user@gmail.com</div>
+          <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;" id="modal-acc-status-line">Standby Account</div>
+        </div>
+        <div id="modal-acc-badge"><span class="pill pill-standby">STANDBY</span></div>
+      </div>
+
+      <!-- Quota Snapshot with Horizontal Bars -->
+      <div class="detail-quota-grid">
+        <div class="detail-quota-col">
+          <div class="detail-quota-label">5-Hour Available Quota</div>
+          <div class="h-quota-cell">
+            <div class="h-quota-bar-bg"><div id="modal-bar-5h" class="h-quota-bar-fill" style="width: 80%; background: var(--healthy);"></div></div>
+            <span id="modal-text-5h" class="h-quota-text">80%</span>
+          </div>
+          <div id="modal-reset-5h" class="detail-quota-sub">Resets in 2h 15m</div>
+        </div>
+        <div class="detail-quota-col">
+          <div class="detail-quota-label">Weekly Quota Left</div>
+          <div class="h-quota-cell">
+            <div class="h-quota-bar-bg"><div id="modal-bar-weekly" class="h-quota-bar-fill" style="width: 90%; background: var(--healthy);"></div></div>
+            <span id="modal-text-weekly" class="h-quota-text">90%</span>
+          </div>
+          <div class="detail-quota-sub">7-Day Rolling Capacity</div>
+        </div>
+      </div>
+
+      <!-- Editable fields -->
+      <div class="form-group">
+        <label>Friendly Account Label</label>
+        <input type="text" id="modal-acc-label" placeholder="e.g. Work Primary" />
+      </div>
+
+      <div class="form-group">
+        <label>TOTP MFA Secret (Base32 or otpauth:// URI)</label>
+        <div class="input-with-button">
+          <input type="password" id="modal-acc-totp" placeholder="JBSWY3DPEHPK3PXP..." oninput="updateModalTOTPPreview()" />
+          <button class="btn-secondary" type="button" onclick="toggleSecretVisibility('modal-acc-totp', this)">Show</button>
+        </div>
+        <div class="totp-preview-line" id="modal-totp-preview">
+          Live Code Preview: <strong id="modal-totp-code">------</strong> (<span id="modal-totp-sec">30s</span>)
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>OAuth Refresh Token (1//...)</label>
+        <div class="input-with-button">
+          <input type="password" id="modal-acc-refresh" placeholder="1//06..." />
+          <button class="btn-secondary" type="button" onclick="toggleSecretVisibility('modal-acc-refresh', this)">Show</button>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+        <input type="checkbox" id="modal-acc-active" style="accent-color: var(--accent); cursor: pointer;" />
+        <label for="modal-acc-active" style="font-size: 13px; font-weight: 500; cursor: pointer;">Set as currently active account</label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-danger" onclick="deleteModalAccount()">Delete Account</button>
+      <div style="flex: 1;"></div>
+      <button class="btn-secondary" onclick="closeAccountDetail()">Cancel</button>
+      <button class="btn-primary" onclick="saveModalAccount()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let activeEmail = "";
+  let cachedAccounts = [];
+  let autoSwitchEnabled = false;
+  const CIRCLE_CIRCUMFERENCE = 276.46; // 2 * PI * 44
+
+  function switchNav(idx) {
+    document.querySelectorAll('.nav-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
+    const settingsBtn = document.getElementById('nav-settings-btn');
+    if (settingsBtn) settingsBtn.classList.remove('active');
+    const marketPanel = document.getElementById('market-panel');
+    const topbar = document.getElementById('topbar');
+    if (idx === 1) {
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      marketPanel.classList.add('active');
+      topbar.style.display = 'none';
+    } else {
+      marketPanel.classList.remove('active');
+      topbar.style.display = 'flex';
+      showSub(0);
+    }
+  }
+
+  function showSub(idx) {
+    document.querySelectorAll('.ribbon-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
+    document.querySelectorAll('.panel').forEach((p, i) => {
+      if (p.id !== 'market-panel') {
+        p.classList.toggle('active', i === idx);
+      }
+    });
+    const settingsBtn = document.getElementById('nav-settings-btn');
+    if (settingsBtn) {
+      settingsBtn.classList.toggle('active', idx === 4);
+    }
+  }
+
+  function openSystemSettings() {
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    const settingsBtn = document.getElementById('nav-settings-btn');
+    if (settingsBtn) settingsBtn.classList.add('active');
+    const marketPanel = document.getElementById('market-panel');
+    const topbar = document.getElementById('topbar');
+    marketPanel.classList.remove('active');
+    topbar.style.display = 'flex';
+    showSub(4);
+  }
+
+  async function loadData() {
+    try {
+      // 1. Status
+      const st = await fetch('/api/status').then(r => r.json());
+      activeEmail = st.active_account || "";
+      document.getElementById('active-acc-badge').innerText = activeEmail || "No Active Account";
+      document.getElementById('totp-target').innerText = activeEmail;
+      document.getElementById('fleet-active-text').innerText = activeEmail ? "Active: " + activeEmail : "Active: Standby";
+      document.getElementById('fleet-sync-time').innerText = "Last Quota Sync: " + new Date().toLocaleTimeString();
+
+      if (st.daemon_pid) {
+        document.getElementById('footer-daemon-status').innerText = "Daemon Active (PID " + st.daemon_pid + ")";
+      }
+      if (st.antigravity_pid) {
+        document.getElementById('footer-shield-status').innerText = "Shield Active (PID " + st.antigravity_pid + " protected)";
+      }
+
+      // 2. Rules / Auto-Switch
+      const rules = await fetch('/api/rules').then(r => r.json()).catch(() => ({}));
+      if (rules) {
+        autoSwitchEnabled = !!rules.auto_switch_enabled;
+        updateAutoSwitchUI(autoSwitchEnabled);
+        if (rules.auto_switch_threshold) {
+          const t = Math.round(rules.auto_switch_threshold * 100);
+          document.getElementById('threshold-range').value = t;
+          document.getElementById('threshold-val').innerText = t + '%';
+        }
+        if (rules.polling_interval_seconds) {
+          document.getElementById('polling-range').value = rules.polling_interval_seconds;
+          document.getElementById('polling-val').innerText = rules.polling_interval_seconds + 's';
+        }
+      }
+
+      // 3. Fleet Quota & Per-account states
+      const fleet = await fetch('/api/quota/fleet').then(r => r.json()).catch(() => null);
+      if (fleet) {
+        renderFleetRings(fleet.fleet_5h_fraction || 0, fleet.fleet_weekly_fraction || 0);
+        document.getElementById('fleet-count-text').innerText = (fleet.total_accounts || 0) + " Accounts Managed";
+        cachedAccounts = fleet.accounts || [];
+        renderDashboardTable(cachedAccounts);
+        updateQuickSwitcher(cachedAccounts);
+      }
+
+      // 4. Accounts Inventory for Tab 1
+      const accs = await fetch('/api/accounts').then(r => r.json()).catch(() => []);
+      renderAccountsTable(accs || []);
+
+      // 5. TOTP for active account
+      const totp = await fetch('/api/totp?email=' + encodeURIComponent(activeEmail)).then(r => r.json()).catch(() => null);
+      if (totp && totp.code) {
+        document.getElementById('totp-code').innerText = totp.code.slice(0,3) + " " + totp.code.slice(3);
+      }
+
+      // 6. Device Profile
+      const fp = await fetch('/api/fingerprint?email=' + encodeURIComponent(activeEmail)).then(r => r.json()).catch(() => null);
+      if (fp) {
+        document.getElementById('fp-machine').value = fp.machine_id || "";
+        document.getElementById('fp-updater').value = fp.updater_id || "";
+      }
+
+      // 7. Cache scan
+      const c = await fetch('/api/cache/scan?min_age_days=3').then(r => r.json()).catch(() => null);
+      if (c) {
+        document.getElementById('cache-brain').innerText = (c.brain_total_bytes / (1024*1024)).toFixed(1) + " MB";
+        document.getElementById('cache-reclaim').innerText = (c.reclaimable_bytes / (1024*1024)).toFixed(1) + " MB";
+      }
+    } catch(e) { console.error("loadData error", e); }
+  }
+
+  function renderFleetRings(frac5h, fracWeekly) {
+    const pct5h = Math.round(frac5h * 100);
+    const pctWeekly = Math.round(fracWeekly * 100);
+
+    // 5h Ring
+    const offset5h = CIRCLE_CIRCUMFERENCE * (1 - Math.max(0, Math.min(1, frac5h)));
+    const ring5h = document.getElementById('ring-5h-circle');
+    ring5h.style.strokeDashoffset = offset5h;
+    ring5h.style.stroke = pct5h > 30 ? 'var(--healthy)' : (pct5h >= 10 ? 'var(--warning)' : 'var(--exhausted)');
+    document.getElementById('ring-5h-val').innerText = pct5h + '%';
+
+    // Weekly Ring
+    const offsetWeekly = CIRCLE_CIRCUMFERENCE * (1 - Math.max(0, Math.min(1, fracWeekly)));
+    const ringWeekly = document.getElementById('ring-weekly-circle');
+    ringWeekly.style.strokeDashoffset = offsetWeekly;
+    ringWeekly.style.stroke = pctWeekly > 30 ? 'var(--accent)' : 'var(--warning)';
+    document.getElementById('ring-weekly-val').innerText = pctWeekly + '%';
+  }
+
+  function renderDashboardTable(accounts) {
+    const tbody = document.getElementById('dashboard-accounts-table');
+    if (!accounts || accounts.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary); padding: 24px;">No accounts registered. Click "+ Import Account" to add one.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = accounts.map(a => {
+      const isAct = a.is_active || (a.email === activeEmail);
+      const statusPill = isAct ?
+        '<span class="pill pill-healthy">ACTIVE</span>' :
+        '<span class="pill pill-standby">STANDBY</span>';
+
+      const p5h = Math.round((a.quota_5h_available || 0) * 100);
+      const color5h = p5h > 30 ? 'var(--healthy)' : (p5h >= 10 ? 'var(--warning)' : 'var(--exhausted)');
+
+      const pWk = Math.round((a.quota_weekly || 0) * 100);
+      const colorWk = pWk > 30 ? 'var(--accent)' : 'var(--warning)';
+
+      return '<tr onclick="openAccountDetail(\'' + a.email + '\')">' +
+        '<td>' +
+          '<div style="font-weight: 700; color: var(--text-primary);">' + (a.label || a.email) + '</div>' +
+          '<div style="font-size: 11px; color: var(--text-secondary);">' + a.email + '</div>' +
+        '</td>' +
+        '<td>' + statusPill + '</td>' +
+        '<td>' +
+          '<div class="h-quota-cell">' +
+            '<div class="h-quota-bar-bg"><div class="h-quota-bar-fill" style="width: ' + p5h + '%; background: ' + color5h + ';"></div></div>' +
+            '<span class="h-quota-text" style="color: ' + color5h + ';">' + p5h + '%</span>' +
+          '</div>' +
+        '</td>' +
+        '<td>' +
+          '<div class="h-quota-cell">' +
+            '<div class="h-quota-bar-bg"><div class="h-quota-bar-fill" style="width: ' + pWk + '%; background: ' + colorWk + ';"></div></div>' +
+            '<span class="h-quota-text" style="color: ' + colorWk + ';">' + pWk + '%</span>' +
+          '</div>' +
+        '</td>' +
+        '<td style="font-size: 12px; color: var(--text-secondary);">' + (a.reset_horizon_text || 'Ready') + '</td>' +
+        '<td><button class="btn-secondary" style="padding: 4px 10px; font-size: 11px;" onclick="event.stopPropagation(); openAccountDetail(\'' + a.email + '\')">Edit Details</button></td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  function updateQuickSwitcher(accounts) {
+    const sel = document.getElementById('quick-switch-select');
+    sel.innerHTML = '<option value="">Switch Account...</option>' + accounts.map(a => {
+      const activeMark = a.is_active ? ' (Active)' : '';
+      return '<option value="' + a.email + '"' + (a.is_active ? ' selected' : '') + '>' + (a.label || a.email) + activeMark + '</option>';
+    }).join('');
+  }
+
+  async function onQuickSwitchSelect(email) {
+    if (!email || email === activeEmail) return;
+    await switchAcc(email);
+  }
+
+  function renderAccountsTable(accs) {
+    const el = document.getElementById('accounts-table');
+    el.innerHTML = accs.map(a => {
+      const activeBadge = a.is_active ? '<span class="pill pill-healthy">Active</span>' : '';
+      const mfaBadge = a.has_totp ? '<span class="pill pill-healthy">Protected</span>' : '<span class="pill pill-warning">No MFA</span>';
+      const action = a.is_active ? '-' : '<button class="btn-secondary" onclick="switchAcc(\'' + a.email + '\')">Switch</button>';
+      return '<tr>' +
+        '<td><strong>' + a.email + '</strong> ' + activeBadge + '</td>' +
+        '<td>' + (a.label || 'Standard') + '</td>' +
+        '<td>' + mfaBadge + '</td>' +
+        '<td>' + action + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  function updateAutoSwitchUI(enabled) {
+    const btn = document.getElementById('btn-auto-switch');
+    const settingsBtn = document.getElementById('settings-auto-switch-toggle');
+    if (enabled) {
+      btn.className = 'btn-toggle on';
+      btn.innerText = 'Auto-Switch: ON';
+      settingsBtn.className = 'btn-toggle on';
+      settingsBtn.innerText = 'ON';
+    } else {
+      btn.className = 'btn-toggle off';
+      btn.innerText = 'Auto-Switch: OFF';
+      settingsBtn.className = 'btn-toggle off';
+      settingsBtn.innerText = 'OFF';
+    }
+  }
+
+  async function toggleAutoSwitch() {
+    const nextState = !autoSwitchEnabled;
+    try {
+      const resp = await fetch('/api/rules/auto_switch', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({enabled: nextState})
+      });
+      if (resp.ok) {
+        autoSwitchEnabled = nextState;
+        updateAutoSwitchUI(autoSwitchEnabled);
+      }
+    } catch(e) { console.error(e); }
+  }
+
+  async function saveSettingsRules() {
+    const threshold = parseFloat(document.getElementById('threshold-range').value) / 100.0;
+    const interval = parseInt(document.getElementById('polling-range').value);
+    await fetch('/api/rules', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        auto_switch_enabled: autoSwitchEnabled,
+        auto_switch_threshold: threshold,
+        polling_interval_seconds: interval
+      })
+    });
+    alert('Settings saved successfully!');
+    loadData();
+  }
+
+  // Account Detail Modal Logic
+  let modalTargetEmail = "";
+
+  function openAccountDetail(email) {
+    const acc = cachedAccounts.find(a => a.email === email) || {
+      email: email, label: email, is_active: (email === activeEmail),
+      quota_5h_available: 0.85, quota_weekly: 0.90, reset_horizon_text: 'Resets in 2h 30m',
+      totp_secret: '', refresh_token: ''
+    };
+
+    modalTargetEmail = email;
+    document.getElementById('modal-acc-email').innerText = acc.email;
+    document.getElementById('modal-acc-label').value = acc.label || '';
+    document.getElementById('modal-acc-totp').value = acc.totp_secret || '';
+    document.getElementById('modal-acc-refresh').value = acc.refresh_token || '';
+    document.getElementById('modal-acc-active').checked = !!acc.is_active;
+
+    const isAct = acc.is_active || (acc.email === activeEmail);
+    document.getElementById('modal-acc-status-line').innerText = isAct ? "Active in Host IDE" : "Standby Account in Keyring";
+    document.getElementById('modal-acc-badge').innerHTML = isAct ?
+      '<span class="pill pill-healthy">ACTIVE</span>' :
+      '<span class="pill pill-standby">STANDBY</span>';
+
+    const p5h = Math.round((acc.quota_5h_available || 0) * 100);
+    const color5h = p5h > 30 ? 'var(--healthy)' : (p5h >= 10 ? 'var(--warning)' : 'var(--exhausted)');
+    document.getElementById('modal-bar-5h').style.width = p5h + '%';
+    document.getElementById('modal-bar-5h').style.background = color5h;
+    document.getElementById('modal-text-5h').innerText = p5h + '%';
+    document.getElementById('modal-reset-5h').innerText = acc.reset_horizon_text || 'Ready';
+
+    const pWk = Math.round((acc.quota_weekly || 0) * 100);
+    const colorWk = pWk > 30 ? 'var(--accent)' : 'var(--warning)';
+    document.getElementById('modal-bar-weekly').style.width = pWk + '%';
+    document.getElementById('modal-bar-weekly').style.background = colorWk;
+    document.getElementById('modal-text-weekly').innerText = pWk + '%';
+
+    updateModalTOTPPreview();
+    document.getElementById('account-detail-modal').style.display = 'flex';
+  }
+
+  function closeAccountDetail() {
+    document.getElementById('account-detail-modal').style.display = 'none';
+  }
+
+  function toggleSecretVisibility(id, btn) {
+    const inp = document.getElementById(id);
+    if (inp.type === 'password') {
+      inp.type = 'text';
+      if (btn) btn.innerText = 'Hide';
+    } else {
+      inp.type = 'password';
+      if (btn) btn.innerText = 'Show';
+    }
+  }
+
+  async function updateModalTOTPPreview() {
+    const sec = document.getElementById('modal-acc-totp').value.trim();
+    if (!sec) {
+      document.getElementById('modal-totp-code').innerText = '------';
+      document.getElementById('modal-totp-sec').innerText = '0s';
+      return;
+    }
+    // Fetch live TOTP preview from backend
+    try {
+      const res = await fetch('/api/totp?email=' + encodeURIComponent(modalTargetEmail)).then(r => r.json());
+      if (res && res.code && res.code !== '------') {
+        document.getElementById('modal-totp-code').innerText = res.code;
+        document.getElementById('modal-totp-sec').innerText = (res.remaining_seconds || 30) + 's';
+      }
+    } catch(e) {}
+  }
+
+  async function saveModalAccount() {
+    if (!modalTargetEmail) return;
+    const label = document.getElementById('modal-acc-label').value.trim();
+    const totp = document.getElementById('modal-acc-totp').value.trim();
+    const refresh = document.getElementById('modal-acc-refresh').value.trim();
+    const isActive = document.getElementById('modal-acc-active').checked;
+
+    try {
+      const res = await fetch('/api/accounts/update', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          email: modalTargetEmail,
+          label: label,
+          totp_secret: totp,
+          refresh_token: refresh,
+          set_active: isActive
+        })
+      });
+      if (res.ok) {
+        closeAccountDetail();
+        loadData();
+      } else {
+        alert('Failed to save changes: ' + await res.text());
+      }
+    } catch(e) { alert('Error: ' + e); }
+  }
+
+  async function deleteModalAccount() {
+    if (!modalTargetEmail) return;
+    if (confirm('Are you sure you want to delete account ' + modalTargetEmail + '? This action cannot be undone.')) {
+      try {
+        const res = await fetch('/api/accounts/delete', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({email: modalTargetEmail})
+        });
+        if (res.ok) {
+          closeAccountDetail();
+          loadData();
+        } else {
+          alert('Delete failed: ' + await res.text());
+        }
+      } catch(e) { alert('Error: ' + e); }
+    }
+  }
+
+  async function switchAcc(email) {
+    await fetch('/api/switch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email})
+    });
+    loadData();
+  }
+
+  function toggleImportForm() {
+    const el = document.getElementById('import-form-card');
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  }
+
+  async function submitImport() {
+    const email = document.getElementById('imp-email').value.trim();
+    if (!email) {
+      alert('Please enter an account email.');
+      return;
+    }
+    const label = document.getElementById('imp-label').value.trim();
+    const refreshToken = document.getElementById('imp-refresh').value.trim();
+    const totpSecret = document.getElementById('imp-totp').value.trim();
+
+    try {
+      const resp = await fetch('/api/accounts/import', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          email: email,
+          label: label,
+          refresh_token: refreshToken,
+          totp_secret: totpSecret
+        })
+      });
+      if (resp.ok) {
+        toggleImportForm();
+        document.getElementById('imp-email').value = '';
+        document.getElementById('imp-label').value = '';
+        document.getElementById('imp-refresh').value = '';
+        document.getElementById('imp-totp').value = '';
+        loadData();
+      } else {
+        const err = await resp.text();
+        alert('Import error: ' + err);
+      }
+    } catch(e) { alert('Error: ' + e); }
+  }
+
+  async function scanLocalAccounts() {
+    try {
+      const res = await fetch('/api/accounts/scan').then(r => r.json());
+      const card = document.getElementById('scanned-card');
+      const tbody = document.getElementById('scanned-table');
+      if (!res || res.length === 0) {
+        alert('No additional local accounts found.');
+        return;
+      }
+      card.style.display = 'block';
+      tbody.innerHTML = res.map(d => {
+        const tokText = d.has_refresh ? 'Refresh Token' : (d.has_tokens ? 'Access Token' : 'None');
+        const statusText = d.is_active_in_ide ? '<span class="pill pill-healthy">Active in IDE</span>' : (d.already_in_vault ? 'In Vault' : 'Detected');
+        const actBtn = d.already_in_vault ? '<span style="color: var(--text-secondary); font-size: 11px;">Already Saved</span>' :
+          '<button class="btn-primary" style="padding: 4px 10px; font-size: 11px;" onclick="quickImportScanned(\'' + d.email + '\', \'' + (d.refresh_token || '') + '\', \'' + (d.access_token || '') + '\')">Import</button>';
+        return '<tr>' +
+          '<td><strong>' + d.email + '</strong></td>' +
+          '<td>' + d.source + '</td>' +
+          '<td>' + tokText + '</td>' +
+          '<td>' + statusText + '</td>' +
+          '<td>' + actBtn + '</td>' +
+        '</tr>';
+      }).join('');
+    } catch(e) { alert('Scan error: ' + e); }
+  }
+
+  async function quickImportScanned(email, refresh, access) {
+    await fetch('/api/accounts/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        email: email,
+        refresh_token: refresh,
+        access_token: access,
+        label: 'Imported from Local Host'
+      })
+    });
+    scanLocalAccounts();
+    loadData();
+  }
+
+  async function copyTOTP() {
+    const code = document.getElementById('totp-code').innerText.replace(' ', '');
+    if (code && code !== '------') {
+      await navigator.clipboard.writeText(code);
+      alert('TOTP Code copied to clipboard!');
+    }
+  }
+
+  async function generateProfile() {
+    const fp = await fetch('/api/fingerprint?action=generate').then(r => r.json());
+    if (fp) {
+      document.getElementById('fp-machine').value = fp.machine_id;
+      document.getElementById('fp-updater').value = fp.updater_id;
+      await fetch('/api/fingerprint', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email: activeEmail, profile: fp})
+      });
+    }
+  }
+
+  async function pruneCache() {
+    if (confirm('Safely prune stale cache older than 3 days? Active conversation files will remain intact.')) {
+      await fetch('/api/cache/prune', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({min_age_days: 3, prune_scratch: true, prune_steps: true, prune_tasks: true})
+      });
+      loadData();
+    }
+  }
+
+  loadData();
+  setInterval(loadData, 5000);
+</script>
+</body>
+</html>

@@ -32,6 +32,16 @@ from antigravity_swiss.core.constants import (
     MD3_ACCENT_PRIMARY,
     MD3_COLOR_HEALTHY,
     MD3_COLOR_WARNING,
+    MD3_LIGHT_ACCENT_CONTAINER,
+    MD3_LIGHT_ACCENT_PRIMARY,
+    MD3_LIGHT_COLOR_HEALTHY,
+    MD3_LIGHT_COLOR_WARNING,
+    MD3_LIGHT_OUTLINE,
+    MD3_LIGHT_SURFACE,
+    MD3_LIGHT_SURFACE_CONTAINER,
+    MD3_LIGHT_SURFACE_CONTAINER_HIGH,
+    MD3_LIGHT_TEXT_PRIMARY,
+    MD3_LIGHT_TEXT_SECONDARY,
     MD3_OUTLINE,
     MD3_SURFACE_CONTAINER,
     MD3_SURFACE_CONTAINER_HIGH,
@@ -80,9 +90,9 @@ class DeviceFingerprintsPage(QWidget):
         header_card = QFrame()
         header_card.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 12px;
                 padding: 16px;
             }}
         """)
@@ -91,22 +101,22 @@ class DeviceFingerprintsPage(QWidget):
         h_vbox.setSpacing(4)
 
         t1 = QLabel("DEVICE FINGERPRINT VIRTUALIZER")
-        t1.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_TEXT_SECONDARY}; letter-spacing: 1px;")
+        t1.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
         t2 = QLabel("Isolates hardware and installation IDs per account to prevent sybil cross-correlation.")
-        t2.setStyleSheet(f"font-size: 13px; color: {MD3_TEXT_PRIMARY};")
+        t2.setStyleSheet(f"font-size: 13px; color: {MD3_LIGHT_TEXT_PRIMARY};")
         h_vbox.addWidget(t1)
         h_vbox.addWidget(t2)
         h_layout.addLayout(h_vbox)
         h_layout.addStretch()
 
-        self._status_badge = QLabel("🛡️ Virtualization Ready")
+        self._status_badge = QLabel("Virtualization Ready")
         self._status_badge.setStyleSheet(f"""
             QLabel {{
-                background-color: #203525;
-                color: {MD3_COLOR_HEALTHY};
-                border: 1px solid #2e5936;
-                border-radius: 14px;
-                padding: 6px 14px;
+                background-color: #e6f4ea;
+                color: {MD3_LIGHT_COLOR_HEALTHY};
+                border: 1px solid #ceead6;
+                border-radius: 12px;
+                padding: 5px 12px;
                 font-size: 12px;
                 font-weight: 600;
             }}
@@ -118,9 +128,9 @@ class DeviceFingerprintsPage(QWidget):
         insp_card = QFrame()
         insp_card.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 12px;
                 padding: 20px;
             }}
         """)
@@ -130,17 +140,17 @@ class DeviceFingerprintsPage(QWidget):
         # Account Selection Row
         acc_row = QHBoxLayout()
         acc_lbl = QLabel("Target Account:")
-        acc_lbl.setStyleSheet(f"font-size: 13px; font-weight: 500; color: {MD3_TEXT_PRIMARY};")
+        acc_lbl.setStyleSheet(f"font-size: 13px; font-weight: 500; color: {MD3_LIGHT_TEXT_PRIMARY};")
         acc_row.addWidget(acc_lbl)
 
         self._acc_combo = QComboBox()
         self._acc_combo.setMinimumWidth(260)
         self._acc_combo.setStyleSheet(f"""
             QComboBox {{
-                background-color: {MD3_SURFACE_CONTAINER_HIGH};
-                color: {MD3_TEXT_PRIMARY};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 8px;
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
+                color: {MD3_LIGHT_TEXT_PRIMARY};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 6px;
                 padding: 6px 12px;
                 font-size: 12px;
             }}
@@ -150,20 +160,19 @@ class DeviceFingerprintsPage(QWidget):
 
         acc_row.addStretch()
 
-        self._gen_btn = QPushButton("🎲 Generate Fresh Profile")
+        self._gen_btn = QPushButton("Generate Fresh Profile")
         self._gen_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: #2b394f;
-                color: {MD3_ACCENT_PRIMARY};
-                border: 1px solid {MD3_ACCENT_PRIMARY};
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
+                color: {MD3_LIGHT_TEXT_PRIMARY};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 6px;
                 padding: 8px 16px;
                 font-size: 12px;
                 font-weight: 600;
             }}
             QPushButton:hover {{
-                background-color: {MD3_ACCENT_PRIMARY};
-                color: #041e42;
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER_HIGH};
             }}
         """)
         self._gen_btn.clicked.connect(self._on_generate_random)
@@ -172,16 +181,16 @@ class DeviceFingerprintsPage(QWidget):
         self._save_btn = QPushButton("Save Profile")
         self._save_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {MD3_ACCENT_PRIMARY};
-                color: #041e42;
+                background-color: {MD3_LIGHT_ACCENT_PRIMARY};
+                color: #ffffff;
                 border: none;
-                border-radius: 16px;
+                border-radius: 6px;
                 padding: 8px 16px;
                 font-size: 12px;
                 font-weight: 600;
             }}
             QPushButton:hover {{
-                background-color: #a8c7fa;
+                background-color: #1a73e8;
             }}
         """)
         self._save_btn.clicked.connect(self._on_save_profile)
@@ -203,7 +212,7 @@ class DeviceFingerprintsPage(QWidget):
             field_box.setSpacing(4)
 
             lbl = QLabel(label)
-            lbl.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {MD3_TEXT_SECONDARY};")
+            lbl.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {MD3_LIGHT_TEXT_SECONDARY};")
             lbl.setToolTip(tooltip)
             field_box.addWidget(lbl)
 
@@ -211,16 +220,16 @@ class DeviceFingerprintsPage(QWidget):
             inp.setToolTip(tooltip)
             inp.setStyleSheet(f"""
                 QLineEdit {{
-                    background-color: {MD3_SURFACE_CONTAINER_HIGH};
-                    color: {MD3_TEXT_PRIMARY};
-                    border: 1px solid {MD3_OUTLINE};
-                    border-radius: 8px;
+                    background-color: {MD3_LIGHT_SURFACE_CONTAINER};
+                    color: {MD3_LIGHT_TEXT_PRIMARY};
+                    border: 1px solid {MD3_LIGHT_OUTLINE};
+                    border-radius: 6px;
                     padding: 8px 12px;
                     font-family: monospace;
                     font-size: 12px;
                 }}
                 QLineEdit:focus {{
-                    border: 1px solid {MD3_ACCENT_PRIMARY};
+                    border: 1px solid {MD3_LIGHT_ACCENT_PRIMARY};
                 }}
             """)
             field_box.addWidget(inp)
@@ -233,9 +242,9 @@ class DeviceFingerprintsPage(QWidget):
         tbl_card = QFrame()
         tbl_card.setStyleSheet(f"""
             QFrame {{
-                background-color: {MD3_SURFACE_CONTAINER};
-                border: 1px solid {MD3_OUTLINE};
-                border-radius: 16px;
+                background-color: {MD3_LIGHT_SURFACE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 12px;
                 padding: 16px;
             }}
         """)
@@ -243,7 +252,7 @@ class DeviceFingerprintsPage(QWidget):
         tc_layout.setSpacing(10)
 
         tc_title = QLabel("PROFILE MAPPINGS INVENTORY")
-        tc_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_TEXT_SECONDARY}; letter-spacing: 1px;")
+        tc_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 0.8px;")
         tc_layout.addWidget(tc_title)
 
         self._table = QTableWidget(0, 3)
@@ -255,18 +264,20 @@ class DeviceFingerprintsPage(QWidget):
         self._table.verticalHeader().setVisible(False)
         self._table.setStyleSheet(f"""
             QTableWidget {{
-                background-color: transparent;
-                gridline-color: {MD3_OUTLINE};
-                border: none;
-                color: {MD3_TEXT_PRIMARY};
+                background-color: {MD3_LIGHT_SURFACE};
+                gridline-color: {MD3_LIGHT_OUTLINE};
+                border: 1px solid {MD3_LIGHT_OUTLINE};
+                border-radius: 8px;
+                color: {MD3_LIGHT_TEXT_PRIMARY};
             }}
             QHeaderView::section {{
-                background-color: {MD3_SURFACE_CONTAINER_HIGH};
-                color: {MD3_TEXT_SECONDARY};
+                background-color: {MD3_LIGHT_SURFACE_CONTAINER};
+                color: {MD3_LIGHT_TEXT_SECONDARY};
                 padding: 6px;
                 font-weight: 600;
                 font-size: 11px;
                 border: none;
+                border-bottom: 1px solid {MD3_LIGHT_OUTLINE};
             }}
         """)
         tc_layout.addWidget(self._table)
