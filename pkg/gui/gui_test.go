@@ -142,15 +142,18 @@ func TestGenerateScript(t *testing.T) {
 		t.Errorf("Script missing MutationObserver")
 	}
 
-	// Verify Context Menu Polish: Round swatches and rainbow conic-gradient button
+	// Verify Context Menu Polish: Round swatches, Set Color title, and matte conic-gradient button
 	if !strings.Contains(script, "border-radius: 50%") {
 		t.Errorf("Script missing 50%% round border-radius for swatches")
+	}
+	if !strings.Contains(script, "Set Color") {
+		t.Errorf("Script missing Set Color section header")
 	}
 	if !strings.Contains(script, "swiss-custom-trigger") {
 		t.Errorf("Script missing swiss-custom-trigger button ID")
 	}
-	if !strings.Contains(script, "conic-gradient(red, yellow, lime, aqua, blue, magenta, red)") {
-		t.Errorf("Script missing rainbow conic-gradient on custom palette trigger")
+	if !strings.Contains(script, "conic-gradient(from 0deg, #6c5ce7") {
+		t.Errorf("Script missing matte conic-gradient on custom palette trigger")
 	}
 	if !strings.Contains(script, "swiss-custom-grid-container") {
 		t.Errorf("Script missing swiss-custom-grid-container ID")

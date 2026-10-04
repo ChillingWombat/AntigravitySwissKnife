@@ -424,15 +424,15 @@ func GenerateScript(cfg *Config) string {
       '<div style="height: 1px; background: var(--border, rgba(0, 0, 0, 0.075)); margin: 3px 0 2px 0;"></div>' +
 
       '<div style="display: flex; justify-content: space-between; align-items: center; padding: 2px 6px; margin-top: 2px; margin-bottom: 4px;">' +
-        '<span style="font-size: 11px; font-weight: 500; color: var(--muted-foreground, #71717a); letter-spacing: 0.2px;">Preset Colors</span>' +
+        '<span style="font-size: 11px; font-weight: 500; color: var(--muted-foreground, #71717a); letter-spacing: 0.2px;">Set Color</span>' +
         '<button class="swiss-reset-color-btn" style="border: none; background: transparent; color: var(--muted-foreground, #a1a1aa); font-size: 10px; font-weight: 400; cursor: pointer; padding: 0; transition: color 0.1s;" onmouseenter="this.style.color=\'#ef4444\'" onmouseleave="this.style.color=\'var(--muted-foreground, #a1a1aa)\'">Reset</button>' +
       '</div>' +
 
-      '<div style="display: flex; gap: 6px; padding: 1px 6px 4px 6px; align-items: center; justify-content: space-between;">' +
+      '<div style="display: flex; gap: 6px; padding: 1px 6px 4px 6px; align-items: center; justify-content: flex-start;">' +
         PRESET_COLORS.map(function(p) {
           return '<div class="swiss-preset-swatch" data-color="' + p.hex + '" title="' + p.name + '" style="width: 15px; height: 15px; border-radius: 50%%; background: ' + p.hex + '; cursor: pointer; transition: transform 0.12s, box-shadow 0.12s; border: 1.5px solid transparent; flex-shrink: 0;"></div>';
         }).join("") +
-        '<div id="swiss-custom-trigger" title="Custom 10x10 Palette" style="width: 15px; height: 15px; border-radius: 50%%; background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red); cursor: pointer; transition: transform 0.12s, box-shadow 0.12s; border: 1.5px solid transparent; flex-shrink: 0;"></div>' +
+        '<div id="swiss-custom-trigger" title="Custom 10x10 Palette" style="width: 15px; height: 15px; border-radius: 50%%; background: conic-gradient(from 0deg, #6c5ce7, #a259c6, #e05260, #e66735, #e69d28, #d4be22, #88b832, #3db862, #2ca88b, #259cb8, #2d7ee8, #4c6ee0, #6c5ce7); cursor: pointer; transition: transform 0.12s, box-shadow 0.12s; border: 1.5px solid transparent; flex-shrink: 0;"></div>' +
       '</div>' +
 
       '<div id="swiss-custom-grid-container" style="display: none; margin-top: 4px; padding: 2px 4px 4px 4px;">' +
