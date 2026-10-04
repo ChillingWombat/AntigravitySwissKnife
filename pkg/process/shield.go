@@ -21,7 +21,7 @@ type ProcessInfo struct {
 	IsProtected bool   `json:"is_protected"`
 }
 
-// Shield safeguards the host Antigravity IDE from accidental termination.
+// Shield safeguards the host Antigravity 2.0 from accidental termination.
 type Shield struct {
 	protectedPID int
 }

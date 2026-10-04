@@ -40,7 +40,7 @@ func NewScanner(store *Store) *Scanner {
 }
 
 // Scan discovers accounts across:
-// 1. Antigravity IDE local app_storage.json (active session)
+// 1. Antigravity 2.0 local app_storage.json (active session)
 // 2. Linux Secret Service (service=gemini, username=antigravity)
 // 3. Swiss Knife accounts vault (~/.config/antigravity-swiss/accounts.json)
 func (s *Scanner) Scan() ([]DiscoveredAccount, error) {
@@ -71,11 +71,11 @@ func (s *Scanner) Scan() ([]DiscoveredAccount, error) {
 				if !exists {
 					disc = &DiscoveredAccount{
 						Email:  loginUser,
-						Source: "Antigravity IDE (Active Session)",
+						Source: "Antigravity 2.0 (Active Session)",
 					}
 					discovered[loginUser] = disc
 				} else {
-					disc.Source = disc.Source + " + Antigravity IDE (Active)"
+					disc.Source = disc.Source + " + Antigravity 2.0 (Active)"
 				}
 				disc.IsActiveInIDE = true
 			}

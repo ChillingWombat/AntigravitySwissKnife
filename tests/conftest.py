@@ -12,7 +12,7 @@ import pytest
 # Absolute Safety Shield: Flag testing mode globally
 os.environ["ANTIGRAVITY_SWISS_TESTING"] = "1"
 
-# Protect host Antigravity IDE from accidental SIGTERM/SIGKILL in tests
+# Protect host Antigravity 2.0 from accidental SIGTERM/SIGKILL in tests
 _orig_os_kill = os.kill
 
 def _shielded_os_kill(pid: int, sig: int):

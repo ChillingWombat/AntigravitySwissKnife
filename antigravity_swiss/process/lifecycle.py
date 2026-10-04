@@ -100,7 +100,7 @@ class ProcessLifecycleManager:
 
         lock_state = self.lock_manager.inspect_lock()
         if lock_state.is_pid_alive and lock_state.is_antigravity:
-            # Additional safety: Verify PID is not the host Antigravity IDE if testing
+            # Additional safety: Verify PID is not the host Antigravity 2.0 if testing
             if is_testing:
                 try:
                     cmdline = Path(f"/proc/{lock_state.pid}/cmdline").read_bytes().decode("utf-8", errors="ignore")
@@ -111,7 +111,7 @@ class ProcessLifecycleManager:
                     pass
             return lock_state.pid
 
-        # If running under pytest or testing mode, do not scan system /proc to avoid terminating user IDE
+        # If running under pytest or testing mode, do not scan system /proc to avoid terminating Antigravity 2.0
         if is_testing:
             return None
 
