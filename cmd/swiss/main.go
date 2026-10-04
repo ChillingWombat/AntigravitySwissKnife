@@ -14,6 +14,7 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/daemon"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/fingerprint"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/ipc"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/process"
@@ -45,6 +46,7 @@ func printUsage() {
 	fmt.Println("  fingerprint list      List stored device profiles")
 	fmt.Println("  fingerprint gen       Generate fresh hardware telemetry profile")
 	fmt.Println("  fingerprint swap <eml> Generate and apply new fingerprint for account")
+	fmt.Println("  patch [status|install|restore|sync] Manage persistent desktop app patches")
 	fmt.Println("  version               Display version information")
 	fmt.Println("")
 	fmt.Println("Global Flags:")
@@ -90,6 +92,8 @@ func main() {
 		runCache(args)
 	case "fingerprint", "fp":
 		runFingerprint(args)
+	case "patch":
+		runPatch(args)
 	case "help", "-h", "--help":
 		printUsage()
 	default:
@@ -743,5 +747,74 @@ func runFingerprint(args []string) {
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown fingerprint command: %s\n", sub)
 		os.Exit(1)
+	}
+}
+
+func runPatch(args []string) {
+	subcmd := "status"
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		subcmd = args[0]
+		args = args[1:]
+	}
+
+	fs := flag.NewFlagSet("patch", flag.ExitOnError)
+	jsonOut := fs.Bool("json", false, "Output JSON")
+	_ = fs.Parse(args)
+
+	store, err := gui.NewStore("")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing GUI store: %v\n", err)
+		os.Exit(1)
+	}
+
+	switch subcmd {
+	case "status":
+		st := store.GetDesktopStatus()
+		if *jsonOut {
+			b, _ := json.MarshalIndent(st, "", "  ")
+			fmt.Println(string(b))
+			return
+		}
+		fmt.Println("Antigravity Persistent Desktop Patch Status:")
+		fmt.Printf("  Asar Path     : %s\n", st.AsarPath)
+		fmt.Printf("  Installed     : %v\n", st.Installed)
+		fmt.Printf("  Factory Backup: %v\n", st.BackupExists)
+		if st.Error != "" {
+			fmt.Printf("  Error         : %s\n", st.Error)
+		}
+	case "install", "apply":
+		fmt.Println("Installing persistent loader into Antigravity desktop app...")
+		res, err := store.InstallDesktopLoader()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Install failed: %v\n", err)
+			os.Exit(1)
+		}
+		if *jsonOut {
+			b, _ := json.MarshalIndent(res, "", "  ")
+			fmt.Println(string(b))
+			return
+		}
+		fmt.Printf("Result: %s\n", res.Message)
+	case "restore":
+		fmt.Println("Restoring Antigravity to factory original app.asar...")
+		res, err := store.RestoreFactoryDefaults()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Restore failed: %v\n", err)
+			os.Exit(1)
+		}
+		if *jsonOut {
+			b, _ := json.MarshalIndent(res, "", "  ")
+			fmt.Println(string(b))
+			return
+		}
+		fmt.Printf("Result: %s\n", res.Message)
+	case "sync":
+		if err := store.SyncPersistentFiles(); err != nil {
+			fmt.Fprintf(os.Stderr, "Sync failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Successfully synced persistent_styles.css and persistent_script.js")
+	default:
+		fmt.Printf("Usage: swiss patch [status|install|restore|sync]\n")
 	}
 }

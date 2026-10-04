@@ -47,6 +47,7 @@ func NewStore(configDir string) (*Store, error) {
 		return nil, err
 	}
 
+	_ = s.SyncPersistentFiles()
 	return s, nil
 }
 
@@ -73,16 +74,51 @@ func (s *Store) load() error {
 	return nil
 }
 
-// Save writes the current configuration to disk.
+// Save writes the current configuration to disk and updates persistent styles and scripts.
 func (s *Store) Save() error {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	data, err := json.MarshalIndent(s.config, "", "  ")
 	if err != nil {
+		s.mu.RUnlock()
 		return err
 	}
-	return os.WriteFile(s.configPath, data, 0600)
+	cfgCopy := *s.config
+	s.mu.RUnlock()
+
+	if err := os.WriteFile(s.configPath, data, 0600); err != nil {
+		return err
+	}
+
+	_ = s.writePersistentFiles(&cfgCopy)
+	return nil
+}
+
+func (s *Store) writePersistentFiles(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+	configDir := filepath.Dir(s.configPath)
+	if configDir == "" {
+		configDir = core.GetConfigDir()
+	}
+	_ = os.MkdirAll(configDir, 0755)
+
+	css := GenerateCSS(cfg)
+	script := GenerateScript(cfg)
+
+	cssPath := filepath.Join(configDir, "persistent_styles.css")
+	jsPath := filepath.Join(configDir, "persistent_script.js")
+
+	if err := os.WriteFile(cssPath, []byte(css), 0644); err != nil {
+		return err
+	}
+	return os.WriteFile(jsPath, []byte(script), 0644)
+}
+
+// SyncPersistentFiles writes persistent_styles.css and persistent_script.js to disk.
+func (s *Store) SyncPersistentFiles() error {
+	cfg := s.GetConfig()
+	return s.writePersistentFiles(&cfg)
 }
 
 // GetConfig returns a copy of the current configuration.
@@ -372,12 +408,14 @@ func (s *Store) DetectProjects() ([]ProjectItem, error) {
 
 // Apply sends the current configuration into running Antigravity instances.
 func (s *Store) Apply() (*ApplyResult, error) {
+	_ = s.SyncPersistentFiles()
 	cfg := s.GetConfig()
 	return s.injector.ApplyConfig(&cfg)
 }
 
 // InstallDesktopLoader installs the permanent desktop loader in Antigravity resources.
 func (s *Store) InstallDesktopLoader() (*ApplyResult, error) {
+	_ = s.SyncPersistentFiles()
 	return s.desktopManager.InstallDesktopLoader()
 }
 

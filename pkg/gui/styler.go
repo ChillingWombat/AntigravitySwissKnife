@@ -73,13 +73,15 @@ func GenerateCSS(cfg *Config) string {
 
 		sb.WriteString(fmt.Sprintf(`
 /* Project Label Card */
-[data-swiss-project="%s"][data-project-card="true"] {
+[data-swiss-project="%s"][data-project-card="true"],
+[data-swiss-project="%s"] [data-project-card="true"] {
   background-color: %s !important;
   color: #ffffff !important;
   border-radius: 8px !important;
   border: none !important;
 }
-[data-swiss-project="%s"][data-project-card="true"] * {
+[data-swiss-project="%s"][data-project-card="true"] *,
+[data-swiss-project="%s"] [data-project-card="true"] * {
   color: #ffffff !important;
 }
 
@@ -92,7 +94,8 @@ func GenerateCSS(cfg *Config) string {
 }
 
 /* Conversation Row: Clean rounded corners, light tint, solid edge optional */
-[data-swiss-project="%s"][data-testid="conversation-row-sidebar"] {
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"],
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"] {
   --sidebar-secondary: rgba(%d, %d, %d, %.2f) !important;
   --sidebar-muted: rgba(%d, %d, %d, %.2f) !important;
   background-color: rgba(%d, %d, %d, %.2f) !important;
@@ -102,22 +105,26 @@ func GenerateCSS(cfg *Config) string {
 }
 
 /* Hover & Selected States */
-[data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:hover {
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:hover,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:hover {
   background-color: rgba(%d, %d, %d, %.2f) !important;
 }
-[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-selected="true"] {
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-selected="true"],
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-selected="true"] {
   background-color: rgba(%d, %d, %d, %.2f) !important;
   font-weight: 600 !important;
 }
 
 /* Hover Action Bar Gradient Blending */
-[data-swiss-project="%s"][data-testid="conversation-row-sidebar"] div[style*="linear-gradient"] {
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"] div[style*="linear-gradient"],
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"] div[style*="linear-gradient"] {
   background: linear-gradient(to right, transparent 0%%, rgba(%d, %d, %d, %.2f) 30%%) !important;
 }
-[data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"] {
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"],
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"] {
   background: linear-gradient(to right, transparent 0%%, rgba(%d, %d, %d, %.2f) 30%%) !important;
 }
-`, safeName, hex, safeName, safeName, safeName, safeName, safeName, r, g, b, opacity, r, g, b, opacity, r, g, b, opacity, borderStyle, safeName, r, g, b, hoverOpacity, safeName, r, g, b, selectedOpacity, safeName, r, g, b, opacity, safeName, r, g, b, hoverOpacity))
+`, safeName, safeName, hex, safeName, safeName, safeName, safeName, safeName, safeName, safeName, r, g, b, opacity, r, g, b, opacity, r, g, b, opacity, borderStyle, safeName, safeName, r, g, b, hoverOpacity, safeName, safeName, r, g, b, selectedOpacity, safeName, safeName, r, g, b, opacity, safeName, safeName, r, g, b, hoverOpacity))
 		}
 	}
 
@@ -179,9 +186,13 @@ func GenerateScript(cfg *Config) string {
   function updateTagsAndDraggables() {
     try {
       const activeArchived = window.__swissArchivedProjects || archivedProjects || [];
-      const indexedSample = document.querySelector(".w-full.relative > [data-index]");
-      if (!indexedSample) return;
-      const container = indexedSample.parentElement;
+      let container = document.querySelector(".w-full.relative > [data-index]")?.parentElement;
+      if (!container) {
+        const anyIndexed = document.querySelector("[data-index]");
+        if (anyIndexed && anyIndexed.parentElement) {
+          container = anyIndexed.parentElement;
+        }
+      }
       if (!container) return;
 
       const key = Object.keys(container).find(k => k.startsWith("__reactFiber"));
@@ -242,14 +253,18 @@ func GenerateScript(cfg *Config) string {
           }
 
           if (item.type === "header") {
-            const btn = el.querySelector("[data-project-card]");
+            const btn = el.matches("[data-project-card]") ? el : el.querySelector("[data-project-card]");
             if (btn) {
               if (isColorEnabled) btn.setAttribute("data-swiss-project", item.label);
               else btn.removeAttribute("data-swiss-project");
             }
             const headerGroup = el.querySelector('[class*="group/header"]') || el;
-            if (headerGroup && isColorEnabled) {
-              headerGroup.setAttribute("data-swiss-project", item.label);
+            if (isColorEnabled) {
+              el.setAttribute("data-swiss-project", item.label);
+              if (headerGroup) headerGroup.setAttribute("data-swiss-project", item.label);
+            } else {
+              el.removeAttribute("data-swiss-project");
+              if (headerGroup) headerGroup.removeAttribute("data-swiss-project");
             }
 
             // Drag-and-drop reordering on project headers
@@ -304,10 +319,15 @@ func GenerateScript(cfg *Config) string {
           } else if (item.type === "row") {
             const pName = headerMap[item.groupId];
             if (pName) {
-              const row = el.querySelector("[data-testid=\"conversation-row-sidebar\"]");
-              if (row) {
-                if (isColorEnabled) row.setAttribute("data-swiss-project", pName);
-                else row.removeAttribute("data-swiss-project");
+              const row = el.matches('[data-testid="conversation-row-sidebar"]')
+                ? el
+                : el.querySelector('[data-testid="conversation-row-sidebar"]');
+              if (isColorEnabled) {
+                el.setAttribute("data-swiss-project", pName);
+                if (row) row.setAttribute("data-swiss-project", pName);
+              } else {
+                el.removeAttribute("data-swiss-project");
+                if (row) row.removeAttribute("data-swiss-project");
               }
             }
           }
@@ -646,23 +666,53 @@ func GenerateScript(cfg *Config) string {
   window.__swissUpdateTagsAndDraggables = updateTagsAndDraggables;
   updateTagsAndDraggables();
 
-  // 3. Attach scroll and mutation listeners once
+  function triggerSwissUpdate() {
+    if (typeof window.__swissUpdateTagsAndDraggables === "function") {
+      requestAnimationFrame(window.__swissUpdateTagsAndDraggables);
+    }
+  }
+
+  // 1. Global capturing scroll & wheel listeners (catches all scrolling immediately)
+  if (!window.__swissScrollCaptured) {
+    window.__swissScrollCaptured = true;
+    window.addEventListener("scroll", triggerSwissUpdate, { capture: true, passive: true });
+    window.addEventListener("wheel", triggerSwissUpdate, { capture: true, passive: true });
+  }
+
+  // 2. Direct listener on sidebar container if present
+  function bindSidebarScroll() {
+    const sc = document.querySelector(".w-full.relative > [data-index]")?.parentElement?.parentElement;
+    if (sc && !sc.__swissScrollBound) {
+      sc.__swissScrollBound = true;
+      sc.addEventListener("scroll", triggerSwissUpdate, { passive: true });
+    }
+  }
+  bindSidebarScroll();
+
+  // 3. MutationObserver watching childList and dynamic attributes
   if (!window.__swissObserverAttached) {
     window.__swissObserverAttached = true;
-    const scrollContainer = document.querySelector(".w-full.relative > [data-index]")?.parentElement?.parentElement;
-    if (scrollContainer) {
-      scrollContainer.addEventListener("scroll", () => {
-        if (typeof window.__swissUpdateTagsAndDraggables === "function") {
-          requestAnimationFrame(window.__swissUpdateTagsAndDraggables);
-        }
-      }, { passive: true });
-    }
     const ob = new MutationObserver(() => {
-      if (typeof window.__swissUpdateTagsAndDraggables === "function") {
-        requestAnimationFrame(window.__swissUpdateTagsAndDraggables);
-      }
+      bindSidebarScroll();
+      triggerSwissUpdate();
     });
-    ob.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-selected"] });
+    ob.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-selected", "data-index", "data-testid"]
+    });
+  }
+
+  // 4. Fallback interval so no virtualized row ever misses its project styling
+  if (!window.__swissIntervalAttached) {
+    window.__swissIntervalAttached = true;
+    setInterval(() => {
+      bindSidebarScroll();
+      if (typeof window.__swissUpdateTagsAndDraggables === "function") {
+        window.__swissUpdateTagsAndDraggables();
+      }
+    }, 250);
   }
 
   return {
