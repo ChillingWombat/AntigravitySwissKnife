@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
@@ -12,27 +13,29 @@ import (
 
 // AccountQuotaState represents live quota state and credential horizons for an account.
 type AccountQuotaState struct {
-	Email            string  `json:"email"`
-	Label            string  `json:"label"`
-	PlanTier         string  `json:"plan_tier"`
-	IsActive         bool    `json:"is_active"`
-	Status           string  `json:"status"`
-	Priority         string  `json:"priority,omitempty"`
-	Notes            string  `json:"notes,omitempty"`
-	Password         string  `json:"password,omitempty"`
-	HasTOTP          bool    `json:"has_totp"`
-	TOTPSecret       string  `json:"totp_secret"`
-	RefreshToken     string  `json:"refresh_token"`
-	Quota5hCurrent   float64 `json:"quota_5h_current"`
-	ResetSeconds     float64 `json:"reset_seconds"`
-	QuotaWeekly      float64 `json:"quota_weekly"`
-	Quota5hAvailable float64 `json:"quota_5h_available"`
-	ResetHorizonText string  `json:"reset_horizon_text"`
+	Email                string  `json:"email"`
+	Label                string  `json:"label"`
+	PlanTier             string  `json:"plan_tier"`
+	Credits              float64 `json:"credits"`
+	EnableCreditOverages bool    `json:"enable_credit_overages"`
+	IsActive             bool    `json:"is_active"`
+	Status               string  `json:"status"`
+	Priority             string  `json:"priority,omitempty"`
+	Notes                string  `json:"notes,omitempty"`
+	Password             string  `json:"password,omitempty"`
+	HasTOTP              bool    `json:"has_totp"`
+	TOTPSecret           string  `json:"totp_secret"`
+	RefreshToken         string  `json:"refresh_token"`
+	Quota5hCurrent       float64 `json:"quota_5h_current"`
+	ResetSeconds         float64 `json:"reset_seconds"`
+	QuotaWeekly          float64 `json:"quota_weekly"`
+	Quota5hAvailable     float64 `json:"quota_5h_available"`
+	Quota5hClaudeGPT     float64 `json:"quota_5h_claude_gpt"`
+	QuotaWeeklyClaudeGPT float64 `json:"quota_weekly_claude_gpt"`
+	ResetHorizonText     string  `json:"reset_horizon_text"`
 }
 
 // ComputeEffective5hAvailable calculates available quota in the next 5 hours with reset replenishing.
-// If hours_until_reset <= 5.0: The account resets within the 5h window.
-// Quota refreshes back to 100% (1.0), and the replenished boost is available for (5.0 - h) / 5.0.
 func ComputeEffective5hAvailable(currentFrac float64, resetSeconds float64) float64 {
 	cur := math.Max(0.0, math.Min(1.0, currentFrac))
 	if cur == 0.0 && resetSeconds <= 0.0 {
@@ -52,7 +55,7 @@ func ComputeEffective5hAvailable(currentFrac float64, resetSeconds float64) floa
 func FormatHorizonSec(sec float64) string {
 	s := int(math.Max(0.0, sec))
 	if s == 0 {
-		return "Resets now"
+		return "Ready"
 	}
 	h := s / 3600
 	m := (s % 3600) / 60
@@ -64,11 +67,17 @@ func FormatHorizonSec(sec float64) string {
 
 // FleetQuotaSummary holds aggregate metrics for top dashboard section.
 type FleetQuotaSummary struct {
-	Fleet5hFraction     float64             `json:"fleet_5h_fraction"`
-	FleetWeeklyFraction float64             `json:"fleet_weekly_fraction"`
-	TotalAccounts       int                 `json:"total_accounts"`
-	ActiveAccount       string              `json:"active_account"`
-	Accounts            []AccountQuotaState `json:"accounts"`
+	Fleet5hFraction               float64             `json:"fleet_5h_fraction"`
+	FleetWeeklyFraction           float64             `json:"fleet_weekly_fraction"`
+	Fleet5hAvailable              float64             `json:"fleet_5h_available"`
+	FleetWeeklyAvailable          float64             `json:"fleet_weekly_available"`
+	Fleet5hGeminiAvailable        float64             `json:"fleet_5h_gemini_available"`
+	FleetWeeklyGeminiAvailable    float64             `json:"fleet_weekly_gemini_available"`
+	Fleet5hClaudeGPTAvailable     float64             `json:"fleet_5h_claude_gpt_available"`
+	FleetWeeklyClaudeGPTAvailable float64             `json:"fleet_weekly_claude_gpt_available"`
+	TotalAccounts                 int                 `json:"total_accounts"`
+	ActiveAccount                 string              `json:"active_account"`
+	Accounts                      []AccountQuotaState `json:"accounts"`
 }
 
 // ComputeFleetSummary aggregates metrics across all managed accounts.
@@ -76,56 +85,104 @@ func ComputeFleetSummary(accounts []AccountQuotaState, activeEmail string) Fleet
 	total := len(accounts)
 	if total == 0 {
 		return FleetQuotaSummary{
-			Fleet5hFraction:     0.0,
-			FleetWeeklyFraction: 0.0,
-			TotalAccounts:       0,
-			ActiveAccount:       activeEmail,
-			Accounts:            accounts,
+			Fleet5hFraction:               0.0,
+			FleetWeeklyFraction:           0.0,
+			Fleet5hAvailable:              0.0,
+			FleetWeeklyAvailable:          0.0,
+			Fleet5hGeminiAvailable:        0.0,
+			FleetWeeklyGeminiAvailable:    0.0,
+			Fleet5hClaudeGPTAvailable:     0.0,
+			FleetWeeklyClaudeGPTAvailable: 0.0,
+			TotalAccounts:                 0,
+			ActiveAccount:                 activeEmail,
+			Accounts:                      accounts,
 		}
 	}
 
 	sum5h := 0.0
 	sumWeekly := 0.0
+	sum5hClaude := 0.0
+	sumWeeklyClaude := 0.0
+
 	for _, acc := range accounts {
 		sum5h += acc.Quota5hAvailable
 		sumWeekly += acc.QuotaWeekly
+		sum5hClaude += acc.Quota5hClaudeGPT
+		sumWeeklyClaude += acc.QuotaWeeklyClaudeGPT
 	}
 
+	avg5h := math.Max(0.0, math.Min(1.0, sum5h/float64(total)))
+	avgWeekly := math.Max(0.0, math.Min(1.0, sumWeekly/float64(total)))
+	avg5hClaude := math.Max(0.0, math.Min(1.0, sum5hClaude/float64(total)))
+	avgWeeklyClaude := math.Max(0.0, math.Min(1.0, sumWeeklyClaude/float64(total)))
+
 	return FleetQuotaSummary{
-		Fleet5hFraction:     math.Max(0.0, math.Min(1.0, sum5h/float64(total))),
-		FleetWeeklyFraction: math.Max(0.0, math.Min(1.0, sumWeekly/float64(total))),
-		TotalAccounts:       total,
-		ActiveAccount:       activeEmail,
-		Accounts:            accounts,
+		Fleet5hFraction:               avg5h,
+		FleetWeeklyFraction:           avgWeekly,
+		Fleet5hAvailable:              avg5h,
+		FleetWeeklyAvailable:          avgWeekly,
+		Fleet5hGeminiAvailable:        avg5h,
+		FleetWeeklyGeminiAvailable:    avgWeekly,
+		Fleet5hClaudeGPTAvailable:     avg5hClaude,
+		FleetWeeklyClaudeGPTAvailable: avgWeeklyClaude,
+		TotalAccounts:                 total,
+		ActiveAccount:                 activeEmail,
+		Accounts:                      accounts,
 	}
+}
+
+// PollFleetAccounts polls live quotas for all accounts with credentials concurrently.
+func PollFleetAccounts(accounts []*keyring.Account, store *keyring.Store) map[string]*QuotaSummary {
+	results := make(map[string]*QuotaSummary)
+	if len(accounts) == 0 {
+		return results
+	}
+
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for _, acc := range accounts {
+		if acc == nil || acc.Email == "" {
+			continue
+		}
+
+		wg.Add(1)
+		go func(targetAcc *keyring.Account) {
+			defer wg.Done()
+			qSummary, _ := PollAccountLiveQuota(targetAcc)
+			if qSummary != nil {
+				mu.Lock()
+				results[strings.ToLower(strings.TrimSpace(targetAcc.Email))] = qSummary
+				mu.Unlock()
+			}
+		}(acc)
+	}
+
+	wg.Wait()
+	return results
 }
 
 // BuildAccountQuotaStates creates AccountQuotaState items from stored accounts.
 func BuildAccountQuotaStates(accounts []*keyring.Account, activeSummary *QuotaSummary) []AccountQuotaState {
-	results := make([]AccountQuotaState, 0, len(accounts))
-
-	var active5hFrac *float64
-	var active5hSec *float64
-	var activeWeeklyFrac *float64
-
+	var summaries map[string]*QuotaSummary
 	if activeSummary != nil {
-		now := time.Now()
-		for _, m := range activeSummary.Models {
-			name := strings.ToLower(m.ModelName)
-			if strings.Contains(name, "weekly") || strings.Contains(name, "7d") {
-				frac := m.Fraction
-				activeWeeklyFrac = &frac
-			} else if strings.Contains(name, "gemini") || strings.Contains(name, "5h") || active5hFrac == nil {
-				frac := m.Fraction
-				active5hFrac = &frac
-				if !m.ResetTime.IsZero() && m.ResetTime.After(now) {
-					diff := m.ResetTime.Sub(now).Seconds()
-					active5hSec = &diff
-				}
-			}
+		summaries = map[string]*QuotaSummary{
+			strings.ToLower(strings.TrimSpace(activeSummary.AccountEmail)): activeSummary,
 		}
-		if activeWeeklyFrac == nil && active5hFrac != nil {
-			activeWeeklyFrac = active5hFrac
+	}
+	return BuildAccountQuotaStatesFromMap(accounts, summaries)
+}
+
+// BuildAccountQuotaStatesFromMap builds account states using live summaries and cached agent db.
+func BuildAccountQuotaStatesFromMap(accounts []*keyring.Account, summaries map[string]*QuotaSummary) []AccountQuotaState {
+	results := make([]AccountQuotaState, 0, len(accounts))
+	now := time.Now()
+
+	// Load cached cloud_accounts.db as fast baseline
+	cachedMap := make(map[string]keyring.DiscoveredCloudAccount)
+	if cachedAccs, err := keyring.ReadCloudAccountsDB(""); err == nil {
+		for _, ca := range cachedAccs {
+			cachedMap[strings.ToLower(strings.TrimSpace(ca.Email))] = ca
 		}
 	}
 
@@ -134,6 +191,7 @@ func BuildAccountQuotaStates(accounts []*keyring.Account, activeSummary *QuotaSu
 		if email == "" {
 			continue
 		}
+		normEmail := strings.ToLower(email)
 
 		label := acc.Label
 		if label == "" {
@@ -147,29 +205,97 @@ func BuildAccountQuotaStates(accounts []*keyring.Account, activeSummary *QuotaSu
 			status = "ACTIVE"
 		}
 
-		// Real baseline: unpolled accounts start at 0.0 unless actively polled. Zero artificial data.
 		cur5h := 0.0
 		curSec := 0.0
 		curWeekly := 0.0
+		cur5hClaude := 1.0
+		curWeeklyClaude := 1.0
+		resText := "Not Polled"
+		tier := acc.PlanTier
+		credits := acc.Credits
 
-		if (acc.IsActive || (activeSummary != nil && strings.EqualFold(acc.Email, activeSummary.AccountEmail))) && active5hFrac != nil {
-			cur5h = *active5hFrac
-			if active5hSec != nil {
-				curSec = *active5hSec
+		// 1. Check live summary first
+		if summaries != nil && summaries[normEmail] != nil {
+			s := summaries[normEmail]
+			if s.PlanTier != "" {
+				tier = s.PlanTier
 			}
-			if activeWeeklyFrac != nil {
-				curWeekly = *activeWeeklyFrac
+			if s.Credits > 0 {
+				credits = s.Credits
+			}
+			cur5h = s.Quota5hFraction
+			curWeekly = s.QuotaWeeklyFraction
+			if cur5h == 0 && curWeekly == 0 && len(s.Models) > 0 {
+				for _, m := range s.Models {
+					mLower := strings.ToLower(m.ModelName)
+					if strings.Contains(mLower, "weekly") {
+						curWeekly = m.Fraction
+					} else {
+						cur5h = m.Fraction
+						if !m.ResetTime.IsZero() && m.ResetTime.After(now) {
+							curSec = m.ResetTime.Sub(now).Seconds()
+							resText = FormatResetHorizon(m.ResetTime, now)
+						}
+					}
+				}
+				if curWeekly == 0 && cur5h > 0 {
+					curWeekly = cur5h
+				}
+			}
+			if s.Quota5hClaudeGPT > 0 {
+				cur5hClaude = s.Quota5hClaudeGPT
+			}
+			if s.QuotaWeeklyClaudeGPT > 0 {
+				curWeeklyClaude = s.QuotaWeeklyClaudeGPT
+			}
+			if s.ResetSeconds5h > 0 {
+				curSec = s.ResetSeconds5h
+			}
+			if s.ResetHorizonText != "" {
+				resText = s.ResetHorizonText
+			}
+		} else if ca, ok := cachedMap[normEmail]; ok {
+			// 2. Check cached agent DB
+			if ca.PlanTier != "" {
+				tier = ca.PlanTier
+			}
+			if ca.Credits > 0 {
+				credits = ca.Credits
+			}
+			cur5h = ca.Quota5h
+			curWeekly = ca.QuotaWeekly
+			if ca.Quota5hClaudeGPT > 0 {
+				cur5hClaude = ca.Quota5hClaudeGPT
+			}
+			if ca.QuotaWeeklyClaudeGPT > 0 {
+				curWeeklyClaude = ca.QuotaWeeklyClaudeGPT
+			}
+			if ca.ResetTime5h != "" {
+				if rt, parseErr := time.Parse(time.RFC3339, ca.ResetTime5h); parseErr == nil && rt.After(now) {
+					curSec = rt.Sub(now).Seconds()
+					resText = FormatHorizonSec(curSec)
+				}
+			}
+		}
+
+		if tier == "" {
+			tier = DetermineDefaultPlanTier(email, acc.PlanTier)
+		}
+		if credits == 0 {
+			lowerTier := strings.ToLower(tier)
+			if strings.Contains(lowerTier, "ultra") {
+				credits = 50
+			} else if strings.Contains(lowerTier, "pro") {
+				credits = 20
 			}
 		}
 
 		avail5h := ComputeEffective5hAvailable(cur5h, curSec)
-		resText := "Not Polled"
-		if curSec > 0 {
+		if resText == "Not Polled" && curSec > 0 {
 			resText = FormatHorizonSec(curSec)
-		} else if cur5h > 0 {
+		} else if resText == "Not Polled" && cur5h > 0 {
 			resText = "Ready"
 		}
-		tier := DetermineDefaultPlanTier(email, acc.PlanTier)
 
 		prio := acc.Priority
 		if prio == "" {
@@ -177,22 +303,26 @@ func BuildAccountQuotaStates(accounts []*keyring.Account, activeSummary *QuotaSu
 		}
 
 		results = append(results, AccountQuotaState{
-			Email:            email,
-			Label:            label,
-			PlanTier:         tier,
-			IsActive:         acc.IsActive,
-			Status:           status,
-			Priority:         prio,
-			Notes:            acc.Notes,
-			Password:         acc.Password,
-			HasTOTP:          acc.HasTOTP,
-			TOTPSecret:       acc.TOTPSecret,
-			RefreshToken:     acc.RefreshToken,
-			Quota5hCurrent:   cur5h,
-			ResetSeconds:     curSec,
-			QuotaWeekly:      curWeekly,
-			Quota5hAvailable: avail5h,
-			ResetHorizonText: resText,
+			Email:                email,
+			Label:                label,
+			PlanTier:             tier,
+			Credits:              credits,
+			EnableCreditOverages: acc.EnableCreditOverages,
+			IsActive:             acc.IsActive,
+			Status:               status,
+			Priority:             prio,
+			Notes:                acc.Notes,
+			Password:             acc.Password,
+			HasTOTP:              acc.HasTOTP,
+			TOTPSecret:           acc.TOTPSecret,
+			RefreshToken:         acc.RefreshToken,
+			Quota5hCurrent:       cur5h,
+			ResetSeconds:         curSec,
+			QuotaWeekly:          curWeekly,
+			Quota5hAvailable:     avail5h,
+			Quota5hClaudeGPT:     cur5hClaude,
+			QuotaWeeklyClaudeGPT: curWeeklyClaude,
+			ResetHorizonText:     resText,
 		})
 	}
 
@@ -238,142 +368,42 @@ func ClassifyErrorStatus(statusCode int, errCode string, errMsg string) string {
 		strings.Contains(combined, "terminated") ||
 		strings.Contains(combined, "violates") ||
 		strings.Contains(combined, "account_disabled") ||
-		strings.Contains(combined, "user_suspended") {
+		strings.Contains(combined, "permenantly_disabled") {
 		return "BANNED"
 	}
-	if statusCode == 401 || statusCode == 403 ||
+	if statusCode >= 500 ||
 		strings.Contains(combined, "invalid_grant") ||
-		strings.Contains(combined, "invalid_token") ||
-		strings.Contains(combined, "unauthenticated") ||
-		strings.Contains(combined, "interaction_required") ||
-		strings.Contains(combined, "challenge") ||
-		strings.Contains(combined, "verification") ||
-		strings.Contains(combined, "reauth") ||
+		strings.Contains(combined, "unauthorized_client") ||
+		strings.Contains(combined, "auth_error") ||
+		strings.Contains(combined, "token_refresh_failed") ||
 		strings.Contains(combined, "expired") {
 		return "ERROR"
 	}
-	return "ERROR"
+	return "STANDBY"
 }
 
-// SortAccountQuotaStates sorts a slice of AccountQuotaState based on the mode:
-// - "auto": Active healthy in row 1, best standby continuous usage successors next,
-//   cooling/below-threshold accounts near end, and error/banned at bottom.
-// - "identity": Alphabetical by label or email.
-// - "quota_5h": 5H quota available descending.
-// - "quota_weekly": Weekly quota descending.
-func SortAccountQuotaStates(accounts []AccountQuotaState, activeEmail string, threshold float64, mode string) []AccountQuotaState {
-	res := make([]AccountQuotaState, len(accounts))
-	copy(res, accounts)
-
-	if threshold <= 0 {
-		threshold = 0.10
+// RankStandbyAccounts sorts standby accounts to find optimal next candidate.
+func RankStandbyAccounts(accounts []AccountQuotaState, threshold float64) []AccountQuotaState {
+	candidates := make([]AccountQuotaState, 0)
+	for _, acc := range accounts {
+		if acc.IsActive {
+			continue
+		}
+		st := strings.ToUpper(acc.Status)
+		if st == "BANNED" || st == "ERROR" {
+			continue
+		}
+		if acc.Quota5hAvailable <= threshold {
+			continue
+		}
+		candidates = append(candidates, acc)
 	}
 
-	switch mode {
-	case "identity":
-		sort.SliceStable(res, func(i, j int) bool {
-			nameI := strings.ToLower(res[i].Label)
-			if nameI == "" {
-				nameI = strings.ToLower(res[i].Email)
-			}
-			nameJ := strings.ToLower(res[j].Label)
-			if nameJ == "" {
-				nameJ = strings.ToLower(res[j].Email)
-			}
-			if nameI != nameJ {
-				return nameI < nameJ
-			}
-			return strings.ToLower(res[i].Email) < strings.ToLower(res[j].Email)
-		})
-	case "quota_5h":
-		sort.SliceStable(res, func(i, j int) bool {
-			diff := res[i].Quota5hAvailable - res[j].Quota5hAvailable
-			if math.Abs(diff) > 0.0001 {
-				return diff > 0
-			}
-			return res[i].QuotaWeekly > res[j].QuotaWeekly
-		})
-	case "quota_weekly":
-		sort.SliceStable(res, func(i, j int) bool {
-			diff := res[i].QuotaWeekly - res[j].QuotaWeekly
-			if math.Abs(diff) > 0.0001 {
-				return diff > 0
-			}
-			return res[i].Quota5hAvailable > res[j].Quota5hAvailable
-		})
-	case "auto":
-		fallthrough
-	default:
-		sort.SliceStable(res, func(i, j int) bool {
-			getTier := func(a *AccountQuotaState) int {
-				st := strings.ToUpper(a.Status)
-				if st == "BANNED" {
-					return 4
-				}
-				if st == "ERROR" {
-					return 3
-				}
-				isAct := a.IsActive || (a.Email == activeEmail)
-				isBelow := a.Quota5hAvailable <= threshold || a.QuotaWeekly <= 0.05
-				if isAct && !isBelow {
-					return 0
-				}
-				if !isAct && !isBelow {
-					return 1
-				}
-				return 2
-			}
+	sort.Slice(candidates, func(i, j int) bool {
+		scoreI := candidates[i].Quota5hAvailable*0.6 + candidates[i].QuotaWeekly*0.4
+		scoreJ := candidates[j].Quota5hAvailable*0.6 + candidates[j].QuotaWeekly*0.4
+		return scoreI > scoreJ
+	})
 
-			tierI := getTier(&res[i])
-			tierJ := getTier(&res[j])
-			if tierI != tierJ {
-				return tierI < tierJ
-			}
-
-			if tierI == 1 {
-				prioRank := func(p string) int {
-					switch strings.ToUpper(strings.TrimSpace(p)) {
-					case "HIGH":
-						return 0
-					case "MID":
-						return 1
-					case "LOW":
-						return 2
-					default:
-						return 0
-					}
-				}
-				prioI := prioRank(res[i].Priority)
-				prioJ := prioRank(res[j].Priority)
-				if prioI != prioJ {
-					return prioI < prioJ
-				}
-
-				scoreI := res[i].Quota5hAvailable*0.6 + res[i].QuotaWeekly*0.4
-				scoreJ := res[j].Quota5hAvailable*0.6 + res[j].QuotaWeekly*0.4
-				if math.Abs(scoreI-scoreJ) > 0.001 {
-					return scoreI > scoreJ
-				}
-				if math.Abs(res[i].Quota5hAvailable-res[j].Quota5hAvailable) > 0.001 {
-					return res[i].Quota5hAvailable > res[j].Quota5hAvailable
-				}
-				return res[i].QuotaWeekly > res[j].QuotaWeekly
-			}
-
-			if tierI == 2 {
-				if math.Abs(res[i].Quota5hAvailable-res[j].Quota5hAvailable) > 0.001 {
-					return res[i].Quota5hAvailable > res[j].Quota5hAvailable
-				}
-				return res[i].QuotaWeekly > res[j].QuotaWeekly
-			}
-
-			nameI := strings.ToLower(res[i].Label)
-			nameJ := strings.ToLower(res[j].Label)
-			return nameI < nameJ
-		})
-	}
-
-	return res
+	return candidates
 }
-
-

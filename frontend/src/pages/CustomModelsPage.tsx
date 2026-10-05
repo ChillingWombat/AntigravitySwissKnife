@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Plus,
@@ -15,7 +15,6 @@ import {
   Info,
   Shield,
   ShieldCheck,
-  ShieldAlert,
 } from 'lucide-react'
 import type {
   CustomModel,
@@ -29,7 +28,31 @@ import { CircularGauge } from '../components/CircularGauge'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { SecurityReportModal } from '../components/SecurityReportModal'
 import { auditModelSecurity } from '../utils/securityAudit'
+import {
+  filterModels,
+  computeModelFilterStats,
+  type ModelFilterOption,
+} from '../utils/modelFilter'
+import {
+  extractCleanModelId,
+  extractContextWindow,
+  detectThinkingLevels,
+} from '../utils/modelExtraction'
 import { api } from '../api'
+
+const inferProviderType = (url: string): ProviderType => {
+  const lower = (url || '').toLowerCase()
+  if (lower.includes('anthropic.com') || lower.endsWith('/messages')) {
+    return 'anthropic'
+  }
+  if (lower.includes('generativelanguage.googleapis.com') || lower.includes(':generatecontent')) {
+    return 'gemini'
+  }
+  if (lower.includes('openai.com') || lower.includes('/chat/completions')) {
+    return 'openai'
+  }
+  return 'custom'
+}
 
 export const CustomModelsPage: React.FC = () => {
   const [config, setConfig] = useState<CustomModelsConfig | null>(null)
@@ -67,7 +90,12 @@ export const CustomModelsPage: React.FC = () => {
   const [fetchingModels, setFetchingModels] = useState<boolean>(false)
   const [fetchedModels, setFetchedModels] = useState<ModelInfo[]>([])
   const [fetchFeedback, setFetchFeedback] = useState<string | null>(null)
-  const [manualModelEntry, setManualModelEntry] = useState<boolean>(false)
+
+  // Dropdown Popover States & Refs
+  const [showModelDropdown, setShowModelDropdown] = useState<boolean>(false)
+  const [showReasoningDropdown, setShowReasoningDropdown] = useState<boolean>(false)
+  const modelContainerRef = useRef<HTMLDivElement>(null)
+  const reasoningContainerRef = useRef<HTMLDivElement>(null)
 
   // Modal Test & Save States
   const [modalTesting, setModalTesting] = useState<boolean>(false)
@@ -76,7 +104,6 @@ export const CustomModelsPage: React.FC = () => {
   const [modalError, setModalError] = useState<string | null>(null)
 
   // Security Audit States (inspired by toby-bridges/api-relay-audit)
-  const [modalAuditing, setModalAuditing] = useState<boolean>(false)
   const [modalAuditResult, setModalAuditResult] = useState<SecurityAuditReport | null>(null)
   const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false)
   const [activeReportForView, setActiveReportForView] = useState<SecurityAuditReport | null>(null)
@@ -94,21 +121,42 @@ export const CustomModelsPage: React.FC = () => {
     }
   }
 
+  const [modelFilter, setModelFilter] = useState<ModelFilterOption>('all')
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
+  const [portalLeftTarget, setPortalLeftTarget] = useState<HTMLElement | null>(null)
 
   useEffect(() => {
     setPortalTarget(document.getElementById('top-bar-right'))
+    setPortalLeftTarget(document.getElementById('top-bar-left'))
   }, [])
 
   useEffect(() => {
     loadData()
   }, [])
 
+  // Click-outside listener to dismiss popover dropdowns
+  useEffect(() => {
+    const handleDocumentClick = (e: MouseEvent) => {
+      if (modelContainerRef.current && !modelContainerRef.current.contains(e.target as Node)) {
+        setShowModelDropdown(false)
+      }
+      if (reasoningContainerRef.current && !reasoningContainerRef.current.contains(e.target as Node)) {
+        setShowReasoningDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleDocumentClick, true)
+    document.addEventListener('click', handleDocumentClick, true)
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentClick, true)
+      document.removeEventListener('click', handleDocumentClick, true)
+    }
+  }, [])
+
   const openAddModal = () => {
     setEditingModel(null)
     setDisplayName('')
     setModelName('')
-    setProviderType('gemini')
+    setProviderType('custom')
     setBaseUrl('')
     setApiKey('')
     setProjectMappings('*')
@@ -120,7 +168,8 @@ export const CustomModelsPage: React.FC = () => {
     setThinkingLevel('high')
     setFetchedModels([])
     setFetchFeedback(null)
-    setManualModelEntry(false)
+    setShowModelDropdown(false)
+    setShowReasoningDropdown(false)
     setShowApiKey(false)
     setModalTestResult(null)
     setModalAuditResult(null)
@@ -132,7 +181,7 @@ export const CustomModelsPage: React.FC = () => {
     setEditingModel(model)
     setDisplayName(model.display_name)
     setModelName(model.name)
-    setProviderType(model.provider_type)
+    setProviderType(model.provider_type || inferProviderType(model.base_url))
     setBaseUrl(model.base_url)
     setApiKey(model.api_key || '')
     setProjectMappings(model.project_mappings?.join(', ') || '*')
@@ -146,7 +195,8 @@ export const CustomModelsPage: React.FC = () => {
     setThinkingLevel(isThinking ? (model.thinking_level || 'high') : '')
     setFetchedModels([])
     setFetchFeedback(null)
-    setManualModelEntry(false)
+    setShowModelDropdown(false)
+    setShowReasoningDropdown(false)
     setShowApiKey(false)
     setModalTestResult(null)
     if (model.security_risk_level) {
@@ -168,56 +218,21 @@ export const CustomModelsPage: React.FC = () => {
     setIsModalOpen(true)
   }
 
-  const resolveEndpointPreview = (type: ProviderType, url: string, model: string) => {
-    const raw = (url || '').trim()
-    if (!raw) return '(enter base URL above)'
-    const cleanU = raw.replace(/\/+$/, '')
-    if (type === 'custom') {
-      if (
-        cleanU.endsWith('/chat/completions') ||
-        cleanU.endsWith('/chat/completion') ||
-        cleanU.endsWith('/completions') ||
-        cleanU.includes('/chat') ||
-        cleanU.includes(':generateContent') ||
-        cleanU.endsWith('/messages')
-      ) {
-        return raw
-      }
-      if (cleanU.endsWith('/v1') || cleanU.includes('/v1/') || cleanU.includes('/v2/')) {
-        return `${cleanU}/chat/completions`
-      }
-      return `${cleanU}/v1/chat/completions`
-    }
-    if (type === 'anthropic') {
-      if (cleanU.endsWith('/messages')) return cleanU
-      if (cleanU.endsWith('/v1') || cleanU.includes('/v1/')) return `${cleanU}/messages`
-      return `${cleanU}/v1/messages`
-    }
-    if (type === 'gemini') {
-      if (cleanU.includes(':generateContent')) return cleanU
-      const m = model.trim() || '{model}'
-      if (cleanU.endsWith('/v1beta') || cleanU.includes('/v1beta/')) return `${cleanU}/models/${m}:generateContent`
-      return `${cleanU}/v1beta/models/${m}:generateContent`
-    }
-    // OpenAI Compatible
-    if (cleanU.endsWith('/chat/completions') || cleanU.endsWith('/chat/completion')) return cleanU
-    if (cleanU.endsWith('/v1') || cleanU.includes('/v1/') || cleanU.includes('/v2/')) return `${cleanU}/chat/completions`
-    return `${cleanU}/v1/chat/completions`
-  }
-
   const handleFetchModels = async () => {
-    if (!baseUrl.trim() && providerType !== 'anthropic' && providerType !== 'gemini') {
-      setModalError('Please enter a Base URL before fetching models.')
+    if (!baseUrl.trim()) {
+      setModalError('Please enter an Endpoint URL before fetching models.')
       return
     }
     setFetchingModels(true)
     setFetchFeedback(null)
     setModalError(null)
+    const inferred = inferProviderType(baseUrl.trim())
+    setProviderType(inferred)
     try {
-      const res = await api.fetchModels(providerType, baseUrl.trim(), apiKey.trim())
+      const res = await api.fetchModels(inferred, baseUrl.trim(), apiKey.trim())
       if (res.success && res.models && res.models.length > 0) {
         setFetchedModels(res.models)
-        setManualModelEntry(false)
+        setShowModelDropdown(true)
         setFetchFeedback(`Discovered ${res.models.length} model(s) via API.`)
       } else {
         const cleanMsg = (res.message || 'No models returned by API.')
@@ -240,26 +255,24 @@ export const CustomModelsPage: React.FC = () => {
   const handleSelectFetchedModel = (selectedId: string) => {
     const found = fetchedModels.find((m) => m.id === selectedId)
     if (!found) return
-    setModelName(found.id)
+    const cleanId = extractCleanModelId(found.id || '')
+    setModelName(cleanId)
     if (!displayName.trim()) {
-      setDisplayName(found.display_name || found.id)
+      setDisplayName(found.display_name || cleanId)
     }
-    if (found.context_window && found.context_window > 0) {
+    const extractedCtx = extractContextWindow(found.id, found)
+    if (extractedCtx && extractedCtx > 0) {
+      setContextWindow(extractedCtx)
+    } else if (found.context_window && found.context_window > 0) {
       setContextWindow(found.context_window)
     } else {
       setContextWindow(1048576)
     }
-    if (found.supports_thinking) {
-      const cleanLevels = (found.thinking_levels || ['low', 'medium', 'high'])
-        .map((l) => l.trim())
-        .filter((l) => l.toLowerCase() !== 'off' && l !== '')
-      if (cleanLevels.length > 0) {
-        setThinkingLevels(cleanLevels)
-        setThinkingLevel(cleanLevels.includes('high') ? 'high' : cleanLevels[0])
-      } else {
-        setThinkingLevels(['low', 'medium', 'high'])
-        setThinkingLevel('high')
-      }
+
+    const detectedLevels = detectThinkingLevels(cleanId, found)
+    if (detectedLevels.length > 0) {
+      setThinkingLevels(detectedLevels)
+      setThinkingLevel(detectedLevels.includes('high') ? 'high' : detectedLevels[0])
     } else {
       setThinkingLevels([])
       setThinkingLevel('')
@@ -267,8 +280,8 @@ export const CustomModelsPage: React.FC = () => {
   }
 
   const handleTestInModal = async () => {
-    if (!baseUrl.trim() && providerType !== 'anthropic' && providerType !== 'gemini') {
-      setModalError('Please enter a Base URL before testing.')
+    if (!baseUrl.trim()) {
+      setModalError('Please enter an Endpoint URL before testing.')
       return
     }
     if (!modelName.trim()) {
@@ -283,11 +296,12 @@ export const CustomModelsPage: React.FC = () => {
     const isThinking = thinkingLevel.trim() !== '' && thinkingLevel.toLowerCase() !== 'off'
     const activeThinkingLvl = isThinking ? thinkingLevel.trim() : ''
     const cleanThinkingLevels = thinkingLevels.filter((l) => l.toLowerCase() !== 'off' && l.trim() !== '')
+    const inferred = inferProviderType(baseUrl.trim())
     const draftModel: CustomModel = {
       id: editingModel?.id || 'draft-test',
       name: modelName.trim(),
       display_name: displayName.trim(),
-      provider_type: providerType,
+      provider_type: inferred,
       base_url: baseUrl.trim(),
       api_key: apiKey.trim(),
       project_mappings: projectMappings.split(',').map((p) => p.trim()).filter(Boolean),
@@ -316,57 +330,13 @@ export const CustomModelsPage: React.FC = () => {
     }
   }
 
-  const handleAuditInModal = async () => {
-    if (!baseUrl.trim() && providerType !== 'anthropic' && providerType !== 'gemini') {
-      setModalError('Please enter a Base URL before running a security audit.')
-      return
-    }
-
-    setModalAuditing(true)
-    setModalAuditResult(null)
-    setModalError(null)
-
-    const isThinking = thinkingLevel.trim() !== '' && thinkingLevel.toLowerCase() !== 'off'
-    const activeThinkingLvl = isThinking ? thinkingLevel.trim() : ''
-    const cleanThinkingLevels = thinkingLevels.filter((l) => l.toLowerCase() !== 'off' && l.trim() !== '')
-    const draftModel: CustomModel = {
-      id: editingModel?.id || 'draft-audit',
-      name: modelName.trim() || 'unnamed-model',
-      display_name: displayName.trim() || modelName.trim(),
-      provider_type: providerType,
-      base_url: baseUrl.trim(),
-      api_key: apiKey.trim(),
-      project_mappings: projectMappings.split(',').map((p) => p.trim()).filter(Boolean),
-      quota_type: editingModel?.quota_type || 'na',
-      prepaid_balance: editingModel?.prepaid_balance || 0,
-      total_budget: editingModel?.total_budget || 0,
-      quota_fraction: editingModel?.quota_fraction ?? null,
-      is_default: isDefault,
-      enabled: enabled,
-      context_window: Number(contextWindow) || 1048576,
-      supports_thinking: isThinking,
-      thinking_levels: isThinking ? (cleanThinkingLevels.length > 0 ? cleanThinkingLevels : [activeThinkingLvl]) : undefined,
-      thinking_level: isThinking ? activeThinkingLvl : '',
-      notes: notes.trim(),
-    }
-
-    try {
-      const res = await auditModelSecurity(draftModel)
-      setModalAuditResult(res)
-    } catch (err: any) {
-      setModalError(`Security audit failed: ${err.message}`)
-    } finally {
-      setModalAuditing(false)
-    }
-  }
-
   const handleSaveModel = async () => {
     if (!modelName.trim()) {
       setModalError('Model identifier name is required.')
       return
     }
     if (!baseUrl.trim()) {
-      setModalError('Base URL is required.')
+      setModalError('Endpoint URL is required.')
       return
     }
 
@@ -389,13 +359,15 @@ export const CustomModelsPage: React.FC = () => {
       updatedThinkingLevels.push(activeThinkingLvl.toLowerCase())
     }
 
+    const effectiveProvider = providerType || inferProviderType(baseUrl.trim()) || 'custom'
+
     const modelToSave: CustomModel = {
       id:
         editingModel?.id ||
-        `${providerType}-${modelName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`,
+        `${effectiveProvider}-${modelName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`,
       name: modelName.trim(),
       display_name: displayName.trim() || modelName.trim(),
-      provider_type: providerType,
+      provider_type: effectiveProvider,
       base_url: baseUrl.trim(),
       api_key: apiKey.trim(),
       project_mappings: mappings.length > 0 ? mappings : ['*'],
@@ -527,9 +499,72 @@ export const CustomModelsPage: React.FC = () => {
   }
 
   const models = config?.models || []
+  const filterStats = computeModelFilterStats(models)
+  const filteredModels = filterModels(models, modelFilter)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {/* Top Bar Left Filter Pills via Portal */}
+      {portalLeftTarget &&
+        createPortal(
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              backgroundColor: 'var(--tonal)',
+              borderRadius: '20px',
+              padding: '3px',
+              gap: '2px',
+            }}
+          >
+            {[
+              { id: 'all', label: 'All Models', count: filterStats.total },
+              { id: 'enabled', label: 'Enabled', count: filterStats.enabled },
+              { id: 'disabled', label: 'Disabled', count: filterStats.disabled },
+            ].map((tab) => {
+              const isActive = modelFilter === tab.id
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setModelFilter(tab.id as ModelFilterOption)}
+                  style={{
+                    borderRadius: '16px',
+                    padding: '6px 14px',
+                    fontSize: '12px',
+                    fontWeight: isActive ? 600 : 500,
+                    color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+                    backgroundColor: isActive ? '#ffffff' : 'transparent',
+                    boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    whiteSpace: 'nowrap',
+                    lineHeight: 1.4,
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span>{tab.label}</span>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      padding: '1px 6px',
+                      borderRadius: '10px',
+                      backgroundColor: isActive ? 'rgba(26, 115, 232, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                      color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+                    }}
+                  >
+                    {tab.count}
+                  </span>
+                </button>
+              )
+            })}
+          </div>,
+          portalLeftTarget
+        )}
+
       {/* Top Bar Action Buttons via Portal */}
       {portalTarget &&
         createPortal(
@@ -582,9 +617,38 @@ export const CustomModelsPage: React.FC = () => {
             <Plus size={14} /> Add Custom Model
           </button>
         </div>
+      ) : filteredModels.length === 0 && !loading ? (
+        <div
+          className="google-card"
+          style={{
+            padding: '48px 24px',
+            textAlign: 'center',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '12px',
+          }}
+        >
+          <Cpu size={40} color="var(--text-subtle)" />
+          <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text)' }}>
+            No {modelFilter === 'enabled' ? 'Enabled' : 'Disabled'} Models
+          </div>
+          <div style={{ fontSize: '13px', color: 'var(--text-muted)', maxWidth: '400px' }}>
+            {modelFilter === 'enabled'
+              ? 'None of your custom models are currently enabled. Turn on the toggle switch on a model card to enable it.'
+              : 'All configured custom models are currently enabled.'}
+          </div>
+          <button
+            onClick={() => setModelFilter('all')}
+            className="btn-pill-tonal"
+            style={{ marginTop: '8px', padding: '6px 16px', fontSize: '12px' }}
+          >
+            Show All Models
+          </button>
+        </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))', gap: '16px' }}>
-          {models.map((m) => {
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
+          {filteredModels.map((m) => {
             const testResult = cardTestResults[m.id]
             const isTesting = testingModelId === m.id
 
@@ -643,7 +707,7 @@ export const CustomModelsPage: React.FC = () => {
                   display: 'flex',
                   flexDirection: 'column',
                   justifyContent: 'space-between',
-                  padding: '20px',
+                  padding: '16px',
                   border: m.is_default ? '2px solid var(--primary)' : '1px solid var(--border)',
                   opacity: m.enabled ? 1 : 0.65,
                   transition: 'opacity 0.2s ease, border-color 0.2s ease',
@@ -651,12 +715,12 @@ export const CustomModelsPage: React.FC = () => {
               >
                 <div>
                   {/* Model Name and Gauge Row */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
-                    <div style={{ flex: 1 }}>
-                      <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <h3 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text)', marginBottom: '3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {m.display_name}
                       </h3>
-                      <div style={{ fontFamily: 'monospace', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                      <div style={{ fontFamily: 'monospace', fontSize: '11.5px', color: 'var(--text-muted)', marginBottom: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {m.name}
                       </div>
                       <div
@@ -667,8 +731,8 @@ export const CustomModelsPage: React.FC = () => {
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                           whiteSpace: 'nowrap',
-                          maxWidth: '220px',
-                          marginBottom: '8px',
+                          maxWidth: '100%',
+                          marginBottom: '6px',
                         }}
                         title={m.base_url}
                       >
@@ -706,7 +770,7 @@ export const CustomModelsPage: React.FC = () => {
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
-                            maxWidth: '220px',
+                            maxWidth: '100%',
                           }}
                           title={m.notes}
                         >
@@ -721,8 +785,8 @@ export const CustomModelsPage: React.FC = () => {
                         percentage={gaugePct}
                         emptyGrey={emptyGrey}
                         title={gaugeTitle}
-                        size={100}
-                        strokeWidth={8}
+                        size={86}
+                        strokeWidth={7}
                       />
                     </div>
                   </div>
@@ -932,70 +996,129 @@ export const CustomModelsPage: React.FC = () => {
                     <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
                       Model Identifier:
                     </label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {fetchedModels.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setManualModelEntry(!manualModelEntry)}
-                          className="btn-pill-tonal"
-                          style={{ padding: '2px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                          title={manualModelEntry ? 'Choose from fetched models dropdown' : 'Type custom model identifier manually'}
-                        >
-                          {manualModelEntry ? '📋 Choose from List' : '✏️ Type Manually'}
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={handleFetchModels}
-                        disabled={fetchingModels}
-                        className="btn-pill-tonal"
-                        style={{ padding: '2px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                        title="Fetch available models via provider API"
-                      >
-                        <RefreshCw size={11} className={fetchingModels ? 'spin' : ''} />
-                        {fetchingModels ? 'Fetching...' : 'Fetch Models'}
-                      </button>
-                    </div>
-                  </div>
-                  {fetchedModels.length > 0 && !manualModelEntry ? (
-                    <select
-                      value={fetchedModels.some((m) => m.id === modelName) ? modelName : (modelName ? '__custom__' : '')}
-                      onChange={(e) => {
-                        if (e.target.value === '__manual__') {
-                          setManualModelEntry(true)
-                        } else if (e.target.value !== '__custom__') {
-                          handleSelectFetchedModel(e.target.value)
-                        }
-                      }}
-                      style={{
-                        width: '100%',
-                        fontSize: '12px',
-                        padding: '8px 10px',
-                        fontFamily: 'monospace',
-                        borderRadius: '6px',
-                        border: '1px solid var(--border)',
-                      }}
+                    <button
+                      type="button"
+                      onClick={handleFetchModels}
+                      disabled={fetchingModels}
+                      className="btn-pill-tonal"
+                      style={{ padding: '2px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      title="Fetch available models via provider API"
                     >
-                      <option value="">-- Choose a model ({fetchedModels.length} available) --</option>
-                      {modelName && !fetchedModels.some((m) => m.id === modelName) && (
-                        <option value="__custom__">Current: {modelName}</option>
-                      )}
-                      {fetchedModels.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.id} {m.context_window ? `(${m.context_window.toLocaleString()} ctx)` : ''} {m.supports_thinking ? '🧠 [Thinking]' : ''}
-                        </option>
-                      ))}
-                      <option value="__manual__">✏️ Custom / Type manually...</option>
-                    </select>
-                  ) : (
+                      <RefreshCw size={11} className={fetchingModels ? 'spin' : ''} />
+                      {fetchingModels ? 'Fetching...' : 'Fetch Models'}
+                    </button>
+                  </div>
+                  <div style={{ position: 'relative' }} ref={modelContainerRef}>
                     <input
                       type="text"
-                      placeholder="e.g. gemini-4-argon"
+                      placeholder="e.g. gemini-2.5-pro or gpt-4o"
                       value={modelName}
-                      onChange={(e) => setModelName(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setModelName(val)
+                        if (val.trim()) {
+                          setShowModelDropdown(false)
+                        } else if (fetchedModels.length > 0) {
+                          setShowModelDropdown(true)
+                        }
+                        const detected = detectThinkingLevels(val)
+                        if (detected.length > 0) {
+                          setThinkingLevels(detected)
+                        }
+                      }}
+                      onClick={() => {
+                        if (!modelName.trim() && fetchedModels.length > 0) {
+                          setShowModelDropdown(true)
+                        }
+                      }}
+                      onFocus={() => {
+                        if (!modelName.trim() && fetchedModels.length > 0) {
+                          setShowModelDropdown(true)
+                        }
+                      }}
                       style={{ width: '100%', fontSize: '12px', padding: '8px 10px', fontFamily: 'monospace' }}
                     />
-                  )}
+                    {showModelDropdown && fetchedModels.length > 0 && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: 'calc(100% + 4px)',
+                          left: 0,
+                          right: 0,
+                          backgroundColor: '#ffffff',
+                          border: '1px solid var(--border)',
+                          borderRadius: '8px',
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                          zIndex: 1000,
+                          maxHeight: '220px',
+                          overflowY: 'auto',
+                          padding: '4px 0',
+                        }}
+                      >
+                        <div style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 600, color: 'var(--text-subtle)', borderBottom: '1px solid #f1f3f4', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span>Available Models ({fetchedModels.length})</span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setShowModelDropdown(false)
+                            }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px' }}
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                        {fetchedModels.map((m) => {
+                          const cleanId = extractCleanModelId(m.id || '')
+                          const ctx = extractContextWindow(m.id, m) || m.context_window
+                          const levels = detectThinkingLevels(cleanId, m)
+                          return (
+                            <div
+                              key={m.id}
+                              onClick={() => {
+                                handleSelectFetchedModel(m.id)
+                                setShowModelDropdown(false)
+                              }}
+                              style={{
+                                padding: '8px 12px',
+                                fontSize: '12px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                fontFamily: 'monospace',
+                                borderBottom: '1px solid #f8f9fa',
+                                transition: 'background 0.15s ease',
+                              }}
+                              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f1f3f4')}
+                              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                            >
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+                                <span style={{ fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {cleanId}
+                                </span>
+                                {m.display_name && m.display_name !== cleanId && (
+                                  <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{m.display_name}</span>
+                                )}
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                                {ctx && (
+                                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', backgroundColor: '#f1f3f4', padding: '2px 6px', borderRadius: '4px' }}>
+                                    {ctx.toLocaleString()} ctx
+                                  </span>
+                                )}
+                                {levels.length > 0 && (
+                                  <span style={{ fontSize: '10px', color: '#137333', backgroundColor: '#e6f4ea', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                                    🧠 Thinking
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
                   {fetchFeedback && (
                     <div
                       style={{
@@ -1021,47 +1144,21 @@ export const CustomModelsPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Provider Protocol & Base URL */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                    Provider Protocol:
-                  </label>
-                  <select
-                    value={providerType === 'local' ? 'openai' : providerType}
-                    onChange={(e) => setProviderType(e.target.value as ProviderType)}
-                    style={{ width: '100%', fontSize: '12px', padding: '8px 10px' }}
-                  >
-                    <option value="gemini">Google Gemini API (:generateContent)</option>
-                    <option value="openai">OpenAI Compatible (/v1/chat/completions)</option>
-                    <option value="anthropic">Anthropic Claude (/v1/messages)</option>
-                    <option value="custom">Custom (Direct / Raw Endpoint)</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                    {providerType === 'custom' ? 'Custom Endpoint URL:' : 'Base URL:'}
-                  </label>
-                  <input
-                    type="text"
-                    placeholder={
-                      providerType === 'gemini'
-                        ? 'e.g. https://generativelanguage.googleapis.com'
-                        : providerType === 'custom'
-                        ? 'e.g. https://my-custom-proxy.internal/v1/chat/completions'
-                        : 'e.g. https://api.openai.com/v1'
-                    }
-                    value={baseUrl}
-                    onChange={(e) => setBaseUrl(e.target.value)}
-                    style={{ width: '100%', fontSize: '12px', padding: '8px 10px', fontFamily: 'monospace' }}
-                  />
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    Resolved Endpoint:{' '}
-                    <span style={{ color: 'var(--primary)', fontWeight: 600 }}>
-                      {resolveEndpointPreview(providerType, baseUrl, modelName)}
-                    </span>
-                  </div>
-                </div>
+              {/* Endpoint URL (Full Width) */}
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                  Endpoint URL:
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. https://api.openai.com/v1/chat/completions or https://generativelanguage.googleapis.com/v1beta/models"
+                  value={baseUrl}
+                  onChange={(e) => {
+                    setBaseUrl(e.target.value)
+                    setProviderType(inferProviderType(e.target.value))
+                  }}
+                  style={{ width: '100%', fontSize: '12px', padding: '8px 10px', fontFamily: 'monospace' }}
+                />
               </div>
 
               {/* Reasoning Level & Context Window */}
@@ -1070,36 +1167,89 @@ export const CustomModelsPage: React.FC = () => {
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
                     Reasoning Level:
                   </label>
-                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <div style={{ position: 'relative' }} ref={reasoningContainerRef}>
                     <input
                       type="text"
                       placeholder="e.g. high (blank for default)"
                       value={thinkingLevel}
                       onChange={(e) => {
                         setThinkingLevel(e.target.value)
+                        if (e.target.value.trim()) {
+                          setShowReasoningDropdown(false)
+                        } else {
+                          setShowReasoningDropdown(true)
+                        }
                       }}
-                      style={{ flex: 1, minWidth: 0, fontSize: '12px', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)' }}
+                      onClick={() => {
+                        if (!thinkingLevel.trim()) {
+                          setShowReasoningDropdown(true)
+                        }
+                      }}
+                      onFocus={() => {
+                        if (!thinkingLevel.trim()) {
+                          setShowReasoningDropdown(true)
+                        }
+                      }}
+                      style={{ width: '100%', fontSize: '12px', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)' }}
                     />
-                    {thinkingLevels.length > 0 && (
-                      <select
-                        value={thinkingLevels.some((l) => l.toLowerCase() === thinkingLevel.toLowerCase()) ? thinkingLevel.toLowerCase() : ''}
-                        onChange={(e) => {
-                          const val = e.target.value
-                          if (val) {
-                            setThinkingLevel(val)
-                          }
-                        }}
-                        style={{ width: '92px', flexShrink: 0, fontSize: '12px', padding: '8px 4px', borderRadius: '6px', border: '1px solid var(--border)' }}
-                        title="Select a reasoning level preset"
-                      >
-                        <option value="">Presets...</option>
-                        {thinkingLevels.map((lvl) => (
-                          <option key={lvl} value={lvl.toLowerCase()}>
-                            {lvl.charAt(0).toUpperCase() + lvl.slice(1)}
-                          </option>
-                        ))}
-                      </select>
-                    )}
+                    {showReasoningDropdown && (() => {
+                      const presets = thinkingLevels.length > 0
+                        ? thinkingLevels
+                        : detectThinkingLevels(modelName).length > 0
+                          ? detectThinkingLevels(modelName)
+                          : ['off', 'low', 'medium', 'high']
+                      return presets.length > 0 ? (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: 'calc(100% + 4px)',
+                            left: 0,
+                            right: 0,
+                            backgroundColor: '#ffffff',
+                            border: '1px solid var(--border)',
+                            borderRadius: '8px',
+                            boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                            zIndex: 1000,
+                            maxHeight: '180px',
+                            overflowY: 'auto',
+                            padding: '4px 0',
+                          }}
+                        >
+                          <div style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 600, color: 'var(--text-subtle)', borderBottom: '1px solid #f1f3f4' }}>
+                            Select Reasoning Level Preset
+                          </div>
+                          {presets.map((lvl) => (
+                            <div
+                              key={lvl}
+                              onClick={() => {
+                                setThinkingLevel(lvl)
+                                setShowReasoningDropdown(false)
+                              }}
+                              style={{
+                                padding: '8px 12px',
+                                fontSize: '12px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                transition: 'background 0.15s ease',
+                              }}
+                              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f1f3f4')}
+                              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                            >
+                              <span style={{ fontWeight: 500, color: 'var(--text)' }}>
+                                {lvl.charAt(0).toUpperCase() + lvl.slice(1)}
+                              </span>
+                              {lvl.toLowerCase() !== 'off' && (
+                                <span style={{ fontSize: '10px', color: 'var(--primary)', fontWeight: 600, backgroundColor: 'rgba(26,115,232,0.08)', padding: '2px 6px', borderRadius: '4px' }}>
+                                  Reasoning
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null
+                    })()}
                   </div>
                 </div>
                 <div>
@@ -1251,62 +1401,6 @@ export const CustomModelsPage: React.FC = () => {
                   <Zap size={13} />
                   {modalTesting ? 'Testing...' : 'Test Connection'}
                 </button>
-
-                <button
-                  type="button"
-                  onClick={handleAuditInModal}
-                  disabled={modalAuditing || !baseUrl.trim()}
-                  className="btn-pill-tonal"
-                  style={{
-                    padding: '7px 14px',
-                    fontSize: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    border: modalAuditResult ? '1px solid var(--border)' : undefined,
-                  }}
-                  title="Run security audit against endpoint (inspired by toby-bridges/api-relay-audit)"
-                >
-                  <Shield size={13} color="var(--primary)" />
-                  {modalAuditing ? 'Auditing...' : 'Security Check'}
-                </button>
-
-                {modalAuditResult && (() => {
-                  const r = modalAuditResult.risk_level
-                  const isLow = r === 'low'
-                  const isMed = r === 'medium'
-                  const isHigh = r === 'high'
-                  const color = isLow ? '#137333' : isMed ? '#b06000' : isHigh ? '#e37400' : '#c5221f'
-                  const bg = isLow ? '#e6f4ea' : isMed ? '#fef7e0' : isHigh ? '#fff0d4' : '#fce8e6'
-                  const border = isLow ? '#ceead6' : isMed ? '#feefc3' : isHigh ? '#ffdfb0' : '#fad2cf'
-                  return (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveReportForView(modalAuditResult)
-                        setIsReportModalOpen(true)
-                      }}
-                      style={{
-                        padding: '4px 10px',
-                        borderRadius: '12px',
-                        fontSize: '11px',
-                        fontWeight: 700,
-                        backgroundColor: bg,
-                        color: color,
-                        border: `1px solid ${border}`,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '5px',
-                        cursor: 'pointer',
-                        textTransform: 'uppercase',
-                      }}
-                      title="Click to view detailed Security Audit Report"
-                    >
-                      {isLow ? <ShieldCheck size={13} /> : <ShieldAlert size={13} />}
-                      <span>{r.toUpperCase()} RISK (Report)</span>
-                    </button>
-                  )
-                })()}
 
                 {modalTestResult && (() => {
                   const isSuccess = modalTestResult.success && modalTestResult.status_code >= 200 && modalTestResult.status_code < 300

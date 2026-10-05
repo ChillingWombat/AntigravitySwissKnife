@@ -75,6 +75,22 @@ export interface RuleConfig {
   default_gemini_model?: string
   default_custom_model?: string
   default_non_gemini_model?: string
+  auto_import_active_account?: boolean
+}
+
+export interface SurfaceAccount {
+  email: string
+  surface: 'desktop' | 'vscode' | 'cli'
+  surface_name: string
+  access_token?: string
+  refresh_token?: string
+  id_token?: string
+}
+
+export interface SurfacesResponse {
+  surfaces: Record<string, SurfaceAccount | null>
+  active_surface_account: SurfaceAccount | null
+  priority_sequence: string[]
 }
 
 export interface DiscoveredAccount {

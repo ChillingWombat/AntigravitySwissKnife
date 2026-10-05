@@ -10,9 +10,11 @@ import {
   Bot,
   Settings2,
   GripVertical,
+  Laptop,
+  RefreshCw,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
-import type { RuleConfig } from '../types'
+import type { RuleConfig, SurfacesResponse } from '../types'
 import { api } from '../api'
 
 interface SwitcherSettingsPageProps {
@@ -75,6 +77,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   const [defaultGemini, setDefaultGemini] = useState<string>(initialRules?.default_gemini_model || 'gemini-2.5-pro')
   const [defaultCustom, setDefaultCustom] = useState<string>(initialRules?.default_custom_model || '')
   const [defaultNonGemini, setDefaultNonGemini] = useState<string>(initialRules?.default_non_gemini_model || 'claude-3-7-sonnet')
+  const [autoImportActive, setAutoImportActive] = useState<boolean>(initialRules?.auto_import_active_account ?? false)
+  const [surfacesData, setSurfacesData] = useState<SurfacesResponse | null>(null)
+  const [isRefreshingSurfaces, setIsRefreshingSurfaces] = useState<boolean>(false)
   const [customModelOptions, setCustomModelOptions] = useState<{ id: string; name: string }[]>([])
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null)
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
@@ -118,8 +123,23 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       if (initialRules.default_non_gemini_model) {
         setDefaultNonGemini(initialRules.default_non_gemini_model)
       }
+      if (initialRules.auto_import_active_account !== undefined) {
+        setAutoImportActive(initialRules.auto_import_active_account)
+      }
     }
   }, [initialRules])
+
+  const refreshSurfaces = () => {
+    setIsRefreshingSurfaces(true)
+    api.getSurfaces()
+      .then(setSurfacesData)
+      .catch(() => {})
+      .finally(() => setIsRefreshingSurfaces(false))
+  }
+
+  useEffect(() => {
+    refreshSurfaces()
+  }, [])
 
   useEffect(() => {
     api.getCustomModels()
@@ -159,9 +179,11 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
         default_gemini_model: defaultGemini,
         default_custom_model: defaultCustom,
         default_non_gemini_model: defaultNonGemini,
+        auto_import_active_account: autoImportActive,
       })
       setFeedback('Configuration saved successfully.')
       onSaved()
+      refreshSurfaces()
     } catch (err: any) {
       setFeedback(`Save error: ${err.message}`)
     } finally {
@@ -666,6 +688,156 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             <option value="claude">Anthropic Claude</option>
             <option value="all">All Native Models</option>
           </select>
+        </div>
+      </div>
+
+      {/* Section 7: Running Antigravity Multi-Surface Synchronization & Auto-Import */}
+      <div className="google-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Laptop size={16} style={{ color: 'var(--primary)' }} />
+            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+              Multi-Surface Synchronization &amp; Auto-Import
+            </div>
+          </div>
+          <button
+            onClick={refreshSurfaces}
+            disabled={isRefreshingSurfaces}
+            className="btn-pill-tonal"
+            style={{ padding: '4px 10px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+            title="Refresh running Antigravity sessions"
+          >
+            <RefreshCw size={12} className={isRefreshingSurfaces ? 'spin' : ''} />
+            {isRefreshingSurfaces ? 'Detecting...' : 'Scan Surfaces'}
+          </button>
+        </div>
+
+        <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          Swiss Knife orchestrates accounts across Antigravity 2.0 Desktop, VS Code Extension, and Antigravity CLI (agy) simultaneously.
+          When accounts switch or auto-import occurs, all three apps are kept in lockstep.
+        </p>
+
+        {/* Priority Sequence Banner */}
+        <div
+          style={{
+            padding: '14px',
+            backgroundColor: 'var(--canvas)',
+            borderRadius: '12px',
+            border: '1px solid var(--border)',
+            marginBottom: '18px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Multi-Surface Sequence Priority
+            </span>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+              Desktop &gt; VS Code Extension &gt; CLI
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+            {/* Surface 1: Desktop */}
+            <div
+              style={{
+                padding: '10px',
+                borderRadius: '8px',
+                backgroundColor: 'var(--card)',
+                border: surfacesData?.active_surface_account?.surface === 'desktop'
+                  ? '1.5px solid var(--primary)'
+                  : '1px solid var(--border)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text)' }}>
+                  #1 Desktop 2.0
+                </span>
+                {surfacesData?.active_surface_account?.surface === 'desktop' && (
+                  <span style={{ fontSize: '9px', fontWeight: 700, color: '#137333', backgroundColor: '#e6f4ea', padding: '1px 5px', borderRadius: '6px' }}>
+                    ACTIVE SESSION
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: '12px', color: surfacesData?.surfaces?.desktop?.email ? 'var(--text)' : 'var(--text-muted)', fontWeight: surfacesData?.surfaces?.desktop?.email ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {surfacesData?.surfaces?.desktop?.email || 'No Session'}
+              </div>
+            </div>
+
+            {/* Surface 2: VS Code Extension */}
+            <div
+              style={{
+                padding: '10px',
+                borderRadius: '8px',
+                backgroundColor: 'var(--card)',
+                border: surfacesData?.active_surface_account?.surface === 'vscode'
+                  ? '1.5px solid var(--primary)'
+                  : '1px solid var(--border)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text)' }}>
+                  #2 VS Code Ext
+                </span>
+                {surfacesData?.active_surface_account?.surface === 'vscode' && (
+                  <span style={{ fontSize: '9px', fontWeight: 700, color: '#137333', backgroundColor: '#e6f4ea', padding: '1px 5px', borderRadius: '6px' }}>
+                    ACTIVE SESSION
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: '12px', color: surfacesData?.surfaces?.vscode?.email ? 'var(--text)' : 'var(--text-muted)', fontWeight: surfacesData?.surfaces?.vscode?.email ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {surfacesData?.surfaces?.vscode?.email || 'No Session'}
+              </div>
+            </div>
+
+            {/* Surface 3: CLI */}
+            <div
+              style={{
+                padding: '10px',
+                borderRadius: '8px',
+                backgroundColor: 'var(--card)',
+                border: surfacesData?.active_surface_account?.surface === 'cli'
+                  ? '1.5px solid var(--primary)'
+                  : '1px solid var(--border)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text)' }}>
+                  #3 CLI (agy)
+                </span>
+                {surfacesData?.active_surface_account?.surface === 'cli' && (
+                  <span style={{ fontSize: '9px', fontWeight: 700, color: '#137333', backgroundColor: '#e6f4ea', padding: '1px 5px', borderRadius: '6px' }}>
+                    ACTIVE SESSION
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: '12px', color: surfacesData?.surfaces?.cli?.email ? 'var(--text)' : 'var(--text-muted)', fontWeight: surfacesData?.surfaces?.cli?.email ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {surfacesData?.surfaces?.cli?.email || 'No Session'}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Auto-Import Toggle */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: 'pointer' }}>
+            <div style={{ marginTop: '2px' }}>
+              <ToggleSwitch
+                checked={autoImportActive}
+                onChange={(checked) => setAutoImportActive(checked)}
+              />
+            </div>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                Auto-Import Running Antigravity Account
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px', lineHeight: 1.5 }}>
+                When enabled, if Antigravity is running an account that has not yet been imported into Swiss Knife, the app automatically imports it with discovered credentials and selects it as active. If multiple apps run different unimported accounts, the winning account from Antigravity 2.0 Desktop is chosen as active, and CLI / VS Code extension accounts are automatically synchronized to it.
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                When disabled, unimported accounts running in Antigravity will result in <strong>no account</strong> treated as active in Swiss Knife.
+              </div>
+            </div>
+          </label>
         </div>
       </div>
     </div>
