@@ -332,26 +332,43 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           </div>
 
           {/* Account Priority directly below Account Alias */}
-          <div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '12px',
+                fontWeight: 600,
+                color: 'var(--text-muted)',
+              }}
+            >
               Account Priority:
             </label>
             <select
               value={priority}
               onChange={(e) => setPriority(e.target.value)}
               style={{
-                width: '100%',
+                width: '100px',
                 backgroundColor: 'var(--canvas)',
                 border: '1px solid var(--border)',
                 borderRadius: '8px',
-                padding: '8px 12px',
-                fontSize: '13px',
+                padding: '6px 10px',
+                fontSize: '12px',
+                fontWeight: 600,
                 color: 'var(--text)',
+                cursor: 'pointer',
               }}
             >
-              <option value="High">High (Prioritized first in auto rotation)</option>
-              <option value="Mid">Mid (Normal rotation priority)</option>
-              <option value="Low">Low (Fallback standby only)</option>
+              <option value="High">High</option>
+              <option value="Mid">Mid</option>
+              <option value="Low">Low</option>
             </select>
           </div>
 
