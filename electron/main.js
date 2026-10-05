@@ -193,6 +193,9 @@ async function createWindow() {
                          process.argv.includes('--hidden') ||
                          app.getLoginItemSettings().wasOpenedAsHidden;
 
+  // Disable default application menu bar
+  Menu.setApplicationMenu(null);
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -201,6 +204,7 @@ async function createWindow() {
     title: 'Antigravity Swiss Knife',
     icon: iconPath,
     show: !startMinimized,
+    autoHideMenuBar: true,
     backgroundColor: '#131314', // Google Gemini dark surface token
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -209,6 +213,8 @@ async function createWindow() {
       sandbox: false,
     },
   });
+
+  mainWindow.setMenu(null);
 
   // Intercept window close ('X') to minimize to system tray
   mainWindow.on('close', (event) => {
@@ -352,6 +358,7 @@ async function runE2eVerification() {
 
 // App lifecycle
 app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null);
   registerIpcHandlers();
   try {
     await daemonManager.start();
