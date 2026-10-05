@@ -286,6 +286,42 @@ func (s *Scanner) Scan() ([]DiscoveredAccount, error) {
 	if resolvedRunning != nil {
 		activeRunningEmail = normalizeEmail(resolvedRunning.Email)
 	}
+	// 0. Sync and scan Antigravity Agent Database (~/.antigravity-agent/cloud_accounts.db)
+	_ = SyncStoreFromCloudAccountsDB(s.store, s.homeDir)
+	if cloudAccs, err := ReadCloudAccountsDB(s.homeDir); err == nil && len(cloudAccs) > 0 {
+		for _, ca := range cloudAccs {
+			if isTestMockEmail(ca.Email) {
+				continue
+			}
+			key := normalizeEmail(ca.Email)
+			disc, exists := discovered[key]
+			if !exists {
+				disc = &DiscoveredAccount{
+					Email:        ca.Email,
+					Source:       "Antigravity Agent DB",
+					HasTokens:    ca.AccessToken != "" || ca.RefreshToken != "",
+					HasRefresh:   ca.RefreshToken != "",
+					AccessToken:  ca.AccessToken,
+					RefreshToken: ca.RefreshToken,
+				}
+				discovered[key] = disc
+			} else {
+				if !strings.Contains(disc.Source, "Agent DB") {
+					disc.Source += " + Antigravity Agent DB"
+				}
+				if ca.RefreshToken != "" {
+					disc.HasRefresh = true
+					disc.RefreshToken = ca.RefreshToken
+				}
+				if ca.AccessToken != "" && disc.AccessToken == "" {
+					disc.AccessToken = ca.AccessToken
+				}
+			}
+			if ca.IsActive || (activeRunningEmail != "" && key == activeRunningEmail) {
+				disc.IsActiveInIDE = true
+			}
+		}
+	}
 
 	// 1. Check existing accounts in Swiss Knife vault
 	if s.store != nil {

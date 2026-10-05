@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -507,15 +508,11 @@ func (d *Daemon) registerRPCHandlers() {
 
 	// 13. Fleet Quota & Per-Account Horizon States
 	d.Server.Register("swiss.getFleetQuota", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+		_ = keyring.SyncStoreFromCloudAccountsDB(d.Keyring, "")
 		accounts := d.Keyring.ListAccounts()
 		active := d.Keyring.ActiveAccount()
-		var activeSummary *quota.QuotaSummary
-		acc, _ := d.Keyring.GetAccount(active)
-		if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
-			summary, _ := quota.PollAccountLiveQuota(acc)
-			activeSummary = summary
-		}
-		states := quota.BuildAccountQuotaStates(accounts, activeSummary)
+		summaries := quota.PollFleetAccounts(accounts, d.Keyring)
+		states := quota.BuildAccountQuotaStatesFromMap(accounts, summaries)
 		summary := quota.ComputeFleetSummary(states, active)
 		return summary, nil
 	})
