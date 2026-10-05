@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import {
   Save,
 } from 'lucide-react'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 import type { RuleConfig } from '../types'
 import { api } from '../api'
 
@@ -149,12 +150,10 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
+          <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}>
+            <ToggleSwitch
               checked={warmupEnabled}
-              onChange={(e) => setWarmupEnabled(e.target.checked)}
-              style={{ width: '18px', height: '18px' }}
+              onChange={(checked) => setWarmupEnabled(checked)}
             />
             <div>
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>

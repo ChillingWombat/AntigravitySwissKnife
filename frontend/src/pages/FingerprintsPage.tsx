@@ -24,10 +24,17 @@ export const FingerprintsPage: React.FC<FingerprintsPageProps> = ({ accounts }) 
   // Fetch profiles
   const loadProfiles = async () => {
     try {
-      const list = await api.listFingerprints()
-      setProfiles(list || [])
+      const data: any = await api.listFingerprints()
+      if (Array.isArray(data)) {
+        setProfiles(data)
+      } else if (data && typeof data === 'object') {
+        setProfiles([data])
+      } else {
+        setProfiles([])
+      }
     } catch (err) {
       console.error(err)
+      setProfiles([])
     }
   }
 
@@ -38,7 +45,7 @@ export const FingerprintsPage: React.FC<FingerprintsPageProps> = ({ accounts }) 
   // Load selected profile
   useEffect(() => {
     if (!selectedEmail) return
-    const match = profiles.find((p) => p.account_email === selectedEmail)
+    const match = Array.isArray(profiles) ? profiles.find((p) => p.account_email === selectedEmail) : null
     if (match) {
       setMachineId(match.machine_id)
       setUpdaterId(match.updater_id)

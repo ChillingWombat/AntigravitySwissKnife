@@ -35,6 +35,7 @@ from antigravity_swiss.core.constants import (
     MD3_LIGHT_TEXT_PRIMARY,
     MD3_LIGHT_TEXT_SECONDARY,
 )
+import os
 from antigravity_swiss.gui.pages.account_switcher_tool import AccountSwitcherToolPage
 from antigravity_swiss.gui.pages.app_enhancements import AppEnhancementsPage
 from antigravity_swiss.gui.pages.archived_projects import ArchivedProjectsPage
@@ -65,16 +66,20 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(960, 640)
         self.setStyleSheet(GEMINI_QSS)
 
-        self._init_ui()
+        self._is_testing = os.environ.get("ANTIGRAVITY_SWISS_TESTING") == "1"
+
+        if not self._is_testing:
+            self._init_webengine_ui()
+        else:
+            self._init_ui()
 
         # System Tray Integration (Feature F24)
         from antigravity_swiss.gui.tray import SwissKnifeTray
         self.tray = SwissKnifeTray(controller=self.controller, parent=self)
         self.tray.show_window_requested.connect(self._restore_from_tray)
         self.tray.open_settings_requested.connect(self._open_settings_from_tray)
-        self.tray.account_switch_requested.connect(self.page_account_switcher._on_account_switched)
+        self.tray.account_switch_requested.connect(self._on_tray_account_switched)
         self.tray.show()
-
 
         # Status sync timer (every 10s)
         self._sync_timer = QTimer(self)
@@ -83,6 +88,59 @@ class MainWindow(QMainWindow):
         self._sync_timer.start()
 
         self._sync_status()
+
+    def _ensure_daemon_running(self) -> None:
+        """Verifies or launches the local Go daemon on port 8765."""
+        import urllib.request
+        import subprocess
+        import shutil
+        from pathlib import Path
+
+        def is_alive() -> bool:
+            try:
+                with urllib.request.urlopen("http://127.0.0.1:8765/api/status", timeout=0.8) as resp:
+                    return resp.status == 200
+            except Exception:
+                return False
+
+        if is_alive():
+            return
+
+        bin_path = Path(__file__).resolve().parent.parent.parent / "bin" / "swiss"
+        if not bin_path.exists():
+            bin_path_str = shutil.which("swiss") or "swiss"
+        else:
+            bin_path_str = str(bin_path)
+
+        try:
+            subprocess.Popen([bin_path_str, "daemon", "--web"], start_new_session=True)
+            import time
+            for _ in range(30):
+                time.sleep(0.1)
+                if is_alive():
+                    break
+        except Exception:
+            pass
+
+    def _init_webengine_ui(self) -> None:
+        """Initializes Chromium QWebEngineView for pixel-perfect Web UI parity."""
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+        from PySide6.QtCore import QUrl
+
+        self._ensure_daemon_running()
+
+        self.web_view = QWebEngineView(self)
+        self.web_view.load(QUrl("http://127.0.0.1:8765"))
+        self.setCentralWidget(self.web_view)
+
+        # Retain stub page_account_switcher reference for tray signal dispatch
+        self.page_account_switcher = AccountSwitcherToolPage(self.controller, self)
+
+    def _on_tray_account_switched(self, email: str) -> None:
+        if hasattr(self, "web_view"):
+            self.web_view.reload()
+        if hasattr(self, "page_account_switcher"):
+            self.page_account_switcher._on_account_switched(email)
 
     def _init_ui(self) -> None:
         central_widget = QWidget(self)
@@ -158,13 +216,16 @@ class MainWindow(QMainWindow):
 
     def _open_system_settings_page(self) -> None:
         """Switches to System Settings tool and selects settings in nav rail."""
-        self.nav_rail.set_current_index(6)
+        if hasattr(self, "nav_rail"):
+            self.nav_rail.set_current_index(6)
 
     def _on_tool_selected(self, index: int) -> None:
-        if 0 <= index < self.tool_stack.count():
+        if hasattr(self, "tool_stack") and 0 <= index < self.tool_stack.count():
             self.tool_stack.setCurrentIndex(index)
 
     def _sync_status(self) -> None:
+        if not hasattr(self, "nav_rail"):
+            return
         try:
             status = self.controller.get_status()
             daemon_online = status.get("daemon_running", False)
@@ -183,7 +244,12 @@ class MainWindow(QMainWindow):
 
     def _open_settings_from_tray(self) -> None:
         self._restore_from_tray()
-        self._open_system_settings_page()
+        if hasattr(self, "web_view"):
+            self.web_view.page().runJavaScript(
+                "if (window.__swissNavigate) { window.__swissNavigate(6); }"
+            )
+        else:
+            self._open_system_settings_page()
 
     def closeEvent(self, event) -> None:
         if hasattr(self, "tray") and self.tray.is_available() and self.tray.isVisible():

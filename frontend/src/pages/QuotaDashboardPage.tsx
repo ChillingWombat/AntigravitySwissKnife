@@ -1,10 +1,12 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   RotateCw,
   Zap,
   CheckCircle2,
   Clock,
   ArrowRightLeft,
+  Edit2,
+  Copy,
 } from 'lucide-react'
 import type { AccountState, FleetQuotaSummary, RuleConfig } from '../types'
 import { CircularGauge } from '../components/CircularGauge'
@@ -80,6 +82,13 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const [isSwitching, setIsSwitching] = useState(false)
   const [isTogglingRules, setIsTogglingRules] = useState(false)
   const [switchFeedback, setSwitchFeedback] = useState<string | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; account: AccountState } | null>(null)
+
+  useEffect(() => {
+    const handleGlobalClick = () => setContextMenu(null)
+    window.addEventListener('click', handleGlobalClick)
+    return () => window.removeEventListener('click', handleGlobalClick)
+  }, [])
 
   const accounts = fleet?.accounts || []
   const activeAccount = fleet?.active_account || ''
@@ -237,11 +246,11 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           >
             <CircularGauge
               percentage={(fleet?.fleet_5h_available ?? 0.94) * 100}
-              title="5h Available"
+              title="5H"
             />
             <CircularGauge
               percentage={(fleet?.fleet_weekly_available ?? 0.94) * 100}
-              title="Weekly Available"
+              title="Weekly"
             />
           </div>
         </div>
@@ -257,14 +266,10 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
             borderBottom: '1px solid var(--border)',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
           }}
         >
           <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
             All Managed Accounts (Status & Quotas)
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-            Click any row to inspect details, modify credentials, or configure MFA
           </div>
         </div>
 
@@ -301,6 +306,11 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 <tr
                   key={acc.email}
                   onClick={() => setSelectedRowAccount(acc)}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setContextMenu({ x: e.clientX, y: e.clientY, account: acc })
+                  }}
                   style={{
                     cursor: 'pointer',
                     transition: 'background-color 0.15s ease',
@@ -346,16 +356,42 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   </td>
 
                   <td style={{ padding: '14px 20px', textAlign: 'right' }}>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setSelectedRowAccount(acc)
-                      }}
-                      className="btn-pill-tonal"
-                      style={{ padding: '4px 12px', fontSize: '11px' }}
-                    >
-                      Edit Details
-                    </button>
+                    {isActive ? (
+                      <span
+                        className="badge-chip badge-green"
+                        style={{
+                          fontSize: '11px',
+                          padding: '4px 10px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        <CheckCircle2 size={12} /> Active
+                      </span>
+                    ) : (
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          try {
+                            await api.switchAccount(acc.email)
+                            onRefresh()
+                          } catch (err: any) {
+                            alert('Switch failed: ' + err.message)
+                          }
+                        }}
+                        className="btn-pill-tonal"
+                        style={{
+                          padding: '4px 12px',
+                          fontSize: '11px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        <ArrowRightLeft size={11} /> Switch
+                      </button>
+                    )}
                   </td>
                 </tr>
               )
@@ -371,6 +407,108 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           onClose={() => setSelectedRowAccount(null)}
           onSaved={onRefresh}
         />
+      )}
+
+      {/* Right-Click Context Menu */}
+      {contextMenu && (
+        <div
+          style={{
+            position: 'fixed',
+            top: contextMenu.y,
+            left: contextMenu.x,
+            backgroundColor: '#ffffff',
+            border: '1px solid var(--border)',
+            borderRadius: '10px',
+            boxShadow: 'var(--shadow-md)',
+            zIndex: 2000,
+            padding: '6px 0',
+            minWidth: '200px',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            style={{
+              padding: '6px 14px',
+              fontSize: '11px',
+              fontWeight: 700,
+              color: 'var(--text-muted)',
+              borderBottom: '1px solid var(--border-subtle)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {contextMenu.account.email}
+          </div>
+          <button
+            onClick={() => {
+              setSelectedRowAccount(contextMenu.account)
+              setContextMenu(null)
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              width: '100%',
+              padding: '8px 14px',
+              fontSize: '12px',
+              textAlign: 'left',
+              color: 'var(--text)',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            <Edit2 size={13} /> Edit Account Details
+          </button>
+          {!contextMenu.account.is_active && contextMenu.account.email !== activeAccount && (
+            <button
+              onClick={async () => {
+                const target = contextMenu.account.email
+                setContextMenu(null)
+                try {
+                  await api.switchAccount(target)
+                  onRefresh()
+                } catch (err: any) {
+                  alert('Switch failed: ' + err.message)
+                }
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                width: '100%',
+                padding: '8px 14px',
+                fontSize: '12px',
+                textAlign: 'left',
+                color: 'var(--primary)',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+            >
+              <ArrowRightLeft size={13} /> Switch to this Account
+            </button>
+          )}
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(contextMenu.account.email)
+              setContextMenu(null)
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              width: '100%',
+              padding: '8px 14px',
+              fontSize: '12px',
+              textAlign: 'left',
+              color: 'var(--text)',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            <Copy size={13} /> Copy Email Address
+          </button>
+        </div>
       )}
     </div>
   )

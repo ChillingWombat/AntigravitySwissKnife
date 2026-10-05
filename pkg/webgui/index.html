@@ -27,8 +27,8 @@
   
   /* Left Nav Rail */
   #nav { width: 220px; background: #ffffff; display: flex; flex-direction: column; padding: 24px 16px 16px; flex-shrink: 0; }
-  .logo-title { font-size: 16px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.3px; }
-  .logo-sub { font-size: 11px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+  .logo-title { font-size: 16px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.3px; text-align: center; }
+  .logo-sub { font-size: 11px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; text-align: center; }
   .nav-sep { height: 1px; background: var(--border); margin: 16px 0 12px; }
   .nav-header { font-size: 10px; font-weight: 700; color: var(--text-secondary); letter-spacing: 1.2px; margin-bottom: 8px; padding-left: 4px; }
   .nav-btn { display: block; width: 100%; text-align: left; background: transparent; border: none; padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; color: var(--text-secondary); cursor: pointer; transition: all 0.15s; margin-bottom: 4px; }
@@ -195,7 +195,7 @@
       <button class="ribbon-btn" id="ribbon-3" onclick="showSub(3)">Cache Manager</button>
       <button class="ribbon-btn" id="ribbon-4" onclick="showSub(4)">Settings</button>
     </div>
-    <div class="account-badge" id="active-acc-badge">Loading...</div>
+    <div class="account-badge" id="active-acc-badge" style="display: none;">Loading...</div>
   </div>
 
   <!-- Sub-page 0: Dashboard -->

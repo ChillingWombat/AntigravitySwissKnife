@@ -14,6 +14,7 @@ const (
 	ProviderOpenAI    ProviderType = "openai"
 	ProviderAnthropic ProviderType = "anthropic"
 	ProviderGemini    ProviderType = "gemini"
+	ProviderCustom    ProviderType = "custom"
 	ProviderLocal     ProviderType = "local"
 )
 
@@ -28,22 +29,25 @@ const (
 
 // CustomModel defines a third-party or local LLM configured in Antigravity.
 type CustomModel struct {
-	ID              string       `json:"id"`
-	Name            string       `json:"name"`
-	DisplayName     string       `json:"display_name"`
-	ProviderType    ProviderType `json:"provider_type"`
-	BaseURL         string       `json:"base_url"`
-	APIKey          string       `json:"api_key,omitempty"`
-	ProjectMappings []string     `json:"project_mappings"` // Specific projects or ["*"] for all
-	QuotaType       QuotaType    `json:"quota_type"`
-	PrepaidBalance  float64      `json:"prepaid_balance"` // Funds remaining in USD
-	TotalBudget     float64      `json:"total_budget"`    // Total initial/prepaid budget in USD
-	QuotaFraction   *float64     `json:"quota_fraction"`  // 0.0 to 1.0; nil if untracked/none
-	IsDefault       bool         `json:"is_default"`
-	ContextWindow   int          `json:"context_window,omitempty"`
-	Enabled         bool         `json:"enabled"`
-	CreatedAt       string       `json:"created_at,omitempty"`
-	UpdatedAt       string       `json:"updated_at,omitempty"`
+	ID               string       `json:"id"`
+	Name             string       `json:"name"`
+	DisplayName      string       `json:"display_name"`
+	ProviderType     ProviderType `json:"provider_type"`
+	BaseURL          string       `json:"base_url"`
+	APIKey           string       `json:"api_key,omitempty"`
+	ProjectMappings  []string     `json:"project_mappings"` // Specific projects or ["*"] for all
+	QuotaType        QuotaType    `json:"quota_type"`
+	PrepaidBalance   float64      `json:"prepaid_balance"` // Funds remaining in USD
+	TotalBudget      float64      `json:"total_budget"`    // Total initial/prepaid budget in USD
+	QuotaFraction    *float64     `json:"quota_fraction"`  // 0.0 to 1.0; nil if untracked/none
+	IsDefault        bool         `json:"is_default"`
+	ContextWindow    int          `json:"context_window,omitempty"`
+	SupportsThinking bool         `json:"supports_thinking,omitempty"`
+	ThinkingLevels   []string     `json:"thinking_levels,omitempty"` // e.g. ["off", "low", "medium", "high"]
+	ThinkingLevel    string       `json:"thinking_level,omitempty"`    // Active level e.g. "medium", "off"
+	Enabled          bool         `json:"enabled"`
+	CreatedAt        string       `json:"created_at,omitempty"`
+	UpdatedAt        string       `json:"updated_at,omitempty"`
 }
 
 // Config holds the full custom models configuration file structure.
@@ -70,6 +74,9 @@ func (m *CustomModel) Validate() error {
 	}
 	if strings.TrimSpace(m.BaseURL) == "" {
 		return errors.New("base_url is required")
+	}
+	if m.ContextWindow <= 0 {
+		m.ContextWindow = 1000000
 	}
 	if m.QuotaType == "" {
 		m.QuotaType = QuotaNone

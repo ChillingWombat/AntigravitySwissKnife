@@ -130,6 +130,52 @@ func GenerateCustomModelsScript(cfg *Config) string {
             }
           } catch (_) {}
         }
+
+        // Render / update thinking level switcher pill if custom model supports thinking
+        let thinkingPill = document.querySelector("#swiss-thinking-level-pill");
+        if (activeCustomModel && activeCustomModel.supports_thinking) {
+          const curLevel = activeCustomModel.thinking_level || "medium";
+          const levels = (activeCustomModel.thinking_levels && activeCustomModel.thinking_levels.length > 0)
+            ? activeCustomModel.thinking_levels
+            : ["off", "low", "medium", "high"];
+          const displayLevel = curLevel.charAt(0).toUpperCase() + curLevel.slice(1);
+
+          if (!thinkingPill) {
+            thinkingPill = document.createElement("button");
+            thinkingPill.id = "swiss-thinking-level-pill";
+            thinkingPill.setAttribute("type", "button");
+            thinkingPill.style.cssText = "display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 2px 9px; font-size: 11px; font-weight: 500; border-radius: 9999px; border: 1px solid var(--border, rgba(0,0,0,0.12)); background: var(--secondary, rgba(0,0,0,0.04)); color: var(--foreground, #101010); cursor: pointer; user-select: none; transition: all 0.15s ease; height: 22px; vertical-align: middle;";
+
+            thinkingPill.onclick = (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              const activeMod = (customConfig?.models || []).find(m => m.id === activeCustomModel.id);
+              const cLevel = activeMod?.thinking_level || "medium";
+              const idx = levels.indexOf(cLevel);
+              const nextIdx = (idx + 1) %% levels.length;
+              const nextLevel = levels[nextIdx];
+              if (activeMod) activeMod.thinking_level = nextLevel;
+              activeCustomModel.thinking_level = nextLevel;
+              const nextDisplay = nextLevel.charAt(0).toUpperCase() + nextLevel.slice(1);
+              thinkingPill.innerHTML = '<span style="opacity: 0.8;">Thinking:</span> <b>' + nextDisplay + '</b> <span style="font-size: 9px; opacity: 0.6;">\u25be</span>';
+              fetch("http://127.0.0.1:8765/api/custom_models/thinking_level", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ model_id: activeCustomModel.id, level: nextLevel })
+              }).catch(() => {});
+            };
+
+            if (trigger.nextSibling) {
+              trigger.parentNode.insertBefore(thinkingPill, trigger.nextSibling);
+            } else {
+              trigger.parentNode.appendChild(thinkingPill);
+            }
+          }
+          thinkingPill.innerHTML = '<span style="opacity: 0.8;">Thinking:</span> <b>' + displayLevel + '</b> <span style="font-size: 9px; opacity: 0.6;">\u25be</span>';
+          thinkingPill.title = "Click to switch thinking level (" + levels.join(" \u2192 ") + ")";
+        } else if (thinkingPill) {
+          thinkingPill.remove();
+        }
       }
 
       // Detect open dropdown menu
@@ -191,6 +237,8 @@ func GenerateCustomModelsScript(cfg *Config) string {
               trigger.removeAttribute("data-swiss-custom-bound");
               trigger.removeAttribute("data-swiss-native-label");
             }
+            const tp = document.querySelector("#swiss-thinking-level-pill");
+            if (tp) tp.remove();
             try {
               await fetch("http://127.0.0.1:8765/api/custom_models/bind", {
                 method: "POST",

@@ -117,53 +117,17 @@ export const ArchivedProjectsPage: React.FC = () => {
   })
 
   return (
-    <div style={{ maxWidth: '1080px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* Header Info Card */}
-      <div
-        style={{
-          background: '#ffffff',
-          borderRadius: '12px',
-          border: '1px solid #e2e8f0',
-          padding: '24px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
+      <div className="google-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div
-                style={{
-                  width: '36px',
-                  height: '36px',
-                  borderRadius: '10px',
-                  background: '#fef3c7',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Archive size={20} color="#b45309" />
-              </div>
-              <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#1e293b' }}>
-                Archived Projects
-              </h1>
-              <span
-                style={{
-                  background: '#f1f5f9',
-                  color: '#475569',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  padding: '2px 8px',
-                  borderRadius: '12px',
-                }}
-              >
-                {archived.length} {archived.length === 1 ? 'project' : 'projects'}
-              </span>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+              Archived Projects
             </div>
-            <p style={{ margin: '8px 0 0', fontSize: '13px', color: '#64748b', maxWidth: '640px' }}>
-              Manage hidden and archived projects. Projects here are completely hidden from the Antigravity desktop sidebar
-              to keep your workspace clutter-free. You can inspect project settings, unhide them anytime, or permanently remove them.
-            </p>
+            <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
+              Manage hidden and archived projects in Antigravity 2.0. Projects here are hidden from the sidebar to keep your workspace clutter-free.
+            </div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -180,12 +144,12 @@ export const ArchivedProjectsPage: React.FC = () => {
                   style={{
                     height: '36px',
                     padding: '0 32px 0 12px',
-                    borderRadius: '8px',
-                    border: '1px solid #d1d5db',
-                    background: '#ffffff',
-                    fontSize: '13px',
+                    borderRadius: '20px',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                    fontSize: '12px',
                     fontWeight: 500,
-                    color: '#374151',
+                    color: 'var(--text)',
                     cursor: 'pointer',
                     appearance: 'none',
                   }}
@@ -199,8 +163,8 @@ export const ArchivedProjectsPage: React.FC = () => {
                 </select>
                 <ChevronDown
                   size={14}
-                  color="#6b7280"
-                  style={{ position: 'absolute', right: '10px', top: '11px', pointerEvents: 'none' }}
+                  color="var(--text-muted)"
+                  style={{ position: 'absolute', right: '12px', top: '11px', pointerEvents: 'none' }}
                 />
               </div>
             )}
@@ -209,23 +173,11 @@ export const ArchivedProjectsPage: React.FC = () => {
               onClick={loadData}
               disabled={loading}
               title="Refresh archived projects list"
-              style={{
-                height: '36px',
-                padding: '0 12px',
-                borderRadius: '8px',
-                border: '1px solid #e2e8f0',
-                background: '#ffffff',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                fontSize: '13px',
-                fontWeight: 500,
-                color: '#475569',
-                cursor: 'pointer',
-              }}
+              className="btn-pill-tonal"
+              style={{ fontSize: '12px', padding: '7px 14px' }}
             >
-              <RefreshCw size={14} className={loading ? 'spin' : ''} />
-              Refresh
+              <RefreshCw size={13} className={loading ? 'spin' : ''} />
+              <span>Refresh</span>
             </button>
           </div>
         </div>
@@ -288,15 +240,7 @@ export const ArchivedProjectsPage: React.FC = () => {
       )}
 
       {/* Table Container */}
-      <div
-        style={{
-          background: '#ffffff',
-          borderRadius: '12px',
-          border: '1px solid #e2e8f0',
-          overflow: 'hidden',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-        }}
-      >
+      <div className="google-card" style={{ padding: 0, overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: '48px', textAlign: 'center', color: '#64748b' }}>
             <RefreshCw size={24} className="spin" style={{ margin: '0 auto 12px' }} />

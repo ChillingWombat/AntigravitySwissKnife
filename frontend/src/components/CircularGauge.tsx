@@ -86,7 +86,7 @@ export const CircularGauge: React.FC<CircularGaugeProps> = ({
         </div>
       </div>
 
-      <div style={{ marginTop: '10px' }}>
+      <div style={{ marginTop: '18px' }}>
         <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>
           {title}
         </div>

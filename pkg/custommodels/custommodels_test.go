@@ -196,7 +196,7 @@ func TestGetPresets(t *testing.T) {
 		if p.ProviderType == ProviderGemini {
 			foundGemini = true
 		}
-		if p.ProviderType == ProviderLocal {
+		if p.ID == "ollama" || p.ID == "vllm" {
 			foundLocal = true
 		}
 	}
@@ -277,6 +277,40 @@ func TestGenerateCustomModelsScript_CategoryHeaders(t *testing.T) {
 	// Verify model-selector-header data-testid lookup is present
 	if !containsSubstring(script, `model-selector-header`) {
 		t.Errorf("expected script to target 'model-selector-header'")
+	}
+}
+
+func TestResolveEndpoint_Custom(t *testing.T) {
+	raw := "https://my-custom-proxy.internal/v1/fast/chat"
+	res := ResolveEndpoint(ProviderCustom, raw, "custom-model")
+	if res != raw {
+		t.Errorf("expected ResolveEndpoint to return exact raw URL %q, got %q", raw, res)
+	}
+}
+
+func TestDetectModelMetadata(t *testing.T) {
+	// Standard model with default 1000000 fallback
+	ctx, thinking, _ := detectModelMetadata("some-unknown-model", "", 0)
+	if ctx != 1000000 {
+		t.Errorf("expected default context window 1000000, got %d", ctx)
+	}
+	if thinking {
+		t.Errorf("expected supports_thinking=false for unknown model")
+	}
+
+	// Reasoning model: claude-3-7-sonnet
+	ctx2, thinking2, levels2 := detectModelMetadata("claude-3-7-sonnet-20250219", "Claude 3.7", 0)
+	if !thinking2 || len(levels2) == 0 {
+		t.Errorf("expected claude-3-7 to support thinking, got %v, levels: %v", thinking2, levels2)
+	}
+	if ctx2 != 200000 {
+		t.Errorf("expected claude-3-7 context 200000, got %d", ctx2)
+	}
+
+	// DeepSeek R1
+	_, thinking3, _ := detectModelMetadata("deepseek-r1", "DeepSeek R1", 0)
+	if !thinking3 {
+		t.Errorf("expected deepseek-r1 to support thinking")
 	}
 }
 

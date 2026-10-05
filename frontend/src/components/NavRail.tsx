@@ -39,7 +39,16 @@ export const NavRail: React.FC<NavRailProps> = ({
       }}
     >
       {/* Brand Header with mathematically aligned widths */}
-      <div style={{ marginBottom: '20px', width: 'fit-content' }}>
+      <div
+        style={{
+          marginBottom: '20px',
+          width: 'fit-content',
+          alignSelf: 'center',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+        }}
+      >
         <div
           id="brandTitle"
           style={{
@@ -49,6 +58,7 @@ export const NavRail: React.FC<NavRailProps> = ({
             color: 'var(--text)',
             lineHeight: 1.15,
             whiteSpace: 'nowrap',
+            textAlign: 'center',
           }}
         >
           Antigravity

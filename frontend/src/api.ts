@@ -16,6 +16,8 @@ import type {
   DeployTaskRequest,
   SidecarTaskInfo,
   GUIConfig,
+  ProviderType,
+  FetchModelsResponse,
 } from './types'
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
@@ -153,6 +155,24 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ project, model_id: modelId }),
+    }),
+
+  fetchModels: (providerType: ProviderType, baseUrl: string, apiKey?: string) =>
+    request<FetchModelsResponse>('/api/custom_models/fetch_models', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        provider_type: providerType,
+        base_url: baseUrl,
+        api_key: apiKey,
+      }),
+    }),
+
+  setThinkingLevel: (modelId: string, level: string) =>
+    request<{ success: boolean; model_id: string; level: string }>('/api/custom_models/thinking_level', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_id: modelId, level }),
     }),
 
   // App Enhancements (Prompt Jump Bar, Tool Density, Breaker Line)

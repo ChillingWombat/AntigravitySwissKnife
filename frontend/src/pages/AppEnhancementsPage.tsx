@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react'
+import { Zap, Save } from 'lucide-react'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 import type { EnhancementsConfig, GUIConfig } from '../types'
 
@@ -140,59 +142,36 @@ export const AppEnhancementsPage: React.FC = () => {
       : jb.custom_color || '#0b57d0'
 
   return (
-    <div style={{ padding: '28px 36px', maxWidth: '1040px', margin: '0 auto', fontFamily: 'inherit' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {/* 1. Header Information & Actions Card */}
+      <div className="google-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '24px' }}>⚡</span>
-            <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#1e293b' }}>
-              App Enhancements & Usability
-            </h1>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+            App Enhancements & Usability
           </div>
-          <p style={{ margin: '6px 0 0', fontSize: '13px', color: '#64748b' }}>
-            Usability add-ons and UI features for Antigravity 2.0 Desktop and VS Code extension
-          </p>
+          <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
+            Usability add-ons, prompt jump navigation, tool visual density, and project color tab customization for Antigravity 2.0.
+          </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
             onClick={handleApplyLive}
             disabled={applying}
-            style={{
-              padding: '8px 16px',
-              borderRadius: '8px',
-              border: '1px solid #bfdbfe',
-              background: '#eff6ff',
-              color: '#1d4ed8',
-              fontSize: '13px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'background 0.15s',
-            }}
+            className="btn-pill-tonal"
+            style={{ padding: '7px 16px', fontSize: '12px' }}
           >
-            <span>{applying ? '⚡ Injecting...' : '⚡ Apply Live in Antigravity'}</span>
+            <Zap size={14} className={applying ? 'spin' : ''} />
+            <span>{applying ? 'Injecting...' : 'Apply Live in Antigravity'}</span>
           </button>
           <button
             onClick={handleSave}
             disabled={saving}
-            style={{
-              padding: '8px 20px',
-              borderRadius: '8px',
-              border: 'none',
-              background: '#0b57d0',
-              color: '#ffffff',
-              fontSize: '13px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              boxShadow: '0 1px 3px rgba(11,87,208,0.25)',
-              transition: 'opacity 0.15s',
-            }}
+            className="btn-pill-primary"
+            style={{ padding: '7px 18px', fontSize: '12px' }}
           >
-            {saving ? 'Saving...' : 'Save Settings'}
+            <Save size={14} />
+            <span>{saving ? 'Saving...' : 'Save Settings'}</span>
           </button>
         </div>
       </div>
@@ -202,11 +181,10 @@ export const AppEnhancementsPage: React.FC = () => {
           style={{
             padding: '10px 16px',
             borderRadius: '8px',
-            marginBottom: '20px',
             fontSize: '13px',
             fontWeight: 500,
-            background: statusMsg.type === 'success' ? '#f0fdf4' : '#fef2f2',
-            color: statusMsg.type === 'success' ? '#166534' : '#991b1b',
+            background: statusMsg.type === 'success' ? 'var(--green-bg)' : '#fce8e6',
+            color: statusMsg.type === 'success' ? 'var(--green)' : '#b3261e',
             border: `1px solid ${statusMsg.type === 'success' ? '#bbf7d0' : '#fecaca'}`,
           }}
         >
@@ -215,16 +193,7 @@ export const AppEnhancementsPage: React.FC = () => {
       )}
 
       {/* Feature 1: Quick Prompt Jump Bar */}
-      <div
-        style={{
-          background: '#ffffff',
-          borderRadius: '12px',
-          border: '1px solid #e2e8f0',
-          padding: '24px',
-          marginBottom: '24px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-        }}
-      >
+      <div className="google-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -237,8 +206,8 @@ export const AppEnhancementsPage: React.FC = () => {
                   fontWeight: 600,
                   padding: '2px 8px',
                   borderRadius: '12px',
-                  background: jb.enabled ? '#dbeafe' : '#f1f5f9',
-                  color: jb.enabled ? '#1e40af' : '#64748b',
+                  background: jb.enabled ? 'var(--green-bg)' : '#f1f5f9',
+                  color: jb.enabled ? 'var(--green)' : '#64748b',
                 }}
               >
                 {jb.enabled ? 'Enabled' : 'Disabled'}
@@ -250,19 +219,15 @@ export const AppEnhancementsPage: React.FC = () => {
             </p>
           </div>
 
-          <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={jb.enabled}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  prompt_jump_bar: { ...jb, enabled: e.target.checked },
-                })
-              }
-              style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#0b57d0' }}
-            />
-          </label>
+          <ToggleSwitch
+            checked={jb.enabled}
+            onChange={(checked) =>
+              setConfig({
+                ...config,
+                prompt_jump_bar: { ...jb, enabled: checked },
+              })
+            }
+          />
         </div>
 
         {jb.enabled && (
@@ -286,16 +251,15 @@ export const AppEnhancementsPage: React.FC = () => {
                   cursor: 'pointer',
                 }}
               >
-                <input
-                  type="checkbox"
+                <ToggleSwitch
+                  size="sm"
                   checked={jb.sync_scroll}
-                  onChange={(e) =>
+                  onChange={(checked) =>
                     setConfig({
                       ...config,
-                      prompt_jump_bar: { ...jb, sync_scroll: e.target.checked },
+                      prompt_jump_bar: { ...jb, sync_scroll: checked },
                     })
                   }
-                  style={{ accentColor: '#0b57d0' }}
                 />
                 <span>Sync with Scroll (highlights lowest prompt on screen)</span>
               </label>
@@ -310,16 +274,15 @@ export const AppEnhancementsPage: React.FC = () => {
                   cursor: 'pointer',
                 }}
               >
-                <input
-                  type="checkbox"
+                <ToggleSwitch
+                  size="sm"
                   checked={jb.show_tooltip}
-                  onChange={(e) =>
+                  onChange={(checked) =>
                     setConfig({
                       ...config,
-                      prompt_jump_bar: { ...jb, show_tooltip: e.target.checked },
+                      prompt_jump_bar: { ...jb, show_tooltip: checked },
                     })
                   }
-                  style={{ accentColor: '#0b57d0' }}
                 />
                 <span>Show Preview Tooltip on Hover</span>
               </label>
@@ -334,16 +297,15 @@ export const AppEnhancementsPage: React.FC = () => {
                   cursor: 'pointer',
                 }}
               >
-                <input
-                  type="checkbox"
+                <ToggleSwitch
+                  size="sm"
                   checked={jb.focus_pulse}
-                  onChange={(e) =>
+                  onChange={(checked) =>
                     setConfig({
                       ...config,
-                      prompt_jump_bar: { ...jb, focus_pulse: e.target.checked },
+                      prompt_jump_bar: { ...jb, focus_pulse: checked },
                     })
                   }
-                  style={{ accentColor: '#0b57d0' }}
                 />
                 <span>Pulse Highlight Target Prompt Card on Jump</span>
               </label>
@@ -663,21 +625,12 @@ export const AppEnhancementsPage: React.FC = () => {
       </div>
 
       {/* Feature 2: Thinking Process & Tool Calls Color Density */}
-      <div
-        style={{
-          background: '#ffffff',
-          borderRadius: '12px',
-          border: '1px solid #e2e8f0',
-          padding: '24px',
-          marginBottom: '24px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-        }}
-      >
+      <div className="google-card">
         <div style={{ marginBottom: '16px' }}>
-          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
+          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
             Thinking & Tool Execution Visual Density
           </h2>
-          <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
+          <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
             Decrease visual dominance of intermediate tool steps, command runs, and thinking blocks so the final
             answer clearly stands out.
           </p>
@@ -735,60 +688,38 @@ export const AppEnhancementsPage: React.FC = () => {
       </div>
 
       {/* Feature 3: Conversation Turn Breaker Line */}
-      <div
-        style={{
-          background: '#ffffff',
-          borderRadius: '12px',
-          border: '1px solid #e2e8f0',
-          padding: '24px',
-          marginBottom: '24px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-        }}
-      >
+      <div className="google-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
               Conversation Turn Breaker Line
             </h2>
-            <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
+            <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
               Inserts a clean horizontal divider separator above each new user prompt, clearly delineating the previous
               agent response from your new prompt.
             </p>
           </div>
 
-          <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={config.breaker_line_enabled}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  breaker_line_enabled: e.target.checked,
-                })
-              }
-              style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#0b57d0' }}
-            />
-          </label>
+          <ToggleSwitch
+            checked={config.breaker_line_enabled}
+            onChange={(checked) =>
+              setConfig({
+                ...config,
+                breaker_line_enabled: checked,
+              })
+            }
+          />
         </div>
       </div>
 
       {/* Feature 4: Predefined Default Project for New Conversations */}
-      <div
-        style={{
-          background: '#ffffff',
-          borderRadius: '12px',
-          border: '1px solid #e2e8f0',
-          padding: '24px',
-          marginBottom: '24px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-        }}
-      >
+      <div className="google-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
               Predefined Default Project for New Conversations
             </h2>
-            <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b', maxWidth: '600px' }}>
+            <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)', maxWidth: '600px' }}>
               Set a fixed predefined project when clicking the "+ New Conversation" button or pressing Ctrl+N / Cmd+N.
               By default, Antigravity picks the last opened chat's project; configuring this anchors new draft chats to your preferred project automatically.
             </p>
@@ -812,7 +743,7 @@ export const AppEnhancementsPage: React.FC = () => {
                 background: '#f8fafc',
                 fontSize: '13px',
                 fontWeight: 600,
-                color: '#1e293b',
+                color: 'var(--text)',
                 cursor: 'pointer',
               }}
             >
@@ -829,42 +760,26 @@ export const AppEnhancementsPage: React.FC = () => {
 
       {/* Feature 5: Project Colors & Active Conversation Tab Indicator */}
       {guiConfig && (
-        <div
-          style={{
-            background: '#ffffff',
-            borderRadius: '12px',
-            border: '1px solid #e2e8f0',
-            padding: '24px',
-            marginBottom: '24px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-          }}
-        >
+        <div className="google-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '18px' }}>🎨</span>
-                <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
-                  Project Colors & Active Conversation Indicator
-                </h2>
-              </div>
-              <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
+              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+                Project Colors & Active Conversation Indicator
+              </h2>
+              <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
                 Assign custom accent colors to projects and configure how the current open conversation tab is highlighted in the sidebar.
               </p>
             </div>
 
-            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={guiConfig.color_styling_enabled}
-                onChange={(e) =>
-                  setGuiConfig({
-                    ...guiConfig,
-                    color_styling_enabled: e.target.checked,
-                  })
-                }
-                style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#0b57d0' }}
-              />
-            </label>
+            <ToggleSwitch
+              checked={guiConfig.color_styling_enabled}
+              onChange={(checked) =>
+                setGuiConfig({
+                  ...guiConfig,
+                  color_styling_enabled: checked,
+                })
+              }
+            />
           </div>
 
           {guiConfig.color_styling_enabled && (
@@ -981,20 +896,19 @@ export const AppEnhancementsPage: React.FC = () => {
                       fontWeight: 500,
                     }}
                   >
-                    <input
-                      type="checkbox"
+                    <ToggleSwitch
+                      size="sm"
                       checked={guiConfig.active_conversation_bold ?? true}
-                      onChange={(e) =>
+                      onChange={(checked) =>
                         setGuiConfig({
                           ...guiConfig,
-                          active_conversation_bold: e.target.checked,
+                          active_conversation_bold: checked,
                         })
                       }
-                      style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#0b57d0' }}
                     />
                     <span>Bold text on current open conversation tab</span>
                   </label>
-                  <p style={{ margin: '3px 0 0 26px', fontSize: '11px', color: '#64748b' }}>
+                  <p style={{ margin: '3px 0 0 42px', fontSize: '11px', color: '#64748b' }}>
                     When unchecked, the open conversation tab title uses regular font weight matching ordinary tabs.
                   </p>
                 </div>
@@ -1012,16 +926,15 @@ export const AppEnhancementsPage: React.FC = () => {
                       fontWeight: 500,
                     }}
                   >
-                    <input
-                      type="checkbox"
+                    <ToggleSwitch
+                      size="sm"
                       checked={guiConfig.solid_left_edge ?? false}
-                      onChange={(e) =>
+                      onChange={(checked) =>
                         setGuiConfig({
                           ...guiConfig,
-                          solid_left_edge: e.target.checked,
+                          solid_left_edge: checked,
                         })
                       }
-                      style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#0b57d0' }}
                     />
                     <span>Solid 3px color bar on left edge of conversation tabs</span>
                   </label>

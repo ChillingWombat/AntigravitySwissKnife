@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { Clock } from 'lucide-react'
 import { api } from '../api'
 import type { DeployTaskRequest, ScheduledTemplate, SidecarTaskInfo } from '../types'
 
@@ -116,35 +117,33 @@ export const ScheduledTemplatesPage: React.FC = () => {
   }
 
   return (
-    <div style={{ padding: '28px 36px', maxWidth: '1120px', margin: '0 auto', fontFamily: 'inherit' }}>
-      {/* Top Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '22px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {/* Top Header Card */}
+      <div className="google-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '24px' }}>⏱️</span>
-            <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#1e293b' }}>
-              Scheduled Task Templates
-            </h1>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+            Scheduled Task Templates
           </div>
-          <p style={{ margin: '6px 0 0', fontSize: '13px', color: '#64748b' }}>
-            Devin & Codex style automations for daily life, project health, market research, and CI/CD
-          </p>
+          <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
+            Devin & Codex style automations for daily life, project health, market research, and CI/CD in Antigravity 2.0.
+          </div>
         </div>
 
         {/* View toggle */}
-        <div style={{ display: 'flex', background: '#e2e8f0', borderRadius: '8px', padding: '3px' }}>
+        <div style={{ display: 'flex', background: 'var(--tab-inactive-bg)', borderRadius: '20px', padding: '3px', border: '1px solid var(--border)' }}>
           <button
             onClick={() => setActiveTab('catalog')}
             style={{
-              padding: '6px 14px',
-              borderRadius: '6px',
+              padding: '6px 16px',
+              borderRadius: '18px',
               border: 'none',
-              background: activeTab === 'catalog' ? '#ffffff' : 'transparent',
-              color: activeTab === 'catalog' ? '#0f172a' : '#64748b',
+              background: activeTab === 'catalog' ? 'var(--surface)' : 'transparent',
+              color: activeTab === 'catalog' ? 'var(--blue)' : 'var(--text-muted)',
               fontWeight: 600,
               fontSize: '12px',
               cursor: 'pointer',
-              boxShadow: activeTab === 'catalog' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+              boxShadow: activeTab === 'catalog' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+              transition: 'all 0.15s ease',
             }}
           >
             Template Catalog ({templates.length})
@@ -152,15 +151,16 @@ export const ScheduledTemplatesPage: React.FC = () => {
           <button
             onClick={() => setActiveTab('active')}
             style={{
-              padding: '6px 14px',
-              borderRadius: '6px',
+              padding: '6px 16px',
+              borderRadius: '18px',
               border: 'none',
-              background: activeTab === 'active' ? '#ffffff' : 'transparent',
-              color: activeTab === 'active' ? '#0f172a' : '#64748b',
+              background: activeTab === 'active' ? 'var(--surface)' : 'transparent',
+              color: activeTab === 'active' ? 'var(--blue)' : 'var(--text-muted)',
               fontWeight: 600,
               fontSize: '12px',
               cursor: 'pointer',
-              boxShadow: activeTab === 'active' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+              boxShadow: activeTab === 'active' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+              transition: 'all 0.15s ease',
             }}
           >
             Active Tasks ({sidecars.length})
@@ -283,34 +283,35 @@ export const ScheduledTemplatesPage: React.FC = () => {
                     >
                       {t.category}
                     </span>
-                    <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>
-                      🕒 {t.default_schedule.cron_expression}
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Clock size={12} />
+                      <span>{t.default_schedule.cron_expression}</span>
                     </span>
                   </div>
 
-                  <h3 style={{ margin: '0 0 4px', fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
+                  <h3 style={{ margin: '0 0 4px', fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
                     {t.title}
                   </h3>
-                  <div style={{ fontSize: '12px', color: '#0b57d0', fontWeight: 500, marginBottom: '8px' }}>
+                  <div style={{ fontSize: '12px', color: 'var(--blue)', fontWeight: 500, marginBottom: '8px' }}>
                     {t.subtitle}
                   </div>
-                  <p style={{ margin: 0, fontSize: '12px', color: '#64748b', lineHeight: 1.45 }}>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.45 }}>
                     {t.description}
                   </p>
                 </div>
 
-                <div style={{ marginTop: '16px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                <div style={{ marginTop: '16px', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
                     {t.required_tools.map((tool) => (
                       <span
                         key={tool}
                         style={{
                           fontSize: '10px',
                           fontWeight: 600,
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          background: '#f1f5f9',
-                          color: '#475569',
+                          padding: '2px 7px',
+                          borderRadius: '10px',
+                          background: 'var(--tab-inactive-bg)',
+                          color: 'var(--text-muted)',
                         }}
                       >
                         MCP: {tool}
@@ -322,8 +323,8 @@ export const ScheduledTemplatesPage: React.FC = () => {
                         style={{
                           fontSize: '10px',
                           fontWeight: 600,
-                          padding: '1px 6px',
-                          borderRadius: '4px',
+                          padding: '2px 7px',
+                          borderRadius: '10px',
                           background: '#faf5ff',
                           color: '#7e22ce',
                         }}
@@ -334,16 +335,12 @@ export const ScheduledTemplatesPage: React.FC = () => {
                   </div>
 
                   <button
+                    className="btn-pill-tonal"
                     style={{
                       width: '100%',
                       padding: '7px 0',
-                      borderRadius: '6px',
-                      border: '1px solid #bfdbfe',
-                      background: '#f8fafc',
-                      color: '#1d4ed8',
                       fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
+                      justifyContent: 'center',
                     }}
                   >
                     Configure & Schedule &rarr;
@@ -355,12 +352,12 @@ export const ScheduledTemplatesPage: React.FC = () => {
         </>
       ) : (
         /* Active Sidecars List */
-        <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
-          <h2 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
+        <div className="google-card">
+          <h2 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
             Active Scheduled Tasks in Antigravity ({sidecars.length})
           </h2>
           {sidecars.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '36px', color: '#94a3b8', fontSize: '13px' }}>
+            <div style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)', fontSize: '13px' }}>
               No scheduled sidecar tasks deployed yet. Pick a template from the catalog to schedule!
             </div>
           ) : (

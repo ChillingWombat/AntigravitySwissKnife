@@ -279,3 +279,24 @@ func (s *Store) GetModelForProject(projectName string) *CustomModel {
 
 	return nil
 }
+
+// SetThinkingLevel updates the active reasoning/thinking level for a specific custom model.
+func (s *Store) SetThinkingLevel(modelID string, level string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	found := false
+	for i := range s.config.Models {
+		if s.config.Models[i].ID == modelID {
+			s.config.Models[i].ThinkingLevel = level
+			s.config.Models[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("model %q not found", modelID)
+	}
+	return s.saveLocked()
+}
+

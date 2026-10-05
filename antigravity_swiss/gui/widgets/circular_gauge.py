@@ -174,7 +174,7 @@ class CircularGauge(QWidget):
         font_title = QFont("Google Sans", 10, QFont.Weight.DemiBold)
         painter.setFont(font_title)
         painter.drawText(
-            QRectF(0, height - 36, width, 18),
+            QRectF(0, height - 26, width, 18),
             Qt.AlignmentFlag.AlignCenter,
             self._model_name,
         )

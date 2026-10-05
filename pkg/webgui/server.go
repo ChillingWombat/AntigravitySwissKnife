@@ -141,6 +141,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/custom_models/presets", s.handleCustomModelPresets)
 	mux.HandleFunc("/api/custom_models/test", s.handleCustomModelTest)
 	mux.HandleFunc("/api/custom_models/bind", s.handleCustomModelBind)
+	mux.HandleFunc("/api/custom_models/fetch_models", s.handleCustomModelFetchModels)
+	mux.HandleFunc("/api/custom_models/thinking_level", s.handleCustomModelThinkingLevel)
 
 	// App Enhancements (Prompt Jump Bar, Tool Density, Breaker Line)
 	mux.HandleFunc("/api/enhancements", s.handleEnhancements)
@@ -1144,6 +1146,48 @@ func (s *Server) handleCustomModelBind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]interface{}{"success": true, "project": p.Project, "model_id": p.ModelID})
+}
+
+func (s *Server) handleCustomModelFetchModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req custommodels.FetchModelsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	res := custommodels.FetchModels(req)
+	writeJSON(w, res)
+}
+
+func (s *Server) handleCustomModelThinkingLevel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var p struct {
+		ModelID string `json:"model_id"`
+		Level   string `json:"level"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil || p.ModelID == "" {
+		http.Error(w, "invalid request body, missing model_id", http.StatusBadRequest)
+		return
+	}
+	if s.customModelsStore == nil {
+		var err error
+		s.customModelsStore, err = custommodels.NewStore("")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	if err := s.customModelsStore.SetThinkingLevel(p.ModelID, p.Level); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]interface{}{"success": true, "model_id": p.ModelID, "level": p.Level})
 }
 
 // Enhancements handlers

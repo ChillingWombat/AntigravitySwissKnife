@@ -244,7 +244,7 @@ class QuotaDashboardPage(QWidget):
         rings_row.setSpacing(24)
 
         self._ring_5h = CircularGauge(
-            model_name="5h Available",
+            model_name="5H",
             fraction=1.0,
             reset_text="",
             parent=self,
@@ -253,7 +253,7 @@ class QuotaDashboardPage(QWidget):
         rings_row.addWidget(self._ring_5h, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self._ring_weekly = CircularGauge(
-            model_name="Weekly Available",
+            model_name="Weekly",
             fraction=1.0,
             reset_text="",
             parent=self,
@@ -339,6 +339,8 @@ class QuotaDashboardPage(QWidget):
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._on_table_context_menu)
         self._table.setStyleSheet("""
             QTableWidget {
                 background-color: #ffffff;
@@ -568,32 +570,55 @@ class QuotaDashboardPage(QWidget):
 
         return container
 
-    def _create_action_cell(self, row_idx: int) -> QWidget:
+    def _on_table_context_menu(self, pos) -> None:
+        row = self._table.rowAt(pos.y())
+        if row >= 0:
+            from PySide6.QtWidgets import QMenu
+            menu = QMenu(self)
+            action_edit = menu.addAction("Edit Account Details...")
+            action_edit.triggered.connect(lambda: self._open_account_detail(row))
+            menu.exec(self._table.viewport().mapToGlobal(pos))
+
+    def _create_action_cell(self, row_idx: int, is_active: bool = False, email: str = "") -> QWidget:
         container = QWidget()
         container.setStyleSheet("background: transparent; border: none;")
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        btn_edit = QPushButton("Edit Details")
-        btn_edit.setStyleSheet("""
-            QPushButton {
-                background-color: #f8fafc;
-                color: #334155;
-                border: 1px solid #e2e8f0;
-                border-radius: 6px;
-                padding: 4px 10px;
-                font-size: 11px;
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                background-color: #f1f5f9;
-                border-color: #cbd5e1;
-                color: #0f172a;
-            }
-        """)
-        btn_edit.clicked.connect(lambda checked=False, idx=row_idx: self._open_account_detail(idx))
-        layout.addWidget(btn_edit)
+        if is_active:
+            lbl_active = QLabel("Active")
+            lbl_active.setStyleSheet("""
+                QLabel {
+                    background-color: #e6f4ea;
+                    color: #137333;
+                    border-radius: 12px;
+                    padding: 3px 12px;
+                    font-size: 11px;
+                    font-weight: 600;
+                }
+            """)
+            layout.addWidget(lbl_active)
+        else:
+            btn_switch = QPushButton("Switch")
+            btn_switch.setStyleSheet("""
+                QPushButton {
+                    background-color: #e9eef6;
+                    color: #041e49;
+                    border: 1px solid #d3e3fd;
+                    border-radius: 12px;
+                    padding: 4px 12px;
+                    font-size: 11px;
+                    font-weight: 600;
+                }
+                QPushButton:hover {
+                    background-color: #d3e3fd;
+                    color: #0b57d0;
+                }
+            """)
+            btn_switch.clicked.connect(lambda checked=False, em=email: self._on_quick_switch(em) if hasattr(self, '_on_quick_switch') else self._controller.switch_account(em))
+            layout.addWidget(btn_switch)
+
         return container
 
     def refresh_quota(self) -> None:
@@ -657,8 +682,8 @@ class QuotaDashboardPage(QWidget):
                 # Col 5: Reset Horizon Text
                 self._table.setCellWidget(r, 5, self._create_reset_horizon_cell(acc.reset_horizon_text))
 
-                # Col 6: Manage Button (Edit Details)
-                self._table.setCellWidget(r, 6, self._create_action_cell(r))
+                # Col 6: Action Button (Switch / Active)
+                self._table.setCellWidget(r, 6, self._create_action_cell(r, acc.is_active, acc.email))
                 self._table.setRowHeight(r, 56)
 
             self._adjust_table_height()

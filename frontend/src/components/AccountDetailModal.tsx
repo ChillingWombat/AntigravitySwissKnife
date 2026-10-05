@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { X, Trash2, Save, KeyRound, Tag, RefreshCw } from 'lucide-react'
 import type { AccountState } from '../types'
 import { HorizontalQuotaBar } from './HorizontalQuotaBar'
+import { ToggleSwitch } from './ToggleSwitch'
 import { api } from '../api'
 
 interface AccountDetailModalProps {
@@ -237,11 +238,10 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           </div>
 
           <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', cursor: 'pointer', marginTop: '4px' }}>
-            <input
-              type="checkbox"
+            <ToggleSwitch
+              size="sm"
               checked={setActive}
-              onChange={(e) => setSetActive(e.target.checked)}
-              style={{ width: '16px', height: '16px' }}
+              onChange={(checked) => setSetActive(checked)}
             />
             <span>Set as active Antigravity account upon save</span>
           </label>

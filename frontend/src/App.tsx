@@ -83,6 +83,7 @@ export const App: React.FC = () => {
               borderBottom: '1px solid var(--border)',
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'space-between',
               padding: '0 24px',
               flexShrink: 0,
             }}
@@ -95,8 +96,10 @@ export const App: React.FC = () => {
                 : currentTool === 3
                 ? 'Custom Model Providers & Endpoints'
                 : currentTool === 4
-                ? 'App Enhancements & Usability Add-Ons'
-                : 'Scheduled Task Automations & Templates'}
+                ? 'App Enhancements & Usability'
+                : currentTool === 5
+                ? 'Scheduled Task Automations'
+                : 'Archived Projects'}
             </h1>
           </header>
         )}

@@ -15,17 +15,17 @@ import {
 import type {
   CustomModel,
   CustomModelsConfig,
-  ProviderPreset,
+  ModelInfo,
   ProviderType,
   QuotaType,
   TestResult,
 } from '../types'
 import { CircularGauge } from '../components/CircularGauge'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 
 export const CustomModelsPage: React.FC = () => {
   const [config, setConfig] = useState<CustomModelsConfig | null>(null)
-  const [presets, setPresets] = useState<ProviderPreset[]>([])
   const [loading, setLoading] = useState<boolean>(true)
   const [feedback, setFeedback] = useState<string | null>(null)
 
@@ -39,7 +39,6 @@ export const CustomModelsPage: React.FC = () => {
   const [showApiKey, setShowApiKey] = useState<boolean>(false)
 
   // Modal Form Fields
-  const [selectedPresetId, setSelectedPresetId] = useState<string>('')
   const [displayName, setDisplayName] = useState<string>('')
   const [modelName, setModelName] = useState<string>('')
   const [providerType, setProviderType] = useState<ProviderType>('openai')
@@ -52,7 +51,17 @@ export const CustomModelsPage: React.FC = () => {
   const [projectMappings, setProjectMappings] = useState<string>('*')
   const [isDefault, setIsDefault] = useState<boolean>(false)
   const [enabled, setEnabled] = useState<boolean>(true)
-  const [contextWindow, setContextWindow] = useState<number>(128000)
+  const [contextWindow, setContextWindow] = useState<number>(1000000)
+
+  // Reasoning / Thinking Configuration
+  const [supportsThinking, setSupportsThinking] = useState<boolean>(false)
+  const [thinkingLevels, setThinkingLevels] = useState<string[]>(['off', 'low', 'medium', 'high'])
+  const [thinkingLevel, setThinkingLevel] = useState<string>('medium')
+
+  // Model Fetching States
+  const [fetchingModels, setFetchingModels] = useState<boolean>(false)
+  const [fetchedModels, setFetchedModels] = useState<ModelInfo[]>([])
+  const [fetchFeedback, setFetchFeedback] = useState<string | null>(null)
 
   // Modal Test & Save States
   const [modalTesting, setModalTesting] = useState<boolean>(false)
@@ -64,12 +73,8 @@ export const CustomModelsPage: React.FC = () => {
     setLoading(true)
     setFeedback(null)
     try {
-      const [cfg, prs] = await Promise.all([
-        api.getCustomModels(),
-        api.getProviderPresets(),
-      ])
+      const cfg = await api.getCustomModels()
       setConfig(cfg)
-      setPresets(prs)
     } catch (err: any) {
       setFeedback(`Failed to load custom models: ${err.message}`)
     } finally {
@@ -83,12 +88,10 @@ export const CustomModelsPage: React.FC = () => {
 
   const openAddModal = () => {
     setEditingModel(null)
-    setSelectedPresetId(presets[0]?.id || 'openai')
-    const preset = presets[0]
-    setDisplayName(preset?.name || 'Custom OpenAI')
-    setModelName(preset?.popular_models[0] || 'gpt-4o')
-    setProviderType(preset?.provider_type || 'openai')
-    setBaseUrl(preset?.default_base_url || 'https://api.openai.com/v1')
+    setDisplayName('')
+    setModelName('')
+    setProviderType('openai')
+    setBaseUrl('')
     setApiKey('')
     setQuotaType('none')
     setPrepaidBalance(25)
@@ -97,7 +100,12 @@ export const CustomModelsPage: React.FC = () => {
     setProjectMappings('*')
     setIsDefault((config?.models?.length ?? 0) === 0)
     setEnabled(true)
-    setContextWindow(128000)
+    setContextWindow(1000000)
+    setSupportsThinking(false)
+    setThinkingLevels(['off', 'low', 'medium', 'high'])
+    setThinkingLevel('medium')
+    setFetchedModels([])
+    setFetchFeedback(null)
     setShowApiKey(false)
     setModalTestResult(null)
     setModalError(null)
@@ -106,7 +114,6 @@ export const CustomModelsPage: React.FC = () => {
 
   const openEditModal = (model: CustomModel) => {
     setEditingModel(model)
-    setSelectedPresetId('')
     setDisplayName(model.display_name)
     setModelName(model.name)
     setProviderType(model.provider_type)
@@ -119,25 +126,91 @@ export const CustomModelsPage: React.FC = () => {
     setProjectMappings(model.project_mappings?.join(', ') || '*')
     setIsDefault(model.is_default)
     setEnabled(model.enabled)
-    setContextWindow(model.context_window || 128000)
+    setContextWindow(model.context_window || 1000000)
+    setSupportsThinking(!!model.supports_thinking)
+    setThinkingLevels(
+      model.thinking_levels && model.thinking_levels.length > 0
+        ? model.thinking_levels
+        : ['off', 'low', 'medium', 'high']
+    )
+    setThinkingLevel(model.thinking_level || 'medium')
+    setFetchedModels([])
+    setFetchFeedback(null)
     setShowApiKey(false)
     setModalTestResult(null)
     setModalError(null)
     setIsModalOpen(true)
   }
 
-  const handlePresetChange = (presetId: string) => {
-    setSelectedPresetId(presetId)
-    const preset = presets.find((p) => p.id === presetId)
-    if (!preset) return
+  const resolveEndpointPreview = (type: ProviderType, url: string, model: string) => {
+    const raw = (url || '').trim()
+    if (!raw) return '(enter base URL above)'
+    if (type === 'custom') {
+      return raw // Direct / raw endpoint: verbatim as entered
+    }
+    const cleanU = raw.replace(/\/+$/, '')
+    if (type === 'anthropic') {
+      if (cleanU.endsWith('/messages')) return cleanU
+      if (cleanU.endsWith('/v1') || cleanU.includes('/v1/')) return `${cleanU}/messages`
+      return `${cleanU}/v1/messages`
+    }
+    if (type === 'gemini') {
+      if (cleanU.includes(':generateContent')) return cleanU
+      const m = model.trim() || '{model}'
+      if (cleanU.endsWith('/v1beta') || cleanU.includes('/v1beta/')) return `${cleanU}/models/${m}:generateContent`
+      return `${cleanU}/v1beta/models/${m}:generateContent`
+    }
+    // OpenAI Compatible
+    if (cleanU.endsWith('/chat/completions') || cleanU.endsWith('/chat/completion')) return cleanU
+    if (cleanU.endsWith('/v1') || cleanU.includes('/v1/') || cleanU.includes('/v2/')) return `${cleanU}/chat/completions`
+    return `${cleanU}/v1/chat/completions`
+  }
 
-    setProviderType(preset.provider_type)
-    setBaseUrl(preset.default_base_url)
-    if (!editingModel) {
-      setDisplayName(preset.name)
-      if (preset.popular_models.length > 0) {
-        setModelName(preset.popular_models[0])
+  const handleFetchModels = async () => {
+    if (!baseUrl.trim() && providerType !== 'anthropic' && providerType !== 'gemini') {
+      setModalError('Please enter a Base URL before fetching models.')
+      return
+    }
+    setFetchingModels(true)
+    setFetchFeedback(null)
+    setModalError(null)
+    try {
+      const res = await api.fetchModels(providerType, baseUrl.trim(), apiKey.trim())
+      if (res.success && res.models && res.models.length > 0) {
+        setFetchedModels(res.models)
+        setFetchFeedback(`Discovered ${res.models.length} model(s) via API.`)
+      } else {
+        setFetchFeedback(res.message || 'No models returned by API.')
       }
+    } catch (err: any) {
+      setFetchFeedback(`Model fetch failed: ${err.message}`)
+    } finally {
+      setFetchingModels(false)
+    }
+  }
+
+  const handleSelectFetchedModel = (selectedId: string) => {
+    const found = fetchedModels.find((m) => m.id === selectedId)
+    if (!found) return
+    setModelName(found.id)
+    if (!displayName.trim()) {
+      setDisplayName(found.display_name || found.id)
+    }
+    if (found.context_window && found.context_window > 0) {
+      setContextWindow(found.context_window)
+    } else {
+      setContextWindow(1000000)
+    }
+    if (found.supports_thinking) {
+      setSupportsThinking(true)
+      setThinkingLevels(
+        found.thinking_levels && found.thinking_levels.length > 0
+          ? found.thinking_levels
+          : ['off', 'low', 'medium', 'high']
+      )
+      setThinkingLevel('medium')
+    } else {
+      setSupportsThinking(false)
     }
   }
 
@@ -160,7 +233,10 @@ export const CustomModelsPage: React.FC = () => {
       quota_fraction: quotaType === 'quota_based' ? Number(quotaFraction) : null,
       is_default: isDefault,
       enabled: enabled,
-      context_window: Number(contextWindow),
+      context_window: Number(contextWindow) || 1000000,
+      supports_thinking: supportsThinking,
+      thinking_levels: supportsThinking ? thinkingLevels : undefined,
+      thinking_level: supportsThinking ? thinkingLevel : undefined,
     }
 
     try {
@@ -196,7 +272,7 @@ export const CustomModelsPage: React.FC = () => {
         editingModel?.id ||
         `${providerType}-${modelName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`,
       name: modelName.trim(),
-      display_name: (displayName.trim() || modelName.trim()),
+      display_name: displayName.trim() || modelName.trim(),
       provider_type: providerType,
       base_url: baseUrl.trim(),
       api_key: apiKey.trim(),
@@ -207,7 +283,10 @@ export const CustomModelsPage: React.FC = () => {
       quota_fraction: quotaType === 'quota_based' ? Number(quotaFraction) : null,
       is_default: isDefault,
       enabled: enabled,
-      context_window: Number(contextWindow) || 128000,
+      context_window: Number(contextWindow) || 1000000,
+      supports_thinking: supportsThinking,
+      thinking_levels: supportsThinking ? thinkingLevels : undefined,
+      thinking_level: supportsThinking ? thinkingLevel : undefined,
     }
 
     try {
@@ -257,13 +336,14 @@ export const CustomModelsPage: React.FC = () => {
   const getProviderBadge = (type: ProviderType) => {
     switch (type) {
       case 'openai':
-        return { label: 'OpenAI', bg: '#e6f4ea', color: '#137333' }
-      case 'anthropic':
-        return { label: 'Anthropic', bg: '#fef3e2', color: '#b45309' }
-      case 'gemini':
-        return { label: 'Gemini', bg: '#e8f0fe', color: '#1a73e8' }
       case 'local':
-        return { label: 'Local (Ollama/vLLM)', bg: '#f1f3f4', color: '#3c4043' }
+        return { label: 'OpenAI Compatible', bg: '#e6f4ea', color: '#137333' }
+      case 'anthropic':
+        return { label: 'Anthropic Claude', bg: '#fef3e2', color: '#b45309' }
+      case 'gemini':
+        return { label: 'Google Gemini', bg: '#e8f0fe', color: '#1a73e8' }
+      case 'custom':
+        return { label: 'Custom Endpoint', bg: '#f3e8ff', color: '#7e22ce' }
       default:
         return { label: type, bg: '#f1f3f4', color: '#3c4043' }
     }
@@ -377,7 +457,7 @@ export const CustomModelsPage: React.FC = () => {
                 <div>
                   {/* Top Row: Provider Badge + Badges */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                       <span
                         style={{
                           backgroundColor: badge.bg,
@@ -396,7 +476,22 @@ export const CustomModelsPage: React.FC = () => {
                           DEFAULT
                         </span>
                       )}
+                      {m.supports_thinking && (
+                        <span
+                          style={{
+                            backgroundColor: '#f3e8ff',
+                            color: '#7e22ce',
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                          }}
+                        >
+                          🧠 Thinking: {(m.thinking_level || 'medium').toUpperCase()}
+                        </span>
+                      )}
                     </div>
+
 
                     <span
                       className={`badge-chip ${m.enabled ? 'badge-green' : 'badge-neutral'}`}
@@ -590,31 +685,6 @@ export const CustomModelsPage: React.FC = () => {
               </div>
             )}
 
-            {/* Provider Preset Dropdown */}
-            {!editingModel && presets.length > 0 && (
-              <div style={{ marginBottom: '16px', backgroundColor: 'var(--canvas)', padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--primary)', marginBottom: '6px' }}>
-                  Quick Start with Provider Preset:
-                </label>
-                <select
-                  value={selectedPresetId}
-                  onChange={(e) => handlePresetChange(e.target.value)}
-                  style={{ width: '100%', backgroundColor: '#ffffff', padding: '7px 10px', fontSize: '12px', borderRadius: '6px', border: '1px solid var(--border)' }}
-                >
-                  {presets.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.calling_format})
-                    </option>
-                  ))}
-                </select>
-                {selectedPresetId && (
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    {presets.find((p) => p.id === selectedPresetId)?.description}
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* Form Fields */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px' }}>
               {/* Display Name & Model Identifier */}
@@ -632,18 +702,63 @@ export const CustomModelsPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                    Model Identifier (Name):
-                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                      Model Identifier:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleFetchModels}
+                      disabled={fetchingModels}
+                      className="btn-pill-tonal"
+                      style={{ padding: '2px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      title="Fetch available models via provider API"
+                    >
+                      <RefreshCw size={11} className={fetchingModels ? 'spin' : ''} />
+                      {fetchingModels ? 'Fetching...' : 'Fetch Models'}
+                    </button>
+                  </div>
                   <input
                     type="text"
-                    placeholder="e.g. gpt-4o, llama3.3:70b"
+                    placeholder="e.g. gpt-4o, claude-3-7-sonnet"
                     value={modelName}
                     onChange={(e) => setModelName(e.target.value)}
                     style={{ width: '100%', fontSize: '12px', padding: '8px 10px', fontFamily: 'monospace' }}
                   />
                 </div>
               </div>
+
+              {/* Fetched Models Selection Dropdown if available */}
+              {fetchedModels.length > 0 && (
+                <div style={{ backgroundColor: 'var(--canvas)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--primary)', marginBottom: '4px' }}>
+                    Select From Fetched Models ({fetchedModels.length} available):
+                  </label>
+                  <select
+                    onChange={(e) => handleSelectFetchedModel(e.target.value)}
+                    value={fetchedModels.some((m) => m.id === modelName) ? modelName : ''}
+                    style={{ width: '100%', backgroundColor: '#ffffff', padding: '6px 10px', fontSize: '12px', borderRadius: '6px', border: '1px solid var(--border)', fontFamily: 'monospace' }}
+                  >
+                    <option value="">-- Choose a model from API response --</option>
+                    {fetchedModels.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.id} {m.context_window ? `(${m.context_window.toLocaleString()} ctx)` : ''} {m.supports_thinking ? '🧠 [Thinking]' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {fetchFeedback && (
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      {fetchFeedback}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {fetchFeedback && fetchedModels.length === 0 && (
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '-6px' }}>
+                  {fetchFeedback}
+                </div>
+              )}
 
               {/* Provider Type & Context Window */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -652,14 +767,14 @@ export const CustomModelsPage: React.FC = () => {
                     Provider Protocol:
                   </label>
                   <select
-                    value={providerType}
+                    value={providerType === 'local' ? 'openai' : providerType}
                     onChange={(e) => setProviderType(e.target.value as ProviderType)}
                     style={{ width: '100%', fontSize: '12px', padding: '8px 10px' }}
                   >
                     <option value="openai">OpenAI Compatible (/v1/chat/completions)</option>
-                    <option value="anthropic">Anthropic (/v1/messages)</option>
-                    <option value="gemini">Google Gemini (:generateContent)</option>
-                    <option value="local">Local (Ollama / vLLM / llama.cpp)</option>
+                    <option value="anthropic">Anthropic Claude (/v1/messages)</option>
+                    <option value="gemini">Google Gemini API (:generateContent)</option>
+                    <option value="custom">Custom (Direct / Raw Endpoint)</option>
                   </select>
                 </div>
                 <div>
@@ -678,15 +793,25 @@ export const CustomModelsPage: React.FC = () => {
               {/* Base URL */}
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                  Base URL:
+                  {providerType === 'custom' ? 'Custom Endpoint URL:' : 'Base URL:'}
                 </label>
                 <input
                   type="text"
-                  placeholder="https://api.openai.com/v1 or http://localhost:11434/v1"
+                  placeholder={
+                    providerType === 'custom'
+                      ? 'e.g. https://my-custom-proxy.internal/v1/chat/completions'
+                      : 'e.g. https://api.openai.com/v1 or https://opencode.ai/zen/go/v1'
+                  }
                   value={baseUrl}
                   onChange={(e) => setBaseUrl(e.target.value)}
                   style={{ width: '100%', fontSize: '12px', padding: '8px 10px', fontFamily: 'monospace' }}
                 />
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontFamily: 'monospace' }}>
+                  Resolved Test Endpoint:{' '}
+                  <span style={{ color: 'var(--primary)', fontWeight: 600 }}>
+                    {resolveEndpointPreview(providerType, baseUrl, modelName)}
+                  </span>
+                </div>
               </div>
 
               {/* API Key */}
@@ -718,6 +843,39 @@ export const CustomModelsPage: React.FC = () => {
                   >
                     {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
+                </div>
+              </div>
+
+              {/* Reasoning / Thinking Configuration */}
+              <div style={{ backgroundColor: 'var(--canvas)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 600, color: 'var(--text)', cursor: 'pointer' }}>
+                    <ToggleSwitch
+                      size="sm"
+                      checked={supportsThinking}
+                      onChange={(checked) => setSupportsThinking(checked)}
+                    />
+                    <span>Model Supports Thinking / Reasoning</span>
+                  </label>
+                  {supportsThinking && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Thinking Level:</span>
+                      <select
+                        value={thinkingLevel}
+                        onChange={(e) => setThinkingLevel(e.target.value)}
+                        style={{ padding: '3px 8px', fontSize: '11px', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: '#ffffff' }}
+                      >
+                        {thinkingLevels.map((lvl) => (
+                          <option key={lvl} value={lvl}>
+                            {lvl.charAt(0).toUpperCase() + lvl.slice(1)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  Enables the interactive Thinking Level toggle pill directly in Antigravity chat prompt bar when this model is active.
                 </div>
               </div>
 
@@ -800,80 +958,95 @@ export const CustomModelsPage: React.FC = () => {
 
               {/* Toggles */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer' }}>
+                  <ToggleSwitch
+                    size="sm"
                     checked={isDefault}
-                    onChange={(e) => setIsDefault(e.target.checked)}
+                    onChange={(checked) => setIsDefault(checked)}
                   />
                   <span>Set as default custom model</span>
                 </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer' }}>
+                  <ToggleSwitch
+                    size="sm"
                     checked={enabled}
-                    onChange={(e) => setEnabled(e.target.checked)}
+                    onChange={(checked) => setEnabled(checked)}
                   />
                   <span>Enabled</span>
                 </label>
               </div>
-
-              {/* Live Connection Test Button & Feedback */}
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <button
-                    type="button"
-                    onClick={handleTestInModal}
-                    disabled={modalTesting || !baseUrl.trim()}
-                    className="btn-pill-tonal"
-                    style={{ padding: '6px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                  >
-                    <Zap size={13} />
-                    {modalTesting ? 'Testing Endpoint...' : 'Test Connection'}
-                  </button>
-
-                  {modalTestResult && (
-                    <div
-                      style={{
-                        fontSize: '12px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        color: modalTestResult.success ? 'var(--green)' : '#b3261e',
-                        fontWeight: 600,
-                      }}
-                    >
-                      {modalTestResult.success ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
-                      <span>
-                        {modalTestResult.success
-                          ? `Success (${modalTestResult.status_code} OK, ${modalTestResult.latency_ms}ms)`
-                          : `Failed: ${modalTestResult.message}`}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
             </div>
 
-            {/* Modal Actions */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="btn-pill-tonal"
-                style={{ padding: '7px 18px', fontSize: '12px' }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveModel}
-                disabled={modalSaving}
-                className="btn-pill-primary"
-                style={{ padding: '7px 20px', fontSize: '12px' }}
-              >
-                {modalSaving ? 'Saving...' : 'Save Model'}
-              </button>
+            {/* Modal Actions Footer: Test Connection on bottom left, Cancel & Save on right */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                borderTop: '1px solid var(--border)',
+                paddingTop: '16px',
+                marginTop: '8px',
+                gap: '12px',
+                flexWrap: 'wrap',
+              }}
+            >
+              {/* Bottom Left: Test Connection Button & Result Feedback */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={handleTestInModal}
+                  disabled={modalTesting || !baseUrl.trim()}
+                  className="btn-pill-tonal"
+                  style={{ padding: '7px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Zap size={13} />
+                  {modalTesting ? 'Testing Endpoint...' : 'Test Connection'}
+                </button>
+
+                {modalTestResult && (
+                  <div
+                    style={{
+                      fontSize: '11px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      color: modalTestResult.success ? 'var(--green)' : '#b3261e',
+                      fontWeight: 600,
+                      backgroundColor: modalTestResult.success ? 'var(--green-bg)' : '#fce8e6',
+                      padding: '4px 10px',
+                      borderRadius: '9999px',
+                    }}
+                  >
+                    {modalTestResult.success ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
+                    <span>
+                      {modalTestResult.success
+                        ? `${modalTestResult.status_code} OK (${modalTestResult.latency_ms}ms)`
+                        : `Failed: ${modalTestResult.message}`}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Bottom Right: Cancel & Save Model */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="btn-pill-tonal"
+                  style={{ padding: '7px 18px', fontSize: '12px' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveModel}
+                  disabled={modalSaving}
+                  className="btn-pill-primary"
+                  style={{ padding: '7px 20px', fontSize: '12px' }}
+                >
+                  {modalSaving ? 'Saving...' : 'Save Model'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

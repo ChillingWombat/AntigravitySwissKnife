@@ -50,16 +50,10 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 	var req *http.Request
 	var err error
 
+	resolvedURL := ResolveEndpoint(model.ProviderType, baseURL, model.Name)
+
 	switch model.ProviderType {
-	case ProviderAnthropic:
-		// Test Anthropic Messages endpoint
-		url := baseURL
-		if !strings.HasSuffix(url, "/messages") {
-			if !strings.HasSuffix(url, "/v1") && !strings.Contains(url, "/v1/") {
-				url += "/v1"
-			}
-			url += "/messages"
-		}
+	case ProviderCustom:
 		payload := map[string]interface{}{
 			"model":      model.Name,
 			"max_tokens": 1,
@@ -68,7 +62,25 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 			},
 		}
 		data, _ := json.Marshal(payload)
-		req, err = http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(data))
+		req, err = http.NewRequestWithContext(ctx, "POST", resolvedURL, bytes.NewReader(data))
+		if err == nil {
+			req.Header.Set("Content-Type", "application/json")
+			if model.APIKey != "" {
+				req.Header.Set("Authorization", "Bearer "+model.APIKey)
+				req.Header.Set("x-api-key", model.APIKey)
+			}
+		}
+
+	case ProviderAnthropic:
+		payload := map[string]interface{}{
+			"model":      model.Name,
+			"max_tokens": 1,
+			"messages": []map[string]string{
+				{"role": "user", "content": "ping"},
+			},
+		}
+		data, _ := json.Marshal(payload)
+		req, err = http.NewRequestWithContext(ctx, "POST", resolvedURL, bytes.NewReader(data))
 		if err == nil {
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("x-api-key", model.APIKey)
@@ -76,20 +88,13 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 		}
 
 	case ProviderGemini:
-		// Test Gemini generateContent endpoint
-		url := baseURL
-		if !strings.Contains(url, ":generateContent") {
-			if !strings.HasSuffix(url, "/v1beta") && !strings.Contains(url, "/v1beta/") {
-				url += "/v1beta"
-			}
-			url = fmt.Sprintf("%s/models/%s:generateContent", url, model.Name)
-		}
-		if model.APIKey != "" && !strings.Contains(url, "key=") {
+		urlWithKey := resolvedURL
+		if model.APIKey != "" && !strings.Contains(urlWithKey, "key=") {
 			sep := "?"
-			if strings.Contains(url, "?") {
+			if strings.Contains(urlWithKey, "?") {
 				sep = "&"
 			}
-			url += sep + "key=" + model.APIKey
+			urlWithKey += sep + "key=" + model.APIKey
 		}
 		payload := map[string]interface{}{
 			"contents": []map[string]interface{}{
@@ -97,7 +102,7 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 			},
 		}
 		data, _ := json.Marshal(payload)
-		req, err = http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(data))
+		req, err = http.NewRequestWithContext(ctx, "POST", urlWithKey, bytes.NewReader(data))
 		if err == nil {
 			req.Header.Set("Content-Type", "application/json")
 			if model.APIKey != "" {
@@ -108,14 +113,6 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 	case ProviderLocal, ProviderOpenAI:
 		fallthrough
 	default:
-		// Test OpenAI format: /chat/completions
-		url := baseURL
-		if !strings.HasSuffix(url, "/chat/completions") {
-			if !strings.HasSuffix(url, "/v1") && !strings.Contains(url, "/v1/") {
-				url += "/v1"
-			}
-			url += "/chat/completions"
-		}
 		payload := map[string]interface{}{
 			"model":      model.Name,
 			"max_tokens": 1,
@@ -124,7 +121,7 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 			},
 		}
 		data, _ := json.Marshal(payload)
-		req, err = http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(data))
+		req, err = http.NewRequestWithContext(ctx, "POST", resolvedURL, bytes.NewReader(data))
 		if err == nil {
 			req.Header.Set("Content-Type", "application/json")
 			if model.APIKey != "" {
@@ -185,3 +182,56 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 
 	return res, nil
 }
+
+// ResolveEndpoint returns the exact HTTP URL for the target protocol.
+func ResolveEndpoint(providerType ProviderType, rawBaseURL string, modelName string) string {
+	baseURL := strings.TrimRight(strings.TrimSpace(rawBaseURL), "/")
+	if baseURL == "" {
+		return ""
+	}
+
+	switch providerType {
+	case ProviderCustom:
+		// Raw endpoint: directly use user-entered address without any auto-appending
+		return strings.TrimSpace(rawBaseURL)
+
+	case ProviderAnthropic:
+		if strings.HasSuffix(baseURL, "/messages") {
+			return baseURL
+		}
+		if strings.HasSuffix(baseURL, "/v1") {
+			return baseURL + "/messages"
+		}
+		if strings.Contains(baseURL, "/v1/") {
+			return baseURL + "/messages"
+		}
+		return baseURL + "/v1/messages"
+
+	case ProviderGemini:
+		if strings.Contains(baseURL, ":generateContent") {
+			return baseURL
+		}
+		if strings.HasSuffix(baseURL, "/v1beta") || strings.Contains(baseURL, "/v1beta/") {
+			return fmt.Sprintf("%s/models/%s:generateContent", baseURL, modelName)
+		}
+		return fmt.Sprintf("%s/v1beta/models/%s:generateContent", baseURL, modelName)
+
+	case ProviderOpenAI, ProviderLocal:
+		fallthrough
+	default:
+		// If user entered full completions endpoint directly (with or without trailing s):
+		if strings.HasSuffix(baseURL, "/chat/completions") || strings.HasSuffix(baseURL, "/chat/completion") {
+			return baseURL
+		}
+		// If base URL already ends with /v1
+		if strings.HasSuffix(baseURL, "/v1") {
+			return baseURL + "/chat/completions"
+		}
+		// If URL already contains version segment /v1/ or /v2/
+		if strings.Contains(baseURL, "/v1/") || strings.Contains(baseURL, "/v2/") {
+			return baseURL + "/chat/completions"
+		}
+		return baseURL + "/v1/chat/completions"
+	}
+}
+

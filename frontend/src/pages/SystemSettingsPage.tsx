@@ -278,7 +278,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               Host Process Safety Shield: ACTIVE
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Host IDE PID {status?.antigravity_pid ? `(${status.antigravity_pid})` : ''} is protected against accidental termination signals.
+              Host Antigravity 2.0 PID {status?.antigravity_pid ? `(${status.antigravity_pid})` : ''} is protected against accidental termination signals.
             </div>
           </div>
         </div>

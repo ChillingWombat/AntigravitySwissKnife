@@ -78,7 +78,7 @@ export interface CacheBreakdown {
   safe_to_delete: boolean
 }
 
-export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'local'
+export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'custom' | 'local'
 export type QuotaType = 'cost_based' | 'quota_based' | 'none'
 
 export interface CustomModel {
@@ -95,9 +95,27 @@ export interface CustomModel {
   quota_fraction: number | null
   is_default: boolean
   context_window?: number
+  supports_thinking?: boolean
+  thinking_levels?: string[]
+  thinking_level?: string
   enabled: boolean
   created_at?: string
   updated_at?: string
+}
+
+export interface ModelInfo {
+  id: string
+  display_name?: string
+  context_window?: number
+  supports_thinking?: boolean
+  thinking_levels?: string[]
+  description?: string
+}
+
+export interface FetchModelsResponse {
+  success: boolean
+  models: ModelInfo[]
+  message?: string
 }
 
 export interface CustomModelsConfig {
