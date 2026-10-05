@@ -174,6 +174,9 @@ func (s *Server) Start() error {
 	// Google OAuth Extraction
 	mux.HandleFunc("/api/oauth/google/start", s.handleGoogleOAuthStart)
 
+	// Multi-Surface Antigravity Session Inspector
+	mux.HandleFunc("/api/surfaces", s.handleSurfaces)
+
 	// App Access Password & Authentication
 	mux.HandleFunc("/api/auth/status", s.handleAuthStatus)
 	mux.HandleFunc("/api/auth/unlock", s.handleAuthUnlock)
@@ -250,6 +253,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		active := ""
 		total := 0
 		if store != nil {
+			c, _ := core.LoadConfig()
+			var allEmails []string
+			for _, a := range store.ListAccounts() {
+				allEmails = append(allEmails, a.Email)
+			}
+			_, _ = store.ReconcileActiveAccount(c.AutoImportActiveAccount, allEmails, nil)
 			active = store.ActiveAccount()
 			total = len(store.ListAccounts())
 		}
@@ -261,13 +270,14 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			hostPID = procs[0].PID
 		}
 		status = map[string]interface{}{
-			"daemon_running":      false,
-			"daemon_pid":          0,
-			"version":             core.AppVersion,
-			"active_account":      active,
-			"total_accounts":      total,
-			"antigravity_running": hostRunning,
-			"antigravity_pid":     hostPID,
+			"daemon_running":              false,
+			"daemon_pid":                  0,
+			"version":                     core.AppVersion,
+			"active_account":              active,
+			"total_accounts":              total,
+			"antigravity_running":         hostRunning,
+			"antigravity_pid":             hostPID,
+			"running_antigravity_account": keyring.ResolveRunningAntigravityAccount("", ""),
 		}
 	}
 	writeJSON(w, status)
@@ -716,6 +726,9 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			if val, ok := p["default_non_gemini_model"].(string); ok {
 				c.DefaultNonGeminiModel = val
 			}
+			if val, ok := p["auto_import_active_account"].(bool); ok {
+				c.AutoImportActiveAccount = val
+			}
 			if err := c.Save(); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -745,9 +758,27 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			"default_gemini_model":             c.DefaultGeminiModel,
 			"default_custom_model":             c.DefaultCustomModel,
 			"default_non_gemini_model":         c.DefaultNonGeminiModel,
+			"auto_import_active_account":       c.AutoImportActiveAccount,
 		}
 	}
 	writeJSON(w, cfg)
+}
+
+func (s *Server) handleSurfaces(w http.ResponseWriter, r *http.Request) {
+	var res map[string]interface{}
+	if err := s.client.Call("swiss.getSurfaces", nil, &res); err != nil {
+		home, _ := os.UserHomeDir()
+		configDir := filepath.Join(home, ".config", "Antigravity")
+		if custom := os.Getenv("ANTIGRAVITY_CONFIG_DIR"); custom != "" {
+			configDir = custom
+		}
+		res = map[string]interface{}{
+			"surfaces":               keyring.DetectAllSurfaces(home, configDir),
+			"active_surface_account": keyring.ResolveRunningAntigravityAccount(home, configDir),
+			"priority_sequence":      []string{"Antigravity 2.0 Desktop", "Antigravity VS Code Extension", "Antigravity CLI"},
+		}
+	}
+	writeJSON(w, res)
 }
 
 func (s *Server) handleAutoSwitch(w http.ResponseWriter, r *http.Request) {
