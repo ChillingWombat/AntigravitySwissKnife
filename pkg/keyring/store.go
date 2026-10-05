@@ -41,6 +41,8 @@ type rawAccountItem struct {
 	Email      string `json:"email"`
 	Label      string `json:"label"`
 	PlanTier   string `json:"plan_tier,omitempty"`
+	Status     string `json:"status,omitempty"`
+	IsHealthy  *bool  `json:"is_healthy,omitempty"`
 	TOTPSecret string `json:"totp_secret"`
 	Credential *struct {
 		AccessToken  string `json:"access_token"`

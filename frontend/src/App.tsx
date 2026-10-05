@@ -90,15 +90,15 @@ export const App: React.FC = () => {
           >
             <h1 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
               {currentTool === 1
-                ? 'Tools Marketplace & Extensions'
+                ? 'Tools Marketplace'
                 : currentTool === 2
-                ? 'System & Runtime Settings'
+                ? 'System Settings'
                 : currentTool === 3
-                ? 'Custom Model Providers & Endpoints'
+                ? 'Custom Models'
                 : currentTool === 4
-                ? 'App Enhancements & Usability'
+                ? 'App Enhancements'
                 : currentTool === 5
-                ? 'Scheduled Task Automations'
+                ? 'Task Automations'
                 : 'Archived Projects'}
             </h1>
           </header>
