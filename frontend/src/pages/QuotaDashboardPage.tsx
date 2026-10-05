@@ -409,7 +409,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           }}
         >
           <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-            All Managed Accounts (Status & Quotas)
+            Account Fleet
           </div>
 
           {/* Sort Dropdown at Right End */}
