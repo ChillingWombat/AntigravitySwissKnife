@@ -62,7 +62,7 @@ func FetchModels(req FetchModelsRequest) FetchModelsResponse {
 // detectModelMetadata infers context window and reasoning/thinking capabilities.
 func detectModelMetadata(id string, displayName string, rawLimit int) (int, bool, []string) {
 	lower := strings.ToLower(id + " " + displayName)
-	ctx := 1000000 // Default 1,000,000 tokens
+	ctx := 1048576 // Default 1,048,576 tokens (1M binary)
 
 	if rawLimit > 0 {
 		ctx = rawLimit

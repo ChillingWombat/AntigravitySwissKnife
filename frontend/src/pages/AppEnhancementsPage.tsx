@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { Zap, Save, Archive } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Zap, Save, Archive, Folder, MessageSquare, Plus, MoreVertical } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 import type { EnhancementsConfig, GUIConfig } from '../types'
@@ -57,7 +58,13 @@ function hslToHex(hsl: string): string {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`
 }
 
-export const AppEnhancementsPage: React.FC = () => {
+interface AppEnhancementsPageProps {
+  activeCategoryTab?: number // 0: Chat View, 1: Project Panel, 2: Chat History
+}
+
+export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
+  activeCategoryTab = 0,
+}) => {
   const [config, setConfig] = useState<EnhancementsConfig | null>(null)
   const [guiConfig, setGuiConfig] = useState<GUIConfig | null>(null)
   const [loading, setLoading] = useState(true)
@@ -69,12 +76,17 @@ export const AppEnhancementsPage: React.FC = () => {
   const [archiving, setArchiving] = useState(false)
   const [archiveResult, setArchiveResult] = useState<string | null>(null)
   const [previewExpanded, setPreviewExpanded] = useState(false)
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
+
+  useEffect(() => {
+    setPortalTarget(document.getElementById('top-bar-right'))
+  }, [])
 
   const handleTriggerAutoArchive = async () => {
     try {
       setArchiving(true)
       setArchiveResult(null)
-      const horizon = guiConfig?.auto_archive_horizon || '30d'
+      const horizon = guiConfig?.auto_archive_horizon || '14d'
       const res = await api.autoArchiveConversations(horizon)
       if (res.success) {
         setArchiveResult(res.message || `Archived ${res.archived_count} conversation(s)`)
@@ -165,38 +177,30 @@ export const AppEnhancementsPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* 1. Header Information & Actions Card */}
-      <div className="google-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-            App Enhancements & Usability
-          </div>
-          <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
-            Usability add-ons, prompt jump navigation, tool visual density, and project color tab customization for Antigravity 2.0.
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button
-            onClick={handleApplyLive}
-            disabled={applying}
-            className="btn-pill-tonal"
-            style={{ padding: '7px 16px', fontSize: '12px' }}
-          >
-            <Zap size={14} className={applying ? 'spin' : ''} />
-            <span>{applying ? 'Injecting...' : 'Apply Live in Antigravity'}</span>
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="btn-pill-primary"
-            style={{ padding: '7px 18px', fontSize: '12px' }}
-          >
-            <Save size={14} />
-            <span>{saving ? 'Saving...' : 'Save Settings'}</span>
-          </button>
-        </div>
-      </div>
+      {portalTarget &&
+        createPortal(
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              onClick={handleApplyLive}
+              disabled={applying}
+              className="btn-pill-tonal"
+              style={{ padding: '7px 16px', fontSize: '12px' }}
+            >
+              <Zap size={14} className={applying ? 'spin' : ''} />
+              <span>{applying ? 'Injecting...' : 'Apply Live in Antigravity'}</span>
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="btn-pill-primary"
+              style={{ padding: '7px 18px', fontSize: '12px' }}
+            >
+              <Save size={14} />
+              <span>{saving ? 'Saving...' : 'Save Settings'}</span>
+            </button>
+          </div>,
+          portalTarget
+        )}
 
       {statusMsg && (
         <div
@@ -214,8 +218,11 @@ export const AppEnhancementsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Feature 1: Quick Prompt Jump Bar */}
-      <div className="google-card">
+      {/* Category 1: Chat View */}
+      {activeCategoryTab === 0 && (
+        <>
+          {/* Feature 1: Quick Prompt Jump Bar */}
+          <div className="google-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <div>
             <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
@@ -339,7 +346,7 @@ export const AppEnhancementsPage: React.FC = () => {
                     fontSize: '12px',
                   }}
                 />
-                <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (default 14px)</span>
+                <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (standard 14px)</span>
               </div>
             </div>
 
@@ -385,7 +392,21 @@ export const AppEnhancementsPage: React.FC = () => {
                     }
                     style={{ accentColor: '#0b57d0' }}
                   />
-                  <span>Default (Slate Grey)</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <span>Slate Grey</span>
+                    <span
+                      style={{
+                        background: '#e2e8f0',
+                        color: '#475569',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                      }}
+                    >
+                      Antigravity's Default
+                    </span>
+                  </span>
                 </label>
 
                 <label
@@ -648,7 +669,7 @@ export const AppEnhancementsPage: React.FC = () => {
           {[
             {
               id: 'muted',
-              title: 'Greyed Out / Muted (Recommended)',
+              title: 'Greyed Out / Muted',
               desc: 'Dims intermediate tool steps and thoughts with subtle grayscale & 48% opacity. Hovering reveals full content.',
             },
             {
@@ -719,7 +740,12 @@ export const AppEnhancementsPage: React.FC = () => {
           />
         </div>
       </div>
+    </>
+  )}
 
+  {/* Category 2: Project Panel */}
+  {activeCategoryTab === 1 && (
+    <>
       {/* Feature 4: Predefined Default Project for New Conversations */}
       <div className="google-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
@@ -755,7 +781,7 @@ export const AppEnhancementsPage: React.FC = () => {
                 cursor: 'pointer',
               }}
             >
-              <option value="">Auto (Antigravity Default)</option>
+              <option value="">Auto (Follow Active Project)</option>
               {projects.map((p) => (
                 <option key={p} value={p}>
                   {p}
@@ -794,12 +820,13 @@ export const AppEnhancementsPage: React.FC = () => {
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(280px, 1fr)', gap: '28px', marginTop: '16px' }}>
               {/* Settings Controls */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                {/* Mode Selection */}
                 <div>
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#1e293b', marginBottom: '8px' }}>
                     Open Conversation Highlight Mode:
                   </label>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {/* Mode 1: Denser Background */}
+                    {/* Mode 1: Accent Background / Fill */}
                     <div
                       onClick={() =>
                         setGuiConfig({
@@ -814,10 +841,10 @@ export const AppEnhancementsPage: React.FC = () => {
                         padding: '12px 14px',
                         borderRadius: '8px',
                         border: `1.5px solid ${
-                          guiConfig.active_conversation_indicator !== 'border' ? '#0b57d0' : '#e2e8f0'
+                          guiConfig.active_conversation_indicator === 'background' ? '#0b57d0' : '#e2e8f0'
                         }`,
                         background:
-                          guiConfig.active_conversation_indicator !== 'border' ? '#eff6ff' : '#f8fafc',
+                          guiConfig.active_conversation_indicator === 'background' ? '#eff6ff' : '#f8fafc',
                         cursor: 'pointer',
                         transition: 'all 0.15s',
                       }}
@@ -825,7 +852,7 @@ export const AppEnhancementsPage: React.FC = () => {
                       <input
                         type="radio"
                         name="active_indicator"
-                        checked={guiConfig.active_conversation_indicator !== 'border'}
+                        checked={guiConfig.active_conversation_indicator === 'background'}
                         onChange={() =>
                           setGuiConfig({
                             ...guiConfig,
@@ -834,17 +861,31 @@ export const AppEnhancementsPage: React.FC = () => {
                         }
                         style={{ marginTop: '2px', accentColor: '#0b57d0', cursor: 'pointer' }}
                       />
-                      <div>
-                        <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
-                          Darker / Denser Background Tint (Default)
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
+                            Accent Background / Fill
+                          </span>
+                          <span
+                            style={{
+                              background: '#e2e8f0',
+                              color: '#475569',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                            }}
+                          >
+                            Antigravity's Default
+                          </span>
                         </div>
                         <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px', lineHeight: 1.4 }}>
-                          Deepens the background color of the active conversation tab compared to ordinary tabs.
+                          Fills the active conversation tab with a subtle project accent background tint.
                         </div>
                       </div>
                     </div>
 
-                    {/* Mode 2: Denser Border Outline */}
+                    {/* Mode 2: Border Outline */}
                     <div
                       onClick={() =>
                         setGuiConfig({
@@ -879,20 +920,99 @@ export const AppEnhancementsPage: React.FC = () => {
                         }
                         style={{ marginTop: '2px', accentColor: '#0b57d0', cursor: 'pointer' }}
                       />
-                      <div>
+                      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                        <div>
+                          <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
+                            Border Outline
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px', lineHeight: 1.4 }}>
+                            Outlines the active tab with an accent border while preserving the normal tab background.
+                          </div>
+                        </div>
+                        {guiConfig.active_conversation_indicator === 'border' && (
+                          <div
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <span style={{ fontSize: '12px', color: '#475569', fontWeight: 500 }}>Width:</span>
+                            <select
+                              value={guiConfig.active_conversation_border_width || '2px'}
+                              onChange={(e) =>
+                                setGuiConfig({
+                                  ...guiConfig,
+                                  active_conversation_border_width: e.target.value,
+                                })
+                              }
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '6px',
+                                border: '1.5px solid #cbd5e1',
+                                background: '#ffffff',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                color: '#1e293b',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <option value="1px">1px</option>
+                              <option value="1.5px">1.5px</option>
+                              <option value="2px">2px</option>
+                              <option value="3px">3px</option>
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Mode 3: Left Accent Bar */}
+                    <div
+                      onClick={() =>
+                        setGuiConfig({
+                          ...guiConfig,
+                          active_conversation_indicator: 'left_bar',
+                        })
+                      }
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '12px',
+                        padding: '12px 14px',
+                        borderRadius: '8px',
+                        border: `1.5px solid ${
+                          guiConfig.active_conversation_indicator === 'left_bar' ? '#0b57d0' : '#e2e8f0'
+                        }`,
+                        background:
+                          guiConfig.active_conversation_indicator === 'left_bar' ? '#eff6ff' : '#f8fafc',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="active_indicator"
+                        checked={guiConfig.active_conversation_indicator === 'left_bar'}
+                        onChange={() =>
+                          setGuiConfig({
+                            ...guiConfig,
+                            active_conversation_indicator: 'left_bar',
+                          })
+                        }
+                        style={{ marginTop: '2px', accentColor: '#0b57d0', cursor: 'pointer' }}
+                      />
+                      <div style={{ flex: 1 }}>
                         <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
-                          Denser Border Outline (Light Background)
+                          Left Accent Bar
                         </div>
                         <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px', lineHeight: 1.4 }}>
-                          Adds a border matching the denser project color, while the background remains as light as ordinary tabs.
+                          Highlights the active conversation tab with a distinct 3px colored bar along its left edge.
                         </div>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Bold text option */}
-                <div style={{ paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}>
+                {/* Bold text option with darker divider line */}
+                <div style={{ paddingTop: '10px', borderTop: '1px solid #94a3b8' }}>
                   <label
                     style={{
                       display: 'flex',
@@ -921,35 +1041,8 @@ export const AppEnhancementsPage: React.FC = () => {
                   </p>
                 </div>
 
-                {/* Solid left edge option */}
-                <div style={{ paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}>
-                  <label
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px',
-                      cursor: 'pointer',
-                      fontSize: '13px',
-                      color: '#1e293b',
-                      fontWeight: 500,
-                    }}
-                  >
-                    <ToggleSwitch
-                      size="sm"
-                      checked={guiConfig.solid_left_edge ?? false}
-                      onChange={(checked) =>
-                        setGuiConfig({
-                          ...guiConfig,
-                          solid_left_edge: checked,
-                        })
-                      }
-                    />
-                    <span>Solid 3px color bar on left edge of conversation tabs</span>
-                  </label>
-                </div>
-
                 {/* Opacity slider */}
-                <div style={{ paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}>
+                <div style={{ paddingTop: '10px', borderTop: '1px solid #cbd5e1' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                     <label style={{ fontSize: '13px', fontWeight: 500, color: '#1e293b' }}>
                       Conversation Tab Tint Opacity:
@@ -1004,6 +1097,7 @@ export const AppEnhancementsPage: React.FC = () => {
                     flexDirection: 'column',
                     gap: '4px',
                     boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+                    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
                   }}
                 >
                   {/* Project Header */}
@@ -1012,39 +1106,48 @@ export const AppEnhancementsPage: React.FC = () => {
                       background: '#0b57d0',
                       color: '#ffffff',
                       borderRadius: '8px',
-                      padding: '6px 10px',
+                      height: '32px',
+                      padding: '0 10px',
                       fontSize: '13px',
                       fontWeight: 600,
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '8px',
+                      justifyContent: 'space-between',
                       userSelect: 'none',
                     }}
                   >
-                    <span>📁</span>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      Antigravity Swiss Knife
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, overflow: 'hidden' }}>
+                      <Folder size={14} style={{ flexShrink: 0 }} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        Antigravity Swiss Knife
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, opacity: 0.9 }}>
+                      <Plus size={13} style={{ cursor: 'pointer' }} />
+                      <MoreVertical size={13} style={{ cursor: 'pointer' }} />
+                    </div>
                   </div>
 
                   {/* Active Open Conversation Tab */}
                   <div
                     style={{
+                      height: '32px',
                       backgroundColor:
-                        guiConfig.active_conversation_indicator === 'border'
-                          ? `rgba(11, 87, 208, ${guiConfig.tint_opacity || 0.14})`
-                          : `rgba(11, 87, 208, ${(guiConfig.tint_opacity || 0.14) + 0.16})`,
+                        guiConfig.active_conversation_indicator === 'background'
+                          ? `rgba(11, 87, 208, ${(guiConfig.tint_opacity || 0.14) + 0.16})`
+                          : `rgba(11, 87, 208, ${guiConfig.tint_opacity || 0.14})`,
                       border:
                         guiConfig.active_conversation_indicator === 'border'
-                          ? '2px solid #0b57d0'
-                          : '2px solid transparent',
-                      borderLeft: guiConfig.solid_left_edge
-                        ? '3px solid #0b57d0'
-                        : guiConfig.active_conversation_indicator === 'border'
-                        ? '2px solid #0b57d0'
-                        : '2px solid transparent',
+                          ? `${guiConfig.active_conversation_border_width || '2px'} solid #0b57d0`
+                          : '1px solid transparent',
+                      borderLeft:
+                        guiConfig.active_conversation_indicator === 'left_bar'
+                          ? '3px solid #0b57d0'
+                          : guiConfig.active_conversation_indicator === 'border'
+                          ? `${guiConfig.active_conversation_border_width || '2px'} solid #0b57d0`
+                          : '1px solid transparent',
                       borderRadius: '8px',
-                      padding: '6px 10px',
+                      padding: '0 10px',
                       fontSize: '13px',
                       fontWeight: (guiConfig.active_conversation_bold ?? false) ? 700 : 400,
                       color: '#0f172a',
@@ -1056,20 +1159,23 @@ export const AppEnhancementsPage: React.FC = () => {
                       userSelect: 'none',
                     }}
                   >
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      Task Completion Check
-                    </span>
-                    <span style={{ fontSize: '11px', color: '#64748b', opacity: 0.7 }}>⟳</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, overflow: 'hidden' }}>
+                      <MessageSquare size={13} style={{ color: '#0b57d0', flexShrink: 0 }} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        Task Completion Check
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '11px', color: '#0b57d0', fontWeight: 600, flexShrink: 0 }}>Just now</span>
                   </div>
 
                   {/* Ordinary Conversation Tab 1 */}
                   <div
                     style={{
+                      height: '32px',
                       backgroundColor: `rgba(11, 87, 208, ${guiConfig.tint_opacity || 0.14})`,
-                      border: '2px solid transparent',
-                      borderLeft: guiConfig.solid_left_edge ? '3px solid #0b57d0' : '2px solid transparent',
+                      border: '1px solid transparent',
                       borderRadius: '8px',
-                      padding: '6px 10px',
+                      padding: '0 10px',
                       fontSize: '13px',
                       fontWeight: 400,
                       color: '#475569',
@@ -1080,20 +1186,23 @@ export const AppEnhancementsPage: React.FC = () => {
                       userSelect: 'none',
                     }}
                   >
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      Matching Font and UI ...
-                    </span>
-                    <span style={{ fontSize: '11px', color: '#64748b' }}>6h</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, overflow: 'hidden' }}>
+                      <MessageSquare size={13} style={{ color: '#94a3b8', flexShrink: 0 }} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        Matching Font and UI ...
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '11px', color: '#64748b', flexShrink: 0 }}>6h</span>
                   </div>
 
                   {/* Ordinary Conversation Tab 2 */}
                   <div
                     style={{
+                      height: '32px',
                       backgroundColor: `rgba(11, 87, 208, ${guiConfig.tint_opacity || 0.14})`,
-                      border: '2px solid transparent',
-                      borderLeft: guiConfig.solid_left_edge ? '3px solid #0b57d0' : '2px solid transparent',
+                      border: '1px solid transparent',
                       borderRadius: '8px',
-                      padding: '6px 10px',
+                      padding: '0 10px',
                       fontSize: '13px',
                       fontWeight: 400,
                       color: '#475569',
@@ -1104,21 +1213,28 @@ export const AppEnhancementsPage: React.FC = () => {
                       userSelect: 'none',
                     }}
                   >
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      Antigravity Manager Pl...
-                    </span>
-                    <span style={{ fontSize: '11px', color: '#64748b' }}>6h</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, overflow: 'hidden' }}>
+                      <MessageSquare size={13} style={{ color: '#94a3b8', flexShrink: 0 }} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        Antigravity Manager Pl...
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '11px', color: '#64748b', flexShrink: 0 }}>1d</span>
                   </div>
                 </div>
 
                 <div style={{ fontSize: '11px', color: '#64748b', textAlign: 'center', lineHeight: 1.4 }}>
                   {guiConfig.active_conversation_indicator === 'border' ? (
                     <span>
-                      ✓ Active tab has <strong>denser border outline</strong> with <strong>light background</strong>
+                      ✓ Active tab outlined with <strong>{guiConfig.active_conversation_border_width || '2px'} accent border</strong>
+                    </span>
+                  ) : guiConfig.active_conversation_indicator === 'left_bar' ? (
+                    <span>
+                      ✓ Active tab marked with <strong>3px left accent bar</strong>
                     </span>
                   ) : (
                     <span>
-                      ✓ Active tab has <strong>darker/denser background tint</strong>
+                      ✓ Active tab highlighted with <strong>accent background fill</strong>
                     </span>
                   )}
                   {(guiConfig.active_conversation_bold ?? false) ? ' (bold title)' : ' (regular title)'}
@@ -1167,7 +1283,21 @@ export const AppEnhancementsPage: React.FC = () => {
                   onChange={() => {}}
                   style={{ accentColor: '#0b57d0' }}
                 />
-                <span style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>Fixed Number (Default)</span>
+                <span style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <span>Fixed Number</span>
+                  <span
+                    style={{
+                      background: '#e2e8f0',
+                      color: '#475569',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                    }}
+                  >
+                    Antigravity's Default
+                  </span>
+                </span>
               </div>
               <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
                 Show a constant number of conversation tabs under each project before showing the expand divider.
@@ -1198,7 +1328,7 @@ export const AppEnhancementsPage: React.FC = () => {
                 >
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
                     <option key={num} value={num}>
-                      {num} {num === 6 ? '(Default)' : ''}
+                      {num} {num === 6 ? '— Antigravity Standard' : ''}
                     </option>
                   ))}
                 </select>
@@ -1260,7 +1390,7 @@ export const AppEnhancementsPage: React.FC = () => {
                       cursor: 'pointer',
                     }}
                   >
-                    <option value="1d">1 day (Default)</option>
+                    <option value="1d">1 day (Antigravity Standard)</option>
                     <option value="3d">3 days</option>
                     <option value="7d">7 days</option>
                   </select>
@@ -1293,7 +1423,7 @@ export const AppEnhancementsPage: React.FC = () => {
                     >
                       {[1, 2, 3, 4, 5].map((n) => (
                         <option key={n} value={n}>
-                          {n} {n === 2 ? '(Def)' : ''}
+                          {n} {n === 2 ? '— Antigravity Standard' : ''}
                         </option>
                       ))}
                     </select>
@@ -1325,7 +1455,7 @@ export const AppEnhancementsPage: React.FC = () => {
                     >
                       {[4, 5, 6, 7, 8, 9, 10].map((n) => (
                         <option key={n} value={n}>
-                          {n} {n === 6 ? '(Def)' : ''}
+                          {n} {n === 6 ? '— Antigravity Standard' : ''}
                         </option>
                       ))}
                     </select>
@@ -1458,7 +1588,12 @@ export const AppEnhancementsPage: React.FC = () => {
           </div>
         </div>
       )}
+    </>
+  )}
 
+  {/* Category 3: Chat History */}
+  {activeCategoryTab === 2 && (
+    <>
       {/* Feature 7: Auto-Archive Inactive Conversations */}
       {guiConfig && (
         <div className="google-card">
@@ -1473,7 +1608,7 @@ export const AppEnhancementsPage: React.FC = () => {
             </div>
 
             <ToggleSwitch
-              checked={guiConfig.auto_archive_conversations || false}
+              checked={guiConfig.auto_archive_conversations ?? true}
               onChange={(checked) =>
                 setGuiConfig({
                   ...guiConfig,
@@ -1495,7 +1630,7 @@ export const AppEnhancementsPage: React.FC = () => {
               </div>
 
               <select
-                value={guiConfig.auto_archive_horizon || '30d'}
+                value={guiConfig.auto_archive_horizon || '14d'}
                 onChange={(e) =>
                   setGuiConfig({
                     ...guiConfig,
@@ -1515,9 +1650,10 @@ export const AppEnhancementsPage: React.FC = () => {
                   minWidth: '180px',
                 }}
               >
+                <option value="3d">3 days</option>
                 <option value="7d">7 days</option>
                 <option value="14d">14 days</option>
-                <option value="30d">30 days (Recommended)</option>
+                <option value="30d">30 days</option>
                 <option value="60d">60 days</option>
                 <option value="90d">90 days</option>
               </select>
@@ -1529,7 +1665,7 @@ export const AppEnhancementsPage: React.FC = () => {
                   Manual Archival Trigger
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  Scan conversation database now and archive conversations older than {guiConfig.auto_archive_horizon || '30d'}.
+                  Scan conversation database now and archive conversations older than {guiConfig.auto_archive_horizon || '14d'}.
                 </div>
                 {archiveResult && (
                   <div style={{ marginTop: '4px', fontSize: '12px', color: '#059669', fontWeight: 600 }}>
@@ -1560,6 +1696,8 @@ export const AppEnhancementsPage: React.FC = () => {
           </div>
         </div>
       )}
+    </>
+  )}
     </div>
   )
 }

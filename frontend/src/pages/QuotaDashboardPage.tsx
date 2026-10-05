@@ -19,7 +19,7 @@ import { AccountDetailModal } from '../components/AccountDetailModal'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 
-export type SortMode = 'auto' | 'identity' | 'priority' | 'quota_5h' | 'quota_weekly'
+export type SortMode = 'auto' | 'identity' | 'priority' | 'quota_5h' | 'quota_weekly' | 'credits'
 
 export function sortAccounts(
   accounts: AccountState[],
@@ -49,6 +49,18 @@ export function sortAccounts(
       const diff = (b.quota_5h_available ?? 0) - (a.quota_5h_available ?? 0)
       if (Math.abs(diff) > 0.0001) return diff
       return (b.quota_weekly ?? 0) - (a.quota_weekly ?? 0)
+    })
+  }
+
+  if (mode === 'credits') {
+    return copy.sort((a, b) => {
+      const getCred = (acc: AccountState) => {
+        if (acc.credits !== undefined && acc.credits !== null) return Number(acc.credits)
+        if (acc.plan_tier?.toLowerCase() === 'ultra') return 50
+        if (acc.plan_tier?.toLowerCase() === 'pro') return 20
+        return 0
+      }
+      return getCred(b) - getCred(a)
     })
   }
 
@@ -317,7 +329,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                Managed Accounts Fleet
+                Account Management
               </div>
 
               {/* Auto-Switch Toggle Button */}
@@ -415,7 +427,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               marginBottom: '12px',
             }}
           >
-            Total Quota
+            Fleet Quota Overview
           </div>
           <div
             style={{
@@ -478,10 +490,11 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   outline: 'none',
                 }}
               >
-                <option value="auto">Auto (Continuous Rotation)</option>
-                <option value="identity">Account Identity</option>
+                <option value="auto">Auto</option>
+                <option value="identity">Account Name</option>
+                <option value="credits">Credits</option>
                 <option value="priority">Priority</option>
-                <option value="quota_5h">5H Quota</option>
+                <option value="quota_5h">5-Hour Quota</option>
                 <option value="quota_weekly">Weekly Quota</option>
               </select>
               <ArrowUpDown
@@ -515,15 +528,15 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   cursor: 'pointer',
                   userSelect: 'none',
                 }}
-                title="Click to sort by Account Identity"
+                title="Click to sort by Account Name"
               >
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                  <span>Account Identity</span>
+                  <span>Account</span>
                   {sortMode === 'identity' && <ArrowUpDown size={11} />}
                 </div>
               </th>
               <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                Plan Tier
+                Plan
               </th>
               <th
                 onClick={() => setSortMode('quota_5h')}
@@ -540,10 +553,10 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   cursor: 'pointer',
                   userSelect: 'none',
                 }}
-                title="Click to sort by 5H Quota"
+                title="Click to sort by 5-Hour Quota"
               >
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                  <span>5H QUOTA</span>
+                  <span>5-Hour Quota</span>
                   {sortMode === 'quota_5h' && <ArrowUpDown size={11} />}
                 </div>
               </th>
@@ -565,8 +578,30 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 title="Click to sort by Weekly Quota"
               >
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                  <span>WEEKLY QUOTA</span>
+                  <span>Weekly Quota</span>
                   {sortMode === 'quota_weekly' && <ArrowUpDown size={11} />}
+                </div>
+              </th>
+              <th
+                onClick={() => setSortMode('credits')}
+                style={{
+                  padding: '12px 14px',
+                  textAlign: 'left',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: sortMode === 'credits' ? 'var(--primary)' : 'var(--text-muted)',
+                  borderBottom: '1px solid var(--border)',
+                  backgroundColor: 'var(--canvas)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+                title="Click to sort by Available Model Credits"
+              >
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <span>Credits</span>
+                  {sortMode === 'credits' && <ArrowUpDown size={11} />}
                 </div>
               </th>
               <th
@@ -662,6 +697,30 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                       fraction={acc.quota_weekly}
                       title="Resets on 7-day rolling cycle"
                     />
+                  </td>
+
+                  <td style={{ padding: '14px' }}>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text)' }}>
+                        ${((acc.credits !== undefined && acc.credits !== null) ? Number(acc.credits) : (acc.plan_tier?.toLowerCase() === 'ultra' ? 50 : acc.plan_tier?.toLowerCase() === 'pro' ? 20 : 0)).toFixed(2)}
+                      </span>
+                      {acc.enable_credit_overages ? (
+                        <span
+                          style={{
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            padding: '1px 5px',
+                            borderRadius: '4px',
+                            backgroundColor: '#ecfdf5',
+                            color: '#059669',
+                            border: '1px solid #a7f3d0',
+                          }}
+                          title="AI Credit Overages Enabled"
+                        >
+                          +Overage
+                        </span>
+                      ) : null}
+                    </div>
                   </td>
 
                   <td style={{ padding: '14px' }}>

@@ -19,6 +19,8 @@ import { api } from './api'
 export const App: React.FC = () => {
   const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 1: Marketplace, 2: Settings, 3: Custom Models, 4: Enhancements, 5: Automations
   const [currentTab, setCurrentTab] = useState<number>(0) // 0: Dashboard, 1: MFA, 2: FP, 3: Cache, 4: Rules
+  const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Chat History
+  const [automationTab, setAutomationTab] = useState<'catalog' | 'created'>('catalog')
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [fleet, setFleet] = useState<FleetQuotaSummary | null>(null)
   const [rules, setRules] = useState<RuleConfig | null>(null)
@@ -116,19 +118,98 @@ export const App: React.FC = () => {
               flexShrink: 0,
             }}
           >
-            <h1 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
-              {currentTool === 1
-                ? 'Tools Marketplace'
-                : currentTool === 2
-                ? 'System Settings'
-                : currentTool === 3
-                ? 'Custom Models'
-                : currentTool === 4
-                ? 'App Enhancements'
-                : currentTool === 5
-                ? 'Task Automations'
-                : 'Archived Projects'}
-            </h1>
+            <div id="top-bar-left" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {currentTool === 4 && (
+                /* UI Enhancement Segmented Tabs */
+                <div
+                  style={{
+                    display: 'flex',
+                    backgroundColor: 'var(--tonal)',
+                    borderRadius: '20px',
+                    padding: '3px',
+                    gap: '2px',
+                  }}
+                >
+                  {['Chat View', 'Project Panel', 'Chat History'].map((tab, idx) => {
+                    const isActive = enhancementTab === idx
+                    return (
+                      <button
+                        key={tab}
+                        onClick={() => setEnhancementTab(idx)}
+                        style={{
+                          borderRadius: '16px',
+                          padding: '6px 16px',
+                          fontSize: '12px',
+                          fontWeight: isActive ? 600 : 500,
+                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+                          backgroundColor: isActive ? '#ffffff' : 'transparent',
+                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {tab}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {currentTool === 5 && (
+                /* Task Automations Segmented Tabs */
+                <div
+                  style={{
+                    display: 'flex',
+                    backgroundColor: 'var(--tonal)',
+                    borderRadius: '20px',
+                    padding: '3px',
+                    gap: '2px',
+                  }}
+                >
+                  {[
+                    { id: 'catalog', label: 'Task Templates' },
+                    { id: 'created', label: 'Created Tasks' },
+                  ].map((tab) => {
+                    const isActive = automationTab === tab.id
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() => setAutomationTab(tab.id as 'catalog' | 'created')}
+                        style={{
+                          borderRadius: '16px',
+                          padding: '6px 16px',
+                          fontSize: '12px',
+                          fontWeight: isActive ? 600 : 500,
+                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+                          backgroundColor: isActive ? '#ffffff' : 'transparent',
+                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {tab.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {currentTool !== 4 && currentTool !== 5 && (
+                <h1 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', margin: 0 }}>
+                  {currentTool === 1
+                    ? 'Tools Marketplace'
+                    : currentTool === 2
+                    ? 'System Settings'
+                    : currentTool === 3
+                    ? 'Custom Models'
+                    : currentTool === 6
+                    ? 'Archived Projects'
+                    : ''}
+                </h1>
+              )}
+            </div>
+
+            <div id="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }} />
           </header>
         )}
 
@@ -177,8 +258,8 @@ export const App: React.FC = () => {
             <SystemSettingsPage status={status} onRefresh={loadAllData} />
           )}
           {currentTool === 3 && <CustomModelsPage />}
-          {currentTool === 4 && <AppEnhancementsPage />}
-          {currentTool === 5 && <ScheduledTemplatesPage />}
+          {currentTool === 4 && <AppEnhancementsPage activeCategoryTab={enhancementTab} />}
+          {currentTool === 5 && <ScheduledTemplatesPage activeTab={automationTab} onTabChange={setAutomationTab} />}
           {currentTool === 6 && <ArchivedProjectsPage />}
         </main>
       </div>

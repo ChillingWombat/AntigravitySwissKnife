@@ -13,11 +13,12 @@ import (
 
 // TestResult represents the outcome of an endpoint connectivity test.
 type TestResult struct {
-	Success    bool   `json:"success"`
-	LatencyMs  int64  `json:"latency_ms"`
-	StatusCode int    `json:"status_code"`
-	Message    string `json:"message"`
-	Endpoint   string `json:"endpoint"`
+	Success     bool         `json:"success"`
+	LatencyMs   int64        `json:"latency_ms"`
+	StatusCode  int          `json:"status_code"`
+	Message     string       `json:"message"`
+	Endpoint    string       `json:"endpoint"`
+	QuotaResult *QuotaResult `json:"quota_result,omitempty"`
 }
 
 // Tester tests connectivity and format compatibility for custom models.
@@ -169,9 +170,28 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 		Endpoint:   req.URL.String(),
 	}
 
+	// Inspect rate limits or query provider balance/quota
+	var quotaRes *QuotaResult
+	if headerQuota := ParseRateLimitHeaders(resp.Header); headerQuota != nil {
+		quotaRes = headerQuota
+	} else {
+		q := DetectAndFetchQuota(model)
+		quotaRes = &q
+	}
+	res.QuotaResult = quotaRes
+
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		res.Success = true
 		res.Message = fmt.Sprintf("Success! Provider responded with %d OK in %dms.", resp.StatusCode, latency)
+		if quotaRes != nil && quotaRes.QuotaType == QuotaTypeBalance && quotaRes.BalanceValue != "" {
+			res.Message += fmt.Sprintf(" • Balance: %s", quotaRes.BalanceValue)
+		} else if quotaRes != nil && quotaRes.QuotaType == QuotaTypeQuota {
+			if quotaRes.QuotaValue != "" {
+				res.Message += fmt.Sprintf(" • Quota: %s", quotaRes.QuotaValue)
+			} else {
+				res.Message += " • Quota"
+			}
+		}
 		return res, nil
 	}
 

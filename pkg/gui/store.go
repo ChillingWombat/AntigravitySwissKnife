@@ -66,6 +66,9 @@ func (s *Store) load() error {
 		if _, ok := raw["active_conversation_bold"]; !ok {
 			cfg.ActiveConversationBold = false
 		}
+		if _, ok := raw["auto_archive_conversations"]; !ok {
+			cfg.AutoArchiveConversations = true
+		}
 	}
 	if cfg.ActiveConversationIndicator == "" {
 		cfg.ActiveConversationIndicator = "background"
@@ -95,7 +98,7 @@ func (s *Store) load() error {
 		cfg.ConversationTabsMax = 6
 	}
 	if cfg.AutoArchiveHorizon == "" {
-		cfg.AutoArchiveHorizon = "30d"
+		cfg.AutoArchiveHorizon = "14d"
 	}
 	s.config = &cfg
 	return nil
@@ -217,7 +220,7 @@ func (s *Store) UpdateConfig(cfg *Config) error {
 		cfg.ConversationTabsMax = 6
 	}
 	if cfg.AutoArchiveHorizon == "" {
-		cfg.AutoArchiveHorizon = "30d"
+		cfg.AutoArchiveHorizon = "14d"
 	}
 	s.config = cfg
 	s.mu.Unlock()

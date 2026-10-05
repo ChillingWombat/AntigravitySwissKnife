@@ -1,6 +1,15 @@
 import React, { useState, useEffect } from 'react'
 import {
   Save,
+  ArrowUp,
+  ArrowDown,
+  Layers,
+  Cpu,
+  Sparkles,
+  CreditCard,
+  Bot,
+  Settings2,
+  GripVertical,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import type { RuleConfig } from '../types'
@@ -11,6 +20,37 @@ interface SwitcherSettingsPageProps {
   onSaved: () => void
 }
 
+const HIERARCHY_META: Record<string, { label: string; desc: string; badge: string; color: string; icon: any }> = {
+  gemini: {
+    label: 'Gemini Native Models',
+    desc: 'Google Gemini Pro & Flash models via Antigravity upstream account quota.',
+    badge: 'Native Google',
+    color: '#0b57d0',
+    icon: Sparkles,
+  },
+  custom_model: {
+    label: 'Custom Models (BYOK)',
+    desc: 'Configured custom API models connected via OpenAI, Anthropic, or Ollama endpoints.',
+    badge: 'BYOK Provider',
+    color: '#7c3aed',
+    icon: Cpu,
+  },
+  non_gemini: {
+    label: 'Non-Gemini Native Models',
+    desc: 'Third-party native models included within Antigravity (Claude, GPT-4o).',
+    badge: 'Native 3rd-Party',
+    color: '#059669',
+    icon: Bot,
+  },
+  ai_credits: {
+    label: 'Antigravity AI Credits',
+    desc: 'Account AI Credit allowance for overages and premium model sessions.',
+    badge: 'Credits Pool',
+    color: '#d97706',
+    icon: CreditCard,
+  },
+}
+
 export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   initialRules,
   onSaved,
@@ -19,6 +59,23 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   const [pollingInterval, setPollingInterval] = useState<number>(initialRules?.polling_interval_seconds ?? 60)
   const [warmupEnabled, setWarmupEnabled] = useState<boolean>(initialRules?.warmup_enabled ?? true)
   const [warmupLeadTime, setWarmupLeadTime] = useState<number>(initialRules?.warmup_lead_time_seconds ?? 2.0)
+  const [preferredNativeModel, setPreferredNativeModel] = useState<string>(initialRules?.preferred_native_model || 'gemini')
+
+  // New Model Source Hierarchy & Model Defaults
+  const [allowAICredits, setAllowAICredits] = useState<boolean>(initialRules?.allow_ai_credits_usage ?? false)
+  const [allowNonGemini, setAllowNonGemini] = useState<boolean>(initialRules?.allow_non_gemini_native_models ?? false)
+  const [hierarchy, setHierarchy] = useState<string[]>(
+    initialRules?.model_source_hierarchy && initialRules.model_source_hierarchy.length > 0
+      ? initialRules.model_source_hierarchy
+      : ['gemini', 'custom_model', 'non_gemini', 'ai_credits']
+  )
+  const [defaultGemini, setDefaultGemini] = useState<string>(initialRules?.default_gemini_model || 'gemini-2.5-pro')
+  const [defaultCustom, setDefaultCustom] = useState<string>(initialRules?.default_custom_model || '')
+  const [defaultNonGemini, setDefaultNonGemini] = useState<string>(initialRules?.default_non_gemini_model || 'claude-3-7-sonnet')
+  const [customModelOptions, setCustomModelOptions] = useState<{ id: string; name: string }[]>([])
+  const [draggedIdx, setDraggedIdx] = useState<number | null>(null)
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
+
   const [isSaving, setIsSaving] = useState<boolean>(false)
   const [feedback, setFeedback] = useState<string | null>(null)
 
@@ -28,8 +85,48 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       setPollingInterval(initialRules.polling_interval_seconds)
       setWarmupEnabled(initialRules.warmup_enabled)
       setWarmupLeadTime(initialRules.warmup_lead_time_seconds)
+      if (initialRules.preferred_native_model) {
+        setPreferredNativeModel(initialRules.preferred_native_model)
+      }
+      if (initialRules.allow_ai_credits_usage !== undefined) {
+        setAllowAICredits(initialRules.allow_ai_credits_usage)
+      }
+      if (initialRules.allow_non_gemini_native_models !== undefined) {
+        setAllowNonGemini(initialRules.allow_non_gemini_native_models)
+      }
+      if (initialRules.model_source_hierarchy && initialRules.model_source_hierarchy.length > 0) {
+        setHierarchy(initialRules.model_source_hierarchy)
+      }
+      if (initialRules.default_gemini_model) {
+        setDefaultGemini(initialRules.default_gemini_model)
+      }
+      if (initialRules.default_custom_model) {
+        setDefaultCustom(initialRules.default_custom_model)
+      }
+      if (initialRules.default_non_gemini_model) {
+        setDefaultNonGemini(initialRules.default_non_gemini_model)
+      }
     }
   }, [initialRules])
+
+  useEffect(() => {
+    api.getCustomModels()
+      .then((res) => {
+        if (res && res.models) {
+          setCustomModelOptions(res.models.map((m) => ({ id: m.id, name: m.name })))
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  const moveHierarchyItem = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= hierarchy.length) return
+    const updated = [...hierarchy]
+    const [moved] = updated.splice(index, 1)
+    updated.splice(targetIndex, 0, moved)
+    setHierarchy(updated)
+  }
 
   const handleSave = async () => {
     setIsSaving(true)
@@ -40,6 +137,13 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
         polling_interval_seconds: pollingInterval,
         warmup_enabled: warmupEnabled,
         warmup_lead_time_seconds: warmupLeadTime,
+        preferred_native_model: preferredNativeModel,
+        allow_ai_credits_usage: allowAICredits,
+        allow_non_gemini_native_models: allowNonGemini,
+        model_source_hierarchy: hierarchy,
+        default_gemini_model: defaultGemini,
+        default_custom_model: defaultCustom,
+        default_non_gemini_model: defaultNonGemini,
       })
       setFeedback('Configuration saved successfully.')
       onSaved()
@@ -58,10 +162,10 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       <div className="google-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-            Account Switcher & Warmup Settings
+            Account Switcher & Model Hierarchy Settings
           </div>
           <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
-            Tune auto-rotation rules, anti-thrash hysteresis, and keep-alive triggers.
+            Configure auto-rotation thresholds, model source priority order, credit overages, and default models.
           </div>
         </div>
 
@@ -143,7 +247,296 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
         </div>
       </div>
 
-      {/* Section 2: Post-Reset Keep-Alive Warmup Engine */}
+      {/* Section 2: Model Source Hierarchy & Failover Priority */}
+      <div className="google-card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+          <Layers size={16} style={{ color: 'var(--primary)' }} />
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+            Model Source Hierarchy & Priority Order
+          </div>
+        </div>
+        <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          When quotas deplete or requests require fallback, Antigravity attempts model sources in this exact sequential order. Drag items or use arrows to adjust priority.
+        </p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {hierarchy.map((sourceKey, idx) => {
+            const meta = HIERARCHY_META[sourceKey] || {
+              label: sourceKey,
+              desc: 'Custom provider or source.',
+              badge: 'Source',
+              color: '#64748b',
+              icon: Settings2,
+            }
+            const IconComp = meta.icon
+            const isDragging = draggedIdx === idx
+            const isOver = dragOverIdx === idx
+
+            return (
+              <div
+                key={sourceKey}
+                draggable={true}
+                onDragStart={(e) => {
+                  setDraggedIdx(idx)
+                  e.dataTransfer.effectAllowed = 'move'
+                  e.dataTransfer.setData('text/plain', String(idx))
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                  if (dragOverIdx !== idx) setDragOverIdx(idx)
+                }}
+                onDragLeave={() => {
+                  if (dragOverIdx === idx) setDragOverIdx(null)
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  if (draggedIdx === null || draggedIdx === idx) {
+                    setDraggedIdx(null)
+                    setDragOverIdx(null)
+                    return
+                  }
+                  const updated = [...hierarchy]
+                  const [moved] = updated.splice(draggedIdx, 1)
+                  updated.splice(idx, 0, moved)
+                  setHierarchy(updated)
+                  setDraggedIdx(null)
+                  setDragOverIdx(null)
+                }}
+                onDragEnd={() => {
+                  setDraggedIdx(null)
+                  setDragOverIdx(null)
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '12px 16px',
+                  borderRadius: '10px',
+                  border: isOver ? '2px dashed var(--primary)' : '1.5px solid var(--border)',
+                  background: isDragging ? 'var(--tonal)' : 'var(--canvas)',
+                  opacity: isDragging ? 0.5 : 1,
+                  cursor: 'grab',
+                  userSelect: 'none',
+                  transition: 'border-color 0.15s, background-color 0.15s, opacity 0.15s',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', cursor: 'grab' }} title="Drag to reorder priority">
+                    <GripVertical size={16} />
+                  </div>
+                  <div
+                    style={{
+                      width: '28px',
+                      height: '28px',
+                      borderRadius: '8px',
+                      background: `${meta.color}18`,
+                      color: meta.color,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {idx + 1}
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <IconComp size={14} style={{ color: meta.color }} />
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                        {meta.label}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: `${meta.color}15`,
+                          color: meta.color,
+                        }}
+                      >
+                        {meta.badge}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      {meta.desc}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => moveHierarchyItem(idx, 'up')}
+                    disabled={idx === 0}
+                    style={{
+                      padding: '5px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      background: idx === 0 ? 'transparent' : '#ffffff',
+                      color: idx === 0 ? 'var(--text-muted)' : 'var(--text)',
+                      cursor: idx === 0 ? 'not-allowed' : 'pointer',
+                      opacity: idx === 0 ? 0.4 : 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                    title="Move up in priority"
+                  >
+                    <ArrowUp size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveHierarchyItem(idx, 'down')}
+                    disabled={idx === hierarchy.length - 1}
+                    style={{
+                      padding: '5px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      background: idx === hierarchy.length - 1 ? 'transparent' : '#ffffff',
+                      color: idx === hierarchy.length - 1 ? 'var(--text-muted)' : 'var(--text)',
+                      cursor: idx === hierarchy.length - 1 ? 'not-allowed' : 'pointer',
+                      opacity: idx === hierarchy.length - 1 ? 0.4 : 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                    title="Move down in priority"
+                  >
+                    <ArrowDown size={14} />
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Section 3: AI Credits & Non-Gemini Feature Toggles */}
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
+          Credit & External Model Policies
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Allow AI Credits Usage */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: '14px', cursor: 'pointer' }}>
+            <ToggleSwitch
+              checked={allowAICredits}
+              onChange={(checked) => setAllowAICredits(checked)}
+            />
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                Allow AI Credits Usage
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                When standard quota limits are reached, permits the switcher to burn available AI account credits before switching accounts.
+              </div>
+            </div>
+          </label>
+
+          {/* Allow Non-Gemini Native Models */}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '14px', cursor: 'pointer' }}>
+              <ToggleSwitch
+                checked={allowNonGemini}
+                onChange={(checked) => setAllowNonGemini(checked)}
+              />
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                  Allow Non-Gemini Native Models
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  Permit Antigravity to route requests to supported non-Gemini models (e.g. Anthropic Claude, OpenAI GPT) when enabled.
+                </div>
+              </div>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      {/* Section 4: Default Models Configuration */}
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
+          Default Models Configuration
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Default Gemini Model */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                Default Gemini Model:
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                The preferred Google Gemini model assigned for new conversations and default execution.
+              </div>
+            </div>
+            <select
+              value={defaultGemini}
+              onChange={(e) => setDefaultGemini(e.target.value)}
+              style={{ width: '240px' }}
+            >
+              <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+              <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+              <option value="gemini-2.0-flash-thinking">Gemini 2.0 Flash Thinking</option>
+              <option value="gemini-2.0-pro">Gemini 2.0 Pro</option>
+              <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+            </select>
+          </div>
+
+          {/* Default Custom Model */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                Default Custom Model:
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                Selected BYOK model to route to when custom model source is triggered.
+              </div>
+            </div>
+            <select
+              value={defaultCustom}
+              onChange={(e) => setDefaultCustom(e.target.value)}
+              style={{ width: '240px' }}
+            >
+              <option value="">None (Auto / First Available)</option>
+              {customModelOptions.map((cm) => (
+                <option key={cm.id} value={cm.id}>
+                  {cm.name || cm.id}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Default Non-Gemini Native Model */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                Default Non-Gemini Native Model:
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                The fallback third-party native model to utilize when non-Gemini routing is enabled.
+              </div>
+            </div>
+            <select
+              value={defaultNonGemini}
+              onChange={(e) => setDefaultNonGemini(e.target.value)}
+              style={{ width: '240px' }}
+            >
+              <option value="claude-3-7-sonnet">Claude 3.7 Sonnet</option>
+              <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+              <option value="claude-3-5-haiku">Claude 3.5 Haiku</option>
+              <option value="gpt-4o">OpenAI GPT-4o</option>
+              <option value="o3-mini">OpenAI o3-mini</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Section 5: Post-Reset Keep-Alive Warmup Engine */}
       <div className="google-card">
         <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
           Post-Reset Keep-Alive Warmup Engine
@@ -184,6 +577,33 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               style={{ width: '100px', textAlign: 'center' }}
             />
           </div>
+        </div>
+      </div>
+
+      {/* Section 6: Antigravity Native Model Preference */}
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
+          Antigravity Native Model Family Preference
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+              Preferred Native Model Family:
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Among Antigravity built-in models, prioritize using Google Gemini for sessions and task handoffs.
+            </div>
+          </div>
+          <select
+            value={preferredNativeModel}
+            onChange={(e) => setPreferredNativeModel(e.target.value)}
+            style={{ width: '220px' }}
+          >
+            <option value="gemini">Google Gemini (Use Gemini)</option>
+            <option value="claude">Anthropic Claude</option>
+            <option value="all">All Native Models</option>
+          </select>
         </div>
       </div>
     </div>

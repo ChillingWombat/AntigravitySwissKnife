@@ -39,6 +39,8 @@ export interface AccountState {
   has_mfa: boolean
   totp_secret?: string
   refresh_token?: string
+  credits?: number
+  enable_credit_overages?: boolean
   error_message?: string
   status_reason?: string
 }
@@ -57,6 +59,13 @@ export interface RuleConfig {
   polling_interval_seconds: number
   warmup_enabled: boolean
   warmup_lead_time_seconds: number
+  preferred_native_model?: string
+  allow_ai_credits_usage?: boolean
+  allow_non_gemini_native_models?: boolean
+  model_source_hierarchy?: string[]
+  default_gemini_model?: string
+  default_custom_model?: string
+  default_non_gemini_model?: string
 }
 
 export interface DeviceProfile {
@@ -84,7 +93,16 @@ export interface CacheBreakdown {
 }
 
 export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'custom' | 'local'
-export type QuotaType = 'cost_based' | 'quota_based' | 'none'
+export type QuotaType = 'na' | 'balance' | 'quota' | 'cost_based' | 'quota_based' | 'none'
+
+export interface QuotaResult {
+  quota_type: QuotaType
+  balance_value?: string
+  quota_value?: string
+  fraction: number | null
+  has_percentage: boolean
+  message?: string
+}
 
 export interface CustomModel {
   id: string
@@ -95,6 +113,8 @@ export interface CustomModel {
   api_key?: string
   project_mappings: string[]
   quota_type: QuotaType
+  balance_value?: string
+  quota_value?: string
   prepaid_balance: number
   total_budget: number
   quota_fraction: number | null
@@ -104,6 +124,7 @@ export interface CustomModel {
   thinking_levels?: string[]
   thinking_level?: string
   enabled: boolean
+  notes?: string
   created_at?: string
   updated_at?: string
 }
@@ -147,6 +168,7 @@ export interface TestResult {
   status_code: number
   message: string
   endpoint: string
+  quota_result?: QuotaResult
 }
 
 export interface InstallationInfo {
@@ -248,7 +270,15 @@ export interface SidecarTaskInfo {
   cron_expression: string
   schedule_text?: string
   prompt_preview: string
+  prompt?: string
   path: string
+}
+
+export interface UpdateTaskRequest {
+  id: string
+  display_name: string
+  cron_expression: string
+  prompt: string
 }
 
 export interface AutoArchiveResult {
@@ -265,7 +295,8 @@ export interface GUIConfig {
   color_styling_enabled: boolean
   solid_left_edge: boolean
   tint_opacity: number
-  active_conversation_indicator: 'background' | 'border'
+  active_conversation_indicator: 'background' | 'border' | 'left_bar'
+  active_conversation_border_width?: string
   active_conversation_bold: boolean
   project_colors: Record<string, string>
   drag_rearrange_enabled: boolean
@@ -277,7 +308,7 @@ export interface GUIConfig {
   conversation_tabs_min: number
   conversation_tabs_max: number
   auto_archive_conversations: boolean
-  auto_archive_horizon: '7d' | '14d' | '30d' | '60d' | '90d'
+  auto_archive_horizon: '3d' | '7d' | '14d' | '30d' | '60d' | '90d'
   auto_inject: boolean
 }
 

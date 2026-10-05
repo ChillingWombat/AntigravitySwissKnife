@@ -3,7 +3,6 @@ import React from 'react'
 interface CircularGaugeProps {
   percentage: number | null // 0 to 100, or null if untracked/no quota
   title: string
-  subtitle?: string
   size?: number
   strokeWidth?: number
   emptyGrey?: boolean
@@ -12,7 +11,6 @@ interface CircularGaugeProps {
 export const CircularGauge: React.FC<CircularGaugeProps> = ({
   percentage,
   title,
-  subtitle,
   size = 130,
   strokeWidth = 11,
   emptyGrey = false,
@@ -86,15 +84,10 @@ export const CircularGauge: React.FC<CircularGaugeProps> = ({
         </div>
       </div>
 
-      <div style={{ marginTop: '18px' }}>
-        <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>
+      <div style={{ marginTop: '12px' }}>
+        <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
           {title}
         </div>
-        {subtitle && (
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-            {subtitle}
-          </div>
-        )}
       </div>
     </div>
   )

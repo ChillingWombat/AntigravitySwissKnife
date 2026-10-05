@@ -22,9 +22,14 @@ const (
 type QuotaType string
 
 const (
-	QuotaCostBased  QuotaType = "cost_based"  // Progress based on prepaid deposit funds left
-	QuotaQuotaBased QuotaType = "quota_based" // Progress based on percentage/fraction
-	QuotaNone       QuotaType = "none"        // Untracked / no quota info -> empty grey ring, N/A
+	QuotaTypeNA      QuotaType = "na"      // N/A - untracked
+	QuotaTypeBalance QuotaType = "balance" // Balance - fiat balance
+	QuotaTypeQuota   QuotaType = "quota"   // Quota - quota / rate limits
+
+	// Legacy backward-compatibility constants
+	QuotaCostBased  QuotaType = "cost_based"
+	QuotaQuotaBased QuotaType = "quota_based"
+	QuotaNone       QuotaType = "none"
 )
 
 // CustomModel defines a third-party or local LLM configured in Antigravity.
@@ -37,15 +42,18 @@ type CustomModel struct {
 	APIKey           string       `json:"api_key,omitempty"`
 	ProjectMappings  []string     `json:"project_mappings"` // Specific projects or ["*"] for all
 	QuotaType        QuotaType    `json:"quota_type"`
-	PrepaidBalance   float64      `json:"prepaid_balance"` // Funds remaining in USD
-	TotalBudget      float64      `json:"total_budget"`    // Total initial/prepaid budget in USD
-	QuotaFraction    *float64     `json:"quota_fraction"`  // 0.0 to 1.0; nil if untracked/none
+	BalanceValue     string       `json:"balance_value,omitempty"` // Formatted fiat e.g. "$12.34" or "¥10.00"
+	QuotaValue       string       `json:"quota_value,omitempty"`   // Formatted value e.g. "250,000 tokens" or "$10.00"
+	PrepaidBalance   float64      `json:"prepaid_balance"`         // Funds remaining in USD
+	TotalBudget      float64      `json:"total_budget"`            // Total initial/prepaid budget in USD
+	QuotaFraction    *float64     `json:"quota_fraction"`          // 0.0 to 1.0; nil if untracked/none
 	IsDefault        bool         `json:"is_default"`
 	ContextWindow    int          `json:"context_window,omitempty"`
 	SupportsThinking bool         `json:"supports_thinking,omitempty"`
 	ThinkingLevels   []string     `json:"thinking_levels,omitempty"` // e.g. ["off", "low", "medium", "high"]
-	ThinkingLevel    string       `json:"thinking_level,omitempty"`    // Active level e.g. "medium", "off"
+	ThinkingLevel    string       `json:"thinking_level,omitempty"`  // Active level e.g. "medium", "off"
 	Enabled          bool         `json:"enabled"`
+	Notes            string       `json:"notes,omitempty"` // User notes or description
 	CreatedAt        string       `json:"created_at,omitempty"`
 	UpdatedAt        string       `json:"updated_at,omitempty"`
 }
@@ -76,10 +84,14 @@ func (m *CustomModel) Validate() error {
 		return errors.New("base_url is required")
 	}
 	if m.ContextWindow <= 0 {
-		m.ContextWindow = 1000000
+		m.ContextWindow = 1048576
 	}
-	if m.QuotaType == "" {
-		m.QuotaType = QuotaNone
+	if m.QuotaType == "" || m.QuotaType == QuotaNone {
+		m.QuotaType = QuotaTypeNA
+	} else if m.QuotaType == QuotaCostBased {
+		m.QuotaType = QuotaTypeBalance
+	} else if m.QuotaType == QuotaQuotaBased {
+		m.QuotaType = QuotaTypeQuota
 	}
 	if len(m.ProjectMappings) == 0 {
 		m.ProjectMappings = []string{"*"}
@@ -103,7 +115,17 @@ func (m *CustomModel) Validate() error {
 // Returns (percentage, hasInfo). If hasInfo is false, the gauge should be rendered empty grey with N/A.
 func (m *CustomModel) CalculatePercentage() (int, bool) {
 	switch m.QuotaType {
-	case QuotaCostBased:
+	case QuotaTypeBalance, QuotaCostBased:
+		if m.QuotaFraction != nil {
+			f := *m.QuotaFraction
+			if f < 0 {
+				f = 0
+			}
+			if f > 1 {
+				f = 1
+			}
+			return int(math.Round(f * 100)), true
+		}
 		if m.TotalBudget > 0 {
 			fraction := m.PrepaidBalance / m.TotalBudget
 			if fraction < 0 {
@@ -116,7 +138,7 @@ func (m *CustomModel) CalculatePercentage() (int, bool) {
 		}
 		return 0, false
 
-	case QuotaQuotaBased:
+	case QuotaTypeQuota, QuotaQuotaBased:
 		if m.QuotaFraction != nil {
 			f := *m.QuotaFraction
 			if f < 0 {
@@ -129,7 +151,7 @@ func (m *CustomModel) CalculatePercentage() (int, bool) {
 		}
 		return 0, false
 
-	case QuotaNone:
+	case QuotaTypeNA, QuotaNone:
 		fallthrough
 	default:
 		return 0, false
@@ -173,7 +195,8 @@ func SamplePresetModels() []CustomModel {
 			BaseURL:         "https://api.openai.com/v1",
 			APIKey:          "sk-demo-key-configured",
 			ProjectMappings: []string{"*"},
-			QuotaType:       QuotaCostBased,
+			QuotaType:       QuotaTypeBalance,
+			BalanceValue:    "$34.50",
 			PrepaidBalance:  34.50,
 			TotalBudget:     50.00,
 			QuotaFraction:   nil,
@@ -191,7 +214,8 @@ func SamplePresetModels() []CustomModel {
 			BaseURL:         "https://api.anthropic.com/v1",
 			APIKey:          "sk-ant-demo-key",
 			ProjectMappings: []string{"*"},
-			QuotaType:       QuotaQuotaBased,
+			QuotaType:       QuotaTypeQuota,
+			QuotaValue:      "200,000 tokens",
 			PrepaidBalance:  0,
 			TotalBudget:     0,
 			QuotaFraction:   &frac,
@@ -209,7 +233,7 @@ func SamplePresetModels() []CustomModel {
 			BaseURL:         "http://localhost:11434/v1",
 			APIKey:          "",
 			ProjectMappings: []string{"Antigravity Swiss Knife"},
-			QuotaType:       QuotaNone, // Local has no quota limit -> Empty grey ring, N/A
+			QuotaType:       QuotaTypeNA, // Local has no quota limit -> Empty grey ring, N/A
 			PrepaidBalance:  0,
 			TotalBudget:     0,
 			QuotaFraction:   nil,

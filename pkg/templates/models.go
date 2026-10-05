@@ -51,6 +51,14 @@ type DeployTaskRequest struct {
 	Parameters     map[string]string `json:"parameters"`
 }
 
+// UpdateSidecarRequest holds editable fields for an existing sidecar task.
+type UpdateSidecarRequest struct {
+	ID             string `json:"id"`
+	DisplayName    string `json:"display_name"`
+	CronExpression string `json:"cron_expression"`
+	Prompt         string `json:"prompt"`
+}
+
 // SidecarTaskInfo describes an active sidecar task detected on disk.
 type SidecarTaskInfo struct {
 	ID             string `json:"id"`
@@ -58,5 +66,6 @@ type SidecarTaskInfo struct {
 	CronExpression string `json:"cron_expression"`
 	ScheduleText   string `json:"schedule_text,omitempty"`
 	PromptPreview  string `json:"prompt_preview"`
+	Prompt         string `json:"prompt,omitempty"`
 	Path           string `json:"path"`
 }

@@ -52,6 +52,11 @@ func GenerateCSS(cfg *Config) string {
 	}
 
 	isBorderMode := cfg.ActiveConversationIndicator == "border"
+	isLeftBarMode := cfg.ActiveConversationIndicator == "left_bar" || cfg.ActiveConversationIndicator == "left_accent_bar" || cfg.SolidLeftEdge
+	borderWidth := cfg.ActiveConversationBorderWidth
+	if borderWidth == "" {
+		borderWidth = "2px"
+	}
 	fontWeight := "600"
 	if !cfg.ActiveConversationBold {
 		fontWeight = "400"
@@ -77,14 +82,14 @@ func GenerateCSS(cfg *Config) string {
 		if isBorderMode {
 			borderStyle = ""
 		}
-		if cfg.SolidLeftEdge {
-			borderStyle = fmt.Sprintf("border-left: 3px solid %s !important;", hex)
+		if isLeftBarMode && !isBorderMode {
+			borderStyle = "border-left: 3px solid transparent !important;"
 		}
 
 		var rowCSS string
 		if isBorderMode {
-			selectedBorderStyle := fmt.Sprintf("border: 2px solid %s !important;", hex)
-			if cfg.SolidLeftEdge {
+			selectedBorderStyle := fmt.Sprintf("border: %s solid %s !important;", borderWidth, hex)
+			if isLeftBarMode {
 				selectedBorderStyle += fmt.Sprintf(" border-left: 3px solid %s !important;", hex)
 			}
 			rowCSS = fmt.Sprintf(`
@@ -94,7 +99,7 @@ func GenerateCSS(cfg *Config) string {
   --sidebar-secondary: rgba(%d, %d, %d, %.2f) !important;
   --sidebar-muted: rgba(%d, %d, %d, %.2f) !important;
   background-color: rgba(%d, %d, %d, %.2f) !important;
-  border: 2px solid transparent !important;
+  border: %s solid transparent !important;
   %s
   border-radius: 8px !important;
   transition: background-color 0.15s ease, border-color 0.15s ease !important;
@@ -116,8 +121,14 @@ func GenerateCSS(cfg *Config) string {
   background-color: rgba(%d, %d, %d, %.2f) !important;
   %s
 }
-`, safeName, safeName, r, g, b, opacity, r, g, b, opacity, r, g, b, opacity, borderStyle, safeName, safeName, r, g, b, hoverOpacity, safeName, safeName, r, g, b, opacity, selectedBorderStyle, fontWeight, safeName, safeName, r, g, b, hoverOpacity, selectedBorderStyle)
+`, safeName, safeName, r, g, b, opacity, r, g, b, opacity, r, g, b, opacity, borderWidth, borderStyle, safeName, safeName, r, g, b, hoverOpacity, safeName, safeName, r, g, b, opacity, selectedBorderStyle, fontWeight, safeName, safeName, r, g, b, hoverOpacity, selectedBorderStyle)
 		} else {
+			selectedBorderStyle := ""
+			activeBgOpacity := selectedOpacity
+			if isLeftBarMode {
+				selectedBorderStyle = fmt.Sprintf("\n  border-left: 3px solid %s !important;", hex)
+				activeBgOpacity = opacity
+			}
 			rowCSS = fmt.Sprintf(`
 /* Conversation Row: Clean rounded corners, light tint, solid edge optional */
 [data-swiss-project="%s"][data-testid="conversation-row-sidebar"],
@@ -137,10 +148,10 @@ func GenerateCSS(cfg *Config) string {
 }
 [data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-selected="true"],
 [data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-selected="true"] {
-  background-color: rgba(%d, %d, %d, %.2f) !important;
+  background-color: rgba(%d, %d, %d, %.2f) !important;%s
   font-weight: %s !important;
 }
-`, safeName, safeName, r, g, b, opacity, r, g, b, opacity, r, g, b, opacity, borderStyle, safeName, safeName, r, g, b, hoverOpacity, safeName, safeName, r, g, b, selectedOpacity, fontWeight)
+`, safeName, safeName, r, g, b, opacity, r, g, b, opacity, r, g, b, opacity, borderStyle, safeName, safeName, r, g, b, hoverOpacity, safeName, safeName, r, g, b, activeBgOpacity, selectedBorderStyle, fontWeight)
 		}
 
 		sb.WriteString(fmt.Sprintf(`

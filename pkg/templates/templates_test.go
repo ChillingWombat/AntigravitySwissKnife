@@ -103,3 +103,67 @@ func TestStore_DeployAndListSidecar(t *testing.T) {
 		t.Errorf("expected 0 sidecars after delete, got %d", len(listAfter))
 	}
 }
+
+func TestStore_UpdateSidecar(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "sidecars-update-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	// Deploy initial task
+	req := DeployTaskRequest{
+		TemplateID:     "daily-news-feed-digest",
+		DisplayName:    "Original Feed Digest",
+		CronExpression: "0 8 * * *",
+		TargetProject:  "Antigravity Swiss Knife",
+	}
+
+	info, err := store.DeploySidecar(req)
+	if err != nil {
+		t.Fatalf("failed to deploy sidecar: %v", err)
+	}
+
+	// Update sidecar
+	updateReq := UpdateSidecarRequest{
+		ID:             info.ID,
+		DisplayName:    "Updated Evening Digest",
+		CronExpression: "0 18 * * 1-5",
+		Prompt:         "Execute refined evening briefing with multiline\ninstructions and \"quotes\".",
+	}
+
+	updated, err := store.UpdateSidecar(updateReq)
+	if err != nil {
+		t.Fatalf("failed to update sidecar: %v", err)
+	}
+
+	if updated.DisplayName != "Updated Evening Digest" {
+		t.Errorf("expected updated display name 'Updated Evening Digest', got %q", updated.DisplayName)
+	}
+	if updated.CronExpression != "0 18 * * 1-5" {
+		t.Errorf("expected updated cron '0 18 * * 1-5', got %q", updated.CronExpression)
+	}
+	if updated.Prompt != "Execute refined evening briefing with multiline\ninstructions and \"quotes\"." {
+		t.Errorf("expected updated prompt, got %q", updated.Prompt)
+	}
+
+	// Verify persistence via ListSidecars
+	list, err := store.ListSidecars()
+	if err != nil {
+		t.Fatalf("failed to list sidecars: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 sidecar, got %d", len(list))
+	}
+	if list[0].DisplayName != "Updated Evening Digest" {
+		t.Errorf("expected persisted display name 'Updated Evening Digest', got %q", list[0].DisplayName)
+	}
+	if list[0].Prompt != "Execute refined evening briefing with multiline\ninstructions and \"quotes\"." {
+		t.Errorf("expected persisted prompt, got %q", list[0].Prompt)
+	}
+}

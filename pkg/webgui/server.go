@@ -152,6 +152,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/custom_models/bind", s.handleCustomModelBind)
 	mux.HandleFunc("/api/custom_models/fetch_models", s.handleCustomModelFetchModels)
 	mux.HandleFunc("/api/custom_models/thinking_level", s.handleCustomModelThinkingLevel)
+	mux.HandleFunc("/api/custom_models/fetch_quota", s.handleCustomModelFetchQuota)
+	mux.HandleFunc("/api/custom_models/refresh_quotas", s.handleCustomModelRefreshQuotas)
 
 	// App Enhancements (Prompt Jump Bar, Tool Density, Breaker Line)
 	mux.HandleFunc("/api/enhancements", s.handleEnhancements)
@@ -162,6 +164,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/templates", s.handleTemplates)
 	mux.HandleFunc("/api/templates/deploy", s.handleTemplatesDeploy)
 	mux.HandleFunc("/api/templates/sidecars", s.handleTemplatesSidecars)
+	mux.HandleFunc("/api/templates/sidecars/update", s.handleTemplatesSidecarsUpdate)
 
 	// Google OAuth Extraction
 	mux.HandleFunc("/api/oauth/google/start", s.handleGoogleOAuthStart)
@@ -310,16 +313,18 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var p struct {
-		Email        string `json:"email"`
-		Label        string `json:"label"`
-		PlanTier     string `json:"plan_tier"`
-		Status       string `json:"status"`
-		Priority     string `json:"priority"`
-		Notes        string `json:"notes"`
-		Password     string `json:"password"`
-		TOTPSecret   string `json:"totp_secret"`
-		RefreshToken string `json:"refresh_token"`
-		SetActive    bool   `json:"set_active"`
+		Email                string  `json:"email"`
+		Label                string  `json:"label"`
+		PlanTier             string  `json:"plan_tier"`
+		Status               string  `json:"status"`
+		Priority             string  `json:"priority"`
+		Notes                string  `json:"notes"`
+		Password             string  `json:"password"`
+		TOTPSecret           string  `json:"totp_secret"`
+		RefreshToken         string  `json:"refresh_token"`
+		Credits              float64 `json:"credits"`
+		EnableCreditOverages bool    `json:"enable_credit_overages"`
+		SetActive            bool    `json:"set_active"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil || p.Email == "" {
 		http.Error(w, "invalid request body, missing email", http.StatusBadRequest)
@@ -332,7 +337,7 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, storeErr.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := store.UpdateAccountDetails(p.Email, p.Label, p.PlanTier, p.Status, p.Priority, p.Notes, p.Password, p.TOTPSecret, p.RefreshToken, p.SetActive); err != nil {
+		if err := store.UpdateAccountFull(p.Email, p.Label, p.PlanTier, p.Status, p.Priority, p.Notes, p.Password, p.TOTPSecret, p.RefreshToken, p.Credits, p.EnableCreditOverages, p.SetActive); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -640,6 +645,33 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			if val, ok := p["warmup_lead_time_seconds"].(float64); ok {
 				c.WarmupLeadTimeSec = val
 			}
+			if val, ok := p["preferred_native_model"].(string); ok {
+				c.PreferredNativeModel = val
+			}
+			if val, ok := p["allow_ai_credits_usage"].(bool); ok {
+				c.AllowAICreditsUsage = val
+			}
+			if val, ok := p["allow_non_gemini_native_models"].(bool); ok {
+				c.AllowNonGeminiNativeModels = val
+			}
+			if val, ok := p["model_source_hierarchy"].([]interface{}); ok {
+				var list []string
+				for _, item := range val {
+					if s, ok := item.(string); ok {
+						list = append(list, s)
+					}
+				}
+				c.ModelSourceHierarchy = list
+			}
+			if val, ok := p["default_gemini_model"].(string); ok {
+				c.DefaultGeminiModel = val
+			}
+			if val, ok := p["default_custom_model"].(string); ok {
+				c.DefaultCustomModel = val
+			}
+			if val, ok := p["default_non_gemini_model"].(string); ok {
+				c.DefaultNonGeminiModel = val
+			}
 			if err := c.Save(); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -654,11 +686,18 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 	if err := s.client.Call("swiss.getRuleConfig", nil, &cfg); err != nil {
 		c, _ := core.LoadConfig()
 		cfg = map[string]interface{}{
-			"auto_switch_enabled":       c.AutoSwitchEnabled,
-			"auto_switch_threshold":     c.AutoSwitchThreshold,
-			"polling_interval_seconds":  c.PollingIntervalSec,
-			"warmup_enabled":            c.WarmupEnabled,
-			"warmup_lead_time_seconds":  c.WarmupLeadTimeSec,
+			"auto_switch_enabled":           c.AutoSwitchEnabled,
+			"auto_switch_threshold":         c.AutoSwitchThreshold,
+			"polling_interval_seconds":      c.PollingIntervalSec,
+			"warmup_enabled":                c.WarmupEnabled,
+			"warmup_lead_time_seconds":      c.WarmupLeadTimeSec,
+			"preferred_native_model":        c.PreferredNativeModel,
+			"allow_ai_credits_usage":        c.AllowAICreditsUsage,
+			"allow_non_gemini_native_models": c.AllowNonGeminiNativeModels,
+			"model_source_hierarchy":        c.ModelSourceHierarchy,
+			"default_gemini_model":          c.DefaultGeminiModel,
+			"default_custom_model":          c.DefaultCustomModel,
+			"default_non_gemini_model":      c.DefaultNonGeminiModel,
 		}
 	}
 	writeJSON(w, cfg)
@@ -1111,6 +1150,13 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 			}
 			m.ID = fmt.Sprintf("%s-%s-%d", prefix, slug, time.Now().Unix())
 		}
+		// Auto-derive balance or quota through API
+		quotaRes := custommodels.DetectAndFetchQuota(m)
+		m.QuotaType = quotaRes.QuotaType
+		m.BalanceValue = quotaRes.BalanceValue
+		m.QuotaValue = quotaRes.QuotaValue
+		m.QuotaFraction = quotaRes.Fraction
+
 		if err := s.customModelsStore.SaveModel(m); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -1232,6 +1278,45 @@ func (s *Server) handleCustomModelThinkingLevel(w http.ResponseWriter, r *http.R
 		return
 	}
 	writeJSON(w, map[string]interface{}{"success": true, "model_id": p.ModelID, "level": p.Level})
+}
+
+func (s *Server) handleCustomModelFetchQuota(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var m custommodels.CustomModel
+	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	res := custommodels.DetectAndFetchQuota(m)
+	writeJSON(w, res)
+}
+
+func (s *Server) handleCustomModelRefreshQuotas(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.customModelsStore == nil {
+		var err error
+		s.customModelsStore, err = custommodels.NewStore("")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	cfg := s.customModelsStore.GetConfig()
+	for i := range cfg.Models {
+		quotaRes := custommodels.DetectAndFetchQuota(cfg.Models[i])
+		cfg.Models[i].QuotaType = quotaRes.QuotaType
+		cfg.Models[i].BalanceValue = quotaRes.BalanceValue
+		cfg.Models[i].QuotaValue = quotaRes.QuotaValue
+		cfg.Models[i].QuotaFraction = quotaRes.Fraction
+		_ = s.customModelsStore.SaveModel(cfg.Models[i])
+	}
+	writeJSON(w, cfg)
 }
 
 // Enhancements handlers
@@ -1378,6 +1463,21 @@ func (s *Server) handleTemplatesSidecars(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if r.Method == http.MethodPut {
+		var req templates.UpdateSidecarRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		task, err := s.templatesStore.UpdateSidecar(req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]interface{}{"success": true, "task": task})
+		return
+	}
+
 	if r.Method == http.MethodDelete {
 		id := r.URL.Query().Get("id")
 		if id == "" {
@@ -1401,22 +1501,66 @@ func (s *Server) handleTemplatesSidecars(w http.ResponseWriter, r *http.Request)
 	}
 
 	if r.Method == http.MethodPost {
-		// Support action: "delete" in POST
 		var body struct {
-			Action string `json:"action"`
-			ID     string `json:"id"`
+			Action         string `json:"action"`
+			ID             string `json:"id"`
+			DisplayName    string `json:"display_name"`
+			CronExpression string `json:"cron_expression"`
+			Prompt         string `json:"prompt"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err == nil && body.Action == "delete" && body.ID != "" {
-			if err := s.templatesStore.DeleteSidecar(body.ID); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+		if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+			if body.Action == "delete" && body.ID != "" {
+				if err := s.templatesStore.DeleteSidecar(body.ID); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				writeJSON(w, map[string]interface{}{"success": true, "deleted": body.ID})
 				return
 			}
-			writeJSON(w, map[string]interface{}{"success": true, "deleted": body.ID})
-			return
+			if body.Action == "update" && body.ID != "" {
+				task, err := s.templatesStore.UpdateSidecar(templates.UpdateSidecarRequest{
+					ID:             body.ID,
+					DisplayName:    body.DisplayName,
+					CronExpression: body.CronExpression,
+					Prompt:         body.Prompt,
+				})
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				writeJSON(w, map[string]interface{}{"success": true, "task": task})
+				return
+			}
 		}
 	}
 
 	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+}
+
+func (s *Server) handleTemplatesSidecarsUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.templatesStore == nil {
+		var err error
+		s.templatesStore, err = templates.NewStore("")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	if r.Method != http.MethodPost && r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req templates.UpdateSidecarRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	task, err := s.templatesStore.UpdateSidecar(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]interface{}{"success": true, "task": task})
 }
 
 func (s *Server) handleGoogleOAuthStart(w http.ResponseWriter, r *http.Request) {

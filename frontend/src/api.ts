@@ -14,11 +14,13 @@ import type {
   ArchivedProjectItem,
   ScheduledTemplate,
   DeployTaskRequest,
+  UpdateTaskRequest,
   SidecarTaskInfo,
   GUIConfig,
   ProviderType,
   FetchModelsResponse,
   AutoArchiveResult,
+  QuotaResult,
 } from './types'
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
@@ -59,6 +61,8 @@ export const api = {
     password?: string
     totp_secret?: string
     refresh_token?: string
+    credits?: number
+    enable_credit_overages?: boolean
     set_active?: boolean
   }) =>
     request<{ success: boolean; email: string }>('/api/accounts/update', {
@@ -179,6 +183,18 @@ export const api = {
       body: JSON.stringify(model),
     }),
 
+  fetchCustomModelQuota: (model: CustomModel) =>
+    request<QuotaResult>('/api/custom_models/fetch_quota', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(model),
+    }),
+
+  refreshCustomModelQuotas: () =>
+    request<CustomModelsConfig>('/api/custom_models/refresh_quotas', {
+      method: 'POST',
+    }),
+
   bindProjectModel: (project: string, modelId: string) =>
     request<{ success: boolean; project: string; model_id: string }>('/api/custom_models/bind', {
       method: 'POST',
@@ -285,6 +301,13 @@ export const api = {
     }),
 
   getSidecars: () => request<SidecarTaskInfo[]>('/api/templates/sidecars'),
+
+  updateSidecar: (data: UpdateTaskRequest) =>
+    request<{ success: boolean; task: SidecarTaskInfo }>('/api/templates/sidecars/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
 
   deleteSidecar: (id: string) =>
     request<{ success: boolean; deleted: string }>(`/api/templates/sidecars?id=${encodeURIComponent(id)}`, {

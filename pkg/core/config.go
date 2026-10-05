@@ -10,15 +10,22 @@ import (
 
 // Config represents the application configuration.
 type Config struct {
-	AutoSwitchEnabled    bool    `json:"auto_switch_enabled"`
-	AutoSwitchThreshold  float64 `json:"auto_switch_threshold"`
-	PollingIntervalSec   int     `json:"polling_interval_seconds"`
-	WarmupEnabled        bool    `json:"warmup_enabled"`
-	WarmupLeadTimeSec    float64 `json:"warmup_lead_time_seconds"`
-	ActiveAccount        string  `json:"active_account"`
-	AntigravityProtectedPID int  `json:"antigravity_protected_pid"`
-	AppPasswordEnabled   bool    `json:"app_password_enabled"`
-	AppPasswordHash      string  `json:"app_password_hash,omitempty"`
+	AutoSwitchEnabled          bool     `json:"auto_switch_enabled"`
+	AutoSwitchThreshold        float64  `json:"auto_switch_threshold"`
+	PollingIntervalSec         int      `json:"polling_interval_seconds"`
+	WarmupEnabled              bool     `json:"warmup_enabled"`
+	WarmupLeadTimeSec          float64  `json:"warmup_lead_time_seconds"`
+	PreferredNativeModel       string   `json:"preferred_native_model,omitempty"`
+	AllowAICreditsUsage        bool     `json:"allow_ai_credits_usage"`
+	AllowNonGeminiNativeModels bool     `json:"allow_non_gemini_native_models"`
+	ModelSourceHierarchy       []string `json:"model_source_hierarchy,omitempty"`
+	DefaultGeminiModel         string   `json:"default_gemini_model,omitempty"`
+	DefaultCustomModel         string   `json:"default_custom_model,omitempty"`
+	DefaultNonGeminiModel      string   `json:"default_non_gemini_model,omitempty"`
+	ActiveAccount              string   `json:"active_account"`
+	AntigravityProtectedPID    int      `json:"antigravity_protected_pid"`
+	AppPasswordEnabled         bool     `json:"app_password_enabled"`
+	AppPasswordHash            string   `json:"app_password_hash,omitempty"`
 
 	mu sync.RWMutex `json:"-"`
 }
@@ -26,11 +33,18 @@ type Config struct {
 // DefaultConfig returns default configuration parameters.
 func DefaultConfig() *Config {
 	return &Config{
-		AutoSwitchEnabled:   true,
-		AutoSwitchThreshold: DefaultAutoSwitchThresholdFraction,
-		PollingIntervalSec:  DefaultPollingIntervalSeconds,
-		WarmupEnabled:       true,
-		WarmupLeadTimeSec:   DefaultWarmupLeadTimeSeconds,
+		AutoSwitchEnabled:          true,
+		AutoSwitchThreshold:        DefaultAutoSwitchThresholdFraction,
+		PollingIntervalSec:         DefaultPollingIntervalSeconds,
+		WarmupEnabled:              true,
+		WarmupLeadTimeSec:          DefaultWarmupLeadTimeSeconds,
+		PreferredNativeModel:       "gemini",
+		AllowAICreditsUsage:        false,
+		AllowNonGeminiNativeModels: false,
+		ModelSourceHierarchy:       []string{"gemini", "custom", "non_gemini", "credits"},
+		DefaultGeminiModel:         "gemini-2.5-pro",
+		DefaultCustomModel:         "",
+		DefaultNonGeminiModel:      "claude-3-7-sonnet",
 	}
 }
 

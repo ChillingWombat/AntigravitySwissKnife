@@ -45,8 +45,10 @@ type rawAccountItem struct {
 	Priority   string `json:"priority,omitempty"`
 	Notes      string `json:"notes,omitempty"`
 	Password   string `json:"password,omitempty"`
-	IsHealthy  *bool  `json:"is_healthy,omitempty"`
-	TOTPSecret string `json:"totp_secret"`
+	IsHealthy            *bool   `json:"is_healthy,omitempty"`
+	TOTPSecret           string  `json:"totp_secret"`
+	Credits              float64 `json:"credits,omitempty"`
+	EnableCreditOverages bool    `json:"enable_credit_overages"`
 	Credential *struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
@@ -126,8 +128,10 @@ func (s *Store) load() error {
 					TOTPSecret:   totpSecret,
 					HasTOTP:      totpSecret != "",
 					IsActive:     (em == s.activeEmail),
-					AccessToken:  accessToken,
-					RefreshToken: refreshToken,
+					AccessToken:          accessToken,
+					RefreshToken:         refreshToken,
+					Credits:              item.Credits,
+					EnableCreditOverages: item.EnableCreditOverages,
 				}
 				s.accounts[em] = acc
 			}
@@ -173,12 +177,14 @@ func (s *Store) load() error {
 				Status:       status,
 				Priority:     priority,
 				Notes:        item.Notes,
-				Password:     password,
-				TOTPSecret:   totpSecret,
-				HasTOTP:      totpSecret != "",
-				IsActive:     (item.Email == s.activeEmail),
-				AccessToken:  accessToken,
-				RefreshToken: refreshToken,
+				Password:             password,
+				TOTPSecret:           totpSecret,
+				HasTOTP:              totpSecret != "",
+				IsActive:             (item.Email == s.activeEmail),
+				AccessToken:          accessToken,
+				RefreshToken:         refreshToken,
+				Credits:              item.Credits,
+				EnableCreditOverages: item.EnableCreditOverages,
 			}
 			s.accounts[item.Email] = acc
 		}
@@ -193,15 +199,17 @@ func (s *Store) save() error {
 	}
 
 	type exportedAccount struct {
-		Email      string `json:"email"`
-		Label      string `json:"label"`
-		PlanTier   string `json:"plan_tier,omitempty"`
-		Status     string `json:"status,omitempty"`
-		Priority   string `json:"priority,omitempty"`
-		Notes      string `json:"notes,omitempty"`
-		Password   string `json:"password,omitempty"`
-		TOTPSecret string `json:"totp_secret"`
-		IsHealthy  bool   `json:"is_healthy"`
+		Email                string  `json:"email"`
+		Label                string  `json:"label"`
+		PlanTier             string  `json:"plan_tier,omitempty"`
+		Status               string  `json:"status,omitempty"`
+		Priority             string  `json:"priority,omitempty"`
+		Notes                string  `json:"notes,omitempty"`
+		Password             string  `json:"password,omitempty"`
+		TOTPSecret           string  `json:"totp_secret"`
+		Credits              float64 `json:"credits,omitempty"`
+		EnableCreditOverages bool    `json:"enable_credit_overages"`
+		IsHealthy            bool    `json:"is_healthy"`
 		Credential struct {
 			AccessToken  string `json:"access_token"`
 			RefreshToken string `json:"refresh_token"`
@@ -235,15 +243,17 @@ func (s *Store) save() error {
 		}
 
 		ea := exportedAccount{
-			Email:      acc.Email,
-			Label:      acc.Label,
-			PlanTier:   acc.PlanTier,
-			Status:     st,
-			Priority:   priority,
-			Notes:      acc.Notes,
-			Password:   encPassword,
-			TOTPSecret: encTOTP,
-			IsHealthy:  st != "ERROR" && st != "BANNED",
+			Email:                acc.Email,
+			Label:                acc.Label,
+			PlanTier:             acc.PlanTier,
+			Status:               st,
+			Priority:             priority,
+			Notes:                acc.Notes,
+			Password:             encPassword,
+			TOTPSecret:           encTOTP,
+			Credits:              acc.Credits,
+			EnableCreditOverages: acc.EnableCreditOverages,
+			IsHealthy:            st != "ERROR" && st != "BANNED",
 		}
 		ea.Credential.AccessToken = encAccess
 		ea.Credential.RefreshToken = encRefresh
@@ -393,6 +403,20 @@ func (s *Store) SetActiveAccount(email string) error {
 
 // UpdateAccountDetails updates label, planTier, status, priority, notes, password, totpSecret, refreshToken, and optionally sets active status.
 func (s *Store) UpdateAccountDetails(email, label, planTier, status, priority, notes, password, totpSecret, refreshToken string, setActive bool) error {
+	s.mu.RLock()
+	acc, exists := s.accounts[email]
+	credits := 0.0
+	enableOverages := false
+	if exists {
+		credits = acc.Credits
+		enableOverages = acc.EnableCreditOverages
+	}
+	s.mu.RUnlock()
+	return s.UpdateAccountFull(email, label, planTier, status, priority, notes, password, totpSecret, refreshToken, credits, enableOverages, setActive)
+}
+
+// UpdateAccountFull updates all account details including credits and credit overages toggle.
+func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, notes, password, totpSecret, refreshToken string, credits float64, enableCreditOverages, setActive bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -425,6 +449,8 @@ func (s *Store) UpdateAccountDetails(email, label, planTier, status, priority, n
 	if refreshToken != "" {
 		acc.RefreshToken = refreshToken
 	}
+	acc.Credits = credits
+	acc.EnableCreditOverages = enableCreditOverages
 
 	if setActive || acc.Status == "ACTIVE" {
 		s.activeEmail = email

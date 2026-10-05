@@ -11,13 +11,13 @@ import {
   Eye,
   EyeOff,
   Zap,
+  Info,
 } from 'lucide-react'
 import type {
   CustomModel,
   CustomModelsConfig,
   ModelInfo,
   ProviderType,
-  QuotaType,
   TestResult,
 } from '../types'
 import { CircularGauge } from '../components/CircularGauge'
@@ -42,21 +42,18 @@ export const CustomModelsPage: React.FC = () => {
   // Modal Form Fields
   const [displayName, setDisplayName] = useState<string>('')
   const [modelName, setModelName] = useState<string>('')
-  const [providerType, setProviderType] = useState<ProviderType>('openai')
+  const [providerType, setProviderType] = useState<ProviderType>('gemini')
   const [baseUrl, setBaseUrl] = useState<string>('')
   const [apiKey, setApiKey] = useState<string>('')
-  const [quotaType, setQuotaType] = useState<QuotaType>('none')
-  const [prepaidBalance, setPrepaidBalance] = useState<number>(10)
-  const [totalBudget, setTotalBudget] = useState<number>(100)
-  const [quotaFraction, setQuotaFraction] = useState<number>(1.0)
   const [projectMappings, setProjectMappings] = useState<string>('*')
   const [isDefault, setIsDefault] = useState<boolean>(false)
   const [enabled, setEnabled] = useState<boolean>(true)
-  const [contextWindow, setContextWindow] = useState<number>(1000000)
+  const [contextWindow, setContextWindow] = useState<number>(1048576)
+  const [notes, setNotes] = useState<string>('')
+  const [refreshingQuotas, setRefreshingQuotas] = useState<boolean>(false)
 
   // Reasoning / Thinking Configuration
-  const [supportsThinking, setSupportsThinking] = useState<boolean>(false)
-  const [thinkingLevels, setThinkingLevels] = useState<string[]>(['off', 'low', 'medium', 'high'])
+  const [thinkingLevels, setThinkingLevels] = useState<string[]>(['low', 'medium', 'high'])
   const [thinkingLevel, setThinkingLevel] = useState<string>('high')
 
   // Model Fetching States
@@ -92,20 +89,16 @@ export const CustomModelsPage: React.FC = () => {
     setEditingModel(null)
     setDisplayName('')
     setModelName('')
-    setProviderType('openai')
+    setProviderType('gemini')
     setBaseUrl('')
     setApiKey('')
-    setQuotaType('none')
-    setPrepaidBalance(25)
-    setTotalBudget(100)
-    setQuotaFraction(1.0)
     setProjectMappings('*')
     setIsDefault((config?.models?.length ?? 0) === 0)
-    setEnabled(true)
-    setContextWindow(1000000)
-    setSupportsThinking(false)
-    setThinkingLevels(['off', 'low', 'medium', 'high'])
-    setThinkingLevel('off')
+    setEnabled(false)
+    setContextWindow(1048576)
+    setNotes('')
+    setThinkingLevels(['low', 'medium', 'high'])
+    setThinkingLevel('high')
     setFetchedModels([])
     setFetchFeedback(null)
     setManualModelEntry(false)
@@ -122,22 +115,15 @@ export const CustomModelsPage: React.FC = () => {
     setProviderType(model.provider_type)
     setBaseUrl(model.base_url)
     setApiKey(model.api_key || '')
-    setQuotaType(model.quota_type)
-    setPrepaidBalance(model.prepaid_balance || 0)
-    setTotalBudget(model.total_budget || 0)
-    setQuotaFraction(model.quota_fraction ?? 1.0)
     setProjectMappings(model.project_mappings?.join(', ') || '*')
     setIsDefault(model.is_default)
     setEnabled(model.enabled)
-    setContextWindow(model.context_window || 1000000)
-    const isThinking = !!model.supports_thinking && model.thinking_level?.toLowerCase() !== 'off'
-    setSupportsThinking(isThinking)
-    setThinkingLevels(
-      model.thinking_levels && model.thinking_levels.length > 0
-        ? model.thinking_levels
-        : ['off', 'low', 'medium', 'high']
-    )
-    setThinkingLevel(isThinking ? (model.thinking_level || 'high') : 'off')
+    setContextWindow(model.context_window || 1048576)
+    setNotes(model.notes || '')
+    const isThinking = !!model.supports_thinking && !!model.thinking_level && model.thinking_level.toLowerCase() !== 'off'
+    const rawLevels = (model.thinking_levels || ['low', 'medium', 'high']).filter((l) => l.toLowerCase() !== 'off')
+    setThinkingLevels(rawLevels.length > 0 ? rawLevels : ['low', 'medium', 'high'])
+    setThinkingLevel(isThinking ? (model.thinking_level || 'high') : '')
     setFetchedModels([])
     setFetchFeedback(null)
     setManualModelEntry(false)
@@ -226,19 +212,22 @@ export const CustomModelsPage: React.FC = () => {
     if (found.context_window && found.context_window > 0) {
       setContextWindow(found.context_window)
     } else {
-      setContextWindow(1000000)
+      setContextWindow(1048576)
     }
     if (found.supports_thinking) {
-      setSupportsThinking(true)
-      setThinkingLevels(
-        found.thinking_levels && found.thinking_levels.length > 0
-          ? found.thinking_levels
-          : ['off', 'low', 'medium', 'high']
-      )
-      setThinkingLevel('high')
+      const cleanLevels = (found.thinking_levels || ['low', 'medium', 'high'])
+        .map((l) => l.trim())
+        .filter((l) => l.toLowerCase() !== 'off' && l !== '')
+      if (cleanLevels.length > 0) {
+        setThinkingLevels(cleanLevels)
+        setThinkingLevel(cleanLevels.includes('high') ? 'high' : cleanLevels[0])
+      } else {
+        setThinkingLevels(['low', 'medium', 'high'])
+        setThinkingLevel('high')
+      }
     } else {
-      setSupportsThinking(false)
-      setThinkingLevel('off')
+      setThinkingLevels([])
+      setThinkingLevel('')
     }
   }
 
@@ -256,8 +245,9 @@ export const CustomModelsPage: React.FC = () => {
     setModalTestResult(null)
     setModalError(null)
 
-    const isThinking = supportsThinking && thinkingLevel.toLowerCase() !== 'off'
-    const activeThinkingLvl = isThinking ? (thinkingLevel.trim() || 'high') : 'off'
+    const isThinking = thinkingLevel.trim() !== '' && thinkingLevel.toLowerCase() !== 'off'
+    const activeThinkingLvl = isThinking ? thinkingLevel.trim() : ''
+    const cleanThinkingLevels = thinkingLevels.filter((l) => l.toLowerCase() !== 'off' && l.trim() !== '')
     const draftModel: CustomModel = {
       id: editingModel?.id || 'draft-test',
       name: modelName.trim(),
@@ -266,16 +256,19 @@ export const CustomModelsPage: React.FC = () => {
       base_url: baseUrl.trim(),
       api_key: apiKey.trim(),
       project_mappings: projectMappings.split(',').map((p) => p.trim()).filter(Boolean),
-      quota_type: quotaType,
-      prepaid_balance: Number(prepaidBalance),
-      total_budget: Number(totalBudget),
-      quota_fraction: quotaType === 'quota_based' ? Number(quotaFraction) : null,
+      quota_type: editingModel?.quota_type || 'na',
+      balance_value: editingModel?.balance_value,
+      quota_value: editingModel?.quota_value,
+      prepaid_balance: editingModel?.prepaid_balance || 0,
+      total_budget: editingModel?.total_budget || 0,
+      quota_fraction: editingModel?.quota_fraction ?? null,
       is_default: isDefault,
       enabled: enabled,
-      context_window: Number(contextWindow) || 1000000,
+      context_window: Number(contextWindow) || 1048576,
       supports_thinking: isThinking,
-      thinking_levels: isThinking ? thinkingLevels : undefined,
-      thinking_level: isThinking ? activeThinkingLvl : 'off',
+      thinking_levels: isThinking ? (cleanThinkingLevels.length > 0 ? cleanThinkingLevels : [activeThinkingLvl]) : undefined,
+      thinking_level: isThinking ? activeThinkingLvl : '',
+      notes: notes.trim(),
     }
 
     try {
@@ -306,9 +299,9 @@ export const CustomModelsPage: React.FC = () => {
       .map((p) => p.trim())
       .filter(Boolean)
 
-    const isThinking = supportsThinking && thinkingLevel.toLowerCase() !== 'off'
-    const activeThinkingLvl = isThinking ? (thinkingLevel.trim() || 'high') : 'off'
-    const updatedThinkingLevels = [...thinkingLevels]
+    const isThinking = thinkingLevel.trim() !== '' && thinkingLevel.toLowerCase() !== 'off'
+    const activeThinkingLvl = isThinking ? thinkingLevel.trim() : ''
+    const updatedThinkingLevels = [...thinkingLevels].filter((l) => l.toLowerCase() !== 'off' && l.trim() !== '')
     if (
       isThinking &&
       activeThinkingLvl &&
@@ -327,16 +320,19 @@ export const CustomModelsPage: React.FC = () => {
       base_url: baseUrl.trim(),
       api_key: apiKey.trim(),
       project_mappings: mappings.length > 0 ? mappings : ['*'],
-      quota_type: quotaType,
-      prepaid_balance: Number(prepaidBalance) || 0,
-      total_budget: Number(totalBudget) || 0,
-      quota_fraction: quotaType === 'quota_based' ? Number(quotaFraction) : null,
+      quota_type: editingModel?.quota_type || 'na',
+      balance_value: editingModel?.balance_value,
+      quota_value: editingModel?.quota_value,
+      prepaid_balance: editingModel?.prepaid_balance || 0,
+      total_budget: editingModel?.total_budget || 0,
+      quota_fraction: editingModel?.quota_fraction ?? null,
       is_default: isDefault,
       enabled: enabled,
-      context_window: Number(contextWindow) || 1000000,
+      context_window: Number(contextWindow) || 1048576,
       supports_thinking: isThinking,
-      thinking_levels: isThinking ? updatedThinkingLevels : undefined,
-      thinking_level: isThinking ? activeThinkingLvl : 'off',
+      thinking_levels: isThinking ? (updatedThinkingLevels.length > 0 ? updatedThinkingLevels : [activeThinkingLvl]) : undefined,
+      thinking_level: isThinking ? activeThinkingLvl : '',
+      notes: notes.trim(),
     }
 
     try {
@@ -401,6 +397,25 @@ export const CustomModelsPage: React.FC = () => {
     try {
       const res = await api.testCustomModel(model)
       setCardTestResults((prev) => ({ ...prev, [model.id]: res }))
+      if (res.quota_result && res.quota_result.quota_type) {
+        setConfig((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            models: prev.models.map((item) =>
+              item.id === model.id
+                ? {
+                    ...item,
+                    quota_type: res.quota_result!.quota_type,
+                    balance_value: res.quota_result!.balance_value,
+                    quota_value: res.quota_result!.quota_value,
+                    quota_fraction: res.quota_result!.fraction,
+                  }
+                : item
+            ),
+          }
+        })
+      }
     } catch (err: any) {
       setCardTestResults((prev) => ({
         ...prev,
@@ -414,6 +429,18 @@ export const CustomModelsPage: React.FC = () => {
       }))
     } finally {
       setTestingModelId(null)
+    }
+  }
+
+  const handleRefreshAllQuotas = async () => {
+    setRefreshingQuotas(true)
+    try {
+      const updatedCfg = await api.refreshCustomModelQuotas()
+      setConfig(updatedCfg)
+    } catch (err: any) {
+      setFeedback(`Failed to refresh quotas: ${err.message}`)
+    } finally {
+      setRefreshingQuotas(false)
     }
   }
 
@@ -436,8 +463,18 @@ export const CustomModelsPage: React.FC = () => {
           <button onClick={openAddModal} className="btn-pill-primary" style={{ padding: '7px 16px', fontSize: '12px' }}>
             <Plus size={14} /> Add Custom Model
           </button>
-          <button onClick={loadData} disabled={loading} className="btn-pill-tonal" style={{ padding: '7px 12px' }} title="Refresh Custom Models">
-            <RefreshCw size={14} className={loading ? 'spin' : ''} />
+          <button
+            onClick={handleRefreshAllQuotas}
+            disabled={refreshingQuotas || loading}
+            className="btn-pill-tonal"
+            style={{ padding: '7px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            title="Auto-query provider endpoints to refresh balances and rate-limit quotas"
+          >
+            <RefreshCw size={13} className={refreshingQuotas ? 'spin' : ''} />
+            <span style={{ fontSize: '12px' }}>{refreshingQuotas ? 'Refreshing...' : 'Refresh Quotas'}</span>
+          </button>
+          <button onClick={loadData} disabled={loading} className="btn-pill-tonal" style={{ padding: '7px 12px' }} title="Reload Models">
+            <RefreshCw size={14} className={loading && !refreshingQuotas ? 'spin' : ''} />
           </button>
         </div>
       </div>
@@ -478,33 +515,49 @@ export const CustomModelsPage: React.FC = () => {
 
             // Quota Gauge calculation
             let gaugePct: number | null = null
-            let gaugeTitle = 'Untracked Quota'
-            let gaugeSub: string | undefined = 'No budget/limits'
+            let gaugeTitle = 'Untracked'
             let emptyGrey = true
 
-            if (m.quota_type === 'cost_based') {
-              if (m.total_budget > 0) {
-                gaugePct = Math.max(0, Math.min(100, (m.prepaid_balance / m.total_budget) * 100))
+            const qType = (m.quota_type || '').toLowerCase()
+
+            if (qType === 'balance' || qType === 'cost_based') {
+              if (m.balance_value && m.balance_value.trim()) {
+                gaugeTitle = `Balance: ${m.balance_value}`
+              } else if (m.prepaid_balance > 0) {
+                gaugeTitle = `Balance: $${m.prepaid_balance.toFixed(2)}`
+              } else {
+                gaugeTitle = 'Balance'
+              }
+
+              if (m.quota_fraction !== null && m.quota_fraction !== undefined) {
+                gaugePct = Math.max(0, Math.min(100, Math.round(m.quota_fraction * 100)))
                 emptyGrey = false
-                gaugeSub = `$${m.prepaid_balance.toFixed(2)} / $${m.total_budget.toFixed(2)}`
+              } else if (m.total_budget > 0) {
+                gaugePct = Math.max(0, Math.min(100, Math.round((m.prepaid_balance / m.total_budget) * 100)))
+                emptyGrey = false
               } else {
                 emptyGrey = true
                 gaugePct = null
-                gaugeSub = 'Untracked deposit balance'
               }
-              gaugeTitle = 'Deposit Balance'
-            } else if (m.quota_type === 'quota_based') {
+            } else if (qType === 'quota' || qType === 'quota_based') {
+              if (m.quota_value && m.quota_value.trim()) {
+                gaugeTitle = `Quota: ${m.quota_value}`
+              } else {
+                // If endpoint only returns a percentage value, then show 'Quota'
+                gaugeTitle = 'Quota'
+              }
+
               if (m.quota_fraction !== null && m.quota_fraction !== undefined) {
-                gaugePct = Math.max(0, Math.min(100, m.quota_fraction * 100))
+                gaugePct = Math.max(0, Math.min(100, Math.round(m.quota_fraction * 100)))
                 emptyGrey = false
+              } else {
+                emptyGrey = true
+                gaugePct = null
               }
-              gaugeTitle = 'Quota Remaining'
-              gaugeSub = 'Rate-limit tracked'
             } else {
               emptyGrey = true
               gaugePct = null
-              gaugeTitle = 'Untracked Quota'
-              gaugeSub = 'No limits configured'
+              gaugeTitle = 'Untracked'
             }
 
             return (
@@ -578,6 +631,23 @@ export const CustomModelsPage: React.FC = () => {
                           </span>
                         ))}
                       </div>
+
+                      {m.notes && (
+                        <div
+                          style={{
+                            fontSize: '11px',
+                            color: 'var(--text-muted)',
+                            marginTop: '6px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            maxWidth: '220px',
+                          }}
+                          title={m.notes}
+                        >
+                          Note: {m.notes}
+                        </div>
+                      )}
                     </div>
 
                     {/* Circular Quota Gauge */}
@@ -586,7 +656,6 @@ export const CustomModelsPage: React.FC = () => {
                         percentage={gaugePct}
                         emptyGrey={emptyGrey}
                         title={gaugeTitle}
-                        subtitle={gaugeSub}
                         size={100}
                         strokeWidth={8}
                       />
@@ -716,7 +785,7 @@ export const CustomModelsPage: React.FC = () => {
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. GPT-4o Production"
+                    placeholder="e.g. Gemini 4 Argon"
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
                     style={{ width: '100%', fontSize: '12px', padding: '8px 10px' }}
@@ -785,7 +854,7 @@ export const CustomModelsPage: React.FC = () => {
                   ) : (
                     <input
                       type="text"
-                      placeholder="e.g. gpt-4o, claude-3-7-sonnet"
+                      placeholder="e.g. gemini-4-argon"
                       value={modelName}
                       onChange={(e) => setModelName(e.target.value)}
                       style={{ width: '100%', fontSize: '12px', padding: '8px 10px', fontFamily: 'monospace' }}
@@ -816,7 +885,7 @@ export const CustomModelsPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Provider Type & Context Window */}
+              {/* Provider Protocol & Base URL */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
@@ -827,11 +896,75 @@ export const CustomModelsPage: React.FC = () => {
                     onChange={(e) => setProviderType(e.target.value as ProviderType)}
                     style={{ width: '100%', fontSize: '12px', padding: '8px 10px' }}
                   >
+                    <option value="gemini">Google Gemini API (:generateContent)</option>
                     <option value="openai">OpenAI Compatible (/v1/chat/completions)</option>
                     <option value="anthropic">Anthropic Claude (/v1/messages)</option>
-                    <option value="gemini">Google Gemini API (:generateContent)</option>
                     <option value="custom">Custom (Direct / Raw Endpoint)</option>
                   </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                    {providerType === 'custom' ? 'Custom Endpoint URL:' : 'Base URL:'}
+                  </label>
+                  <input
+                    type="text"
+                    placeholder={
+                      providerType === 'gemini'
+                        ? 'e.g. https://generativelanguage.googleapis.com'
+                        : providerType === 'custom'
+                        ? 'e.g. https://my-custom-proxy.internal/v1/chat/completions'
+                        : 'e.g. https://api.openai.com/v1'
+                    }
+                    value={baseUrl}
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                    style={{ width: '100%', fontSize: '12px', padding: '8px 10px', fontFamily: 'monospace' }}
+                  />
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    Resolved Endpoint:{' '}
+                    <span style={{ color: 'var(--primary)', fontWeight: 600 }}>
+                      {resolveEndpointPreview(providerType, baseUrl, modelName)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Reasoning Level & Context Window */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                    Reasoning Level:
+                  </label>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      placeholder="e.g. high (blank for default)"
+                      value={thinkingLevel}
+                      onChange={(e) => {
+                        setThinkingLevel(e.target.value)
+                      }}
+                      style={{ flex: 1, minWidth: 0, fontSize: '12px', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)' }}
+                    />
+                    {thinkingLevels.length > 0 && (
+                      <select
+                        value={thinkingLevels.some((l) => l.toLowerCase() === thinkingLevel.toLowerCase()) ? thinkingLevel.toLowerCase() : ''}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          if (val) {
+                            setThinkingLevel(val)
+                          }
+                        }}
+                        style={{ width: '92px', flexShrink: 0, fontSize: '12px', padding: '8px 4px', borderRadius: '6px', border: '1px solid var(--border)' }}
+                        title="Select a reasoning level preset"
+                      >
+                        <option value="">Presets...</option>
+                        {thinkingLevels.map((lvl) => (
+                          <option key={lvl} value={lvl.toLowerCase()}>
+                            {lvl.charAt(0).toUpperCase() + lvl.slice(1)}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
@@ -843,30 +976,6 @@ export const CustomModelsPage: React.FC = () => {
                     onChange={(e) => setContextWindow(Number(e.target.value))}
                     style={{ width: '100%', fontSize: '12px', padding: '8px 10px' }}
                   />
-                </div>
-              </div>
-
-              {/* Base URL */}
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                  {providerType === 'custom' ? 'Custom Endpoint URL:' : 'Base URL:'}
-                </label>
-                <input
-                  type="text"
-                  placeholder={
-                    providerType === 'custom'
-                      ? 'e.g. https://my-custom-proxy.internal/v1/chat/completions'
-                      : 'e.g. https://api.openai.com/v1 or https://opencode.ai/zen/go/v1'
-                  }
-                  value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
-                  style={{ width: '100%', fontSize: '12px', padding: '8px 10px', fontFamily: 'monospace' }}
-                />
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontFamily: 'monospace' }}>
-                  Resolved Test Endpoint:{' '}
-                  <span style={{ color: 'var(--primary)', fontWeight: 600 }}>
-                    {resolveEndpointPreview(providerType, baseUrl, modelName)}
-                  </span>
                 </div>
               </div>
 
@@ -902,100 +1011,6 @@ export const CustomModelsPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Thinking / Reasoning Level */}
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                  Thinking / Reasoning Level:
-                </label>
-                <select
-                  value={supportsThinking && thinkingLevel.toLowerCase() !== 'off' ? thinkingLevel.toLowerCase() : 'off'}
-                  onChange={(e) => {
-                    const val = e.target.value
-                    if (val === 'off') {
-                      setSupportsThinking(false)
-                      setThinkingLevel('off')
-                    } else {
-                      setSupportsThinking(true)
-                      setThinkingLevel(val)
-                    }
-                  }}
-                  style={{ width: '100%', fontSize: '12px', padding: '8px 10px' }}
-                >
-                  <option value="off">Off (Disabled / Standard Generation)</option>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  {!['off', 'low', 'medium', 'high'].includes(thinkingLevel.toLowerCase()) && thinkingLevel && (
-                    <option value={thinkingLevel.toLowerCase()}>
-                      {thinkingLevel.charAt(0).toUpperCase() + thinkingLevel.slice(1)} (Custom)
-                    </option>
-                  )}
-                </select>
-              </div>
-
-              {/* Quota Type Selection */}
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                  Quota Tracking Mode:
-                </label>
-                <select
-                  value={quotaType}
-                  onChange={(e) => setQuotaType(e.target.value as QuotaType)}
-                  style={{ width: '100%', fontSize: '12px', padding: '8px 10px' }}
-                >
-                  <option value="none">Untracked / None (Always renders grey N/A ring gauge)</option>
-                  <option value="cost_based">Cost-Based / Prepaid Balance (Deposit remaining fraction)</option>
-                  <option value="quota_based">Quota-Based / Rate Limits (Remaining fraction percentage)</option>
-                </select>
-              </div>
-
-              {/* Conditional Quota Inputs */}
-              {quotaType === 'cost_based' && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', backgroundColor: 'var(--canvas)', padding: '12px', borderRadius: '8px' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                      Prepaid Balance ($):
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={prepaidBalance}
-                      onChange={(e) => setPrepaidBalance(parseFloat(e.target.value) || 0)}
-                      style={{ width: '100%', fontSize: '12px', padding: '6px 8px' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                      Total Budget ($):
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={totalBudget}
-                      onChange={(e) => setTotalBudget(parseFloat(e.target.value) || 0)}
-                      style={{ width: '100%', fontSize: '12px', padding: '6px 8px' }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {quotaType === 'quota_based' && (
-                <div style={{ backgroundColor: 'var(--canvas)', padding: '12px', borderRadius: '8px' }}>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                    Quota Fraction Remaining (0.0 to 1.0):
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={quotaFraction}
-                    onChange={(e) => setQuotaFraction(parseFloat(e.target.value) || 0)}
-                    style={{ width: '100%', fontSize: '12px', padding: '6px 8px' }}
-                  />
-                </div>
-              )}
-
               {/* Project Mappings */}
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
@@ -1020,14 +1035,58 @@ export const CustomModelsPage: React.FC = () => {
                   />
                   <span>Set as default custom model</span>
                 </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer' }}>
-                  <ToggleSwitch
-                    size="sm"
-                    checked={enabled}
-                    onChange={(checked) => setEnabled(checked)}
-                  />
-                  <span>Enabled</span>
+              </div>
+
+              {/* Notes Section: User Notes */}
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                  Notes:
                 </label>
+                <textarea
+                  placeholder="Optional notes or description for this model (e.g. usage guidelines, proxy cluster, billing owner)..."
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={2}
+                  style={{
+                    width: '100%',
+                    fontSize: '12px',
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border)',
+                    fontFamily: 'inherit',
+                    resize: 'vertical',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              {/* Configuration Notes Section */}
+              <div
+                style={{
+                  backgroundColor: 'var(--canvas)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  padding: '12px 14px',
+                  fontSize: '11px',
+                  color: 'var(--text-muted)',
+                  lineHeight: 1.5,
+                }}
+              >
+                <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Info size={13} style={{ color: 'var(--primary)' }} />
+                  <span>Configuration Notes & Balance Tracking</span>
+                </div>
+                <ul style={{ margin: 0, paddingLeft: '16px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  <li>
+                    <strong>Auto-Derived Balance & Quota:</strong> Available balance or rate-limit quotas are automatically queried via API from recognized providers (e.g. OpenRouter, DeepSeek, SiliconFlow, Moonshot/Kimi, Together AI, OneAPI/NewAPI) upon save and testing.
+                  </li>
+                  <li>
+                    <strong>Untracked (N/A):</strong> If the entered Base URL is not in our recognized dictionary or the provider endpoint returns no quota value, tracking defaults to <em>N/A</em> and displays as <em>Untracked</em>.
+                  </li>
+                  <li>
+                    <strong>Manual Activation:</strong> Save the model first. Then toggle the active switch on the model's card in the main list to enable it for Antigravity tasks.
+                  </li>
+                </ul>
               </div>
             </div>
 
@@ -1076,7 +1135,15 @@ export const CustomModelsPage: React.FC = () => {
                       {isSuccess ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
                       <span>
                         {isSuccess
-                          ? `${modalTestResult.status_code} OK (${modalTestResult.latency_ms}ms)`
+                          ? `${modalTestResult.status_code} OK (${modalTestResult.latency_ms}ms)${
+                              modalTestResult.quota_result?.balance_value
+                                ? ` • Balance: ${modalTestResult.quota_result.balance_value}`
+                                : modalTestResult.quota_result?.quota_value
+                                ? ` • Quota: ${modalTestResult.quota_result.quota_value}`
+                                : modalTestResult.quota_result?.quota_type === 'quota'
+                                ? ' • Quota'
+                                : ''
+                            }`
                           : `Failed: ${modalTestResult.message}`}
                       </span>
                     </div>

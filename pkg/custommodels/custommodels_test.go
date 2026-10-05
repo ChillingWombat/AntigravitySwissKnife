@@ -374,10 +374,10 @@ func TestResolveEndpoint_Custom(t *testing.T) {
 }
 
 func TestDetectModelMetadata(t *testing.T) {
-	// Standard model with default 1000000 fallback
+	// Standard model with default 1048576 fallback
 	ctx, thinking, _ := detectModelMetadata("some-unknown-model", "", 0)
-	if ctx != 1000000 {
-		t.Errorf("expected default context window 1000000, got %d", ctx)
+	if ctx != 1048576 {
+		t.Errorf("expected default context window 1048576, got %d", ctx)
 	}
 	if thinking {
 		t.Errorf("expected supports_thinking=false for unknown model")

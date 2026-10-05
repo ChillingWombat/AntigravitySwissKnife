@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react'
-import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail } from 'lucide-react'
+import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail, DollarSign } from 'lucide-react'
 import type { AccountState } from '../types'
 import { HorizontalQuotaBar } from './HorizontalQuotaBar'
+import { ToggleSwitch } from './ToggleSwitch'
 import { api } from '../api'
 import { generateTOTP } from '../utils/totp'
 
@@ -29,6 +30,16 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [oauthSuccessMsg, setOauthSuccessMsg] = useState<string | null>(null)
   const [status, setStatus] = useState<string>(account.status || (account.is_active ? 'ACTIVE' : 'STANDBY'))
   const [planTier, setPlanTier] = useState(account.plan_tier || 'Pro')
+  const [credits, setCredits] = useState<number | string>(
+    account.credits !== undefined && account.credits !== null
+      ? account.credits
+      : account.plan_tier?.toLowerCase() === 'ultra'
+      ? 50
+      : account.plan_tier?.toLowerCase() === 'pro'
+      ? 20
+      : 0
+  )
+  const [enableCreditOverages, setEnableCreditOverages] = useState<boolean>(account.enable_credit_overages ?? false)
   const [notes, setNotes] = useState(account.notes || '')
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -105,6 +116,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         notes: notes.trim(),
         totp_secret: totpSecret.trim().toUpperCase(),
         refresh_token: refreshToken.trim(),
+        credits: Number(credits) || 0,
+        enable_credit_overages: enableCreditOverages,
       })
       onSaved()
       onClose()
@@ -682,6 +695,39 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 <option value="Ultra 10X">Ultra 10X</option>
                 <option value="Ultra 20X">Ultra 20X</option>
               </select>
+            </div>
+          </div>
+
+          {/* AI Credits & Overage Setting */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', alignItems: 'center' }}>
+            <div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
+                <DollarSign size={14} /> Available AI Credits ($):
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="0.00"
+                value={credits}
+                onChange={(e) => setCredits(e.target.value)}
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Credit Overages:
+              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', height: '38px' }}>
+                <ToggleSwitch
+                  checked={enableCreditOverages}
+                  onChange={(val) => setEnableCreditOverages(val)}
+                />
+                <span style={{ fontSize: '13px', color: 'var(--text)', fontWeight: 500 }}>
+                  Enable AI Credit Overages
+                </span>
+              </div>
             </div>
           </div>
 

@@ -11,7 +11,8 @@ type Config struct {
 	ColorStylingEnabled         bool              `json:"color_styling_enabled"`        // Toggle: Custom project colors & conversation tinting
 	SolidLeftEdge               bool              `json:"solid_left_edge"`              // Toggle: Include solid color edge on conversation tabs (default false)
 	TintOpacity                 float64           `json:"tint_opacity"`                 // Conversation tab tint opacity (default 0.14)
-	ActiveConversationIndicator string            `json:"active_conversation_indicator"`// "background" (default denser bg) or "border" (denser border outline with light bg)
+	ActiveConversationIndicator string            `json:"active_conversation_indicator"`// "background" (accent fill), "border" (border outline), "left_bar" (left accent bar)
+	ActiveConversationBorderWidth string          `json:"active_conversation_border_width,omitempty"` // "1px", "1.5px", "2px" (default), "3px"
 	ActiveConversationBold      bool              `json:"active_conversation_bold"`     // Toggle: Bold text on open conversation tab (default false)
 	ProjectColors               map[string]string `json:"project_colors"`               // Map of project name -> hex color
 	DragRearrangeEnabled        bool              `json:"drag_rearrange_enabled"`       // Toggle: Drag to rearrange projects order
@@ -23,7 +24,7 @@ type Config struct {
 	ConversationTabsMin         int               `json:"conversation_tabs_min"`         // default 2 (range 1-10)
 	ConversationTabsMax         int               `json:"conversation_tabs_max"`         // default 6 (range 1-10)
 	AutoArchiveConversations    bool              `json:"auto_archive_conversations"`    // Toggle: Automatically archive stale conversations
-	AutoArchiveHorizon          string            `json:"auto_archive_horizon"`          // "7d", "14d", "30d" (default), "60d", "90d"
+	AutoArchiveHorizon          string            `json:"auto_archive_horizon"`          // "3d", "7d", "14d" (default), "30d", "60d", "90d"
 	AutoInject                  bool              `json:"auto_inject"`                  // Automatically inject into Antigravity desktop app
 }
 
@@ -32,10 +33,11 @@ func DefaultConfig() *Config {
 	return &Config{
 		Enabled:                     true,
 		ColorStylingEnabled:         true,
-		SolidLeftEdge:               false, // Off by default: background of tab is 1 color without solid edge
+		SolidLeftEdge:               false, // Legacy field preserved for backward compatibility
 		TintOpacity:                 0.14,
-		ActiveConversationIndicator: "background", // "background" (darker background) or "border" (denser border outline)
-		ActiveConversationBold:      false,        // Regular text weight on open conversation tab by default (bold off)
+		ActiveConversationIndicator: "background", // "background" (accent fill), "border" (outline), or "left_bar"
+		ActiveConversationBorderWidth: "2px",
+		ActiveConversationBold:      false,        // Regular text weight on open conversation tab by default
 		ProjectColors: map[string]string{
 			"Antigravity Swiss Knife": "#0b57d0", // Gemini blue
 			"Arbitrager":              "#7c3aed", // Vibrant purple
@@ -55,8 +57,8 @@ func DefaultConfig() *Config {
 		ConversationTabsAgeThreshold: "1d",
 		ConversationTabsMin:         2,
 		ConversationTabsMax:         6,
-		AutoArchiveConversations:    false,
-		AutoArchiveHorizon:          "30d",
+		AutoArchiveConversations:    true,
+		AutoArchiveHorizon:          "14d",
 		AutoInject:                  true,
 	}
 }

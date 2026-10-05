@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Archive,
   RotateCcw,
@@ -25,6 +26,11 @@ export const ArchivedProjectsPage: React.FC = () => {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [deleteConfirmProject, setDeleteConfirmProject] = useState<ArchivedProjectItem | null>(null)
   const [selectedToArchive, setSelectedToArchive] = useState('')
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
+
+  useEffect(() => {
+    setPortalTarget(document.getElementById('top-bar-right'))
+  }, [])
 
   const loadData = async () => {
     try {
@@ -118,18 +124,8 @@ export const ArchivedProjectsPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Header Info Card */}
-      <div className="google-card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-          <div>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-              Archived Projects
-            </div>
-            <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
-              Manage hidden and archived projects in Antigravity 2.0. Projects here are hidden from the sidebar to keep your workspace clutter-free.
-            </div>
-          </div>
-
+      {portalTarget &&
+        createPortal(
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             {/* Archive Active Project Dropdown */}
             {activeProjects.length > 0 && (
@@ -179,29 +175,28 @@ export const ArchivedProjectsPage: React.FC = () => {
               <RefreshCw size={13} className={loading ? 'spin' : ''} />
               <span>Refresh</span>
             </button>
-          </div>
-        </div>
-
-        {statusMsg && (
-          <div
-            style={{
-              marginTop: '16px',
-              padding: '10px 14px',
-              borderRadius: '8px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              fontSize: '13px',
-              background: statusMsg.type === 'success' ? '#f0fdf4' : '#fef2f2',
-              color: statusMsg.type === 'success' ? '#166534' : '#991b1b',
-              border: `1px solid ${statusMsg.type === 'success' ? '#bbf7d0' : '#fecaca'}`,
-            }}
-          >
-            {statusMsg.type === 'success' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-            <span>{statusMsg.text}</span>
-          </div>
+          </div>,
+          portalTarget
         )}
-      </div>
+
+      {statusMsg && (
+        <div
+          style={{
+            padding: '10px 14px',
+            borderRadius: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '13px',
+            background: statusMsg.type === 'success' ? '#f0fdf4' : '#fef2f2',
+            color: statusMsg.type === 'success' ? '#166534' : '#991b1b',
+            border: `1px solid ${statusMsg.type === 'success' ? '#bbf7d0' : '#fecaca'}`,
+          }}
+        >
+          {statusMsg.type === 'success' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+          <span>{statusMsg.text}</span>
+        </div>
+      )}
 
       {/* Search Bar */}
       {archived.length > 0 && (

@@ -384,8 +384,11 @@ func TestWebGUIConversationTabsAndAutoArchiveEndpoints(t *testing.T) {
 	if cfg.ConversationTabsMax != 6 {
 		t.Errorf("expected default max tabs 6, got %d", cfg.ConversationTabsMax)
 	}
-	if cfg.AutoArchiveHorizon != "30d" {
-		t.Errorf("expected default auto archive horizon '30d', got %q", cfg.AutoArchiveHorizon)
+	if cfg.AutoArchiveHorizon != "14d" {
+		t.Errorf("expected default auto archive horizon '14d', got %q", cfg.AutoArchiveHorizon)
+	}
+	if !cfg.AutoArchiveConversations {
+		t.Errorf("expected default auto archive conversations true, got false")
 	}
 
 	// 2. POST /api/gui/config - update to dynamic mode with custom thresholds

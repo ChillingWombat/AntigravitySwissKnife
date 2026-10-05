@@ -78,16 +78,6 @@ interface ToolsMarketplacePageProps {
 export const ToolsMarketplacePage: React.FC<ToolsMarketplacePageProps> = ({ onSelectTool }) => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Header Info Card */}
-      <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-          Swiss Knife Tools Marketplace
-        </div>
-        <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
-          Extend your Antigravity companion with native productivity, security, and automation modules.
-        </div>
-      </div>
-
       {/* Grid of Extension Cards */}
       <div
         style={{

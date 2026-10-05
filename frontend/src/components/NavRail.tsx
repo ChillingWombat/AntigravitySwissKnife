@@ -62,7 +62,7 @@ export const NavRail: React.FC<NavRailProps> = ({
           <div
             id="brandTitle"
             style={{
-              fontSize: '17px',
+              fontSize: '19px',
               fontWeight: 700,
               letterSpacing: '-0.2px',
               color: 'var(--text)',
@@ -79,7 +79,7 @@ export const NavRail: React.FC<NavRailProps> = ({
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              fontSize: '9.5px',
+              fontSize: '10.5px',
               fontWeight: 700,
               color: 'var(--primary)',
               textTransform: 'uppercase',
@@ -170,7 +170,7 @@ export const NavRail: React.FC<NavRailProps> = ({
           }}
         >
           <Zap size={18} color={currentTool === 4 ? 'var(--primary)' : 'var(--text-muted)'} />
-          App Enhancements
+          UI Enhancements
         </button>
 
         <button

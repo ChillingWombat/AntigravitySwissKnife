@@ -141,7 +141,7 @@ func TestGenerateCSS(t *testing.T) {
 	if !strings.Contains(cssBorderMode, `background-color: rgba(124, 58, 237, 0.14) !important;
   border: 2px solid #7c3aed !important;
   font-weight: 400 !important;`) {
-		t.Errorf("CSS with ActiveConversationIndicator='border' should have light background and denser border, got: %s", cssBorderMode)
+		t.Errorf("CSS with ActiveConversationIndicator='border' should have light background and accent border outline, got: %s", cssBorderMode)
 	}
 	if !strings.Contains(cssBorderMode, `border: 2px solid transparent !important;`) {
 		t.Errorf("CSS with ActiveConversationIndicator='border' should have 2px transparent border on ordinary tabs, got: %s", cssBorderMode)
@@ -161,7 +161,45 @@ func TestGenerateCSS(t *testing.T) {
 	cssDefaultMode := GenerateCSS(cfgDefaultMode)
 	if !strings.Contains(cssDefaultMode, `background-color: rgba(124, 58, 237, 0.30) !important;
   font-weight: 600 !important;`) {
-		t.Errorf("CSS with default indicator should have darker background and font-weight 600, got: %s", cssDefaultMode)
+		t.Errorf("CSS with default indicator should have accent fill background and font-weight 600, got: %s", cssDefaultMode)
+	}
+
+	// 7. Test ActiveConversationIndicator="left_bar"
+	cfgLeftBarMode := &Config{
+		Enabled:                     true,
+		ColorStylingEnabled:         true,
+		ActiveConversationIndicator: "left_bar",
+		ProjectColors: map[string]string{
+			"Arbitrager": "#7c3aed",
+		},
+		TintOpacity: 0.14,
+	}
+	cssLeftBarMode := GenerateCSS(cfgLeftBarMode)
+	if !strings.Contains(cssLeftBarMode, "border-left: 3px solid transparent !important;") {
+		t.Errorf("CSS with left_bar should have transparent left border on ordinary tabs, got: %s", cssLeftBarMode)
+	}
+	if !strings.Contains(cssLeftBarMode, "border-left: 3px solid #7c3aed !important;") {
+		t.Errorf("CSS with left_bar should have solid 3px accent left border on active tab, got: %s", cssLeftBarMode)
+	}
+	if !strings.Contains(cssLeftBarMode, `background-color: rgba(124, 58, 237, 0.14) !important;
+  border-left: 3px solid #7c3aed !important;`) {
+		t.Errorf("CSS with left_bar should preserve normal tab background opacity, got: %s", cssLeftBarMode)
+	}
+
+	// 8. Test ActiveConversationBorderWidth="1.5px"
+	cfgCustomBorder := &Config{
+		Enabled:                       true,
+		ColorStylingEnabled:           true,
+		ActiveConversationIndicator:   "border",
+		ActiveConversationBorderWidth: "1.5px",
+		ProjectColors: map[string]string{
+			"Arbitrager": "#7c3aed",
+		},
+		TintOpacity: 0.14,
+	}
+	cssCustomBorder := GenerateCSS(cfgCustomBorder)
+	if !strings.Contains(cssCustomBorder, "border: 1.5px solid #7c3aed !important;") {
+		t.Errorf("CSS with 1.5px border width should render border: 1.5px solid #7c3aed, got: %s", cssCustomBorder)
 	}
 }
 

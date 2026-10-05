@@ -355,12 +355,17 @@ func (d *Daemon) registerRPCHandlers() {
 	getRuleConfigHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		d.mu.RLock()
 		defer d.mu.RUnlock()
+		prefNative := d.Config.PreferredNativeModel
+		if prefNative == "" {
+			prefNative = "gemini"
+		}
 		return map[string]interface{}{
 			"auto_switch_enabled":       d.Config.AutoSwitchEnabled,
 			"auto_switch_threshold":     d.Config.AutoSwitchThreshold,
 			"polling_interval_seconds":  d.Config.PollingIntervalSec,
 			"warmup_enabled":            d.Config.WarmupEnabled,
 			"warmup_lead_time_seconds":  d.Config.WarmupLeadTimeSec,
+			"preferred_native_model":    prefNative,
 		}, nil
 	}
 	d.Server.Register("swiss.getRuleConfig", getRuleConfigHandler)
@@ -369,11 +374,12 @@ func (d *Daemon) registerRPCHandlers() {
 	// 11. Rule Config: Set
 	setRuleConfigHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		var p struct {
-			AutoSwitchEnabled   *bool    `json:"auto_switch_enabled"`
-			AutoSwitchThreshold *float64 `json:"auto_switch_threshold"`
-			PollingIntervalSec  *int     `json:"polling_interval_seconds"`
-			WarmupEnabled       *bool    `json:"warmup_enabled"`
-			WarmupLeadTimeSec   *float64 `json:"warmup_lead_time_seconds"`
+			AutoSwitchEnabled    *bool    `json:"auto_switch_enabled"`
+			AutoSwitchThreshold  *float64 `json:"auto_switch_threshold"`
+			PollingIntervalSec   *int     `json:"polling_interval_seconds"`
+			WarmupEnabled        *bool    `json:"warmup_enabled"`
+			WarmupLeadTimeSec    *float64 `json:"warmup_lead_time_seconds"`
+			PreferredNativeModel *string  `json:"preferred_native_model"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: err.Error()}
@@ -394,6 +400,9 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 		if p.WarmupLeadTimeSec != nil {
 			d.Config.WarmupLeadTimeSec = *p.WarmupLeadTimeSec
+		}
+		if p.PreferredNativeModel != nil {
+			d.Config.PreferredNativeModel = *p.PreferredNativeModel
 		}
 		_ = d.Config.Save()
 		d.mu.Unlock()

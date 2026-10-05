@@ -218,15 +218,16 @@ func (s *Store) ListSidecars() ([]SidecarTaskInfo, error) {
 		}
 
 		cronExpr := ""
-		promptPreview := ""
+		fullPrompt := ""
 		if len(payload.Args) > 0 {
 			cronExpr = payload.Args[0]
 		}
 		if len(payload.Args) > 4 {
-			promptPreview = payload.Args[4]
+			fullPrompt = payload.Args[4]
 		} else if len(payload.Args) > 3 {
-			promptPreview = payload.Args[3]
+			fullPrompt = payload.Args[3]
 		}
+		promptPreview := fullPrompt
 		if len(promptPreview) > 120 {
 			promptPreview = promptPreview[:120] + "..."
 		}
@@ -242,11 +243,85 @@ func (s *Store) ListSidecars() ([]SidecarTaskInfo, error) {
 			CronExpression: cronExpr,
 			ScheduleText:   CronToHuman(cronExpr),
 			PromptPreview:  promptPreview,
+			Prompt:         fullPrompt,
 			Path:           cfgPath,
 		})
 	}
 
 	return results, nil
+}
+
+// UpdateSidecar updates an existing sidecar task on disk.
+func (s *Store) UpdateSidecar(req UpdateSidecarRequest) (*SidecarTaskInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if strings.Contains(req.ID, "..") || strings.Contains(req.ID, "/") || strings.Contains(req.ID, "\\") {
+		return nil, fmt.Errorf("invalid sidecar task ID: %s", req.ID)
+	}
+
+	targetDir := filepath.Join(s.sidecarsDir, req.ID)
+	cfgPath := filepath.Join(targetDir, "sidecar.json")
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return nil, fmt.Errorf("sidecar task not found: %s", req.ID)
+	}
+
+	var payload SidecarPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, fmt.Errorf("invalid sidecar configuration: %w", err)
+	}
+
+	if req.DisplayName != "" {
+		payload.DisplayName = req.DisplayName
+	}
+
+	cronExpr := req.CronExpression
+	if cronExpr == "" && len(payload.Args) > 0 {
+		cronExpr = payload.Args[0]
+	}
+	if cronExpr == "" {
+		cronExpr = "0 8 * * *"
+	}
+
+	finalPrompt := req.Prompt
+	if finalPrompt == "" && len(payload.Args) > 4 {
+		finalPrompt = payload.Args[4]
+	} else if finalPrompt == "" && len(payload.Args) > 3 {
+		finalPrompt = payload.Args[3]
+	}
+
+	payload.Args = []string{
+		cronExpr,
+		"agentapi",
+		"new-conversation",
+		"--",
+		finalPrompt,
+	}
+
+	newData, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode sidecar payload: %w", err)
+	}
+
+	if err := os.WriteFile(cfgPath, newData, 0644); err != nil {
+		return nil, fmt.Errorf("failed to write sidecar.json: %w", err)
+	}
+
+	promptPreview := finalPrompt
+	if len(promptPreview) > 120 {
+		promptPreview = promptPreview[:120] + "..."
+	}
+
+	return &SidecarTaskInfo{
+		ID:             req.ID,
+		DisplayName:    payload.DisplayName,
+		CronExpression: cronExpr,
+		ScheduleText:   CronToHuman(cronExpr),
+		PromptPreview:  promptPreview,
+		Prompt:         finalPrompt,
+		Path:           cfgPath,
+	}, nil
 }
 
 // DeleteSidecar removes a sidecar directory and stops the scheduled task.

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Clock, Trash2, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Clock, Trash2, AlertCircle, CheckCircle2, Edit3, X } from 'lucide-react'
 import { api } from '../api'
 import type { DeployTaskRequest, ScheduledTemplate, SidecarTaskInfo } from '../types'
 import { formatSchedule } from '../utils/schedule'
@@ -12,12 +12,19 @@ const CATEGORIES = [
   'Research & Market',
 ]
 
-export const ScheduledTemplatesPage: React.FC = () => {
+interface ScheduledTemplatesPageProps {
+  activeTab?: 'catalog' | 'created'
+  onTabChange?: (tab: 'catalog' | 'created') => void
+}
+
+export const ScheduledTemplatesPage: React.FC<ScheduledTemplatesPageProps> = ({
+  activeTab: controlledActiveTab,
+}) => {
   const [templates, setTemplates] = useState<ScheduledTemplate[]>([])
   const [sidecars, setSidecars] = useState<SidecarTaskInfo[]>([])
   const [selectedCategory, setSelectedCategory] = useState('All')
   const [searchQuery, setSearchQuery] = useState('')
-  const [activeTab, setActiveTab] = useState<'catalog' | 'active'>('catalog')
+  const activeTab = controlledActiveTab ?? 'catalog'
   const [loading, setLoading] = useState(true)
 
   // Modal state
@@ -32,6 +39,14 @@ export const ScheduledTemplatesPage: React.FC = () => {
   const [deleteConfirmSidecar, setDeleteConfirmSidecar] = useState<{ id: string; name: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState<boolean>(false)
   const [pageFeedback, setPageFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+
+  // Edit sidecar state
+  const [editingSidecar, setEditingSidecar] = useState<SidecarTaskInfo | null>(null)
+  const [editDisplayName, setEditDisplayName] = useState('')
+  const [editCronExpression, setEditCronExpression] = useState('')
+  const [editPrompt, setEditPrompt] = useState('')
+  const [isUpdating, setIsUpdating] = useState(false)
+  const [editModalMsg, setEditModalMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
 
   useEffect(() => {
     loadData()
@@ -110,6 +125,38 @@ export const ScheduledTemplatesPage: React.FC = () => {
     }
   }
 
+  const handleStartEditSidecar = (sc: SidecarTaskInfo) => {
+    setEditingSidecar(sc)
+    setEditDisplayName(sc.display_name)
+    setEditCronExpression(sc.cron_expression)
+    setEditPrompt(sc.prompt || sc.prompt_preview || '')
+    setEditModalMsg(null)
+  }
+
+  const handleSaveEditSidecar = async () => {
+    if (!editingSidecar) return
+    setIsUpdating(true)
+    setEditModalMsg(null)
+    try {
+      await api.updateSidecar({
+        id: editingSidecar.id,
+        display_name: editDisplayName.trim() || editingSidecar.display_name,
+        cron_expression: editCronExpression.trim() || editingSidecar.cron_expression,
+        prompt: editPrompt.trim(),
+      })
+      setEditModalMsg({ text: 'Task updated successfully!', type: 'success' })
+      setPageFeedback({ text: 'Scheduled task updated successfully.', type: 'success' })
+      await loadData()
+      setTimeout(() => {
+        setEditingSidecar(null)
+      }, 1000)
+    } catch (err: any) {
+      setEditModalMsg({ text: 'Update failed: ' + (err.message || 'Unknown error'), type: 'error' })
+    } finally {
+      setIsUpdating(false)
+    }
+  }
+
   const filteredTemplates = templates.filter((t) => {
     const matchesCat = selectedCategory === 'All' || t.category === selectedCategory
     const q = searchQuery.toLowerCase()
@@ -131,56 +178,6 @@ export const ScheduledTemplatesPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Top Header Card */}
-      <div className="google-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-        <div>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-            Scheduled Task Templates
-          </div>
-          <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
-            Devin & Codex style automations for daily life, project health, market research, and CI/CD in Antigravity 2.0.
-          </div>
-        </div>
-
-        {/* View toggle */}
-        <div style={{ display: 'flex', background: 'var(--tab-inactive-bg)', borderRadius: '20px', padding: '3px', border: '1px solid var(--border)' }}>
-          <button
-            onClick={() => setActiveTab('catalog')}
-            style={{
-              padding: '6px 16px',
-              borderRadius: '18px',
-              border: 'none',
-              background: activeTab === 'catalog' ? 'var(--surface)' : 'transparent',
-              color: activeTab === 'catalog' ? 'var(--blue)' : 'var(--text-muted)',
-              fontWeight: 600,
-              fontSize: '12px',
-              cursor: 'pointer',
-              boxShadow: activeTab === 'catalog' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-              transition: 'all 0.15s ease',
-            }}
-          >
-            Template Catalog ({templates.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('active')}
-            style={{
-              padding: '6px 16px',
-              borderRadius: '18px',
-              border: 'none',
-              background: activeTab === 'active' ? 'var(--surface)' : 'transparent',
-              color: activeTab === 'active' ? 'var(--blue)' : 'var(--text-muted)',
-              fontWeight: 600,
-              fontSize: '12px',
-              cursor: 'pointer',
-              boxShadow: activeTab === 'active' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-              transition: 'all 0.15s ease',
-            }}
-          >
-            Active Tasks ({sidecars.length})
-          </button>
-        </div>
-      </div>
-
       {pageFeedback && (
         <div
           style={{
@@ -201,7 +198,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
       )}
 
       {activeTab === 'catalog' ? (
-        <>
+        <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* Category Filter Pills & Search */}
           <div
             style={{
@@ -384,12 +381,12 @@ export const ScheduledTemplatesPage: React.FC = () => {
               </div>
             ))}
           </div>
-        </>
+        </div>
       ) : (
-        /* Active Sidecars List */
+        /* Created Sidecars List */
         <div className="google-card">
           <h2 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
-            Active Scheduled Tasks in Antigravity ({sidecars.length})
+            Created Tasks in Antigravity ({sidecars.length})
           </h2>
           {sidecars.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)', fontSize: '13px' }}>
@@ -436,21 +433,42 @@ export const ScheduledTemplatesPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => handleDeleteSidecar(sc.id, sc.display_name)}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: '6px',
-                      border: '1px solid #fecaca',
-                      background: '#fef2f2',
-                      color: '#dc2626',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Delete Task
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      onClick={() => handleStartEditSidecar(sc)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        background: '#ffffff',
+                        color: '#0f172a',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                      }}
+                    >
+                      <Edit3 size={13} />
+                      <span>Edit Task</span>
+                    </button>
+                    <button
+                      onClick={() => handleDeleteSidecar(sc.id, sc.display_name)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid #fecaca',
+                        background: '#fef2f2',
+                        color: '#dc2626',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Delete Task
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -727,6 +745,175 @@ export const ScheduledTemplatesPage: React.FC = () => {
                 }}
               >
                 {deploying ? 'Deploying...' : 'Deploy to Antigravity'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Task Modal */}
+      {editingSidecar && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.45)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1050,
+            padding: '20px',
+          }}
+          onClick={() => !isUpdating && setEditingSidecar(null)}
+        >
+          <div
+            className="google-card"
+            style={{
+              width: '620px',
+              maxWidth: '92vw',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              padding: '28px',
+              backgroundColor: '#ffffff',
+              boxShadow: 'var(--shadow-md)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: 'var(--text)' }}>
+                  Edit Scheduled Task
+                </h3>
+                <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
+                  Update the task display name, cron schedule, and prompt instructions.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingSidecar(null)}
+                disabled={isUpdating}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--text-muted)',
+                  padding: '4px',
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {editModalMsg && (
+              <div
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  marginBottom: '16px',
+                  fontSize: '13px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  background: editModalMsg.type === 'success' ? 'var(--green-bg)' : '#fce8e6',
+                  border: `1px solid ${editModalMsg.type === 'success' ? 'var(--green)' : '#fecaca'}`,
+                  color: editModalMsg.type === 'success' ? 'var(--green)' : '#b3261e',
+                }}
+              >
+                {editModalMsg.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                <span>{editModalMsg.text}</span>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                  Task Display Name:
+                </label>
+                <input
+                  type="text"
+                  value={editDisplayName}
+                  onChange={(e) => setEditDisplayName(e.target.value)}
+                  placeholder="Task display name"
+                  style={{
+                    width: '100%',
+                    height: '38px',
+                    padding: '0 12px',
+                    borderRadius: '8px',
+                    border: '1.5px solid var(--border)',
+                    fontSize: '13px',
+                    color: 'var(--text)',
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                  Schedule (Cron Expression):
+                </label>
+                <input
+                  type="text"
+                  value={editCronExpression}
+                  onChange={(e) => setEditCronExpression(e.target.value)}
+                  placeholder="e.g. 0 8 * * * or @hourly"
+                  style={{
+                    width: '100%',
+                    height: '38px',
+                    padding: '0 12px',
+                    borderRadius: '8px',
+                    border: '1.5px solid var(--border)',
+                    fontSize: '13px',
+                    fontFamily: 'monospace',
+                    color: 'var(--text)',
+                  }}
+                />
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                  {formatSchedule(editCronExpression)}
+                </span>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                  Prompt Instructions:
+                </label>
+                <textarea
+                  value={editPrompt}
+                  onChange={(e) => setEditPrompt(e.target.value)}
+                  rows={6}
+                  placeholder="Instructions for the agent to execute on schedule..."
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1.5px solid var(--border)',
+                    fontSize: '13px',
+                    lineHeight: 1.5,
+                    color: 'var(--text)',
+                    fontFamily: 'inherit',
+                    resize: 'vertical',
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '24px' }}>
+              <button
+                type="button"
+                onClick={() => setEditingSidecar(null)}
+                disabled={isUpdating}
+                className="btn-pill-tonal"
+                style={{ padding: '7px 16px', fontSize: '12px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditSidecar}
+                disabled={isUpdating}
+                className="btn-pill-primary"
+                style={{ padding: '7px 18px', fontSize: '12px' }}
+              >
+                {isUpdating ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
           </div>
