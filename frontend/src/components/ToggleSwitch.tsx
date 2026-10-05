@@ -29,6 +29,12 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
 
   return (
     <label
+      onClick={(e) => {
+        if (!disabled) {
+          e.preventDefault()
+          onChange(!checked)
+        }
+      }}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
