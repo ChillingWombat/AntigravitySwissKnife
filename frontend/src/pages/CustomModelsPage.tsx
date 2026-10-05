@@ -63,6 +63,7 @@ export const CustomModelsPage: React.FC = () => {
   const [fetchingModels, setFetchingModels] = useState<boolean>(false)
   const [fetchedModels, setFetchedModels] = useState<ModelInfo[]>([])
   const [fetchFeedback, setFetchFeedback] = useState<string | null>(null)
+  const [manualModelEntry, setManualModelEntry] = useState<boolean>(false)
 
   // Modal Test & Save States
   const [modalTesting, setModalTesting] = useState<boolean>(false)
@@ -107,6 +108,7 @@ export const CustomModelsPage: React.FC = () => {
     setThinkingLevel('off')
     setFetchedModels([])
     setFetchFeedback(null)
+    setManualModelEntry(false)
     setShowApiKey(false)
     setModalTestResult(null)
     setModalError(null)
@@ -138,6 +140,7 @@ export const CustomModelsPage: React.FC = () => {
     setThinkingLevel(isThinking ? (model.thinking_level || 'high') : 'off')
     setFetchedModels([])
     setFetchFeedback(null)
+    setManualModelEntry(false)
     setShowApiKey(false)
     setModalTestResult(null)
     setModalError(null)
@@ -193,6 +196,7 @@ export const CustomModelsPage: React.FC = () => {
       const res = await api.fetchModels(providerType, baseUrl.trim(), apiKey.trim())
       if (res.success && res.models && res.models.length > 0) {
         setFetchedModels(res.models)
+        setManualModelEntry(false)
         setFetchFeedback(`Discovered ${res.models.length} model(s) via API.`)
       } else {
         const cleanMsg = (res.message || 'No models returned by API.')
@@ -723,77 +727,94 @@ export const CustomModelsPage: React.FC = () => {
                     <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
                       Model Identifier:
                     </label>
-                    <button
-                      type="button"
-                      onClick={handleFetchModels}
-                      disabled={fetchingModels}
-                      className="btn-pill-tonal"
-                      style={{ padding: '2px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                      title="Fetch available models via provider API"
-                    >
-                      <RefreshCw size={11} className={fetchingModels ? 'spin' : ''} />
-                      {fetchingModels ? 'Fetching...' : 'Fetch Models'}
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {fetchedModels.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setManualModelEntry(!manualModelEntry)}
+                          className="btn-pill-tonal"
+                          style={{ padding: '2px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          title={manualModelEntry ? 'Choose from fetched models dropdown' : 'Type custom model identifier manually'}
+                        >
+                          {manualModelEntry ? '📋 Choose from List' : '✏️ Type Manually'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleFetchModels}
+                        disabled={fetchingModels}
+                        className="btn-pill-tonal"
+                        style={{ padding: '2px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        title="Fetch available models via provider API"
+                      >
+                        <RefreshCw size={11} className={fetchingModels ? 'spin' : ''} />
+                        {fetchingModels ? 'Fetching...' : 'Fetch Models'}
+                      </button>
+                    </div>
                   </div>
-                  <input
-                    type="text"
-                    placeholder="e.g. gpt-4o, claude-3-7-sonnet"
-                    value={modelName}
-                    onChange={(e) => setModelName(e.target.value)}
-                    style={{ width: '100%', fontSize: '12px', padding: '8px 10px', fontFamily: 'monospace' }}
-                  />
-                </div>
-              </div>
-
-              {/* Fetched Models Selection Dropdown if available */}
-              {fetchedModels.length > 0 && (
-                <div style={{ backgroundColor: 'var(--canvas)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--primary)', marginBottom: '4px' }}>
-                    Select From Fetched Models ({fetchedModels.length} available):
-                  </label>
-                  <select
-                    onChange={(e) => handleSelectFetchedModel(e.target.value)}
-                    value={fetchedModels.some((m) => m.id === modelName) ? modelName : ''}
-                    style={{ width: '100%', backgroundColor: '#ffffff', padding: '6px 10px', fontSize: '12px', borderRadius: '6px', border: '1px solid var(--border)', fontFamily: 'monospace' }}
-                  >
-                    <option value="">-- Choose a model from API response --</option>
-                    {fetchedModels.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.id} {m.context_window ? `(${m.context_window.toLocaleString()} ctx)` : ''} {m.supports_thinking ? '🧠 [Thinking]' : ''}
-                      </option>
-                    ))}
-                  </select>
+                  {fetchedModels.length > 0 && !manualModelEntry ? (
+                    <select
+                      value={fetchedModels.some((m) => m.id === modelName) ? modelName : (modelName ? '__custom__' : '')}
+                      onChange={(e) => {
+                        if (e.target.value === '__manual__') {
+                          setManualModelEntry(true)
+                        } else if (e.target.value !== '__custom__') {
+                          handleSelectFetchedModel(e.target.value)
+                        }
+                      }}
+                      style={{
+                        width: '100%',
+                        fontSize: '12px',
+                        padding: '8px 10px',
+                        fontFamily: 'monospace',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border)',
+                      }}
+                    >
+                      <option value="">-- Choose a model ({fetchedModels.length} available) --</option>
+                      {modelName && !fetchedModels.some((m) => m.id === modelName) && (
+                        <option value="__custom__">Current: {modelName}</option>
+                      )}
+                      {fetchedModels.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.id} {m.context_window ? `(${m.context_window.toLocaleString()} ctx)` : ''} {m.supports_thinking ? '🧠 [Thinking]' : ''}
+                        </option>
+                      ))}
+                      <option value="__manual__">✏️ Custom / Type manually...</option>
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      placeholder="e.g. gpt-4o, claude-3-7-sonnet"
+                      value={modelName}
+                      onChange={(e) => setModelName(e.target.value)}
+                      style={{ width: '100%', fontSize: '12px', padding: '8px 10px', fontFamily: 'monospace' }}
+                    />
+                  )}
                   {fetchFeedback && (
-                    <div style={{ fontSize: '11px', color: 'var(--green)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 500 }}>
-                      <CheckCircle2 size={12} />
+                    <div
+                      style={{
+                        fontSize: '11px',
+                        color: fetchFeedback.toLowerCase().includes('discovered') || fetchFeedback.toLowerCase().includes('success')
+                          ? 'var(--green)'
+                          : '#b3261e',
+                        marginTop: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        fontWeight: 500,
+                      }}
+                    >
+                      {fetchFeedback.toLowerCase().includes('discovered') || fetchFeedback.toLowerCase().includes('success') ? (
+                        <CheckCircle2 size={12} />
+                      ) : (
+                        <AlertCircle size={12} />
+                      )}
                       <span>{fetchFeedback}</span>
                     </div>
                   )}
                 </div>
-              )}
-
-              {fetchFeedback && fetchedModels.length === 0 && (
-                <div
-                  style={{
-                    fontSize: '11px',
-                    color: fetchFeedback.toLowerCase().includes('discovered') || fetchFeedback.toLowerCase().includes('success')
-                      ? 'var(--green)'
-                      : '#b3261e',
-                    backgroundColor: fetchFeedback.toLowerCase().includes('discovered') || fetchFeedback.toLowerCase().includes('success')
-                      ? 'var(--green-bg)'
-                      : '#fce8e6',
-                    padding: '6px 10px',
-                    borderRadius: '6px',
-                    marginTop: '-4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                  }}
-                >
-                  <AlertCircle size={13} />
-                  <span>{fetchFeedback}</span>
-                </div>
-              )}
+              </div>
 
               {/* Provider Type & Context Window */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -339,8 +340,9 @@ func TestWebGUIEnhancementsAndTemplatesEndpoints(t *testing.T) {
 }
 
 func TestWebGUIConversationTabsAndAutoArchiveEndpoints(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
-	tempStore, err := gui.NewStore(t.TempDir())
+	tempDir := t.TempDir()
+	srv := NewServer("127.0.0.1:0", filepath.Join(tempDir, "isolated.sock"))
+	tempStore, err := gui.NewStore(tempDir)
 	if err != nil {
 		t.Fatalf("gui.NewStore error: %v", err)
 	}
