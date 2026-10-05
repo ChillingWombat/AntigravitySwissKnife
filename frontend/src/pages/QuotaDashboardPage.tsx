@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import {
   RotateCw,
-  Zap,
   CheckCircle2,
   ArrowRightLeft,
   Edit2,
@@ -9,14 +8,18 @@ import {
   AlertTriangle,
   AlertCircle,
   ArrowUpDown,
+  X,
+  Search,
+  Plus,
 } from 'lucide-react'
 import type { AccountState, FleetQuotaSummary, RuleConfig } from '../types'
 import { CircularGauge } from '../components/CircularGauge'
 import { HorizontalQuotaBar } from '../components/HorizontalQuotaBar'
 import { AccountDetailModal } from '../components/AccountDetailModal'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 
-export type SortMode = 'auto' | 'identity' | 'quota_5h' | 'quota_weekly'
+export type SortMode = 'auto' | 'identity' | 'priority' | 'quota_5h' | 'quota_weekly'
 
 export function sortAccounts(
   accounts: AccountState[],
@@ -34,6 +37,18 @@ export function sortAccounts(
         return nameA.localeCompare(nameB)
       }
       return a.email.localeCompare(b.email)
+    })
+  }
+
+  if (mode === 'priority') {
+    const order: Record<string, number> = { High: 0, Mid: 1, Low: 2 }
+    return copy.sort((a, b) => {
+      const pa = order[a.priority || 'High'] ?? 1
+      const pb = order[b.priority || 'High'] ?? 1
+      if (pa !== pb) return pa - pb
+      const diff = (b.quota_5h_available ?? 0) - (a.quota_5h_available ?? 0)
+      if (Math.abs(diff) > 0.0001) return diff
+      return (b.quota_weekly ?? 0) - (a.quota_weekly ?? 0)
     })
   }
 
@@ -121,39 +136,44 @@ export function sortAccounts(
   })
 }
 
-const renderStatusBadge = (status?: string, isActive?: boolean) => {
-  const st = (status || '').toUpperCase()
-  if (st === 'BANNED') {
-    return (
-      <span
-        className="badge-chip badge-red"
-        title="Account suspended or banned (Appeal or discard)"
-      >
-        BANNED
-      </span>
-    )
-  }
-  if (st === 'ERROR') {
-    return (
-      <span
-        className="badge-chip badge-yellow"
-        title="Authentication or verification required (Re-authenticate)"
-      >
-        ERROR
-      </span>
-    )
-  }
-  if (isActive) {
-    return <span className="badge-chip badge-green">ACTIVE</span>
-  }
-  return <span className="badge-chip badge-neutral">STANDBY</span>
-}
 
 interface QuotaDashboardPageProps {
   fleet: FleetQuotaSummary | null
   rules: RuleConfig | null
   onRefresh: () => void
   onAutoSwitchToggled: (enabled: boolean) => void
+}
+
+const renderPriorityBadge = (priority?: string) => {
+  const p = priority || 'High'
+  const isHigh = p === 'High'
+  const isMid = p === 'Mid'
+
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        padding: '2px 8px',
+        borderRadius: '6px',
+        fontSize: '11px',
+        fontWeight: 600,
+        backgroundColor: isHigh
+          ? 'rgba(26, 115, 232, 0.1)'
+          : isMid
+          ? 'rgba(95, 99, 104, 0.08)'
+          : 'var(--canvas)',
+        color: isHigh
+          ? 'var(--primary)'
+          : isMid
+          ? 'var(--text)'
+          : 'var(--text-muted)',
+        border: `1px solid ${isHigh ? 'rgba(26, 115, 232, 0.25)' : 'var(--border)'}`,
+      }}
+    >
+      {p}
+    </span>
+  )
 }
 
 const renderPlanTierBadge = (tier?: string) => {
@@ -213,11 +233,11 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   onAutoSwitchToggled,
 }) => {
   const [selectedRowAccount, setSelectedRowAccount] = useState<AccountState | null>(null)
-  const [selectedQuickEmail, setSelectedQuickEmail] = useState<string>('')
   const [sortMode, setSortMode] = useState<SortMode>('auto')
-  const [isSwitching, setIsSwitching] = useState(false)
   const [isTogglingRules, setIsTogglingRules] = useState(false)
+  const [isScanning, setIsScanning] = useState(false)
   const [switchFeedback, setSwitchFeedback] = useState<string | null>(null)
+  const [errorDetailAccount, setErrorDetailAccount] = useState<AccountState | null>(null)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; account: AccountState } | null>(null)
 
   useEffect(() => {
@@ -233,23 +253,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
 
   const sortedAccounts = sortAccounts(accounts, activeAccount, threshold, sortMode)
 
-  const handleManualSwitch = async () => {
-    const target = selectedQuickEmail || (accounts[0]?.email ?? '')
-    if (!target || target === activeAccount) return
-
-    setIsSwitching(true)
-    setSwitchFeedback(null)
-    try {
-      await api.switchAccount(target)
-      setSwitchFeedback(`Successfully switched to ${target}`)
-      onRefresh()
-    } catch (err: any) {
-      setSwitchFeedback(`Switch error: ${err.message}`)
-    } finally {
-      setIsSwitching(false)
-    }
-  }
-
   const handleToggleAutoSwitch = async () => {
     setIsTogglingRules(true)
     try {
@@ -261,6 +264,40 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
     } finally {
       setIsTogglingRules(false)
     }
+  }
+
+  const handleScanLocalAccounts = async () => {
+    setIsScanning(true)
+    setSwitchFeedback(null)
+    try {
+      const scanned = await api.scanLocalAccounts()
+      const count = Array.isArray(scanned) ? scanned.length : 0
+      setSwitchFeedback(
+        count > 0
+          ? `Scan complete: ${count} local account(s) detected`
+          : 'Scan complete: No new local accounts detected'
+      )
+      onRefresh()
+    } catch (err: any) {
+      setSwitchFeedback(`Scan error: ${err.message}`)
+    } finally {
+      setIsScanning(false)
+    }
+  }
+
+  const handleAddNewAccount = () => {
+    setSelectedRowAccount({
+      email: '',
+      label: '',
+      priority: 'High',
+      plan_tier: 'Free',
+      is_active: false,
+      status: 'STANDBY',
+      quota_5h_available: 1.0,
+      quota_weekly: 1.0,
+      reset_horizon_text: '',
+      has_mfa: false,
+    })
   }
 
   return (
@@ -283,27 +320,18 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 Managed Accounts Fleet
               </div>
 
-              {/* Auto-Switch Toggle Pill Button */}
-              <button
-                onClick={handleToggleAutoSwitch}
-                disabled={isTogglingRules}
-                style={{
-                  borderRadius: '20px',
-                  padding: '5px 14px',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  backgroundColor: autoSwitchOn ? 'var(--green-bg)' : 'var(--tonal)',
-                  color: autoSwitchOn ? 'var(--green)' : 'var(--text-muted)',
-                  border: `1px solid ${autoSwitchOn ? '#ceead6' : 'var(--border)'}`,
-                  transition: 'all 0.2s ease',
-                }}
-              >
-                <Zap size={13} fill={autoSwitchOn ? 'var(--green)' : 'none'} />
-                Auto-Switch: {autoSwitchOn ? 'ON' : 'OFF'}
-              </button>
+              {/* Auto-Switch Toggle Button */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                  Auto-Switch
+                </span>
+                <ToggleSwitch
+                  checked={autoSwitchOn}
+                  onChange={handleToggleAutoSwitch}
+                  disabled={isTogglingRules}
+                  size="sm"
+                />
+              </div>
             </div>
 
             <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
@@ -326,27 +354,42 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
             )}
           </div>
 
-          {/* Quick Switch Dropdown & Action Row */}
+          {/* Action Row: Scan Local Accounts & Add Account */}
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '16px' }}>
-            <select
-              value={selectedQuickEmail || activeAccount}
-              onChange={(e) => setSelectedQuickEmail(e.target.value)}
-              style={{ flex: 1, backgroundColor: 'var(--tonal)' }}
+            <button
+              onClick={handleScanLocalAccounts}
+              disabled={isScanning}
+              className="btn-pill-outlined"
+              style={{
+                flex: 1,
+                padding: '7px 14px',
+                fontSize: '12px',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+              }}
+              title="Scan machine for local Antigravity/Google accounts"
             >
-              {accounts.map((acc) => (
-                <option key={acc.email} value={acc.email}>
-                  {acc.label ? `${acc.label} (${acc.email})` : acc.email}
-                </option>
-              ))}
-            </select>
+              <Search size={14} />
+              {isScanning ? 'Scanning...' : 'Scan Local Accounts'}
+            </button>
 
             <button
-              onClick={handleManualSwitch}
-              disabled={isSwitching}
+              onClick={handleAddNewAccount}
               className="btn-pill-primary"
-              style={{ padding: '7px 16px', fontSize: '12px' }}
+              style={{
+                padding: '7px 16px',
+                fontSize: '12px',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+              title="Manually configure and add a new account"
             >
-              <ArrowRightLeft size={14} /> Switch
+              <Plus size={14} /> Add Account
             </button>
 
             <button
@@ -437,6 +480,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               >
                 <option value="auto">Auto (Continuous Rotation)</option>
                 <option value="identity">Account Identity</option>
+                <option value="priority">Priority</option>
                 <option value="quota_5h">5H Quota</option>
                 <option value="quota_weekly">Weekly Quota</option>
               </select>
@@ -481,9 +525,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Plan Tier
               </th>
-              <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                Status
-              </th>
               <th
                 onClick={() => setSortMode('quota_5h')}
                 style={{
@@ -526,6 +567,28 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                   <span>WEEKLY QUOTA</span>
                   {sortMode === 'quota_weekly' && <ArrowUpDown size={11} />}
+                </div>
+              </th>
+              <th
+                onClick={() => setSortMode('priority')}
+                style={{
+                  padding: '12px 14px',
+                  textAlign: 'left',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: sortMode === 'priority' ? 'var(--primary)' : 'var(--text-muted)',
+                  borderBottom: '1px solid var(--border)',
+                  backgroundColor: 'var(--canvas)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+                title="Click to sort by Priority"
+              >
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <span>Priority</span>
+                  {sortMode === 'priority' && <ArrowUpDown size={11} />}
                 </div>
               </th>
               <th style={{ padding: '12px 20px', textAlign: 'right', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
@@ -588,10 +651,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   </td>
 
                   <td style={{ padding: '14px' }}>
-                    {renderStatusBadge(acc.status, isActive)}
-                  </td>
-
-                  <td style={{ padding: '14px' }}>
                     <HorizontalQuotaBar
                       fraction={acc.quota_5h_available}
                       title={acc.reset_horizon_text || 'Resets in 5h cycle'}
@@ -605,48 +664,56 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     />
                   </td>
 
+                  <td style={{ padding: '14px' }}>
+                    {renderPriorityBadge(acc.priority)}
+                  </td>
+
                   <td style={{ padding: '14px 20px', textAlign: 'right' }}>
                     {acc.status?.toUpperCase() === 'BANNED' ? (
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
-                          setSelectedRowAccount(acc)
+                          setErrorDetailAccount(acc)
                         }}
-                        className="btn-pill-tonal"
                         style={{
-                          padding: '4px 12px',
+                          padding: '4px 10px',
+                          borderRadius: '12px',
                           fontSize: '11px',
+                          fontWeight: 700,
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: '4px',
-                          color: 'var(--red)',
+                          color: '#c5221f',
                           backgroundColor: '#fce8e6',
                           border: '1px solid #fad2cf',
+                          cursor: 'pointer',
                         }}
-                        title="Account suspended or banned (Click to appeal or discard)"
+                        title="Account suspended or banned (Click to view details)"
                       >
-                        <AlertTriangle size={11} /> Banned
+                        <AlertTriangle size={12} /> BANNED
                       </button>
                     ) : acc.status?.toUpperCase() === 'ERROR' ? (
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
-                          setSelectedRowAccount(acc)
+                          setErrorDetailAccount(acc)
                         }}
-                        className="btn-pill-tonal"
                         style={{
-                          padding: '4px 12px',
+                          padding: '4px 10px',
+                          borderRadius: '12px',
                           fontSize: '11px',
+                          fontWeight: 700,
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: '4px',
                           color: '#b06000',
                           backgroundColor: '#fef7e0',
                           border: '1px solid #feefc3',
+                          cursor: 'pointer',
                         }}
-                        title="Authentication or verification required (Click to re-authenticate)"
+                        title="Authentication or verification error (Click to view details)"
                       >
-                        <AlertCircle size={11} /> Verify
+                        <AlertCircle size={12} /> ERROR
                       </button>
                     ) : isActive ? (
                       <span
@@ -699,6 +766,119 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           onClose={() => setSelectedRowAccount(null)}
           onSaved={onRefresh}
         />
+      )}
+
+      {/* Error / Ban Details Modal Window */}
+      {errorDetailAccount && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            backdropFilter: 'blur(2px)',
+          }}
+          onClick={() => setErrorDetailAccount(null)}
+        >
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '16px',
+              width: '460px',
+              maxWidth: '90vw',
+              padding: '24px',
+              boxShadow: 'var(--shadow-lg)',
+              border: '1px solid var(--border)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {errorDetailAccount.status?.toUpperCase() === 'BANNED' ? (
+                  <AlertTriangle size={20} color="#c5221f" />
+                ) : (
+                  <AlertCircle size={20} color="#b06000" />
+                )}
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+                  {errorDetailAccount.status?.toUpperCase() === 'BANNED'
+                    ? 'Account Suspended / Banned'
+                    : 'Account Error Details'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setErrorDetailAccount(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--text-muted)',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  borderRadius: '50%',
+                }}
+                title="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '8px' }}>
+                {errorDetailAccount.label
+                  ? `${errorDetailAccount.label} (${errorDetailAccount.email})`
+                  : errorDetailAccount.email}
+              </div>
+              <div
+                style={{
+                  backgroundColor:
+                    errorDetailAccount.status?.toUpperCase() === 'BANNED' ? '#fce8e6' : '#fef7e0',
+                  color:
+                    errorDetailAccount.status?.toUpperCase() === 'BANNED' ? '#c5221f' : '#b06000',
+                  padding: '12px 14px',
+                  borderRadius: '10px',
+                  fontSize: '12px',
+                  lineHeight: 1.5,
+                  wordBreak: 'break-word',
+                  fontFamily: 'monospace',
+                }}
+              >
+                {errorDetailAccount.error_message ||
+                  errorDetailAccount.status_reason ||
+                  (errorDetailAccount.status?.toUpperCase() === 'BANNED'
+                    ? 'This account has been flagged or suspended by Google Antigravity services. Quota requests cannot be serviced.'
+                    : 'Authentication failure or token expired. Please re-authenticate or update credentials.')}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
+              <button
+                onClick={() => setErrorDetailAccount(null)}
+                className="btn-pill-outlined"
+                style={{ padding: '6px 16px', fontSize: '12px' }}
+              >
+                Dismiss
+              </button>
+              <button
+                onClick={() => {
+                  const target = errorDetailAccount
+                  setErrorDetailAccount(null)
+                  setSelectedRowAccount(target)
+                }}
+                className="btn-pill-primary"
+                style={{ padding: '6px 16px', fontSize: '12px' }}
+              >
+                Open Account Setup
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Right-Click Context Menu */}

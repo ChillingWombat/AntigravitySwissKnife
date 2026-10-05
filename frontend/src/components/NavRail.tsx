@@ -32,67 +32,82 @@ export const NavRail: React.FC<NavRailProps> = ({
         borderRight: '1px solid var(--border)',
         display: 'flex',
         flexDirection: 'column',
-        padding: '24px 16px 20px',
         flexShrink: 0,
         height: '100vh',
         boxSizing: 'border-box',
       }}
     >
-      {/* Brand Header with mathematically aligned widths */}
+      {/* Brand Header with mathematically aligned height and border */}
       <div
         style={{
-          marginBottom: '20px',
-          width: 'fit-content',
-          alignSelf: 'center',
+          height: '64px',
+          borderBottom: '1px solid var(--border)',
+          boxSizing: 'border-box',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
+          justifyContent: 'center',
+          padding: '0 16px',
+          flexShrink: 0,
         }}
       >
         <div
-          id="brandTitle"
           style={{
-            fontSize: '18px',
-            fontWeight: 700,
-            letterSpacing: '-0.2px',
-            color: 'var(--text)',
-            lineHeight: 1.15,
-            whiteSpace: 'nowrap',
-            textAlign: 'center',
-          }}
-        >
-          Antigravity
-        </div>
-        <div
-          id="brandSubtitle"
-          style={{
+            width: 'fit-content',
             display: 'flex',
-            justifyContent: 'space-between',
+            flexDirection: 'column',
             alignItems: 'center',
-            fontSize: '10px',
-            fontWeight: 700,
-            color: 'var(--primary)',
-            textTransform: 'uppercase',
-            marginTop: '3px',
-            lineHeight: 1.15,
-            width: '100%',
           }}
         >
-          {'SWISS KNIFE'.split('').map((char, i) => (
-            <span key={i} style={{ display: 'inline-block' }}>
-              {char === ' ' ? '\u00A0' : char}
-            </span>
-          ))}
+          <div
+            id="brandTitle"
+            style={{
+              fontSize: '17px',
+              fontWeight: 700,
+              letterSpacing: '-0.2px',
+              color: 'var(--text)',
+              lineHeight: 1.15,
+              whiteSpace: 'nowrap',
+              textAlign: 'center',
+            }}
+          >
+            Antigravity
+          </div>
+          <div
+            id="brandSubtitle"
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              fontSize: '9.5px',
+              fontWeight: 700,
+              color: 'var(--primary)',
+              textTransform: 'uppercase',
+              marginTop: '2px',
+              lineHeight: 1.15,
+              width: '100%',
+            }}
+          >
+            {'SWISS KNIFE'.split('').map((char, i) => (
+              <span key={i} style={{ display: 'inline-block' }}>
+                {char === ' ' ? '\u00A0' : char}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
 
+      {/* Primary Navigation Content */}
       <div
         style={{
-          height: '1px',
-          backgroundColor: 'var(--border)',
-          marginBottom: '12px',
+          display: 'flex',
+          flexDirection: 'column',
+          flex: 1,
+          padding: '16px',
+          overflowY: 'auto',
+          minHeight: 0,
         }}
-      />
+      >
 
       {/* Primary Navigation Items */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -280,6 +295,7 @@ export const NavRail: React.FC<NavRailProps> = ({
         <Settings size={18} color={currentTool === 2 ? 'var(--primary)' : 'var(--text-muted)'} />
         System Settings
       </button>
+      </div>
     </aside>
   )
 }

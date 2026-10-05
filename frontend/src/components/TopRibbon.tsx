@@ -20,9 +20,10 @@ export const TopRibbon: React.FC<TopRibbonProps> = ({
   return (
     <header
       style={{
-        height: '56px',
+        height: '64px',
         backgroundColor: '#ffffff',
         borderBottom: '1px solid var(--border)',
+        boxSizing: 'border-box',
         display: 'flex',
         alignItems: 'center',
         padding: '0 24px',

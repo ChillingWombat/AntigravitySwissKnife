@@ -39,6 +39,8 @@ export interface AccountState {
   has_mfa: boolean
   totp_secret?: string
   refresh_token?: string
+  error_message?: string
+  status_reason?: string
 }
 
 export interface FleetQuotaSummary {

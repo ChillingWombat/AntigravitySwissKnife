@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check } from 'lucide-react'
+import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail } from 'lucide-react'
 import type { AccountState } from '../types'
 import { HorizontalQuotaBar } from './HorizontalQuotaBar'
-import { ToggleSwitch } from './ToggleSwitch'
 import { api } from '../api'
 import { generateTOTP } from '../utils/totp'
 
@@ -17,6 +16,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   onClose,
   onSaved,
 }) => {
+  const [email, setEmail] = useState(account.email || '')
   const [label, setLabel] = useState(account.label || '')
   const [priority, setPriority] = useState<string>(account.priority || 'High')
   const [password, setPassword] = useState(account.password || '')
@@ -30,7 +30,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [status, setStatus] = useState<string>(account.status || (account.is_active ? 'ACTIVE' : 'STANDBY'))
   const [planTier, setPlanTier] = useState(account.plan_tier || 'Pro')
   const [notes, setNotes] = useState(account.notes || '')
-  const [setActive, setSetActive] = useState(account.is_active)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -97,7 +96,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     setError(null)
     try {
       await api.updateAccount({
-        email: account.email,
+        email: email.trim() || account.email,
         label: label.trim(),
         plan_tier: planTier,
         status: status,
@@ -106,7 +105,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         notes: notes.trim(),
         totp_secret: totpSecret.trim().toUpperCase(),
         refresh_token: refreshToken.trim(),
-        set_active: setActive,
       })
       onSaved()
       onClose()
@@ -188,7 +186,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               </span>
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-              {account.email} • Priority: <span style={{ fontWeight: 600 }}>{priority}</span> • {account.reset_horizon_text || 'Reset horizon calculating...'}
+              {account.email} • Priority: <span style={{ fontWeight: 600 }}>{priority}</span>
             </div>
           </div>
           <button
@@ -317,59 +315,58 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
         {/* Form Fields */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '22px', marginBottom: '28px' }}>
-          {/* Account Alias */}
+          {/* Account ID / Email Address */}
           <div>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
-              <Tag size={14} /> Account Alias:
+              <Mail size={14} /> Account ID / Email Address:
             </label>
             <input
-              type="text"
-              placeholder="e.g. Account 1, Primary, Backup"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
+              type="email"
+              placeholder="e.g. user@gmail.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               style={{ width: '100%' }}
             />
           </div>
 
-          {/* Account Priority directly below Account Alias */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                fontSize: '12px',
-                fontWeight: 600,
-                color: 'var(--text-muted)',
-              }}
-            >
-              Account Priority:
-            </label>
-            <select
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-              style={{
-                width: '100px',
-                backgroundColor: 'var(--canvas)',
-                border: '1px solid var(--border)',
-                borderRadius: '8px',
-                padding: '6px 10px',
-                fontSize: '12px',
-                fontWeight: 600,
-                color: 'var(--text)',
-                cursor: 'pointer',
-              }}
-            >
-              <option value="High">High</option>
-              <option value="Mid">Mid</option>
-              <option value="Low">Low</option>
-            </select>
+          {/* Account Alias and Account Priority on the same row/level */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '14px' }}>
+            <div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
+                <Tag size={14} /> Account Alias:
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Account 1, Primary, Backup"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Account Priority:
+              </label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+                style={{
+                  width: '100%',
+                  backgroundColor: 'var(--canvas)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  padding: '8px 12px',
+                  fontSize: '13px',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                }}
+              >
+                <option value="High">High</option>
+                <option value="Mid">Mid</option>
+                <option value="Low">Low</option>
+              </select>
+            </div>
           </div>
 
           {/* Optional Password / Vault field (hidden by default with eye toggle) */}
@@ -484,7 +481,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   color: 'var(--text-muted)',
                 }}
               >
-                <KeyRound size={14} /> MFA / TOTP Secret Key (Base32):
+                <KeyRound size={14} /> MFA Secret Key:
               </label>
 
               {/* Right end: Countdown progress ring & connected 6-digit code widget */}
@@ -686,31 +683,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 <option value="Ultra 20X">Ultra 20X</option>
               </select>
             </div>
-          </div>
-
-          {/* Active account toggle */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '12px 14px',
-              backgroundColor: 'var(--canvas)',
-              borderRadius: '10px',
-              border: '1px solid var(--border)',
-              cursor: 'pointer',
-              userSelect: 'none',
-            }}
-            onClick={() => setSetActive(!setActive)}
-          >
-            <ToggleSwitch
-              size="sm"
-              checked={setActive}
-              onChange={(checked) => setSetActive(checked)}
-            />
-            <span style={{ fontSize: '13px', color: 'var(--text)', fontWeight: 500 }}>
-              Set as active Antigravity account upon save
-            </span>
           </div>
 
           {/* Section at bottom to write notes */}
