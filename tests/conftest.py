@@ -139,33 +139,3 @@ def mock_proc(mock_fs):
     proc = MockProcessManager(mock_fs.config_antigravity_dir)
     yield proc
     proc.cleanup()
-
-
-@pytest.fixture(autouse=True)
-def _patch_qmessagebox(monkeypatch):
-    """Prevent GUI modal message boxes from blocking test runs."""
-    try:
-        from PySide6.QtWidgets import QMessageBox
-        monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok)
-        monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: QMessageBox.StandardButton.Ok)
-        monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: QMessageBox.StandardButton.Ok)
-        monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
-    except ImportError:
-        pass
-
-
-@pytest.fixture(scope="session")
-def qapp():
-    """Provides offscreen QApplication instance for GUI and system tray tests."""
-    os.environ["QT_QPA_PLATFORM"] = "offscreen"
-    try:
-        from PySide6.QtWidgets import QApplication
-        app = QApplication.instance()
-        if app is None:
-            app = QApplication(sys.argv)
-        yield app
-    except ImportError:
-        yield None
-
-
-

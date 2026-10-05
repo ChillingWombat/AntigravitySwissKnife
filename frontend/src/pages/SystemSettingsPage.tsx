@@ -12,6 +12,7 @@ import {
   KeyRound,
 } from 'lucide-react'
 import type { SystemStatus, SystemInstallations } from '../types'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 
 interface SystemSettingsPageProps {
@@ -38,6 +39,36 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [passwordFeedback, setPasswordFeedback] = useState<{ text: string; isError: boolean } | null>(null)
   const [isSubmittingPassword, setIsSubmittingPassword] = useState(false)
+
+  // Desktop System Startup state
+  const [startupEnabled, setStartupEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('antigravity_startup_enabled') === 'true'
+  })
+
+  useEffect(() => {
+    const electronAPI = (window as any).electronAPI
+    if (electronAPI?.getStartupSetting) {
+      electronAPI.getStartupSetting().then((res: any) => {
+        if (res && typeof res.openAtLogin === 'boolean') {
+          setStartupEnabled(res.openAtLogin)
+          localStorage.setItem('antigravity_startup_enabled', String(res.openAtLogin))
+        }
+      }).catch((err: any) => console.warn('Could not read startup setting:', err))
+    }
+  }, [])
+
+  const handleToggleStartup = async (enabled: boolean) => {
+    setStartupEnabled(enabled)
+    localStorage.setItem('antigravity_startup_enabled', String(enabled))
+    const electronAPI = (window as any).electronAPI
+    if (electronAPI?.setStartupSetting) {
+      try {
+        await electronAPI.setStartupSetting(enabled)
+      } catch (err: any) {
+        console.warn('Failed to update startup setting:', err)
+      }
+    }
+  }
 
   const loadInstallations = async () => {
     try {
@@ -368,6 +399,41 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               Host Antigravity 2.0 PID {status?.antigravity_pid ? `(${status.antigravity_pid})` : ''} is protected against accidental termination signals.
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* System Startup & Desktop Integration Card */}
+      <div className="google-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+              System Startup & Desktop Integration
+            </div>
+            <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
+              Configure automatic background startup and minimize-to-tray behavior on system login.
+            </div>
+          </div>
+          <div className={`badge-chip ${startupEnabled ? 'badge-green' : 'badge-tonal'}`} style={{ fontSize: '12px', padding: '6px 14px' }}>
+            <Monitor size={14} />
+            <span>{startupEnabled ? 'Launch at Startup Active' : 'Manual Launch Only'}</span>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', backgroundColor: 'var(--canvas)', borderRadius: '10px' }}>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+              Launch at System Startup (Minimized to Tray)
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Automatically starts the Antigravity companion silently in your system tray when you log into Windows, macOS, or Linux.
+            </div>
+          </div>
+
+          <ToggleSwitch
+            size="md"
+            checked={startupEnabled}
+            onChange={handleToggleStartup}
+          />
         </div>
       </div>
 

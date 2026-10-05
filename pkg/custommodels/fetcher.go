@@ -116,6 +116,42 @@ func cleanDisplayName(id string, existingName string) string {
 	return strings.Join(parts, " ")
 }
 
+func cleanErrorMessage(statusCode int, body []byte) string {
+	var errObj struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+		Message string `json:"message"`
+		Detail  string `json:"detail"`
+	}
+	if json.Unmarshal(body, &errObj) == nil {
+		if errObj.Error.Message != "" {
+			return errObj.Error.Message
+		}
+		if errObj.Message != "" {
+			return errObj.Message
+		}
+		if errObj.Detail != "" {
+			return errObj.Detail
+		}
+	}
+	raw := strings.TrimSpace(string(body))
+	if strings.HasPrefix(raw, "<") || strings.Contains(raw, "<html") || strings.Contains(raw, "<!DOCTYPE") {
+		statusText := http.StatusText(statusCode)
+		if statusText == "" {
+			statusText = "Error"
+		}
+		return fmt.Sprintf("HTTP %d %s (Check that the Base URL and protocol are correct)", statusCode, statusText)
+	}
+	if len(raw) > 200 {
+		raw = raw[:200] + "..."
+	}
+	if raw != "" {
+		return raw
+	}
+	return fmt.Sprintf("HTTP %d %s", statusCode, http.StatusText(statusCode))
+}
+
 func fetchGeminiModels(ctx context.Context, client *http.Client, baseURL string, apiKey string) FetchModelsResponse {
 	endpoint := baseURL
 	if endpoint == "" {
@@ -157,7 +193,7 @@ func fetchGeminiModels(ctx context.Context, client *http.Client, baseURL string,
 	if resp.StatusCode != http.StatusOK {
 		return FetchModelsResponse{
 			Success: false,
-			Message: fmt.Sprintf("API returned status %d: %s", resp.StatusCode, string(body)),
+			Message: fmt.Sprintf("API returned status %d: %s", resp.StatusCode, cleanErrorMessage(resp.StatusCode, body)),
 		}
 	}
 
@@ -302,48 +338,80 @@ func fetchOpenAIModels(ctx context.Context, client *http.Client, baseURL string,
 		baseURL = "https://api.openai.com/v1"
 	}
 
-	// Clean endpoint to /models
-	endpoint := baseURL
-	if strings.HasSuffix(endpoint, "/chat/completions") {
-		endpoint = strings.TrimSuffix(endpoint, "/chat/completions") + "/models"
-	} else if strings.HasSuffix(endpoint, "/chat/completion") {
-		endpoint = strings.TrimSuffix(endpoint, "/chat/completion") + "/models"
-	} else if !strings.HasSuffix(endpoint, "/models") {
-		if strings.HasSuffix(endpoint, "/v1") {
-			endpoint += "/models"
-		} else if strings.Contains(endpoint, "/v1/") {
-			endpoint = strings.Split(endpoint, "/v1/")[0] + "/v1/models"
-		} else {
-			endpoint += "/models"
+	cleanBase := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+
+	var candidateEndpoints []string
+	if strings.HasSuffix(cleanBase, "/chat/completions") {
+		candidateEndpoints = append(candidateEndpoints, strings.TrimSuffix(cleanBase, "/chat/completions")+"/models")
+	} else if strings.HasSuffix(cleanBase, "/chat/completion") {
+		candidateEndpoints = append(candidateEndpoints, strings.TrimSuffix(cleanBase, "/chat/completion")+"/models")
+	} else if strings.HasSuffix(cleanBase, "/models") {
+		candidateEndpoints = append(candidateEndpoints, cleanBase)
+	} else if strings.HasSuffix(cleanBase, "/v1") {
+		candidateEndpoints = append(candidateEndpoints, cleanBase+"/models")
+	} else if strings.Contains(cleanBase, "/v1/") {
+		candidateEndpoints = append(candidateEndpoints, strings.Split(cleanBase, "/v1/")[0]+"/v1/models")
+	} else {
+		// Prioritize standard /v1/models first, then fallback to /models
+		candidateEndpoints = append(candidateEndpoints, cleanBase+"/v1/models", cleanBase+"/models")
+	}
+
+	var lastErrResp FetchModelsResponse
+	var body []byte
+	var successEndpoint string
+
+	for _, endpoint := range candidateEndpoints {
+		httpReq, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+		if err != nil {
+			lastErrResp = FetchModelsResponse{Success: false, Message: err.Error()}
+			continue
 		}
+		if apiKey != "" {
+			httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+			httpReq.Header.Set("x-api-key", apiKey)
+		}
+		httpReq.Header.Set("x-opencode-session", fmt.Sprintf("swiss-fetch-%d", time.Now().Unix()))
+
+		resp, err := client.Do(httpReq)
+		if err != nil {
+			lastErrResp = FetchModelsResponse{
+				Success: false,
+				Message: fmt.Sprintf("Could not connect to %s: %v", endpoint, err),
+			}
+			continue
+		}
+
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			errMsg := cleanErrorMessage(resp.StatusCode, b)
+			lastErrResp = FetchModelsResponse{
+				Success: false,
+				Message: fmt.Sprintf("Endpoint returned: %s", errMsg),
+			}
+			// If 404, try next candidate endpoint
+			if resp.StatusCode == http.StatusNotFound && len(candidateEndpoints) > 1 {
+				continue
+			}
+			return lastErrResp
+		}
+
+		body = b
+		successEndpoint = endpoint
+		break
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
-	if err != nil {
-		return FetchModelsResponse{Success: false, Message: err.Error()}
-	}
-	if apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
-		httpReq.Header.Set("x-api-key", apiKey)
-	}
-
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		// If custom or network error, return helpful fallback
+	if len(body) == 0 {
+		if lastErrResp.Message != "" {
+			return lastErrResp
+		}
 		return FetchModelsResponse{
 			Success: false,
-			Message: fmt.Sprintf("Could not fetch models from %s: %v", endpoint, err),
+			Message: "No response received from model endpoint",
 		}
 	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return FetchModelsResponse{
-			Success: false,
-			Message: fmt.Sprintf("Endpoint returned HTTP %d: %s", resp.StatusCode, string(body)),
-		}
-	}
+	_ = successEndpoint
 
 	var results []ModelInfo
 
@@ -430,7 +498,7 @@ func fetchOpenAIModels(ctx context.Context, client *http.Client, baseURL string,
 	if len(results) == 0 {
 		return FetchModelsResponse{
 			Success: false,
-			Message: "No compatible models found in response from " + endpoint,
+			Message: "No compatible models found in response from " + successEndpoint,
 		}
 	}
 
@@ -441,6 +509,6 @@ func fetchOpenAIModels(ctx context.Context, client *http.Client, baseURL string,
 	return FetchModelsResponse{
 		Success: true,
 		Models:  results,
-		Message: fmt.Sprintf("Successfully fetched %d models from %s", len(results), endpoint),
+		Message: fmt.Sprintf("Successfully fetched %d models from %s", len(results), successEndpoint),
 	}
 }

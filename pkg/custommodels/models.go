@@ -84,7 +84,11 @@ func (m *CustomModel) Validate() error {
 	if len(m.ProjectMappings) == 0 {
 		m.ProjectMappings = []string{"*"}
 	}
-	if m.SupportsThinking {
+	if strings.EqualFold(m.ThinkingLevel, "off") {
+		m.SupportsThinking = false
+		m.ThinkingLevel = "off"
+	} else if m.SupportsThinking || (strings.TrimSpace(m.ThinkingLevel) != "" && !strings.EqualFold(m.ThinkingLevel, "off")) {
+		m.SupportsThinking = true
 		if strings.TrimSpace(m.ThinkingLevel) == "" {
 			m.ThinkingLevel = "high"
 		}

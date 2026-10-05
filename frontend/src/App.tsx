@@ -57,6 +57,15 @@ export const App: React.FC = () => {
   useEffect(() => {
     checkAuth()
     loadAllData()
+    // Listen for navigation requests from Electron system tray context menu
+    const electronAPI = (window as any).electronAPI
+    if (electronAPI?.onNavigate) {
+      electronAPI.onNavigate((toolIdx: number) => {
+        if (typeof toolIdx === 'number') {
+          setCurrentTool(toolIdx)
+        }
+      })
+    }
     // Poll status and fleet metrics periodically
     const interval = setInterval(loadAllData, 10000)
     return () => clearInterval(interval)

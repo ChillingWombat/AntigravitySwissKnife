@@ -28,8 +28,12 @@ from antigravity_swiss.core.constants import (
 )
 from antigravity_swiss.fingerprint.models import DeviceProfile
 from antigravity_swiss.fingerprint.manager import FingerprintManager
-from antigravity_swiss.gui.tray import SwissKnifeTray
-from antigravity_swiss.gui.widgets import CircularGauge
+try:
+    from antigravity_swiss.gui.tray import SwissKnifeTray
+    from antigravity_swiss.gui.widgets import CircularGauge
+except ImportError:
+    SwissKnifeTray = None
+    CircularGauge = None
 from antigravity_swiss.ipc.controller import StandaloneController
 from antigravity_swiss.keyring.switcher import AccountVault, KeyringCredential, KeyringService, KeyringSwitcher
 from antigravity_swiss.process.lifecycle import ProcessLifecycleManager

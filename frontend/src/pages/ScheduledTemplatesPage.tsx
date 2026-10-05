@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Clock } from 'lucide-react'
+import { Clock, Trash2, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { api } from '../api'
 import type { DeployTaskRequest, ScheduledTemplate, SidecarTaskInfo } from '../types'
 import { formatSchedule } from '../utils/schedule'
@@ -29,6 +29,9 @@ export const ScheduledTemplatesPage: React.FC = () => {
   const [paramValues, setParamValues] = useState<Record<string, string>>({})
   const [deploying, setDeploying] = useState(false)
   const [modalMsg, setModalMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+  const [deleteConfirmSidecar, setDeleteConfirmSidecar] = useState<{ id: string; name: string } | null>(null)
+  const [isDeleting, setIsDeleting] = useState<boolean>(false)
+  const [pageFeedback, setPageFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
 
   useEffect(() => {
     loadData()
@@ -88,13 +91,22 @@ export const ScheduledTemplatesPage: React.FC = () => {
     }
   }
 
-  const handleDeleteSidecar = async (id: string) => {
-    if (!window.confirm(`Delete scheduled task "${id}"?`)) return
+  const handleDeleteSidecar = (id: string, name?: string) => {
+    setDeleteConfirmSidecar({ id, name: name || id })
+  }
+
+  const confirmDeleteSidecar = async () => {
+    if (!deleteConfirmSidecar) return
+    setIsDeleting(true)
     try {
-      await api.deleteSidecar(id)
+      await api.deleteSidecar(deleteConfirmSidecar.id)
+      setDeleteConfirmSidecar(null)
+      setPageFeedback({ text: `Scheduled task deleted successfully.`, type: 'success' })
       await loadData()
     } catch (err: any) {
-      alert('Delete failed: ' + err.message)
+      setPageFeedback({ text: `Delete failed: ${err.message}`, type: 'error' })
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -168,6 +180,25 @@ export const ScheduledTemplatesPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {pageFeedback && (
+        <div
+          style={{
+            padding: '10px 16px',
+            borderRadius: '8px',
+            fontSize: '13px',
+            fontWeight: 500,
+            background: pageFeedback.type === 'success' ? 'var(--green-bg)' : '#fce8e6',
+            color: pageFeedback.type === 'success' ? 'var(--green)' : '#b3261e',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          {pageFeedback.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+          <span>{pageFeedback.text}</span>
+        </div>
+      )}
 
       {activeTab === 'catalog' ? (
         <>
@@ -406,7 +437,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
                   </div>
 
                   <button
-                    onClick={() => handleDeleteSidecar(sc.id)}
+                    onClick={() => handleDeleteSidecar(sc.id, sc.display_name)}
                     style={{
                       padding: '6px 12px',
                       borderRadius: '6px',
@@ -696,6 +727,64 @@ export const ScheduledTemplatesPage: React.FC = () => {
                 }}
               >
                 {deploying ? 'Deploying...' : 'Deploy to Antigravity'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation In-App Modal */}
+      {deleteConfirmSidecar && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.45)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100,
+          }}
+          onClick={() => setDeleteConfirmSidecar(null)}
+        >
+          <div
+            className="google-card"
+            style={{
+              width: '440px',
+              maxWidth: '92vw',
+              padding: '24px',
+              boxShadow: 'var(--shadow-md)',
+              backgroundColor: '#ffffff',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#b3261e', marginBottom: '12px' }}>
+              <Trash2 size={20} />
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+                Delete Scheduled Task
+              </h3>
+            </div>
+            <p style={{ margin: '0 0 20px', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              Are you sure you want to permanently delete scheduled task <strong>"{deleteConfirmSidecar.name}"</strong>? This will remove its background sidecar process and execution schedule.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmSidecar(null)}
+                className="btn-pill-tonal"
+                style={{ padding: '7px 16px', fontSize: '12px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteSidecar}
+                disabled={isDeleting}
+                className="btn-pill-danger"
+                style={{ padding: '7px 18px', fontSize: '12px' }}
+              >
+                {isDeleting ? 'Deleting...' : 'Delete Task'}
               </button>
             </div>
           </div>

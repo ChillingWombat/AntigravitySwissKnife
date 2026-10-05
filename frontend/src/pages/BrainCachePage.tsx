@@ -3,6 +3,8 @@ import {
   Trash2,
   ShieldCheck,
   RefreshCw,
+  AlertCircle,
+  CheckCircle2,
 } from 'lucide-react'
 import type { CacheBreakdown } from '../types'
 import { api } from '../api'
@@ -12,7 +14,8 @@ export const BrainCachePage: React.FC = () => {
   const [pruneDays, setPruneDays] = useState<number>(7)
   const [isScanning, setIsScanning] = useState<boolean>(false)
   const [isPruning, setIsPruning] = useState<boolean>(false)
-  const [feedback, setFeedback] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<{ text: string; isError: boolean } | null>(null)
+  const [showPruneConfirm, setShowPruneConfirm] = useState<boolean>(false)
 
   const scanCache = async () => {
     setIsScanning(true)
@@ -21,25 +24,27 @@ export const BrainCachePage: React.FC = () => {
       const data = await api.scanCache(pruneDays)
       setBreakdown(data)
     } catch (err: any) {
-      setFeedback(`Scan error: ${err.message}`)
+      setFeedback({ text: `Scan error: ${err.message}`, isError: true })
     } finally {
       setIsScanning(false)
     }
   }
 
-  const handlePrune = async () => {
-    if (!window.confirm(`Prune cache older than ${pruneDays} days? Active sessions will remain protected.`)) {
-      return
-    }
+  const handlePrune = () => {
+    setShowPruneConfirm(true)
+  }
+
+  const confirmPrune = async () => {
+    setShowPruneConfirm(false)
     setIsPruning(true)
     setFeedback(null)
     try {
       const res = await api.pruneCache(pruneDays)
       const mb = (res.freed_bytes / (1024 * 1024)).toFixed(1)
-      setFeedback(`Reclaimed ${mb} MB across ${res.deleted_files} files safely.`)
+      setFeedback({ text: `Reclaimed ${mb} MB across ${res.deleted_files} files safely.`, isError: false })
       await scanCache()
     } catch (err: any) {
-      setFeedback(`Prune error: ${err.message}`)
+      setFeedback({ text: `Prune error: ${err.message}`, isError: true })
     } finally {
       setIsPruning(false)
     }
@@ -120,15 +125,19 @@ export const BrainCachePage: React.FC = () => {
       {feedback && (
         <div
           style={{
-            backgroundColor: 'var(--green-bg)',
-            color: 'var(--green)',
+            backgroundColor: feedback.isError ? '#fce8e6' : 'var(--green-bg)',
+            color: feedback.isError ? '#b3261e' : 'var(--green)',
             padding: '12px 16px',
             borderRadius: '12px',
             fontSize: '13px',
             fontWeight: 500,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
           }}
         >
-          {feedback}
+          {feedback.isError ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
+          <span>{feedback.text}</span>
         </div>
       )}
 
@@ -167,6 +176,64 @@ export const BrainCachePage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* In-App Confirmation Modal */}
+      {showPruneConfirm && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.45)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100,
+          }}
+          onClick={() => setShowPruneConfirm(false)}
+        >
+          <div
+            className="google-card"
+            style={{
+              width: '440px',
+              maxWidth: '92vw',
+              padding: '24px',
+              boxShadow: 'var(--shadow-md)',
+              backgroundColor: '#ffffff',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#b3261e', marginBottom: '12px' }}>
+              <Trash2 size={20} />
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+                Confirm Cache Prune
+              </h3>
+            </div>
+            <p style={{ margin: '0 0 20px', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              Are you sure you want to prune cache files older than <strong>{pruneDays} days</strong>? Active sessions and project directories will remain protected.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setShowPruneConfirm(false)}
+                className="btn-pill-tonal"
+                style={{ padding: '7px 16px', fontSize: '12px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmPrune}
+                disabled={isPruning}
+                className="btn-pill-danger"
+                style={{ padding: '7px 18px', fontSize: '12px' }}
+              >
+                {isPruning ? 'Pruning...' : 'Prune Safely'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

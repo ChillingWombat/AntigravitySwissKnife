@@ -33,6 +33,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [setActive, setSetActive] = useState(account.is_active)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   // Real-time derived 6-number verification code
   const [derivedCode, setDerivedCode] = useState<string | null>(null)
@@ -116,10 +117,12 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     }
   }
 
-  const handleDelete = async () => {
-    if (!window.confirm(`Are you sure you want to remove account ${account.email}?`)) {
-      return
-    }
+  const handleDelete = () => {
+    setShowDeleteConfirm(true)
+  }
+
+  const confirmDelete = async () => {
+    setShowDeleteConfirm(false)
     setIsSaving(true)
     setError(null)
     try {
@@ -664,6 +667,64 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Delete Confirmation In-App Modal */}
+      {showDeleteConfirm && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.45)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100,
+          }}
+          onClick={() => setShowDeleteConfirm(false)}
+        >
+          <div
+            className="google-card"
+            style={{
+              width: '440px',
+              maxWidth: '92vw',
+              padding: '24px',
+              boxShadow: 'var(--shadow-md)',
+              backgroundColor: '#ffffff',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#b3261e', marginBottom: '12px' }}>
+              <Trash2 size={20} />
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+                Delete Account
+              </h3>
+            </div>
+            <p style={{ margin: '0 0 20px', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              Are you sure you want to permanently remove account <strong>"{account.email}"</strong>? This will remove stored credentials and quota history.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                className="btn-pill-tonal"
+                style={{ padding: '7px 16px', fontSize: '12px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={isSaving}
+                className="btn-pill-danger"
+                style={{ padding: '7px 18px', fontSize: '12px' }}
+              >
+                {isSaving ? 'Deleting...' : 'Delete Account'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

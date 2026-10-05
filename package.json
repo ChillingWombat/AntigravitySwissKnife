@@ -1,0 +1,78 @@
+{
+  "name": "antigravity-swiss-knife",
+  "version": "0.2.0",
+  "description": "Native standalone desktop application companion and daemon for Google Antigravity 2.0",
+  "main": "electron/main.js",
+  "scripts": {
+    "build:frontend": "npm run build --prefix frontend",
+    "build:go": "go build -o bin/swiss ./cmd/swiss",
+    "build": "npm run build:frontend && npm run build:go",
+    "desktop": "electron .",
+    "desktop:dev": "npm run build:frontend && electron .",
+    "desktop:minimized": "electron . --minimized",
+    "test:desktop": "node scripts/verify-desktop-e2e.js",
+    "frontend:build": "npm run build:frontend",
+    "go:build": "npm run build:go",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.antigravity.swiss-knife",
+    "productName": "Antigravity Swiss Knife",
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "files": [
+      "electron/**/*",
+      "assets/**/*",
+      "pkg/webgui/dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "bin/swiss",
+        "to": "bin/swiss"
+      }
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "icon": "assets/logo.png"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "assets/logo.png"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "assets/logo.png"
+    }
+  },
+  "keywords": [
+    "antigravity",
+    "electron",
+    "gemini",
+    "quota-switcher",
+    "desktop"
+  ],
+  "author": "Antigravity Swiss Knife Authors",
+  "license": "MIT",
+  "devDependencies": {
+    "cross-env": "^10.1.0",
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8",
+    "wait-on": "^9.5.1"
+  }
+}

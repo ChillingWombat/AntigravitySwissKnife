@@ -36,6 +36,7 @@ export const CustomModelsPage: React.FC = () => {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false)
   const [editingModel, setEditingModel] = useState<CustomModel | null>(null)
+  const [deleteConfirmModel, setDeleteConfirmModel] = useState<{ id: string; name: string } | null>(null)
   const [showApiKey, setShowApiKey] = useState<boolean>(false)
 
   // Modal Form Fields
@@ -103,7 +104,7 @@ export const CustomModelsPage: React.FC = () => {
     setContextWindow(1000000)
     setSupportsThinking(false)
     setThinkingLevels(['off', 'low', 'medium', 'high'])
-    setThinkingLevel('high')
+    setThinkingLevel('off')
     setFetchedModels([])
     setFetchFeedback(null)
     setShowApiKey(false)
@@ -127,13 +128,14 @@ export const CustomModelsPage: React.FC = () => {
     setIsDefault(model.is_default)
     setEnabled(model.enabled)
     setContextWindow(model.context_window || 1000000)
-    setSupportsThinking(!!model.supports_thinking)
+    const isThinking = !!model.supports_thinking && model.thinking_level?.toLowerCase() !== 'off'
+    setSupportsThinking(isThinking)
     setThinkingLevels(
       model.thinking_levels && model.thinking_levels.length > 0
         ? model.thinking_levels
         : ['off', 'low', 'medium', 'high']
     )
-    setThinkingLevel(model.thinking_level || 'high')
+    setThinkingLevel(isThinking ? (model.thinking_level || 'high') : 'off')
     setFetchedModels([])
     setFetchFeedback(null)
     setShowApiKey(false)
@@ -145,10 +147,23 @@ export const CustomModelsPage: React.FC = () => {
   const resolveEndpointPreview = (type: ProviderType, url: string, model: string) => {
     const raw = (url || '').trim()
     if (!raw) return '(enter base URL above)'
-    if (type === 'custom') {
-      return raw // Direct / raw endpoint: verbatim as entered
-    }
     const cleanU = raw.replace(/\/+$/, '')
+    if (type === 'custom') {
+      if (
+        cleanU.endsWith('/chat/completions') ||
+        cleanU.endsWith('/chat/completion') ||
+        cleanU.endsWith('/completions') ||
+        cleanU.includes('/chat') ||
+        cleanU.includes(':generateContent') ||
+        cleanU.endsWith('/messages')
+      ) {
+        return raw
+      }
+      if (cleanU.endsWith('/v1') || cleanU.includes('/v1/') || cleanU.includes('/v2/')) {
+        return `${cleanU}/chat/completions`
+      }
+      return `${cleanU}/v1/chat/completions`
+    }
     if (type === 'anthropic') {
       if (cleanU.endsWith('/messages')) return cleanU
       if (cleanU.endsWith('/v1') || cleanU.includes('/v1/')) return `${cleanU}/messages`
@@ -180,10 +195,18 @@ export const CustomModelsPage: React.FC = () => {
         setFetchedModels(res.models)
         setFetchFeedback(`Discovered ${res.models.length} model(s) via API.`)
       } else {
-        setFetchFeedback(res.message || 'No models returned by API.')
+        const cleanMsg = (res.message || 'No models returned by API.')
+          .replace(/<[^>]*>?/gm, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+        setFetchFeedback(cleanMsg.length > 180 ? cleanMsg.slice(0, 180) + '...' : cleanMsg)
       }
     } catch (err: any) {
-      setFetchFeedback(`Model fetch failed: ${err.message}`)
+      const cleanMsg = (err.message || 'Unknown fetch error')
+        .replace(/<[^>]*>?/gm, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+      setFetchFeedback(`Model fetch failed: ${cleanMsg.length > 180 ? cleanMsg.slice(0, 180) + '...' : cleanMsg}`)
     } finally {
       setFetchingModels(false)
     }
@@ -211,15 +234,26 @@ export const CustomModelsPage: React.FC = () => {
       setThinkingLevel('high')
     } else {
       setSupportsThinking(false)
+      setThinkingLevel('off')
     }
   }
 
   const handleTestInModal = async () => {
+    if (!baseUrl.trim() && providerType !== 'anthropic' && providerType !== 'gemini') {
+      setModalError('Please enter a Base URL before testing.')
+      return
+    }
+    if (!modelName.trim()) {
+      setModalError('Please enter or select a Model Identifier before testing.')
+      return
+    }
+
     setModalTesting(true)
     setModalTestResult(null)
     setModalError(null)
 
-    const activeThinkingLvl = thinkingLevel.trim() || 'high'
+    const isThinking = supportsThinking && thinkingLevel.toLowerCase() !== 'off'
+    const activeThinkingLvl = isThinking ? (thinkingLevel.trim() || 'high') : 'off'
     const draftModel: CustomModel = {
       id: editingModel?.id || 'draft-test',
       name: modelName.trim(),
@@ -235,9 +269,9 @@ export const CustomModelsPage: React.FC = () => {
       is_default: isDefault,
       enabled: enabled,
       context_window: Number(contextWindow) || 1000000,
-      supports_thinking: supportsThinking,
-      thinking_levels: supportsThinking ? thinkingLevels : undefined,
-      thinking_level: supportsThinking ? activeThinkingLvl : undefined,
+      supports_thinking: isThinking,
+      thinking_levels: isThinking ? thinkingLevels : undefined,
+      thinking_level: isThinking ? activeThinkingLvl : 'off',
     }
 
     try {
@@ -268,10 +302,11 @@ export const CustomModelsPage: React.FC = () => {
       .map((p) => p.trim())
       .filter(Boolean)
 
-    const activeThinkingLvl = thinkingLevel.trim() || 'high'
+    const isThinking = supportsThinking && thinkingLevel.toLowerCase() !== 'off'
+    const activeThinkingLvl = isThinking ? (thinkingLevel.trim() || 'high') : 'off'
     const updatedThinkingLevels = [...thinkingLevels]
     if (
-      supportsThinking &&
+      isThinking &&
       activeThinkingLvl &&
       !updatedThinkingLevels.map((l) => l.toLowerCase()).includes(activeThinkingLvl.toLowerCase())
     ) {
@@ -295,9 +330,9 @@ export const CustomModelsPage: React.FC = () => {
       is_default: isDefault,
       enabled: enabled,
       context_window: Number(contextWindow) || 1000000,
-      supports_thinking: supportsThinking,
-      thinking_levels: supportsThinking ? updatedThinkingLevels : undefined,
-      thinking_level: supportsThinking ? activeThinkingLvl : undefined,
+      supports_thinking: isThinking,
+      thinking_levels: isThinking ? updatedThinkingLevels : undefined,
+      thinking_level: isThinking ? activeThinkingLvl : 'off',
     }
 
     try {
@@ -311,18 +346,26 @@ export const CustomModelsPage: React.FC = () => {
     }
   }
 
-  const handleDeleteModel = async (id: string, name: string) => {
-    if (!window.confirm(`Delete custom model "${name}"? This cannot be undone.`)) {
-      return
-    }
+  const handleDeleteModel = (id: string, name: string) => {
+    setDeleteConfirmModel({ id, name })
+  }
+
+  const confirmDeleteModel = async () => {
+    if (!deleteConfirmModel) return
+    const { id } = deleteConfirmModel
+    setModalSaving(true)
     try {
       await api.deleteCustomModel(id)
+      setDeleteConfirmModel(null)
       if (isModalOpen && editingModel?.id === id) {
         setIsModalOpen(false)
       }
       await loadData()
     } catch (err: any) {
       setFeedback(`Delete failed: ${err.message}`)
+      setDeleteConfirmModel(null)
+    } finally {
+      setModalSaving(false)
     }
   }
 
@@ -374,21 +417,31 @@ export const CustomModelsPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Action Row when models exist */}
-      {models.length > 0 && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px' }}>
+      {/* Top Header Card */}
+      <div className="google-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+        <div>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+            Custom Model Providers & Endpoints
+          </div>
+          <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
+            Configure third-party LLMs (OpenAI, Anthropic Claude, Gemini, DeepSeek, OpenCode, Ollama) with thinking level, quota tracking, and project routing.
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button onClick={openAddModal} className="btn-pill-primary" style={{ padding: '7px 16px', fontSize: '12px' }}>
             <Plus size={14} /> Add Custom Model
           </button>
-          <button onClick={loadData} disabled={loading} className="btn-pill-tonal" style={{ padding: '7px 12px' }}>
+          <button onClick={loadData} disabled={loading} className="btn-pill-tonal" style={{ padding: '7px 12px' }} title="Refresh Custom Models">
             <RefreshCw size={14} className={loading ? 'spin' : ''} />
           </button>
         </div>
-      )}
+      </div>
 
       {feedback && (
-        <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: '#fce8e6', color: '#b3261e', fontSize: '12px' }}>
-          {feedback}
+        <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: '#fce8e6', color: '#b3261e', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <AlertCircle size={15} />
+          <span>{feedback}</span>
         </div>
       )}
 
@@ -711,16 +764,34 @@ export const CustomModelsPage: React.FC = () => {
                     ))}
                   </select>
                   {fetchFeedback && (
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                      {fetchFeedback}
+                    <div style={{ fontSize: '11px', color: 'var(--green)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 500 }}>
+                      <CheckCircle2 size={12} />
+                      <span>{fetchFeedback}</span>
                     </div>
                   )}
                 </div>
               )}
 
               {fetchFeedback && fetchedModels.length === 0 && (
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '-6px' }}>
-                  {fetchFeedback}
+                <div
+                  style={{
+                    fontSize: '11px',
+                    color: fetchFeedback.toLowerCase().includes('discovered') || fetchFeedback.toLowerCase().includes('success')
+                      ? 'var(--green)'
+                      : '#b3261e',
+                    backgroundColor: fetchFeedback.toLowerCase().includes('discovered') || fetchFeedback.toLowerCase().includes('success')
+                      ? 'var(--green-bg)'
+                      : '#fce8e6',
+                    padding: '6px 10px',
+                    borderRadius: '6px',
+                    marginTop: '-4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <AlertCircle size={13} />
+                  <span>{fetchFeedback}</span>
                 </div>
               )}
 
@@ -810,78 +881,35 @@ export const CustomModelsPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Reasoning / Thinking Configuration */}
-              <div style={{ backgroundColor: 'var(--canvas)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 600, color: 'var(--text)', cursor: 'pointer' }}>
-                    <ToggleSwitch
-                      size="sm"
-                      checked={supportsThinking}
-                      onChange={(checked) => setSupportsThinking(checked)}
-                    />
-                    <span>Model Supports Thinking / Reasoning</span>
-                  </label>
-                  {supportsThinking && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Thinking Level:</span>
-
-                      {/* Direct text input */}
-                      <input
-                        type="text"
-                        placeholder="e.g. high"
-                        value={thinkingLevel}
-                        onChange={(e) => setThinkingLevel(e.target.value)}
-                        list="available-thinking-levels"
-                        style={{
-                          width: '90px',
-                          fontSize: '11px',
-                          padding: '4px 8px',
-                          borderRadius: '6px',
-                          border: '1px solid var(--border)',
-                          backgroundColor: '#ffffff',
-                          fontFamily: 'inherit',
-                        }}
-                        title="Directly enter custom thinking level or select from dropdown"
-                      />
-                      <datalist id="available-thinking-levels">
-                        {thinkingLevels.map((lvl) => (
-                          <option key={lvl} value={lvl} />
-                        ))}
-                      </datalist>
-
-                      {/* Dropdown to select from available thinking levels */}
-                      <select
-                        value={thinkingLevels.includes(thinkingLevel.toLowerCase()) ? thinkingLevel.toLowerCase() : ''}
-                        onChange={(e) => {
-                          if (e.target.value) {
-                            setThinkingLevel(e.target.value)
-                          }
-                        }}
-                        style={{
-                          padding: '4px 8px',
-                          fontSize: '11px',
-                          borderRadius: '6px',
-                          border: '1px solid var(--border)',
-                          backgroundColor: '#ffffff',
-                          cursor: 'pointer',
-                        }}
-                        title="Select one from available thinking levels"
-                      >
-                        <option value="" disabled hidden>
-                          Select preset...
-                        </option>
-                        {thinkingLevels.map((lvl) => (
-                          <option key={lvl} value={lvl}>
-                            {lvl.charAt(0).toUpperCase() + lvl.slice(1)}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+              {/* Thinking / Reasoning Level */}
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                  Thinking / Reasoning Level:
+                </label>
+                <select
+                  value={supportsThinking && thinkingLevel.toLowerCase() !== 'off' ? thinkingLevel.toLowerCase() : 'off'}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    if (val === 'off') {
+                      setSupportsThinking(false)
+                      setThinkingLevel('off')
+                    } else {
+                      setSupportsThinking(true)
+                      setThinkingLevel(val)
+                    }
+                  }}
+                  style={{ width: '100%', fontSize: '12px', padding: '8px 10px' }}
+                >
+                  <option value="off">Off (Disabled / Standard Generation)</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  {!['off', 'low', 'medium', 'high'].includes(thinkingLevel.toLowerCase()) && thinkingLevel && (
+                    <option value={thinkingLevel.toLowerCase()}>
+                      {thinkingLevel.charAt(0).toUpperCase() + thinkingLevel.slice(1)} (Custom)
+                    </option>
                   )}
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                  Default level for new models is High. Choose from preset options or type directly into the input field.
-                </div>
+                </select>
               </div>
 
               {/* Quota Type Selection */}
@@ -1008,28 +1036,31 @@ export const CustomModelsPage: React.FC = () => {
                   {modalTesting ? 'Testing Endpoint...' : 'Test Connection'}
                 </button>
 
-                {modalTestResult && (
-                  <div
-                    style={{
-                      fontSize: '11px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      color: modalTestResult.success ? 'var(--green)' : '#b3261e',
-                      fontWeight: 600,
-                      backgroundColor: modalTestResult.success ? 'var(--green-bg)' : '#fce8e6',
-                      padding: '4px 10px',
-                      borderRadius: '9999px',
-                    }}
-                  >
-                    {modalTestResult.success ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
-                    <span>
-                      {modalTestResult.success
-                        ? `${modalTestResult.status_code} OK (${modalTestResult.latency_ms}ms)`
-                        : `Failed: ${modalTestResult.message}`}
-                    </span>
-                  </div>
-                )}
+                {modalTestResult && (() => {
+                  const isSuccess = modalTestResult.success && modalTestResult.status_code >= 200 && modalTestResult.status_code < 300
+                  return (
+                    <div
+                      style={{
+                        fontSize: '11px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        color: isSuccess ? 'var(--green)' : '#b3261e',
+                        fontWeight: 600,
+                        backgroundColor: isSuccess ? 'var(--green-bg)' : '#fce8e6',
+                        padding: '4px 10px',
+                        borderRadius: '9999px',
+                      }}
+                    >
+                      {isSuccess ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
+                      <span>
+                        {isSuccess
+                          ? `${modalTestResult.status_code} OK (${modalTestResult.latency_ms}ms)`
+                          : `Failed: ${modalTestResult.message}`}
+                      </span>
+                    </div>
+                  )
+                })()}
               </div>
 
               {/* Bottom Right: Delete (if editing), Cancel & Save Model */}
@@ -1063,6 +1094,64 @@ export const CustomModelsPage: React.FC = () => {
                   {modalSaving ? 'Saving...' : 'Save Model'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation In-App Modal */}
+      {deleteConfirmModel && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.45)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100,
+          }}
+          onClick={() => setDeleteConfirmModel(null)}
+        >
+          <div
+            className="google-card"
+            style={{
+              width: '440px',
+              maxWidth: '92vw',
+              padding: '24px',
+              boxShadow: 'var(--shadow-md)',
+              backgroundColor: '#ffffff',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#b3261e', marginBottom: '12px' }}>
+              <Trash2 size={20} />
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+                Delete Custom Model
+              </h3>
+            </div>
+            <p style={{ margin: '0 0 20px', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              Are you sure you want to permanently delete custom model <strong>"{deleteConfirmModel.name}"</strong>? This will remove its endpoint configuration and quota tracking.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmModel(null)}
+                className="btn-pill-tonal"
+                style={{ padding: '7px 16px', fontSize: '12px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteModel}
+                disabled={modalSaving}
+                className="btn-pill-danger"
+                style={{ padding: '7px 18px', fontSize: '12px' }}
+              >
+                {modalSaving ? 'Deleting...' : 'Delete Model'}
+              </button>
             </div>
           </div>
         </div>

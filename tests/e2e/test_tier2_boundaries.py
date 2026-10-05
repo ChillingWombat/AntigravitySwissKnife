@@ -43,16 +43,27 @@ from antigravity_swiss.fingerprint.models import DeviceProfile
 from antigravity_swiss.fingerprint.manager import FingerprintManager
 from antigravity_swiss.fingerprint.pbtxt_parser import PbtxtParser
 from antigravity_swiss.fingerprint.profile_store import DeviceProfileStore, ProfileStoreCorruptedError
-from antigravity_swiss.gui.styles import GEMINI_QSS
-from antigravity_swiss.gui.tray import SwissKnifeTray, SystemTrayManager
-from antigravity_swiss.gui.widgets import (
-    CircularGauge,
-    CircularGaugeWidget,
-    CountdownRing,
-    NavigationRail,
-    TopRibbon,
-    TotpCountdownRingWidget,
-)
+try:
+    from antigravity_swiss.gui.styles import GEMINI_QSS
+    from antigravity_swiss.gui.tray import SwissKnifeTray, SystemTrayManager
+    from antigravity_swiss.gui.widgets import (
+        CircularGauge,
+        CircularGaugeWidget,
+        CountdownRing,
+        NavigationRail,
+        TopRibbon,
+        TotpCountdownRingWidget,
+    )
+except ImportError:
+    GEMINI_QSS = ""
+    SwissKnifeTray = None
+    SystemTrayManager = None
+    CircularGauge = None
+    CircularGaugeWidget = None
+    CountdownRing = None
+    NavigationRail = None
+    TopRibbon = None
+    TotpCountdownRingWidget = None
 from antigravity_swiss.ipc.controller import StandaloneController
 from antigravity_swiss.ipc.socket_server import AsyncUnixSocketServer
 from antigravity_swiss.keyring.switcher import AccountVault, KeyringCredential, KeyringService, KeyringSwitcher

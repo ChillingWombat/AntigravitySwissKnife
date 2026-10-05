@@ -257,7 +257,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
       await api.setAutoSwitch(nextVal)
       onAutoSwitchToggled(nextVal)
     } catch (err: any) {
-      alert(`Could not toggle auto-switch: ${err.message}`)
+      setSwitchFeedback(`Could not toggle auto-switch: ${err.message}`)
     } finally {
       setIsTogglingRules(false)
     }
@@ -669,7 +669,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                             await api.switchAccount(acc.email)
                             onRefresh()
                           } catch (err: any) {
-                            alert('Switch failed: ' + err.message)
+                            setSwitchFeedback('Switch failed: ' + err.message)
                           }
                         }}
                         className="btn-pill-tonal"
@@ -761,7 +761,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   await api.switchAccount(target)
                   onRefresh()
                 } catch (err: any) {
-                  alert('Switch failed: ' + err.message)
+                  setSwitchFeedback('Switch failed: ' + err.message)
                 }
               }}
               style={{

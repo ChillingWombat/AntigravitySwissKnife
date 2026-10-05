@@ -5,7 +5,6 @@ Subcommands:
 - daemon: Run background daemon process (Unix domain socket server)
 - status: Query active daemon, Antigravity process, and active account status
 - switch: Rotate active Google account and preserve session
-- gui: Launch desktop GUI (PySide6)
 """
 
 from __future__ import annotations
@@ -288,7 +287,7 @@ def run_status(args: argparse.Namespace) -> int:
     print(f"Antigravity App     : {ag_label}")
     print(f"Active Account      : {status_data.get('active_account') or 'Unknown'}")
     print("─" * 66)
-    print("To view live quota gauges, launch the GUI: python -m antigravity_swiss gui")
+    print("To view live quota gauges, launch the Web GUI or desktop app: bin/swiss web")
     print("═" * 66)
     return 0
 
@@ -315,27 +314,6 @@ def run_switch(args: argparse.Namespace) -> int:
         return 1
     except Exception as exc:
         print(f"[ERROR] Unexpected error during switch: {exc}", file=sys.stderr)
-        return 1
-
-
-def run_gui(args: argparse.Namespace) -> int:
-    """Launch Material Design 3 Desktop GUI."""
-    try:
-        import PySide6  # noqa: F401
-    except ImportError:
-        print("[ERROR] PySide6 desktop GUI libraries are not installed in this Python environment.", file=sys.stderr)
-        print("To install GUI support: pip install PySide6", file=sys.stderr)
-        print("You can manage accounts, quotas, and daemon services using the CLI:", file=sys.stderr)
-        print("  python -m antigravity_swiss daemon", file=sys.stderr)
-        print("  python -m antigravity_swiss status", file=sys.stderr)
-        print("  python -m antigravity_swiss switch <email>", file=sys.stderr)
-        return 1
-
-    try:
-        from antigravity_swiss.gui.app import run_app
-        return run_app(standalone=args.standalone)
-    except ImportError as e:
-        print(f"[INFO] GUI module not yet installed: {e}", file=sys.stderr)
         return 1
 
 
@@ -586,11 +564,6 @@ def main() -> int:
     p_fp_swap.add_argument("email", type=str, help="Target account email")
     p_fp_swap.add_argument("--json", action="store_true", help="Output raw JSON")
     p_fp_swap.set_defaults(func=run_fingerprint_swap)
-
-    # gui
-    p_gui = subparsers.add_parser("gui", help="Launch Material Design 3 Desktop GUI")
-    p_gui.add_argument("--standalone", action="store_true", help="Run in standalone mode without daemon")
-    p_gui.set_defaults(func=run_gui)
 
     args = parser.parse_args()
     return args.func(args)

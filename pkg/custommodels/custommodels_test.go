@@ -3,6 +3,7 @@ package custommodels
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -248,6 +249,83 @@ func TestTester_EndpointResponses(t *testing.T) {
 	if resFail.StatusCode != 401 {
 		t.Errorf("expected 401 status code, got %d", resFail.StatusCode)
 	}
+
+	// 3. HTTP 400 Bad Request error mock server - MUST NOT be treated as success!
+	ts400 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"Model deepseek-v4-flash is unavailable"}}`))
+	}))
+	defer ts400.Close()
+
+	res400, err := tester.TestEndpoint(CustomModel{
+		ID:           "test-400",
+		Name:         "deepseek-v4-flash",
+		ProviderType: ProviderOpenAI,
+		BaseURL:      ts400.URL,
+		APIKey:       "test-key",
+	})
+	if err != nil {
+		t.Errorf("expected no transport error, got %v", err)
+	}
+	if res400.Success {
+		t.Errorf("expected HTTP 400 to fail with Success=false, but got Success=true!")
+	}
+	if res400.StatusCode != 400 {
+		t.Errorf("expected StatusCode=400, got %d", res400.StatusCode)
+	}
+	if !strings.Contains(res400.Message, "Model deepseek-v4-flash is unavailable") {
+		t.Errorf("expected error message to be extracted, got: %s", res400.Message)
+	}
+}
+
+func TestFetchModels_SubpathV1Candidate(t *testing.T) {
+	// Server serves /zen/go/v1/models with 200, but /zen/go/models with 404
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/zen/go/v1/models" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"data":[{"id":"deepseek-v4-flash"}]}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`<!DOCTYPE html><html><body>404 Not Found</body></html>`))
+	}))
+	defer ts.Close()
+
+	res := FetchModels(FetchModelsRequest{
+		ProviderType: ProviderOpenAI,
+		BaseURL:      ts.URL + "/zen/go",
+		APIKey:       "test-key",
+	})
+	if !res.Success {
+		t.Fatalf("expected successful fetch via /v1/models candidate, got: %s", res.Message)
+	}
+	if len(res.Models) != 1 || res.Models[0].ID != "deepseek-v4-flash" {
+		t.Errorf("expected deepseek-v4-flash model, got: %+v", res.Models)
+	}
+}
+
+func TestFetchModels_SanitizesHTMLError(t *testing.T) {
+	// Server returns HTML 404 for all paths
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`<!DOCTYPE html><html lang="en"><head><title>Not Found</title></head><body><h1>404 Not Found</h1></body></html>`))
+	}))
+	defer ts.Close()
+
+	res := FetchModels(FetchModelsRequest{
+		ProviderType: ProviderOpenAI,
+		BaseURL:      ts.URL + "/bad-path",
+	})
+	if res.Success {
+		t.Errorf("expected failure for 404 HTML")
+	}
+	if strings.Contains(res.Message, "<html") || strings.Contains(res.Message, "<!DOCTYPE") {
+		t.Errorf("raw HTML was leaked in error message: %s", res.Message)
+	}
+	if !strings.Contains(res.Message, "404") {
+		t.Errorf("expected 404 in error message, got: %s", res.Message)
+	}
 }
 
 func TestGenerateCustomModelsScript_CategoryHeaders(t *testing.T) {
@@ -285,6 +363,13 @@ func TestResolveEndpoint_Custom(t *testing.T) {
 	res := ResolveEndpoint(ProviderCustom, raw, "custom-model")
 	if res != raw {
 		t.Errorf("expected ResolveEndpoint to return exact raw URL %q, got %q", raw, res)
+	}
+
+	base := "https://opencode.ai/zen/go"
+	resBase := ResolveEndpoint(ProviderCustom, base, "custom-model")
+	expected := "https://opencode.ai/zen/go/v1/chat/completions"
+	if resBase != expected {
+		t.Errorf("expected ResolveEndpoint to resolve %q to %q, got %q", base, expected, resBase)
 	}
 }
 
