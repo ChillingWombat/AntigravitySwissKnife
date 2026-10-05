@@ -29,6 +29,11 @@ import { CircularGauge } from '../components/CircularGauge'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { SecurityReportModal } from '../components/SecurityReportModal'
 import { auditModelSecurity } from '../utils/securityAudit'
+import {
+  filterModels,
+  computeModelFilterStats,
+  type ModelFilterOption,
+} from '../utils/modelFilter'
 import { api } from '../api'
 
 export const CustomModelsPage: React.FC = () => {
@@ -94,10 +99,13 @@ export const CustomModelsPage: React.FC = () => {
     }
   }
 
+  const [modelFilter, setModelFilter] = useState<ModelFilterOption>('all')
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
+  const [portalLeftTarget, setPortalLeftTarget] = useState<HTMLElement | null>(null)
 
   useEffect(() => {
     setPortalTarget(document.getElementById('top-bar-right'))
+    setPortalLeftTarget(document.getElementById('top-bar-left'))
   }, [])
 
   useEffect(() => {
@@ -527,9 +535,72 @@ export const CustomModelsPage: React.FC = () => {
   }
 
   const models = config?.models || []
+  const filterStats = computeModelFilterStats(models)
+  const filteredModels = filterModels(models, modelFilter)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {/* Top Bar Left Filter Pills via Portal */}
+      {portalLeftTarget &&
+        createPortal(
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              backgroundColor: 'var(--tonal)',
+              borderRadius: '20px',
+              padding: '3px',
+              gap: '2px',
+            }}
+          >
+            {[
+              { id: 'all', label: 'All Models', count: filterStats.total },
+              { id: 'enabled', label: 'Enabled', count: filterStats.enabled },
+              { id: 'disabled', label: 'Disabled', count: filterStats.disabled },
+            ].map((tab) => {
+              const isActive = modelFilter === tab.id
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setModelFilter(tab.id as ModelFilterOption)}
+                  style={{
+                    borderRadius: '16px',
+                    padding: '6px 14px',
+                    fontSize: '12px',
+                    fontWeight: isActive ? 600 : 500,
+                    color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+                    backgroundColor: isActive ? '#ffffff' : 'transparent',
+                    boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    whiteSpace: 'nowrap',
+                    lineHeight: 1.4,
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span>{tab.label}</span>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      padding: '1px 6px',
+                      borderRadius: '10px',
+                      backgroundColor: isActive ? 'rgba(26, 115, 232, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                      color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+                    }}
+                  >
+                    {tab.count}
+                  </span>
+                </button>
+              )
+            })}
+          </div>,
+          portalLeftTarget
+        )}
+
       {/* Top Bar Action Buttons via Portal */}
       {portalTarget &&
         createPortal(
@@ -582,9 +653,38 @@ export const CustomModelsPage: React.FC = () => {
             <Plus size={14} /> Add Custom Model
           </button>
         </div>
+      ) : filteredModels.length === 0 && !loading ? (
+        <div
+          className="google-card"
+          style={{
+            padding: '48px 24px',
+            textAlign: 'center',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '12px',
+          }}
+        >
+          <Cpu size={40} color="var(--text-subtle)" />
+          <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text)' }}>
+            No {modelFilter === 'enabled' ? 'Enabled' : 'Disabled'} Models
+          </div>
+          <div style={{ fontSize: '13px', color: 'var(--text-muted)', maxWidth: '400px' }}>
+            {modelFilter === 'enabled'
+              ? 'None of your custom models are currently enabled. Turn on the toggle switch on a model card to enable it.'
+              : 'All configured custom models are currently enabled.'}
+          </div>
+          <button
+            onClick={() => setModelFilter('all')}
+            className="btn-pill-tonal"
+            style={{ marginTop: '8px', padding: '6px 16px', fontSize: '12px' }}
+          >
+            Show All Models
+          </button>
+        </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))', gap: '16px' }}>
-          {models.map((m) => {
+          {filteredModels.map((m) => {
             const testResult = cardTestResults[m.id]
             const isTesting = testingModelId === m.id
 

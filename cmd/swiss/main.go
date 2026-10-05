@@ -136,6 +136,12 @@ func runStatus(args []string) {
 	active := ""
 	total := 0
 	if store != nil {
+		c, _ := core.LoadConfig()
+		var allEmails []string
+		for _, a := range store.ListAccounts() {
+			allEmails = append(allEmails, a.Email)
+		}
+		_, _ = store.ReconcileActiveAccount(c.AutoImportActiveAccount, allEmails, nil)
 		active = store.ActiveAccount()
 		total = len(store.ListAccounts())
 	}
@@ -298,6 +304,12 @@ func runAccounts(args []string) {
 			fmt.Fprintf(os.Stderr, "Error accessing accounts: %v\n", storeErr)
 			os.Exit(1)
 		}
+		c, _ := core.LoadConfig()
+		var allEmails []string
+		for _, a := range store.ListAccounts() {
+			allEmails = append(allEmails, a.Email)
+		}
+		_, _ = store.ReconcileActiveAccount(c.AutoImportActiveAccount, allEmails, nil)
 		accounts = store.ListAccounts()
 	}
 
