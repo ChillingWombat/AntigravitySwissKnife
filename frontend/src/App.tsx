@@ -12,15 +12,20 @@ import { CustomModelsPage } from './pages/CustomModelsPage'
 import { AppEnhancementsPage } from './pages/AppEnhancementsPage'
 import { ScheduledTemplatesPage } from './pages/ScheduledTemplatesPage'
 import { ArchivedProjectsPage } from './pages/ArchivedProjectsPage'
+import { FeaturePluginsPage } from './pages/FeaturePluginsPage'
+import { TokenMonitorPage } from './pages/TokenMonitorPage'
+import { UtilitiesPage } from './pages/UtilitiesPage'
 import { AppLockScreen } from './components/AppLockScreen'
 import type { FleetQuotaSummary, RuleConfig, SystemStatus } from './types'
 import { api } from './api'
 
 export const App: React.FC = () => {
-  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 1: Marketplace, 2: Settings, 3: Custom Models, 4: Enhancements, 5: Automations
+  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 1: Marketplace, 2: Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived, 7: Plugins, 8: Token Monitor, 9: Utilities
   const [currentTab, setCurrentTab] = useState<number>(0) // 0: Dashboard, 1: MFA, 2: FP, 3: Cache, 4: Rules
-  const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Chat History
+  const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Overview Panel, 3: Chat History
   const [automationTab, setAutomationTab] = useState<'catalog' | 'created'>('catalog')
+  const [featurePluginTab, setFeaturePluginTab] = useState<number>(0) // 0: Preview, 1: File Explorer, 2: Memos, 3: Mobile, 4: Computer Use
+  const [utilitiesTab, setUtilitiesTab] = useState<number>(0) // 0: Importer, 1: ACP Inspector
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [fleet, setFleet] = useState<FleetQuotaSummary | null>(null)
   const [rules, setRules] = useState<RuleConfig | null>(null)
@@ -130,7 +135,7 @@ export const App: React.FC = () => {
                     gap: '2px',
                   }}
                 >
-                  {['Chat View', 'Project Panel', 'Chat History'].map((tab, idx) => {
+                  {['Chat View', 'Project Panel', 'Overview Panel', 'Chat History'].map((tab, idx) => {
                     const isActive = enhancementTab === idx
                     return (
                       <button
@@ -194,16 +199,72 @@ export const App: React.FC = () => {
                 </div>
               )}
 
-              {currentTool !== 4 && currentTool !== 5 && (
+              {currentTool === 7 && (
+                /* Antigravity 2.0 Desktop Exclusive Tag moved to top bar */
+                <span
+                  style={{
+                    fontSize: '11.5px',
+                    fontWeight: 600,
+                    backgroundColor: 'rgba(26, 115, 232, 0.1)',
+                    color: 'var(--primary)',
+                    padding: '5px 12px',
+                    borderRadius: '14px',
+                    border: '1px solid rgba(26, 115, 232, 0.25)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  Antigravity 2.0 Desktop Exclusive
+                </span>
+              )}
+
+              {currentTool === 9 && (
+                /* Utilities Segmented Tabs */
+                <div
+                  style={{
+                    display: 'flex',
+                    backgroundColor: 'var(--tonal)',
+                    borderRadius: '20px',
+                    padding: '3px',
+                    gap: '2px',
+                  }}
+                >
+                  {['Chat & Project Importer', 'ACP Agent Mesh'].map((tab, idx) => {
+                    const isActive = utilitiesTab === idx
+                    return (
+                      <button
+                        key={tab}
+                        onClick={() => setUtilitiesTab(idx)}
+                        style={{
+                          borderRadius: '16px',
+                          padding: '6px 16px',
+                          fontSize: '12px',
+                          fontWeight: isActive ? 600 : 500,
+                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+                          backgroundColor: isActive ? '#ffffff' : 'transparent',
+                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {tab}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {currentTool !== 3 && currentTool !== 4 && currentTool !== 5 && currentTool !== 7 && currentTool !== 9 && (
                 <h1 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', margin: 0 }}>
                   {currentTool === 1
                     ? 'Tools Marketplace'
                     : currentTool === 2
                     ? 'System Settings'
-                    : currentTool === 3
-                    ? 'Custom Models'
                     : currentTool === 6
                     ? 'Archived Projects'
+                    : currentTool === 8
+                    ? 'Token & Cost Monitor'
                     : ''}
                 </h1>
               )}
@@ -261,6 +322,14 @@ export const App: React.FC = () => {
           {currentTool === 4 && <AppEnhancementsPage activeCategoryTab={enhancementTab} />}
           {currentTool === 5 && <ScheduledTemplatesPage activeTab={automationTab} onTabChange={setAutomationTab} />}
           {currentTool === 6 && <ArchivedProjectsPage />}
+          {currentTool === 7 && (
+            <FeaturePluginsPage
+              activeTab={featurePluginTab}
+              onTabChange={setFeaturePluginTab}
+            />
+          )}
+          {currentTool === 8 && <TokenMonitorPage />}
+          {currentTool === 9 && <UtilitiesPage initialTab={utilitiesTab} />}
         </main>
       </div>
     </div>

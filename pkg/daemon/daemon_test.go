@@ -18,6 +18,8 @@ func TestDaemonFullLifecycleAndRPC(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tmpDir)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 
 	sockPath := filepath.Join(tmpDir, "daemon.sock")
 	cfg := core.DefaultConfig()

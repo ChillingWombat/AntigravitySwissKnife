@@ -13,6 +13,9 @@ type Config struct {
 	AutoSwitchEnabled          bool     `json:"auto_switch_enabled"`
 	AutoSwitchThreshold        float64  `json:"auto_switch_threshold"`
 	PollingIntervalSec         int      `json:"polling_interval_seconds"`
+	ActivePollingIntervalSec   int      `json:"active_polling_interval_seconds"`
+	StandbyPollingIntervalSec  int      `json:"standby_polling_interval_seconds"`
+	StandbyRandomJitterSec     int      `json:"standby_random_jitter_seconds"`
 	WarmupEnabled              bool     `json:"warmup_enabled"`
 	WarmupLeadTimeSec          float64  `json:"warmup_lead_time_seconds"`
 	PreferredNativeModel       string   `json:"preferred_native_model,omitempty"`
@@ -24,6 +27,7 @@ type Config struct {
 	DefaultNonGeminiModel      string   `json:"default_non_gemini_model,omitempty"`
 	ActiveAccount              string   `json:"active_account"`
 	AntigravityProtectedPID    int      `json:"antigravity_protected_pid"`
+	AutoImportActiveAccount    bool     `json:"auto_import_active_account"`
 	AppPasswordEnabled         bool     `json:"app_password_enabled"`
 	AppPasswordHash            string   `json:"app_password_hash,omitempty"`
 
@@ -35,7 +39,11 @@ func DefaultConfig() *Config {
 	return &Config{
 		AutoSwitchEnabled:          true,
 		AutoSwitchThreshold:        DefaultAutoSwitchThresholdFraction,
+		AutoImportActiveAccount:    false,
 		PollingIntervalSec:         DefaultPollingIntervalSeconds,
+		ActivePollingIntervalSec:   120, // 2 minutes
+		StandbyPollingIntervalSec:  900, // 15 minutes
+		StandbyRandomJitterSec:     30,  // up to 30s jitter gap
 		WarmupEnabled:              true,
 		WarmupLeadTimeSec:          DefaultWarmupLeadTimeSeconds,
 		PreferredNativeModel:       "gemini",

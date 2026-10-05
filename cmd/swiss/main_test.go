@@ -48,7 +48,7 @@ func TestCLIAccountsAndStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("quota failed: %v, out: %s", err, string(outQuota))
 	}
-	if !strings.Contains(string(outQuota), "gemini-2.5-pro") {
-		t.Errorf("expected quota to list gemini-2.5-pro, got: %s", string(outQuota))
+	if !strings.Contains(string(outQuota), "Gemini Model Quota Horizons") {
+		t.Errorf("expected quota output with table header, got: %s", string(outQuota))
 	}
 }

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Plus,
   RefreshCw,
@@ -12,6 +13,9 @@ import {
   EyeOff,
   Zap,
   Info,
+  Shield,
+  ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react'
 import type {
   CustomModel,
@@ -19,9 +23,12 @@ import type {
   ModelInfo,
   ProviderType,
   TestResult,
+  SecurityAuditReport,
 } from '../types'
 import { CircularGauge } from '../components/CircularGauge'
 import { ToggleSwitch } from '../components/ToggleSwitch'
+import { SecurityReportModal } from '../components/SecurityReportModal'
+import { auditModelSecurity } from '../utils/securityAudit'
 import { api } from '../api'
 
 export const CustomModelsPage: React.FC = () => {
@@ -68,6 +75,12 @@ export const CustomModelsPage: React.FC = () => {
   const [modalSaving, setModalSaving] = useState<boolean>(false)
   const [modalError, setModalError] = useState<string | null>(null)
 
+  // Security Audit States (inspired by toby-bridges/api-relay-audit)
+  const [modalAuditing, setModalAuditing] = useState<boolean>(false)
+  const [modalAuditResult, setModalAuditResult] = useState<SecurityAuditReport | null>(null)
+  const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false)
+  const [activeReportForView, setActiveReportForView] = useState<SecurityAuditReport | null>(null)
+
   const loadData = async () => {
     setLoading(true)
     setFeedback(null)
@@ -80,6 +93,12 @@ export const CustomModelsPage: React.FC = () => {
       setLoading(false)
     }
   }
+
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
+
+  useEffect(() => {
+    setPortalTarget(document.getElementById('top-bar-right'))
+  }, [])
 
   useEffect(() => {
     loadData()
@@ -104,6 +123,7 @@ export const CustomModelsPage: React.FC = () => {
     setManualModelEntry(false)
     setShowApiKey(false)
     setModalTestResult(null)
+    setModalAuditResult(null)
     setModalError(null)
     setIsModalOpen(true)
   }
@@ -129,6 +149,21 @@ export const CustomModelsPage: React.FC = () => {
     setManualModelEntry(false)
     setShowApiKey(false)
     setModalTestResult(null)
+    if (model.security_risk_level) {
+      setModalAuditResult({
+        risk_level: model.security_risk_level,
+        risk_score: model.security_audit_score ?? (model.security_risk_level === 'low' ? 5 : model.security_risk_level === 'medium' ? 30 : 65),
+        model_id: model.id,
+        endpoint: model.base_url,
+        provider_type: model.provider_type,
+        audited_at: model.last_security_audit || new Date().toISOString(),
+        summary: `Previously audited: ${model.security_risk_level.toUpperCase()} Risk.`,
+        probes: [],
+        recommendations: [],
+      })
+    } else {
+      setModalAuditResult(null)
+    }
     setModalError(null)
     setIsModalOpen(true)
   }
@@ -281,6 +316,50 @@ export const CustomModelsPage: React.FC = () => {
     }
   }
 
+  const handleAuditInModal = async () => {
+    if (!baseUrl.trim() && providerType !== 'anthropic' && providerType !== 'gemini') {
+      setModalError('Please enter a Base URL before running a security audit.')
+      return
+    }
+
+    setModalAuditing(true)
+    setModalAuditResult(null)
+    setModalError(null)
+
+    const isThinking = thinkingLevel.trim() !== '' && thinkingLevel.toLowerCase() !== 'off'
+    const activeThinkingLvl = isThinking ? thinkingLevel.trim() : ''
+    const cleanThinkingLevels = thinkingLevels.filter((l) => l.toLowerCase() !== 'off' && l.trim() !== '')
+    const draftModel: CustomModel = {
+      id: editingModel?.id || 'draft-audit',
+      name: modelName.trim() || 'unnamed-model',
+      display_name: displayName.trim() || modelName.trim(),
+      provider_type: providerType,
+      base_url: baseUrl.trim(),
+      api_key: apiKey.trim(),
+      project_mappings: projectMappings.split(',').map((p) => p.trim()).filter(Boolean),
+      quota_type: editingModel?.quota_type || 'na',
+      prepaid_balance: editingModel?.prepaid_balance || 0,
+      total_budget: editingModel?.total_budget || 0,
+      quota_fraction: editingModel?.quota_fraction ?? null,
+      is_default: isDefault,
+      enabled: enabled,
+      context_window: Number(contextWindow) || 1048576,
+      supports_thinking: isThinking,
+      thinking_levels: isThinking ? (cleanThinkingLevels.length > 0 ? cleanThinkingLevels : [activeThinkingLvl]) : undefined,
+      thinking_level: isThinking ? activeThinkingLvl : '',
+      notes: notes.trim(),
+    }
+
+    try {
+      const res = await auditModelSecurity(draftModel)
+      setModalAuditResult(res)
+    } catch (err: any) {
+      setModalError(`Security audit failed: ${err.message}`)
+    } finally {
+      setModalAuditing(false)
+    }
+  }
+
   const handleSaveModel = async () => {
     if (!modelName.trim()) {
       setModalError('Model identifier name is required.')
@@ -333,6 +412,9 @@ export const CustomModelsPage: React.FC = () => {
       thinking_levels: isThinking ? (updatedThinkingLevels.length > 0 ? updatedThinkingLevels : [activeThinkingLvl]) : undefined,
       thinking_level: isThinking ? activeThinkingLvl : '',
       notes: notes.trim(),
+      security_risk_level: modalAuditResult?.risk_level || editingModel?.security_risk_level,
+      security_audit_score: modalAuditResult?.risk_score ?? editingModel?.security_audit_score,
+      last_security_audit: modalAuditResult?.audited_at || editingModel?.last_security_audit,
     }
 
     try {
@@ -448,36 +530,29 @@ export const CustomModelsPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Top Header Card */}
-      <div className="google-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-        <div>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-            Custom Model Providers & Endpoints
-          </div>
-          <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
-            Configure third-party LLMs (OpenAI, Anthropic Claude, Gemini, DeepSeek, OpenCode, Ollama) with thinking level, quota tracking, and project routing.
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button onClick={openAddModal} className="btn-pill-primary" style={{ padding: '7px 16px', fontSize: '12px' }}>
-            <Plus size={14} /> Add Custom Model
-          </button>
-          <button
-            onClick={handleRefreshAllQuotas}
-            disabled={refreshingQuotas || loading}
-            className="btn-pill-tonal"
-            style={{ padding: '7px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-            title="Auto-query provider endpoints to refresh balances and rate-limit quotas"
-          >
-            <RefreshCw size={13} className={refreshingQuotas ? 'spin' : ''} />
-            <span style={{ fontSize: '12px' }}>{refreshingQuotas ? 'Refreshing...' : 'Refresh Quotas'}</span>
-          </button>
-          <button onClick={loadData} disabled={loading} className="btn-pill-tonal" style={{ padding: '7px 12px' }} title="Reload Models">
-            <RefreshCw size={14} className={loading && !refreshingQuotas ? 'spin' : ''} />
-          </button>
-        </div>
-      </div>
+      {/* Top Bar Action Buttons via Portal */}
+      {portalTarget &&
+        createPortal(
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button onClick={openAddModal} className="btn-pill-primary" style={{ padding: '7px 16px', fontSize: '12px' }}>
+              <Plus size={14} /> Add Custom Model
+            </button>
+            <button
+              onClick={handleRefreshAllQuotas}
+              disabled={refreshingQuotas || loading}
+              className="btn-pill-tonal"
+              style={{ padding: '7px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              title="Auto-query provider endpoints to refresh balances and rate-limit quotas"
+            >
+              <RefreshCw size={13} className={refreshingQuotas ? 'spin' : ''} />
+              <span style={{ fontSize: '12px' }}>{refreshingQuotas ? 'Refreshing...' : 'Refresh Quotas'}</span>
+            </button>
+            <button onClick={loadData} disabled={loading} className="btn-pill-tonal" style={{ padding: '7px 12px' }} title="Reload Models">
+              <RefreshCw size={14} className={loading && !refreshingQuotas ? 'spin' : ''} />
+            </button>
+          </div>,
+          portalTarget
+        )}
 
       {feedback && (
         <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: '#fce8e6', color: '#b3261e', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -575,16 +650,6 @@ export const CustomModelsPage: React.FC = () => {
                 }}
               >
                 <div>
-                  {/* Top Row: Switch Button to Enable/Disable (Tags removed) */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: '8px' }}>
-                    <ToggleSwitch
-                      size="sm"
-                      checked={m.enabled}
-                      ariaLabel={m.enabled ? `Disable ${m.display_name}` : `Enable ${m.display_name}`}
-                      onChange={(checked) => handleToggleModelEnabled(m, checked)}
-                    />
-                  </div>
-
                   {/* Model Name and Gauge Row */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
                     <div style={{ flex: 1 }}>
@@ -696,25 +761,96 @@ export const CustomModelsPage: React.FC = () => {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '8px',
                   }}
                 >
-                  <button
-                    onClick={() => handleCardTest(m)}
-                    disabled={isTesting}
-                    className="btn-pill-tonal"
-                    style={{ padding: '5px 12px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px' }}
-                  >
-                    <Zap size={12} />
-                    {isTesting ? 'Testing...' : 'Test Connection'}
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      onClick={() => handleCardTest(m)}
+                      disabled={isTesting}
+                      className="btn-pill-tonal"
+                      style={{ padding: '5px 12px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                    >
+                      <Zap size={12} />
+                      {isTesting ? 'Testing...' : 'Test Connection'}
+                    </button>
 
-                  <button
-                    onClick={() => openEditModal(m)}
-                    className="btn-pill-tonal"
-                    style={{ padding: '5px 14px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px' }}
-                  >
-                    <Edit2 size={12} /> Edit
-                  </button>
+                    {m.security_risk_level ? (
+                      <button
+                        onClick={async () => {
+                          const rep = await auditModelSecurity(m)
+                          setActiveReportForView(rep)
+                          setIsReportModalOpen(true)
+                        }}
+                        style={{
+                          padding: '3px 8px',
+                          borderRadius: '12px',
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          backgroundColor:
+                            m.security_risk_level === 'low'
+                              ? '#e6f4ea'
+                              : m.security_risk_level === 'medium'
+                              ? '#fef7e0'
+                              : '#fce8e6',
+                          color:
+                            m.security_risk_level === 'low'
+                              ? '#137333'
+                              : m.security_risk_level === 'medium'
+                              ? '#b06000'
+                              : '#c5221f',
+                          border: `1px solid ${
+                            m.security_risk_level === 'low'
+                              ? '#ceead6'
+                              : m.security_risk_level === 'medium'
+                              ? '#feefc3'
+                              : '#fad2cf'
+                          }`,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                        title="Click to view Security Audit Report"
+                      >
+                        <ShieldCheck size={11} />
+                        <span>{m.security_risk_level.toUpperCase()} RISK</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={async () => {
+                          const rep = await auditModelSecurity(m)
+                          setActiveReportForView(rep)
+                          setIsReportModalOpen(true)
+                        }}
+                        className="btn-pill-tonal"
+                        style={{ padding: '4px 8px', fontSize: '10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                        title="Run security audit on this relay endpoint"
+                      >
+                        <Shield size={11} />
+                        <span>Audit API</span>
+                      </button>
+                    )}
+                    {/* Edit button moved to right of Audit API button */}
+                    <button
+                      onClick={() => openEditModal(m)}
+                      className="btn-pill-tonal"
+                      style={{ padding: '5px 12px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                    >
+                      <Edit2 size={12} /> Edit
+                    </button>
+                  </div>
+
+                  {/* Toggle button at bottom right */}
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <ToggleSwitch
+                      size="sm"
+                      checked={m.enabled}
+                      ariaLabel={m.enabled ? `Disable ${m.display_name}` : `Enable ${m.display_name}`}
+                      onChange={(checked) => handleToggleModelEnabled(m, checked)}
+                    />
+                  </div>
                 </div>
               </div>
             )
@@ -1104,17 +1240,73 @@ export const CustomModelsPage: React.FC = () => {
               }}
             >
               {/* Bottom Left: Test Connection Button & Result Feedback */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   onClick={handleTestInModal}
                   disabled={modalTesting || !baseUrl.trim()}
                   className="btn-pill-tonal"
-                  style={{ padding: '7px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  style={{ padding: '7px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
                 >
                   <Zap size={13} />
-                  {modalTesting ? 'Testing Endpoint...' : 'Test Connection'}
+                  {modalTesting ? 'Testing...' : 'Test Connection'}
                 </button>
+
+                <button
+                  type="button"
+                  onClick={handleAuditInModal}
+                  disabled={modalAuditing || !baseUrl.trim()}
+                  className="btn-pill-tonal"
+                  style={{
+                    padding: '7px 14px',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    border: modalAuditResult ? '1px solid var(--border)' : undefined,
+                  }}
+                  title="Run security audit against endpoint (inspired by toby-bridges/api-relay-audit)"
+                >
+                  <Shield size={13} color="var(--primary)" />
+                  {modalAuditing ? 'Auditing...' : 'Security Check'}
+                </button>
+
+                {modalAuditResult && (() => {
+                  const r = modalAuditResult.risk_level
+                  const isLow = r === 'low'
+                  const isMed = r === 'medium'
+                  const isHigh = r === 'high'
+                  const color = isLow ? '#137333' : isMed ? '#b06000' : isHigh ? '#e37400' : '#c5221f'
+                  const bg = isLow ? '#e6f4ea' : isMed ? '#fef7e0' : isHigh ? '#fff0d4' : '#fce8e6'
+                  const border = isLow ? '#ceead6' : isMed ? '#feefc3' : isHigh ? '#ffdfb0' : '#fad2cf'
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveReportForView(modalAuditResult)
+                        setIsReportModalOpen(true)
+                      }}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '12px',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        backgroundColor: bg,
+                        color: color,
+                        border: `1px solid ${border}`,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        cursor: 'pointer',
+                        textTransform: 'uppercase',
+                      }}
+                      title="Click to view detailed Security Audit Report"
+                    >
+                      {isLow ? <ShieldCheck size={13} /> : <ShieldAlert size={13} />}
+                      <span>{r.toUpperCase()} RISK (Report)</span>
+                    </button>
+                  )
+                })()}
 
                 {modalTestResult && (() => {
                   const isSuccess = modalTestResult.success && modalTestResult.status_code >= 200 && modalTestResult.status_code < 300
@@ -1243,6 +1435,14 @@ export const CustomModelsPage: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Security Report In-App Modal */}
+      {isReportModalOpen && activeReportForView && (
+        <SecurityReportModal
+          report={activeReportForView}
+          onClose={() => setIsReportModalOpen(false)}
+        />
       )}
     </div>
   )

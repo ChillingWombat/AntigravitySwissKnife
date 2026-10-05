@@ -73,7 +73,7 @@ export const CircularGauge: React.FC<CircularGaugeProps> = ({
         >
           <span
             style={{
-              fontSize: hasValue ? '26px' : '20px',
+              fontSize: hasValue ? (size <= 80 ? '15px' : '26px') : (size <= 80 ? '12px' : '20px'),
               fontWeight: 700,
               color: hasValue ? 'var(--text)' : 'var(--text-muted)',
               letterSpacing: hasValue ? 'normal' : '0.5px',
@@ -84,8 +84,8 @@ export const CircularGauge: React.FC<CircularGaugeProps> = ({
         </div>
       </div>
 
-      <div style={{ marginTop: '12px' }}>
-        <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+      <div style={{ marginTop: size <= 80 ? '4px' : '12px' }}>
+        <div style={{ fontSize: size <= 80 ? '10px' : '12px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
           {title}
         </div>
       </div>

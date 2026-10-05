@@ -65,6 +65,9 @@ func (s *Store) load() error {
 	if cfg.Version == "" {
 		cfg.Version = "1.0.0"
 	}
+	if cfg.OverviewPanel.DivisionStyle == "" {
+		cfg.OverviewPanel = DefaultConfig().OverviewPanel
+	}
 	s.config = cfg
 	return nil
 }

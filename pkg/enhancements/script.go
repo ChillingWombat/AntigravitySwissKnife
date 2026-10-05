@@ -38,6 +38,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               applyEnhancementsStyles();
               renderPromptJumpBar();
               applyDefaultProjectHandler();
+              applyOverviewPanelEnhancements();
             }
           }
 
@@ -174,6 +175,70 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           width: 22px !important;
         }
       ` + "`" + `;
+
+      // Overview Panel Styling
+      const op = enhConfig.overview_panel;
+      if (op && op.enabled) {
+        if (op.division_style === "divider_line") {
+          const thickness = op.line_thickness || 1;
+          const widthPct = op.line_width_percent || 100;
+          const lineCol = op.line_color || (dark ? "rgba(255, 255, 255, 0.12)" : "#e2e8f0");
+          const lineMargin = op.line_margin || 12;
+          const lineStyle = op.line_style || "solid";
+          css += ` + "`" + `
+            .swiss-overview-divider {
+              height: 0px !important;
+              width: ${widthPct}%% !important;
+              border: none !important;
+              border-top: ${thickness}px ${lineStyle} ${lineCol} !important;
+              margin: ${lineMargin}px auto !important;
+              display: block !important;
+            }
+          ` + "`" + `;
+        } else if (op.division_style === "border_zone") {
+          const radius = op.zone_border_radius || 8;
+          const zoneBorder = op.zone_border_color || (dark ? "rgba(255, 255, 255, 0.12)" : "#e2e8f0");
+          const padding = op.zone_padding || 10;
+          const gap = op.zone_gap || 10;
+          const bgCol = dark ? "#212124" : (op.zone_background_contrast === "whiter" ? "#ffffff" : "#f8fafc");
+          css += ` + "`" + `
+            .swiss-overview-zone {
+              background-color: ${bgCol} !important;
+              border: 1px solid ${zoneBorder} !important;
+              border-radius: ${radius}px !important;
+              padding: ${padding}px !important;
+              margin-bottom: ${gap}px !important;
+              box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03) !important;
+              transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+            }
+            .swiss-overview-zone:hover {
+              border-color: ${dark ? "rgba(255, 255, 255, 0.22)" : "#cbd5e1"} !important;
+            }
+          ` + "`" + `;
+        }
+
+        if (op.replace_see_all_triangle) {
+          css += ` + "`" + `
+            .swiss-see-triangle-btn {
+              cursor: pointer !important;
+              display: inline-flex !important;
+              align-items: center !important;
+              gap: 4px !important;
+              font-size: 11px !important;
+              font-weight: 600 !important;
+              color: var(--primary, #0b57d0) !important;
+              padding: 2px 6px !important;
+              border-radius: 4px !important;
+              background-color: rgba(11, 87, 208, 0.08) !important;
+              border: 1px solid rgba(11, 87, 208, 0.15) !important;
+              user-select: none !important;
+            }
+            .swiss-see-triangle-btn:hover {
+              background-color: rgba(11, 87, 208, 0.15) !important;
+            }
+          ` + "`" + `;
+        }
+      }
 
       if (styleTag.textContent !== css) {
         styleTag.textContent = css;
@@ -505,6 +570,69 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       }
     }
 
+    function applyOverviewPanelEnhancements() {
+      const op = enhConfig.overview_panel;
+      if (!op || !op.enabled) return;
+
+      const titles = [
+        "Subagents",
+        "Files Changed",
+        "Artifacts",
+        "Uploads",
+        "Background Tasks",
+        "Terminals",
+        "Goals",
+        "Skills Used"
+      ];
+
+      const allCandidates = Array.from(document.querySelectorAll("h3, h4, span, div, button"));
+      const sectionHeaders = allCandidates.filter(el => {
+        if (!el || el.children.length > 3) return false;
+        const text = (el.textContent || "").trim();
+        return titles.some(t => text.startsWith(t) && text.length < 45);
+      });
+
+      sectionHeaders.forEach((hdr, idx) => {
+        let container = hdr.closest('[class*="section"]') ||
+                        hdr.closest('[data-testid*="section"]') ||
+                        (hdr.parentElement && hdr.parentElement !== document.body ? hdr.parentElement : null);
+        if (!container) return;
+
+        if (op.division_style === "border_zone") {
+          if (!container.classList.contains("swiss-overview-zone")) {
+            container.classList.add("swiss-overview-zone");
+          }
+        } else if (op.division_style === "divider_line") {
+          if (idx > 0 && container.previousElementSibling && !container.previousElementSibling.classList.contains("swiss-overview-divider")) {
+            const divider = document.createElement("div");
+            divider.className = "swiss-overview-divider";
+            container.parentElement?.insertBefore(divider, container);
+          }
+        }
+      });
+
+      if (op.replace_see_all_triangle) {
+        const seeButtons = Array.from(document.querySelectorAll("button, a, span")).filter(el => {
+          if (!el || el.querySelector(".swiss-see-triangle-btn")) return false;
+          const t = (el.textContent || "").trim();
+          return (t.startsWith("See all") || t === "See less" || t.startsWith("See less"));
+        });
+
+        seeButtons.forEach(btn => {
+          const rawText = (btn.textContent || "").trim();
+          const isSeeAll = rawText.startsWith("See all");
+          const countMatch = rawText.match(/\\((\\d+)\\)/);
+          const count = countMatch ? countMatch[1] : "";
+          btn.setAttribute("data-orig-see-text", rawText);
+          const iconSvg = isSeeAll
+            ? '<svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>'
+            : '<svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M19 15l-7-7-7 7"/></svg>';
+          const countBadge = count ? ' <span>(' + count + ')</span>' : '';
+          btn.innerHTML = '<span class="swiss-see-triangle-btn" title="' + rawText + '">' + iconSvg + countBadge + '</span>';
+        });
+      }
+    }
+
     // Attach scroll and DOM observers
     if (!window.__swissEnhancementsObserver) {
       window.__swissEnhancementsObserver = true;
@@ -599,6 +727,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           }
 
           applyDefaultProjectHandler();
+          applyOverviewPanelEnhancements();
         });
       });
       if (window.__swissEnhancementsObserver) {
@@ -611,6 +740,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     applyEnhancementsStyles();
     renderPromptJumpBar();
     applyDefaultProjectHandler();
+    applyOverviewPanelEnhancements();
   } catch (err) {
     console.warn("[SwissKnife] Enhancements script exception:", err);
   }

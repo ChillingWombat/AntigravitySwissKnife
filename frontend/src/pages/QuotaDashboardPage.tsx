@@ -12,7 +12,7 @@ import {
   Search,
   Plus,
 } from 'lucide-react'
-import type { AccountState, FleetQuotaSummary, RuleConfig } from '../types'
+import type { AccountState, FleetQuotaSummary, RuleConfig, DiscoveredAccount } from '../types'
 import { CircularGauge } from '../components/CircularGauge'
 import { HorizontalQuotaBar } from '../components/HorizontalQuotaBar'
 import { AccountDetailModal } from '../components/AccountDetailModal'
@@ -252,6 +252,22 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const [errorDetailAccount, setErrorDetailAccount] = useState<AccountState | null>(null)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; account: AccountState } | null>(null)
 
+  // Discovered Accounts Import Modal State
+  const [isScanModalOpen, setIsScanModalOpen] = useState(false)
+  const [discoveredAccounts, setDiscoveredAccounts] = useState<DiscoveredAccount[]>([])
+  const [selectedDiscoveredEmails, setSelectedDiscoveredEmails] = useState<Set<string>>(new Set())
+  const [isImportingDiscovered, setIsImportingDiscovered] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  const handleRefreshClick = () => {
+    setIsRefreshing(true)
+    try {
+      onRefresh()
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500)
+    }
+  }
+
   useEffect(() => {
     const handleGlobalClick = () => setContextMenu(null)
     window.addEventListener('click', handleGlobalClick)
@@ -283,17 +299,66 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
     setSwitchFeedback(null)
     try {
       const scanned = await api.scanLocalAccounts()
-      const count = Array.isArray(scanned) ? scanned.length : 0
-      setSwitchFeedback(
-        count > 0
-          ? `Scan complete: ${count} local account(s) detected`
-          : 'Scan complete: No new local accounts detected'
-      )
-      onRefresh()
+      const existingEmails = new Set(accounts.map((a) => (a.email || '').toLowerCase()))
+      const allScanned = Array.isArray(scanned) ? scanned : []
+      const unimported = allScanned.filter((s) => s.email && !existingEmails.has(s.email.toLowerCase()))
+
+      if (unimported.length === 0) {
+        setSwitchFeedback('Scan complete: All accounts detected on this machine are already in your fleet.')
+      } else {
+        setDiscoveredAccounts(unimported)
+        setSelectedDiscoveredEmails(new Set(unimported.map((s) => s.email)))
+        setIsScanModalOpen(true)
+      }
     } catch (err: any) {
       setSwitchFeedback(`Scan error: ${err.message}`)
     } finally {
       setIsScanning(false)
+    }
+  }
+
+  const handleToggleSelectAllDiscovered = () => {
+    if (selectedDiscoveredEmails.size === discoveredAccounts.length) {
+      setSelectedDiscoveredEmails(new Set())
+    } else {
+      setSelectedDiscoveredEmails(new Set(discoveredAccounts.map((d) => d.email)))
+    }
+  }
+
+  const handleToggleDiscoveredEmail = (email: string) => {
+    const next = new Set(selectedDiscoveredEmails)
+    if (next.has(email)) {
+      next.delete(email)
+    } else {
+      next.add(email)
+    }
+    setSelectedDiscoveredEmails(next)
+  }
+
+  const handleImportSelectedDiscovered = async () => {
+    if (selectedDiscoveredEmails.size === 0) return
+    setIsImportingDiscovered(true)
+    try {
+      let count = 0
+      for (const item of discoveredAccounts) {
+        if (selectedDiscoveredEmails.has(item.email)) {
+          await api.importAccount({
+            email: item.email,
+            refresh_token: item.refresh_token || '',
+            access_token: item.access_token || '',
+            label: item.source ? `Discovered (${item.source})` : 'Discovered Account',
+          })
+          count++
+        }
+      }
+      setIsScanModalOpen(false)
+      setDiscoveredAccounts([])
+      setSwitchFeedback(`Successfully imported ${count} account(s) into your fleet.`)
+      onRefresh()
+    } catch (err: any) {
+      setSwitchFeedback(`Import error: ${err.message}`)
+    } finally {
+      setIsImportingDiscovered(false)
     }
   }
 
@@ -324,12 +389,12 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           gap: '16px',
         }}
       >
-        {/* Card A: Managed Accounts Fleet */}
+        {/* Card A: Switcher Status Fleet Gadget */}
         <div className="google-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                Account Management
+                Switcher Status
               </div>
 
               {/* Auto-Switch Toggle Button */}
@@ -346,17 +411,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               </div>
             </div>
 
-            <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
+            <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginBottom: '8px' }}>
               {fleet?.total_accounts || accounts.length} Accounts Managed
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--primary)', marginBottom: '4px' }}>
-              <CheckCircle2 size={15} />
-              <span>Active: {activeAccount || 'Not Logged In'}</span>
-            </div>
-
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-              Last Quota Sync: {new Date().toLocaleTimeString()}
             </div>
 
             {switchFeedback && (
@@ -373,7 +429,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               disabled={isScanning}
               className="btn-pill-outlined"
               style={{
-                flex: 1,
                 padding: '7px 14px',
                 fontSize: '12px',
                 fontWeight: 600,
@@ -381,6 +436,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '6px',
+                width: 'fit-content',
               }}
               title="Scan machine for local Antigravity/Google accounts"
             >
@@ -404,14 +460,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               <Plus size={14} /> Add Account
             </button>
 
-            <button
-              onClick={onRefresh}
-              className="btn-pill-outlined"
-              style={{ padding: '7px 12px' }}
-              title="Refresh Quota"
-            >
-              <RotateCw size={14} />
-            </button>
           </div>
         </div>
 
@@ -419,34 +467,132 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
         <div className="google-card" style={{ display: 'flex', flexDirection: 'column' }}>
           <div
             style={{
-              fontSize: '11px',
-              fontWeight: 700,
-              color: 'var(--text-muted)',
-              letterSpacing: '0.8px',
-              textTransform: 'uppercase',
-              marginBottom: '12px',
-            }}
-          >
-            Fleet Quota Overview
-          </div>
-          <div
-            style={{
-              flex: 1,
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'space-around',
-              gap: '16px',
+              justifyContent: 'space-between',
+              marginBottom: rules?.allow_non_gemini_native_models ? '8px' : '12px',
             }}
           >
-            <CircularGauge
-              percentage={(fleet?.fleet_5h_available ?? 0.94) * 100}
-              title="5H"
-            />
-            <CircularGauge
-              percentage={(fleet?.fleet_weekly_available ?? 0.94) * 100}
-              title="Weekly"
-            />
+            <div
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                color: 'var(--text-muted)',
+                letterSpacing: '0.8px',
+                textTransform: 'uppercase',
+              }}
+            >
+              Quota Overview
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {rules?.allow_non_gemini_native_models && (
+                <span
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    backgroundColor: 'rgba(26, 115, 232, 0.1)',
+                    color: 'var(--primary)',
+                    padding: '2px 8px',
+                    borderRadius: '10px',
+                    border: '1px solid rgba(26, 115, 232, 0.25)',
+                  }}
+                >
+                  Dual Engine (Gemini + Claude/GPT)
+                </span>
+              )}
+              <button
+                onClick={handleRefreshClick}
+                className="btn-pill-tonal"
+                style={{
+                  border: 'none',
+                  padding: '5px 8px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                }}
+                title="Refresh Quota"
+              >
+                <RotateCw
+                  size={13}
+                  style={{
+                    transition: 'transform 0.5s ease',
+                    transform: isRefreshing ? 'rotate(360deg)' : 'none',
+                  }}
+                />
+              </button>
+            </div>
           </div>
+
+          {rules?.allow_non_gemini_native_models ? (
+            /* 2x2 Progress Rings Layout with grey horizontal split line */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1, justifyContent: 'center' }}>
+              {/* Row 1: Gemini Models */}
+              <div>
+                <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Gemini Models
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: '12px' }}>
+                  <CircularGauge
+                    percentage={(fleet?.fleet_5h_gemini_available ?? fleet?.fleet_5h_available ?? 0) * 100}
+                    title="Gemini 5H"
+                    size={74}
+                    strokeWidth={7}
+                  />
+                  <CircularGauge
+                    percentage={(fleet?.fleet_weekly_gemini_available ?? fleet?.fleet_weekly_available ?? 0) * 100}
+                    title="Gemini Weekly"
+                    size={74}
+                    strokeWidth={7}
+                  />
+                </div>
+              </div>
+
+              {/* Grey horizontal split line in between */}
+              <div style={{ height: '1px', backgroundColor: 'var(--border)', width: '100%', margin: '4px 0' }} />
+
+              {/* Row 2: Claude & GPT Models */}
+              <div>
+                <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Claude &amp; GPT Models
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: '12px' }}>
+                  <CircularGauge
+                    percentage={(fleet?.fleet_5h_claude_gpt_available ?? 0) * 100}
+                    title="Claude/GPT 5H"
+                    size={74}
+                    strokeWidth={7}
+                  />
+                  <CircularGauge
+                    percentage={(fleet?.fleet_weekly_claude_gpt_available ?? 0) * 100}
+                    title="Claude/GPT Weekly"
+                    size={74}
+                    strokeWidth={7}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Standard 1x2 Progress Rings */
+            <div
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-around',
+                gap: '16px',
+              }}
+            >
+              <CircularGauge
+                percentage={(fleet?.fleet_5h_available ?? 0) * 100}
+                title="5H"
+              />
+              <CircularGauge
+                percentage={(fleet?.fleet_weekly_available ?? 0) * 100}
+                title="Weekly"
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -510,38 +656,43 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           </div>
         </div>
 
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th
-                onClick={() => setSortMode('identity')}
-                style={{
-                  padding: '12px 20px',
-                  textAlign: 'left',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  color: sortMode === 'identity' ? 'var(--primary)' : 'var(--text-muted)',
-                  borderBottom: '1px solid var(--border)',
-                  backgroundColor: 'var(--canvas)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                }}
-                title="Click to sort by Account Name"
-              >
+        <div style={{ overflowX: 'auto', width: '100%' }}>
+          <table style={{ width: '100%', minWidth: '960px', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+            <thead>
+              <tr>
+                <th
+                  onClick={() => setSortMode('identity')}
+                  style={{
+                    width: '26%',
+                    minWidth: '220px',
+                    padding: '12px 18px',
+                    textAlign: 'left',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    color: sortMode === 'identity' ? 'var(--primary)' : 'var(--text-muted)',
+                    borderBottom: '1px solid var(--border)',
+                    backgroundColor: 'var(--canvas)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                  }}
+                  title="Click to sort by Account Name"
+                >
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                   <span>Account</span>
                   {sortMode === 'identity' && <ArrowUpDown size={11} />}
                 </div>
               </th>
-              <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              <th style={{ width: '90px', minWidth: '85px', padding: '12px 10px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Plan
               </th>
               <th
                 onClick={() => setSortMode('quota_5h')}
                 style={{
-                  padding: '12px 14px',
+                  width: '22%',
+                  minWidth: '160px',
+                  padding: '12px 12px',
                   textAlign: 'left',
                   fontSize: '11px',
                   fontWeight: 600,
@@ -563,7 +714,9 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               <th
                 onClick={() => setSortMode('quota_weekly')}
                 style={{
-                  padding: '12px 14px',
+                  width: '22%',
+                  minWidth: '160px',
+                  padding: '12px 12px',
                   textAlign: 'left',
                   fontSize: '11px',
                   fontWeight: 600,
@@ -585,7 +738,9 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               <th
                 onClick={() => setSortMode('credits')}
                 style={{
-                  padding: '12px 14px',
+                  width: '95px',
+                  minWidth: '85px',
+                  padding: '12px 10px',
                   textAlign: 'left',
                   fontSize: '11px',
                   fontWeight: 600,
@@ -607,7 +762,9 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               <th
                 onClick={() => setSortMode('priority')}
                 style={{
-                  padding: '12px 14px',
+                  width: '80px',
+                  minWidth: '75px',
+                  padding: '12px 10px',
                   textAlign: 'left',
                   fontSize: '11px',
                   fontWeight: 600,
@@ -626,7 +783,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   {sortMode === 'priority' && <ArrowUpDown size={11} />}
                 </div>
               </th>
-              <th style={{ padding: '12px 20px', textAlign: 'right', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              <th style={{ width: '95px', minWidth: '90px', padding: '12px 16px', textAlign: 'right', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Action
               </th>
             </tr>
@@ -652,9 +809,9 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--canvas)')}
                   onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
-                  <td style={{ padding: '14px 20px' }}>
+                  <td style={{ padding: '12px 18px', overflow: 'hidden' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ fontWeight: 600, color: 'var(--text)', fontSize: '13px' }}>
+                      <span style={{ fontWeight: 600, color: 'var(--text)', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {acc.label ? acc.label : acc.email}
                       </span>
                       {isNextSwitch && (
@@ -667,6 +824,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                             border: '1px solid #ceead6',
                             padding: '1px 6px',
                             borderRadius: '10px',
+                            flexShrink: 0,
                           }}
                           title="Next account in continuous rotation queue"
                         >
@@ -675,34 +833,84 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                       )}
                     </div>
                     {acc.label ? (
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {acc.email}
                       </div>
                     ) : null}
                   </td>
 
-                  <td style={{ padding: '14px' }}>
+                  <td style={{ padding: '12px 10px' }}>
                     {renderPlanTierBadge(acc.plan_tier)}
                   </td>
 
-                  <td style={{ padding: '14px' }}>
-                    <HorizontalQuotaBar
-                      fraction={acc.quota_5h_available}
-                      title={acc.reset_horizon_text || 'Resets in 5h cycle'}
-                    />
+                  <td style={{ padding: '12px', verticalAlign: 'middle' }}>
+                    {rules?.allow_non_gemini_native_models ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                            <span>Gemini</span>
+                            <span>{Math.round((acc.quota_5h_available ?? 0) * 100)}%</span>
+                          </div>
+                          <HorizontalQuotaBar
+                            fraction={acc.quota_5h_available ?? 0}
+                            title={acc.reset_horizon_text || 'Gemini 5h cycle'}
+                          />
+                        </div>
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                            <span>Claude &amp; GPT</span>
+                            <span>{acc.quota_5h_claude_gpt !== undefined && acc.quota_5h_claude_gpt !== null ? `${Math.round(acc.quota_5h_claude_gpt * 100)}%` : '0%'}</span>
+                          </div>
+                          <HorizontalQuotaBar
+                            fraction={acc.quota_5h_claude_gpt ?? 0}
+                            title="Claude/GPT 5h cycle"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <HorizontalQuotaBar
+                        fraction={acc.quota_5h_available ?? 0}
+                        title={acc.reset_horizon_text || 'Resets in 5h cycle'}
+                      />
+                    )}
                   </td>
 
-                  <td style={{ padding: '14px' }}>
-                    <HorizontalQuotaBar
-                      fraction={acc.quota_weekly}
-                      title="Resets on 7-day rolling cycle"
-                    />
+                  <td style={{ padding: '12px', verticalAlign: 'middle' }}>
+                    {rules?.allow_non_gemini_native_models ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                            <span>Gemini</span>
+                            <span>{Math.round((acc.quota_weekly ?? 0) * 100)}%</span>
+                          </div>
+                          <HorizontalQuotaBar
+                            fraction={acc.quota_weekly ?? 0}
+                            title="Gemini 7-day rolling cycle"
+                          />
+                        </div>
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                            <span>Claude &amp; GPT</span>
+                            <span>{acc.quota_weekly_claude_gpt !== undefined && acc.quota_weekly_claude_gpt !== null ? `${Math.round(acc.quota_weekly_claude_gpt * 100)}%` : '0%'}</span>
+                          </div>
+                          <HorizontalQuotaBar
+                            fraction={acc.quota_weekly_claude_gpt ?? 0}
+                            title="Claude/GPT 7-day cycle"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <HorizontalQuotaBar
+                        fraction={acc.quota_weekly ?? 0}
+                        title="Resets on 7-day rolling cycle"
+                      />
+                    )}
                   </td>
 
                   <td style={{ padding: '14px' }}>
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                       <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text)' }}>
-                        ${((acc.credits !== undefined && acc.credits !== null) ? Number(acc.credits) : (acc.plan_tier?.toLowerCase() === 'ultra' ? 50 : acc.plan_tier?.toLowerCase() === 'pro' ? 20 : 0)).toFixed(2)}
+                        {((acc.credits !== undefined && acc.credits !== null) ? Number(acc.credits) : (acc.plan_tier?.toLowerCase() === 'ultra' ? 50 : acc.plan_tier?.toLowerCase() === 'pro' ? 20 : 0))} Credits
                       </span>
                       {acc.enable_credit_overages ? (
                         <span
@@ -816,6 +1024,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
             })}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Account Detail Modal Window */}
@@ -1039,6 +1248,169 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           >
             <Copy size={13} /> Copy Email Address
           </button>
+        </div>
+      )}
+
+      {/* Discovered Accounts Popup Modal */}
+      {isScanModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            backdropFilter: 'blur(2px)',
+          }}
+          onClick={() => !isImportingDiscovered && setIsScanModalOpen(false)}
+        >
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '16px',
+              width: '540px',
+              maxWidth: '92vw',
+              maxHeight: '85vh',
+              padding: '24px',
+              boxShadow: 'var(--shadow-lg)',
+              border: '1px solid var(--border)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Search size={20} color="#1a73e8" />
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+                  Discovered Local Accounts ({discoveredAccounts.length})
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsScanModalOpen(false)}
+                disabled={isImportingDiscovered}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--text-muted)',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
+              <button
+                onClick={handleToggleSelectAllDiscovered}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--primary)',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
+              >
+                {selectedDiscoveredEmails.size === discoveredAccounts.length ? 'Deselect All' : 'Select All'}
+              </button>
+              <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>
+                {selectedDiscoveredEmails.size} of {discoveredAccounts.length} selected
+              </span>
+            </div>
+
+            {/* Scrollable list of accounts */}
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                overflowY: 'auto',
+                maxHeight: '340px',
+                paddingRight: '4px',
+              }}
+            >
+              {discoveredAccounts.map((item) => {
+                const isSelected = selectedDiscoveredEmails.has(item.email)
+                return (
+                  <div
+                    key={item.email}
+                    onClick={() => handleToggleDiscoveredEmail(item.email)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '10px 14px',
+                      borderRadius: '8px',
+                      border: `1.5px solid ${isSelected ? 'var(--primary)' : 'var(--border)'}`,
+                      backgroundColor: isSelected ? 'rgba(26, 115, 232, 0.04)' : 'var(--card-bg, #ffffff)',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => {}}
+                        style={{ accentColor: '#1a73e8', cursor: 'pointer' }}
+                      />
+                      <div>
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                          {item.email}
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', gap: '8px', marginTop: '2px', flexWrap: 'wrap' }}>
+                          <span>Source: {item.source || 'Local IDE'}</span>
+                          {item.has_refresh && <span style={{ color: '#137333', fontWeight: 500 }}>• Refresh Token Available</span>}
+                          {item.has_tokens && !item.has_refresh && <span>• OAuth Token</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    {item.is_active_in_ide && (
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          padding: '2px 8px',
+                          borderRadius: '10px',
+                          backgroundColor: 'rgba(19, 115, 51, 0.1)',
+                          color: '#137333',
+                        }}
+                      >
+                        Active in IDE
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+              <button
+                onClick={() => setIsScanModalOpen(false)}
+                disabled={isImportingDiscovered}
+                className="btn-pill-tonal"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleImportSelectedDiscovered}
+                disabled={isImportingDiscovered || selectedDiscoveredEmails.size === 0}
+                className="btn-pill-primary"
+              >
+                {isImportingDiscovered
+                  ? 'Importing...'
+                  : `Import ${selectedDiscoveredEmails.size} Account(s)`}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

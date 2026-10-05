@@ -26,9 +26,9 @@ export const HorizontalQuotaBar: React.FC<HorizontalQuotaBarProps> = ({
     <div
       title={title}
       style={{
-        display: 'flex',
+        display: 'inline-flex',
         alignItems: 'center',
-        gap: '12px',
+        gap: '6px',
         width: '100%',
         maxWidth: maxWidth,
       }}
@@ -54,11 +54,10 @@ export const HorizontalQuotaBar: React.FC<HorizontalQuotaBarProps> = ({
       </div>
       <span
         style={{
-          fontSize: '12px',
+          fontSize: '11px',
           fontWeight: 700,
           color: 'var(--text)',
-          minWidth: '38px',
-          textAlign: 'right',
+          whiteSpace: 'nowrap',
         }}
       >
         {pct}%

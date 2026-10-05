@@ -42,7 +42,20 @@ export const api = {
 
   getAccounts: () => request<any[]>('/api/accounts'),
 
-  scanLocalAccounts: () => request<any[]>('/api/accounts/scan'),
+  scanLocalAccounts: () => request<import('./types').DiscoveredAccount[]>('/api/accounts/scan'),
+
+  importAccount: (data: {
+    email: string
+    refresh_token?: string
+    access_token?: string
+    label?: string
+    totp_secret?: string
+  }) =>
+    request<any>('/api/accounts/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
 
   switchAccount: (email: string) =>
     request<{ success: boolean; active_account: string }>('/api/switch', {
@@ -313,4 +326,124 @@ export const api = {
     request<{ success: boolean; deleted: string }>(`/api/templates/sidecars?id=${encodeURIComponent(id)}`, {
       method: 'DELETE',
     }),
+
+  // Real Custom Models Security Audit API
+  auditCustomModelSecurity: (model: any) =>
+    request<any>('/api/custom_models/security-audit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(model),
+    }),
+
+  // Real Filesystem Explorer API
+  listFiles: (path?: string) =>
+    request<{ success: boolean; path: string; files: Array<{ name: string; isDir: boolean; type: string; size: string; path: string; modTime: string }> }>(
+      `/api/files/list?path=${encodeURIComponent(path || '')}`
+    ),
+
+  readFile: (path: string) =>
+    request<{ success: boolean; path: string; content: string; size: number }>(
+      `/api/files/read?path=${encodeURIComponent(path)}`
+    ),
+
+  writeFile: (path: string, content: string) =>
+    request<{ success: boolean; path: string; size: number }>('/api/files/write', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, content }),
+    }),
+
+  renameFile: (oldPath: string, newPath: string) =>
+    request<{ success: boolean; old_path: string; new_path: string }>('/api/files/rename', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ old_path: oldPath, new_path: newPath }),
+    }),
+
+  deleteFile: (path: string) =>
+    request<{ success: boolean; deleted: string }>('/api/files/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    }),
+
+  createFile: (path: string, isDir = false) =>
+    request<{ success: boolean; path: string; is_dir: boolean }>('/api/files/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, is_dir: isDir }),
+    }),
+
+  copyFile: (src: string, dst: string) =>
+    request<{ success: boolean; src: string; dst: string }>('/api/files/copy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ src, dst }),
+    }),
+
+  moveFile: (src: string, dst: string) =>
+    request<{ success: boolean; src: string; dst: string }>('/api/files/move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ src, dst }),
+    }),
+
+  revealFile: (path: string) =>
+    request<{ success: boolean; revealed: string }>('/api/files/reveal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    }),
+
+  openTerminal: (path: string) =>
+    request<{ success: boolean; dir: string }>('/api/files/terminal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    }),
+
+  // Quick Memos API
+  getMemos: () =>
+    request<{ success: boolean; memos: any[] }>('/api/memos'),
+
+  saveMemo: (memo: any) =>
+    request<{ success: boolean; memo: any }>('/api/memos/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(memo),
+    }),
+
+  deleteMemo: (id: string) =>
+    request<{ success: boolean; deleted: string }>(`/api/memos/delete?id=${encodeURIComponent(id)}`, {
+      method: 'POST',
+    }),
+
+  // Real Utilities & ACP Mesh API
+  scanImportCandidates: (source: string) =>
+    request<{ success: boolean; source: string; count: number; candidates: any[] }>(
+      `/api/utilities/import/scan?source=${encodeURIComponent(source)}`
+    ),
+
+  executeImport: (candidateIds: string[], source: string = 'opencode', mode: string = 'auto') =>
+    request<{ success: boolean; imported_count: number; message: string }>('/api/utilities/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ candidate_ids: candidateIds, source, mode }),
+    }),
+
+  getAcpMesh: () =>
+    request<{ status: string; mesh_nodes: number; protocol_version: string; agents: any[] }>('/api/utilities/acp'),
+
+  // Real Token Analytics API
+  getTokenSummary: () =>
+    request<{
+      total_tokens: number
+      input_tokens: number
+      cached_input_tokens: number
+      output_tokens: number
+      total_cost_usd: number
+      saved_cost_usd: number
+      avg_tps: number
+      requests_count: number
+    }>('/api/tokens/summary'),
 }

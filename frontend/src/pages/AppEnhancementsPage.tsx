@@ -1,6 +1,20 @@
 import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Zap, Save, Archive, Folder, MessageSquare, Plus, MoreVertical } from 'lucide-react'
+import {
+  Zap,
+  Save,
+  Archive,
+  Folder,
+  MessageSquare,
+  Plus,
+  MoreVertical,
+  Layers,
+  Split,
+  CheckCircle2,
+  FileText,
+  Image,
+  Sliders,
+} from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 import type { EnhancementsConfig, GUIConfig } from '../types'
@@ -59,7 +73,7 @@ function hslToHex(hsl: string): string {
 }
 
 interface AppEnhancementsPageProps {
-  activeCategoryTab?: number // 0: Chat View, 1: Project Panel, 2: Chat History
+  activeCategoryTab?: number // 0: Chat View, 1: Project Panel, 2: Overview Panel, 3: Chat History
 }
 
 export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
@@ -76,6 +90,19 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
   const [archiving, setArchiving] = useState(false)
   const [archiveResult, setArchiveResult] = useState<string | null>(null)
   const [previewExpanded, setPreviewExpanded] = useState(false)
+  const [overviewFilesExpanded, setOverviewFilesExpanded] = useState(false)
+  const [overviewUploadsExpanded, setOverviewUploadsExpanded] = useState(false)
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
+    tasks: true,
+    terminals: true,
+  })
+
+  const toggleSection = (key: string) => {
+    setCollapsedSections((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }))
+  }
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
 
   useEffect(() => {
@@ -168,6 +195,21 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
   }
 
   const jb = config.prompt_jump_bar
+  const op = config.overview_panel || {
+    enabled: true,
+    division_style: 'border_zone',
+    line_thickness: 1,
+    line_width_percent: 100,
+    line_color: '#e2e8f0',
+    line_style: 'solid',
+    line_margin: 12,
+    zone_border_radius: 8,
+    zone_border_color: '#e2e8f0',
+    zone_background_contrast: 'whiter',
+    zone_padding: 10,
+    zone_gap: 10,
+    replace_see_all_triangle: true,
+  }
   const activeColor =
     jb.color_mode === 'default'
       ? '#64748b'
@@ -247,25 +289,36 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
 
         {jb.enabled && (
           <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '18px' }}>
-            {/* Options grid */}
+            {/* Top row: 3 Switches with toggles on the right and vertical breaker lines */}
             <div
               style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                gap: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                background: '#f8fafc',
+                borderRadius: '10px',
+                border: '1px solid #e2e8f0',
+                padding: '12px 16px',
                 marginBottom: '20px',
+                gap: '0px',
               }}
             >
+              {/* Switch 1: Sync with Scroll */}
               <label
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '10px',
+                  justifyContent: 'space-between',
+                  gap: '12px',
                   fontSize: '13px',
                   color: '#334155',
                   cursor: 'pointer',
+                  flex: 1,
+                  minWidth: '240px',
+                  paddingRight: '16px',
                 }}
               >
+                <span>Sync with Scroll (highlights lowest prompt on screen)</span>
                 <ToggleSwitch
                   size="sm"
                   checked={jb.sync_scroll}
@@ -276,19 +329,27 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     })
                   }
                 />
-                <span>Sync with Scroll (highlights lowest prompt on screen)</span>
               </label>
 
+              {/* Vertical Breaker 1 */}
+              <div style={{ width: '1px', height: '26px', backgroundColor: '#cbd5e1', margin: '0 12px' }} />
+
+              {/* Switch 2: Show Preview Tooltip on Hover */}
               <label
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '10px',
+                  justifyContent: 'space-between',
+                  gap: '12px',
                   fontSize: '13px',
                   color: '#334155',
                   cursor: 'pointer',
+                  flex: 1,
+                  minWidth: '220px',
+                  paddingRight: '16px',
                 }}
               >
+                <span>Show Preview Tooltip on Hover</span>
                 <ToggleSwitch
                   size="sm"
                   checked={jb.show_tooltip}
@@ -299,19 +360,26 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     })
                   }
                 />
-                <span>Show Preview Tooltip on Hover</span>
               </label>
 
+              {/* Vertical Breaker 2 */}
+              <div style={{ width: '1px', height: '26px', backgroundColor: '#cbd5e1', margin: '0 12px' }} />
+
+              {/* Switch 3: Pulse Highlight Target Prompt Card on Jump */}
               <label
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '10px',
+                  justifyContent: 'space-between',
+                  gap: '12px',
                   fontSize: '13px',
                   color: '#334155',
                   cursor: 'pointer',
+                  flex: 1,
+                  minWidth: '240px',
                 }}
               >
+                <span>Pulse Highlight Target Prompt Card on Jump</span>
                 <ToggleSwitch
                   size="sm"
                   checked={jb.focus_pulse}
@@ -322,331 +390,434 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     })
                   }
                 />
-                <span>Pulse Highlight Target Prompt Card on Jump</span>
               </label>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontSize: '13px', color: '#334155' }}>Line Width:</span>
-                <input
-                  type="number"
-                  min="10"
-                  max="28"
-                  value={jb.dash_width || 14}
-                  onChange={(e) =>
-                    setConfig({
-                      ...config,
-                      prompt_jump_bar: { ...jb, dash_width: parseInt(e.target.value) || 14 },
-                    })
-                  }
-                  style={{
-                    width: '60px',
-                    padding: '4px 8px',
-                    borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
-                    fontSize: '12px',
-                  }}
-                />
-                <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (standard 14px)</span>
-              </div>
             </div>
 
-            {/* Color Mode Selection (User Request) */}
+            {/* 2-Column Layout: Settings on Left, Interactive Gutter Preview on Right */}
             <div
               style={{
-                background: '#f8fafc',
-                borderRadius: '10px',
-                border: '1px solid #e2e8f0',
-                padding: '16px 20px',
-                marginBottom: '20px',
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1.4fr) minmax(280px, 1fr)',
+                gap: '20px',
+                alignItems: 'start',
               }}
             >
-              <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b', marginBottom: '10px' }}>
-                Active & Hover Line Color
-              </div>
-              <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#64748b' }}>
-                Inactive lines remain subtle grey (1.5px). Choose the accent color for the active indicator (3.5px) and
-                hovering state:
-              </p>
-
-              <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '14px' }}>
-                <label
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '13px',
-                    color: '#1e293b',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="color_mode"
-                    value="default"
-                    checked={jb.color_mode === 'default'}
-                    onChange={() =>
-                      setConfig({
-                        ...config,
-                        prompt_jump_bar: { ...jb, color_mode: 'default' },
-                      })
-                    }
-                    style={{ accentColor: '#0b57d0' }}
-                  />
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                    <span>Slate Grey</span>
-                    <span
-                      style={{
-                        background: '#e2e8f0',
-                        color: '#475569',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                      }}
-                    >
-                      Antigravity's Default
-                    </span>
-                  </span>
-                </label>
-
-                <label
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '13px',
-                    color: '#1e293b',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="color_mode"
-                    value="project"
-                    checked={jb.color_mode === 'project'}
-                    onChange={() =>
-                      setConfig({
-                        ...config,
-                        prompt_jump_bar: { ...jb, color_mode: 'project' },
-                      })
-                    }
-                    style={{ accentColor: '#0b57d0' }}
-                  />
-                  <span>Match Project Color (dynamically adapts per project)</span>
-                </label>
-
-                <label
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '13px',
-                    color: '#1e293b',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="color_mode"
-                    value="custom"
-                    checked={jb.color_mode === 'custom'}
-                    onChange={() =>
-                      setConfig({
-                        ...config,
-                        prompt_jump_bar: { ...jb, color_mode: 'custom' },
-                      })
-                    }
-                    style={{ accentColor: '#0b57d0' }}
-                  />
-                  <span>Custom Color (applied across all projects)</span>
-                </label>
-              </div>
-
-              {/* Custom Color Palette (Preset + 10x10 Grid) */}
-              {jb.color_mode === 'custom' && (
+              {/* LEFT COLUMN: Line Width, Line Thickness, and Color Mode Settings */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* Line Dimensions Settings (Width & Thickness) */}
                 <div
                   style={{
-                    background: '#ffffff',
-                    padding: '14px',
-                    borderRadius: '8px',
-                    border: '1px solid #cbd5e1',
-                    marginTop: '10px',
+                    background: '#f8fafc',
+                    borderRadius: '10px',
+                    border: '1px solid #e2e8f0',
+                    padding: '16px 20px',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                      Preset Colors:
-                    </span>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      {PRESET_COLORS.map((p) => (
-                        <div
-                          key={p.hex}
-                          onClick={() =>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b', marginBottom: '8px' }}>
+                    Line Geometry & Dimensions
+                  </div>
+                  <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#64748b' }}>
+                    Fine-tune dash line length and thickness for active and inactive prompts:
+                  </p>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+                    {/* Line Width */}
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
+                        Dash Width:
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                          type="number"
+                          min="8"
+                          max="36"
+                          value={jb.dash_width || 14}
+                          onChange={(e) =>
                             setConfig({
                               ...config,
-                              prompt_jump_bar: { ...jb, custom_color: p.hex },
+                              prompt_jump_bar: { ...jb, dash_width: parseInt(e.target.value) || 14 },
                             })
                           }
-                          title={p.name}
                           style={{
-                            width: '24px',
-                            height: '24px',
-                            borderRadius: '50%',
-                            background: p.hex,
-                            cursor: 'pointer',
-                            border: jb.custom_color === p.hex ? '2px solid #0f172a' : '2px solid transparent',
-                            transform: jb.custom_color === p.hex ? 'scale(1.15)' : 'scale(1)',
-                            transition: 'transform 0.12s',
+                            width: '70px',
+                            padding: '5px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid #cbd5e1',
+                            fontSize: '12.5px',
                           }}
                         />
-                      ))}
+                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (default: 14)</span>
+                      </div>
                     </div>
 
-                    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '12px', color: '#64748b' }}>Selected:</span>
-                      <div
-                        style={{
-                          width: '18px',
-                          height: '18px',
-                          borderRadius: '4px',
-                          background: jb.custom_color || '#0b57d0',
-                          border: '1px solid #cbd5e1',
-                        }}
-                      />
-                      <input
-                        type="text"
-                        value={jb.custom_color || '#0b57d0'}
-                        onChange={(e) =>
-                          setConfig({
-                            ...config,
-                            prompt_jump_bar: { ...jb, custom_color: e.target.value },
-                          })
-                        }
-                        style={{
-                          width: '85px',
-                          padding: '3px 6px',
-                          borderRadius: '4px',
-                          border: '1px solid #cbd5e1',
-                          fontSize: '12px',
-                          fontFamily: 'monospace',
-                        }}
-                      />
+                    {/* Active Line Thickness */}
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
+                        Active Thickness:
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                          type="number"
+                          min="1.5"
+                          max="8"
+                          step="0.5"
+                          value={jb.dash_thickness || 3.5}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              prompt_jump_bar: { ...jb, dash_thickness: parseFloat(e.target.value) || 3.5 },
+                            })
+                          }
+                          style={{
+                            width: '70px',
+                            padding: '5px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid #cbd5e1',
+                            fontSize: '12.5px',
+                          }}
+                        />
+                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (default: 3.5)</span>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* 10x10 Palette */}
-                  <div>
-                    <span
-                      style={{
-                        display: 'block',
-                        fontSize: '11px',
-                        fontWeight: 700,
-                        color: '#64748b',
-                        textTransform: 'uppercase',
-                        marginBottom: '6px',
-                      }}
-                    >
-                      10&times;10 Extended Palette:
-                    </span>
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(10, 20px)',
-                        gap: '4px',
-                        padding: '6px',
-                        background: '#f8fafc',
-                        borderRadius: '6px',
-                        border: '1px solid #e2e8f0',
-                        width: 'fit-content',
-                      }}
-                    >
-                      {GRID_COLORS.map((row, r) =>
-                        row.map((cellHsl, c) => {
-                          const hex = hslToHex(cellHsl)
-                          const isSelected = jb.custom_color?.toLowerCase() === hex.toLowerCase()
-                          return (
-                            <div
-                              key={`${r}-${c}`}
-                              onClick={() =>
-                                setConfig({
-                                  ...config,
-                                  prompt_jump_bar: { ...jb, custom_color: hex },
-                                })
-                              }
-                              style={{
-                                width: '20px',
-                                height: '20px',
-                                borderRadius: '3px',
-                                background: cellHsl,
-                                cursor: 'pointer',
-                                border: isSelected ? '2px solid #0f172a' : '1px solid rgba(0,0,0,0.06)',
-                                transform: isSelected ? 'scale(1.2)' : 'scale(1)',
-                                zIndex: isSelected ? 2 : 1,
-                                transition: 'transform 0.1s',
-                              }}
-                            />
-                          )
-                        })
-                      )}
+                    {/* Inactive Line Thickness */}
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
+                        Inactive Thickness:
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                          type="number"
+                          min="1"
+                          max="4"
+                          step="0.5"
+                          value={jb.inactive_thickness || 1.5}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              prompt_jump_bar: { ...jb, inactive_thickness: parseFloat(e.target.value) || 1.5 },
+                            })
+                          }
+                          style={{
+                            width: '70px',
+                            padding: '5px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid #cbd5e1',
+                            fontSize: '12.5px',
+                          }}
+                        />
+                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (default: 1.5)</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              )}
-            </div>
 
-            {/* Interactive Live Preview Component */}
-            <div
-              style={{
-                background: '#f8fafc',
-                borderRadius: '8px',
-                border: '1px dashed #cbd5e1',
-                padding: '16px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '24px',
-              }}
-            >
-              <div style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>Interactive Gutter Preview:</div>
+                {/* Color Mode Selection (User Request: removed default tag) */}
+                <div
+                  style={{
+                    background: '#f8fafc',
+                    borderRadius: '10px',
+                    border: '1px solid #e2e8f0',
+                    padding: '16px 20px',
+                  }}
+                >
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b', marginBottom: '8px' }}>
+                    Active & Hover Line Color
+                  </div>
+                  <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#64748b' }}>
+                    Inactive lines remain subtle grey ({jb.inactive_thickness || 1.5}px). Choose the accent color for active indicator ({jb.dash_thickness || 3.5}px) and hover:
+                  </p>
 
-              {/* Sample Prompt Jump Bar */}
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '6px',
-                  padding: '6px 4px',
-                  background: 'transparent',
-                  userSelect: 'none',
-                }}
-              >
-                {[0, 1, 2, 3, 4].map((idx) => {
-                  const isActive = idx === 2
-                  const isHovered = previewHover === idx
-                  const h = isActive ? '3.5px' : '1.5px'
-                  const bg = isActive || isHovered ? activeColor : 'rgba(100, 116, 139, 0.42)'
-                  return (
-                    <div
-                      key={idx}
-                      onMouseEnter={() => setPreviewHover(idx)}
-                      onMouseLeave={() => setPreviewHover(null)}
-                      title={`Preview Prompt #${idx + 1}`}
+                  <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '14px' }}>
+                    <label
                       style={{
-                        width: `${jb.dash_width || 14}px`,
-                        height: h,
-                        borderRadius: '2px',
-                        background: bg,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '13px',
+                        color: '#1e293b',
                         cursor: 'pointer',
-                        transition: 'height 0.15s, background 0.15s',
                       }}
-                    />
-                  )
-                })}
+                    >
+                      <input
+                        type="radio"
+                        name="color_mode"
+                        value="default"
+                        checked={jb.color_mode === 'default'}
+                        onChange={() =>
+                          setConfig({
+                            ...config,
+                            prompt_jump_bar: { ...jb, color_mode: 'default' },
+                          })
+                        }
+                        style={{ accentColor: '#0b57d0' }}
+                      />
+                      <span>Slate Grey</span>
+                    </label>
+
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '13px',
+                        color: '#1e293b',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="color_mode"
+                        value="project"
+                        checked={jb.color_mode === 'project'}
+                        onChange={() =>
+                          setConfig({
+                            ...config,
+                            prompt_jump_bar: { ...jb, color_mode: 'project' },
+                          })
+                        }
+                        style={{ accentColor: '#0b57d0' }}
+                      />
+                      <span>Match Project Color</span>
+                    </label>
+
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '13px',
+                        color: '#1e293b',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="color_mode"
+                        value="custom"
+                        checked={jb.color_mode === 'custom'}
+                        onChange={() =>
+                          setConfig({
+                            ...config,
+                            prompt_jump_bar: { ...jb, color_mode: 'custom' },
+                          })
+                        }
+                        style={{ accentColor: '#0b57d0' }}
+                      />
+                      <span>Custom Color</span>
+                    </label>
+                  </div>
+
+                  {/* Custom Color Palette */}
+                  {jb.color_mode === 'custom' && (
+                    <div
+                      style={{
+                        background: '#ffffff',
+                        padding: '14px',
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5e1',
+                        marginTop: '10px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                          Presets:
+                        </span>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          {PRESET_COLORS.map((p) => (
+                            <div
+                              key={p.hex}
+                              onClick={() =>
+                                setConfig({
+                                  ...config,
+                                  prompt_jump_bar: { ...jb, custom_color: p.hex },
+                                })
+                              }
+                              title={p.name}
+                              style={{
+                                width: '22px',
+                                height: '22px',
+                                borderRadius: '50%',
+                                background: p.hex,
+                                cursor: 'pointer',
+                                border: jb.custom_color === p.hex ? '2px solid #0f172a' : '2px solid transparent',
+                                transform: jb.custom_color === p.hex ? 'scale(1.15)' : 'scale(1)',
+                                transition: 'transform 0.12s',
+                              }}
+                            />
+                          ))}
+                        </div>
+
+                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '12px', color: '#64748b' }}>Hex:</span>
+                          <div
+                            style={{
+                              width: '18px',
+                              height: '18px',
+                              borderRadius: '4px',
+                              background: jb.custom_color || '#0b57d0',
+                              border: '1px solid #cbd5e1',
+                            }}
+                          />
+                          <input
+                            type="text"
+                            value={jb.custom_color || '#0b57d0'}
+                            onChange={(e) =>
+                              setConfig({
+                                ...config,
+                                prompt_jump_bar: { ...jb, custom_color: e.target.value },
+                              })
+                            }
+                            style={{
+                              width: '80px',
+                              padding: '3px 6px',
+                              borderRadius: '4px',
+                              border: '1px solid #cbd5e1',
+                              fontSize: '12px',
+                              fontFamily: 'monospace',
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* 10x10 Palette */}
+                      <div>
+                        <span
+                          style={{
+                            display: 'block',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            color: '#64748b',
+                            textTransform: 'uppercase',
+                            marginBottom: '6px',
+                          }}
+                        >
+                          10&times;10 Extended Palette:
+                        </span>
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(10, 18px)',
+                            gap: '3px',
+                            padding: '6px',
+                            background: '#f8fafc',
+                            borderRadius: '6px',
+                            border: '1px solid #e2e8f0',
+                            width: 'fit-content',
+                          }}
+                        >
+                          {GRID_COLORS.map((row, r) =>
+                            row.map((cellHsl, c) => {
+                              const hex = hslToHex(cellHsl)
+                              const isSelected = jb.custom_color?.toLowerCase() === hex.toLowerCase()
+                              return (
+                                <div
+                                  key={`${r}-${c}`}
+                                  onClick={() =>
+                                    setConfig({
+                                      ...config,
+                                      prompt_jump_bar: { ...jb, custom_color: hex },
+                                    })
+                                  }
+                                  style={{
+                                    width: '18px',
+                                    height: '18px',
+                                    borderRadius: '3px',
+                                    background: cellHsl,
+                                    cursor: 'pointer',
+                                    border: isSelected ? '2px solid #0f172a' : '1px solid rgba(0,0,0,0.06)',
+                                    transform: isSelected ? 'scale(1.2)' : 'scale(1)',
+                                    zIndex: isSelected ? 2 : 1,
+                                    transition: 'transform 0.1s',
+                                  }}
+                                />
+                              )
+                            })
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div style={{ fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
-                Line #3 is active (<strong>{jb.dash_width || 14}px &times; 3.5px</strong> in{' '}
-                <span style={{ color: activeColor, fontWeight: 700 }}>{activeColor}</span>). Hover over lines to test
-                hover accent. All inactive lines stay thin (<strong>1.5px</strong>) in grey.
+              {/* RIGHT COLUMN: Interactive Gutter Live Preview Component */}
+              <div
+                style={{
+                  background: '#f8fafc',
+                  borderRadius: '12px',
+                  border: '1px dashed #cbd5e1',
+                  padding: '20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '16px',
+                  position: 'sticky',
+                  top: '20px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>Interactive Gutter Preview</div>
+                  <span style={{ fontSize: '11px', color: '#64748b', backgroundColor: '#e2e8f0', padding: '2px 8px', borderRadius: '10px' }}>
+                    Live Sandbox
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    backgroundColor: '#ffffff',
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0',
+                    padding: '20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '24px',
+                  }}
+                >
+                  {/* Sample Prompt Jump Bar */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '7px',
+                      padding: '8px 4px',
+                      background: 'transparent',
+                      userSelect: 'none',
+                    }}
+                  >
+                    {[0, 1, 2, 3, 4].map((idx) => {
+                      const isActive = idx === 2
+                      const isHovered = previewHover === idx
+                      const activeH = `${jb.dash_thickness || 3.5}px`
+                      const inactiveH = `${jb.inactive_thickness || 1.5}px`
+                      const h = isActive ? activeH : inactiveH
+                      const bg = isActive || isHovered ? activeColor : 'rgba(100, 116, 139, 0.42)'
+                      return (
+                        <div
+                          key={idx}
+                          onMouseEnter={() => setPreviewHover(idx)}
+                          onMouseLeave={() => setPreviewHover(null)}
+                          title={`Preview Prompt #${idx + 1}`}
+                          style={{
+                            width: `${jb.dash_width || 14}px`,
+                            height: h,
+                            borderRadius: '2px',
+                            background: bg,
+                            cursor: 'pointer',
+                            transition: 'height 0.15s, background 0.15s, transform 0.1s',
+                            transform: isHovered ? 'scaleX(1.15)' : 'none',
+                          }}
+                        />
+                      )
+                    })}
+                  </div>
+
+                  <div style={{ fontSize: '12px', color: '#64748b', lineHeight: 1.5 }}>
+                    Line #3 is active (<strong>{jb.dash_width || 14}px &times; {jb.dash_thickness || 3.5}px</strong> in{' '}
+                    <span style={{ color: activeColor, fontWeight: 700 }}>{activeColor}</span>).
+                    <br />
+                    Hover lines to test accent hover. Inactive lines stay at <strong>{jb.inactive_thickness || 1.5}px</strong> grey.
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -865,18 +1036,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
                             Accent Background / Fill
-                          </span>
-                          <span
-                            style={{
-                              background: '#e2e8f0',
-                              color: '#475569',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                            }}
-                          >
-                            Antigravity's Default
                           </span>
                         </div>
                         <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px', lineHeight: 1.4 }}>
@@ -1257,125 +1416,51 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-            {/* Option 1: Fixed Limit */}
-            <div
-              onClick={() =>
-                setGuiConfig({
-                  ...guiConfig,
-                  conversation_tabs_mode: 'fixed',
-                })
-              }
-              style={{
-                padding: '16px',
-                borderRadius: '8px',
-                border: `1.5px solid ${guiConfig.conversation_tabs_mode === 'fixed' || !guiConfig.conversation_tabs_mode ? '#0b57d0' : '#e2e8f0'}`,
-                background: guiConfig.conversation_tabs_mode === 'fixed' || !guiConfig.conversation_tabs_mode ? '#f0f7ff' : 'var(--card-bg, #ffffff)',
-                cursor: 'pointer',
-                transition: 'border-color 0.15s, background 0.15s',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                <input
-                  type="radio"
-                  name="convo_tabs_mode"
-                  checked={guiConfig.conversation_tabs_mode === 'fixed' || !guiConfig.conversation_tabs_mode}
-                  onChange={() => {}}
-                  style={{ accentColor: '#0b57d0' }}
-                />
-                <span style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  <span>Fixed Number</span>
-                  <span
-                    style={{
-                      background: '#e2e8f0',
-                      color: '#475569',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                    }}
-                  >
-                    Antigravity's Default
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1.2fr) minmax(280px, 1fr)', gap: '24px', alignItems: 'start' }}>
+            {/* Left column: Controls stacked vertically */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {/* Option 1: Fixed Limit */}
+              <div
+                onClick={() =>
+                  setGuiConfig({
+                    ...guiConfig,
+                    conversation_tabs_mode: 'fixed',
+                  })
+                }
+                style={{
+                  padding: '16px',
+                  borderRadius: '8px',
+                  border: `1.5px solid ${guiConfig.conversation_tabs_mode === 'fixed' || !guiConfig.conversation_tabs_mode ? '#0b57d0' : '#e2e8f0'}`,
+                  background: guiConfig.conversation_tabs_mode === 'fixed' || !guiConfig.conversation_tabs_mode ? '#f0f7ff' : 'var(--card-bg, #ffffff)',
+                  cursor: 'pointer',
+                  transition: 'border-color 0.15s, background 0.15s',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                  <input
+                    type="radio"
+                    name="convo_tabs_mode"
+                    checked={guiConfig.conversation_tabs_mode === 'fixed' || !guiConfig.conversation_tabs_mode}
+                    onChange={() => {}}
+                    style={{ accentColor: '#0b57d0' }}
+                  />
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
+                    Fixed Number
                   </span>
-                </span>
-              </div>
-              <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
-                Show a constant number of conversation tabs under each project before showing the expand divider.
-              </p>
+                </div>
+                <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                  Show a constant number of conversation tabs under each project before showing the expand divider.
+                </p>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }} onClick={(e) => e.stopPropagation()}>
-                <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Tabs per project:</label>
-                <select
-                  value={guiConfig.conversation_tabs_fixed_limit || 6}
-                  onChange={(e) =>
-                    setGuiConfig({
-                      ...guiConfig,
-                      conversation_tabs_mode: 'fixed',
-                      conversation_tabs_fixed_limit: parseInt(e.target.value, 10),
-                    })
-                  }
-                  style={{
-                    height: '32px',
-                    padding: '0 10px',
-                    borderRadius: '6px',
-                    border: '1.5px solid #cbd5e1',
-                    background: '#ffffff',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    color: '#0f172a',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
-                    <option key={num} value={num}>
-                      {num} {num === 6 ? '— Antigravity Standard' : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Option 2: Dynamic by Chat Age */}
-            <div
-              onClick={() =>
-                setGuiConfig({
-                  ...guiConfig,
-                  conversation_tabs_mode: 'dynamic',
-                })
-              }
-              style={{
-                padding: '16px',
-                borderRadius: '8px',
-                border: `1.5px solid ${guiConfig.conversation_tabs_mode === 'dynamic' ? '#0b57d0' : '#e2e8f0'}`,
-                background: guiConfig.conversation_tabs_mode === 'dynamic' ? '#f0f7ff' : 'var(--card-bg, #ffffff)',
-                cursor: 'pointer',
-                transition: 'border-color 0.15s, background 0.15s',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                <input
-                  type="radio"
-                  name="convo_tabs_mode"
-                  checked={guiConfig.conversation_tabs_mode === 'dynamic'}
-                  onChange={() => {}}
-                  style={{ accentColor: '#0b57d0' }}
-                />
-                <span style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>Dynamic (By Chat Recency)</span>
-              </div>
-              <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
-                Dynamically adjust visible tabs per project based on last active timestamp, bounded between min and max.
-              </p>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }} onClick={(e) => e.stopPropagation()}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
-                  <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Active within:</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }} onClick={(e) => e.stopPropagation()}>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Tabs per project:</label>
                   <select
-                    value={guiConfig.conversation_tabs_age_threshold || '1d'}
+                    value={guiConfig.conversation_tabs_fixed_limit || 6}
                     onChange={(e) =>
                       setGuiConfig({
                         ...guiConfig,
-                        conversation_tabs_mode: 'dynamic',
-                        conversation_tabs_age_threshold: e.target.value as any,
+                        conversation_tabs_mode: 'fixed',
+                        conversation_tabs_fixed_limit: parseInt(e.target.value, 10),
                       })
                     }
                     style={{
@@ -1390,104 +1475,167 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       cursor: 'pointer',
                     }}
                   >
-                    <option value="1d">1 day (Antigravity Standard)</option>
-                    <option value="3d">3 days</option>
-                    <option value="7d">7 days</option>
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                      <option key={num} value={num}>
+                        {num}
+                      </option>
+                    ))}
                   </select>
                 </div>
+              </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Min tabs:</label>
+              {/* Option 2: Dynamic by Chat Age */}
+              <div
+                onClick={() =>
+                  setGuiConfig({
+                    ...guiConfig,
+                    conversation_tabs_mode: 'dynamic',
+                  })
+                }
+                style={{
+                  padding: '16px',
+                  borderRadius: '8px',
+                  border: `1.5px solid ${guiConfig.conversation_tabs_mode === 'dynamic' ? '#0b57d0' : '#e2e8f0'}`,
+                  background: guiConfig.conversation_tabs_mode === 'dynamic' ? '#f0f7ff' : 'var(--card-bg, #ffffff)',
+                  cursor: 'pointer',
+                  transition: 'border-color 0.15s, background 0.15s',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                  <input
+                    type="radio"
+                    name="convo_tabs_mode"
+                    checked={guiConfig.conversation_tabs_mode === 'dynamic'}
+                    onChange={() => {}}
+                    style={{ accentColor: '#0b57d0' }}
+                  />
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>Dynamic (By Chat Recency)</span>
+                </div>
+                <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                  Dynamically adjust visible tabs per project based on last active timestamp, bounded between min and max.
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }} onClick={(e) => e.stopPropagation()}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Active within:</label>
                     <select
-                      value={guiConfig.conversation_tabs_min || 2}
+                      value={guiConfig.conversation_tabs_age_threshold || '1d'}
                       onChange={(e) =>
                         setGuiConfig({
                           ...guiConfig,
                           conversation_tabs_mode: 'dynamic',
-                          conversation_tabs_min: parseInt(e.target.value, 10),
+                          conversation_tabs_age_threshold: e.target.value as any,
                         })
                       }
                       style={{
-                        height: '30px',
-                        padding: '0 8px',
+                        height: '32px',
+                        padding: '0 10px',
                         borderRadius: '6px',
                         border: '1.5px solid #cbd5e1',
                         background: '#ffffff',
-                        fontSize: '12px',
+                        fontSize: '13px',
                         fontWeight: 600,
                         color: '#0f172a',
                         cursor: 'pointer',
-                        width: '100%',
                       }}
                     >
-                      {[1, 2, 3, 4, 5].map((n) => (
-                        <option key={n} value={n}>
-                          {n} {n === 2 ? '— Antigravity Standard' : ''}
-                        </option>
-                      ))}
+                      <option value="1d">1 day</option>
+                      <option value="3d">3 days</option>
+                      <option value="7d">7 days</option>
                     </select>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Max tabs:</label>
-                    <select
-                      value={guiConfig.conversation_tabs_max || 6}
-                      onChange={(e) =>
-                        setGuiConfig({
-                          ...guiConfig,
-                          conversation_tabs_mode: 'dynamic',
-                          conversation_tabs_max: parseInt(e.target.value, 10),
-                        })
-                      }
-                      style={{
-                        height: '30px',
-                        padding: '0 8px',
-                        borderRadius: '6px',
-                        border: '1.5px solid #cbd5e1',
-                        background: '#ffffff',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        color: '#0f172a',
-                        cursor: 'pointer',
-                        width: '100%',
-                      }}
-                    >
-                      {[4, 5, 6, 7, 8, 9, 10].map((n) => (
-                        <option key={n} value={n}>
-                          {n} {n === 6 ? '— Antigravity Standard' : ''}
-                        </option>
-                      ))}
-                    </select>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Min tabs:</label>
+                      <select
+                        value={guiConfig.conversation_tabs_min || 2}
+                        onChange={(e) =>
+                          setGuiConfig({
+                            ...guiConfig,
+                            conversation_tabs_mode: 'dynamic',
+                            conversation_tabs_min: parseInt(e.target.value, 10),
+                          })
+                        }
+                        style={{
+                          height: '30px',
+                          padding: '0 8px',
+                          borderRadius: '6px',
+                          border: '1.5px solid #cbd5e1',
+                          background: '#ffffff',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          color: '#0f172a',
+                          cursor: 'pointer',
+                          width: '100%',
+                        }}
+                      >
+                        {[1, 2, 3, 4, 5].map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Max tabs:</label>
+                      <select
+                        value={guiConfig.conversation_tabs_max || 6}
+                        onChange={(e) =>
+                          setGuiConfig({
+                            ...guiConfig,
+                            conversation_tabs_mode: 'dynamic',
+                            conversation_tabs_max: parseInt(e.target.value, 10),
+                          })
+                        }
+                        style={{
+                          height: '30px',
+                          padding: '0 8px',
+                          borderRadius: '6px',
+                          border: '1.5px solid #cbd5e1',
+                          background: '#ffffff',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          color: '#0f172a',
+                          cursor: 'pointer',
+                          width: '100%',
+                        }}
+                      >
+                        {[4, 5, 6, 7, 8, 9, 10].map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Interactive Micro-Interaction Preview */}
-          <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '16px' }}>
-            <div style={{ fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>
-              Divider Visual Design & Micro-Interaction Preview
-            </div>
+            {/* Right column: Interactive Micro-Interaction Preview */}
             <div
               style={{
-                maxWidth: '280px',
-                padding: '12px 14px',
                 borderRadius: '8px',
                 border: '1px solid #e2e8f0',
                 background: '#f8fafc',
+                padding: '16px',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '6px',
+                gap: '8px',
               }}
             >
+              <div style={{ fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                Divider Visual Design & Micro-Interaction Preview
+              </div>
+
               {/* Project Card */}
               <div
                 style={{
-                  background: '#7c3aed',
+                  background: '#2563eb',
                   color: '#ffffff',
-                  padding: '5px 10px',
+                  padding: '6px 12px',
                   borderRadius: '6px',
                   fontSize: '13px',
                   fontWeight: 600,
@@ -1496,20 +1644,20 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   justifyContent: 'space-between',
                 }}
               >
-                <span>Arbitrager</span>
+                <span>Demo Workspace</span>
                 <span style={{ fontSize: '11px', opacity: 0.85 }}>▾</span>
               </div>
 
               {/* Visible Sample Rows */}
-              {['Market Arbitrage Analysis', 'Pair Trading Strategy', 'Real-time Execution Log'].map((title, i) => (
+              {['Frontend Component Architecture', 'API Endpoint Optimization', 'Design Token Synchronization'].map((title, i) => (
                 <div
                   key={title}
                   style={{
-                    padding: '5px 10px',
+                    padding: '6px 10px',
                     borderRadius: '6px',
                     fontSize: '12px',
                     color: '#334155',
-                    background: 'rgba(124, 58, 237, 0.12)',
+                    background: 'rgba(37, 99, 235, 0.08)',
                     display: 'flex',
                     justifyContent: 'space-between',
                   }}
@@ -1520,15 +1668,15 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               ))}
 
               {previewExpanded &&
-                ['Backtest Validation 2026', 'Funding Rate Monitor'].map((title, i) => (
+                ['Telemetry Pipeline Refactor', 'State Synchronization Hook'].map((title, i) => (
                   <div
                     key={title}
                     style={{
-                      padding: '5px 10px',
+                      padding: '6px 10px',
                       borderRadius: '6px',
                       fontSize: '12px',
                       color: '#334155',
-                      background: 'rgba(124, 58, 237, 0.12)',
+                      background: 'rgba(37, 99, 235, 0.08)',
                       display: 'flex',
                       justifyContent: 'space-between',
                     }}
@@ -1548,7 +1696,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   alignItems: 'center',
                   justifyContent: 'center',
                   width: '100%',
-                  height: '22px',
+                  height: '24px',
                   cursor: 'pointer',
                   userSelect: 'none',
                   padding: '0',
@@ -1591,8 +1739,1123 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
     </>
   )}
 
-  {/* Category 3: Chat History */}
+  {/* Category 3: Overview Panel */}
   {activeCategoryTab === 2 && (
+    <>
+      <div className="google-card">
+        {/* Header with Master Toggle on the Right */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '16px',
+          }}
+        >
+          <div>
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+              Overview Panel Section Division & Visual Grouping
+            </h2>
+            <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
+              Enhance section distinction in Antigravity's right-side Overview Panel (Subagents, Files Changed, Artifacts, Uploads, Background Tasks, Goals, Skills) for instant legibility.
+            </p>
+          </div>
+
+          <ToggleSwitch
+            checked={op.enabled}
+            onChange={(checked) =>
+              setConfig({
+                ...config,
+                overview_panel: { ...op, enabled: checked },
+              })
+            }
+          />
+        </div>
+
+        {op.enabled && (
+          <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '18px' }}>
+            {/* Top Quick Settings Row: Toggles on the right with vertical grey breaker lines */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                background: '#f8fafc',
+                borderRadius: '10px',
+                border: '1px solid #e2e8f0',
+                padding: '12px 16px',
+                marginBottom: '20px',
+              }}
+            >
+              {/* Switch 1: Replace See all / See less with compact triangle */}
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '12px',
+                  fontSize: '13px',
+                  color: '#334155',
+                  cursor: 'pointer',
+                  flex: 1,
+                  minWidth: '280px',
+                  paddingRight: '16px',
+                }}
+              >
+                <span>Replace "See all" & "See less" with Little Triangle (▾ / ▸)</span>
+                <ToggleSwitch
+                  size="sm"
+                  checked={op.replace_see_all_triangle}
+                  onChange={(checked) =>
+                    setConfig({
+                      ...config,
+                      overview_panel: { ...op, replace_see_all_triangle: checked },
+                    })
+                  }
+                />
+              </label>
+
+              {/* Vertical Breaker 1 */}
+              <div style={{ width: '1px', height: '26px', backgroundColor: '#cbd5e1', margin: '0 12px' }} />
+
+              {/* Switch 2: Subtle Count Badges */}
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '12px',
+                  fontSize: '13px',
+                  color: '#334155',
+                  cursor: 'pointer',
+                  flex: 1,
+                  minWidth: '220px',
+                  paddingRight: '16px',
+                }}
+              >
+                <span>Section Header Counter Badges</span>
+                <ToggleSwitch
+                  size="sm"
+                  checked={true}
+                  onChange={() => {}}
+                />
+              </label>
+
+              {/* Vertical Breaker 2 */}
+              <div style={{ width: '1px', height: '26px', backgroundColor: '#cbd5e1', margin: '0 12px' }} />
+
+              {/* Switch 3: Click to Expand / Collapse */}
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '12px',
+                  fontSize: '13px',
+                  color: '#334155',
+                  cursor: 'pointer',
+                  flex: 1,
+                  minWidth: '220px',
+                }}
+              >
+                <span>Clickable Section Accordion</span>
+                <ToggleSwitch
+                  size="sm"
+                  checked={true}
+                  onChange={() => {}}
+                />
+              </label>
+            </div>
+
+            {/* 2-Column Layout: Settings on Left, Interactive Overview Preview on Right */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1.25fr) minmax(360px, 1fr)',
+                gap: '24px',
+                alignItems: 'start',
+              }}
+            >
+              {/* LEFT COLUMN: Section Division Modes & Detailed Controls */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* Section Division Style Selection (2 Visual Option Cards) */}
+                <div
+                  style={{
+                    background: '#f8fafc',
+                    borderRadius: '10px',
+                    border: '1px solid #e2e8f0',
+                    padding: '16px 20px',
+                  }}
+                >
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b', marginBottom: '6px' }}>
+                    Section Division Style
+                  </div>
+                  <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#64748b' }}>
+                    Choose how the sections in the overview panel are visually separated:
+                  </p>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    {/* Option 1: Horizontal Divider Line */}
+                    <div
+                      onClick={() =>
+                        setConfig({
+                          ...config,
+                          overview_panel: { ...op, division_style: 'divider_line' },
+                        })
+                      }
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px',
+                        padding: '14px',
+                        borderRadius: '8px',
+                        border: `1.5px solid ${op.division_style === 'divider_line' ? '#0b57d0' : '#e2e8f0'}`,
+                        backgroundColor: op.division_style === 'divider_line' ? '#eff6ff' : '#ffffff',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '13px', color: '#1e293b' }}>
+                          <Split size={16} color={op.division_style === 'divider_line' ? '#0b57d0' : '#64748b'} />
+                          <span>Horizontal Divider Line</span>
+                        </div>
+                        <input
+                          type="radio"
+                          name="division_style"
+                          checked={op.division_style === 'divider_line'}
+                          onChange={() =>
+                            setConfig({
+                              ...config,
+                              overview_panel: { ...op, division_style: 'divider_line' },
+                            })
+                          }
+                          style={{ accentColor: '#0b57d0', cursor: 'pointer' }}
+                        />
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                        Adds a clean horizontal divider line between each section in the panel.
+                      </div>
+                    </div>
+
+                    {/* Option 2: Border Zone Grouping (Whiter Contrast) */}
+                    <div
+                      onClick={() =>
+                        setConfig({
+                          ...config,
+                          overview_panel: { ...op, division_style: 'border_zone' },
+                        })
+                      }
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px',
+                        padding: '14px',
+                        borderRadius: '8px',
+                        border: `1.5px solid ${op.division_style === 'border_zone' ? '#0b57d0' : '#e2e8f0'}`,
+                        backgroundColor: op.division_style === 'border_zone' ? '#eff6ff' : '#ffffff',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '13px', color: '#1e293b' }}>
+                          <Layers size={16} color={op.division_style === 'border_zone' ? '#0b57d0' : '#64748b'} />
+                          <span>Border Zone (Whiter BG)</span>
+                        </div>
+                        <input
+                          type="radio"
+                          name="division_style"
+                          checked={op.division_style === 'border_zone'}
+                          onChange={() =>
+                            setConfig({
+                              ...config,
+                              overview_panel: { ...op, division_style: 'border_zone' },
+                            })
+                          }
+                          style={{ accentColor: '#0b57d0', cursor: 'pointer' }}
+                        />
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                        Groups each section in a bounded box with slightly whiter background like the chat input box.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Detailed Controls based on selected mode */}
+                {op.division_style === 'divider_line' ? (
+                  /* Option 1 Settings: Line Thickness, Width, Style, Margin & Color */
+                  <div
+                    style={{
+                      background: '#f8fafc',
+                      borderRadius: '10px',
+                      border: '1px solid #e2e8f0',
+                      padding: '16px 20px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '16px',
+                    }}
+                  >
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>
+                      Divider Line Geometry & Dimensions
+                    </div>
+
+                    {/* Thickness & Width row with vertical grey breaker */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '0px',
+                        padding: '12px 14px',
+                        background: '#ffffff',
+                        borderRadius: '8px',
+                        border: '1px solid #e2e8f0',
+                      }}
+                    >
+                      {/* Line Thickness */}
+                      <div style={{ flex: 1, minWidth: '180px', paddingRight: '12px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                          Line Thickness: <strong>{op.line_thickness}px</strong>
+                        </label>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          {[1, 2, 3, 4].map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => setConfig({ ...config, overview_panel: { ...op, line_thickness: t } })}
+                              style={{
+                                flex: 1,
+                                padding: '5px 0',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                fontWeight: op.line_thickness === t ? 700 : 500,
+                                color: op.line_thickness === t ? '#ffffff' : '#334155',
+                                backgroundColor: op.line_thickness === t ? '#0b57d0' : '#f1f5f9',
+                                border: '1px solid',
+                                borderColor: op.line_thickness === t ? '#0b57d0' : '#e2e8f0',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {t}px
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Vertical Grey Breaker */}
+                      <div style={{ width: '1px', height: '40px', backgroundColor: '#cbd5e1', margin: '0 12px' }} />
+
+                      {/* Line Width Percent */}
+                      <div style={{ flex: 1, minWidth: '180px', paddingLeft: '4px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                          Line Width: <strong>{op.line_width_percent}%</strong>
+                        </label>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          {[100, 95, 90, 80].map((w) => (
+                            <button
+                              key={w}
+                              type="button"
+                              onClick={() => setConfig({ ...config, overview_panel: { ...op, line_width_percent: w } })}
+                              style={{
+                                flex: 1,
+                                padding: '5px 0',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                fontWeight: op.line_width_percent === w ? 700 : 500,
+                                color: op.line_width_percent === w ? '#ffffff' : '#334155',
+                                backgroundColor: op.line_width_percent === w ? '#0b57d0' : '#f1f5f9',
+                                border: '1px solid',
+                                borderColor: op.line_width_percent === w ? '#0b57d0' : '#e2e8f0',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {w}%
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Style & Margin row with vertical grey breaker */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '0px',
+                        padding: '12px 14px',
+                        background: '#ffffff',
+                        borderRadius: '8px',
+                        border: '1px solid #e2e8f0',
+                      }}
+                    >
+                      {/* Line Style */}
+                      <div style={{ flex: 1, minWidth: '180px', paddingRight: '12px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                          Line Style:
+                        </label>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          {(['solid', 'dashed', 'dotted'] as const).map((s) => (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() => setConfig({ ...config, overview_panel: { ...op, line_style: s } })}
+                              style={{
+                                flex: 1,
+                                padding: '5px 0',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                textTransform: 'capitalize',
+                                fontWeight: op.line_style === s ? 700 : 500,
+                                color: op.line_style === s ? '#ffffff' : '#334155',
+                                backgroundColor: op.line_style === s ? '#0b57d0' : '#f1f5f9',
+                                border: '1px solid',
+                                borderColor: op.line_style === s ? '#0b57d0' : '#e2e8f0',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {s}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Vertical Grey Breaker */}
+                      <div style={{ width: '1px', height: '40px', backgroundColor: '#cbd5e1', margin: '0 12px' }} />
+
+                      {/* Vertical Spacing / Margin */}
+                      <div style={{ flex: 1, minWidth: '180px', paddingLeft: '4px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                          Vertical Margin: <strong>{op.line_margin}px</strong>
+                        </label>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          {[8, 12, 16, 20].map((m) => (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => setConfig({ ...config, overview_panel: { ...op, line_margin: m } })}
+                              style={{
+                                flex: 1,
+                                padding: '5px 0',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                fontWeight: op.line_margin === m ? 700 : 500,
+                                color: op.line_margin === m ? '#ffffff' : '#334155',
+                                backgroundColor: op.line_margin === m ? '#0b57d0' : '#f1f5f9',
+                                border: '1px solid',
+                                borderColor: op.line_margin === m ? '#0b57d0' : '#e2e8f0',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {m}px
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Line Color Palette */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                        Line Color:
+                      </label>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        {[
+                          { label: 'Subtle Grey', hex: '#e2e8f0' },
+                          { label: 'Slate', hex: '#cbd5e1' },
+                          { label: 'Neutral Dark', hex: '#94a3b8' },
+                          { label: 'Google Blue', hex: '#0b57d0' },
+                        ].map((col) => (
+                          <button
+                            key={col.hex}
+                            type="button"
+                            onClick={() => setConfig({ ...config, overview_panel: { ...op, line_color: col.hex } })}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '5px 10px',
+                              borderRadius: '6px',
+                              border: `1.5px solid ${op.line_color === col.hex ? '#0b57d0' : '#e2e8f0'}`,
+                              background: op.line_color === col.hex ? '#eff6ff' : '#ffffff',
+                              fontSize: '12px',
+                              fontWeight: op.line_color === col.hex ? 700 : 500,
+                              color: '#334155',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: col.hex, display: 'inline-block', border: '1px solid rgba(0,0,0,0.1)' }} />
+                            <span>{col.label}</span>
+                          </button>
+                        ))}
+                        <input
+                          type="text"
+                          value={op.line_color || '#e2e8f0'}
+                          onChange={(e) => setConfig({ ...config, overview_panel: { ...op, line_color: e.target.value } })}
+                          placeholder="#e2e8f0"
+                          style={{
+                            width: '85px',
+                            height: '30px',
+                            padding: '0 8px',
+                            borderRadius: '6px',
+                            border: '1px solid #cbd5e1',
+                            fontSize: '12px',
+                            fontFamily: 'monospace',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Option 2 Settings: Border Zone Grouping, Background Contrast, Radius, Padding & Spacing */
+                  <div
+                    style={{
+                      background: '#f8fafc',
+                      borderRadius: '10px',
+                      border: '1px solid #e2e8f0',
+                      padding: '16px 20px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '16px',
+                    }}
+                  >
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>
+                      Border Zone Appearance & Contrast
+                    </div>
+
+                    {/* Background Contrast Selector */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                        Zone Background Tone:
+                      </label>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {[
+                          { id: 'whiter', label: 'Whiter Contrast (#ffffff)', desc: 'Like the chat input box vs canvas background — crisp and bright' },
+                          { id: 'subtle', label: 'Subtle Card Tint (#fcfdfd)', desc: 'Ultra-gentle contrast with crisp 1px border' },
+                          { id: 'card', label: 'Elevated Surface Card', desc: 'Slightly elevated container with soft shadow' },
+                        ].map((tone) => (
+                          <div
+                            key={tone.id}
+                            onClick={() => setConfig({ ...config, overview_panel: { ...op, zone_background_contrast: tone.id as any } })}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '12px',
+                              padding: '10px 12px',
+                              borderRadius: '8px',
+                              border: `1.5px solid ${op.zone_background_contrast === tone.id ? '#0b57d0' : '#e2e8f0'}`,
+                              background: op.zone_background_contrast === tone.id ? '#eff6ff' : '#ffffff',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <input
+                              type="radio"
+                              name="zone_tone"
+                              checked={op.zone_background_contrast === tone.id}
+                              onChange={() => setConfig({ ...config, overview_panel: { ...op, zone_background_contrast: tone.id as any } })}
+                              style={{ accentColor: '#0b57d0' }}
+                            />
+                            <div>
+                              <div style={{ fontSize: '12px', fontWeight: 600, color: '#1e293b' }}>{tone.label}</div>
+                              <div style={{ fontSize: '11px', color: '#64748b' }}>{tone.desc}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Radius and Gap row with vertical breaker line */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '0px',
+                        padding: '12px 14px',
+                        background: '#ffffff',
+                        borderRadius: '8px',
+                        border: '1px solid #e2e8f0',
+                      }}
+                    >
+                      {/* Border Radius */}
+                      <div style={{ flex: 1, minWidth: '180px', paddingRight: '12px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                          Border Radius: <strong>{op.zone_border_radius}px</strong>
+                        </label>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          {[6, 8, 10, 14].map((r) => (
+                            <button
+                              key={r}
+                              type="button"
+                              onClick={() => setConfig({ ...config, overview_panel: { ...op, zone_border_radius: r } })}
+                              style={{
+                                flex: 1,
+                                padding: '5px 0',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                fontWeight: op.zone_border_radius === r ? 700 : 500,
+                                color: op.zone_border_radius === r ? '#ffffff' : '#334155',
+                                backgroundColor: op.zone_border_radius === r ? '#0b57d0' : '#f1f5f9',
+                                border: '1px solid',
+                                borderColor: op.zone_border_radius === r ? '#0b57d0' : '#e2e8f0',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {r}px
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Vertical Grey Breaker */}
+                      <div style={{ width: '1px', height: '40px', backgroundColor: '#cbd5e1', margin: '0 12px' }} />
+
+                      {/* Gap Between Zones */}
+                      <div style={{ flex: 1, minWidth: '180px', paddingLeft: '4px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                          Zone Spacing (Gap): <strong>{op.zone_gap}px</strong>
+                        </label>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          {[6, 8, 10, 14].map((g) => (
+                            <button
+                              key={g}
+                              type="button"
+                              onClick={() => setConfig({ ...config, overview_panel: { ...op, zone_gap: g } })}
+                              style={{
+                                flex: 1,
+                                padding: '5px 0',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                fontWeight: op.zone_gap === g ? 700 : 500,
+                                color: op.zone_gap === g ? '#ffffff' : '#334155',
+                                backgroundColor: op.zone_gap === g ? '#0b57d0' : '#f1f5f9',
+                                border: '1px solid',
+                                borderColor: op.zone_gap === g ? '#0b57d0' : '#e2e8f0',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {g}px
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Internal Padding & Border Color */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '0px',
+                        padding: '12px 14px',
+                        background: '#ffffff',
+                        borderRadius: '8px',
+                        border: '1px solid #e2e8f0',
+                      }}
+                    >
+                      {/* Internal Padding */}
+                      <div style={{ flex: 1, minWidth: '180px', paddingRight: '12px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                          Internal Padding: <strong>{op.zone_padding}px</strong>
+                        </label>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          {[8, 10, 12, 16].map((p) => (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => setConfig({ ...config, overview_panel: { ...op, zone_padding: p } })}
+                              style={{
+                                flex: 1,
+                                padding: '5px 0',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                fontWeight: op.zone_padding === p ? 700 : 500,
+                                color: op.zone_padding === p ? '#ffffff' : '#334155',
+                                backgroundColor: op.zone_padding === p ? '#0b57d0' : '#f1f5f9',
+                                border: '1px solid',
+                                borderColor: op.zone_padding === p ? '#0b57d0' : '#e2e8f0',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {p}px
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Vertical Grey Breaker */}
+                      <div style={{ width: '1px', height: '40px', backgroundColor: '#cbd5e1', margin: '0 12px' }} />
+
+                      {/* Border Color */}
+                      <div style={{ flex: 1, minWidth: '180px', paddingLeft: '4px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                          Border Color:
+                        </label>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          {[
+                            { label: 'Subtle', hex: '#e2e8f0' },
+                            { label: 'Slate', hex: '#cbd5e1' },
+                            { label: 'Blue Tint', hex: 'rgba(11,87,208,0.22)' },
+                          ].map((col) => (
+                            <button
+                              key={col.hex}
+                              type="button"
+                              onClick={() => setConfig({ ...config, overview_panel: { ...op, zone_border_color: col.hex } })}
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '6px',
+                                border: `1px solid ${op.zone_border_color === col.hex ? '#0b57d0' : '#e2e8f0'}`,
+                                background: op.zone_border_color === col.hex ? '#eff6ff' : '#ffffff',
+                                fontSize: '11px',
+                                fontWeight: op.zone_border_color === col.hex ? 700 : 500,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {col.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* RIGHT COLUMN: Interactive Live Preview of Antigravity's Overview Panel */}
+              <div
+                style={{
+                  background: '#f8fafc',
+                  borderRadius: '12px',
+                  border: '1px solid #e2e8f0',
+                  padding: '16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                  position: 'sticky',
+                  top: '20px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Sliders size={16} color="#0b57d0" />
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>
+                      Live Preview: Antigravity Overview Panel
+                    </span>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      backgroundColor: op.division_style === 'divider_line' ? '#e0f2fe' : '#dcfce7',
+                      color: op.division_style === 'divider_line' ? '#0369a1' : '#15803d',
+                    }}
+                  >
+                    {op.division_style === 'divider_line' ? 'Divider Lines' : 'Border Zones (Whiter BG)'}
+                  </span>
+                </div>
+
+                {/* Simulating the Antigravity right-side panel container */}
+                <div
+                  style={{
+                    backgroundColor: op.division_style === 'border_zone' ? '#f1f5f9' : '#ffffff',
+                    borderRadius: '10px',
+                    border: '1px solid #cbd5e1',
+                    padding: '14px',
+                    maxHeight: '640px',
+                    overflowY: 'auto',
+                    boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.02)',
+                  }}
+                >
+                  {/* Top icon bar */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', color: '#64748b' }}>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                      <FileText size={16} />
+                      <Split size={16} />
+                    </div>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                      <Plus size={16} />
+                      <span style={{ fontSize: '13px', lineHeight: 1 }}>⤢</span>
+                      <span style={{ fontSize: '13px', lineHeight: 1 }}>✕</span>
+                    </div>
+                  </div>
+
+                  {/* Render 8 Sections accurately matching host screenshot */}
+                  {(() => {
+                    const sections = [
+                      {
+                        id: 'subagents',
+                        title: 'Subagents',
+                        count: 1,
+                        hasChevron: true,
+                        renderContent: () => (
+                          <div style={{ marginTop: '6px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', fontWeight: 500, color: '#1e293b' }}>
+                              <span>Comprehensive Requirements Investigator (2 subagents)</span>
+                              <span style={{ color: '#94a3b8' }}>›</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                              <CheckCircle2 size={12} color="#16a34a" />
+                              <span>Worked for 17m</span>
+                            </div>
+                          </div>
+                        ),
+                      },
+                      {
+                        id: 'files',
+                        title: 'Files Changed',
+                        count: 33,
+                        tag: 'Uncommitted',
+                        hasChevron: true,
+                        renderContent: () => (
+                          <div style={{ marginTop: '6px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: '#334155' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ color: '#0284c7', fontSize: '11px', fontWeight: 700 }}>M↓</span>
+                                <span style={{ fontWeight: 500 }}>README.md</span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ color: '#059669', fontSize: '11px', fontWeight: 700 }}>Go</span>
+                                <span>main_test.go <span style={{ color: '#94a3b8', fontSize: '11px' }}>cmd/swiss</span></span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ color: '#6366f1', fontSize: '11px', fontWeight: 700 }}>⚛</span>
+                                <span>App.tsx <span style={{ color: '#94a3b8', fontSize: '11px' }}>frontend/src</span></span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ color: '#3b82f6', fontSize: '11px', fontWeight: 700 }}>TS</span>
+                                <span>api.ts <span style={{ color: '#94a3b8', fontSize: '11px' }}>frontend/src</span></span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ color: '#6366f1', fontSize: '11px', fontWeight: 700 }}>⚛</span>
+                                <span>AccountDetailModal.tsx <span style={{ color: '#94a3b8', fontSize: '11px' }}>frontend/src/components</span></span>
+                              </div>
+
+                              {overviewFilesExpanded && (
+                                <>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span style={{ color: '#059669', fontSize: '11px', fontWeight: 700 }}>Go</span>
+                                    <span>models.go <span style={{ color: '#94a3b8', fontSize: '11px' }}>pkg/enhancements</span></span>
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span style={{ color: '#059669', fontSize: '11px', fontWeight: 700 }}>Go</span>
+                                    <span>script.go <span style={{ color: '#94a3b8', fontSize: '11px' }}>pkg/enhancements</span></span>
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span style={{ color: '#3b82f6', fontSize: '11px', fontWeight: 700 }}>TS</span>
+                                    <span>types.ts <span style={{ color: '#94a3b8', fontSize: '11px' }}>frontend/src</span></span>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+
+                            {/* "See all" vs Little Triangle Replacement */}
+                            <div style={{ marginTop: '6px' }}>
+                              {op.replace_see_all_triangle ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setOverviewFilesExpanded(!overviewFilesExpanded)}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    color: '#0b57d0',
+                                    background: 'rgba(11, 87, 208, 0.08)',
+                                    border: '1px solid rgba(11, 87, 208, 0.15)',
+                                    borderRadius: '4px',
+                                    padding: '2px 6px',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s',
+                                  }}
+                                  title={overviewFilesExpanded ? 'Collapse files list' : 'Expand all 33 files'}
+                                >
+                                  <span style={{ fontSize: '9px' }}>{overviewFilesExpanded ? '▲' : '▼'}</span>
+                                  <span>{overviewFilesExpanded ? 'less' : '(33)'}</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setOverviewFilesExpanded(!overviewFilesExpanded)}
+                                  style={{
+                                    fontSize: '12px',
+                                    color: '#0b57d0',
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    padding: '2px 0',
+                                    textAlign: 'left',
+                                  }}
+                                >
+                                  {overviewFilesExpanded ? 'See less' : 'See all (33)'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ),
+                      },
+                      {
+                        id: 'artifacts',
+                        title: 'Artifacts',
+                        count: 1,
+                        hasChevron: true,
+                        renderContent: () => (
+                          <div style={{ marginTop: '6px', fontSize: '12px', color: '#334155', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <FileText size={13} color="#64748b" />
+                            <span>Prompt Draft</span>
+                          </div>
+                        ),
+                      },
+                      {
+                        id: 'uploads',
+                        title: 'Uploads',
+                        count: 14,
+                        hasChevron: true,
+                        renderContent: () => (
+                          <div style={{ marginTop: '6px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: '#334155' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <Image size={13} color="#64748b" />
+                                <span>Media (Today 6:59 AM)</span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <Image size={13} color="#64748b" />
+                                <span>Media (Today 6:57 AM)</span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <Image size={13} color="#64748b" />
+                                <span>Media (Today 6:55 AM)</span>
+                              </div>
+                              {overviewUploadsExpanded && (
+                                <>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <Image size={13} color="#64748b" />
+                                    <span>Media (Today 6:54 AM)</span>
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <Image size={13} color="#64748b" />
+                                    <span>Media (Today 6:53 AM)</span>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+
+                            <div style={{ marginTop: '6px' }}>
+                              {op.replace_see_all_triangle ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setOverviewUploadsExpanded(!overviewUploadsExpanded)}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    color: '#0b57d0',
+                                    background: 'rgba(11, 87, 208, 0.08)',
+                                    border: '1px solid rgba(11, 87, 208, 0.15)',
+                                    borderRadius: '4px',
+                                    padding: '2px 6px',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s',
+                                  }}
+                                  title={overviewUploadsExpanded ? 'Collapse uploads' : 'Expand all 14 uploads'}
+                                >
+                                  <span style={{ fontSize: '9px' }}>{overviewUploadsExpanded ? '▲' : '▼'}</span>
+                                  <span>{overviewUploadsExpanded ? 'less' : '(14)'}</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setOverviewUploadsExpanded(!overviewUploadsExpanded)}
+                                  style={{
+                                    fontSize: '12px',
+                                    color: '#0b57d0',
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    padding: '2px 0',
+                                    textAlign: 'left',
+                                  }}
+                                >
+                                  {overviewUploadsExpanded ? 'See less' : 'See all (14)'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ),
+                      },
+                      {
+                        id: 'tasks',
+                        title: 'Background Tasks',
+                        count: 0,
+                        hasChevron: false,
+                        renderContent: () => null,
+                      },
+                      {
+                        id: 'terminals',
+                        title: 'Terminals',
+                        count: 0,
+                        hasChevron: false,
+                        renderContent: () => null,
+                      },
+                      {
+                        id: 'goals',
+                        title: 'Goals',
+                        count: 2,
+                        hasChevron: true,
+                        renderContent: () => (
+                          <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: '#334155' }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                              <CheckCircle2 size={13} color="#16a34a" style={{ marginTop: '2px', flexShrink: 0 }} />
+                              <span style={{ lineHeight: 1.3 }}>/teamwork-preview /wish-coding you need more then these 4 tickets...</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                              <CheckCircle2 size={13} color="#16a34a" style={{ marginTop: '2px', flexShrink: 0 }} />
+                              <span style={{ lineHeight: 1.3 }}>/teamwork-preview add a new section, to be below the UI Enhancement sectio...</span>
+                            </div>
+                          </div>
+                        ),
+                      },
+                      {
+                        id: 'skills',
+                        title: 'Skills Used',
+                        count: 2,
+                        hasChevron: true,
+                        renderContent: () => (
+                          <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: '#334155' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <FileText size={13} color="#64748b" />
+                              <span>antigravity-guide <span style={{ color: '#94a3b8', fontSize: '11px' }}>.../skills/antigravity_guide</span></span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <FileText size={13} color="#64748b" />
+                              <span>wish-coding <span style={{ color: '#94a3b8', fontSize: '11px' }}>.../skills/wish-coding</span></span>
+                            </div>
+                          </div>
+                        ),
+                      },
+                    ]
+
+                    return sections.map((sec, idx) => {
+                      const isCollapsed = collapsedSections[sec.id]
+                      const isZone = op.division_style === 'border_zone'
+                      const zoneBg =
+                        op.zone_background_contrast === 'whiter'
+                          ? '#ffffff'
+                          : op.zone_background_contrast === 'subtle'
+                          ? '#fcfdfd'
+                          : '#ffffff'
+
+                      return (
+                        <React.Fragment key={sec.id}>
+                          <div
+                            style={
+                              isZone
+                                ? {
+                                    backgroundColor: zoneBg,
+                                    border: `1px solid ${op.zone_border_color || '#e2e8f0'}`,
+                                    borderRadius: `${op.zone_border_radius || 8}px`,
+                                    padding: `${op.zone_padding || 10}px`,
+                                    marginBottom: `${op.zone_gap || 10}px`,
+                                    boxShadow:
+                                      op.zone_background_contrast === 'card'
+                                        ? '0 1px 3px rgba(0,0,0,0.04)'
+                                        : '0 1px 2px rgba(0,0,0,0.02)',
+                                    transition: 'all 0.15s ease',
+                                  }
+                                : {
+                                    padding: '2px 0',
+                                  }
+                            }
+                          >
+                            {/* Section Header */}
+                            <div
+                              onClick={() => toggleSection(sec.id)}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                cursor: 'pointer',
+                                userSelect: 'none',
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                                  {sec.title}
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: '11px',
+                                    fontWeight: 700,
+                                    color: '#64748b',
+                                  }}
+                                >
+                                  {sec.count}
+                                </span>
+                                {sec.hasChevron ? (
+                                  <span style={{ fontSize: '10px', color: '#94a3b8', transform: isCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }}>
+                                    ▼
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>›</span>
+                                )}
+                              </div>
+
+                              {sec.tag && (
+                                <span
+                                  style={{
+                                    fontSize: '10px',
+                                    fontWeight: 600,
+                                    padding: '1px 6px',
+                                    borderRadius: '4px',
+                                    background: '#f1f5f9',
+                                    color: '#475569',
+                                    border: '1px solid #e2e8f0',
+                                  }}
+                                >
+                                  {sec.tag} ▾
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Section Content */}
+                            {!isCollapsed && sec.renderContent()}
+                          </div>
+
+                          {/* Horizontal Divider Line between sections (when in divider_line mode) */}
+                          {!isZone && idx < sections.length - 1 && (
+                            <div
+                              style={{
+                                height: `${op.line_thickness || 1}px`,
+                                width: `${op.line_width_percent || 100}%`,
+                                backgroundColor: op.line_color || '#e2e8f0',
+                                margin: `${op.line_margin || 12}px auto`,
+                                borderStyle: op.line_style || 'solid',
+                                borderRadius: '1px',
+                              }}
+                            />
+                          )}
+                        </React.Fragment>
+                      )
+                    })
+                  })()}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  )}
+
+  {/* Category 4: Chat History */}
+  {activeCategoryTab === 3 && (
     <>
       {/* Feature 7: Auto-Archive Inactive Conversations */}
       {guiConfig && (

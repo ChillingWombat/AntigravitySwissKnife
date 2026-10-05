@@ -134,7 +134,7 @@ func (s *Store) writePersistentFiles(cfg *Config) error {
 	_ = os.MkdirAll(configDir, 0755)
 
 	css := GenerateCSS(cfg)
-	script := GenerateScript(cfg)
+	script := GenerateScriptWithCustomModels(cfg, nil)
 
 	cssPath := filepath.Join(configDir, "persistent_styles.css")
 	jsPath := filepath.Join(configDir, "persistent_script.js")

@@ -8,6 +8,7 @@ import (
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/enhancements"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/plugins"
 )
 
 // HexToRGB converts a hex string (e.g. "#7c3aed" or "7c3aed" or "#fff") into r, g, b components.
@@ -285,6 +286,7 @@ button[data-swiss-divider="true"]:hover .swiss-convo-tabs-pill,
 }
 `)
 
+	sb.WriteString("\n" + plugins.GenerateAuxiliaryPluginsCSS() + "\n")
 	return sb.String()
 }
 
@@ -972,7 +974,7 @@ func GenerateScript(cfg *Config) string {
 	return baseScript + ";\n\n" + customScript + ";\n\n" + enhScript + ";"
 }
 
-// GenerateScriptWithCustomModels generates the script including specific custom models configuration.
+// GenerateScriptWithCustomModels generates the complete script including project tags, custom models, enhancements, and auxiliary plugins.
 func GenerateScriptWithCustomModels(cfg *Config, cmCfg *custommodels.Config) string {
 	if cmCfg == nil {
 		if cmStore, err := custommodels.NewStore(""); err == nil {
@@ -981,15 +983,27 @@ func GenerateScriptWithCustomModels(cfg *Config, cmCfg *custommodels.Config) str
 		}
 	}
 	base := GenerateScript(cfg)
+	customScript := ""
 	if cmCfg != nil {
-		customScript := custommodels.GenerateCustomModelsScript(cmCfg)
-		var enhCfg *enhancements.EnhancementsConfig
-		if enhStore, err := enhancements.NewStore(""); err == nil {
-			c := enhStore.GetConfig()
-			enhCfg = &c
-		}
-		enhScript := enhancements.GenerateEnhancementsScript(enhCfg)
-		return base + ";\n\n" + customScript + ";\n\n" + enhScript + ";"
+		customScript = custommodels.GenerateCustomModelsScript(cmCfg)
 	}
-	return base
+	var enhCfg *enhancements.EnhancementsConfig
+	if enhStore, err := enhancements.NewStore(""); err == nil {
+		c := enhStore.GetConfig()
+		enhCfg = &c
+	}
+	enhScript := enhancements.GenerateEnhancementsScript(enhCfg)
+	pluginsScript := plugins.GenerateAuxiliaryPluginsScript()
+
+	res := base
+	if customScript != "" {
+		res += ";\n\n" + customScript
+	}
+	if enhScript != "" {
+		res += ";\n\n" + enhScript
+	}
+	if pluginsScript != "" {
+		res += ";\n\n" + pluginsScript
+	}
+	return res
 }

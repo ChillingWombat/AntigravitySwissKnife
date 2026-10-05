@@ -18,6 +18,7 @@ type Account struct {
 	EnableCreditOverages bool      `json:"enable_credit_overages"`
 	AccessToken          string    `json:"access_token,omitempty"`
 	RefreshToken         string    `json:"refresh_token,omitempty"`
+	IDToken              string    `json:"id_token,omitempty"`
 	TokenExpiry          time.Time `json:"token_expiry,omitempty"`
 }
 

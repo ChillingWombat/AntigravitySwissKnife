@@ -10,14 +10,17 @@ import (
 	"sync"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/fingerprint"
 )
 
 // Store manages account inventory and atomic credentials swapping.
 type Store struct {
-	accountsPath string
-	accounts     map[string]*Account
-	activeEmail  string
-	mu           sync.RWMutex
+	accountsPath         string
+	homeDir              string
+	antigravityConfigDir string
+	accounts             map[string]*Account
+	activeEmail          string
+	mu                   sync.RWMutex
 }
 
 // NewStore initializes a Keyring store at the specified path (or default).
@@ -26,9 +29,17 @@ func NewStore(accountsPath string) (*Store, error) {
 		accountsPath = filepath.Join(core.GetConfigDir(), "accounts.json")
 	}
 
+	home, _ := os.UserHomeDir()
+	configDir := filepath.Join(home, ".config", "Antigravity")
+	if custom := os.Getenv("ANTIGRAVITY_CONFIG_DIR"); custom != "" {
+		configDir = custom
+	}
+
 	s := &Store{
-		accountsPath: accountsPath,
-		accounts:     make(map[string]*Account),
+		accountsPath:         accountsPath,
+		homeDir:              home,
+		antigravityConfigDir: configDir,
+		accounts:             make(map[string]*Account),
 	}
 
 	if err := s.load(); err != nil && !os.IsNotExist(err) {
@@ -127,7 +138,7 @@ func (s *Store) load() error {
 					Password:     password,
 					TOTPSecret:   totpSecret,
 					HasTOTP:      totpSecret != "",
-					IsActive:     (em == s.activeEmail),
+					IsActive:     (s.activeEmail != "" && em == s.activeEmail),
 					AccessToken:          accessToken,
 					RefreshToken:         refreshToken,
 					Credits:              item.Credits,
@@ -180,7 +191,7 @@ func (s *Store) load() error {
 				Password:             password,
 				TOTPSecret:           totpSecret,
 				HasTOTP:              totpSecret != "",
-				IsActive:             (item.Email == s.activeEmail),
+				IsActive:             (s.activeEmail != "" && item.Email == s.activeEmail),
 				AccessToken:          accessToken,
 				RefreshToken:         refreshToken,
 				Credits:              item.Credits,
@@ -188,6 +199,10 @@ func (s *Store) load() error {
 			}
 			s.accounts[item.Email] = acc
 		}
+	}
+
+	if s.activeEmail != "" && s.accounts[s.activeEmail] == nil {
+		s.activeEmail = ""
 	}
 	return nil
 }
@@ -508,3 +523,142 @@ func (s *Store) ActiveAccount() string {
 	defer s.mu.RUnlock()
 	return s.activeEmail
 }
+
+// ReconcileActiveAccount detects the account actively in use across Antigravity applications
+// (strictly following the priority sequence: Antigravity 2.0 Desktop > Antigravity VS Code Extension > Antigravity CLI)
+// and reconciles it with the Swiss Knife vault:
+// 1. If the running account is already in the vault:
+//    - Sets it as active.
+//    - Ensures other accounts are not active.
+//    - Synchronizes all 3 surfaces to this active account so they remain unified.
+// 2. If the running account is NOT in the vault:
+//    - If autoImport is true:
+//        Automatically imports the account into the vault, sets it as active,
+//        and synchronizes all 3 surfaces to this active account.
+//    - If autoImport is false:
+//        No account in Swiss Knife is treated as active (active_account: "", all IsActive: false).
+func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, profileMgr *fingerprint.Store) (*Account, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	detected := ResolveRunningAntigravityAccount(s.homeDir, s.antigravityConfigDir)
+	if detected == nil {
+		// No running account detected on host surfaces.
+		if s.activeEmail != "" {
+			if acc, exists := s.accounts[s.activeEmail]; exists {
+				return acc, nil
+			}
+		}
+		return nil, nil
+	}
+
+	detectedEmail := strings.TrimSpace(detected.Email)
+	if detectedEmail == "" {
+		return nil, nil
+	}
+
+	// Check if detected account exists in vault
+	var targetAcc *Account
+	for email, acc := range s.accounts {
+		if strings.EqualFold(email, detectedEmail) {
+			targetAcc = acc
+			break
+		}
+	}
+
+	if targetAcc != nil {
+		// Update tokens if detected tokens are non-empty and target has empty
+		if detected.RefreshToken != "" && targetAcc.RefreshToken == "" {
+			targetAcc.RefreshToken = detected.RefreshToken
+		}
+		if detected.AccessToken != "" && targetAcc.AccessToken == "" {
+			targetAcc.AccessToken = detected.AccessToken
+		}
+		if detected.IDToken != "" && targetAcc.IDToken == "" {
+			targetAcc.IDToken = detected.IDToken
+		}
+
+		s.activeEmail = targetAcc.Email
+		for em, a := range s.accounts {
+			if em == targetAcc.Email {
+				a.IsActive = true
+				if a.Status != "BANNED" && a.Status != "ERROR" {
+					a.Status = "ACTIVE"
+				}
+			} else {
+				a.IsActive = false
+				if a.Status == "ACTIVE" {
+					a.Status = "STANDBY"
+				}
+			}
+		}
+		_ = s.save()
+
+		// Always ensure all 3 surfaces are synced to the winning active account
+		_ = SyncAllSurfaces(targetAcc, allEmails, profileMgr)
+		copyAcc := *targetAcc
+		return &copyAcc, nil
+	}
+
+	// Account is NOT in vault!
+	if !autoImport {
+		// "if the account running in antigravity has not been imported to our app, then no account should be treated as active."
+		s.activeEmail = ""
+		for _, a := range s.accounts {
+			a.IsActive = false
+			if a.Status == "ACTIVE" {
+				a.Status = "STANDBY"
+			}
+		}
+		_ = s.save()
+		return nil, nil
+	}
+
+	// autoImport is true: import account automatically
+	label := "Imported (" + detected.SurfaceName + ")"
+	acc := &Account{
+		Email:        detectedEmail,
+		Label:        label,
+		PlanTier:     "Free",
+		Status:       "ACTIVE",
+		Priority:     "High",
+		IsActive:     true,
+		AccessToken:  detected.AccessToken,
+		RefreshToken: detected.RefreshToken,
+		IDToken:      detected.IDToken,
+	}
+	s.accounts[detectedEmail] = acc
+	s.activeEmail = detectedEmail
+
+	for em, a := range s.accounts {
+		if em != detectedEmail {
+			a.IsActive = false
+			if a.Status == "ACTIVE" {
+				a.Status = "STANDBY"
+			}
+		}
+	}
+	_ = s.save()
+
+	// Sync all 3 surfaces to this active account
+	allWithNew := append(allEmails, detectedEmail)
+	_ = SyncAllSurfaces(acc, allWithNew, profileMgr)
+	copyAcc := *acc
+	return &copyAcc, nil
+}
+
+// ClearActiveAccount sets activeEmail to empty string and marks all accounts as inactive.
+func (s *Store) ClearActiveAccount() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.activeEmail = ""
+	for _, a := range s.accounts {
+		a.IsActive = false
+		if a.Status == "ACTIVE" {
+			a.Status = "STANDBY"
+		}
+	}
+	return s.save()
+}
+

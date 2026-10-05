@@ -57,6 +57,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
 }) => {
   const [threshold, setThreshold] = useState<number>(initialRules?.auto_switch_threshold ?? 0.05)
   const [pollingInterval, setPollingInterval] = useState<number>(initialRules?.polling_interval_seconds ?? 60)
+  const [activePollingInterval, setActivePollingInterval] = useState<number>(initialRules?.active_polling_interval_seconds ?? 120)
+  const [standbyPollingInterval, setStandbyPollingInterval] = useState<number>(initialRules?.standby_polling_interval_seconds ?? 900)
+  const [standbyRandomJitter, setStandbyRandomJitter] = useState<number>(initialRules?.standby_random_jitter_seconds ?? 30)
   const [warmupEnabled, setWarmupEnabled] = useState<boolean>(initialRules?.warmup_enabled ?? true)
   const [warmupLeadTime, setWarmupLeadTime] = useState<number>(initialRules?.warmup_lead_time_seconds ?? 2.0)
   const [preferredNativeModel, setPreferredNativeModel] = useState<string>(initialRules?.preferred_native_model || 'gemini')
@@ -83,6 +86,15 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     if (initialRules) {
       setThreshold(initialRules.auto_switch_threshold)
       setPollingInterval(initialRules.polling_interval_seconds)
+      if (initialRules.active_polling_interval_seconds) {
+        setActivePollingInterval(initialRules.active_polling_interval_seconds)
+      }
+      if (initialRules.standby_polling_interval_seconds) {
+        setStandbyPollingInterval(initialRules.standby_polling_interval_seconds)
+      }
+      if (initialRules.standby_random_jitter_seconds) {
+        setStandbyRandomJitter(initialRules.standby_random_jitter_seconds)
+      }
       setWarmupEnabled(initialRules.warmup_enabled)
       setWarmupLeadTime(initialRules.warmup_lead_time_seconds)
       if (initialRules.preferred_native_model) {
@@ -135,6 +147,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       await api.saveRules({
         auto_switch_threshold: threshold,
         polling_interval_seconds: pollingInterval,
+        active_polling_interval_seconds: activePollingInterval,
+        standby_polling_interval_seconds: standbyPollingInterval,
+        standby_random_jitter_seconds: standbyRandomJitter,
         warmup_enabled: warmupEnabled,
         warmup_lead_time_seconds: warmupLeadTime,
         preferred_native_model: preferredNativeModel,
@@ -223,25 +238,72 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             </div>
           </div>
 
-          {/* Polling Interval */}
+          {/* Active Account Polling Interval */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                Upstream Quota Polling Interval:
+                Active Account Quota Refresh Interval:
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Frequency of fetching cloudcode-pa quota horizons from Google.
+                The active account quota is refreshed frequently (e.g. every 2m) to guarantee prompt rotation triggers.
               </div>
             </div>
             <select
-              value={pollingInterval}
-              onChange={(e) => setPollingInterval(Number(e.target.value))}
-              style={{ width: '150px' }}
+              value={activePollingInterval}
+              onChange={(e) => setActivePollingInterval(Number(e.target.value))}
+              style={{ width: '160px' }}
             >
               <option value={30}>30 Seconds</option>
-              <option value={60}>60 Seconds</option>
-              <option value={120}>2 Minutes</option>
+              <option value={60}>1 Minute</option>
+              <option value={120}>2 Minutes (Recommended)</option>
+              <option value={180}>3 Minutes</option>
               <option value={300}>5 Minutes</option>
+            </select>
+          </div>
+
+          {/* Standby Accounts Polling Interval */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                Standby Accounts Quota Refresh Interval:
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                Standby accounts are refreshed much less frequently. Quotas are polled in randomized order with random time gaps.
+              </div>
+            </div>
+            <select
+              value={standbyPollingInterval}
+              onChange={(e) => setStandbyPollingInterval(Number(e.target.value))}
+              style={{ width: '160px' }}
+            >
+              <option value={300}>5 Minutes</option>
+              <option value={600}>10 Minutes</option>
+              <option value={900}>15 Minutes (Recommended)</option>
+              <option value={1800}>30 Minutes</option>
+              <option value={3600}>1 Hour</option>
+            </select>
+          </div>
+
+          {/* Standby Account Staggered Jitter Gap */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                Standby Account Staggered Jitter Gap:
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                Random delay time gap between refreshing individual standby accounts to avoid spike load.
+              </div>
+            </div>
+            <select
+              value={standbyRandomJitter}
+              onChange={(e) => setStandbyRandomJitter(Number(e.target.value))}
+              style={{ width: '160px' }}
+            >
+              <option value={10}>5–10 Seconds Gap</option>
+              <option value={20}>5–20 Seconds Gap</option>
+              <option value={30}>5–30 Seconds Gap (Recommended)</option>
+              <option value={45}>5–45 Seconds Gap</option>
+              <option value={60}>5–60 Seconds Gap</option>
             </select>
           </div>
         </div>

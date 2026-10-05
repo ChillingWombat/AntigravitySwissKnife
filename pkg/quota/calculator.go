@@ -1,8 +1,6 @@
 package quota
 
 import (
-	"crypto/md5"
-	"encoding/binary"
 	"fmt"
 	"math"
 	"sort"
@@ -37,10 +35,15 @@ type AccountQuotaState struct {
 // Quota refreshes back to 100% (1.0), and the replenished boost is available for (5.0 - h) / 5.0.
 func ComputeEffective5hAvailable(currentFrac float64, resetSeconds float64) float64 {
 	cur := math.Max(0.0, math.Min(1.0, currentFrac))
-	h := math.Max(0.0, resetSeconds/3600.0)
-	if h <= 5.0 {
-		replenishedBoost := (1.0 - cur) * ((5.0 - h) / 5.0)
-		return math.Max(0.0, math.Min(1.0, cur+replenishedBoost))
+	if cur == 0.0 && resetSeconds <= 0.0 {
+		return 0.0
+	}
+	if resetSeconds > 0.0 {
+		h := resetSeconds / 3600.0
+		if h <= 5.0 {
+			replenishedBoost := (1.0 - cur) * ((5.0 - h) / 5.0)
+			return math.Max(0.0, math.Min(1.0, cur+replenishedBoost))
+		}
 	}
 	return cur
 }
@@ -109,15 +112,20 @@ func BuildAccountQuotaStates(accounts []*keyring.Account, activeSummary *QuotaSu
 		now := time.Now()
 		for _, m := range activeSummary.Models {
 			name := strings.ToLower(m.ModelName)
-			if strings.Contains(name, "gemini") {
+			if strings.Contains(name, "weekly") || strings.Contains(name, "7d") {
+				frac := m.Fraction
+				activeWeeklyFrac = &frac
+			} else if strings.Contains(name, "gemini") || strings.Contains(name, "5h") || active5hFrac == nil {
 				frac := m.Fraction
 				active5hFrac = &frac
 				if !m.ResetTime.IsZero() && m.ResetTime.After(now) {
 					diff := m.ResetTime.Sub(now).Seconds()
 					active5hSec = &diff
 				}
-				break
 			}
+		}
+		if activeWeeklyFrac == nil && active5hFrac != nil {
+			activeWeeklyFrac = active5hFrac
 		}
 	}
 
@@ -139,19 +147,12 @@ func BuildAccountQuotaStates(accounts []*keyring.Account, activeSummary *QuotaSu
 			status = "ACTIVE"
 		}
 
-		// Deterministic baseline from email hash (identical to Python engine)
-		h := md5.Sum([]byte(email))
-		seed := binary.BigEndian.Uint32(h[:4])
+		// Real baseline: unpolled accounts start at 0.0 unless actively polled. Zero artificial data.
+		cur5h := 0.0
+		curSec := 0.0
+		curWeekly := 0.0
 
-		base5h := 0.65 + float64(seed%30)/100.0
-		baseSec := 3600.0 * (1.2 + float64(seed%35)/10.0)
-		baseWeekly := 0.80 + float64(seed%19)/100.0
-
-		cur5h := base5h
-		curSec := baseSec
-		curWeekly := baseWeekly
-
-		if acc.IsActive && active5hFrac != nil {
+		if (acc.IsActive || (activeSummary != nil && strings.EqualFold(acc.Email, activeSummary.AccountEmail))) && active5hFrac != nil {
 			cur5h = *active5hFrac
 			if active5hSec != nil {
 				curSec = *active5hSec
@@ -162,7 +163,12 @@ func BuildAccountQuotaStates(accounts []*keyring.Account, activeSummary *QuotaSu
 		}
 
 		avail5h := ComputeEffective5hAvailable(cur5h, curSec)
-		resText := FormatHorizonSec(curSec)
+		resText := "Not Polled"
+		if curSec > 0 {
+			resText = FormatHorizonSec(curSec)
+		} else if cur5h > 0 {
+			resText = "Ready"
+		}
 		tier := DetermineDefaultPlanTier(email, acc.PlanTier)
 
 		prio := acc.Priority

@@ -35,6 +35,8 @@ export interface AccountState {
   status: 'ACTIVE' | 'STANDBY' | 'ERROR' | 'BANNED' | string
   quota_5h_available: number
   quota_weekly: number
+  quota_5h_claude_gpt?: number
+  quota_weekly_claude_gpt?: number
   reset_horizon_text: string
   has_mfa: boolean
   totp_secret?: string
@@ -48,6 +50,10 @@ export interface AccountState {
 export interface FleetQuotaSummary {
   fleet_5h_available: number
   fleet_weekly_available: number
+  fleet_5h_gemini_available?: number
+  fleet_weekly_gemini_available?: number
+  fleet_5h_claude_gpt_available?: number
+  fleet_weekly_claude_gpt_available?: number
   total_accounts: number
   active_account: string
   accounts: AccountState[]
@@ -57,6 +63,9 @@ export interface RuleConfig {
   auto_switch_enabled: boolean
   auto_switch_threshold: number
   polling_interval_seconds: number
+  active_polling_interval_seconds?: number
+  standby_polling_interval_seconds?: number
+  standby_random_jitter_seconds?: number
   warmup_enabled: boolean
   warmup_lead_time_seconds: number
   preferred_native_model?: string
@@ -66,6 +75,17 @@ export interface RuleConfig {
   default_gemini_model?: string
   default_custom_model?: string
   default_non_gemini_model?: string
+}
+
+export interface DiscoveredAccount {
+  email: string
+  source: string
+  has_tokens: boolean
+  has_refresh: boolean
+  access_token?: string
+  refresh_token?: string
+  is_active_in_ide: boolean
+  already_in_vault: boolean
 }
 
 export interface DeviceProfile {
@@ -125,8 +145,33 @@ export interface CustomModel {
   thinking_level?: string
   enabled: boolean
   notes?: string
+  security_risk_level?: 'low' | 'medium' | 'high' | 'critical'
+  security_audit_score?: number
+  last_security_audit?: string
   created_at?: string
   updated_at?: string
+}
+
+export interface SecurityAuditProbe {
+  id: string
+  name: string
+  category: string
+  description: string
+  status: 'passed' | 'warning' | 'failed'
+  details: string
+  evidence?: string
+}
+
+export interface SecurityAuditReport {
+  risk_level: 'low' | 'medium' | 'high' | 'critical'
+  risk_score: number // 0 (safest) to 100 (critical danger)
+  model_id: string
+  endpoint: string
+  provider_type: string
+  audited_at: string
+  summary: string
+  probes: SecurityAuditProbe[]
+  recommendations: string[]
 }
 
 export interface ModelInfo {
@@ -196,14 +241,33 @@ export interface PromptJumpBarConfig {
   sync_scroll: boolean
   position: 'gutter' | 'floating'
   dash_width: number
+  dash_thickness?: number
+  inactive_thickness?: number
   color_mode: 'default' | 'project' | 'custom'
   custom_color: string
+}
+
+export interface OverviewPanelConfig {
+  enabled: boolean
+  division_style: 'divider_line' | 'border_zone'
+  line_thickness: number
+  line_width_percent: number
+  line_color: string
+  line_style: 'solid' | 'dashed' | 'dotted'
+  line_margin: number
+  zone_border_radius: number
+  zone_border_color: string
+  zone_background_contrast: 'whiter' | 'subtle' | 'card'
+  zone_padding: number
+  zone_gap: number
+  replace_see_all_triangle: boolean
 }
 
 export interface EnhancementsConfig {
   version: string
   enabled: boolean
   prompt_jump_bar: PromptJumpBarConfig
+  overview_panel?: OverviewPanelConfig
   tool_density_mode: 'normal' | 'muted' | 'hidden'
   breaker_line_enabled: boolean
   scroll_to_bottom: boolean
@@ -310,6 +374,143 @@ export interface GUIConfig {
   auto_archive_conversations: boolean
   auto_archive_horizon: '3d' | '7d' | '14d' | '30d' | '60d' | '90d'
   auto_inject: boolean
+}
+
+// Token Monitor types
+export interface ModelPricing {
+  model_id: string
+  name: string
+  provider: 'gemini' | 'anthropic' | 'openai' | 'deepseek' | 'local' | 'other'
+  input_price_per_m: number // USD per 1M tokens
+  cached_input_price_per_m: number
+  output_price_per_m: number
+  source: 'api' | 'manual'
+  updated_at: string
+}
+
+export interface TokenUsageSummary {
+  total_tokens: number
+  input_tokens: number
+  cached_input_tokens: number
+  output_tokens: number
+  total_cost_usd: number
+  saved_cost_usd: number
+  avg_tps: number
+  requests_count: number
+}
+
+export interface ModelUsageBreakdown {
+  model_id: string
+  model_name: string
+  provider: string
+  total_tokens: number
+  input_tokens: number
+  cached_tokens: number
+  output_tokens: number
+  cost_usd: number
+  requests: number
+  avg_tps: number
+}
+
+export interface AccountUsageBreakdown {
+  email: string
+  display_name: string
+  total_tokens: number
+  cost_usd: number
+  percentage: number
+}
+
+export interface ProjectUsageBreakdown {
+  project_name: string
+  project_uri: string
+  total_tokens: number
+  cost_usd: number
+  requests: number
+}
+
+export interface LiveTelemetryEvent {
+  id: string
+  timestamp: string
+  session_id: string
+  project_name: string
+  model_id: string
+  provider: string
+  input_tokens: number
+  cached_tokens: number
+  output_tokens: number
+  tps: number
+  cost_usd: number
+  subagent_count: number
+  status: 'completed' | 'streaming' | 'failed'
+}
+
+// Utilities (Chat Import & ACP Inspector) types
+export type ChatImportSource =
+  | 'opencode'
+  | 'dsh'
+  | 'devin'
+  | 'pi'
+  | 'cursor'
+  | 'chatgpt'
+  | 'windsurf'
+  | 'copilot'
+  | 'openwebui'
+  | 'claude-code'
+  | 'raw-json'
+  | 'custom-file'
+
+export type ProjectMatchOption =
+  | 'auto'
+  | 'create-new'
+  | 'standalone'
+  | 'single-dedicated'
+  | 'source-dedicated'
+
+export interface ImportCandidate {
+  id: string
+  source: ChatImportSource
+  title: string
+  message_count: number
+  tool_calls_count: number
+  token_estimate: number
+  detected_project_path: string
+  target_antigravity_project: string
+  match_status: 'exact' | 'heuristic' | 'new' | 'standalone'
+  selected: boolean
+}
+
+export interface ImportHistoryItem {
+  id: string
+  timestamp: string
+  source: string
+  conversation_count: number
+  target_project: string
+  status: 'completed' | 'failed' | 'partial'
+  duration_ms: number
+}
+
+export interface AcpAgentInstance {
+  id: string
+  name: string
+  type: string
+  binary_path: string
+  pid: number
+  port_socket: string
+  acp_version: string
+  status: 'active_hosting' | 'listening' | 'connected' | 'idle' | 'unreachable'
+  ping_latency_ms: number
+  supported_tools: string[]
+  last_handshake: string
+}
+
+export interface AcpHandshakeLog {
+  id: string
+  timestamp: string
+  from_agent: string
+  to_agent: string
+  action: string
+  payload_summary: string
+  status: 'success' | 'warning' | 'error'
 }
 
 

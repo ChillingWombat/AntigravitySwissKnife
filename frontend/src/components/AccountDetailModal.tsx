@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail, DollarSign } from 'lucide-react'
+import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail, Sparkles } from 'lucide-react'
 import type { AccountState } from '../types'
 import { HorizontalQuotaBar } from './HorizontalQuotaBar'
 import { ToggleSwitch } from './ToggleSwitch'
@@ -28,9 +28,9 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [showOAuth, setShowOAuth] = useState(false)
   const [isExtractingOAuth, setIsExtractingOAuth] = useState(false)
   const [oauthSuccessMsg, setOauthSuccessMsg] = useState<string | null>(null)
-  const [status, setStatus] = useState<string>(account.status || (account.is_active ? 'ACTIVE' : 'STANDBY'))
-  const [planTier, setPlanTier] = useState(account.plan_tier || 'Pro')
-  const [credits, setCredits] = useState<number | string>(
+  const status = account.status || (account.is_active ? 'ACTIVE' : 'STANDBY')
+  const planTier = account.plan_tier || 'Pro'
+  const credits =
     account.credits !== undefined && account.credits !== null
       ? account.credits
       : account.plan_tier?.toLowerCase() === 'ultra'
@@ -38,7 +38,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       : account.plan_tier?.toLowerCase() === 'pro'
       ? 20
       : 0
-  )
   const [enableCreditOverages, setEnableCreditOverages] = useState<boolean>(account.enable_credit_overages ?? false)
   const [notes, setNotes] = useState(account.notes || '')
   const [isSaving, setIsSaving] = useState(false)
@@ -643,76 +642,123 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             </div>
           </div>
 
-          {/* Status & Plan Tier */}
+          {/* Status & Plan Tier (Auto-ingested) */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
-                Account Status:
-              </label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                  Account Status:
+                </label>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                  Auto-detected
+                </span>
+              </div>
+              <div
                 style={{
                   width: '100%',
                   backgroundColor: 'var(--canvas)',
                   border: '1px solid var(--border)',
                   borderRadius: '8px',
-                  padding: '8px 12px',
+                  padding: '9px 12px',
                   fontSize: '13px',
-                  color: 'var(--text)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  boxSizing: 'border-box',
                 }}
               >
-                <option value="STANDBY">STANDBY</option>
-                <option value="ACTIVE">ACTIVE</option>
-                <option value="ERROR">ERROR</option>
-                <option value="BANNED">BANNED</option>
-              </select>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: '8px',
+                    height: '8px',
+                    borderRadius: '50%',
+                    backgroundColor: status === 'ACTIVE' ? '#137333' : status === 'ERROR' || status === 'BANNED' ? '#b3261e' : '#b06000',
+                  }}
+                />
+                <span style={{ fontWeight: 700, color: 'var(--text)' }}>
+                  {status || 'STANDBY'}
+                </span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                  Runtime State
+                </span>
+              </div>
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
-                Plan Tier / Membership:
-              </label>
-              <select
-                value={planTier}
-                onChange={(e) => setPlanTier(e.target.value)}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                  Plan Tier / Membership:
+                </label>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                  Auto-detected
+                </span>
+              </div>
+              <div
                 style={{
                   width: '100%',
                   backgroundColor: 'var(--canvas)',
                   border: '1px solid var(--border)',
                   borderRadius: '8px',
-                  padding: '8px 12px',
+                  padding: '9px 12px',
                   fontSize: '13px',
-                  color: 'var(--text)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  boxSizing: 'border-box',
                 }}
               >
-                <option value="Free">Free</option>
-                <option value="Plus">Plus</option>
-                <option value="Pro">Pro</option>
-                <option value="Pro - Trial">Pro - Trial</option>
-                <option value="Edu">Edu</option>
-                <option value="Ultra 5X">Ultra 5X</option>
-                <option value="Ultra 10X">Ultra 10X</option>
-                <option value="Ultra 20X">Ultra 20X</option>
-              </select>
+                <span style={{ fontWeight: 700, color: 'var(--text)' }}>
+                  {planTier || 'Free'}
+                </span>
+                <span
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: '10px',
+                    backgroundColor: planTier?.toLowerCase().includes('pro') ? 'rgba(26, 115, 232, 0.12)' : 'var(--tonal)',
+                    color: planTier?.toLowerCase().includes('pro') ? 'var(--primary)' : 'var(--text-muted)',
+                  }}
+                >
+                  OAuth Scope Verified
+                </span>
+              </div>
             </div>
           </div>
 
-          {/* AI Credits & Overage Setting */}
+          {/* AI Credits (Auto-ingested, no dollar sign) & Overage Setting */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', alignItems: 'center' }}>
             <div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
-                <DollarSign size={14} /> Available AI Credits ($):
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                placeholder="0.00"
-                value={credits}
-                onChange={(e) => setCredits(e.target.value)}
-                style={{ width: '100%' }}
-              />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                  <Sparkles size={14} color="#f59e0b" /> Available AI Credits:
+                </label>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                  Auto-ingested
+                </span>
+              </div>
+              <div
+                style={{
+                  width: '100%',
+                  backgroundColor: 'var(--canvas)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  padding: '9px 12px',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  color: 'var(--text)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  boxSizing: 'border-box',
+                }}
+              >
+                <span>{credits !== undefined && credits !== null ? `${credits} Credits` : '0 Credits'}</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 500 }}>
+                  Credit Pool
+                </span>
+              </div>
             </div>
 
             <div>

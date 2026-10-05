@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"os"
 	"sync"
 	"time"
@@ -88,6 +89,14 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 	}
 
 	d.registerRPCHandlers()
+
+	// Initial reconciliation of active running Antigravity account
+	var initialEmails []string
+	for _, a := range d.Keyring.ListAccounts() {
+		initialEmails = append(initialEmails, a.Email)
+	}
+	_, _ = d.Keyring.ReconcileActiveAccount(d.Config.AutoImportActiveAccount, initialEmails, d.Profiles)
+
 	return d, nil
 }
 
@@ -103,16 +112,24 @@ func (d *Daemon) registerRPCHandlers() {
 			hostPID = d.Shield.ProtectedPID()
 		}
 
+		// Reconcile active account with running Antigravity sessions across all surfaces
+		var allEmails []string
+		for _, a := range d.Keyring.ListAccounts() {
+			allEmails = append(allEmails, a.Email)
+		}
+		_, _ = d.Keyring.ReconcileActiveAccount(d.Config.AutoImportActiveAccount, allEmails, d.Profiles)
+
 		accounts := d.Keyring.ListAccounts()
 		return map[string]interface{}{
-			"daemon_running":      true,
-			"daemon_pid":          os.Getpid(),
-			"pid":                 os.Getpid(),
-			"version":             core.AppVersion,
-			"active_account":      d.Keyring.ActiveAccount(),
-			"total_accounts":      len(accounts),
-			"antigravity_running": len(procs) > 0,
-			"antigravity_pid":     hostPID,
+			"daemon_running":              true,
+			"daemon_pid":                  os.Getpid(),
+			"pid":                         os.Getpid(),
+			"version":                     core.AppVersion,
+			"active_account":              d.Keyring.ActiveAccount(),
+			"total_accounts":              len(accounts),
+			"antigravity_running":         len(procs) > 0,
+			"antigravity_pid":             hostPID,
+			"running_antigravity_account": keyring.ResolveRunningAntigravityAccount("", ""),
 		}, nil
 	}
 	d.Server.Register("swiss.getStatus", statusHandler)
@@ -208,8 +225,16 @@ func (d *Daemon) registerRPCHandlers() {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
 
-		// Ensure device profile exists for this account
-		_, _ = d.Profiles.GetOrCreateProfile(p.Email)
+		// Collect all account emails for old/active tracking
+		var allEmails []string
+		for _, a := range d.Keyring.ListAccounts() {
+			allEmails = append(allEmails, a.Email)
+		}
+
+		// Synchronize across Antigravity 2.0 Desktop, Antigravity CLI (agy), and VS Code extension
+		if acc, _ := d.Keyring.GetAccount(p.Email); acc != nil {
+			_ = keyring.SyncAllSurfaces(acc, allEmails, d.Profiles)
+		}
 
 		return map[string]interface{}{
 			"switched": true,
@@ -359,13 +384,29 @@ func (d *Daemon) registerRPCHandlers() {
 		if prefNative == "" {
 			prefNative = "gemini"
 		}
+		activePoll := d.Config.ActivePollingIntervalSec
+		if activePoll <= 0 {
+			activePoll = 120
+		}
+		standbyPoll := d.Config.StandbyPollingIntervalSec
+		if standbyPoll <= 0 {
+			standbyPoll = 900
+		}
+		jitter := d.Config.StandbyRandomJitterSec
+		if jitter <= 0 {
+			jitter = 30
+		}
 		return map[string]interface{}{
-			"auto_switch_enabled":       d.Config.AutoSwitchEnabled,
-			"auto_switch_threshold":     d.Config.AutoSwitchThreshold,
-			"polling_interval_seconds":  d.Config.PollingIntervalSec,
-			"warmup_enabled":            d.Config.WarmupEnabled,
-			"warmup_lead_time_seconds":  d.Config.WarmupLeadTimeSec,
-			"preferred_native_model":    prefNative,
+			"auto_switch_enabled":              d.Config.AutoSwitchEnabled,
+			"auto_switch_threshold":            d.Config.AutoSwitchThreshold,
+			"polling_interval_seconds":         d.Config.PollingIntervalSec,
+			"active_polling_interval_seconds":  activePoll,
+			"standby_polling_interval_seconds": standbyPoll,
+			"standby_random_jitter_seconds":    jitter,
+			"warmup_enabled":                   d.Config.WarmupEnabled,
+			"warmup_lead_time_seconds":         d.Config.WarmupLeadTimeSec,
+			"preferred_native_model":           prefNative,
+			"auto_import_active_account":       d.Config.AutoImportActiveAccount,
 		}, nil
 	}
 	d.Server.Register("swiss.getRuleConfig", getRuleConfigHandler)
@@ -374,12 +415,16 @@ func (d *Daemon) registerRPCHandlers() {
 	// 11. Rule Config: Set
 	setRuleConfigHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		var p struct {
-			AutoSwitchEnabled    *bool    `json:"auto_switch_enabled"`
-			AutoSwitchThreshold  *float64 `json:"auto_switch_threshold"`
-			PollingIntervalSec   *int     `json:"polling_interval_seconds"`
-			WarmupEnabled        *bool    `json:"warmup_enabled"`
-			WarmupLeadTimeSec    *float64 `json:"warmup_lead_time_seconds"`
-			PreferredNativeModel *string  `json:"preferred_native_model"`
+			AutoSwitchEnabled           *bool    `json:"auto_switch_enabled"`
+			AutoSwitchThreshold         *float64 `json:"auto_switch_threshold"`
+			PollingIntervalSec          *int     `json:"polling_interval_seconds"`
+			ActivePollingIntervalSec    *int     `json:"active_polling_interval_seconds"`
+			StandbyPollingIntervalSec   *int     `json:"standby_polling_interval_seconds"`
+			StandbyRandomJitterSec      *int     `json:"standby_random_jitter_seconds"`
+			WarmupEnabled               *bool    `json:"warmup_enabled"`
+			WarmupLeadTimeSec           *float64 `json:"warmup_lead_time_seconds"`
+			PreferredNativeModel        *string  `json:"preferred_native_model"`
+			AutoImportActiveAccount     *bool    `json:"auto_import_active_account"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: err.Error()}
@@ -395,6 +440,15 @@ func (d *Daemon) registerRPCHandlers() {
 		if p.PollingIntervalSec != nil {
 			d.Config.PollingIntervalSec = *p.PollingIntervalSec
 		}
+		if p.ActivePollingIntervalSec != nil {
+			d.Config.ActivePollingIntervalSec = *p.ActivePollingIntervalSec
+		}
+		if p.StandbyPollingIntervalSec != nil {
+			d.Config.StandbyPollingIntervalSec = *p.StandbyPollingIntervalSec
+		}
+		if p.StandbyRandomJitterSec != nil {
+			d.Config.StandbyRandomJitterSec = *p.StandbyRandomJitterSec
+		}
 		if p.WarmupEnabled != nil {
 			d.Config.WarmupEnabled = *p.WarmupEnabled
 		}
@@ -404,6 +458,9 @@ func (d *Daemon) registerRPCHandlers() {
 		if p.PreferredNativeModel != nil {
 			d.Config.PreferredNativeModel = *p.PreferredNativeModel
 		}
+		if p.AutoImportActiveAccount != nil {
+			d.Config.AutoImportActiveAccount = *p.AutoImportActiveAccount
+		}
 		_ = d.Config.Save()
 		d.mu.Unlock()
 
@@ -412,40 +469,36 @@ func (d *Daemon) registerRPCHandlers() {
 	d.Server.Register("swiss.setRuleConfig", setRuleConfigHandler)
 	d.Server.Register("rules.set_config", setRuleConfigHandler)
 
+	// 11b. Multi-Surface Antigravity Session Inspector
+	d.Server.Register("swiss.getSurfaces", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+		home, _ := os.UserHomeDir()
+		configDir := filepath.Join(home, ".config", "Antigravity")
+		if custom := os.Getenv("ANTIGRAVITY_CONFIG_DIR"); custom != "" {
+			configDir = custom
+		}
+		return map[string]interface{}{
+			"surfaces":                keyring.DetectAllSurfaces(home, configDir),
+			"active_surface_account":  keyring.ResolveRunningAntigravityAccount(home, configDir),
+			"priority_sequence":       []string{"Antigravity 2.0 Desktop", "Antigravity VS Code Extension", "Antigravity CLI"},
+		}, nil
+	})
+
 	// 12. Quota Summary
 	getQuotaSummaryHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		active := d.Keyring.ActiveAccount()
+		acc, _ := d.Keyring.GetAccount(active)
 		now := time.Now()
-		// Realistic Gemini model quota buckets
-		models := []quota.ModelQuota{
-			{
-				ModelName:    "gemini-2.5-pro",
-				Fraction:     0.85,
-				ResetTime:    now.Add(4 * time.Hour),
-				ResetText:    quota.FormatResetHorizon(now.Add(4*time.Hour), now),
-				HealthStatus: quota.ComputeHealth(0.85),
-			},
-			{
-				ModelName:    "gemini-2.5-flash",
-				Fraction:     0.92,
-				ResetTime:    now.Add(2 * time.Hour),
-				ResetText:    quota.FormatResetHorizon(now.Add(2*time.Hour), now),
-				HealthStatus: quota.ComputeHealth(0.92),
-			},
-			{
-				ModelName:    "gemini-1.5-pro",
-				Fraction:     0.45,
-				ResetTime:    now.Add(1 * time.Hour),
-				ResetText:    quota.FormatResetHorizon(now.Add(1*time.Hour), now),
-				HealthStatus: quota.ComputeHealth(0.45),
-			},
+		if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
+			summary, err := quota.PollAccountLiveQuota(acc)
+			if err == nil && summary != nil {
+				return *summary, nil
+			}
 		}
-
 		return quota.QuotaSummary{
 			AccountEmail:  active,
-			Models:        models,
-			MinFraction:   0.45,
-			OverallHealth: quota.ComputeHealth(0.45),
+			Models:        []quota.ModelQuota{},
+			MinFraction:   0.0,
+			OverallHealth: core.StatusExhausted,
 			LastPolled:    now,
 		}, nil
 	}
@@ -456,36 +509,11 @@ func (d *Daemon) registerRPCHandlers() {
 	d.Server.Register("swiss.getFleetQuota", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		accounts := d.Keyring.ListAccounts()
 		active := d.Keyring.ActiveAccount()
-		now := time.Now()
-		models := []quota.ModelQuota{
-			{
-				ModelName:    "gemini-2.5-pro",
-				Fraction:     0.85,
-				ResetTime:    now.Add(4 * time.Hour),
-				ResetText:    quota.FormatResetHorizon(now.Add(4*time.Hour), now),
-				HealthStatus: quota.ComputeHealth(0.85),
-			},
-			{
-				ModelName:    "gemini-2.5-flash",
-				Fraction:     0.92,
-				ResetTime:    now.Add(2 * time.Hour),
-				ResetText:    quota.FormatResetHorizon(now.Add(2*time.Hour), now),
-				HealthStatus: quota.ComputeHealth(0.92),
-			},
-			{
-				ModelName:    "gemini-1.5-pro",
-				Fraction:     0.45,
-				ResetTime:    now.Add(1 * time.Hour),
-				ResetText:    quota.FormatResetHorizon(now.Add(1*time.Hour), now),
-				HealthStatus: quota.ComputeHealth(0.45),
-			},
-		}
-		activeSummary := &quota.QuotaSummary{
-			AccountEmail:  active,
-			Models:        models,
-			MinFraction:   0.45,
-			OverallHealth: quota.ComputeHealth(0.45),
-			LastPolled:    now,
+		var activeSummary *quota.QuotaSummary
+		acc, _ := d.Keyring.GetAccount(active)
+		if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
+			summary, _ := quota.PollAccountLiveQuota(acc)
+			activeSummary = summary
 		}
 		states := quota.BuildAccountQuotaStates(accounts, activeSummary)
 		summary := quota.ComputeFleetSummary(states, active)
@@ -606,25 +634,109 @@ func (d *Daemon) Stop() error {
 
 func (d *Daemon) schedulerLoop() {
 	defer d.wg.Done()
-	interval := time.Duration(d.Config.PollingIntervalSec) * time.Second
-	if interval < 5*time.Second {
-		interval = 5 * time.Second
+
+	d.mu.RLock()
+	activeInterval := time.Duration(d.Config.ActivePollingIntervalSec) * time.Second
+	standbyInterval := time.Duration(d.Config.StandbyPollingIntervalSec) * time.Second
+	jitterSec := d.Config.StandbyRandomJitterSec
+	d.mu.RUnlock()
+
+	if activeInterval < 10*time.Second {
+		activeInterval = 120 * time.Second
 	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	if standbyInterval < 30*time.Second {
+		standbyInterval = 900 * time.Second
+	}
+	if jitterSec <= 0 {
+		jitterSec = 30
+	}
+
+	activeTicker := time.NewTicker(activeInterval)
+	defer activeTicker.Stop()
+
+	standbyTicker := time.NewTicker(standbyInterval)
+	defer standbyTicker.Stop()
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	for {
 		select {
 		case <-d.ctx.Done():
 			return
-		case <-ticker.C:
-			d.mu.RLock()
-			autoSwitch := d.Config.AutoSwitchEnabled
-			thresh := d.Config.AutoSwitchThreshold
-			d.mu.RUnlock()
 
-			if autoSwitch {
-				_ = thresh // evaluated on quota changes
+		case <-activeTicker.C:
+			// 1. Frequently refresh active account quota (e.g. every 2m)
+			active := d.Keyring.ActiveAccount()
+			if active != "" {
+				if acc, _ := d.Keyring.GetAccount(active); acc != nil {
+					sum, err := quota.PollAccountLiveQuota(acc)
+					if err == nil && sum != nil {
+						d.mu.RLock()
+						autoSwitch := d.Config.AutoSwitchEnabled
+						thresh := d.Config.AutoSwitchThreshold
+						d.mu.RUnlock()
+
+						if autoSwitch && sum.MinFraction <= thresh {
+							// Proactively rotate to next standby account with highest quota
+							accounts := d.Keyring.ListAccounts()
+							states := quota.BuildAccountQuotaStates(accounts, sum)
+							fleet := quota.ComputeFleetSummary(states, active)
+							for _, candidate := range fleet.Accounts {
+								if candidate.Email != active && candidate.Quota5hAvailable > thresh && candidate.Status != "ERROR" && candidate.Status != "BANNED" {
+									_ = d.Keyring.SetActiveAccount(candidate.Email)
+									var allEmails []string
+									for _, a := range accounts {
+										allEmails = append(allEmails, a.Email)
+									}
+									if cAcc, _ := d.Keyring.GetAccount(candidate.Email); cAcc != nil {
+										_ = keyring.SyncAllSurfaces(cAcc, allEmails, d.Profiles)
+									}
+									break
+								}
+							}
+						}
+					}
+				}
+			}
+
+		case <-standbyTicker.C:
+			// 2. Infrequently refresh standby accounts in random order with random time gaps (e.g. roughly every 15m)
+			accounts := d.Keyring.ListAccounts()
+			active := d.Keyring.ActiveAccount()
+
+			var standby []*keyring.Account
+			for _, acc := range accounts {
+				if acc.Email != active && acc.Status != "BANNED" {
+					standby = append(standby, acc)
+				}
+			}
+
+			if len(standby) > 0 {
+				// Randomize standby accounts order
+				r.Shuffle(len(standby), func(i, j int) {
+					standby[i], standby[j] = standby[j], standby[i]
+				})
+
+				for _, acc := range standby {
+					select {
+					case <-d.ctx.Done():
+						return
+					default:
+					}
+
+					_, _ = quota.PollAccountLiveQuota(acc)
+
+					// Add random time gap between standby accounts (5 to jitterSec seconds)
+					gap := 5
+					if jitterSec > 5 {
+						gap = 5 + r.Intn(jitterSec-5)
+					}
+					select {
+					case <-d.ctx.Done():
+						return
+					case <-time.After(time.Duration(gap) * time.Second):
+					}
+				}
 			}
 		}
 	}
