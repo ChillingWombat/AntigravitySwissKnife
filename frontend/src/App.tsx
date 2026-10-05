@@ -200,23 +200,47 @@ export const App: React.FC = () => {
               )}
 
               {currentTool === 7 && (
-                /* Antigravity 2.0 Desktop Exclusive Tag moved to top bar */
-                <span
+                /* Feature Plugins Segmented Tabs */
+                <div
                   style={{
-                    fontSize: '11.5px',
-                    fontWeight: 600,
-                    backgroundColor: 'rgba(26, 115, 232, 0.1)',
-                    color: 'var(--primary)',
-                    padding: '5px 12px',
-                    borderRadius: '14px',
-                    border: '1px solid rgba(26, 115, 232, 0.25)',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
+                    display: 'flex',
+                    backgroundColor: 'var(--tonal)',
+                    borderRadius: '20px',
+                    padding: '3px',
+                    gap: '2px',
                   }}
                 >
-                  Antigravity 2.0 Desktop Exclusive
-                </span>
+                  {[
+                    'Browser & App Preview',
+                    'Auxiliary File Explorer',
+                    'Quick Memos',
+                    'Mobile Simulator',
+                    'Computer Use Enhancer',
+                  ].map((tab, idx) => {
+                    const isActive = featurePluginTab === idx
+                    return (
+                      <button
+                        key={tab}
+                        onClick={() => setFeaturePluginTab(idx)}
+                        style={{
+                          borderRadius: '16px',
+                          padding: '6px 14px',
+                          fontSize: '12px',
+                          fontWeight: isActive ? 600 : 500,
+                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+                          backgroundColor: isActive ? '#ffffff' : 'transparent',
+                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {tab}
+                      </button>
+                    )
+                  })}
+                </div>
               )}
 
               {currentTool === 9 && (
@@ -270,7 +294,27 @@ export const App: React.FC = () => {
               )}
             </div>
 
-            <div id="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }} />
+            <div id="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {currentTool === 7 && (
+                <span
+                  style={{
+                    fontSize: '11.5px',
+                    fontWeight: 600,
+                    backgroundColor: 'rgba(26, 115, 232, 0.1)',
+                    color: 'var(--primary)',
+                    padding: '5px 12px',
+                    borderRadius: '14px',
+                    border: '1px solid rgba(26, 115, 232, 0.25)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Antigravity 2.0 Desktop Exclusive
+                </span>
+              )}
+            </div>
           </header>
         )}
 

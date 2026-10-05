@@ -55,9 +55,10 @@ export function sortAccounts(
   if (mode === 'credits') {
     return copy.sort((a, b) => {
       const getCred = (acc: AccountState) => {
-        if (acc.credits !== undefined && acc.credits !== null) return Number(acc.credits)
-        if (acc.plan_tier?.toLowerCase() === 'ultra') return 50
-        if (acc.plan_tier?.toLowerCase() === 'pro') return 20
+        if (acc.credits !== undefined && acc.credits !== null && Number(acc.credits) > 0) return Number(acc.credits)
+        const lower = (acc.plan_tier || '').toLowerCase()
+        if (lower.includes('ultra')) return 50
+        if (lower.includes('pro')) return 20
         return 0
       }
       return getCred(b) - getCred(a)
@@ -81,13 +82,17 @@ export function sortAccounts(
   }
 
   // mode === 'auto' (Default)
-  // 1. Row 1: Active healthy account
+  // 1. Row 1: Active account (unconditionally at top)
   // 2. Row 2+: Next standby accounts to rotate into, arranged by 5H & weekly capacity
   // 3. Last rows: Switched-off or cooling-down accounts below threshold
   // 4. End: Broken (ERROR/BANNED) accounts
   return copy.sort((a, b) => {
     const isActA = a.is_active || a.email === activeEmail
     const isActB = b.is_active || b.email === activeEmail
+
+    // Unconditionally pin the active account to Row 1 (index 0)
+    if (isActA && !isActB) return -1
+    if (!isActA && isActB) return 1
 
     const stA = (a.status || '').toUpperCase()
     const stB = (b.status || '').toUpperCase()
@@ -106,16 +111,15 @@ export function sortAccounts(
     const isBelowA = q5hA <= threshold || qWkA <= 0.05
     const isBelowB = q5hB <= threshold || qWkB <= 0.05
 
-    const getTier = (isAct: boolean, isBroken: boolean, isErr: boolean, isBan: boolean, isBelow: boolean) => {
+    const getTier = (isBroken: boolean, isErr: boolean, isBan: boolean, isBelow: boolean) => {
       if (isBan) return 4
       if (isErr) return 3
-      if (isAct && !isBelow && !isBroken) return 0
-      if (!isAct && !isBelow && !isBroken) return 1
+      if (!isBelow && !isBroken) return 1
       return 2
     }
 
-    const tierA = getTier(isActA, isBrokenA, isErrorA, isBannedA, isBelowA)
-    const tierB = getTier(isActB, isBrokenB, isErrorB, isBannedB, isBelowB)
+    const tierA = getTier(isBrokenA, isErrorA, isBannedA, isBelowA)
+    const tierB = getTier(isBrokenB, isErrorB, isBannedB, isBelowB)
 
     if (tierA !== tierB) {
       return tierA - tierB

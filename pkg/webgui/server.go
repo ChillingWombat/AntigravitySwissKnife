@@ -647,16 +647,16 @@ func (s *Server) handleFleetQuota(w http.ResponseWriter, r *http.Request) {
 		store, _ := keyring.NewStore("")
 		var accounts []*keyring.Account
 		active := ""
-		var activeSummary *quota.QuotaSummary
 		if store != nil {
+			_ = keyring.SyncStoreFromCloudAccountsDB(store, "")
 			accounts = store.ListAccounts()
 			active = store.ActiveAccount()
-			if acc, _ := store.GetAccount(active); acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
-				activeSummary, _ = quota.PollAccountLiveQuota(acc)
-			}
+			summaries := quota.PollFleetAccounts(accounts, store)
+			states := quota.BuildAccountQuotaStatesFromMap(accounts, summaries)
+			summary = quota.ComputeFleetSummary(states, active)
+		} else {
+			summary = quota.ComputeFleetSummary(nil, "")
 		}
-		states := quota.BuildAccountQuotaStates(accounts, activeSummary)
-		summary = quota.ComputeFleetSummary(states, active)
 	}
 	writeJSON(w, summary)
 }

@@ -44,9 +44,17 @@ func FormatResetHorizon(resetTime time.Time, now time.Time) string {
 
 // QuotaSummary consolidates per-model quotas for an account.
 type QuotaSummary struct {
-	AccountEmail  string       `json:"account_email"`
-	Models        []ModelQuota `json:"models"`
-	MinFraction   float64      `json:"min_fraction"`
-	OverallHealth string       `json:"overall_health"`
-	LastPolled    time.Time    `json:"last_polled"`
+	AccountEmail          string       `json:"account_email"`
+	PlanTier              string       `json:"plan_tier,omitempty"`
+	Credits               float64      `json:"credits,omitempty"`
+	Quota5hFraction       float64      `json:"quota_5h_fraction,omitempty"`
+	QuotaWeeklyFraction   float64      `json:"quota_weekly_fraction,omitempty"`
+	Quota5hClaudeGPT      float64      `json:"quota_5h_claude_gpt,omitempty"`
+	QuotaWeeklyClaudeGPT  float64      `json:"quota_weekly_claude_gpt,omitempty"`
+	ResetSeconds5h        float64      `json:"reset_seconds_5h,omitempty"`
+	ResetHorizonText      string       `json:"reset_horizon_text,omitempty"`
+	Models                []ModelQuota `json:"models"`
+	MinFraction           float64      `json:"min_fraction"`
+	OverallHealth         string       `json:"overall_health"`
+	LastPolled            time.Time    `json:"last_polled"`
 }

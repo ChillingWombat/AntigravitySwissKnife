@@ -150,6 +150,8 @@ export const api = {
 
   getRules: () => request<RuleConfig>('/api/rules'),
 
+  getSurfaces: () => request<import('./types').SurfacesResponse>('/api/surfaces'),
+
   saveRules: (rules: Partial<RuleConfig>) =>
     request<{ success: boolean }>('/api/rules', {
       method: 'POST',

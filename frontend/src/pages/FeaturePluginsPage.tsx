@@ -1,10 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import {
-  Globe,
-  FolderTree,
   StickyNote,
-  Smartphone,
-  MousePointer,
   RotateCw,
   Edit3,
   Square,
@@ -40,14 +36,9 @@ interface FeaturePluginsPageProps {
 
 export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
   activeTab: propActiveTab,
-  onTabChange,
+  onTabChange: _onTabChange,
 }) => {
-  const [internalTab, setInternalTab] = useState<number>(0)
-  const activeTab = propActiveTab !== undefined ? propActiveTab : internalTab
-  const setActiveTab = (tab: number) => {
-    setInternalTab(tab)
-    if (onTabChange) onTabChange(tab)
-  }
+  const activeTab = propActiveTab !== undefined ? propActiveTab : 0
 
   // --- 1. Browser & App Preview State ---
   const [previewUrl, setPreviewUrl] = useState('http://localhost:5173')
@@ -274,54 +265,6 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
               Dedicated extensions designed exclusively for Antigravity 2.0 Desktop auxiliary panel & workspace
             </div>
           </div>
-        </div>
-
-        {/* Feature Plugin Segmented Tab Bar */}
-        <div
-          style={{
-            display: 'flex',
-            backgroundColor: 'var(--tonal)',
-            borderRadius: '24px',
-            padding: '4px',
-            gap: '4px',
-            width: 'fit-content',
-            flexWrap: 'wrap',
-          }}
-        >
-          {[
-            { id: 0, label: 'Browser & App Preview', icon: Globe },
-            { id: 1, label: 'Auxiliary File Explorer', icon: FolderTree },
-            { id: 2, label: 'Quick Memos', icon: StickyNote },
-            { id: 3, label: 'Mobile Simulator', icon: Smartphone },
-            { id: 4, label: 'Computer Use Enhancer', icon: MousePointer },
-          ].map((tab) => {
-            const isActive = activeTab === tab.id
-            const Icon = tab.icon
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                style={{
-                  borderRadius: '20px',
-                  padding: '7px 18px',
-                  fontSize: '12px',
-                  fontWeight: isActive ? 600 : 500,
-                  color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                  backgroundColor: isActive ? '#ffffff' : 'transparent',
-                  boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '7px',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                <Icon size={14} color={isActive ? 'var(--primary)' : 'var(--text-muted)'} />
-                <span>{tab.label}</span>
-              </button>
-            )
-          })}
         </div>
       </div>
 

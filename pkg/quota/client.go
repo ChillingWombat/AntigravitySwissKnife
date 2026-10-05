@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,26 +16,28 @@ import (
 )
 
 const (
-	GoogleCloudCodeRetrieveQuotaURL = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
-	GoogleCloudCodeFetchModelsURL   = "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels"
-	GoogleTokenRefreshURL           = "https://oauth2.googleapis.com/token"
-	DefaultGoogleClientID           = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
-	DefaultGoogleClientSecret       = "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"
+	GoogleTokenRefreshURL     = "https://oauth2.googleapis.com/token"
+	DefaultGoogleClientID     = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+	DefaultGoogleClientSecret = "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"
 )
 
-// RawCloudCodeQuotaResponse represents the JSON returned by retrieveUserQuotaSummary.
-type RawCloudCodeQuotaResponse struct {
-	Buckets []struct {
-		ModelID           string  `json:"modelId"`
-		RemainingFraction float64 `json:"remainingFraction"`
-		ResetTime         string  `json:"resetTime"`
-	} `json:"buckets"`
-	Error *struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-		Status  string `json:"status"`
-	} `json:"error"`
-}
+var (
+	CloudCodeLoadProjectURLs = []string{
+		"https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+		"https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+		"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:loadCodeAssist",
+	}
+	CloudCodeRetrieveQuotaURLs = []string{
+		"https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+		"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary",
+		"https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+	}
+	CloudCodeModelsURLs = []string{
+		"https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+		"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels",
+		"https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+	}
+)
 
 // RefreshGoogleToken exchanges a refresh token for a valid access token.
 func RefreshGoogleToken(refreshToken, clientID, clientSecret string) (string, error) {
@@ -85,111 +88,449 @@ func RefreshGoogleToken(refreshToken, clientID, clientSecret string) (string, er
 	return res.AccessToken, nil
 }
 
-// FetchLiveQuota queries Google CloudCode API for real account quota metrics.
-func FetchLiveQuota(accessToken string, project string) ([]ModelQuota, error) {
+type ProjectContextResult struct {
+	ProjectID string
+	TierName  string
+	Credits   float64
+}
+
+// FetchProjectAndTier calls loadCodeAssist across endpoints to discover project, subscription tier, and credits.
+func FetchProjectAndTier(accessToken string) (*ProjectContextResult, error) {
 	if accessToken == "" {
 		return nil, fmt.Errorf("empty access token")
 	}
 
-	payload := map[string]string{"project": project}
-	payloadBytes, _ := json.Marshal(payload)
+	payload := []byte(`{"metadata":{"ideType":"ANTIGRAVITY"}}`)
+	client := &http.Client{Timeout: 10 * time.Second}
 
-	req, err := http.NewRequest(http.MethodPost, GoogleCloudCodeRetrieveQuotaURL, bytes.NewReader(payloadBytes))
+	for _, endpoint := range CloudCodeLoadProjectURLs {
+		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", "antigravity/2.19.1 linux/amd64")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+
+		var res struct {
+			CloudaicompanionProject string `json:"cloudaicompanionProject"`
+			CurrentTier             *struct {
+				ID               string `json:"id"`
+				Name             string `json:"name"`
+				AvailableCredits []struct {
+					CreditType                  string      `json:"creditType"`
+					CreditAmount                interface{} `json:"creditAmount"`
+					MinimumCreditAmountForUsage interface{} `json:"minimumCreditAmountForUsage"`
+				} `json:"availableCredits"`
+			} `json:"currentTier"`
+			PaidTier *struct {
+				ID               string `json:"id"`
+				Name             string `json:"name"`
+				AvailableCredits []struct {
+					CreditType                  string      `json:"creditType"`
+					CreditAmount                interface{} `json:"creditAmount"`
+					MinimumCreditAmountForUsage interface{} `json:"minimumCreditAmountForUsage"`
+				} `json:"availableCredits"`
+			} `json:"paidTier"`
+			AllowedTiers []struct {
+				ID        string `json:"id"`
+				Name      string `json:"name"`
+				IsDefault bool   `json:"isDefault"`
+			} `json:"allowedTiers"`
+		}
+
+		if err := json.Unmarshal(body, &res); err == nil {
+			result := &ProjectContextResult{
+				ProjectID: res.CloudaicompanionProject,
+			}
+			if result.ProjectID == "" {
+				result.ProjectID = "aicode-consumers"
+			}
+
+			// Determine tier
+			if res.PaidTier != nil && res.PaidTier.Name != "" {
+				result.TierName = res.PaidTier.Name
+			} else if res.PaidTier != nil && res.PaidTier.ID != "" {
+				result.TierName = res.PaidTier.ID
+			} else if res.CurrentTier != nil && res.CurrentTier.Name != "" {
+				result.TierName = res.CurrentTier.Name
+			} else if res.CurrentTier != nil && res.CurrentTier.ID != "" {
+				result.TierName = res.CurrentTier.ID
+			} else if len(res.AllowedTiers) > 0 {
+				result.TierName = res.AllowedTiers[0].Name
+			} else {
+				result.TierName = "Google AI Pro"
+			}
+
+			// Format tier cleanly
+			lowerTier := strings.ToLower(result.TierName)
+			if strings.Contains(lowerTier, "ultra") {
+				result.TierName = "Google AI Ultra"
+			} else if strings.Contains(lowerTier, "pro") {
+				result.TierName = "Google AI Pro"
+			} else if strings.Contains(lowerTier, "plus") {
+				result.TierName = "Plus"
+			} else if strings.Contains(lowerTier, "edu") {
+				result.TierName = "Edu"
+			}
+
+			// Extract credits
+			parseCreditVal := func(v interface{}) float64 {
+				if v == nil {
+					return 0
+				}
+				if f, ok := v.(float64); ok {
+					return f
+				}
+				if s, ok := v.(string); ok {
+					if parsed, err := strconv.ParseFloat(strings.TrimSpace(s), 64); err == nil {
+						return parsed
+					}
+				}
+				return 0
+			}
+
+			var credAmount float64
+			if res.PaidTier != nil && len(res.PaidTier.AvailableCredits) > 0 {
+				cItem := res.PaidTier.AvailableCredits[0]
+				credAmount = parseCreditVal(cItem.CreditAmount)
+				if credAmount == 0 {
+					credAmount = parseCreditVal(cItem.MinimumCreditAmountForUsage)
+				}
+			}
+			if credAmount == 0 && res.CurrentTier != nil && len(res.CurrentTier.AvailableCredits) > 0 {
+				cItem := res.CurrentTier.AvailableCredits[0]
+				credAmount = parseCreditVal(cItem.CreditAmount)
+			}
+			if credAmount == 0 {
+				if strings.Contains(lowerTier, "ultra") {
+					credAmount = 50
+				} else if strings.Contains(lowerTier, "pro") {
+					credAmount = 20
+				}
+			}
+			result.Credits = credAmount
+			return result, nil
+		}
+	}
+
+	return nil, fmt.Errorf("failed to fetch project context from all endpoints")
+}
+
+type LiveQuotaBreakdown struct {
+	Quota5hGemini        float64
+	QuotaWeeklyGemini    float64
+	Quota5hClaudeGPT     float64
+	QuotaWeeklyClaudeGPT float64
+	ResetTime5h          time.Time
+	ResetTimeWeekly      time.Time
+	ResetHorizonText     string
+	ResetSeconds5h       float64
+	Models               []ModelQuota
+}
+
+// FetchLiveQuota queries Google CloudCode API for real account quota metrics.
+func FetchLiveQuota(accessToken string, project string) ([]ModelQuota, error) {
+	breakdown, err := FetchLiveQuotaBreakdown(accessToken, project)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "antigravity-swiss-knife/2.0 linux/amd64")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("network error querying quota: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read quota body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		var errResp RawCloudCodeQuotaResponse
-		_ = json.Unmarshal(body, &errResp)
-		msg := fmt.Sprintf("HTTP %d", resp.StatusCode)
-		if errResp.Error != nil && errResp.Error.Message != "" {
-			msg = fmt.Sprintf("HTTP %d %s: %s", resp.StatusCode, errResp.Error.Status, errResp.Error.Message)
-		}
-		return nil, fmt.Errorf("upstream error: %s", msg)
-	}
-
-	var quotaResp RawCloudCodeQuotaResponse
-	if err := json.Unmarshal(body, &quotaResp); err != nil {
-		return nil, fmt.Errorf("failed to parse quota JSON: %w", err)
-	}
-
-	now := time.Now()
-	var models []ModelQuota
-	for _, b := range quotaResp.Buckets {
-		var resetTime time.Time
-		if b.ResetTime != "" {
-			resetTime, _ = time.Parse(time.RFC3339, b.ResetTime)
-		}
-		frac := b.RemainingFraction
-		models = append(models, ModelQuota{
-			ModelName:    b.ModelID,
-			Fraction:     frac,
-			ResetTime:    resetTime,
-			ResetText:    FormatResetHorizon(resetTime, now),
-			HealthStatus: ComputeHealth(frac),
-		})
-	}
-
-	return models, nil
+	return breakdown.Models, nil
 }
 
-// PollAccountLiveQuota attempts to query Google CloudCode for real quota, refreshing tokens if needed.
+// FetchLiveQuotaBreakdown fetches complete quota buckets for Gemini and Claude/GPT models.
+func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBreakdown, error) {
+	if accessToken == "" {
+		return nil, fmt.Errorf("empty access token")
+	}
+
+	if project == "" {
+		project = "aicode-consumers"
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	now := time.Now()
+
+	for _, endpoint := range CloudCodeRetrieveQuotaURLs {
+		for attempt := 0; attempt < 2; attempt++ {
+			p := project
+			if attempt == 1 {
+				p = "" // retry without project if first fails
+			}
+			payloadBytes, _ := json.Marshal(map[string]string{"project": p})
+			req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payloadBytes))
+			if err != nil {
+				continue
+			}
+			req.Header.Set("Authorization", "Bearer "+accessToken)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("User-Agent", "antigravity/2.19.1 linux/amd64")
+
+			resp, err := client.Do(req)
+			if err != nil {
+				continue
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+
+			if resp.StatusCode == http.StatusForbidden && attempt == 0 {
+				continue // retry without project
+			}
+			if resp.StatusCode != http.StatusOK {
+				continue
+			}
+
+			var res struct {
+				Groups []struct {
+					DisplayName string `json:"displayName"`
+					Description string `json:"description"`
+					Buckets     []struct {
+						BucketID          string  `json:"bucketId"`
+						DisplayName       string  `json:"displayName"`
+						Window            string  `json:"window"`
+						RemainingFraction float64 `json:"remainingFraction"`
+						ResetTime         string  `json:"resetTime"`
+					} `json:"buckets"`
+				} `json:"groups"`
+				Buckets []struct {
+					ModelID           string  `json:"modelId"`
+					RemainingFraction float64 `json:"remainingFraction"`
+					ResetTime         string  `json:"resetTime"`
+				} `json:"buckets"`
+			}
+
+			if err := json.Unmarshal(body, &res); err != nil {
+				continue
+			}
+
+			breakdown := &LiveQuotaBreakdown{
+				Quota5hGemini:        1.0,
+				QuotaWeeklyGemini:    1.0,
+				Quota5hClaudeGPT:     1.0,
+				QuotaWeeklyClaudeGPT: 1.0,
+				ResetHorizonText:     "Ready",
+			}
+
+			if len(res.Groups) > 0 {
+				for _, g := range res.Groups {
+					gName := strings.ToLower(g.DisplayName)
+					for _, b := range g.Buckets {
+						w := strings.ToLower(b.Window)
+						bid := strings.ToLower(b.BucketID)
+						var rTime time.Time
+						if b.ResetTime != "" {
+							rTime, _ = time.Parse(time.RFC3339, b.ResetTime)
+						}
+
+						modelItem := ModelQuota{
+							ModelName:    b.DisplayName,
+							Fraction:     b.RemainingFraction,
+							ResetTime:    rTime,
+							ResetText:    FormatResetHorizon(rTime, now),
+							HealthStatus: ComputeHealth(b.RemainingFraction),
+						}
+						if modelItem.ModelName == "" {
+							modelItem.ModelName = b.BucketID
+						}
+						breakdown.Models = append(breakdown.Models, modelItem)
+
+						if strings.Contains(gName, "gemini") {
+							if w == "5h" || strings.Contains(bid, "5h") {
+								breakdown.Quota5hGemini = b.RemainingFraction
+								breakdown.ResetTime5h = rTime
+								if !rTime.IsZero() && rTime.After(now) {
+									breakdown.ResetSeconds5h = rTime.Sub(now).Seconds()
+									breakdown.ResetHorizonText = FormatResetHorizon(rTime, now)
+								}
+							} else if w == "weekly" || strings.Contains(bid, "weekly") {
+								breakdown.QuotaWeeklyGemini = b.RemainingFraction
+								breakdown.ResetTimeWeekly = rTime
+							}
+						} else if strings.Contains(gName, "claude") || strings.Contains(gName, "gpt") || strings.Contains(bid, "3p") {
+							if w == "5h" || strings.Contains(bid, "5h") {
+								breakdown.Quota5hClaudeGPT = b.RemainingFraction
+							} else if w == "weekly" || strings.Contains(bid, "weekly") {
+								breakdown.QuotaWeeklyClaudeGPT = b.RemainingFraction
+							}
+						}
+					}
+				}
+				return breakdown, nil
+			}
+
+			// Fallback: flat buckets
+			if len(res.Buckets) > 0 {
+				for _, b := range res.Buckets {
+					var rTime time.Time
+					if b.ResetTime != "" {
+						rTime, _ = time.Parse(time.RFC3339, b.ResetTime)
+					}
+					breakdown.Models = append(breakdown.Models, ModelQuota{
+						ModelName:    b.ModelID,
+						Fraction:     b.RemainingFraction,
+						ResetTime:    rTime,
+						ResetText:    FormatResetHorizon(rTime, now),
+						HealthStatus: ComputeHealth(b.RemainingFraction),
+					})
+					name := strings.ToLower(b.ModelID)
+					if strings.Contains(name, "weekly") {
+						breakdown.QuotaWeeklyGemini = b.RemainingFraction
+					} else {
+						breakdown.Quota5hGemini = b.RemainingFraction
+						if !rTime.IsZero() && rTime.After(now) {
+							breakdown.ResetSeconds5h = rTime.Sub(now).Seconds()
+							breakdown.ResetHorizonText = FormatResetHorizon(rTime, now)
+						}
+					}
+				}
+				return breakdown, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("upstream quota check failed across all endpoints")
+}
+
+// PollAccountLiveQuota queries Google CloudCode for real quota, tier, and credits, refreshing tokens if needed.
 func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	if acc == nil {
 		return nil, fmt.Errorf("nil account")
 	}
 
+	now := time.Now()
 	accessToken := acc.AccessToken
-	models, err := FetchLiveQuota(accessToken, "")
-	if err != nil && (strings.Contains(err.Error(), "HTTP 401") || accessToken == "") && acc.RefreshToken != "" {
+	project := "aicode-consumers"
+
+	// Step 1: Discover Project Context & Membership Tier & Credits
+	pCtx, err := FetchProjectAndTier(accessToken)
+	if (err != nil || accessToken == "") && acc.RefreshToken != "" {
 		// Attempt token refresh
 		newTok, refErr := RefreshGoogleToken(acc.RefreshToken, "", "")
 		if refErr == nil && newTok != "" {
 			acc.AccessToken = newTok
 			accessToken = newTok
-			models, err = FetchLiveQuota(accessToken, "")
+			pCtx, err = FetchProjectAndTier(accessToken)
 		}
 	}
 
-	now := time.Now()
-	summary := &QuotaSummary{
-		AccountEmail: acc.Email,
-		Models:       models,
-		LastPolled:   now,
-	}
-
-	if len(models) == 0 {
-		summary.MinFraction = 0.0
-		summary.OverallHealth = "STANDBY"
-		if err != nil {
-			summary.OverallHealth = core.StatusExhausted
+	tier := "Google AI Pro"
+	credits := 20.0
+	if pCtx != nil {
+		if pCtx.ProjectID != "" {
+			project = pCtx.ProjectID
 		}
-		return summary, err
-	}
-
-	minFrac := 1.0
-	for _, m := range models {
-		if m.Fraction < minFrac {
-			minFrac = m.Fraction
+		if pCtx.TierName != "" {
+			tier = pCtx.TierName
+			acc.PlanTier = tier
+		}
+		if pCtx.Credits > 0 {
+			credits = pCtx.Credits
+			acc.Credits = credits
 		}
 	}
-	summary.MinFraction = minFrac
-	summary.OverallHealth = ComputeHealth(minFrac)
-	return summary, nil
+
+	// Step 2: Query Live Quota Summary
+	breakdown, qErr := FetchLiveQuotaBreakdown(accessToken, project)
+	if qErr != nil && acc.RefreshToken != "" && accessToken != "" {
+		// Try refreshing token once if quota check failed
+		newTok, refErr := RefreshGoogleToken(acc.RefreshToken, "", "")
+		if refErr == nil && newTok != "" {
+			acc.AccessToken = newTok
+			accessToken = newTok
+			breakdown, qErr = FetchLiveQuotaBreakdown(accessToken, project)
+		}
+	}
+
+	if breakdown != nil {
+		minFrac := breakdown.Quota5hGemini
+		if breakdown.QuotaWeeklyGemini < minFrac {
+			minFrac = breakdown.QuotaWeeklyGemini
+		}
+
+		summary := &QuotaSummary{
+			AccountEmail:         acc.Email,
+			PlanTier:             tier,
+			Credits:              credits,
+			Quota5hFraction:      breakdown.Quota5hGemini,
+			QuotaWeeklyFraction:  breakdown.QuotaWeeklyGemini,
+			Quota5hClaudeGPT:     breakdown.Quota5hClaudeGPT,
+			QuotaWeeklyClaudeGPT: breakdown.QuotaWeeklyClaudeGPT,
+			ResetSeconds5h:       breakdown.ResetSeconds5h,
+			ResetHorizonText:     breakdown.ResetHorizonText,
+			Models:               breakdown.Models,
+			MinFraction:          minFrac,
+			OverallHealth:        ComputeHealth(minFrac),
+			LastPolled:           now,
+		}
+		return summary, nil
+	}
+
+	// Fallback to cached cloud_accounts.db metrics if network query fails
+	if cachedAccs, cErr := keyring.ReadCloudAccountsDB(""); cErr == nil {
+		for _, ca := range cachedAccs {
+			if strings.EqualFold(ca.Email, acc.Email) {
+				resetText := "Ready"
+				var resetSec float64
+				if ca.ResetTime5h != "" {
+					if rt, parseErr := time.Parse(time.RFC3339, ca.ResetTime5h); parseErr == nil && rt.After(now) {
+						resetSec = rt.Sub(now).Seconds()
+						resetText = FormatResetHorizon(rt, now)
+					}
+				}
+				pTier := ca.PlanTier
+				if pTier == "" {
+					pTier = "Google AI Pro"
+				}
+				acc.PlanTier = pTier
+				cAmount := ca.Credits
+				if cAmount == 0 {
+					cAmount = 20
+				}
+				acc.Credits = cAmount
+
+				minFrac := ca.Quota5h
+				if ca.QuotaWeekly < minFrac {
+					minFrac = ca.QuotaWeekly
+				}
+
+				return &QuotaSummary{
+					AccountEmail:         acc.Email,
+					PlanTier:             pTier,
+					Credits:              cAmount,
+					Quota5hFraction:      ca.Quota5h,
+					QuotaWeeklyFraction:  ca.QuotaWeekly,
+					Quota5hClaudeGPT:     ca.Quota5hClaudeGPT,
+					QuotaWeeklyClaudeGPT: ca.QuotaWeeklyClaudeGPT,
+					ResetSeconds5h:       resetSec,
+					ResetHorizonText:     resetText,
+					Models:               []ModelQuota{},
+					MinFraction:          minFrac,
+					OverallHealth:        ComputeHealth(minFrac),
+					LastPolled:           now,
+				}, nil
+			}
+		}
+	}
+
+	// Baseline fallback
+	return &QuotaSummary{
+		AccountEmail:     acc.Email,
+		PlanTier:         tier,
+		Credits:          credits,
+		MinFraction:      0.0,
+		OverallHealth:    core.StatusExhausted,
+		ResetHorizonText: "Not Polled",
+		LastPolled:       now,
+	}, qErr
 }
