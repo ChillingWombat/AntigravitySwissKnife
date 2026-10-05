@@ -202,7 +202,7 @@ export const MfaVaultPage: React.FC<MfaVaultPageProps> = ({
                 Account Email
               </th>
               <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase' }}>
-                Role / Label
+                Account Alias
               </th>
               <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase' }}>
                 MFA Status

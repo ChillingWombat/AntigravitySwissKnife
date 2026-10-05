@@ -3,7 +3,6 @@ import {
   RotateCw,
   Zap,
   CheckCircle2,
-  Clock,
   ArrowRightLeft,
   Edit2,
   Copy,
@@ -196,7 +195,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
             >
               {accounts.map((acc) => (
                 <option key={acc.email} value={acc.email}>
-                  {acc.email} {acc.label ? `(${acc.label})` : ''}
+                  {acc.label ? `${acc.label} (${acc.email})` : acc.email}
                 </option>
               ))}
             </select>
@@ -286,13 +285,10 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 Status
               </th>
               <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                Next 5h Quota
+                5H QUOTA
               </th>
               <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                Weekly Available
-              </th>
-              <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                Reset Horizon
+                WEEKLY QUOTA
               </th>
               <th style={{ padding: '12px 20px', textAlign: 'right', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Action
@@ -321,13 +317,13 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 >
                   <td style={{ padding: '14px 20px' }}>
                     <div style={{ fontWeight: 600, color: 'var(--text)', fontSize: '13px' }}>
-                      {acc.email}
+                      {acc.label ? acc.label : acc.email}
                     </div>
-                    {acc.label && (
+                    {acc.label ? (
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        {acc.label}
+                        {acc.email}
                       </div>
-                    )}
+                    ) : null}
                   </td>
 
                   <td style={{ padding: '14px' }}>
@@ -341,18 +337,17 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   </td>
 
                   <td style={{ padding: '14px' }}>
-                    <HorizontalQuotaBar fraction={acc.quota_5h_available} />
+                    <HorizontalQuotaBar
+                      fraction={acc.quota_5h_available}
+                      title={acc.reset_horizon_text || 'Resets in 5h cycle'}
+                    />
                   </td>
 
                   <td style={{ padding: '14px' }}>
-                    <HorizontalQuotaBar fraction={acc.quota_weekly} />
-                  </td>
-
-                  <td style={{ padding: '14px', fontSize: '12px', color: 'var(--text)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Clock size={13} color="var(--text-subtle)" />
-                      <span>{acc.reset_horizon_text || 'Active cycle'}</span>
-                    </div>
+                    <HorizontalQuotaBar
+                      fraction={acc.quota_weekly}
+                      title="Resets on 7-day rolling cycle"
+                    />
                   </td>
 
                   <td style={{ padding: '14px 20px', textAlign: 'right' }}>

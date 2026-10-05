@@ -137,11 +137,14 @@ func TestGenerateCSS(t *testing.T) {
 		TintOpacity: 0.14,
 	}
 	cssBorderMode := GenerateCSS(cfgBorderMode)
-	// Active row should have light background tint (0.14) same as ordinary tabs
+	// Active row should have light background tint (0.14) same as ordinary tabs and solid 2px border matching project color
 	if !strings.Contains(cssBorderMode, `background-color: rgba(124, 58, 237, 0.14) !important;
-  border: 1.5px solid rgba(124, 58, 237, 0.54) !important;
+  border: 2px solid #7c3aed !important;
   font-weight: 400 !important;`) {
 		t.Errorf("CSS with ActiveConversationIndicator='border' should have light background and denser border, got: %s", cssBorderMode)
+	}
+	if !strings.Contains(cssBorderMode, `border: 2px solid transparent !important;`) {
+		t.Errorf("CSS with ActiveConversationIndicator='border' should have 2px transparent border on ordinary tabs, got: %s", cssBorderMode)
 	}
 
 	// 6. Test ActiveConversationIndicator="background" (default) and ActiveConversationBold=true

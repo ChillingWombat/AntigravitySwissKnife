@@ -353,18 +353,9 @@ export const CustomModelsPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* 1. Header Information & Actions Card */}
-      <div className="google-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-            Custom Model Providers & Endpoints
-          </div>
-          <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
-            Bring Your Own Model (BYOM) endpoints for OpenAI, Anthropic, Gemini, and Local LLMs with project-level routing & quota gauges.
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      {/* Action Row when models exist */}
+      {models.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px' }}>
           <button onClick={openAddModal} className="btn-pill-primary" style={{ padding: '7px 16px', fontSize: '12px' }}>
             <Plus size={14} /> Add Custom Model
           </button>
@@ -372,7 +363,7 @@ export const CustomModelsPage: React.FC = () => {
             <RefreshCw size={14} className={loading ? 'spin' : ''} />
           </button>
         </div>
-      </div>
+      )}
 
       {feedback && (
         <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: '#fce8e6', color: '#b3261e', fontSize: '12px' }}>
@@ -397,11 +388,8 @@ export const CustomModelsPage: React.FC = () => {
           <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text)' }}>
             No Custom Models Configured
           </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', maxWidth: '420px' }}>
-            Add an OpenAI, Anthropic Claude, Google Gemini, or Local Ollama/vLLM endpoint to inject custom models directly into Antigravity’s model selector.
-          </div>
           <button onClick={openAddModal} className="btn-pill-primary" style={{ marginTop: '8px' }}>
-            <Plus size={14} /> Add Your First Model
+            <Plus size={14} /> Add Custom Model
           </button>
         </div>
       ) : (

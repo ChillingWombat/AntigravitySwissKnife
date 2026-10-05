@@ -172,9 +172,9 @@ class AccountDetailDialog(QDialog):
         f_layout.addWidget(f_head)
 
         # Label field
-        f_layout.addWidget(QLabel("Friendly Account Label:"))
+        f_layout.addWidget(QLabel("Account Alias:"))
         self.label_edit = QLineEdit(self.account.label)
-        self.label_edit.setPlaceholderText("e.g. Work Primary, Personal Backup")
+        self.label_edit.setPlaceholderText("e.g. Account 1, Primary, Backup")
         self.label_edit.setStyleSheet(f"""
             QLineEdit {{
                 background-color: {MD3_LIGHT_SURFACE};

@@ -196,23 +196,9 @@ export const AppEnhancementsPage: React.FC = () => {
       <div className="google-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
-                Quick Prompt Jump Bar (Devin Style)
-              </h2>
-              <span
-                style={{
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  padding: '2px 8px',
-                  borderRadius: '12px',
-                  background: jb.enabled ? 'var(--green-bg)' : '#f1f5f9',
-                  color: jb.enabled ? 'var(--green)' : '#64748b',
-                }}
-              >
-                {jb.enabled ? 'Enabled' : 'Disabled'}
-              </span>
-            </div>
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
+              Quick Prompt Jump Bar
+            </h2>
             <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
               Horizontal dash lines in conversation margin allowing instant jump to any user prompt turn.
               Dynamically highlights the lowest (latest) prompt currently on screen as you scroll.
@@ -1028,13 +1014,13 @@ export const AppEnhancementsPage: React.FC = () => {
                           : `rgba(11, 87, 208, ${(guiConfig.tint_opacity || 0.14) + 0.16})`,
                       border:
                         guiConfig.active_conversation_indicator === 'border'
-                          ? '1.5px solid rgba(11, 87, 208, 0.60)'
-                          : '1.5px solid transparent',
+                          ? '2px solid #0b57d0'
+                          : '2px solid transparent',
                       borderLeft: guiConfig.solid_left_edge
                         ? '3px solid #0b57d0'
                         : guiConfig.active_conversation_indicator === 'border'
-                        ? '1.5px solid rgba(11, 87, 208, 0.60)'
-                        : '1.5px solid transparent',
+                        ? '2px solid #0b57d0'
+                        : '2px solid transparent',
                       borderRadius: '8px',
                       padding: '6px 10px',
                       fontSize: '13px',
@@ -1058,8 +1044,8 @@ export const AppEnhancementsPage: React.FC = () => {
                   <div
                     style={{
                       backgroundColor: `rgba(11, 87, 208, ${guiConfig.tint_opacity || 0.14})`,
-                      border: '1.5px solid transparent',
-                      borderLeft: guiConfig.solid_left_edge ? '3px solid #0b57d0' : '1.5px solid transparent',
+                      border: '2px solid transparent',
+                      borderLeft: guiConfig.solid_left_edge ? '3px solid #0b57d0' : '2px solid transparent',
                       borderRadius: '8px',
                       padding: '6px 10px',
                       fontSize: '13px',
@@ -1082,8 +1068,8 @@ export const AppEnhancementsPage: React.FC = () => {
                   <div
                     style={{
                       backgroundColor: `rgba(11, 87, 208, ${guiConfig.tint_opacity || 0.14})`,
-                      border: '1.5px solid transparent',
-                      borderLeft: guiConfig.solid_left_edge ? '3px solid #0b57d0' : '1.5px solid transparent',
+                      border: '2px solid transparent',
+                      borderLeft: guiConfig.solid_left_edge ? '3px solid #0b57d0' : '2px solid transparent',
                       borderRadius: '8px',
                       padding: '6px 10px',
                       fontSize: '13px',

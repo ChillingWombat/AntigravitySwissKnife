@@ -4,12 +4,14 @@ interface HorizontalQuotaBarProps {
   fraction: number // 0.0 to 1.0
   height?: number
   maxWidth?: number | string
+  title?: string
 }
 
 export const HorizontalQuotaBar: React.FC<HorizontalQuotaBarProps> = ({
   fraction,
   height = 9,
   maxWidth = 160,
+  title,
 }) => {
   const pct = Math.max(0, Math.min(100, Math.round(fraction * 100)))
 
@@ -22,6 +24,7 @@ export const HorizontalQuotaBar: React.FC<HorizontalQuotaBarProps> = ({
 
   return (
     <div
+      title={title}
       style={{
         display: 'flex',
         alignItems: 'center',

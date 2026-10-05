@@ -95,14 +95,14 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text)' }}>
-                {account.email}
+                {account.label || account.email}
               </h2>
               <span className={`badge-chip ${account.is_active ? 'badge-green' : 'badge-neutral'}`}>
                 {account.is_active ? 'ACTIVE' : 'STANDBY'}
               </span>
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-              Managed Session Account • {account.reset_horizon_text || 'Reset horizon calculating...'}
+              {account.label ? `${account.email} • ` : ''}Managed Session Account • {account.reset_horizon_text || 'Reset horizon calculating...'}
             </div>
           </div>
           <button
@@ -155,7 +155,11 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 <span style={{ fontWeight: 500, color: 'var(--text)' }}>Next 5 Hours Quota:</span>
                 <span style={{ color: 'var(--text-muted)' }}>{account.reset_horizon_text}</span>
               </div>
-              <HorizontalQuotaBar fraction={account.quota_5h_available} maxWidth="100%" />
+              <HorizontalQuotaBar
+                fraction={account.quota_5h_available}
+                maxWidth="100%"
+                title={account.reset_horizon_text || 'Resets in 5h cycle'}
+              />
             </div>
 
             <div>
@@ -163,7 +167,11 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 <span style={{ fontWeight: 500, color: 'var(--text)' }}>Weekly Horizon Quota:</span>
                 <span style={{ color: 'var(--text-muted)' }}>7-day allowance</span>
               </div>
-              <HorizontalQuotaBar fraction={account.quota_weekly} maxWidth="100%" />
+              <HorizontalQuotaBar
+                fraction={account.quota_weekly}
+                maxWidth="100%"
+                title="Resets on 7-day rolling cycle"
+              />
             </div>
           </div>
         </div>
@@ -172,11 +180,11 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '24px' }}>
           <div>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
-              <Tag size={14} /> Friendly Label / Role:
+              <Tag size={14} /> Account Alias:
             </label>
             <input
               type="text"
-              placeholder="e.g. Lead Systems Architect, Primary Backup"
+              placeholder="e.g. Account 1, Primary, Backup"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               style={{ width: '100%' }}

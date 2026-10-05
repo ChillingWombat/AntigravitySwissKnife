@@ -302,7 +302,7 @@ class QuotaDashboardPage(QWidget):
         t_header_hbox.addWidget(hint_lbl)
         t_vbox.addWidget(header_container)
 
-        self._table = QTableWidget(0, 7)
+        self._table = QTableWidget(0, 6)
         self._table.setFrameShape(QFrame.Shape.NoFrame)
         self._table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -311,9 +311,8 @@ class QuotaDashboardPage(QWidget):
             "ACCOUNT IDENTITY",
             "PLAN TIER",
             "STATUS",
-            "NEXT 5H QUOTA",
-            "WEEKLY AVAILABLE",
-            "RESET HORIZON",
+            "5H QUOTA",
+            "WEEKLY QUOTA",
             "ACTION",
         ])
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -322,14 +321,12 @@ class QuotaDashboardPage(QWidget):
         self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
         self._table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
-        self._table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
 
         self._table.setColumnWidth(1, 95)
         self._table.setColumnWidth(2, 80)
         self._table.setColumnWidth(3, 130)
         self._table.setColumnWidth(4, 140)
-        self._table.setColumnWidth(5, 155)
-        self._table.setColumnWidth(6, 115)
+        self._table.setColumnWidth(5, 115)
         self._table.horizontalHeader().setStretchLastSection(False)
         self._table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self._table.horizontalHeader().setFixedHeight(40)
@@ -461,14 +458,18 @@ class QuotaDashboardPage(QWidget):
         vbox.setSpacing(2)
         vbox.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
 
-        email_lbl = QLabel(email)
-        email_lbl.setStyleSheet("font-size: 13px; font-weight: 600; color: #1e293b; background: transparent; border: none;")
-        vbox.addWidget(email_lbl)
+        has_alias = bool(label and label.strip() and label.strip() != email)
+        main_text = label.strip() if has_alias else email
+        sub_text = email if has_alias else None
 
-        if label and label.strip() and label.strip() != email:
-            label_lbl = QLabel(label.strip())
-            label_lbl.setStyleSheet("font-size: 11px; color: #64748b; background: transparent; border: none;")
-            vbox.addWidget(label_lbl)
+        main_lbl = QLabel(main_text)
+        main_lbl.setStyleSheet("font-size: 13px; font-weight: 600; color: #1e293b; background: transparent; border: none;")
+        vbox.addWidget(main_lbl)
+
+        if sub_text:
+            sub_lbl = QLabel(sub_text)
+            sub_lbl.setStyleSheet("font-size: 11px; color: #64748b; background: transparent; border: none;")
+            vbox.addWidget(sub_lbl)
 
         return container
 
@@ -648,7 +649,7 @@ class QuotaDashboardPage(QWidget):
             # Update Dropdown
             self._account_combo.clear()
             for acc in self._accounts_cache:
-                display_label = f"{acc.email} ({acc.label})" if acc.label and acc.label != acc.email else acc.email
+                display_label = f"{acc.label} ({acc.email})" if acc.label and acc.label != acc.email else acc.email
                 self._account_combo.addItem(display_label, acc.email)
             if self._active_account:
                 for i in range(self._account_combo.count()):
@@ -673,17 +674,16 @@ class QuotaDashboardPage(QWidget):
 
                 # Col 3: 5h Available Quota (Horizontal Bar + Text %)
                 bar_5h_widget = AccountQuotaBarWidget(acc.quota_5h_available)
+                bar_5h_widget.setToolTip(acc.reset_horizon_text or "Resets in 5h cycle")
                 self._table.setCellWidget(r, 3, bar_5h_widget)
 
                 # Col 4: Weekly Available (Horizontal Bar + Text %)
                 bar_wk_widget = AccountQuotaBarWidget(acc.quota_weekly)
+                bar_wk_widget.setToolTip("Resets on 7-day rolling cycle")
                 self._table.setCellWidget(r, 4, bar_wk_widget)
 
-                # Col 5: Reset Horizon Text
-                self._table.setCellWidget(r, 5, self._create_reset_horizon_cell(acc.reset_horizon_text))
-
-                # Col 6: Action Button (Switch / Active)
-                self._table.setCellWidget(r, 6, self._create_action_cell(r, acc.is_active, acc.email))
+                # Col 5: Action Button (Switch / Active)
+                self._table.setCellWidget(r, 5, self._create_action_cell(r, acc.is_active, acc.email))
                 self._table.setRowHeight(r, 56)
 
             self._adjust_table_height()
