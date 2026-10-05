@@ -159,7 +159,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           maxWidth: '94vw',
           maxHeight: '92vh',
           overflowY: 'auto',
-          padding: '24px',
+          padding: '28px',
           backgroundColor: '#ffffff',
           borderRadius: '16px',
           boxShadow: 'var(--shadow-md)',
@@ -167,7 +167,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text)' }}>
@@ -267,7 +267,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               padding: '10px 14px',
               borderRadius: '8px',
               fontSize: '12px',
-              marginBottom: '16px',
+              marginBottom: '20px',
             }}
           >
             {oauthSuccessMsg}
@@ -280,17 +280,17 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             backgroundColor: 'var(--canvas)',
             border: '1px solid var(--border)',
             borderRadius: '12px',
-            padding: '14px 16px',
-            marginBottom: '18px',
+            padding: '16px 18px',
+            marginBottom: '24px',
           }}
         >
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', marginBottom: '10px', textTransform: 'uppercase' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', marginBottom: '12px', textTransform: 'uppercase' }}>
             Live Quota Metrics
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px' }}>
                 <span style={{ fontWeight: 500, color: 'var(--text)' }}>5H Quota:</span>
                 <span style={{ color: 'var(--text-muted)' }}>{account.reset_horizon_text}</span>
               </div>
@@ -302,7 +302,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             </div>
 
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px' }}>
                 <span style={{ fontWeight: 500, color: 'var(--text)' }}>Weekly Quota:</span>
                 <span style={{ color: 'var(--text-muted)' }}>7-day allowance</span>
               </div>
@@ -316,10 +316,10 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         </div>
 
         {/* Form Fields */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '22px', marginBottom: '28px' }}>
           {/* Account Alias */}
           <div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
               <Tag size={14} /> Account Alias:
             </label>
             <input
@@ -333,7 +333,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
           {/* Account Priority directly below Account Alias */}
           <div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
               Account Priority:
             </label>
             <select
@@ -357,7 +357,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
           {/* Optional Password / Vault field (hidden by default with eye toggle) */}
           <div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
               <Lock size={14} /> Password (Optional / Vault):
             </label>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
@@ -391,7 +391,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
           {/* OAuth Refresh Token with eye toggle & Google extraction button */}
           <div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
               <RefreshCw size={14} /> OAuth Refresh Token:
             </label>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -454,7 +454,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                marginBottom: '6px',
+                marginBottom: '8px',
               }}
             >
               <label
@@ -470,53 +470,121 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 <KeyRound size={14} /> MFA / TOTP Secret Key (Base32):
               </label>
 
-              {/* Right end: Current derived 6-number verification code and tiny copy button */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span
-                  style={{
-                    fontFamily: 'monospace',
-                    fontSize: '12px',
-                    fontWeight: derivedCode ? 700 : 500,
-                    letterSpacing: '1px',
-                    color: derivedCode ? 'var(--green, #34a853)' : 'var(--text-muted)',
-                    backgroundColor: derivedCode ? 'var(--green-bg, rgba(52, 168, 83, 0.1))' : 'var(--hover)',
-                    padding: '2px 8px',
-                    borderRadius: '6px',
-                    border: '1px solid var(--border)',
-                  }}
-                  title={
-                    derivedCode
-                      ? `Current derived 6-number verification code (${remainingSeconds}s remaining)`
-                      : 'No MFA secret configured'
-                  }
-                >
-                  {formattedCode}
-                </span>
-
-                <button
-                  type="button"
-                  onClick={handleCopyTotpCode}
-                  disabled={!derivedCode}
+              {/* Right end: Countdown progress ring & connected 6-digit code widget */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {/* Blue circular countdown progress ring */}
+                <div
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: '4px',
-                    padding: '3px 8px',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    backgroundColor: copiedTotp ? 'var(--green-bg, rgba(52,168,83,0.15))' : 'var(--card-bg, #ffffff)',
-                    color: copiedTotp ? 'var(--green, #34a853)' : (!derivedCode ? 'var(--text-muted)' : 'var(--text)'),
+                    justifyContent: 'center',
+                    width: '24px',
+                    height: '24px',
+                    position: 'relative',
+                    flexShrink: 0,
+                  }}
+                  title={
+                    derivedCode
+                      ? `${remainingSeconds}s remaining until code refreshes`
+                      : 'No MFA secret configured'
+                  }
+                >
+                  <svg width="24" height="24" viewBox="0 0 24 24" style={{ overflow: 'visible' }}>
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="9"
+                      fill="none"
+                      stroke={derivedCode ? 'rgba(26, 115, 232, 0.16)' : 'var(--border)'}
+                      strokeWidth="2.2"
+                    />
+                    {derivedCode && (
+                      <circle
+                        cx="12"
+                        cy="12"
+                        r="9"
+                        fill="none"
+                        stroke="#1a73e8"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        strokeDasharray={56.55}
+                        strokeDashoffset={56.55 * (1 - remainingSeconds / 30)}
+                        transform="rotate(-90 12 12)"
+                        style={{ transition: 'stroke-dashoffset 0.8s linear' }}
+                      />
+                    )}
+                    <text
+                      x="12"
+                      y="12"
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fontSize="9"
+                      fontWeight="700"
+                      fill={derivedCode ? '#1a73e8' : 'var(--text-muted)'}
+                      style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}
+                    >
+                      {derivedCode ? remainingSeconds : '--'}
+                    </text>
+                  </svg>
+                </div>
+
+                {/* Connected 6-digit verification code & icon-only copy button */}
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
                     border: '1px solid var(--border)',
                     borderRadius: '6px',
-                    cursor: derivedCode ? 'pointer' : 'not-allowed',
-                    opacity: derivedCode ? 1 : 0.5,
-                    transition: 'all 0.15s ease',
+                    overflow: 'hidden',
+                    backgroundColor: derivedCode ? 'var(--green-bg, rgba(52, 168, 83, 0.08))' : 'var(--hover)',
+                    height: '24px',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
                   }}
-                  title={derivedCode ? (copiedTotp ? 'Copied!' : 'Copy verification code') : 'No code to copy'}
                 >
-                  {copiedTotp ? <Check size={12} /> : <Copy size={12} />}
-                  <span>{copiedTotp ? 'Copied' : 'Copy'}</span>
-                </button>
+                  <span
+                    style={{
+                      fontFamily: 'monospace',
+                      fontSize: '12px',
+                      fontWeight: derivedCode ? 700 : 500,
+                      letterSpacing: '1px',
+                      color: derivedCode ? 'var(--green, #34a853)' : 'var(--text-muted)',
+                      padding: '0 8px',
+                      lineHeight: '22px',
+                      userSelect: 'all',
+                      borderRight: '1px solid var(--border)',
+                    }}
+                    title={
+                      derivedCode
+                        ? `Current derived 6-number verification code (${remainingSeconds}s remaining)`
+                        : 'No MFA secret configured'
+                    }
+                  >
+                    {formattedCode}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={handleCopyTotpCode}
+                    disabled={!derivedCode}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '26px',
+                      height: '100%',
+                      padding: 0,
+                      backgroundColor: copiedTotp ? 'var(--green-bg, rgba(52,168,83,0.22))' : 'transparent',
+                      color: copiedTotp ? 'var(--green, #34a853)' : (!derivedCode ? 'var(--text-muted)' : 'var(--text)'),
+                      border: 'none',
+                      cursor: derivedCode ? 'pointer' : 'not-allowed',
+                      opacity: derivedCode ? 1 : 0.4,
+                      transition: 'background-color 0.15s ease, color 0.15s ease',
+                    }}
+                    title={derivedCode ? (copiedTotp ? 'Copied to clipboard!' : 'Copy verification code') : 'No code to copy'}
+                  >
+                    {copiedTotp ? <Check size={13} /> : <Copy size={13} />}
+                  </button>
+                </div>
               </div>
             </div>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
@@ -549,9 +617,9 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           </div>
 
           {/* Status & Plan Tier */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
                 Account Status:
               </label>
               <select
@@ -575,7 +643,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
                 Plan Tier / Membership:
               </label>
               <select
@@ -604,18 +672,33 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           </div>
 
           {/* Active account toggle */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', cursor: 'pointer', marginTop: '2px' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '12px 14px',
+              backgroundColor: 'var(--canvas)',
+              borderRadius: '10px',
+              border: '1px solid var(--border)',
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+            onClick={() => setSetActive(!setActive)}
+          >
             <ToggleSwitch
               size="sm"
               checked={setActive}
               onChange={(checked) => setSetActive(checked)}
             />
-            <span>Set as active Antigravity account upon save</span>
-          </label>
+            <span style={{ fontSize: '13px', color: 'var(--text)', fontWeight: 500 }}>
+              Set as active Antigravity account upon save
+            </span>
+          </div>
 
           {/* Section at bottom to write notes */}
           <div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
               <FileText size={14} /> Account Notes:
             </label>
             <textarea
@@ -628,11 +711,11 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 backgroundColor: 'var(--canvas)',
                 border: '1px solid var(--border)',
                 borderRadius: '8px',
-                padding: '8px 12px',
+                padding: '10px 12px',
                 fontSize: '12px',
                 color: 'var(--text)',
                 resize: 'vertical',
-                minHeight: '60px',
+                minHeight: '65px',
                 fontFamily: 'inherit',
               }}
             />
@@ -640,7 +723,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '20px' }}>
           <button
             onClick={handleDelete}
             disabled={isSaving}
