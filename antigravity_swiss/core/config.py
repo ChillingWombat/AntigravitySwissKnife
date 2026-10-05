@@ -113,6 +113,8 @@ class SwissKnifeConfig:
     warmup_model_id: str = DEFAULT_WARMUP_MODEL_ID
     process_timeout_sec: float = DEFAULT_PROCESS_TERMINATE_TIMEOUT_SECONDS
     client_timeout_sec: float = DEFAULT_CLIENT_TIMEOUT_SECONDS
+    app_password_enabled: bool = False
+    app_password_hash: str = ""
 
     def ensure_directories(self) -> None:
         """Create necessary directories with strict 0700 permissions."""
@@ -160,6 +162,8 @@ class SwissKnifeConfig:
             "warmup_model_id": self.warmup_model_id,
             "process_timeout_sec": self.process_timeout_sec,
             "client_timeout_sec": self.client_timeout_sec,
+            "app_password_enabled": self.app_password_enabled,
+            "app_password_hash": self.app_password_hash,
         }
         fd, tmp_path_str = tempfile.mkstemp(
             dir=self.config_dir,
@@ -262,6 +266,10 @@ class SwissKnifeConfig:
                     instance.process_timeout_sec = float(data["process_timeout_sec"])
                 if "client_timeout_sec" in data:
                     instance.client_timeout_sec = float(data["client_timeout_sec"])
+                if "app_password_enabled" in data:
+                    instance.app_password_enabled = bool(data["app_password_enabled"])
+                if "app_password_hash" in data:
+                    instance.app_password_hash = str(data["app_password_hash"])
             except Exception:
                 pass
 

@@ -6,12 +6,148 @@ import {
   ArrowRightLeft,
   Edit2,
   Copy,
+  AlertTriangle,
+  AlertCircle,
+  ArrowUpDown,
 } from 'lucide-react'
 import type { AccountState, FleetQuotaSummary, RuleConfig } from '../types'
 import { CircularGauge } from '../components/CircularGauge'
 import { HorizontalQuotaBar } from '../components/HorizontalQuotaBar'
 import { AccountDetailModal } from '../components/AccountDetailModal'
 import { api } from '../api'
+
+export type SortMode = 'auto' | 'identity' | 'quota_5h' | 'quota_weekly'
+
+export function sortAccounts(
+  accounts: AccountState[],
+  activeEmail: string,
+  threshold: number,
+  mode: SortMode
+): AccountState[] {
+  const copy = [...accounts]
+
+  if (mode === 'identity') {
+    return copy.sort((a, b) => {
+      const nameA = (a.label || a.email).toLowerCase()
+      const nameB = (b.label || b.email).toLowerCase()
+      if (nameA !== nameB) {
+        return nameA.localeCompare(nameB)
+      }
+      return a.email.localeCompare(b.email)
+    })
+  }
+
+  if (mode === 'quota_5h') {
+    return copy.sort((a, b) => {
+      const diff = (b.quota_5h_available ?? 0) - (a.quota_5h_available ?? 0)
+      if (Math.abs(diff) > 0.0001) return diff
+      return (b.quota_weekly ?? 0) - (a.quota_weekly ?? 0)
+    })
+  }
+
+  if (mode === 'quota_weekly') {
+    return copy.sort((a, b) => {
+      const diff = (b.quota_weekly ?? 0) - (a.quota_weekly ?? 0)
+      if (Math.abs(diff) > 0.0001) return diff
+      return (b.quota_5h_available ?? 0) - (a.quota_5h_available ?? 0)
+    })
+  }
+
+  // mode === 'auto' (Default)
+  // 1. Row 1: Active healthy account
+  // 2. Row 2+: Next standby accounts to rotate into, arranged by 5H & weekly capacity
+  // 3. Last rows: Switched-off or cooling-down accounts below threshold
+  // 4. End: Broken (ERROR/BANNED) accounts
+  return copy.sort((a, b) => {
+    const isActA = a.is_active || a.email === activeEmail
+    const isActB = b.is_active || b.email === activeEmail
+
+    const stA = (a.status || '').toUpperCase()
+    const stB = (b.status || '').toUpperCase()
+    const isBannedA = stA === 'BANNED'
+    const isBannedB = stB === 'BANNED'
+    const isErrorA = stA === 'ERROR'
+    const isErrorB = stB === 'ERROR'
+    const isBrokenA = isBannedA || isErrorA
+    const isBrokenB = isBannedB || isErrorB
+
+    const q5hA = a.quota_5h_available ?? 0
+    const q5hB = b.quota_5h_available ?? 0
+    const qWkA = a.quota_weekly ?? 0
+    const qWkB = b.quota_weekly ?? 0
+
+    const isBelowA = q5hA <= threshold || qWkA <= 0.05
+    const isBelowB = q5hB <= threshold || qWkB <= 0.05
+
+    const getTier = (isAct: boolean, isBroken: boolean, isErr: boolean, isBan: boolean, isBelow: boolean) => {
+      if (isBan) return 4
+      if (isErr) return 3
+      if (isAct && !isBelow && !isBroken) return 0
+      if (!isAct && !isBelow && !isBroken) return 1
+      return 2
+    }
+
+    const tierA = getTier(isActA, isBrokenA, isErrorA, isBannedA, isBelowA)
+    const tierB = getTier(isActB, isBrokenB, isErrorB, isBannedB, isBelowB)
+
+    if (tierA !== tierB) {
+      return tierA - tierB
+    }
+
+    // Within Tier 1 (Healthy Standby): Rank by continuous usage score (60% 5h + 40% weekly)
+    if (tierA === 1) {
+      const scoreA = q5hA * 0.6 + qWkA * 0.4
+      const scoreB = q5hB * 0.6 + qWkB * 0.4
+      if (Math.abs(scoreB - scoreA) > 0.001) {
+        return scoreB - scoreA
+      }
+      if (Math.abs(q5hB - q5hA) > 0.001) {
+        return q5hB - q5hA
+      }
+      return qWkB - qWkA
+    }
+
+    // Within Tier 2 (Below threshold / cooling down): Rank by remaining capacity
+    if (tierA === 2) {
+      if (Math.abs(q5hB - q5hA) > 0.001) {
+        return q5hB - q5hA
+      }
+      return qWkB - qWkA
+    }
+
+    const labelA = (a.label || a.email).toLowerCase()
+    const labelB = (b.label || b.email).toLowerCase()
+    return labelA.localeCompare(labelB)
+  })
+}
+
+const renderStatusBadge = (status?: string, isActive?: boolean) => {
+  const st = (status || '').toUpperCase()
+  if (st === 'BANNED') {
+    return (
+      <span
+        className="badge-chip badge-red"
+        title="Account suspended or banned (Appeal or discard)"
+      >
+        BANNED
+      </span>
+    )
+  }
+  if (st === 'ERROR') {
+    return (
+      <span
+        className="badge-chip badge-yellow"
+        title="Authentication or verification required (Re-authenticate)"
+      >
+        ERROR
+      </span>
+    )
+  }
+  if (isActive) {
+    return <span className="badge-chip badge-green">ACTIVE</span>
+  }
+  return <span className="badge-chip badge-neutral">STANDBY</span>
+}
 
 interface QuotaDashboardPageProps {
   fleet: FleetQuotaSummary | null
@@ -78,6 +214,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
 }) => {
   const [selectedRowAccount, setSelectedRowAccount] = useState<AccountState | null>(null)
   const [selectedQuickEmail, setSelectedQuickEmail] = useState<string>('')
+  const [sortMode, setSortMode] = useState<SortMode>('auto')
   const [isSwitching, setIsSwitching] = useState(false)
   const [isTogglingRules, setIsTogglingRules] = useState(false)
   const [switchFeedback, setSwitchFeedback] = useState<string | null>(null)
@@ -92,6 +229,9 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const accounts = fleet?.accounts || []
   const activeAccount = fleet?.active_account || ''
   const autoSwitchOn = rules?.auto_switch_enabled ?? false
+  const threshold = rules?.auto_switch_threshold ?? 0.10
+
+  const sortedAccounts = sortAccounts(accounts, activeAccount, threshold, sortMode)
 
   const handleManualSwitch = async () => {
     const target = selectedQuickEmail || (accounts[0]?.email ?? '')
@@ -261,22 +401,82 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
       <div className="google-card" style={{ padding: '0px', overflow: 'hidden' }}>
         <div
           style={{
-            padding: '18px 20px 14px',
+            padding: '12px 20px',
             borderBottom: '1px solid var(--border)',
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'space-between',
           }}
         >
           <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
             All Managed Accounts (Status & Quotas)
+          </div>
+
+          {/* Sort Dropdown at Right End */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Sort:
+            </span>
+            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+              <select
+                value={sortMode}
+                onChange={(e) => setSortMode(e.target.value as SortMode)}
+                style={{
+                  padding: '5px 28px 5px 12px',
+                  borderRadius: '16px',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'var(--canvas)',
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  appearance: 'none',
+                  WebkitAppearance: 'none',
+                  outline: 'none',
+                }}
+              >
+                <option value="auto">Auto (Continuous Rotation)</option>
+                <option value="identity">Account Identity</option>
+                <option value="quota_5h">5H Quota</option>
+                <option value="quota_weekly">Weekly Quota</option>
+              </select>
+              <ArrowUpDown
+                size={13}
+                style={{
+                  position: 'absolute',
+                  right: '10px',
+                  pointerEvents: 'none',
+                  color: 'var(--text-muted)',
+                }}
+              />
+            </div>
           </div>
         </div>
 
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
-              <th style={{ padding: '12px 20px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                Account Identity
+              <th
+                onClick={() => setSortMode('identity')}
+                style={{
+                  padding: '12px 20px',
+                  textAlign: 'left',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: sortMode === 'identity' ? 'var(--primary)' : 'var(--text-muted)',
+                  borderBottom: '1px solid var(--border)',
+                  backgroundColor: 'var(--canvas)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+                title="Click to sort by Account Identity"
+              >
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <span>Account Identity</span>
+                  {sortMode === 'identity' && <ArrowUpDown size={11} />}
+                </div>
               </th>
               <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Plan Tier
@@ -284,11 +484,49 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Status
               </th>
-              <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                5H QUOTA
+              <th
+                onClick={() => setSortMode('quota_5h')}
+                style={{
+                  padding: '12px 14px',
+                  textAlign: 'left',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: sortMode === 'quota_5h' ? 'var(--primary)' : 'var(--text-muted)',
+                  borderBottom: '1px solid var(--border)',
+                  backgroundColor: 'var(--canvas)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+                title="Click to sort by 5H Quota"
+              >
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <span>5H QUOTA</span>
+                  {sortMode === 'quota_5h' && <ArrowUpDown size={11} />}
+                </div>
               </th>
-              <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                WEEKLY QUOTA
+              <th
+                onClick={() => setSortMode('quota_weekly')}
+                style={{
+                  padding: '12px 14px',
+                  textAlign: 'left',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: sortMode === 'quota_weekly' ? 'var(--primary)' : 'var(--text-muted)',
+                  borderBottom: '1px solid var(--border)',
+                  backgroundColor: 'var(--canvas)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+                title="Click to sort by Weekly Quota"
+              >
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <span>WEEKLY QUOTA</span>
+                  {sortMode === 'quota_weekly' && <ArrowUpDown size={11} />}
+                </div>
               </th>
               <th style={{ padding: '12px 20px', textAlign: 'right', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Action
@@ -296,8 +534,9 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
             </tr>
           </thead>
           <tbody>
-            {accounts.map((acc) => {
+            {sortedAccounts.map((acc, index) => {
               const isActive = acc.is_active || acc.email === activeAccount
+              const isNextSwitch = sortMode === 'auto' && !isActive && !acc.status?.toUpperCase().includes('BANNED') && !acc.status?.toUpperCase().includes('ERROR') && index === 1
               return (
                 <tr
                   key={acc.email}
@@ -316,8 +555,26 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
                   <td style={{ padding: '14px 20px' }}>
-                    <div style={{ fontWeight: 600, color: 'var(--text)', fontSize: '13px' }}>
-                      {acc.label ? acc.label : acc.email}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontWeight: 600, color: 'var(--text)', fontSize: '13px' }}>
+                        {acc.label ? acc.label : acc.email}
+                      </span>
+                      {isNextSwitch && (
+                        <span
+                          style={{
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            color: '#137333',
+                            backgroundColor: '#e6f4ea',
+                            border: '1px solid #ceead6',
+                            padding: '1px 6px',
+                            borderRadius: '10px',
+                          }}
+                          title="Next account in continuous rotation queue"
+                        >
+                          Next Switch
+                        </span>
+                      )}
                     </div>
                     {acc.label ? (
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
@@ -331,9 +588,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   </td>
 
                   <td style={{ padding: '14px' }}>
-                    <span className={`badge-chip ${isActive ? 'badge-green' : 'badge-neutral'}`}>
-                      {isActive ? 'ACTIVE' : 'STANDBY'}
-                    </span>
+                    {renderStatusBadge(acc.status, isActive)}
                   </td>
 
                   <td style={{ padding: '14px' }}>
@@ -351,7 +606,49 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   </td>
 
                   <td style={{ padding: '14px 20px', textAlign: 'right' }}>
-                    {isActive ? (
+                    {acc.status?.toUpperCase() === 'BANNED' ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelectedRowAccount(acc)
+                        }}
+                        className="btn-pill-tonal"
+                        style={{
+                          padding: '4px 12px',
+                          fontSize: '11px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          color: 'var(--red)',
+                          backgroundColor: '#fce8e6',
+                          border: '1px solid #fad2cf',
+                        }}
+                        title="Account suspended or banned (Click to appeal or discard)"
+                      >
+                        <AlertTriangle size={11} /> Banned
+                      </button>
+                    ) : acc.status?.toUpperCase() === 'ERROR' ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelectedRowAccount(acc)
+                        }}
+                        className="btn-pill-tonal"
+                        style={{
+                          padding: '4px 12px',
+                          fontSize: '11px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          color: '#b06000',
+                          backgroundColor: '#fef7e0',
+                          border: '1px solid #feefc3',
+                        }}
+                        title="Authentication or verification required (Click to re-authenticate)"
+                      >
+                        <AlertCircle size={11} /> Verify
+                      </button>
+                    ) : isActive ? (
                       <span
                         className="badge-chip badge-green"
                         style={{

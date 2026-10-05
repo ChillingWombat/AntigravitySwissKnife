@@ -6,6 +6,10 @@ import {
   RefreshCw,
   Monitor,
   Code,
+  Lock,
+  Eye,
+  EyeOff,
+  KeyRound,
 } from 'lucide-react'
 import type { SystemStatus, SystemInstallations } from '../types'
 import { api } from '../api'
@@ -24,12 +28,94 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false)
   const [updateFeedback, setUpdateFeedback] = useState<string | null>(null)
 
+  // App Access Password state
+  const [isPasswordEnabled, setIsPasswordEnabled] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [passwordFeedback, setPasswordFeedback] = useState<{ text: string; isError: boolean } | null>(null)
+  const [isSubmittingPassword, setIsSubmittingPassword] = useState(false)
+
   const loadInstallations = async () => {
     try {
       const data = await api.getInstallations()
       setInstallations(data)
     } catch (err: any) {
       console.error('Failed to load installations:', err)
+    }
+  }
+
+  const loadPasswordSettings = async () => {
+    try {
+      const res = await api.getPasswordSettings()
+      setIsPasswordEnabled(!!res.enabled)
+    } catch (err: any) {
+      console.error('Failed to load password settings:', err)
+    }
+  }
+
+  const handleSetPassword = async () => {
+    setPasswordFeedback(null)
+    if (newPassword.length < 6) {
+      setPasswordFeedback({ text: 'Password must be at least 6 characters long.', isError: true })
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordFeedback({ text: 'New passwords do not match.', isError: true })
+      return
+    }
+
+    setIsSubmittingPassword(true)
+    try {
+      const res = await api.setPasswordSettings({
+        password: newPassword,
+        current_password: currentPassword,
+      })
+      if (res.success) {
+        setIsPasswordEnabled(true)
+        setNewPassword('')
+        setConfirmPassword('')
+        setCurrentPassword('')
+        setPasswordFeedback({ text: 'Application access password updated successfully.', isError: false })
+      } else {
+        setPasswordFeedback({ text: res.error || 'Failed to set password.', isError: true })
+      }
+    } catch (err: any) {
+      setPasswordFeedback({ text: err.message || 'Failed to update password.', isError: true })
+    } finally {
+      setIsSubmittingPassword(false)
+    }
+  }
+
+  const handleRemovePassword = async () => {
+    setPasswordFeedback(null)
+    if (!currentPassword) {
+      setPasswordFeedback({ text: 'Please enter your current password to remove protection.', isError: true })
+      return
+    }
+
+    setIsSubmittingPassword(true)
+    try {
+      const res = await api.setPasswordSettings({
+        remove: true,
+        current_password: currentPassword,
+      })
+      if (res.success) {
+        setIsPasswordEnabled(false)
+        setNewPassword('')
+        setConfirmPassword('')
+        setCurrentPassword('')
+        setPasswordFeedback({ text: 'Application access password removed.', isError: false })
+      } else {
+        setPasswordFeedback({ text: res.error || 'Failed to remove password.', isError: true })
+      }
+    } catch (err: any) {
+      setPasswordFeedback({ text: err.message || 'Failed to remove password.', isError: true })
+    } finally {
+      setIsSubmittingPassword(false)
     }
   }
 
@@ -49,6 +135,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
 
   useEffect(() => {
     loadInstallations()
+    loadPasswordSettings()
   }, [])
 
   const copyPath = (key: string, val: string) => {
@@ -280,6 +367,189 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
               Host Antigravity 2.0 PID {status?.antigravity_pid ? `(${status.antigravity_pid})` : ''} is protected against accidental termination signals.
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* App Access Password Protection Card */}
+      <div className="google-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div
+              style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
+                backgroundColor: isPasswordEnabled ? 'var(--primary-light)' : 'var(--canvas)',
+                border: '1px solid var(--border)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: isPasswordEnabled ? 'var(--primary)' : 'var(--text-muted)',
+              }}
+            >
+              <Lock size={18} />
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+                App Access Password Protection
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                Require an entry password to unlock and use Antigravity Swiss Knife. Minimum 6 characters (numbers, letters, symbols).
+              </div>
+            </div>
+          </div>
+
+          <span className={`badge-chip ${isPasswordEnabled ? 'badge-green' : 'badge-neutral'}`}>
+            {isPasswordEnabled ? 'ENABLED / LOCKED' : 'OPTIONAL / DISABLED'}
+          </span>
+        </div>
+
+        {passwordFeedback && (
+          <div
+            style={{
+              backgroundColor: passwordFeedback.isError ? 'var(--red-bg)' : 'var(--green-bg)',
+              color: passwordFeedback.isError ? 'var(--red)' : 'var(--green)',
+              padding: '10px 14px',
+              borderRadius: '8px',
+              fontSize: '12px',
+              marginBottom: '16px',
+            }}
+          >
+            {passwordFeedback.text}
+          </div>
+        )}
+
+        <div
+          style={{
+            backgroundColor: 'var(--canvas)',
+            border: '1px solid var(--border)',
+            borderRadius: '12px',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+          }}
+        >
+          {isPasswordEnabled && (
+            <div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                <KeyRound size={14} /> Current Password:
+              </label>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', maxWidth: '400px' }}>
+                <input
+                  type={showCurrentPassword ? 'text' : 'password'}
+                  placeholder="Enter current password to verify"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  style={{ width: '100%', paddingRight: '40px' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                  style={{
+                    position: 'absolute',
+                    right: '8px',
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '4px',
+                  }}
+                  title={showCurrentPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showCurrentPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+              <Lock size={14} /> {isPasswordEnabled ? 'New Password (Optional):' : 'Set App Password:'}
+            </label>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', maxWidth: '400px' }}>
+              <input
+                type={showNewPassword ? 'text' : 'password'}
+                placeholder="Min 6 characters (numbers, letters, symbols)"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                style={{ width: '100%', paddingRight: '40px' }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPassword(!showNewPassword)}
+                style={{
+                  position: 'absolute',
+                  right: '8px',
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '4px',
+                }}
+                title={showNewPassword ? 'Hide password' : 'Show password'}
+              >
+                {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+              <Check size={14} /> Confirm Password:
+            </label>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', maxWidth: '400px' }}>
+              <input
+                type={showConfirmPassword ? 'text' : 'password'}
+                placeholder="Re-enter password to confirm"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                style={{ width: '100%', paddingRight: '40px' }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                style={{
+                  position: 'absolute',
+                  right: '8px',
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '4px',
+                }}
+                title={showConfirmPassword ? 'Hide password' : 'Show password'}
+              >
+                {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+            <button
+              onClick={handleSetPassword}
+              disabled={isSubmittingPassword || !newPassword}
+              className="btn-pill-primary"
+            >
+              {isSubmittingPassword ? 'Saving...' : isPasswordEnabled ? 'Update Password' : 'Enable App Password'}
+            </button>
+
+            {isPasswordEnabled && (
+              <button
+                onClick={handleRemovePassword}
+                disabled={isSubmittingPassword}
+                className="btn-pill-danger"
+              >
+                Remove Password
+              </button>
+            )}
           </div>
         </div>
       </div>

@@ -31,6 +31,9 @@ class AccountQuotaState:
     reset_seconds: float      # Seconds remaining until next 5h quota reset
     quota_weekly: float       # Current remaining weekly fraction [0.0, 1.0]
     plan_tier: str = "Free"   # Subscription membership tier (Free, Plus, Pro, Pro - Trial, Edu, Ultra 5X/10X/20X)
+    priority: str = "High"
+    notes: str = ""
+    password: str = ""
 
     @property
     def hours_until_reset(self) -> float:
@@ -172,6 +175,12 @@ def build_account_quota_states(
             else:
                 explicit_tier = "Pro" if is_active else "Free"
 
+        prio = str(acc.get("priority", "High") or "High").strip().capitalize()
+        if prio not in ("High", "Mid", "Low"):
+            prio = "High"
+        notes = str(acc.get("notes", "") or "")
+        password = str(acc.get("password", "") or "")
+
         results.append(
             AccountQuotaState(
                 email=email,
@@ -185,7 +194,87 @@ def build_account_quota_states(
                 reset_seconds=cur_sec,
                 quota_weekly=cur_weekly,
                 plan_tier=explicit_tier,
+                priority=prio,
+                notes=notes,
+                password=password,
             )
         )
 
     return results
+
+
+def classify_error_status(status_code: int = 0, error_code: str = "", error_msg: str = "") -> str:
+    """Classifies an API error response or error code into 'BANNED', 'ERROR', or 'STANDBY'."""
+    combined = f"{error_code} {error_msg}".lower()
+    if any(k in combined for k in ("suspend", "banned", "disabled", "terminated", "violates", "account_disabled", "user_suspended")):
+        return "BANNED"
+    if status_code in (401, 403) or any(k in combined for k in ("invalid_grant", "invalid_token", "unauthenticated", "interaction_required", "challenge", "verification", "reauth", "expired")):
+        return "ERROR"
+    return "ERROR"
+
+
+def sort_account_quota_states(
+    accounts: List[AccountQuotaState],
+    active_email: str = "",
+    threshold: float = 0.10,
+    mode: str = "auto",
+) -> List[AccountQuotaState]:
+    """
+    Sorts a list of AccountQuotaState objects according to the specified mode:
+    - 'auto': Active healthy account in Row 1. Row 2+ ordered by Priority (High > Mid > Low),
+      then blended 5H & weekly quota (0.6*5H + 0.4*Weekly) to maximize continuous usage and spread usage.
+      Accounts below threshold or switched off after depletion are placed near the end.
+      ERROR and BANNED accounts placed at the very bottom.
+    - 'identity': Alphabetical by friendly label or email.
+    - 'quota_5h': Highest 5H quota available first.
+    - 'quota_weekly': Highest weekly quota available first.
+    """
+    items = list(accounts)
+
+    if mode == "identity":
+        return sorted(items, key=lambda a: (a.label or a.email).lower())
+
+    if mode == "quota_5h":
+        return sorted(items, key=lambda a: (-a.quota_5h_available, -a.quota_weekly, (a.label or a.email).lower()))
+
+    if mode == "quota_weekly":
+        return sorted(items, key=lambda a: (-a.quota_weekly, -a.quota_5h_available, (a.label or a.email).lower()))
+
+    # mode == "auto" (Default)
+    def _auto_sort_key(a: AccountQuotaState) -> Tuple[int, int, float, float, str]:
+        is_act = a.is_active or (a.email == active_email)
+        st = (a.status or "").upper()
+        is_ban = st == "BANNED"
+        is_err = st == "ERROR"
+        is_broken = is_ban or is_err
+
+        q5h = a.quota_5h_available
+        qwk = a.quota_weekly
+        is_below = q5h <= threshold or qwk <= 0.05
+
+        # Priority Tiers:
+        # Tier 0: Healthy Active account (Row 1)
+        # Tier 1: Healthy Standby successors above threshold (Row 2, 3...)
+        # Tier 2: Cooling down / Below threshold accounts (including switched-off exhausted)
+        # Tier 3: Error accounts
+        # Tier 4: Banned accounts
+        if is_ban:
+            tier = 4
+        elif is_err:
+            tier = 3
+        elif is_act and not is_below and not is_broken:
+            tier = 0
+        elif not is_act and not is_below and not is_broken:
+            tier = 1
+        else:
+            tier = 2
+
+        prio_map = {"HIGH": 0, "MID": 1, "LOW": 2}
+        prio_rank = prio_map.get((a.priority or "High").upper(), 0)
+
+        score = (q5h * 0.6) + (qwk * 0.4)
+        return (tier, prio_rank, -round(score, 4), -round(q5h, 4), (a.label or a.email).lower())
+
+    return sorted(items, key=_auto_sort_key)
+
+

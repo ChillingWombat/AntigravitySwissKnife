@@ -7,6 +7,7 @@ from antigravity_swiss.quota.calculator import (
     AccountQuotaState,
     build_account_quota_states,
     compute_fleet_quota_summary,
+    sort_account_quota_states,
 )
 
 
@@ -98,3 +99,112 @@ def test_build_account_quota_states():
     assert states[0].is_active is True
     assert 0.0 <= states[0].quota_5h_available <= 1.0
     assert 0.0 <= states[1].quota_weekly <= 1.0
+
+
+def test_sort_account_quota_states():
+    """Test sorting account quota states in auto, identity, 5h quota, and weekly quota modes."""
+    acc_active = AccountQuotaState(
+        email="active@example.com",
+        label="Active Lead",
+        is_active=True,
+        status="ACTIVE",
+        has_totp=True,
+        totp_secret="",
+        refresh_token="",
+        quota_5h_current=0.80,
+        reset_seconds=10000.0,
+        quota_weekly=0.90,
+    )
+    acc_standby_high = AccountQuotaState(
+        email="standby_high@example.com",
+        label="Standby High",
+        is_active=False,
+        status="STANDBY",
+        has_totp=True,
+        totp_secret="",
+        refresh_token="",
+        quota_5h_current=0.95,
+        reset_seconds=10000.0,
+        quota_weekly=0.95,
+    )
+    acc_standby_mid = AccountQuotaState(
+        email="standby_mid@example.com",
+        label="Standby Mid",
+        is_active=False,
+        status="STANDBY",
+        has_totp=True,
+        totp_secret="",
+        refresh_token="",
+        quota_5h_current=0.50,
+        reset_seconds=10000.0,
+        quota_weekly=0.60,
+    )
+    acc_depleted = AccountQuotaState(
+        email="depleted@example.com",
+        label="Depleted Acc",
+        is_active=False,
+        status="STANDBY",
+        has_totp=True,
+        totp_secret="",
+        refresh_token="",
+        quota_5h_current=0.05,  # <= 0.10 threshold
+        reset_seconds=10000.0,
+        quota_weekly=0.04,
+    )
+    acc_banned = AccountQuotaState(
+        email="banned@example.com",
+        label="Banned Acc",
+        is_active=False,
+        status="BANNED",
+        has_totp=True,
+        totp_secret="",
+        refresh_token="",
+        quota_5h_current=1.0,
+        reset_seconds=10000.0,
+        quota_weekly=1.0,
+    )
+    acc_error = AccountQuotaState(
+        email="error@example.com",
+        label="Error Acc",
+        is_active=False,
+        status="ERROR",
+        has_totp=True,
+        totp_secret="",
+        refresh_token="",
+        quota_5h_current=1.0,
+        reset_seconds=10000.0,
+        quota_weekly=1.0,
+    )
+
+    accounts = [acc_standby_mid, acc_depleted, acc_banned, acc_standby_high, acc_active, acc_error]
+
+    # 1. AUTO mode: Row 1 = Active healthy, Row 2 = Standby high (next switch candidate),
+    # then standby mid, depleted, error, banned at bottom.
+    sorted_auto = sort_account_quota_states(accounts, active_email="active@example.com", threshold=0.10, mode="auto")
+    assert sorted_auto[0].email == "active@example.com"
+    assert sorted_auto[1].email == "standby_high@example.com"
+    assert sorted_auto[2].email == "standby_mid@example.com"
+    assert sorted_auto[3].email == "depleted@example.com"
+    assert sorted_auto[4].email == "error@example.com"
+    assert sorted_auto[5].email == "banned@example.com"
+
+    # 2. IDENTITY mode: Alphabetical by label
+    sorted_id = sort_account_quota_states(accounts, mode="identity")
+    assert [a.email for a in sorted_id] == [
+        "active@example.com",
+        "banned@example.com",
+        "depleted@example.com",
+        "error@example.com",
+        "standby_high@example.com",
+        "standby_mid@example.com",
+    ]
+
+    # 3. QUOTA_5H mode: Descending by 5H quota
+    sorted_5h = sort_account_quota_states(accounts, mode="quota_5h")
+    assert sorted_5h[0].quota_5h_available >= sorted_5h[1].quota_5h_available
+    assert sorted_5h[-1].email == "depleted@example.com"
+
+    # 4. QUOTA_WEEKLY mode: Descending by weekly quota
+    sorted_wk = sort_account_quota_states(accounts, mode="quota_weekly")
+    assert sorted_wk[0].quota_weekly >= sorted_wk[1].quota_weekly
+    assert sorted_wk[-1].email == "depleted@example.com"

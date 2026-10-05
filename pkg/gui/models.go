@@ -12,11 +12,18 @@ type Config struct {
 	SolidLeftEdge               bool              `json:"solid_left_edge"`              // Toggle: Include solid color edge on conversation tabs (default false)
 	TintOpacity                 float64           `json:"tint_opacity"`                 // Conversation tab tint opacity (default 0.14)
 	ActiveConversationIndicator string            `json:"active_conversation_indicator"`// "background" (default denser bg) or "border" (denser border outline with light bg)
-	ActiveConversationBold      bool              `json:"active_conversation_bold"`     // Toggle: Bold text on open conversation tab (default true)
+	ActiveConversationBold      bool              `json:"active_conversation_bold"`     // Toggle: Bold text on open conversation tab (default false)
 	ProjectColors               map[string]string `json:"project_colors"`               // Map of project name -> hex color
 	DragRearrangeEnabled        bool              `json:"drag_rearrange_enabled"`       // Toggle: Drag to rearrange projects order
 	ProjectOrder                []string          `json:"project_order"`                // Custom ordering of projects
 	ArchivedProjects            []string          `json:"archived_projects"`            // Names or IDs of hidden/archived projects
+	ConversationTabsMode        string            `json:"conversation_tabs_mode"`        // "fixed" (default) or "dynamic" (by chat age)
+	ConversationTabsFixedLimit  int               `json:"conversation_tabs_fixed_limit"` // 1-10 (default 6)
+	ConversationTabsAgeThreshold string           `json:"conversation_tabs_age_threshold"` // "1d" (default), "3d", "7d"
+	ConversationTabsMin         int               `json:"conversation_tabs_min"`         // default 2 (range 1-10)
+	ConversationTabsMax         int               `json:"conversation_tabs_max"`         // default 6 (range 1-10)
+	AutoArchiveConversations    bool              `json:"auto_archive_conversations"`    // Toggle: Automatically archive stale conversations
+	AutoArchiveHorizon          string            `json:"auto_archive_horizon"`          // "7d", "14d", "30d" (default), "60d", "90d"
 	AutoInject                  bool              `json:"auto_inject"`                  // Automatically inject into Antigravity desktop app
 }
 
@@ -28,7 +35,7 @@ func DefaultConfig() *Config {
 		SolidLeftEdge:               false, // Off by default: background of tab is 1 color without solid edge
 		TintOpacity:                 0.14,
 		ActiveConversationIndicator: "background", // "background" (darker background) or "border" (denser border outline)
-		ActiveConversationBold:      true,         // Bold text on open conversation tab by default
+		ActiveConversationBold:      false,        // Regular text weight on open conversation tab by default (bold off)
 		ProjectColors: map[string]string{
 			"Antigravity Swiss Knife": "#0b57d0", // Gemini blue
 			"Arbitrager":              "#7c3aed", // Vibrant purple
@@ -42,8 +49,15 @@ func DefaultConfig() *Config {
 			"Obsidian-HomePage",
 			"David",
 		},
-		ArchivedProjects: []string{},
-		AutoInject:       true,
+		ArchivedProjects:            []string{},
+		ConversationTabsMode:        "fixed",
+		ConversationTabsFixedLimit:  6,
+		ConversationTabsAgeThreshold: "1d",
+		ConversationTabsMin:         2,
+		ConversationTabsMax:         6,
+		AutoArchiveConversations:    false,
+		AutoArchiveHorizon:          "30d",
+		AutoInject:                  true,
 	}
 }
 

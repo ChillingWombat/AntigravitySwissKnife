@@ -474,7 +474,13 @@
       </div>
 
       <div class="form-group">
-        <label>TOTP MFA Secret (Base32 or otpauth:// URI)</label>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <label style="margin:0; font-weight:600; font-size:12px; color:var(--text-secondary);">MFA / TOTP Secret Key (Base32)</label>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span id="modal-totp-code-badge" style="font-family:monospace; font-size:12px; font-weight:700; letter-spacing:1px; color:#5f6368; background:#f1f3f4; border:1px solid #dadce0; border-radius:6px; padding:2px 8px;">--- ---</span>
+            <button type="button" class="btn-secondary" id="modal-totp-copy-btn" onclick="copyModalTOTPCode()" style="padding:2px 8px; font-size:11px; height:22px;" disabled>Copy</button>
+          </div>
+        </div>
         <div class="input-with-button">
           <input type="password" id="modal-acc-totp" placeholder="JBSWY3DPEHPK3PXP..." oninput="updateModalTOTPPreview()" />
           <button class="btn-secondary" type="button" onclick="toggleSecretVisibility('modal-acc-totp', this)">Show</button>
@@ -650,9 +656,15 @@
 
     tbody.innerHTML = accounts.map(a => {
       const isAct = a.is_active || (a.email === activeEmail);
-      const statusPill = isAct ?
-        '<span class="pill pill-healthy">ACTIVE</span>' :
-        '<span class="pill pill-standby">STANDBY</span>';
+      const st = (a.status || '').toUpperCase();
+      let statusPill = '<span class="pill pill-standby">STANDBY</span>';
+      if (st === 'BANNED') {
+        statusPill = '<span class="pill pill-exhausted" title="Account suspended or banned">BANNED</span>';
+      } else if (st === 'ERROR') {
+        statusPill = '<span class="pill pill-warning" title="Authentication or verification required">ERROR</span>';
+      } else if (isAct) {
+        statusPill = '<span class="pill pill-healthy">ACTIVE</span>';
+      }
 
       const p5h = Math.round((a.quota_5h_available || 0) * 100);
       const color5h = p5h > 30 ? 'var(--healthy)' : (p5h >= 10 ? 'var(--warning)' : 'var(--exhausted)');
@@ -777,10 +789,20 @@
     document.getElementById('modal-acc-active').checked = !!acc.is_active;
 
     const isAct = acc.is_active || (acc.email === activeEmail);
-    document.getElementById('modal-acc-status-line').innerText = isAct ? "Active in Host IDE" : "Standby Account in Keyring";
-    document.getElementById('modal-acc-badge').innerHTML = isAct ?
-      '<span class="pill pill-healthy">ACTIVE</span>' :
-      '<span class="pill pill-standby">STANDBY</span>';
+    const st = (acc.status || '').toUpperCase();
+    if (st === 'BANNED') {
+      document.getElementById('modal-acc-status-line').innerText = "Account Banned or Suspended (Appeal or Discard)";
+      document.getElementById('modal-acc-badge').innerHTML = '<span class="pill pill-exhausted">BANNED</span>';
+    } else if (st === 'ERROR') {
+      document.getElementById('modal-acc-status-line').innerText = "Authentication Error / Verification Required";
+      document.getElementById('modal-acc-badge').innerHTML = '<span class="pill pill-warning">ERROR</span>';
+    } else if (isAct) {
+      document.getElementById('modal-acc-status-line').innerText = "Active in Host IDE";
+      document.getElementById('modal-acc-badge').innerHTML = '<span class="pill pill-healthy">ACTIVE</span>';
+    } else {
+      document.getElementById('modal-acc-status-line').innerText = "Standby Account in Keyring";
+      document.getElementById('modal-acc-badge').innerHTML = '<span class="pill pill-standby">STANDBY</span>';
+    }
 
     const p5h = Math.round((acc.quota_5h_available || 0) * 100);
     const color5h = p5h > 30 ? 'var(--healthy)' : (p5h >= 10 ? 'var(--warning)' : 'var(--exhausted)');
@@ -814,11 +836,32 @@
     }
   }
 
+  function copyModalTOTPCode() {
+    const badge = document.getElementById('modal-totp-code-badge');
+    if (!badge) return;
+    const raw = badge.innerText.replace(/\s+/g, '');
+    if (!raw || raw.startsWith('-')) return;
+    navigator.clipboard.writeText(raw);
+    const btn = document.getElementById('modal-totp-copy-btn');
+    if (btn) {
+      btn.innerText = 'Copied!';
+      setTimeout(() => { btn.innerText = 'Copy'; }, 1500);
+    }
+  }
+
   async function updateModalTOTPPreview() {
     const sec = document.getElementById('modal-acc-totp').value.trim();
+    const badge = document.getElementById('modal-totp-code-badge');
+    const copyBtn = document.getElementById('modal-totp-copy-btn');
     if (!sec) {
       document.getElementById('modal-totp-code').innerText = '------';
       document.getElementById('modal-totp-sec').innerText = '0s';
+      if (badge) {
+        badge.innerText = '--- ---';
+        badge.style.color = '#5f6368';
+        badge.style.background = '#f1f3f4';
+      }
+      if (copyBtn) copyBtn.disabled = true;
       return;
     }
     // Fetch live TOTP preview from backend
@@ -827,6 +870,19 @@
       if (res && res.code && res.code !== '------') {
         document.getElementById('modal-totp-code').innerText = res.code;
         document.getElementById('modal-totp-sec').innerText = (res.remaining_seconds || 30) + 's';
+        if (badge) {
+          badge.innerText = res.code.length === 6 ? res.code.slice(0, 3) + ' ' + res.code.slice(3) : res.code;
+          badge.style.color = '#137333';
+          badge.style.background = '#e6f4ea';
+        }
+        if (copyBtn) copyBtn.disabled = false;
+      } else {
+        if (badge) {
+          badge.innerText = '--- ---';
+          badge.style.color = '#5f6368';
+          badge.style.background = '#f1f3f4';
+        }
+        if (copyBtn) copyBtn.disabled = true;
       }
     } catch(e) {}
   }

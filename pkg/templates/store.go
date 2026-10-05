@@ -182,6 +182,7 @@ func (s *Store) DeploySidecar(req DeployTaskRequest) (*SidecarTaskInfo, error) {
 		ID:             slug,
 		DisplayName:    displayName,
 		CronExpression: cronExpr,
+		ScheduleText:   CronToHuman(cronExpr),
 		PromptPreview:  promptPreview,
 		Path:           filePath,
 	}, nil
@@ -239,6 +240,7 @@ func (s *Store) ListSidecars() ([]SidecarTaskInfo, error) {
 			ID:             entry.Name(),
 			DisplayName:    disp,
 			CronExpression: cronExpr,
+			ScheduleText:   CronToHuman(cronExpr),
 			PromptPreview:  promptPreview,
 			Path:           cfgPath,
 		})

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -239,6 +240,87 @@ func (inj *Injector) ApplyConfig(cfg *Config) (*ApplyResult, error) {
 		Message: fmt.Sprintf("Successfully injected project styling into %d Antigravity window(s)", appliedCount),
 		Port:    port,
 	}, nil
+}
+
+// CaptureScreenshot captures a PNG screenshot of the page target via CDP.
+func (inj *Injector) CaptureScreenshot(wsURLStr string, clip map[string]interface{}) ([]byte, error) {
+	u, err := url.Parse(wsURLStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid websocket url: %w", err)
+	}
+
+	host := u.Host
+	if !strings.Contains(host, ":") {
+		host = host + ":80"
+	}
+
+	conn, err := net.DialTimeout("tcp", host, 3*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to CDP: %w", err)
+	}
+	defer conn.Close()
+
+	reqPath := u.Path
+	if u.RawQuery != "" {
+		reqPath += "?" + u.RawQuery
+	}
+	handshake := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n", reqPath, u.Host)
+	if _, err := conn.Write([]byte(handshake)); err != nil {
+		return nil, fmt.Errorf("failed to send handshake: %w", err)
+	}
+
+	reader := bufio.NewReader(conn)
+	respHeader, err := reader.ReadString('\n')
+	if err != nil || !strings.Contains(respHeader, "101") {
+		return nil, fmt.Errorf("invalid handshake: %s", respHeader)
+	}
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil || strings.TrimSpace(line) == "" {
+			break
+		}
+	}
+
+	params := map[string]interface{}{"format": "png"}
+	if clip != nil {
+		params["clip"] = clip
+	}
+	rpcReq := map[string]interface{}{
+		"id":     2,
+		"method": "Page.captureScreenshot",
+		"params": params,
+	}
+	payload, _ := json.Marshal(rpcReq)
+	if err := sendWebSocketFrame(conn, payload); err != nil {
+		return nil, err
+	}
+
+	respPayload, err := readWebSocketFrame(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	var rpcResp struct {
+		ID     int `json:"id"`
+		Result struct {
+			Data string `json:"data"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(respPayload, &rpcResp); err != nil {
+		return nil, err
+	}
+	if rpcResp.Error != nil {
+		return nil, fmt.Errorf("screenshot error: %s", rpcResp.Error.Message)
+	}
+
+	importBase64, err := base64.StdEncoding.DecodeString(rpcResp.Result.Data)
+	if err != nil {
+		return nil, fmt.Errorf("base64 decode error: %w", err)
+	}
+	return importBase64, nil
 }
 
 // Helpers for RFC 6455 WebSocket frames

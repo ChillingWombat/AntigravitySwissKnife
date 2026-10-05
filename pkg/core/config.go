@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -16,6 +17,8 @@ type Config struct {
 	WarmupLeadTimeSec    float64 `json:"warmup_lead_time_seconds"`
 	ActiveAccount        string  `json:"active_account"`
 	AntigravityProtectedPID int  `json:"antigravity_protected_pid"`
+	AppPasswordEnabled   bool    `json:"app_password_enabled"`
+	AppPasswordHash      string  `json:"app_password_hash,omitempty"`
 
 	mu sync.RWMutex `json:"-"`
 }
@@ -73,3 +76,29 @@ func (c *Config) Save() error {
 	}
 	return os.Rename(tmp, target)
 }
+
+// SetAppPassword updates or removes the application access password.
+// Passing an empty string disables the app password.
+func (c *Config) SetAppPassword(password string) error {
+	if password == "" {
+		c.AppPasswordEnabled = false
+		c.AppPasswordHash = ""
+		return c.Save()
+	}
+	valid, msg := ValidateAppPassword(password)
+	if !valid {
+		return fmt.Errorf("%s", msg)
+	}
+	c.AppPasswordHash = HashAppPassword(password)
+	c.AppPasswordEnabled = true
+	return c.Save()
+}
+
+// VerifyAppPassword verifies the candidate password against the configured hash.
+func (c *Config) VerifyAppPassword(password string) bool {
+	if !c.AppPasswordEnabled || c.AppPasswordHash == "" {
+		return true
+	}
+	return VerifyAppPassword(password, c.AppPasswordHash)
+}
+

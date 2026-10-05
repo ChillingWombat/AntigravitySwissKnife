@@ -42,6 +42,9 @@ type rawAccountItem struct {
 	Label      string `json:"label"`
 	PlanTier   string `json:"plan_tier,omitempty"`
 	Status     string `json:"status,omitempty"`
+	Priority   string `json:"priority,omitempty"`
+	Notes      string `json:"notes,omitempty"`
+	Password   string `json:"password,omitempty"`
 	IsHealthy  *bool  `json:"is_healthy,omitempty"`
 	TOTPSecret string `json:"totp_secret"`
 	Credential *struct {
@@ -85,23 +88,46 @@ func (s *Store) load() error {
 				if em == "" {
 					em = email
 				}
+				status := strings.ToUpper(strings.TrimSpace(item.Status))
+				if status == "" {
+					if item.IsHealthy != nil && !*item.IsHealthy {
+						status = "ERROR"
+					} else if em == s.activeEmail {
+						status = "ACTIVE"
+					} else {
+						status = "STANDBY"
+					}
+				}
+				priority := strings.TrimSpace(item.Priority)
+				if priority == "" {
+					priority = "High"
+				}
+				password := core.DecryptCredential(item.Password)
+				totpSecret := core.DecryptCredential(item.TOTPSecret)
+				accessToken := core.DecryptCredential(item.AccessToken)
+				refreshToken := core.DecryptCredential(item.RefreshToken)
+				if item.Credential != nil {
+					if accessToken == "" && item.Credential.AccessToken != "" {
+						accessToken = core.DecryptCredential(item.Credential.AccessToken)
+					}
+					if refreshToken == "" && item.Credential.RefreshToken != "" {
+						refreshToken = core.DecryptCredential(item.Credential.RefreshToken)
+					}
+				}
+
 				acc := &Account{
 					Email:        em,
 					Label:        item.Label,
 					PlanTier:     item.PlanTier,
-					TOTPSecret:   item.TOTPSecret,
-					HasTOTP:      item.TOTPSecret != "",
+					Status:       status,
+					Priority:     priority,
+					Notes:        item.Notes,
+					Password:     password,
+					TOTPSecret:   totpSecret,
+					HasTOTP:      totpSecret != "",
 					IsActive:     (em == s.activeEmail),
-					AccessToken:  item.AccessToken,
-					RefreshToken: item.RefreshToken,
-				}
-				if item.Credential != nil {
-					if acc.AccessToken == "" {
-						acc.AccessToken = item.Credential.AccessToken
-					}
-					if acc.RefreshToken == "" {
-						acc.RefreshToken = item.Credential.RefreshToken
-					}
+					AccessToken:  accessToken,
+					RefreshToken: refreshToken,
 				}
 				s.accounts[em] = acc
 			}
@@ -113,23 +139,46 @@ func (s *Store) load() error {
 	var accList []rawAccountItem
 	if err := json.Unmarshal(ff.Accounts, &accList); err == nil {
 		for _, item := range accList {
+			status := strings.ToUpper(strings.TrimSpace(item.Status))
+			if status == "" {
+				if item.IsHealthy != nil && !*item.IsHealthy {
+					status = "ERROR"
+				} else if item.Email == s.activeEmail {
+					status = "ACTIVE"
+				} else {
+					status = "STANDBY"
+				}
+			}
+			priority := strings.TrimSpace(item.Priority)
+			if priority == "" {
+				priority = "High"
+			}
+			password := core.DecryptCredential(item.Password)
+			totpSecret := core.DecryptCredential(item.TOTPSecret)
+			accessToken := core.DecryptCredential(item.AccessToken)
+			refreshToken := core.DecryptCredential(item.RefreshToken)
+			if item.Credential != nil {
+				if accessToken == "" && item.Credential.AccessToken != "" {
+					accessToken = core.DecryptCredential(item.Credential.AccessToken)
+				}
+				if refreshToken == "" && item.Credential.RefreshToken != "" {
+					refreshToken = core.DecryptCredential(item.Credential.RefreshToken)
+				}
+			}
+
 			acc := &Account{
 				Email:        item.Email,
 				Label:        item.Label,
 				PlanTier:     item.PlanTier,
-				TOTPSecret:   item.TOTPSecret,
-				HasTOTP:      item.TOTPSecret != "",
+				Status:       status,
+				Priority:     priority,
+				Notes:        item.Notes,
+				Password:     password,
+				TOTPSecret:   totpSecret,
+				HasTOTP:      totpSecret != "",
 				IsActive:     (item.Email == s.activeEmail),
-				AccessToken:  item.AccessToken,
-				RefreshToken: item.RefreshToken,
-			}
-			if item.Credential != nil {
-				if acc.AccessToken == "" {
-					acc.AccessToken = item.Credential.AccessToken
-				}
-				if acc.RefreshToken == "" {
-					acc.RefreshToken = item.Credential.RefreshToken
-				}
+				AccessToken:  accessToken,
+				RefreshToken: refreshToken,
 			}
 			s.accounts[item.Email] = acc
 		}
@@ -147,6 +196,10 @@ func (s *Store) save() error {
 		Email      string `json:"email"`
 		Label      string `json:"label"`
 		PlanTier   string `json:"plan_tier,omitempty"`
+		Status     string `json:"status,omitempty"`
+		Priority   string `json:"priority,omitempty"`
+		Notes      string `json:"notes,omitempty"`
+		Password   string `json:"password,omitempty"`
 		TOTPSecret string `json:"totp_secret"`
 		IsHealthy  bool   `json:"is_healthy"`
 		Credential struct {
@@ -162,15 +215,38 @@ func (s *Store) save() error {
 		acc.IsActive = (acc.Email == s.activeEmail)
 		acc.HasTOTP = (acc.TOTPSecret != "")
 
+		st := acc.Status
+		if st == "" {
+			if acc.Email == s.activeEmail {
+				st = "ACTIVE"
+			} else {
+				st = "STANDBY"
+			}
+		}
+
+		encPassword := core.EncryptCredential(acc.Password)
+		encTOTP := core.EncryptCredential(acc.TOTPSecret)
+		encAccess := core.EncryptCredential(acc.AccessToken)
+		encRefresh := core.EncryptCredential(acc.RefreshToken)
+
+		priority := acc.Priority
+		if priority == "" {
+			priority = "High"
+		}
+
 		ea := exportedAccount{
 			Email:      acc.Email,
 			Label:      acc.Label,
 			PlanTier:   acc.PlanTier,
-			TOTPSecret: acc.TOTPSecret,
-			IsHealthy:  true,
+			Status:     st,
+			Priority:   priority,
+			Notes:      acc.Notes,
+			Password:   encPassword,
+			TOTPSecret: encTOTP,
+			IsHealthy:  st != "ERROR" && st != "BANNED",
 		}
-		ea.Credential.AccessToken = acc.AccessToken
-		ea.Credential.RefreshToken = acc.RefreshToken
+		ea.Credential.AccessToken = encAccess
+		ea.Credential.RefreshToken = encRefresh
 		ea.Credential.AuthMethod = "consumer"
 		ea.Credential.TokenType = "Bearer"
 		accMap[acc.Email] = ea
@@ -315,8 +391,8 @@ func (s *Store) SetActiveAccount(email string) error {
 	return s.save()
 }
 
-// UpdateAccountWithTier updates label, planTier, totpSecret, refreshToken, and optionally sets active status.
-func (s *Store) UpdateAccountWithTier(email, label, planTier, totpSecret, refreshToken string, setActive bool) error {
+// UpdateAccountDetails updates label, planTier, status, priority, notes, password, totpSecret, refreshToken, and optionally sets active status.
+func (s *Store) UpdateAccountDetails(email, label, planTier, status, priority, notes, password, totpSecret, refreshToken string, setActive bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -331,13 +407,26 @@ func (s *Store) UpdateAccountWithTier(email, label, planTier, totpSecret, refres
 	if planTier != "" {
 		acc.PlanTier = planTier
 	}
+	if status != "" {
+		acc.Status = strings.ToUpper(status)
+	}
+	if priority != "" {
+		p := strings.Title(strings.ToLower(strings.TrimSpace(priority)))
+		if p == "High" || p == "Mid" || p == "Low" {
+			acc.Priority = p
+		}
+	}
+	acc.Notes = notes
+	if password != "" {
+		acc.Password = password
+	}
 	acc.TOTPSecret = totpSecret
 	acc.HasTOTP = (totpSecret != "")
 	if refreshToken != "" {
 		acc.RefreshToken = refreshToken
 	}
 
-	if setActive {
+	if setActive || acc.Status == "ACTIVE" {
 		s.activeEmail = email
 		for e, a := range s.accounts {
 			a.IsActive = (e == email)
@@ -347,6 +436,16 @@ func (s *Store) UpdateAccountWithTier(email, label, planTier, totpSecret, refres
 	}
 
 	return s.save()
+}
+
+// UpdateAccountWithStatus updates label, planTier, status, totpSecret, refreshToken, and optionally sets active status.
+func (s *Store) UpdateAccountWithStatus(email, label, planTier, status, totpSecret, refreshToken string, setActive bool) error {
+	return s.UpdateAccountDetails(email, label, planTier, status, "", "", "", totpSecret, refreshToken, setActive)
+}
+
+// UpdateAccountWithTier updates label, planTier, totpSecret, refreshToken, and optionally sets active status.
+func (s *Store) UpdateAccountWithTier(email, label, planTier, totpSecret, refreshToken string, setActive bool) error {
+	return s.UpdateAccountWithStatus(email, label, planTier, "", totpSecret, refreshToken, setActive)
 }
 
 // UpdateAccount updates label, totpSecret, refreshToken, and optionally sets active status.

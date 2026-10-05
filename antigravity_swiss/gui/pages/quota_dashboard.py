@@ -55,6 +55,7 @@ from antigravity_swiss.quota.calculator import (
     AccountQuotaState,
     build_account_quota_states,
     compute_fleet_quota_summary,
+    sort_account_quota_states,
 )
 
 
@@ -74,6 +75,8 @@ class QuotaDashboardPage(QWidget):
         self.controller = controller
         self._active_account: Optional[str] = None
         self._accounts_cache: List[AccountQuotaState] = []
+        self._displayed_accounts: List[AccountQuotaState] = []
+        self._sort_mode: str = "auto"
         self._auto_switch_enabled: bool = False
         self._gauges: dict[str, CircularGauge] = {}
 
@@ -290,7 +293,8 @@ class QuotaDashboardPage(QWidget):
         header_container = QWidget()
         header_container.setStyleSheet("background: transparent; border-bottom: 1px solid #e2e8f0;")
         t_header_hbox = QHBoxLayout(header_container)
-        t_header_hbox.setContentsMargins(20, 16, 20, 14)
+        t_header_hbox.setContentsMargins(20, 14, 20, 14)
+        t_header_hbox.setSpacing(12)
 
         t_title = QLabel("ALL MANAGED ACCOUNTS (STATUS & QUOTAS)")
         t_title.setStyleSheet("font-size: 11px; font-weight: 700; color: #64748b; letter-spacing: 0.8px;")
@@ -300,6 +304,43 @@ class QuotaDashboardPage(QWidget):
         hint_lbl = QLabel("Click any row to inspect details, modify credentials, or configure MFA")
         hint_lbl.setStyleSheet("font-size: 11px; color: #94a3b8;")
         t_header_hbox.addWidget(hint_lbl)
+
+        # Sort Dropdown Pill on the right end of the top bar
+        self._sort_combo = QComboBox()
+        self._sort_combo.addItem("⇅ Sort: Auto (Rotation Order)", "auto")
+        self._sort_combo.addItem("⇅ Sort: Account Identity", "identity")
+        self._sort_combo.addItem("⇅ Sort: 5H Quota", "quota_5h")
+        self._sort_combo.addItem("⇅ Sort: Weekly Quota", "quota_weekly")
+        self._sort_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #f8fafd;
+                color: #1e293b;
+                border: 1px solid #d3dbe5;
+                border-radius: 8px;
+                padding: 4px 10px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QComboBox:hover {
+                border-color: #1a73e8;
+                background-color: #ffffff;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 14px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #ffffff;
+                color: #1e293b;
+                border: 1px solid #d3dbe5;
+                border-radius: 8px;
+                selection-background-color: #e8f0fe;
+                selection-color: #0b57d0;
+                padding: 4px;
+            }
+        """)
+        self._sort_combo.currentIndexChanged.connect(self._on_sort_combo_changed)
+        t_header_hbox.addWidget(self._sort_combo)
         t_vbox.addWidget(header_container)
 
         self._table = QTableWidget(0, 6)
@@ -330,6 +371,8 @@ class QuotaDashboardPage(QWidget):
         self._table.horizontalHeader().setStretchLastSection(False)
         self._table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self._table.horizontalHeader().setFixedHeight(40)
+        self._table.horizontalHeader().setSectionsClickable(True)
+        self._table.horizontalHeader().sectionClicked.connect(self._on_header_section_clicked)
 
         self._table.setAlternatingRowColors(False)
         self._table.setShowGrid(False)
@@ -450,7 +493,7 @@ class QuotaDashboardPage(QWidget):
         except Exception as exc:
             self._last_poll_label.setText(f"Sync error: {exc}")
 
-    def _create_identity_cell(self, email: str, label: Optional[str]) -> QWidget:
+    def _create_identity_cell(self, email: str, label: Optional[str], is_next_switch: bool = False) -> QWidget:
         container = QWidget()
         container.setStyleSheet("background: transparent; border: none;")
         vbox = QVBoxLayout(container)
@@ -462,9 +505,34 @@ class QuotaDashboardPage(QWidget):
         main_text = label.strip() if has_alias else email
         sub_text = email if has_alias else None
 
+        main_row = QHBoxLayout()
+        main_row.setContentsMargins(0, 0, 0, 0)
+        main_row.setSpacing(8)
+        main_row.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+
         main_lbl = QLabel(main_text)
         main_lbl.setStyleSheet("font-size: 13px; font-weight: 600; color: #1e293b; background: transparent; border: none;")
-        vbox.addWidget(main_lbl)
+        main_row.addWidget(main_lbl)
+
+        if is_next_switch:
+            next_badge = QLabel("#1 NEXT SWITCH")
+            next_badge.setToolTip("Next candidate account in continuous rotation queue")
+            next_badge.setStyleSheet("""
+                QLabel {
+                    background-color: #e6f4ea;
+                    color: #137333;
+                    border: 1px solid #ceead6;
+                    border-radius: 8px;
+                    padding: 1px 6px;
+                    font-size: 9px;
+                    font-weight: 700;
+                    letter-spacing: 0.5px;
+                }
+            """)
+            main_row.addWidget(next_badge)
+
+        main_row.addStretch()
+        vbox.addLayout(main_row)
 
         if sub_text:
             sub_lbl = QLabel(sub_text)
@@ -524,7 +592,36 @@ class QuotaDashboardPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        if is_active:
+        st = (status or "").upper()
+        if st == "BANNED":
+            lbl = QLabel("BANNED")
+            lbl.setToolTip("Account suspended or banned (Appeal or discard)")
+            lbl.setStyleSheet("""
+                QLabel {
+                    background-color: #fce8e6;
+                    color: #b3261e;
+                    border-radius: 10px;
+                    padding: 3px 8px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    border: none;
+                }
+            """)
+        elif st == "ERROR":
+            lbl = QLabel("ERROR")
+            lbl.setToolTip("Authentication or verification required (Re-authenticate)")
+            lbl.setStyleSheet("""
+                QLabel {
+                    background-color: #fef7e0;
+                    color: #b06000;
+                    border-radius: 10px;
+                    padding: 3px 8px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    border: none;
+                }
+            """)
+        elif is_active:
             lbl = QLabel("ACTIVE")
             lbl.setStyleSheet("""
                 QLabel {
@@ -580,14 +677,53 @@ class QuotaDashboardPage(QWidget):
             action_edit.triggered.connect(lambda: self._open_account_detail(row))
             menu.exec(self._table.viewport().mapToGlobal(pos))
 
-    def _create_action_cell(self, row_idx: int, is_active: bool = False, email: str = "") -> QWidget:
+    def _create_action_cell(self, row_idx: int, is_active: bool = False, email: str = "", status: str = "") -> QWidget:
         container = QWidget()
         container.setStyleSheet("background: transparent; border: none;")
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        if is_active:
+        st = (status or "").upper()
+        if st == "BANNED":
+            btn_banned = QPushButton("Banned")
+            btn_banned.setToolTip("Account suspended or banned (Click to appeal or discard)")
+            btn_banned.setStyleSheet("""
+                QPushButton {
+                    background-color: #fce8e6;
+                    color: #b3261e;
+                    border: 1px solid #fad2cf;
+                    border-radius: 12px;
+                    padding: 4px 12px;
+                    font-size: 11px;
+                    font-weight: 600;
+                }
+                QPushButton:hover {
+                    background-color: #fad2cf;
+                }
+            """)
+            btn_banned.clicked.connect(lambda checked=False, r=row_idx: self._open_account_detail(r))
+            layout.addWidget(btn_banned)
+        elif st == "ERROR":
+            btn_err = QPushButton("Verify")
+            btn_err.setToolTip("Authentication or verification required (Click to re-authenticate)")
+            btn_err.setStyleSheet("""
+                QPushButton {
+                    background-color: #fef7e0;
+                    color: #b06000;
+                    border: 1px solid #feefc3;
+                    border-radius: 12px;
+                    padding: 4px 12px;
+                    font-size: 11px;
+                    font-weight: 600;
+                }
+                QPushButton:hover {
+                    background-color: #feefc3;
+                }
+            """)
+            btn_err.clicked.connect(lambda checked=False, r=row_idx: self._open_account_detail(r))
+            layout.addWidget(btn_err)
+        elif is_active:
             lbl_active = QLabel("Active")
             lbl_active.setStyleSheet("""
                 QLabel {
@@ -658,38 +794,111 @@ class QuotaDashboardPage(QWidget):
                         break
 
             # 2. Populate Bottom Section Accounts Table
-            self._table.setRowCount(0)
-            for r, acc in enumerate(self._accounts_cache):
-                self._table.insertRow(r)
-
-                # Col 0: Identity (Email & Label, 2-line layout)
-                self._table.setCellWidget(r, 0, self._create_identity_cell(acc.email, acc.label))
-
-                # Col 1: Plan Tier Badge
-                tier_badge = self._create_plan_tier_badge(getattr(acc, "plan_tier", "Free"))
-                self._table.setCellWidget(r, 1, tier_badge)
-
-                # Col 2: Status Pill
-                self._table.setCellWidget(r, 2, self._create_status_cell(acc.is_active, acc.status))
-
-                # Col 3: 5h Available Quota (Horizontal Bar + Text %)
-                bar_5h_widget = AccountQuotaBarWidget(acc.quota_5h_available)
-                bar_5h_widget.setToolTip(acc.reset_horizon_text or "Resets in 5h cycle")
-                self._table.setCellWidget(r, 3, bar_5h_widget)
-
-                # Col 4: Weekly Available (Horizontal Bar + Text %)
-                bar_wk_widget = AccountQuotaBarWidget(acc.quota_weekly)
-                bar_wk_widget.setToolTip("Resets on 7-day rolling cycle")
-                self._table.setCellWidget(r, 4, bar_wk_widget)
-
-                # Col 5: Action Button (Switch / Active)
-                self._table.setCellWidget(r, 5, self._create_action_cell(r, acc.is_active, acc.email))
-                self._table.setRowHeight(r, 56)
-
-            self._adjust_table_height()
+            self._populate_table()
 
         except Exception as exc:
             self._last_poll_label.setText(f"Quota fetch failed: {exc}")
+
+    def _populate_table(self) -> None:
+        """Sorts and populates the accounts table based on the active sort mode."""
+        threshold = 0.10
+        try:
+            cfg = self.controller.get_rule_config()
+            threshold = float(cfg.get("threshold", 0.10))
+        except Exception:
+            pass
+
+        self._displayed_accounts = sort_account_quota_states(
+            self._accounts_cache,
+            active_email=self._active_account or "",
+            threshold=threshold,
+            mode=self._sort_mode,
+        )
+
+        self._update_header_labels()
+
+        self._table.setRowCount(0)
+        for r, acc in enumerate(self._displayed_accounts):
+            self._table.insertRow(r)
+
+            # In AUTO mode, row 1 (index 1) is the next switch candidate if healthy standby
+            is_next = (
+                self._sort_mode == "auto"
+                and r == 1
+                and not acc.is_active
+                and (acc.status or "").upper() not in ("BANNED", "ERROR")
+            )
+
+            # Col 0: Identity (Email & Label, 2-line layout + Next Switch badge)
+            self._table.setCellWidget(r, 0, self._create_identity_cell(acc.email, acc.label, is_next_switch=is_next))
+
+            # Col 1: Plan Tier Badge
+            tier_badge = self._create_plan_tier_badge(getattr(acc, "plan_tier", "Free"))
+            self._table.setCellWidget(r, 1, tier_badge)
+
+            # Col 2: Status Pill
+            self._table.setCellWidget(r, 2, self._create_status_cell(acc.is_active, acc.status))
+
+            # Col 3: 5h Available Quota (Horizontal Bar + Text %)
+            bar_5h_widget = AccountQuotaBarWidget(acc.quota_5h_available)
+            bar_5h_widget.setToolTip(acc.reset_horizon_text or "Resets in 5h cycle")
+            self._table.setCellWidget(r, 3, bar_5h_widget)
+
+            # Col 4: Weekly Available (Horizontal Bar + Text %)
+            bar_wk_widget = AccountQuotaBarWidget(acc.quota_weekly)
+            bar_wk_widget.setToolTip("Resets on 7-day rolling cycle")
+            self._table.setCellWidget(r, 4, bar_wk_widget)
+
+            # Col 5: Action Button (Switch / Active / Banned / Verify)
+            self._table.setCellWidget(r, 5, self._create_action_cell(r, acc.is_active, acc.email, acc.status))
+            self._table.setRowHeight(r, 56)
+
+        self._adjust_table_height()
+
+    def _update_header_labels(self) -> None:
+        """Updates table column header text to reflect sort direction indicators."""
+        id_lbl = "ACCOUNT IDENTITY" + (" ▲" if self._sort_mode == "identity" else "")
+        q5_lbl = "5H QUOTA" + (" ▼" if self._sort_mode == "quota_5h" else "")
+        qw_lbl = "WEEKLY QUOTA" + (" ▼" if self._sort_mode == "quota_weekly" else "")
+
+        self._table.setHorizontalHeaderLabels([
+            id_lbl,
+            "PLAN TIER",
+            "STATUS",
+            q5_lbl,
+            qw_lbl,
+            "ACTION",
+        ])
+
+    def _on_sort_combo_changed(self, index: int) -> None:
+        mode = self._sort_combo.currentData()
+        if mode and mode != self._sort_mode:
+            self._sort_mode = str(mode)
+            self._populate_table()
+
+    def _on_header_section_clicked(self, logical_index: int) -> None:
+        target_mode = None
+        if logical_index == 0:
+            target_mode = "identity"
+        elif logical_index == 3:
+            target_mode = "quota_5h"
+        elif logical_index == 4:
+            target_mode = "quota_weekly"
+
+        if target_mode:
+            new_mode = "auto" if self._sort_mode == target_mode else target_mode
+            self.set_sort_mode(new_mode)
+
+    def set_sort_mode(self, mode: str) -> None:
+        """Sets active sort mode and updates combo and table display."""
+        self._sort_mode = mode
+        for i in range(self._sort_combo.count()):
+            if self._sort_combo.itemData(i) == mode:
+                self._sort_combo.blockSignals(True)
+                self._sort_combo.setCurrentIndex(i)
+                self._sort_combo.blockSignals(False)
+                break
+        self._populate_table()
 
     def _adjust_table_height(self) -> None:
         """Dynamically resizes table to fit all rows, preventing internal table scrollbars."""
@@ -708,8 +917,9 @@ class QuotaDashboardPage(QWidget):
 
     def _open_account_detail(self, row: int) -> None:
         """Opens AccountDetailDialog for the selected account row."""
-        if 0 <= row < len(self._accounts_cache):
-            acc_state = self._accounts_cache[row]
+        accounts = self._displayed_accounts if hasattr(self, "_displayed_accounts") and self._displayed_accounts else self._accounts_cache
+        if 0 <= row < len(accounts):
+            acc_state = accounts[row]
             dialog = AccountDetailDialog(account=acc_state, controller=self.controller, parent=self)
             dialog.account_saved.connect(self._on_account_detail_changed)
             dialog.account_removed.connect(self._on_account_detail_changed)

@@ -429,3 +429,89 @@ func TestArchivedCSS(t *testing.T) {
 		t.Errorf("Expected display: none !important in CSS for hidden project")
 	}
 }
+
+func TestConversationTabsAndDivider(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.ConversationTabsMode != "fixed" {
+		t.Errorf("Expected default mode 'fixed', got %s", cfg.ConversationTabsMode)
+	}
+	if cfg.ConversationTabsFixedLimit != 6 {
+		t.Errorf("Expected default fixed limit 6, got %d", cfg.ConversationTabsFixedLimit)
+	}
+	if cfg.ConversationTabsAgeThreshold != "1d" {
+		t.Errorf("Expected default age threshold '1d', got %s", cfg.ConversationTabsAgeThreshold)
+	}
+	if cfg.ConversationTabsMin != 2 {
+		t.Errorf("Expected default min tabs 2, got %d", cfg.ConversationTabsMin)
+	}
+	if cfg.ConversationTabsMax != 6 {
+		t.Errorf("Expected default max tabs 6, got %d", cfg.ConversationTabsMax)
+	}
+	if cfg.ActiveConversationBold != false {
+		t.Errorf("Expected default ActiveConversationBold false (bold off), got %v", cfg.ActiveConversationBold)
+	}
+
+	css := GenerateCSS(cfg)
+	if !strings.Contains(css, "font-weight: 400 !important;") {
+		t.Errorf("Expected default CSS to have regular font-weight: 400 !important;, got: %s", css)
+	}
+	if !strings.Contains(css, ".swiss-convo-tabs-divider") {
+		t.Errorf("Expected .swiss-convo-tabs-divider in CSS")
+	}
+	if !strings.Contains(css, ".swiss-convo-tabs-line") {
+		t.Errorf("Expected .swiss-convo-tabs-line in CSS")
+	}
+	if !strings.Contains(css, ".swiss-convo-tabs-pill") {
+		t.Errorf("Expected .swiss-convo-tabs-pill in CSS")
+	}
+	if !strings.Contains(css, ".swiss-convo-tabs-triangle") {
+		t.Errorf("Expected .swiss-convo-tabs-triangle in CSS")
+	}
+
+	// Verify script generation passes parameters
+	cfg.ConversationTabsMode = "dynamic"
+	cfg.ConversationTabsAgeThreshold = "3d"
+	cfg.ConversationTabsMin = 3
+	cfg.ConversationTabsMax = 8
+	script := GenerateScript(cfg)
+	if !strings.Contains(script, `const tabsMode = "dynamic";`) {
+		t.Errorf("Script missing dynamic tabsMode")
+	}
+	if !strings.Contains(script, `const tabsAgeThreshold = "3d";`) {
+		t.Errorf("Script missing 3d threshold")
+	}
+	if !strings.Contains(script, `const tabsMin = 3;`) {
+		t.Errorf("Script missing tabsMin 3")
+	}
+	if !strings.Contains(script, `const tabsMax = 8;`) {
+		t.Errorf("Script missing tabsMax 8")
+	}
+}
+
+func TestAutoArchiveHorizon(t *testing.T) {
+	d1 := ParseHorizonToDuration("1d")
+	if d1.Hours() != 24 {
+		t.Errorf("Expected 24h for 1d, got %v", d1)
+	}
+	d3 := ParseHorizonToDuration("3d")
+	if d3.Hours() != 72 {
+		t.Errorf("Expected 72h for 3d, got %v", d3)
+	}
+	d7 := ParseHorizonToDuration("7d")
+	if d7.Hours() != 168 {
+		t.Errorf("Expected 168h for 7d, got %v", d7)
+	}
+	d14 := ParseHorizonToDuration("14d")
+	if d14.Hours() != 336 {
+		t.Errorf("Expected 336h for 14d, got %v", d14)
+	}
+	d30 := ParseHorizonToDuration("30d")
+	if d30.Hours() != 720 {
+		t.Errorf("Expected 720h for 30d, got %v", d30)
+	}
+	dDefault := ParseHorizonToDuration("unknown")
+	if dDefault.Hours() != 720 {
+		t.Errorf("Expected default 720h (30d), got %v", dDefault)
+	}
+}
+

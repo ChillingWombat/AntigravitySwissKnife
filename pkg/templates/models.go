@@ -6,6 +6,7 @@ type TemplateSchedule struct {
 	TimeOfDay      string `json:"time_of_day"`     // "08:00", "17:00", "23:00"
 	DaysOfWeek     []int  `json:"days_of_week"`    // 1=Mon ... 7=Sun or 0=Sun
 	CronExpression string `json:"cron_expression"` // "0 8 * * *"
+	ScheduleText   string `json:"schedule_text,omitempty"`
 }
 
 // TemplateParameter defines a configurable field in the template settings modal.
@@ -55,6 +56,7 @@ type SidecarTaskInfo struct {
 	ID             string `json:"id"`
 	DisplayName    string `json:"display_name"`
 	CronExpression string `json:"cron_expression"`
+	ScheduleText   string `json:"schedule_text,omitempty"`
 	PromptPreview  string `json:"prompt_preview"`
 	Path           string `json:"path"`
 }

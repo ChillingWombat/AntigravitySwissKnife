@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Zap, Save } from 'lucide-react'
+import { Zap, Save, Archive } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 import type { EnhancementsConfig, GUIConfig } from '../types'
@@ -66,6 +66,28 @@ export const AppEnhancementsPage: React.FC = () => {
   const [statusMsg, setStatusMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [previewHover, setPreviewHover] = useState<number | null>(null)
   const [projects, setProjects] = useState<string[]>([])
+  const [archiving, setArchiving] = useState(false)
+  const [archiveResult, setArchiveResult] = useState<string | null>(null)
+  const [previewExpanded, setPreviewExpanded] = useState(false)
+
+  const handleTriggerAutoArchive = async () => {
+    try {
+      setArchiving(true)
+      setArchiveResult(null)
+      const horizon = guiConfig?.auto_archive_horizon || '30d'
+      const res = await api.autoArchiveConversations(horizon)
+      if (res.success) {
+        setArchiveResult(res.message || `Archived ${res.archived_count} conversation(s)`)
+        setStatusMsg({ text: res.message, type: 'success' })
+      } else {
+        setArchiveResult(res.message || 'No stale conversations found')
+      }
+    } catch (err: any) {
+      setStatusMsg({ text: 'Auto-archive failed: ' + err.message, type: 'error' })
+    } finally {
+      setArchiving(false)
+    }
+  }
 
   useEffect(() => {
     loadConfig()
@@ -884,7 +906,7 @@ export const AppEnhancementsPage: React.FC = () => {
                   >
                     <ToggleSwitch
                       size="sm"
-                      checked={guiConfig.active_conversation_bold ?? true}
+                      checked={guiConfig.active_conversation_bold ?? false}
                       onChange={(checked) =>
                         setGuiConfig({
                           ...guiConfig,
@@ -1024,7 +1046,7 @@ export const AppEnhancementsPage: React.FC = () => {
                       borderRadius: '8px',
                       padding: '6px 10px',
                       fontSize: '13px',
-                      fontWeight: (guiConfig.active_conversation_bold ?? true) ? 700 : 400,
+                      fontWeight: (guiConfig.active_conversation_bold ?? false) ? 700 : 400,
                       color: '#0f172a',
                       display: 'flex',
                       alignItems: 'center',
@@ -1099,11 +1121,443 @@ export const AppEnhancementsPage: React.FC = () => {
                       ✓ Active tab has <strong>darker/denser background tint</strong>
                     </span>
                   )}
-                  {(guiConfig.active_conversation_bold ?? true) ? ' (bold title)' : ' (regular title)'}
+                  {(guiConfig.active_conversation_bold ?? false) ? ' (bold title)' : ' (regular title)'}
                 </div>
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Feature 6: Conversation Tabs Display & Expand/Contract Divider */}
+      {guiConfig && (
+        <div className="google-card">
+          <div style={{ marginBottom: '20px' }}>
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+              Conversation Tabs Display
+            </h2>
+            <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
+              Configure how many conversation tabs are displayed under each project in the sidebar. Replaces raw "See all" and "See less" text buttons with an elegant 1px inset divider line and centered solid triangle.
+            </p>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+            {/* Option 1: Fixed Limit */}
+            <div
+              onClick={() =>
+                setGuiConfig({
+                  ...guiConfig,
+                  conversation_tabs_mode: 'fixed',
+                })
+              }
+              style={{
+                padding: '16px',
+                borderRadius: '8px',
+                border: `1.5px solid ${guiConfig.conversation_tabs_mode === 'fixed' || !guiConfig.conversation_tabs_mode ? '#0b57d0' : '#e2e8f0'}`,
+                background: guiConfig.conversation_tabs_mode === 'fixed' || !guiConfig.conversation_tabs_mode ? '#f0f7ff' : 'var(--card-bg, #ffffff)',
+                cursor: 'pointer',
+                transition: 'border-color 0.15s, background 0.15s',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <input
+                  type="radio"
+                  name="convo_tabs_mode"
+                  checked={guiConfig.conversation_tabs_mode === 'fixed' || !guiConfig.conversation_tabs_mode}
+                  onChange={() => {}}
+                  style={{ accentColor: '#0b57d0' }}
+                />
+                <span style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>Fixed Number (Default)</span>
+              </div>
+              <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                Show a constant number of conversation tabs under each project before showing the expand divider.
+              </p>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }} onClick={(e) => e.stopPropagation()}>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Tabs per project:</label>
+                <select
+                  value={guiConfig.conversation_tabs_fixed_limit || 6}
+                  onChange={(e) =>
+                    setGuiConfig({
+                      ...guiConfig,
+                      conversation_tabs_mode: 'fixed',
+                      conversation_tabs_fixed_limit: parseInt(e.target.value, 10),
+                    })
+                  }
+                  style={{
+                    height: '32px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1.5px solid #cbd5e1',
+                    background: '#ffffff',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    color: '#0f172a',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                    <option key={num} value={num}>
+                      {num} {num === 6 ? '(Default)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Option 2: Dynamic by Chat Age */}
+            <div
+              onClick={() =>
+                setGuiConfig({
+                  ...guiConfig,
+                  conversation_tabs_mode: 'dynamic',
+                })
+              }
+              style={{
+                padding: '16px',
+                borderRadius: '8px',
+                border: `1.5px solid ${guiConfig.conversation_tabs_mode === 'dynamic' ? '#0b57d0' : '#e2e8f0'}`,
+                background: guiConfig.conversation_tabs_mode === 'dynamic' ? '#f0f7ff' : 'var(--card-bg, #ffffff)',
+                cursor: 'pointer',
+                transition: 'border-color 0.15s, background 0.15s',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <input
+                  type="radio"
+                  name="convo_tabs_mode"
+                  checked={guiConfig.conversation_tabs_mode === 'dynamic'}
+                  onChange={() => {}}
+                  style={{ accentColor: '#0b57d0' }}
+                />
+                <span style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>Dynamic (By Chat Recency)</span>
+              </div>
+              <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                Dynamically adjust visible tabs per project based on last active timestamp, bounded between min and max.
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }} onClick={(e) => e.stopPropagation()}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Active within:</label>
+                  <select
+                    value={guiConfig.conversation_tabs_age_threshold || '1d'}
+                    onChange={(e) =>
+                      setGuiConfig({
+                        ...guiConfig,
+                        conversation_tabs_mode: 'dynamic',
+                        conversation_tabs_age_threshold: e.target.value as any,
+                      })
+                    }
+                    style={{
+                      height: '32px',
+                      padding: '0 10px',
+                      borderRadius: '6px',
+                      border: '1.5px solid #cbd5e1',
+                      background: '#ffffff',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      color: '#0f172a',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <option value="1d">1 day (Default)</option>
+                    <option value="3d">3 days</option>
+                    <option value="7d">7 days</option>
+                  </select>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Min tabs:</label>
+                    <select
+                      value={guiConfig.conversation_tabs_min || 2}
+                      onChange={(e) =>
+                        setGuiConfig({
+                          ...guiConfig,
+                          conversation_tabs_mode: 'dynamic',
+                          conversation_tabs_min: parseInt(e.target.value, 10),
+                        })
+                      }
+                      style={{
+                        height: '30px',
+                        padding: '0 8px',
+                        borderRadius: '6px',
+                        border: '1.5px solid #cbd5e1',
+                        background: '#ffffff',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: '#0f172a',
+                        cursor: 'pointer',
+                        width: '100%',
+                      }}
+                    >
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <option key={n} value={n}>
+                          {n} {n === 2 ? '(Def)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Max tabs:</label>
+                    <select
+                      value={guiConfig.conversation_tabs_max || 6}
+                      onChange={(e) =>
+                        setGuiConfig({
+                          ...guiConfig,
+                          conversation_tabs_mode: 'dynamic',
+                          conversation_tabs_max: parseInt(e.target.value, 10),
+                        })
+                      }
+                      style={{
+                        height: '30px',
+                        padding: '0 8px',
+                        borderRadius: '6px',
+                        border: '1.5px solid #cbd5e1',
+                        background: '#ffffff',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: '#0f172a',
+                        cursor: 'pointer',
+                        width: '100%',
+                      }}
+                    >
+                      {[4, 5, 6, 7, 8, 9, 10].map((n) => (
+                        <option key={n} value={n}>
+                          {n} {n === 6 ? '(Def)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Interactive Micro-Interaction Preview */}
+          <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '16px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>
+              Divider Visual Design & Micro-Interaction Preview
+            </div>
+            <div
+              style={{
+                maxWidth: '280px',
+                padding: '12px 14px',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                background: '#f8fafc',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+              }}
+            >
+              {/* Project Card */}
+              <div
+                style={{
+                  background: '#7c3aed',
+                  color: '#ffffff',
+                  padding: '5px 10px',
+                  borderRadius: '6px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <span>Arbitrager</span>
+                <span style={{ fontSize: '11px', opacity: 0.85 }}>▾</span>
+              </div>
+
+              {/* Visible Sample Rows */}
+              {['Market Arbitrage Analysis', 'Pair Trading Strategy', 'Real-time Execution Log'].map((title, i) => (
+                <div
+                  key={title}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    color: '#334155',
+                    background: 'rgba(124, 58, 237, 0.12)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
+                  <span style={{ fontSize: '10px', color: '#64748b' }}>{i + 1}h</span>
+                </div>
+              ))}
+
+              {previewExpanded &&
+                ['Backtest Validation 2026', 'Funding Rate Monitor'].map((title, i) => (
+                  <div
+                    key={title}
+                    style={{
+                      padding: '5px 10px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      color: '#334155',
+                      background: 'rgba(124, 58, 237, 0.12)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
+                    <span style={{ fontSize: '10px', color: '#64748b' }}>{i + 4}h</span>
+                  </div>
+                ))}
+
+              {/* Centered Divider with Solid Triangle Above Continuous Line */}
+              <div
+                onClick={() => setPreviewExpanded(!previewExpanded)}
+                title={previewExpanded ? 'Show fewer conversations' : 'Show all 5 conversations (2 hidden)'}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '100%',
+                  height: '22px',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  padding: '0',
+                  boxSizing: 'border-box',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '16px',
+                    height: '11px',
+                    marginBottom: '2px',
+                    color: '#64748b',
+                    fontSize: '8px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      transform: previewExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                      transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    }}
+                  >
+                    ▼
+                  </span>
+                </div>
+                <div style={{ width: '100%', height: '1px', background: 'rgba(148, 163, 184, 0.35)' }}></div>
+              </div>
+
+              <div style={{ fontSize: '11px', color: '#64748b', textAlign: 'center' }}>
+                {previewExpanded ? '▲ Expanded (click to collapse)' : '▼ Collapsed: 2 hidden tabs (click to expand)'}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Feature 7: Auto-Archive Inactive Conversations */}
+      {guiConfig && (
+        <div className="google-card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+                Auto-Archive Inactive Conversations
+              </h2>
+              <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)', maxWidth: '600px' }}>
+                Automatically move stale conversations from your project panels into Conversation History based on time horizon.
+              </p>
+            </div>
+
+            <ToggleSwitch
+              checked={guiConfig.auto_archive_conversations || false}
+              onChange={(checked) =>
+                setGuiConfig({
+                  ...guiConfig,
+                  auto_archive_conversations: checked,
+                })
+              }
+            />
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                  Inactivity Time Horizon Cutoff
+                </label>
+                <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Conversations inactive for longer than this duration will be archived.
+                </p>
+              </div>
+
+              <select
+                value={guiConfig.auto_archive_horizon || '30d'}
+                onChange={(e) =>
+                  setGuiConfig({
+                    ...guiConfig,
+                    auto_archive_horizon: e.target.value as any,
+                  })
+                }
+                style={{
+                  height: '36px',
+                  padding: '0 12px',
+                  borderRadius: '6px',
+                  border: '1.5px solid #cbd5e1',
+                  background: 'var(--card-bg, #ffffff)',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                  minWidth: '180px',
+                }}
+              >
+                <option value="7d">7 days</option>
+                <option value="14d">14 days</option>
+                <option value="30d">30 days (Recommended)</option>
+                <option value="60d">60 days</option>
+                <option value="90d">90 days</option>
+              </select>
+            </div>
+
+            <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                  Manual Archival Trigger
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Scan conversation database now and archive conversations older than {guiConfig.auto_archive_horizon || '30d'}.
+                </div>
+                {archiveResult && (
+                  <div style={{ marginTop: '4px', fontSize: '12px', color: '#059669', fontWeight: 600 }}>
+                    ✓ {archiveResult}
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={handleTriggerAutoArchive}
+                disabled={archiving}
+                className="google-button google-button-secondary"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  height: '36px',
+                  padding: '0 16px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: archiving ? 'not-allowed' : 'pointer',
+                }}
+              >
+                <Archive size={16} />
+                <span>{archiving ? 'Scanning & Archiving...' : 'Archive Inactive Conversations Now'}</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

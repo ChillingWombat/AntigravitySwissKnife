@@ -28,8 +28,11 @@ export interface AccountState {
   email: string
   label?: string
   plan_tier?: string
+  priority?: 'High' | 'Mid' | 'Low' | string
+  notes?: string
+  password?: string
   is_active: boolean
-  status: string
+  status: 'ACTIVE' | 'STANDBY' | 'ERROR' | 'BANNED' | string
   quota_5h_available: number
   quota_weekly: number
   reset_horizon_text: string
@@ -203,6 +206,7 @@ export interface TemplateSchedule {
   time_of_day: string
   days_of_week: number[]
   cron_expression: string
+  schedule_text?: string
 }
 
 export interface TemplateParameter {
@@ -240,8 +244,18 @@ export interface SidecarTaskInfo {
   id: string
   display_name: string
   cron_expression: string
+  schedule_text?: string
   prompt_preview: string
   path: string
+}
+
+export interface AutoArchiveResult {
+  success: boolean
+  archived_count: number
+  archived_ids: string[]
+  horizon: string
+  cutoff_time: string
+  message: string
 }
 
 export interface GUIConfig {
@@ -255,6 +269,13 @@ export interface GUIConfig {
   drag_rearrange_enabled: boolean
   project_order: string[]
   archived_projects: string[]
+  conversation_tabs_mode: 'fixed' | 'dynamic'
+  conversation_tabs_fixed_limit: number
+  conversation_tabs_age_threshold: '1d' | '3d' | '7d'
+  conversation_tabs_min: number
+  conversation_tabs_max: number
+  auto_archive_conversations: boolean
+  auto_archive_horizon: '7d' | '14d' | '30d' | '60d' | '90d'
   auto_inject: boolean
 }
 

@@ -139,6 +139,51 @@ def run_daemon(args: argparse.Namespace) -> int:
         server.broadcast_event_threadsafe("notify.account_switched", {"email": email, "reason": "manual_rpc"})
         return result_payload
 
+    @server.register("accounts.update")
+    def rpc_accounts_update(
+        email: str,
+        label: str | None = None,
+        plan_tier: str | None = None,
+        status: str | None = None,
+        totp_secret: str | None = None,
+        refresh_token: str | None = None,
+        set_active: bool = False,
+        priority: str | None = None,
+        notes: str | None = None,
+        password: str | None = None,
+    ) -> dict[str, Any]:
+        store = AccountStore(config.accounts_file)
+        success = store.update_account_info(
+            email=email,
+            label=label,
+            plan_tier=plan_tier,
+            status=status,
+            totp_secret=totp_secret,
+            refresh_token=refresh_token,
+            set_active=set_active,
+            priority=priority,
+            notes=notes,
+            password=password,
+        )
+        if set_active and (status or "").upper() not in ("BANNED", "ERROR"):
+            try:
+                keyring_switcher.switch_to_account(email, force=True)
+            except Exception as exc:
+                logger.warning("Could not set active account on update: %s", exc)
+        return {"success": success, "email": email}
+
+    @server.register("accounts.remove")
+    def rpc_accounts_remove(email: str) -> dict[str, Any]:
+        store = AccountStore(config.accounts_file)
+        success = store.remove_account(email)
+        return {"success": success, "email": email}
+
+    @server.register("accounts.set_totp")
+    def rpc_accounts_set_totp(email: str, totp_secret: str) -> dict[str, Any]:
+        store = AccountStore(config.accounts_file)
+        success = store.update_account(email=email, totp_secret=totp_secret)
+        return {"success": success, "email": email}
+
     # Initialize Fingerprint Manager
     from antigravity_swiss.fingerprint.manager import FingerprintManager
     fingerprint_manager = FingerprintManager(

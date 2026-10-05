@@ -338,4 +338,123 @@ func TestWebGUIEnhancementsAndTemplatesEndpoints(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestWebGUIConversationTabsAndAutoArchiveEndpoints(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	tempStore, err := gui.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("gui.NewStore error: %v", err)
+	}
+	srv.SetGUIStore(tempStore)
+
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// 1. GET /api/gui/config - verify defaults
+	resp, err := http.Get(baseURL + "/api/gui/config")
+	if err != nil {
+		t.Fatalf("GET /api/gui/config failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var cfg gui.Config
+	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
+		t.Fatalf("failed to decode config: %v", err)
+	}
+	resp.Body.Close()
+
+	if cfg.ConversationTabsMode != "fixed" {
+		t.Errorf("expected default tabs mode 'fixed', got %q", cfg.ConversationTabsMode)
+	}
+	if cfg.ConversationTabsFixedLimit != 6 {
+		t.Errorf("expected default tabs limit 6, got %d", cfg.ConversationTabsFixedLimit)
+	}
+	if cfg.ConversationTabsAgeThreshold != "1d" {
+		t.Errorf("expected default age threshold '1d', got %q", cfg.ConversationTabsAgeThreshold)
+	}
+	if cfg.ConversationTabsMin != 2 {
+		t.Errorf("expected default min tabs 2, got %d", cfg.ConversationTabsMin)
+	}
+	if cfg.ConversationTabsMax != 6 {
+		t.Errorf("expected default max tabs 6, got %d", cfg.ConversationTabsMax)
+	}
+	if cfg.AutoArchiveHorizon != "30d" {
+		t.Errorf("expected default auto archive horizon '30d', got %q", cfg.AutoArchiveHorizon)
+	}
+
+	// 2. POST /api/gui/config - update to dynamic mode with custom thresholds
+	cfg.ConversationTabsMode = "dynamic"
+	cfg.ConversationTabsAgeThreshold = "3d"
+	cfg.ConversationTabsMin = 3
+	cfg.ConversationTabsMax = 8
+	cfg.AutoArchiveConversations = true
+	cfg.AutoArchiveHorizon = "60d"
+
+	bodyJSON, _ := json.Marshal(cfg)
+	resp, err = http.Post(baseURL+"/api/gui/config", "application/json", bytes.NewReader(bodyJSON))
+	if err != nil {
+		t.Fatalf("POST /api/gui/config failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 3. GET /api/gui/config - verify persisted updates
+	resp, err = http.Get(baseURL + "/api/gui/config")
+	if err != nil {
+		t.Fatalf("GET /api/gui/config failed: %v", err)
+	}
+	var updatedCfg gui.Config
+	_ = json.NewDecoder(resp.Body).Decode(&updatedCfg)
+	resp.Body.Close()
+
+	if updatedCfg.ConversationTabsMode != "dynamic" {
+		t.Errorf("expected updated tabs mode 'dynamic', got %q", updatedCfg.ConversationTabsMode)
+	}
+	if updatedCfg.ConversationTabsAgeThreshold != "3d" {
+		t.Errorf("expected updated age threshold '3d', got %q", updatedCfg.ConversationTabsAgeThreshold)
+	}
+	if updatedCfg.ConversationTabsMin != 3 {
+		t.Errorf("expected updated min tabs 3, got %d", updatedCfg.ConversationTabsMin)
+	}
+	if updatedCfg.ConversationTabsMax != 8 {
+		t.Errorf("expected updated max tabs 8, got %d", updatedCfg.ConversationTabsMax)
+	}
+	if !updatedCfg.AutoArchiveConversations {
+		t.Errorf("expected auto archive enabled true")
+	}
+	if updatedCfg.AutoArchiveHorizon != "60d" {
+		t.Errorf("expected updated auto archive horizon '60d', got %q", updatedCfg.AutoArchiveHorizon)
+	}
+
+	// 4. POST /api/gui/conversations/auto-archive
+	archivePayload := map[string]string{"horizon": "90d"}
+	archJSON, _ := json.Marshal(archivePayload)
+	resp, err = http.Post(baseURL+"/api/gui/conversations/auto-archive", "application/json", bytes.NewReader(archJSON))
+	if err != nil {
+		t.Fatalf("POST /api/gui/conversations/auto-archive failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var archRes gui.AutoArchiveResult
+	if err := json.NewDecoder(resp.Body).Decode(&archRes); err != nil {
+		t.Fatalf("failed to decode auto-archive response: %v", err)
+	}
+	resp.Body.Close()
+
+	if !archRes.Success {
+		t.Errorf("expected auto-archive success true, got false (%s)", archRes.Message)
+	}
+	if archRes.Horizon != "90d" {
+		t.Errorf("expected horizon '90d', got %q", archRes.Horizon)
+	}
+}
+
+
 

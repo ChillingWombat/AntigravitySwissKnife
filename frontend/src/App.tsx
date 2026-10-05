@@ -12,6 +12,7 @@ import { CustomModelsPage } from './pages/CustomModelsPage'
 import { AppEnhancementsPage } from './pages/AppEnhancementsPage'
 import { ScheduledTemplatesPage } from './pages/ScheduledTemplatesPage'
 import { ArchivedProjectsPage } from './pages/ArchivedProjectsPage'
+import { AppLockScreen } from './components/AppLockScreen'
 import type { FleetQuotaSummary, RuleConfig, SystemStatus } from './types'
 import { api } from './api'
 
@@ -22,6 +23,18 @@ export const App: React.FC = () => {
   const [fleet, setFleet] = useState<FleetQuotaSummary | null>(null)
   const [rules, setRules] = useState<RuleConfig | null>(null)
   const [, setLoading] = useState<boolean>(true)
+  const [isLocked, setIsLocked] = useState<boolean>(false)
+
+  const checkAuth = async () => {
+    try {
+      const res = await api.getAuthStatus()
+      if (res.password_required) {
+        setIsLocked(true)
+      }
+    } catch (err) {
+      console.error('Auth check error:', err)
+    }
+  }
 
   const loadAllData = async () => {
     try {
@@ -42,11 +55,16 @@ export const App: React.FC = () => {
   }
 
   useEffect(() => {
+    checkAuth()
     loadAllData()
     // Poll status and fleet metrics periodically
     const interval = setInterval(loadAllData, 10000)
     return () => clearInterval(interval)
   }, [])
+
+  if (isLocked) {
+    return <AppLockScreen onUnlocked={() => setIsLocked(false)} />
+  }
 
   return (
     <div style={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden' }}>

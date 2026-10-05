@@ -1,4 +1,4 @@
-# Antigravity Swiss Knife 🌌🗡️
+# Antigravity Swiss Knife
 
 <div align="center">
   <img src="assets/logo.png" alt="Antigravity Swiss Knife Logo" width="300" style="border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);" />

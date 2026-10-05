@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +19,9 @@ type AccountQuotaState struct {
 	PlanTier         string  `json:"plan_tier"`
 	IsActive         bool    `json:"is_active"`
 	Status           string  `json:"status"`
+	Priority         string  `json:"priority,omitempty"`
+	Notes            string  `json:"notes,omitempty"`
+	Password         string  `json:"password,omitempty"`
 	HasTOTP          bool    `json:"has_totp"`
 	TOTPSecret       string  `json:"totp_secret"`
 	RefreshToken     string  `json:"refresh_token"`
@@ -129,7 +133,9 @@ func BuildAccountQuotaStates(accounts []*keyring.Account, activeSummary *QuotaSu
 		}
 
 		status := "STANDBY"
-		if acc.IsActive {
+		if acc.Status != "" {
+			status = strings.ToUpper(acc.Status)
+		} else if acc.IsActive {
 			status = "ACTIVE"
 		}
 
@@ -159,12 +165,20 @@ func BuildAccountQuotaStates(accounts []*keyring.Account, activeSummary *QuotaSu
 		resText := FormatHorizonSec(curSec)
 		tier := DetermineDefaultPlanTier(email, acc.PlanTier)
 
+		prio := acc.Priority
+		if prio == "" {
+			prio = "High"
+		}
+
 		results = append(results, AccountQuotaState{
 			Email:            email,
 			Label:            label,
 			PlanTier:         tier,
 			IsActive:         acc.IsActive,
 			Status:           status,
+			Priority:         prio,
+			Notes:            acc.Notes,
+			Password:         acc.Password,
 			HasTOTP:          acc.HasTOTP,
 			TOTPSecret:       acc.TOTPSecret,
 			RefreshToken:     acc.RefreshToken,
@@ -208,3 +222,152 @@ func DetermineDefaultPlanTier(email string, explicitTier string) string {
 	}
 	return "Pro"
 }
+
+// ClassifyErrorStatus classifies an error code or message into "BANNED", "ERROR", or "STANDBY".
+func ClassifyErrorStatus(statusCode int, errCode string, errMsg string) string {
+	combined := strings.ToLower(errCode + " " + errMsg)
+	if strings.Contains(combined, "suspend") ||
+		strings.Contains(combined, "banned") ||
+		strings.Contains(combined, "disabled") ||
+		strings.Contains(combined, "terminated") ||
+		strings.Contains(combined, "violates") ||
+		strings.Contains(combined, "account_disabled") ||
+		strings.Contains(combined, "user_suspended") {
+		return "BANNED"
+	}
+	if statusCode == 401 || statusCode == 403 ||
+		strings.Contains(combined, "invalid_grant") ||
+		strings.Contains(combined, "invalid_token") ||
+		strings.Contains(combined, "unauthenticated") ||
+		strings.Contains(combined, "interaction_required") ||
+		strings.Contains(combined, "challenge") ||
+		strings.Contains(combined, "verification") ||
+		strings.Contains(combined, "reauth") ||
+		strings.Contains(combined, "expired") {
+		return "ERROR"
+	}
+	return "ERROR"
+}
+
+// SortAccountQuotaStates sorts a slice of AccountQuotaState based on the mode:
+// - "auto": Active healthy in row 1, best standby continuous usage successors next,
+//   cooling/below-threshold accounts near end, and error/banned at bottom.
+// - "identity": Alphabetical by label or email.
+// - "quota_5h": 5H quota available descending.
+// - "quota_weekly": Weekly quota descending.
+func SortAccountQuotaStates(accounts []AccountQuotaState, activeEmail string, threshold float64, mode string) []AccountQuotaState {
+	res := make([]AccountQuotaState, len(accounts))
+	copy(res, accounts)
+
+	if threshold <= 0 {
+		threshold = 0.10
+	}
+
+	switch mode {
+	case "identity":
+		sort.SliceStable(res, func(i, j int) bool {
+			nameI := strings.ToLower(res[i].Label)
+			if nameI == "" {
+				nameI = strings.ToLower(res[i].Email)
+			}
+			nameJ := strings.ToLower(res[j].Label)
+			if nameJ == "" {
+				nameJ = strings.ToLower(res[j].Email)
+			}
+			if nameI != nameJ {
+				return nameI < nameJ
+			}
+			return strings.ToLower(res[i].Email) < strings.ToLower(res[j].Email)
+		})
+	case "quota_5h":
+		sort.SliceStable(res, func(i, j int) bool {
+			diff := res[i].Quota5hAvailable - res[j].Quota5hAvailable
+			if math.Abs(diff) > 0.0001 {
+				return diff > 0
+			}
+			return res[i].QuotaWeekly > res[j].QuotaWeekly
+		})
+	case "quota_weekly":
+		sort.SliceStable(res, func(i, j int) bool {
+			diff := res[i].QuotaWeekly - res[j].QuotaWeekly
+			if math.Abs(diff) > 0.0001 {
+				return diff > 0
+			}
+			return res[i].Quota5hAvailable > res[j].Quota5hAvailable
+		})
+	case "auto":
+		fallthrough
+	default:
+		sort.SliceStable(res, func(i, j int) bool {
+			getTier := func(a *AccountQuotaState) int {
+				st := strings.ToUpper(a.Status)
+				if st == "BANNED" {
+					return 4
+				}
+				if st == "ERROR" {
+					return 3
+				}
+				isAct := a.IsActive || (a.Email == activeEmail)
+				isBelow := a.Quota5hAvailable <= threshold || a.QuotaWeekly <= 0.05
+				if isAct && !isBelow {
+					return 0
+				}
+				if !isAct && !isBelow {
+					return 1
+				}
+				return 2
+			}
+
+			tierI := getTier(&res[i])
+			tierJ := getTier(&res[j])
+			if tierI != tierJ {
+				return tierI < tierJ
+			}
+
+			if tierI == 1 {
+				prioRank := func(p string) int {
+					switch strings.ToUpper(strings.TrimSpace(p)) {
+					case "HIGH":
+						return 0
+					case "MID":
+						return 1
+					case "LOW":
+						return 2
+					default:
+						return 0
+					}
+				}
+				prioI := prioRank(res[i].Priority)
+				prioJ := prioRank(res[j].Priority)
+				if prioI != prioJ {
+					return prioI < prioJ
+				}
+
+				scoreI := res[i].Quota5hAvailable*0.6 + res[i].QuotaWeekly*0.4
+				scoreJ := res[j].Quota5hAvailable*0.6 + res[j].QuotaWeekly*0.4
+				if math.Abs(scoreI-scoreJ) > 0.001 {
+					return scoreI > scoreJ
+				}
+				if math.Abs(res[i].Quota5hAvailable-res[j].Quota5hAvailable) > 0.001 {
+					return res[i].Quota5hAvailable > res[j].Quota5hAvailable
+				}
+				return res[i].QuotaWeekly > res[j].QuotaWeekly
+			}
+
+			if tierI == 2 {
+				if math.Abs(res[i].Quota5hAvailable-res[j].Quota5hAvailable) > 0.001 {
+					return res[i].Quota5hAvailable > res[j].Quota5hAvailable
+				}
+				return res[i].QuotaWeekly > res[j].QuotaWeekly
+			}
+
+			nameI := strings.ToLower(res[i].Label)
+			nameJ := strings.ToLower(res[j].Label)
+			return nameI < nameJ
+		})
+	}
+
+	return res
+}
+
+

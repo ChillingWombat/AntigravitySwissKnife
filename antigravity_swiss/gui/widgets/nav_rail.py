@@ -94,13 +94,8 @@ class NavigationRail(QFrame):
         # Separator line
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"background-color: {MD3_LIGHT_OUTLINE}; max-height: 1px; margin-top: 14px; margin-bottom: 12px;")
+        sep.setStyleSheet(f"background-color: {MD3_LIGHT_OUTLINE}; max-height: 1px; margin-top: 14px; margin-bottom: 8px;")
         layout.addWidget(sep)
-
-        # Section Label
-        tools_lbl = QLabel("NAVIGATION")
-        tools_lbl.setStyleSheet(f"font-size: 10px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 1.2px; padding-left: 6px; margin-bottom: 4px;")
-        layout.addWidget(tools_lbl)
 
         # Navigation Items (Matching Google Web App)
         items = [

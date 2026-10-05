@@ -37,6 +37,7 @@ from antigravity_swiss.core.errors import (
     KeyringError,
     KeyringNotFoundError,
 )
+from antigravity_swiss.core.crypto import decrypt_credential, encrypt_credential
 from antigravity_swiss.keyring.dbus_keyring import DBusKeyring, KeyringBackendProtocol
 from antigravity_swiss.keyring.secret_tool import (
     DEFAULT_LABEL,
@@ -80,10 +81,10 @@ class KeyringCredential(NamedTuple):
             payload["id_token"] = self.id_token
         return json.dumps(payload, separators=(",", ":"))
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, encrypt: bool = True) -> dict[str, Any]:
         return {
-            "access_token": self.access_token,
-            "refresh_token": self.refresh_token,
+            "access_token": encrypt_credential(self.access_token) if encrypt else self.access_token,
+            "refresh_token": encrypt_credential(self.refresh_token) if encrypt else self.refresh_token,
             "token_type": self.token_type,
             "expiry": self.expiry,
             "auth_method": self.auth_method,
@@ -103,8 +104,8 @@ class KeyringCredential(NamedTuple):
             raise InvalidCredentialError(f"Expected JSON object, got {type(data).__name__}")
 
         token_obj = data.get("token", {}) if isinstance(data.get("token"), dict) else {}
-        access_token = token_obj.get("access_token") or data.get("access_token", "")
-        refresh_token = token_obj.get("refresh_token") or data.get("refresh_token", "")
+        access_token = decrypt_credential(token_obj.get("access_token") or data.get("access_token", ""))
+        refresh_token = decrypt_credential(token_obj.get("refresh_token") or data.get("refresh_token", ""))
         token_type = token_obj.get("token_type") or data.get("token_type", "Bearer")
         expiry = str(token_obj.get("expiry") or data.get("expiry", ""))
         auth_method = str(data.get("auth_method", "consumer"))
@@ -118,8 +119,8 @@ class KeyringCredential(NamedTuple):
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> KeyringCredential:
         return cls(
-            access_token=str(data.get("access_token", "")),
-            refresh_token=str(data.get("refresh_token", "")),
+            access_token=decrypt_credential(str(data.get("access_token", ""))),
+            refresh_token=decrypt_credential(str(data.get("refresh_token", ""))),
             token_type=str(data.get("token_type", "Bearer")),
             expiry=str(data.get("expiry", "")),
             auth_method=str(data.get("auth_method", "consumer")),
@@ -162,30 +163,54 @@ class AccountRecord:
     totp_secret: str = ""
     is_healthy: bool = True
     plan_tier: str = "Free"
+    status: str = "STANDBY"
+    priority: str = "High"
+    notes: str = ""
+    password: str = ""
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, encrypt: bool = True) -> dict[str, Any]:
         return {
             "email": self.email,
             "label": self.label,
-            "credential": self.credential.to_dict(),
+            "credential": self.credential.to_dict(encrypt=encrypt),
             "added_at": self.added_at,
             "last_used_at": self.last_used_at,
-            "totp_secret": self.totp_secret,
+            "totp_secret": encrypt_credential(self.totp_secret) if encrypt else self.totp_secret,
+            "password": encrypt_credential(self.password) if encrypt else self.password,
             "is_healthy": self.is_healthy,
             "plan_tier": self.plan_tier,
+            "status": self.status,
+            "priority": self.priority or "High",
+            "notes": self.notes or "",
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AccountRecord:
+        raw_status = data.get("status")
+        is_healthy = bool(data.get("is_healthy", True))
+        if raw_status:
+            status = str(raw_status).upper()
+        else:
+            status = "STANDBY" if is_healthy else "ERROR"
+        priority = str(data.get("priority", "High") or "High").strip().capitalize()
+        if priority not in ("High", "Mid", "Low"):
+            priority = "High"
+        notes = str(data.get("notes", "") or "")
+        totp_secret = decrypt_credential(str(data.get("totp_secret", "") or ""))
+        password = decrypt_credential(str(data.get("password", "") or ""))
         return cls(
             email=str(data["email"]),
             label=str(data.get("label", "")),
             credential=KeyringCredential.from_dict(data.get("credential", {})),
             added_at=str(data.get("added_at", "")),
             last_used_at=data.get("last_used_at"),
-            totp_secret=str(data.get("totp_secret", "")),
-            is_healthy=bool(data.get("is_healthy", True)),
+            totp_secret=totp_secret,
+            is_healthy=is_healthy and (status not in ("ERROR", "BANNED")),
             plan_tier=str(data.get("plan_tier", "Free")),
+            status=status,
+            priority=priority,
+            notes=notes,
+            password=password,
         )
 
 
@@ -426,6 +451,9 @@ class AccountVault:
         totp_secret: str = "",
         is_healthy: bool = True,
         plan_tier: str | None = None,
+        priority: str = "High",
+        notes: str = "",
+        password: str = "",
     ) -> AccountRecord:
         with self.transaction() as data:
             accounts = data.setdefault("accounts", {})
@@ -441,7 +469,15 @@ class AccountVault:
                 record.is_healthy = is_healthy
                 if plan_tier:
                     record.plan_tier = plan_tier
+                if priority:
+                    p = priority.strip().capitalize()
+                    record.priority = p if p in ("High", "Mid", "Low") else "High"
+                if notes is not None:
+                    record.notes = notes
+                if password:
+                    record.password = password
             else:
+                p = (priority or "High").strip().capitalize()
                 record = AccountRecord(
                     email=email,
                     label=label or email,
@@ -450,6 +486,9 @@ class AccountVault:
                     totp_secret=totp_secret,
                     is_healthy=is_healthy,
                     plan_tier=plan_tier or "Free",
+                    priority=p if p in ("High", "Mid", "Low") else "High",
+                    notes=notes or "",
+                    password=password or "",
                 )
 
             accounts[email] = record.to_dict()
@@ -481,8 +520,12 @@ class AccountVault:
         label: str | None = None,
         totp_secret: str | None = None,
         refresh_token: str | None = None,
+        status: str | None = None,
         set_active: bool = False,
         plan_tier: str | None = None,
+        priority: str | None = None,
+        notes: str | None = None,
+        password: str | None = None,
     ) -> bool:
         with self.transaction() as data:
             accounts = data.get("accounts", {})
@@ -493,12 +536,23 @@ class AccountVault:
                 rec_dict["label"] = label
             if plan_tier is not None and plan_tier.strip():
                 rec_dict["plan_tier"] = plan_tier.strip()
+            if priority is not None and priority.strip():
+                p = priority.strip().capitalize()
+                rec_dict["priority"] = p if p in ("High", "Mid", "Low") else "High"
+            if notes is not None:
+                rec_dict["notes"] = str(notes)
+            if password is not None:
+                rec_dict["password"] = encrypt_credential(str(password))
+            if status is not None and status.strip():
+                norm = status.strip().upper()
+                rec_dict["status"] = norm
+                rec_dict["is_healthy"] = norm not in ("ERROR", "BANNED")
             if totp_secret is not None:
-                rec_dict["totp_secret"] = totp_secret
+                rec_dict["totp_secret"] = encrypt_credential(str(totp_secret))
             if refresh_token is not None and refresh_token.strip():
                 if "credential" not in rec_dict or not isinstance(rec_dict["credential"], dict):
                     rec_dict["credential"] = {}
-                rec_dict["credential"]["refresh_token"] = refresh_token.strip()
+                rec_dict["credential"]["refresh_token"] = encrypt_credential(refresh_token.strip())
             if set_active:
                 data["active_account"] = email
             return True
@@ -518,13 +572,16 @@ class AccountStore:
             {
                 "email": r.email,
                 "label": r.label,
-                "status": "ACTIVE" if r.email == active else ("STANDBY" if r.is_healthy else "ERROR"),
+                "status": "ACTIVE" if r.email == active else (r.status.upper() if r.status else ("STANDBY" if r.is_healthy else "ERROR")),
                 "is_active": r.email == active,
-                "is_healthy": r.is_healthy,
+                "is_healthy": r.is_healthy and (r.status not in ("ERROR", "BANNED") if r.status else True),
                 "last_used_at": r.last_used_at,
                 "has_totp": bool(r.totp_secret),
                 "totp_secret": r.totp_secret,
                 "plan_tier": getattr(r, "plan_tier", "Free"),
+                "priority": getattr(r, "priority", "High") or "High",
+                "notes": getattr(r, "notes", "") or "",
+                "password": getattr(r, "password", "") or "",
                 "refresh_token": r.credential.refresh_token if r.credential else "",
             }
             for r in records
@@ -539,17 +596,27 @@ class AccountStore:
         label: str | None = None,
         totp_secret: str | None = None,
         refresh_token: str | None = None,
+        status: str | None = None,
         set_active: bool = False,
         plan_tier: str | None = None,
+        priority: str | None = None,
+        notes: str | None = None,
+        password: str | None = None,
     ) -> bool:
         return self.vault.update_account_info(
             email=email,
             label=label,
             totp_secret=totp_secret,
             refresh_token=refresh_token,
+            status=status,
             set_active=set_active,
             plan_tier=plan_tier,
+            priority=priority,
+            notes=notes,
+            password=password,
         )
+
+    update_account_info = update_account
 
     def remove_account(self, email: str) -> bool:
         return self.vault.remove_account(email)

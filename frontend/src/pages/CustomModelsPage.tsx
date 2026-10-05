@@ -56,7 +56,7 @@ export const CustomModelsPage: React.FC = () => {
   // Reasoning / Thinking Configuration
   const [supportsThinking, setSupportsThinking] = useState<boolean>(false)
   const [thinkingLevels, setThinkingLevels] = useState<string[]>(['off', 'low', 'medium', 'high'])
-  const [thinkingLevel, setThinkingLevel] = useState<string>('medium')
+  const [thinkingLevel, setThinkingLevel] = useState<string>('high')
 
   // Model Fetching States
   const [fetchingModels, setFetchingModels] = useState<boolean>(false)
@@ -103,7 +103,7 @@ export const CustomModelsPage: React.FC = () => {
     setContextWindow(1000000)
     setSupportsThinking(false)
     setThinkingLevels(['off', 'low', 'medium', 'high'])
-    setThinkingLevel('medium')
+    setThinkingLevel('high')
     setFetchedModels([])
     setFetchFeedback(null)
     setShowApiKey(false)
@@ -133,7 +133,7 @@ export const CustomModelsPage: React.FC = () => {
         ? model.thinking_levels
         : ['off', 'low', 'medium', 'high']
     )
-    setThinkingLevel(model.thinking_level || 'medium')
+    setThinkingLevel(model.thinking_level || 'high')
     setFetchedModels([])
     setFetchFeedback(null)
     setShowApiKey(false)
@@ -208,7 +208,7 @@ export const CustomModelsPage: React.FC = () => {
           ? found.thinking_levels
           : ['off', 'low', 'medium', 'high']
       )
-      setThinkingLevel('medium')
+      setThinkingLevel('high')
     } else {
       setSupportsThinking(false)
     }
@@ -219,6 +219,7 @@ export const CustomModelsPage: React.FC = () => {
     setModalTestResult(null)
     setModalError(null)
 
+    const activeThinkingLvl = thinkingLevel.trim() || 'high'
     const draftModel: CustomModel = {
       id: editingModel?.id || 'draft-test',
       name: modelName.trim(),
@@ -236,7 +237,7 @@ export const CustomModelsPage: React.FC = () => {
       context_window: Number(contextWindow) || 1000000,
       supports_thinking: supportsThinking,
       thinking_levels: supportsThinking ? thinkingLevels : undefined,
-      thinking_level: supportsThinking ? thinkingLevel : undefined,
+      thinking_level: supportsThinking ? activeThinkingLvl : undefined,
     }
 
     try {
@@ -267,6 +268,16 @@ export const CustomModelsPage: React.FC = () => {
       .map((p) => p.trim())
       .filter(Boolean)
 
+    const activeThinkingLvl = thinkingLevel.trim() || 'high'
+    const updatedThinkingLevels = [...thinkingLevels]
+    if (
+      supportsThinking &&
+      activeThinkingLvl &&
+      !updatedThinkingLevels.map((l) => l.toLowerCase()).includes(activeThinkingLvl.toLowerCase())
+    ) {
+      updatedThinkingLevels.push(activeThinkingLvl.toLowerCase())
+    }
+
     const modelToSave: CustomModel = {
       id:
         editingModel?.id ||
@@ -285,8 +296,8 @@ export const CustomModelsPage: React.FC = () => {
       enabled: enabled,
       context_window: Number(contextWindow) || 1000000,
       supports_thinking: supportsThinking,
-      thinking_levels: supportsThinking ? thinkingLevels : undefined,
-      thinking_level: supportsThinking ? thinkingLevel : undefined,
+      thinking_levels: supportsThinking ? updatedThinkingLevels : undefined,
+      thinking_level: supportsThinking ? activeThinkingLvl : undefined,
     }
 
     try {
@@ -306,9 +317,35 @@ export const CustomModelsPage: React.FC = () => {
     }
     try {
       await api.deleteCustomModel(id)
+      if (isModalOpen && editingModel?.id === id) {
+        setIsModalOpen(false)
+      }
       await loadData()
     } catch (err: any) {
-      alert(`Delete failed: ${err.message}`)
+      setFeedback(`Delete failed: ${err.message}`)
+    }
+  }
+
+  const handleToggleModelEnabled = async (model: CustomModel, newEnabled: boolean) => {
+    // Optimistic UI update
+    setConfig((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        models: prev.models.map((item) =>
+          item.id === model.id ? { ...item, enabled: newEnabled } : item
+        ),
+      }
+    })
+
+    try {
+      await api.saveCustomModel({
+        ...model,
+        enabled: newEnabled,
+      })
+    } catch (err: any) {
+      setFeedback(`Failed to update model status: ${err.message}`)
+      await loadData()
     }
   }
 
@@ -330,22 +367,6 @@ export const CustomModelsPage: React.FC = () => {
       }))
     } finally {
       setTestingModelId(null)
-    }
-  }
-
-  const getProviderBadge = (type: ProviderType) => {
-    switch (type) {
-      case 'openai':
-      case 'local':
-        return { label: 'OpenAI Compatible', bg: '#e6f4ea', color: '#137333' }
-      case 'anthropic':
-        return { label: 'Anthropic Claude', bg: '#fef3e2', color: '#b45309' }
-      case 'gemini':
-        return { label: 'Google Gemini', bg: '#e8f0fe', color: '#1a73e8' }
-      case 'custom':
-        return { label: 'Custom Endpoint', bg: '#f3e8ff', color: '#7e22ce' }
-      default:
-        return { label: type, bg: '#f1f3f4', color: '#3c4043' }
     }
   }
 
@@ -395,7 +416,6 @@ export const CustomModelsPage: React.FC = () => {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))', gap: '16px' }}>
           {models.map((m) => {
-            const badge = getProviderBadge(m.provider_type)
             const testResult = cardTestResults[m.id]
             const isTesting = testingModelId === m.id
 
@@ -440,53 +460,19 @@ export const CustomModelsPage: React.FC = () => {
                   justifyContent: 'space-between',
                   padding: '20px',
                   border: m.is_default ? '2px solid var(--primary)' : '1px solid var(--border)',
+                  opacity: m.enabled ? 1 : 0.65,
+                  transition: 'opacity 0.2s ease, border-color 0.2s ease',
                 }}
               >
                 <div>
-                  {/* Top Row: Provider Badge + Badges */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                      <span
-                        style={{
-                          backgroundColor: badge.bg,
-                          color: badge.color,
-                          padding: '3px 10px',
-                          borderRadius: '12px',
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          letterSpacing: '0.3px',
-                        }}
-                      >
-                        {badge.label}
-                      </span>
-                      {m.is_default && (
-                        <span className="badge-chip badge-green" style={{ fontSize: '10px', padding: '2px 8px' }}>
-                          DEFAULT
-                        </span>
-                      )}
-                      {m.supports_thinking && (
-                        <span
-                          style={{
-                            backgroundColor: '#f3e8ff',
-                            color: '#7e22ce',
-                            padding: '2px 8px',
-                            borderRadius: '12px',
-                            fontSize: '10px',
-                            fontWeight: 600,
-                          }}
-                        >
-                          🧠 Thinking: {(m.thinking_level || 'medium').toUpperCase()}
-                        </span>
-                      )}
-                    </div>
-
-
-                    <span
-                      className={`badge-chip ${m.enabled ? 'badge-green' : 'badge-neutral'}`}
-                      style={{ fontSize: '10px' }}
-                    >
-                      {m.enabled ? 'ENABLED' : 'DISABLED'}
-                    </span>
+                  {/* Top Row: Switch Button to Enable/Disable (Tags removed) */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: '8px' }}>
+                    <ToggleSwitch
+                      size="sm"
+                      checked={m.enabled}
+                      ariaLabel={m.enabled ? `Disable ${m.display_name}` : `Enable ${m.display_name}`}
+                      onChange={(checked) => handleToggleModelEnabled(m, checked)}
+                    />
                   </div>
 
                   {/* Model Name and Gauge Row */}
@@ -596,23 +582,13 @@ export const CustomModelsPage: React.FC = () => {
                     {isTesting ? 'Testing...' : 'Test Connection'}
                   </button>
 
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button
-                      onClick={() => openEditModal(m)}
-                      className="btn-pill-tonal"
-                      style={{ padding: '5px 12px', fontSize: '11px' }}
-                    >
-                      <Edit2 size={12} /> Edit
-                    </button>
-                    <button
-                      onClick={() => handleDeleteModel(m.id, m.display_name)}
-                      className="btn-pill-outlined"
-                      style={{ padding: '5px 10px', fontSize: '11px', color: '#b3261e', borderColor: '#fce8e6' }}
-                      title="Delete Model"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => openEditModal(m)}
+                    className="btn-pill-tonal"
+                    style={{ padding: '5px 14px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                  >
+                    <Edit2 size={12} /> Edit
+                  </button>
                 </div>
               </div>
             )
@@ -846,13 +822,54 @@ export const CustomModelsPage: React.FC = () => {
                     <span>Model Supports Thinking / Reasoning</span>
                   </label>
                   {supportsThinking && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Thinking Level:</span>
-                      <select
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Thinking Level:</span>
+
+                      {/* Direct text input */}
+                      <input
+                        type="text"
+                        placeholder="e.g. high"
                         value={thinkingLevel}
                         onChange={(e) => setThinkingLevel(e.target.value)}
-                        style={{ padding: '3px 8px', fontSize: '11px', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: '#ffffff' }}
+                        list="available-thinking-levels"
+                        style={{
+                          width: '90px',
+                          fontSize: '11px',
+                          padding: '4px 8px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border)',
+                          backgroundColor: '#ffffff',
+                          fontFamily: 'inherit',
+                        }}
+                        title="Directly enter custom thinking level or select from dropdown"
+                      />
+                      <datalist id="available-thinking-levels">
+                        {thinkingLevels.map((lvl) => (
+                          <option key={lvl} value={lvl} />
+                        ))}
+                      </datalist>
+
+                      {/* Dropdown to select from available thinking levels */}
+                      <select
+                        value={thinkingLevels.includes(thinkingLevel.toLowerCase()) ? thinkingLevel.toLowerCase() : ''}
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            setThinkingLevel(e.target.value)
+                          }
+                        }}
+                        style={{
+                          padding: '4px 8px',
+                          fontSize: '11px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border)',
+                          backgroundColor: '#ffffff',
+                          cursor: 'pointer',
+                        }}
+                        title="Select one from available thinking levels"
                       >
+                        <option value="" disabled hidden>
+                          Select preset...
+                        </option>
                         {thinkingLevels.map((lvl) => (
                           <option key={lvl} value={lvl}>
                             {lvl.charAt(0).toUpperCase() + lvl.slice(1)}
@@ -863,7 +880,7 @@ export const CustomModelsPage: React.FC = () => {
                   )}
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                  Enables the interactive Thinking Level toggle pill directly in Antigravity chat prompt bar when this model is active.
+                  Default level for new models is High. Choose from preset options or type directly into the input field.
                 </div>
               </div>
 
@@ -1015,8 +1032,19 @@ export const CustomModelsPage: React.FC = () => {
                 )}
               </div>
 
-              {/* Bottom Right: Cancel & Save Model */}
+              {/* Bottom Right: Delete (if editing), Cancel & Save Model */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {editingModel && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteModel(editingModel.id, editingModel.display_name)}
+                    disabled={modalSaving}
+                    className="btn-pill-danger"
+                    style={{ padding: '7px 14px', fontSize: '12px' }}
+                  >
+                    <Trash2 size={13} /> Delete Model
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}

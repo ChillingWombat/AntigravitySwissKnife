@@ -50,6 +50,8 @@ class SwissKnifeController(ABC):
         totp_secret: str | None = None,
         refresh_token: str | None = None,
         set_active: bool = False,
+        plan_tier: str | None = None,
+        status: str | None = None,
     ) -> dict[str, Any]:
         """Update account metadata and credentials."""
         ...
@@ -146,6 +148,10 @@ class RemoteDaemonController(SwissKnifeController):
         refresh_token: str | None = None,
         set_active: bool = False,
         plan_tier: str | None = None,
+        status: str | None = None,
+        priority: str | None = None,
+        notes: str | None = None,
+        password: str | None = None,
     ) -> dict[str, Any]:
         try:
             return self._client.call(
@@ -154,6 +160,10 @@ class RemoteDaemonController(SwissKnifeController):
                     "email": email,
                     "label": label,
                     "plan_tier": plan_tier,
+                    "status": status,
+                    "priority": priority,
+                    "notes": notes,
+                    "password": password,
                     "totp_secret": totp_secret,
                     "refresh_token": refresh_token,
                     "set_active": set_active,
@@ -163,13 +173,17 @@ class RemoteDaemonController(SwissKnifeController):
             from antigravity_swiss.core.config import SwissKnifeConfig
             from antigravity_swiss.keyring.switcher import AccountStore
             store = AccountStore(SwissKnifeConfig.load().accounts_file)
-            success = store.update_account(
+            success = store.update_account_info(
                 email=email,
                 label=label,
+                plan_tier=plan_tier,
+                status=status,
+                priority=priority,
+                notes=notes,
+                password=password,
                 totp_secret=totp_secret,
                 refresh_token=refresh_token,
                 set_active=set_active,
-                plan_tier=plan_tier,
             )
             return {"success": success, "email": email}
 
@@ -279,18 +293,26 @@ class StandaloneController(SwissKnifeController):
         refresh_token: str | None = None,
         set_active: bool = False,
         plan_tier: str | None = None,
+        status: str | None = None,
+        priority: str | None = None,
+        notes: str | None = None,
+        password: str | None = None,
     ) -> dict[str, Any]:
         from antigravity_swiss.keyring.switcher import AccountStore
         store = AccountStore(self.config.accounts_file)
-        success = store.update_account(
+        success = store.update_account_info(
             email=email,
             label=label,
+            plan_tier=plan_tier,
+            status=status,
+            priority=priority,
+            notes=notes,
+            password=password,
             totp_secret=totp_secret,
             refresh_token=refresh_token,
             set_active=set_active,
-            plan_tier=plan_tier,
         )
-        if set_active:
+        if set_active and (status or "").upper() not in ("BANNED", "ERROR"):
             try:
                 self.switch_account(email, force=True, relaunch=False)
             except Exception:

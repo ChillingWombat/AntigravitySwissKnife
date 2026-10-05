@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Clock } from 'lucide-react'
 import { api } from '../api'
 import type { DeployTaskRequest, ScheduledTemplate, SidecarTaskInfo } from '../types'
+import { formatSchedule } from '../utils/schedule'
 
 const CATEGORIES = [
   'All',
@@ -283,9 +284,12 @@ export const ScheduledTemplatesPage: React.FC = () => {
                     >
                       {t.category}
                     </span>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span
+                      title={`Cron: ${t.default_schedule.cron_expression}`}
+                      style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}
+                    >
                       <Clock size={12} />
-                      <span>{t.default_schedule.cron_expression}</span>
+                      <span>{formatSchedule(t.default_schedule)}</span>
                     </span>
                   </div>
 
@@ -379,6 +383,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
                       <span style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>{sc.display_name}</span>
                       <span
+                        title={`Cron: ${sc.cron_expression}`}
                         style={{
                           fontSize: '11px',
                           padding: '2px 8px',
@@ -386,9 +391,13 @@ export const ScheduledTemplatesPage: React.FC = () => {
                           background: '#e0e7ff',
                           color: '#3730a3',
                           fontWeight: 600,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
                         }}
                       >
-                        Cron: {sc.cron_expression}
+                        <Clock size={11} />
+                        <span>{sc.schedule_text || formatSchedule(sc.cron_expression)}</span>
                       </span>
                     </div>
                     <div style={{ fontSize: '12px', color: '#64748b', maxWidth: '640px' }}>
@@ -520,9 +529,15 @@ export const ScheduledTemplatesPage: React.FC = () => {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
-                    Cron Schedule
-                  </label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 700, color: '#334155' }}>
+                      Schedule (Cron)
+                    </label>
+                    <span style={{ fontSize: '11px', color: '#2563eb', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                      <Clock size={11} />
+                      <span>{formatSchedule(cronExpression)}</span>
+                    </span>
+                  </div>
                   <input
                     type="text"
                     value={cronExpression}
@@ -538,9 +553,31 @@ export const ScheduledTemplatesPage: React.FC = () => {
                       boxSizing: 'border-box',
                     }}
                   />
-                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-                    Presets: "0 8 * * *" (8am daily), "0 * * * *" (hourly)
-                  </span>
+                  <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                    {[
+                      { label: '8:00 AM Daily', cron: '0 8 * * *' },
+                      { label: 'Hourly', cron: '0 * * * *' },
+                      { label: 'Weekdays 5:00 PM', cron: '0 17 * * 1-5' },
+                    ].map((preset) => (
+                      <button
+                        key={preset.cron}
+                        type="button"
+                        onClick={() => setCronExpression(preset.cron)}
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          padding: '2px 7px',
+                          borderRadius: '4px',
+                          border: '1px solid #e2e8f0',
+                          background: cronExpression === preset.cron ? '#eff6ff' : '#f8fafc',
+                          color: cronExpression === preset.cron ? '#1d4ed8' : '#64748b',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div>

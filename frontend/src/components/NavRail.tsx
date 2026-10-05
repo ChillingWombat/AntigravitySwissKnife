@@ -90,24 +90,9 @@ export const NavRail: React.FC<NavRailProps> = ({
         style={{
           height: '1px',
           backgroundColor: 'var(--border)',
-          marginBottom: '16px',
+          marginBottom: '12px',
         }}
       />
-
-      {/* Nav Section Label */}
-      <div
-        style={{
-          fontSize: '10px',
-          fontWeight: 700,
-          color: 'var(--text-muted)',
-          letterSpacing: '1.2px',
-          paddingLeft: '6px',
-          marginBottom: '8px',
-          textTransform: 'uppercase',
-        }}
-      >
-        Navigation
-      </div>
 
       {/* Primary Navigation Items */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>

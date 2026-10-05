@@ -601,6 +601,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           applyDefaultProjectHandler();
         });
       });
+      if (window.__swissEnhancementsObserver) {
+        try { window.__swissEnhancementsObserver.disconnect(); } catch (_) {}
+      }
+      window.__swissEnhancementsObserver = ob;
       ob.observe(document.body, { childList: true, subtree: true });
     }
 

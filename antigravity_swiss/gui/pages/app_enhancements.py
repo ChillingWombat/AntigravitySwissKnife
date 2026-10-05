@@ -81,7 +81,7 @@ class AppEnhancementsPage(QWidget):
             "solid_left_edge": False,
             "tint_opacity": 0.14,
             "active_conversation_indicator": "background",
-            "active_conversation_bold": True,
+            "active_conversation_bold": False,
         }
         if self._gui_config_path.exists():
             try:
@@ -271,7 +271,7 @@ class AppEnhancementsPage(QWidget):
         pc_layout.addLayout(ind_row)
 
         self.cb_active_bold = QCheckBox("Bold text on current open conversation tab")
-        self.cb_active_bold.setChecked(bool(self._gui_data.get("active_conversation_bold", True)))
+        self.cb_active_bold.setChecked(bool(self._gui_data.get("active_conversation_bold", False)))
         self.cb_active_bold.stateChanged.connect(self._on_active_bold_changed)
         pc_layout.addWidget(self.cb_active_bold)
 

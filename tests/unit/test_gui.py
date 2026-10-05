@@ -181,6 +181,56 @@ def test_quota_dashboard_page(qapp, mock_controller):
     assert hasattr(dialog, "btn_save")
 
 
+def test_quota_dashboard_page_sorting(qapp, mock_controller):
+    """Test QuotaDashboardPage table sorting and rotation candidate UI badge."""
+    # Seed extra accounts into vault
+    store = AccountStore(mock_controller.config.accounts_file)
+    cred2 = KeyringCredential(access_token="tok2", refresh_token="ref2")
+    store.vault.add_or_update_account(
+        email="candidate_alpha@gmail.com",
+        credential=cred2,
+        label="Candidate Alpha",
+        totp_secret="",
+    )
+    cred3 = KeyringCredential(access_token="tok3", refresh_token="ref3")
+    store.vault.add_or_update_account(
+        email="zebra_depleted@gmail.com",
+        credential=cred3,
+        label="Zebra Depleted",
+        totp_secret="",
+    )
+
+    page = QuotaDashboardPage(controller=mock_controller)
+    assert page._sort_mode == "auto"
+    assert page._sort_combo.currentData() == "auto"
+
+    # Default AUTO mode: active account is in row 0
+    assert page._table.rowCount() == 3
+    assert page._displayed_accounts[0].is_active is True
+    assert page._displayed_accounts[0].email == "test_user@gmail.com"
+
+    # Switch sort mode to identity (alphabetical)
+    page.set_sort_mode("identity")
+    assert page._sort_mode == "identity"
+    assert page._sort_combo.currentData() == "identity"
+    assert page._displayed_accounts[0].email == "candidate_alpha@gmail.com"
+    assert page._displayed_accounts[-1].email == "zebra_depleted@gmail.com"
+
+    # Test header section clicks
+    page._on_header_section_clicked(3)  # Col 3 = 5H QUOTA
+    assert page._sort_mode == "quota_5h"
+    assert page._sort_combo.currentData() == "quota_5h"
+
+    page._on_header_section_clicked(4)  # Col 4 = WEEKLY QUOTA
+    assert page._sort_mode == "quota_weekly"
+    assert page._sort_combo.currentData() == "quota_weekly"
+
+    # Clicking the same header toggles back to auto
+    page._on_header_section_clicked(4)
+    assert page._sort_mode == "auto"
+    assert page._sort_combo.currentData() == "auto"
+
+
 def test_mfa_vault_page(qapp, mock_controller):
     """Test MfaVaultPage with live TOTP code and secret updates."""
     page = MfaVaultPage(controller=mock_controller)
@@ -379,10 +429,25 @@ def test_account_detail_dialog_full_flow(qapp, mock_controller):
     assert dialog.ref_edit.echoMode() == QLineEdit.EchoMode.Normal
     assert dialog.btn_toggle_ref.text() == "Hide"
 
+    # Verify header-level derived verification code and copy button
+    assert dialog.totp_code_display.text() != "--- ---"
+    assert len(dialog.totp_code_display.text().replace(" ", "")) == 6
+    assert dialog.btn_copy_totp.isEnabled() is True
+    dialog._copy_totp_code()
+    assert dialog.btn_copy_totp.text() == "Copied!"
+    assert len(QApplication.clipboard().text()) == 6
+
+    # Test empty secret display '--- ---'
+    dialog.totp_edit.setText("")
+    assert dialog.totp_code_display.text() == "--- ---"
+    assert dialog.btn_copy_totp.isEnabled() is False
+
     # Edit fields
     dialog.label_edit.setText("Updated Engineering Lead")
     dialog.totp_edit.setText("HXDMVJECJJWSRB3HWIZR4IFUGFTMXBOZ")
     assert "Live MFA Preview" in dialog.totp_preview_lbl.text()
+    assert dialog.totp_code_display.text() != "--- ---"
+    assert dialog.btn_copy_totp.isEnabled() is True
     dialog.ref_edit.setText("1//updated_refresh_token")
 
     # Save
@@ -398,4 +463,21 @@ def test_account_detail_dialog_full_flow(qapp, mock_controller):
     assert acc.label == "Updated Engineering Lead"
     assert acc.totp_secret == "HXDMVJECJJWSRB3HWIZR4IFUGFTMXBOZ"
     assert acc.credential.refresh_token == "1//updated_refresh_token"
+
+
+def test_archived_projects_page(qapp):
+    """Verify ArchivedProjectsPage initializes and renders table with Restore action."""
+    from PySide6.QtWidgets import QPushButton
+    from antigravity_swiss.gui.pages.archived_projects import ArchivedProjectsPage
+
+    page = ArchivedProjectsPage()
+    assert page._table.rowCount() > 0
+    assert page._table.horizontalHeaderItem(3).text() == "Actions"
+    cell_widget = page._table.cellWidget(0, 3)
+    assert cell_widget is not None
+    buttons = cell_widget.findChildren(QPushButton)
+    btn_texts = [b.text() for b in buttons]
+    assert "Restore" in btn_texts
+    assert "Delete" in btn_texts
+
 

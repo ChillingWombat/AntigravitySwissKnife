@@ -1,10 +1,10 @@
 """
-Archived & Hidden Projects Management Page.
-============================================
-Manage hidden and archived projects:
+Archived Projects Management Page.
+===================================
+Manage archived projects:
 - View table of archived projects
 - Displays time elapsed since latest conversation (auto-scaled: hours -> days -> months -> years)
-- Restore / Unhide projects
+- Restore projects
 - Project settings action icon
 - Permanent project deletion
 """
@@ -101,9 +101,9 @@ class ArchivedProjectsPage(QWidget):
         # Header Title
         title_box = QVBoxLayout()
         title_box.setSpacing(4)
-        title = QLabel("ARCHIVED & HIDDEN PROJECTS")
+        title = QLabel("ARCHIVED PROJECTS")
         title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {MD3_LIGHT_TEXT_SECONDARY}; letter-spacing: 1px;")
-        subtitle = QLabel("Unhide, manage settings, or permanently delete archived projects.")
+        subtitle = QLabel("Restore, manage settings, or permanently delete archived projects.")
         subtitle.setStyleSheet(f"font-size: 12px; color: {MD3_LIGHT_TEXT_SECONDARY};")
         title_box.addWidget(title)
         title_box.addWidget(subtitle)
@@ -186,8 +186,8 @@ class ArchivedProjectsPage(QWidget):
             """)
             action_layout.addWidget(btn_settings)
 
-            btn_unhide = QPushButton("Unhide")
-            btn_unhide.setStyleSheet(f"""
+            btn_restore = QPushButton("Restore")
+            btn_restore.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {MD3_LIGHT_SURFACE_CONTAINER_HIGH};
                     color: {MD3_LIGHT_ACCENT_PRIMARY};
@@ -198,7 +198,7 @@ class ArchivedProjectsPage(QWidget):
                     font-weight: 600;
                 }}
             """)
-            action_layout.addWidget(btn_unhide)
+            action_layout.addWidget(btn_restore)
 
             btn_del = QPushButton("Delete")
             btn_del.setStyleSheet("""

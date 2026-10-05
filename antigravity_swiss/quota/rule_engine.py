@@ -228,12 +228,14 @@ class AutoSwitchRuleEngine:
         if not candidates:
             return None, 0.0, True
 
-        def _sort_key(item: Tuple[str, float, AccountRecord]) -> Tuple[float, float, str]:
+        def _sort_key(item: Tuple[str, float, AccountRecord]) -> Tuple[int, float, float, str]:
             email, score, rec = item
             q_data = self._account_quota_cache.get(email)
             weekly = self.extract_remaining_fractions(q_data)["weekly_gemini"]
             last_used = rec.last_used_at or ""
-            return (-score, -weekly, last_used)
+            prio_map = {"HIGH": 0, "MID": 1, "LOW": 2}
+            prio_rank = prio_map.get((getattr(rec, "priority", "High") or "High").upper(), 0)
+            return (prio_rank, -score, -weekly, last_used)
 
         candidates.sort(key=_sort_key)
         best_email, best_score, _ = candidates[0]

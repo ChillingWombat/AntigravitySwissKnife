@@ -269,7 +269,7 @@ export const ArchivedProjectsPage: React.FC = () => {
             <p style={{ margin: 0, fontSize: '13px', color: '#64748b', maxWidth: '480px', marginInline: 'auto' }}>
               {searchQuery
                 ? 'Try a different keyword or clear your filter query.'
-                : 'To archive a project and hide it from your Antigravity sidebar, right-click on its project header in Antigravity and select "📦 Hide / Archive Project".'}
+                : 'To archive a project and remove it from your sidebar, click the project options (•••) button in Antigravity and select "Archive".'}
             </p>
           </div>
         ) : (
@@ -393,11 +393,11 @@ export const ArchivedProjectsPage: React.FC = () => {
                         <span>Settings</span>
                       </button>
 
-                      {/* Unhide / Restore */}
+                      {/* Restore */}
                       <button
                         onClick={() => handleRestore(p)}
                         disabled={actionLoading !== null}
-                        title="Unhide and restore to Antigravity sidebar"
+                        title="Restore to Antigravity sidebar"
                         style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -416,7 +416,7 @@ export const ArchivedProjectsPage: React.FC = () => {
                         onMouseLeave={(e) => (e.currentTarget.style.background = '#f0fdf4')}
                       >
                         <RotateCcw size={13} />
-                        <span>Unhide</span>
+                        <span>Restore</span>
                       </button>
 
                       {/* Delete */}

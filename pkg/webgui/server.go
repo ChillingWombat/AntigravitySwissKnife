@@ -39,6 +39,7 @@ type Server struct {
 	systemDetector     *system.Detector
 	enhancementsStore  *enhancements.Store
 	templatesStore     *templates.Store
+	oauthMgr           *keyring.GoogleOAuthManager
 	httpServer         *http.Server
 	addr               string
 }
@@ -55,6 +56,7 @@ func NewServer(addr string, socketPath string) *Server {
 	sysDetector := system.NewDetector()
 	enhStore, _ := enhancements.NewStore("")
 	tmplStore, _ := templates.NewStore("")
+	oauthMgr := keyring.NewGoogleOAuthManager("", "")
 	return &Server{
 		client:             client,
 		guiStore:           guiStore,
@@ -63,8 +65,14 @@ func NewServer(addr string, socketPath string) *Server {
 		systemDetector:     sysDetector,
 		enhancementsStore:  enhStore,
 		templatesStore:     tmplStore,
+		oauthMgr:           oauthMgr,
 		addr:               addr,
 	}
+}
+
+// SetGUIStore replaces the guiStore on the server (useful for testing with isolated temporary config directories).
+func (s *Server) SetGUIStore(store *gui.Store) {
+	s.guiStore = store
 }
 
 // Start starts listening and serving HTTP requests.
@@ -124,6 +132,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/gui/projects/archive", s.handleGUIProjectsArchive)
 	mux.HandleFunc("/api/gui/projects/restore", s.handleGUIProjectsRestore)
 	mux.HandleFunc("/api/gui/projects/open_settings", s.handleGUIProjectsOpenSettings)
+	mux.HandleFunc("/api/gui/conversations/auto-archive", s.handleGUIConversationsAutoArchive)
 	mux.HandleFunc("/api/gui/color", s.handleGUIProjectColor)
 	mux.HandleFunc("/api/gui/color/delete", s.handleGUIProjectDelete)
 	mux.HandleFunc("/api/gui/reorder", s.handleGUIProjectOrder)
@@ -153,6 +162,14 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/templates", s.handleTemplates)
 	mux.HandleFunc("/api/templates/deploy", s.handleTemplatesDeploy)
 	mux.HandleFunc("/api/templates/sidecars", s.handleTemplatesSidecars)
+
+	// Google OAuth Extraction
+	mux.HandleFunc("/api/oauth/google/start", s.handleGoogleOAuthStart)
+
+	// App Access Password & Authentication
+	mux.HandleFunc("/api/auth/status", s.handleAuthStatus)
+	mux.HandleFunc("/api/auth/unlock", s.handleAuthUnlock)
+	mux.HandleFunc("/api/settings/password", s.handleSettingsPassword)
 
 	l, err := net.Listen("tcp", s.addr)
 	if err != nil {
@@ -296,6 +313,10 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 		Email        string `json:"email"`
 		Label        string `json:"label"`
 		PlanTier     string `json:"plan_tier"`
+		Status       string `json:"status"`
+		Priority     string `json:"priority"`
+		Notes        string `json:"notes"`
+		Password     string `json:"password"`
 		TOTPSecret   string `json:"totp_secret"`
 		RefreshToken string `json:"refresh_token"`
 		SetActive    bool   `json:"set_active"`
@@ -311,7 +332,7 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, storeErr.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := store.UpdateAccountWithTier(p.Email, p.Label, p.PlanTier, p.TOTPSecret, p.RefreshToken, p.SetActive); err != nil {
+		if err := store.UpdateAccountDetails(p.Email, p.Label, p.PlanTier, p.Status, p.Priority, p.Notes, p.Password, p.TOTPSecret, p.RefreshToken, p.SetActive); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -909,6 +930,29 @@ func (s *Server) handleGUIProjectsOpenSettings(w http.ResponseWriter, r *http.Re
 	writeJSON(w, map[string]interface{}{"success": true, "project": target})
 }
 
+func (s *Server) handleGUIConversationsAutoArchive(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var p struct {
+		Horizon string `json:"horizon"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&p)
+
+	if s.guiStore == nil {
+		http.Error(w, "gui store not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	result, err := s.guiStore.ArchiveStaleConversations(p.Horizon)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, result)
+}
+
 func (s *Server) handleGUIProjectOrder(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1370,6 +1414,121 @@ func (s *Server) handleTemplatesSidecars(w http.ResponseWriter, r *http.Request)
 			writeJSON(w, map[string]interface{}{"success": true, "deleted": body.ID})
 			return
 		}
+	}
+
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+}
+
+func (s *Server) handleGoogleOAuthStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	defer cancel()
+
+	res, err := s.oauthMgr.StartFlow(ctx, true)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success":       true,
+		"email":         res.Email,
+		"refresh_token": res.RefreshToken,
+		"access_token":  res.AccessToken,
+	})
+}
+
+func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"password_required": false})
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"password_required": cfg.AppPasswordEnabled,
+	})
+}
+
+func (s *Server) handleAuthUnlock(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var p struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !cfg.AppPasswordEnabled {
+		writeJSON(w, map[string]interface{}{"success": true})
+		return
+	}
+	if cfg.VerifyAppPassword(p.Password) {
+		writeJSON(w, map[string]interface{}{"success": true})
+	} else {
+		writeJSON(w, map[string]interface{}{"success": false, "error": "Incorrect password"})
+	}
+}
+
+func (s *Server) handleSettingsPassword(w http.ResponseWriter, r *http.Request) {
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		writeJSON(w, map[string]interface{}{
+			"enabled": cfg.AppPasswordEnabled,
+		})
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		var p struct {
+			Password        string `json:"password"`
+			CurrentPassword string `json:"current_password"`
+			Remove          bool   `json:"remove"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+
+		if cfg.AppPasswordEnabled && cfg.AppPasswordHash != "" {
+			if !cfg.VerifyAppPassword(p.CurrentPassword) {
+				writeJSON(w, map[string]interface{}{"success": false, "error": "Current password incorrect"})
+				return
+			}
+		}
+
+		if p.Remove || p.Password == "" {
+			if err := cfg.SetAppPassword(""); err != nil {
+				writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+				return
+			}
+			writeJSON(w, map[string]interface{}{"success": true, "enabled": false})
+			return
+		}
+
+		if err := cfg.SetAppPassword(p.Password); err != nil {
+			writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]interface{}{"success": true, "enabled": true})
+		return
 	}
 
 	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

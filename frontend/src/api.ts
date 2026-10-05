@@ -18,6 +18,7 @@ import type {
   GUIConfig,
   ProviderType,
   FetchModelsResponse,
+  AutoArchiveResult,
 } from './types'
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
@@ -52,11 +53,39 @@ export const api = {
     email: string
     label?: string
     plan_tier?: string
+    status?: string
+    priority?: string
+    notes?: string
+    password?: string
     totp_secret?: string
     refresh_token?: string
     set_active?: boolean
   }) =>
     request<{ success: boolean; email: string }>('/api/accounts/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  startGoogleOAuth: () =>
+    request<{ success: boolean; email?: string; refresh_token?: string; access_token?: string; error?: string }>(
+      '/api/oauth/google/start',
+      { method: 'POST' }
+    ),
+
+  getAuthStatus: () => request<{ password_required: boolean }>('/api/auth/status'),
+
+  unlockApp: (password: string) =>
+    request<{ success: boolean; error?: string }>('/api/auth/unlock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    }),
+
+  getPasswordSettings: () => request<{ enabled: boolean }>('/api/settings/password'),
+
+  setPasswordSettings: (data: { password?: string; current_password?: string; remove?: boolean }) =>
+    request<{ success: boolean; enabled?: boolean; error?: string }>('/api/settings/password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -236,6 +265,13 @@ export const api = {
   applyGUI: () =>
     request<{ success: boolean; message: string }>('/api/gui/apply', {
       method: 'POST',
+    }),
+
+  autoArchiveConversations: (horizon?: string) =>
+    request<AutoArchiveResult>('/api/gui/conversations/auto-archive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ horizon }),
     }),
 
   // Scheduled Task Templates (Automations)

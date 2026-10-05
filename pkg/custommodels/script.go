@@ -46,6 +46,14 @@ func GenerateCustomModelsScript(cfg *Config) string {
                 if (!customConfig.models) customConfig.models = [];
                 if (!customConfig.project_binds) customConfig.project_binds = {};
               }
+              if (typeof window !== "undefined" && !window.__swissCustomModelsWatched) {
+                window.__swissCustomModelsWatched = true;
+                try {
+                  fs.watch(cfgFile, () => {
+                    refreshCustomConfig();
+                  });
+                } catch (_) {}
+              }
             }
           } catch (_) {}
         }
@@ -64,7 +72,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
     }
 
     refreshCustomConfig();
-    setInterval(refreshCustomConfig, 30000);
+    setInterval(refreshCustomConfig, 5000);
 
     function getActiveProjectName() {
       // Detect current project name from document title, active sidebar row, or workspace header
@@ -134,7 +142,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
         // Render / update thinking level switcher pill if custom model supports thinking
         let thinkingPill = document.querySelector("#swiss-thinking-level-pill");
         if (activeCustomModel && activeCustomModel.supports_thinking) {
-          const curLevel = activeCustomModel.thinking_level || "medium";
+          const curLevel = activeCustomModel.thinking_level || "high";
           const levels = (activeCustomModel.thinking_levels && activeCustomModel.thinking_levels.length > 0)
             ? activeCustomModel.thinking_levels
             : ["off", "low", "medium", "high"];
@@ -150,7 +158,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
               e.stopPropagation();
               e.preventDefault();
               const activeMod = (customConfig?.models || []).find(m => m.id === activeCustomModel.id);
-              const cLevel = activeMod?.thinking_level || "medium";
+              const cLevel = activeMod?.thinking_level || "high";
               const idx = levels.indexOf(cLevel);
               const nextIdx = (idx + 1) %% levels.length;
               const nextLevel = levels[nextIdx];
@@ -262,32 +270,26 @@ func GenerateCustomModelsScript(cfg *Config) string {
 
       const parentEl = menuItems[0]?.parentElement;
       if (parentEl) {
-        // Create "Custom Model" container
-        const customContainer = document.createElement("div");
-        customContainer.className = "swiss-custom-models-menu-group";
-
-        // Subtle native divider
-        const separator = document.createElement("div");
-        separator.setAttribute("role", "separator");
-        separator.style.cssText = "height: 1px; background: var(--border, rgba(0, 0, 0, 0.08)); margin: 4px -4px 3px -4px;";
-        customContainer.appendChild(separator);
-
-        // Native Section Header matching factory "Model" header
-        const customHeader = document.createElement("div");
-        customHeader.setAttribute("data-testid", "custom-models-header");
-        customHeader.className = "text-xs px-2 pt-1 pb-1 text-muted-foreground font-medium select-none";
-        customHeader.textContent = "Custom Model";
-        customHeader.style.cssText = "padding: 3px 8px 3px 8px; font-size: 12px; font-weight: 500; color: var(--muted-foreground, #71717a); user-select: none;";
-        customContainer.appendChild(customHeader);
-
         const customModels = (customConfig?.models || []).filter(m => m.enabled);
-        if (customModels.length === 0) {
-          const emptyItem = document.createElement("div");
-          emptyItem.className = "text-xs text-muted-foreground px-2 py-1 select-none";
-          emptyItem.style.cssText = "padding: 3px 8px; font-size: 12px; color: var(--muted-foreground, #71717a); font-style: italic; opacity: 0.75;";
-          emptyItem.textContent = "No custom models configured";
-          customContainer.appendChild(emptyItem);
-        } else {
+        if (customModels.length > 0) {
+          // Create "Custom Model" container
+          const customContainer = document.createElement("div");
+          customContainer.className = "swiss-custom-models-menu-group";
+
+          // Subtle native divider
+          const separator = document.createElement("div");
+          separator.setAttribute("role", "separator");
+          separator.style.cssText = "height: 1px; background: var(--border, rgba(0, 0, 0, 0.08)); margin: 4px -4px 3px -4px;";
+          customContainer.appendChild(separator);
+
+          // Native Section Header matching factory "Model" header
+          const customHeader = document.createElement("div");
+          customHeader.setAttribute("data-testid", "custom-models-header");
+          customHeader.className = "text-xs px-2 pt-1 pb-1 text-muted-foreground font-medium select-none";
+          customHeader.textContent = "Custom Model";
+          customHeader.style.cssText = "padding: 3px 8px 3px 8px; font-size: 12px; font-weight: 500; color: var(--muted-foreground, #71717a); user-select: none;";
+          customContainer.appendChild(customHeader);
+
           customModels.forEach(m => {
             const isCurrentlyActive = (activeCustomModel && activeCustomModel.id === m.id);
             const itemEl = document.createElement("div");
@@ -353,20 +355,24 @@ func GenerateCustomModelsScript(cfg *Config) string {
 
             customContainer.appendChild(itemEl);
           });
-        }
 
-        if (bottomAction && bottomAction.parentElement === parentEl) {
-          parentEl.insertBefore(customContainer, bottomAction);
-        } else {
-          parentEl.appendChild(customContainer);
+          if (bottomAction && bottomAction.parentElement === parentEl) {
+            parentEl.insertBefore(customContainer, bottomAction);
+          } else {
+            parentEl.appendChild(customContainer);
+          }
         }
       }
     }
 
     // 2. Hook "Models & Usage" Settings Page with Progress Rings matching native Google AI card styling
     function updateModelsAndUsagePage() {
-      // Look for Models & Usage view container
-      const headings = Array.from(document.querySelectorAll("h1, h2, h3, div"));
+      // Fast-path: Only check if settings modal or tab container is actually present
+      const settingsContainer = document.querySelector(".settings-tab-content, [role='dialog'], [data-testid='models-usage-container']");
+      if (!settingsContainer) return;
+
+      // Look for Models & Usage view container within settings
+      const headings = Array.from(settingsContainer.querySelectorAll("h1, h2, h3, div"));
       const modelsPageHeader = headings.find(h => {
         const t = (h.textContent || "").trim();
         return t === "Models & Usage" || t === "Models" || t.includes("Model Quotas");
@@ -375,7 +381,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
       if (!modelsPageHeader) return;
 
       // Find cards container
-      const cardsContainer = document.querySelector(".model-quota-cards, .quota-grid, [data-testid='models-usage-container']") ||
+      const cardsContainer = settingsContainer.querySelector(".model-quota-cards, .quota-grid, [data-testid='models-usage-container']") ||
         modelsPageHeader.closest(".settings-tab-content") ||
         modelsPageHeader.parentElement;
 
@@ -468,15 +474,31 @@ func GenerateCustomModelsScript(cfg *Config) string {
       section.innerHTML = html;
     }
 
+    let scheduledRaf = null;
+    let isUpdatingCustomModels = false;
+
     function runCustomModelHooks() {
-      updateModelSelector();
-      updateModelsAndUsagePage();
+      if (isUpdatingCustomModels) return;
+      isUpdatingCustomModels = true;
+      try {
+        updateModelSelector();
+        updateModelsAndUsagePage();
+      } finally {
+        setTimeout(() => { isUpdatingCustomModels = false; }, 32);
+      }
     }
 
     if (window.__swissCustomModelsObserverInstance) {
       window.__swissCustomModelsObserverInstance.disconnect();
     }
-    window.__swissCustomModelsObserverInstance = new MutationObserver(() => requestAnimationFrame(runCustomModelHooks));
+    window.__swissCustomModelsObserverInstance = new MutationObserver(() => {
+      if (isUpdatingCustomModels) return;
+      if (scheduledRaf) return;
+      scheduledRaf = requestAnimationFrame(() => {
+        scheduledRaf = null;
+        runCustomModelHooks();
+      });
+    });
     window.__swissCustomModelsObserverInstance.observe(document.body, { childList: true, subtree: true });
 
     runCustomModelHooks();

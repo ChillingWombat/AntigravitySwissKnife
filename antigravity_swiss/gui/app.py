@@ -42,7 +42,15 @@ def run_gui(
     config: Optional[SwissKnifeConfig] = None,
 ) -> int:
     """Run GUI event loop."""
-    app, window = create_app(controller=controller, config=config)
+    cfg = config or SwissKnifeConfig.load()
+    app, window = create_app(controller=controller, config=cfg)
+
+    if cfg.app_password_enabled and cfg.app_password_hash:
+        from antigravity_swiss.gui.dialogs.app_unlock_dialog import AppUnlockDialog
+        dialog = AppUnlockDialog(password_hash=cfg.app_password_hash)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return 0
+
     window.show()
     return app.exec()
 

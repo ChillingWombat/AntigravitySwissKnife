@@ -64,7 +64,7 @@ func (s *Store) load() error {
 	var raw map[string]interface{}
 	if err := json.Unmarshal(data, &raw); err == nil {
 		if _, ok := raw["active_conversation_bold"]; !ok {
-			cfg.ActiveConversationBold = true
+			cfg.ActiveConversationBold = false
 		}
 	}
 	if cfg.ActiveConversationIndicator == "" {
@@ -78,6 +78,24 @@ func (s *Store) load() error {
 	}
 	if cfg.ArchivedProjects == nil {
 		cfg.ArchivedProjects = []string{}
+	}
+	if cfg.ConversationTabsMode == "" {
+		cfg.ConversationTabsMode = "fixed"
+	}
+	if cfg.ConversationTabsFixedLimit <= 0 || cfg.ConversationTabsFixedLimit > 10 {
+		cfg.ConversationTabsFixedLimit = 6
+	}
+	if cfg.ConversationTabsAgeThreshold == "" {
+		cfg.ConversationTabsAgeThreshold = "1d"
+	}
+	if cfg.ConversationTabsMin <= 0 {
+		cfg.ConversationTabsMin = 2
+	}
+	if cfg.ConversationTabsMax <= 0 {
+		cfg.ConversationTabsMax = 6
+	}
+	if cfg.AutoArchiveHorizon == "" {
+		cfg.AutoArchiveHorizon = "30d"
 	}
 	s.config = &cfg
 	return nil
@@ -157,6 +175,13 @@ func (s *Store) GetConfig() Config {
 		ProjectOrder:                orderCopy,
 		ArchivedProjects:            archivedCopy,
 		TintOpacity:                 s.config.TintOpacity,
+		ConversationTabsMode:        s.config.ConversationTabsMode,
+		ConversationTabsFixedLimit:  s.config.ConversationTabsFixedLimit,
+		ConversationTabsAgeThreshold: s.config.ConversationTabsAgeThreshold,
+		ConversationTabsMin:         s.config.ConversationTabsMin,
+		ConversationTabsMax:         s.config.ConversationTabsMax,
+		AutoArchiveConversations:    s.config.AutoArchiveConversations,
+		AutoArchiveHorizon:          s.config.AutoArchiveHorizon,
 		AutoInject:                  s.config.AutoInject,
 	}
 }
@@ -175,6 +200,24 @@ func (s *Store) UpdateConfig(cfg *Config) error {
 	}
 	if cfg.TintOpacity <= 0 {
 		cfg.TintOpacity = 0.14
+	}
+	if cfg.ConversationTabsMode == "" {
+		cfg.ConversationTabsMode = "fixed"
+	}
+	if cfg.ConversationTabsFixedLimit <= 0 || cfg.ConversationTabsFixedLimit > 10 {
+		cfg.ConversationTabsFixedLimit = 6
+	}
+	if cfg.ConversationTabsAgeThreshold == "" {
+		cfg.ConversationTabsAgeThreshold = "1d"
+	}
+	if cfg.ConversationTabsMin <= 0 {
+		cfg.ConversationTabsMin = 2
+	}
+	if cfg.ConversationTabsMax <= 0 {
+		cfg.ConversationTabsMax = 6
+	}
+	if cfg.AutoArchiveHorizon == "" {
+		cfg.AutoArchiveHorizon = "30d"
 	}
 	s.config = cfg
 	s.mu.Unlock()

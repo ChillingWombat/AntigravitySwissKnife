@@ -32,9 +32,9 @@ func HexToRGB(hex string) (int, int, int, error) {
 	return 0, 0, 0, fmt.Errorf("hex string must be 3 or 6 chars: %s", hex)
 }
 
-// GenerateCSS generates custom CSS stylesheet content for all configured project colors.
+// GenerateCSS generates custom CSS stylesheet content for all configured project colors and GUI improvements.
 func GenerateCSS(cfg *Config) string {
-	if cfg == nil || !cfg.Enabled || (!cfg.ColorStylingEnabled && len(cfg.ArchivedProjects) == 0) || (len(cfg.ProjectColors) == 0 && len(cfg.ArchivedProjects) == 0) {
+	if cfg == nil || !cfg.Enabled || (!cfg.ColorStylingEnabled && len(cfg.ArchivedProjects) == 0 && cfg.ConversationTabsMode == "") {
 		return "/* Antigravity Swiss Knife Project Styling Disabled */"
 	}
 
@@ -196,6 +196,84 @@ func GenerateCSS(cfg *Config) string {
 		}
 	}
 
+	// Conversation Tabs Expand/Contract Divider with centered circular pill and solid triangle indicator
+	sb.WriteString(`
+/* Antigravity Swiss Knife - Conversation Tabs Divider */
+div:has(> button[data-swiss-divider="true"]),
+div:has(> [data-swiss-divider="true"]) {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  margin: 0 !important;
+}
+button[data-swiss-divider="true"] {
+  padding: 0 !important;
+  margin: 0 !important;
+  width: 100% !important;
+}
+.swiss-convo-tabs-divider {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+  cursor: pointer !important;
+  user-select: none !important;
+}
+.swiss-convo-tabs-line {
+  width: 100% !important;
+  height: 1px !important;
+  background: rgba(148, 163, 184, 0.35) !important;
+  transition: background-color 0.18s ease !important;
+}
+.swiss-convo-tabs-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 16px !important;
+  height: 11px !important;
+  margin-bottom: 2px !important;
+  color: #64748b !important;
+  font-size: 8px !important;
+  transition: all 0.18s ease !important;
+}
+.swiss-convo-tabs-triangle {
+  display: inline-block !important;
+  font-size: 8px !important;
+  line-height: 1 !important;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+[data-theme="dark"] .swiss-convo-tabs-line,
+.dark .swiss-convo-tabs-line {
+  background: rgba(148, 163, 184, 0.22) !important;
+}
+[data-theme="dark"] .swiss-convo-tabs-pill,
+.dark .swiss-convo-tabs-pill {
+  color: #94a3b8 !important;
+}
+
+/* Hover effects */
+button[data-swiss-divider="true"]:hover .swiss-convo-tabs-line,
+.swiss-convo-tabs-divider:hover .swiss-convo-tabs-line,
+[data-swiss-custom-divider]:hover .swiss-convo-tabs-line {
+  background: rgba(148, 163, 184, 0.65) !important;
+}
+button[data-swiss-divider="true"]:hover .swiss-convo-tabs-pill,
+.swiss-convo-tabs-divider:hover .swiss-convo-tabs-pill,
+[data-swiss-custom-divider]:hover .swiss-convo-tabs-pill {
+  color: #1e293b !important;
+  transform: scale(1.18) !important;
+}
+[data-theme="dark"] button[data-swiss-divider="true"]:hover .swiss-convo-tabs-pill,
+.dark button[data-swiss-divider="true"]:hover .swiss-convo-tabs-pill,
+[data-theme="dark"] [data-swiss-custom-divider]:hover .swiss-convo-tabs-pill,
+.dark [data-swiss-custom-divider]:hover .swiss-convo-tabs-pill {
+  color: #f1f5f9 !important;
+}
+`)
+
 	return sb.String()
 }
 
@@ -214,6 +292,27 @@ func GenerateScript(cfg *Config) string {
 	}
 	archivedJSON, _ := json.Marshal(archivedProjects)
 
+	tabsMode := "fixed"
+	if cfg != nil && cfg.ConversationTabsMode != "" {
+		tabsMode = cfg.ConversationTabsMode
+	}
+	tabsFixedLimit := 6
+	if cfg != nil && cfg.ConversationTabsFixedLimit > 0 {
+		tabsFixedLimit = cfg.ConversationTabsFixedLimit
+	}
+	tabsAgeThreshold := "1d"
+	if cfg != nil && cfg.ConversationTabsAgeThreshold != "" {
+		tabsAgeThreshold = cfg.ConversationTabsAgeThreshold
+	}
+	tabsMin := 2
+	if cfg != nil && cfg.ConversationTabsMin > 0 {
+		tabsMin = cfg.ConversationTabsMin
+	}
+	tabsMax := 6
+	if cfg != nil && cfg.ConversationTabsMax > 0 {
+		tabsMax = cfg.ConversationTabsMax
+	}
+
 	baseScript := fmt.Sprintf(`(() => {
   const css = %s;
   const isEnabled = %t;
@@ -221,11 +320,16 @@ func GenerateScript(cfg *Config) string {
   const isDragEnabled = %t;
   const configuredOrder = %s;
   const archivedProjects = %s;
+  const tabsMode = %q;
+  const tabsFixedLimit = %d;
+  const tabsAgeThreshold = %q;
+  const tabsMin = %d;
+  const tabsMax = %d;
   window.__swissArchivedProjects = Array.isArray(archivedProjects) ? archivedProjects : [];
 
   // 1. Manage stylesheet
   let styleEl = document.getElementById("antigravity-swiss-styles");
-  if (!isColorEnabled) {
+  if (!isEnabled) {
     if (styleEl) styleEl.remove();
     document.querySelectorAll("[data-swiss-project]").forEach(el => el.removeAttribute("data-swiss-project"));
   } else {
@@ -273,37 +377,70 @@ func GenerateScript(cfg *Config) string {
         }
       });
 
-      let offsetAdjustment = 0;
-      const itemsList = container.querySelectorAll(":scope > [data-index]");
+      // Determine hidden indices for archived projects
+      const hiddenIndices = new Set();
+      if (activeArchived && activeArchived.length > 0) {
+        items.forEach((it, idx) => {
+          if (it.type === "header") {
+            const isArchived = activeArchived.includes(it.label) || activeArchived.includes(it.id.replace("header-", ""));
+            if (isArchived) hiddenIndices.add(idx);
+          } else if (it.type === "row") {
+            const gid = it.groupId;
+            const isArchived = activeArchived.includes(headerMap[gid]) || activeArchived.includes(gid);
+            if (isArchived) hiddenIndices.add(idx);
+          } else if (it.type === "show-more") {
+            const gid = it.groupId;
+            const isArchived = activeArchived.includes(headerMap[gid]) || activeArchived.includes(gid);
+            if (isArchived) hiddenIndices.add(idx);
+          }
+        });
+      }
+
+      // Clean up any obsolete custom divider DOM elements
+      container.querySelectorAll(".swiss-custom-divider").forEach(el => el.remove());
+
+      const itemsList = Array.from(container.querySelectorAll(":scope > [data-index]"));
+      itemsList.sort((a, b) => parseInt(a.getAttribute("data-index"), 10) - parseInt(b.getAttribute("data-index"), 10));
+
       itemsList.forEach(el => {
         try {
           const idx = parseInt(el.getAttribute("data-index"), 10);
           const item = items[idx];
           if (!item) return;
 
-          const isArchived = (item.type === "header" && (activeArchived.includes(item.label) || activeArchived.includes(item.id.replace("header-", "")))) ||
-                             (item.type === "row" && (activeArchived.includes(headerMap[item.groupId]) || activeArchived.includes(item.groupId)));
+          // Clean up legacy baseline translateY attributes
+          delete el.dataset.origTranslateY;
+          delete el.dataset.swissBaselineIdx;
 
-          if (isArchived) {
+          if (hiddenIndices.has(idx)) {
             el.style.display = "none";
-            offsetAdjustment += (item.type === "header" ? 37 : 33);
             return;
           }
 
           el.style.display = "";
-          const origTransform = el.style.transform;
-          const m = origTransform ? origTransform.match(/translateY\((\d+(\.\d+)?)px\)/) : null;
-          if (m) {
-            if (!el.dataset.origTranslateY || Math.abs(parseFloat(el.dataset.origTranslateY) - parseFloat(m[1])) > (offsetAdjustment + 5)) {
-              el.dataset.origTranslateY = m[1];
+
+          // Project conversation row color tinting
+          if (item.type === "row" && item.groupId) {
+            const pName = headerMap[item.groupId];
+            if (pName) {
+              const row = el.matches('[data-testid="conversation-row-sidebar"]')
+                ? el
+                : el.querySelector('[data-testid="conversation-row-sidebar"]');
+              if (isColorEnabled) {
+                el.setAttribute("data-swiss-project", pName);
+                if (row) row.setAttribute("data-swiss-project", pName);
+              } else {
+                el.removeAttribute("data-swiss-project");
+                if (row) row.removeAttribute("data-swiss-project");
+              }
             }
-            if (offsetAdjustment > 0) {
-              const origY = parseFloat(el.dataset.origTranslateY);
-              const newY = Math.max(0, origY - offsetAdjustment);
-              el.style.transform = "translateY(" + newY + "px)";
-            } else if (el.dataset.origTranslateY) {
-              el.style.transform = "translateY(" + el.dataset.origTranslateY + "px)";
-              delete el.dataset.origTranslateY;
+          }
+
+          // Project show-more button handling: preserve native button text and event handlers
+          if (item.type === "show-more") {
+            const btn = el.querySelector("button");
+            if (btn && btn.getAttribute("data-swiss-divider") === "true") {
+              btn.removeAttribute("data-swiss-divider");
             }
           }
 
@@ -371,20 +508,6 @@ func GenerateScript(cfg *Config) string {
               headerGroup.removeAttribute("draggable");
               headerGroup.style.cursor = "";
             }
-          } else if (item.type === "row") {
-            const pName = headerMap[item.groupId];
-            if (pName) {
-              const row = el.matches('[data-testid="conversation-row-sidebar"]')
-                ? el
-                : el.querySelector('[data-testid="conversation-row-sidebar"]');
-              if (isColorEnabled) {
-                el.setAttribute("data-swiss-project", pName);
-                if (row) row.setAttribute("data-swiss-project", pName);
-              } else {
-                el.removeAttribute("data-swiss-project");
-                if (row) row.removeAttribute("data-swiss-project");
-              }
-            }
           }
         } catch (_) {}
       });
@@ -419,199 +542,249 @@ func GenerateScript(cfg *Config) string {
           }
         })();
       }
+      if (typeof window.__swissEnhanceProjectOptionsMenu === "function") {
+        window.__swissEnhanceProjectOptionsMenu();
+      }
     } catch (_) {}
   }
 
-  // 3. Right-Click Context Menu for Project Colors (5 Presets + 10x10 Custom Palette)
+  // 3. Project Options Menu Enhancement (New Conversation, Archive, Set Color with 5 Presets + 10x10 Custom Palette)
   const HUES = [0, 24, 42, 85, 145, 175, 205, 250, 285, 325];
-    const LIGHTNESSES = [90, 82, 74, 65, 56, 48, 40, 32, 24, 16];
-    const GRID_COLORS = [];
-    for (let r = 0; r < 10; r++) {
-      const l = LIGHTNESSES[r];
-      for (let c = 0; c < 10; c++) {
-        GRID_COLORS.push("hsl(" + HUES[c] + ", 82%%, " + l + "%%)");
-      }
+  const LIGHTNESSES = [90, 82, 74, 65, 56, 48, 40, 32, 24, 16];
+  const GRID_COLORS = [];
+  for (let r = 0; r < 10; r++) {
+    const l = LIGHTNESSES[r];
+    for (let c = 0; c < 10; c++) {
+      GRID_COLORS.push("hsl(" + HUES[c] + ", 82%%, " + l + "%%)");
     }
+  }
 
-    const PRESET_COLORS = [
-      { name: "Blue", hex: "#0b57d0" },
-      { name: "Purple", hex: "#7c3aed" },
-      { name: "Emerald", hex: "#059669" },
-      { name: "Amber", hex: "#d97706" },
-      { name: "Coral", hex: "#dc2626" },
-    ];
+  const PRESET_COLORS = [
+    { name: "Blue", hex: "#0b57d0" },
+    { name: "Purple", hex: "#7c3aed" },
+    { name: "Emerald", hex: "#059669" },
+    { name: "Amber", hex: "#d97706" },
+    { name: "Coral", hex: "#dc2626" },
+  ];
 
-    window.__showSwissColorMenu = function(x, y, projectName) {
-      let menu = document.getElementById("swiss-project-context-menu");
-      if (menu) menu.remove();
+  // Remove legacy floating context menu if present
+  window.__showSwissColorMenu = function() {};
+  const oldCtxMenu = document.getElementById("swiss-project-context-menu");
+  if (oldCtxMenu) oldCtxMenu.remove();
 
-      menu = document.createElement("div");
-      menu.id = "swiss-project-context-menu";
-      menu.style.cssText = "position: fixed; left: " + Math.min(x, window.innerWidth - 245) + "px; top: " + Math.min(y, window.innerHeight - 360) + "px; z-index: 999999; background: var(--card, #fbfbfb); border: 1px solid var(--border, rgba(0, 0, 0, 0.08)); border-radius: 10px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05); width: 232px; padding: 4px; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 13px; color: var(--foreground, #101010); user-select: none;";
+  if (!window.__swissToast) {
+    window.__swissToast = function(msg) {
+      let t = document.getElementById("swiss-toast-notification");
+      if (t) t.remove();
+      t = document.createElement("div");
+      t.id = "swiss-toast-notification";
+      t.style.cssText = "position: fixed; bottom: 24px; right: 24px; z-index: 9999999; background: var(--card, #ffffff); color: var(--foreground, #101010); border: 1px solid var(--border, rgba(0, 0, 0, 0.08)); padding: 8px 14px; border-radius: 8px; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 12px; font-weight: 500; box-shadow: 0 4px 12px rgba(0,0,0,0.08); pointer-events: none; transition: opacity 0.3s ease; opacity: 1;";
+      t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(() => {
+        t.style.opacity = "0";
+        setTimeout(() => t.remove(), 300);
+      }, 2500);
+    };
+  }
 
-      var html = '<div style="padding: 4px 6px 3px 6px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">' +
-        '<span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 190px; font-size: 12px; font-weight: 500; color: var(--muted-foreground, #71717a); line-height: 1.4;">' + projectName + '</span>' +
-        '<button id="swiss-close-menu" style="border: none; background: transparent; cursor: pointer; color: var(--muted-foreground, #9ca3af); font-size: 15px; line-height: 1; padding: 0 2px; border-radius: 4px; transition: color 0.1s;" onmouseenter="this.style.color=\'var(--foreground, #101010)\'" onmouseleave="this.style.color=\'var(--muted-foreground, #9ca3af)\'">&times;</button>' +
-      '</div>' +
+  // Track the most recently clicked project options button
+  if (!window.__swissProjectOptionsTrackerBound) {
+    window.__swissProjectOptionsTrackerBound = true;
+    document.addEventListener("pointerdown", (e) => {
+      const btn = e.target.closest('button[aria-label="Project options"]');
+      if (btn) {
+        const header = btn.closest('[data-swiss-project], [class*="group/header"], [data-project-id], [data-project-label]');
+        let pName = header?.getAttribute("data-swiss-project") ||
+                    header?.getAttribute("data-project-label") ||
+                    header?.querySelector("[data-project-card]")?.getAttribute("data-swiss-project");
+        if (!pName) {
+          const card = header?.querySelector("[data-project-card]") || header;
+          pName = card ? card.textContent.trim() : "";
+        }
+        window.__swissLastClickedProject = { name: pName, time: Date.now() };
+        if (typeof window.__swissEnhanceProjectOptionsMenu === "function") {
+          requestAnimationFrame(window.__swissEnhanceProjectOptionsMenu);
+          setTimeout(window.__swissEnhanceProjectOptionsMenu, 50);
+          setTimeout(window.__swissEnhanceProjectOptionsMenu, 150);
+        }
+      }
+    }, true);
+  }
 
-      '<div style="height: 1px; background: var(--border, rgba(0, 0, 0, 0.075)); margin: 2px 0 3px 0;"></div>' +
+  function enhanceProjectOptionsMenu() {
+    try {
+      const menu = document.querySelector('[role="menu"]');
+      if (!menu) return;
 
-      '<div id="swiss-settings-action" class="swiss-menu-item" style="padding: 5px 8px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; margin-bottom: 1px; font-size: 13px; font-weight: 400; color: var(--secondary-foreground, #4a4a4a); white-space: nowrap; transition: background 0.1s, color 0.1s;">' +
-        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.8; flex-shrink: 0;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>' +
-        '<span>Project Settings</span>' +
-      '</div>' +
+      const deleteItem = menu.querySelector('[data-testid="group-header-delete-item"]')?.closest('[role="menuitem"]');
+      const copyItem = menu.querySelector('[data-testid="group-header-copy-item"]');
+      const settingsItem = menu.querySelector('[data-testid="group-header-settings-item"]');
 
-      '<div id="swiss-new-convo-action" class="swiss-menu-item" style="padding: 5px 8px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; margin-bottom: 1px; font-size: 13px; font-weight: 400; color: var(--secondary-foreground, #4a4a4a); white-space: nowrap; transition: background 0.1s, color 0.1s;">' +
-        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.8; flex-shrink: 0;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
-        '<span>New Conversation in Project</span>' +
-      '</div>' +
+      if (!deleteItem && !copyItem && !settingsItem) return;
 
-      '<div id="swiss-archive-action" class="swiss-menu-item" style="padding: 5px 8px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; margin-bottom: 1px; font-size: 13px; font-weight: 400; color: #c2410c; white-space: nowrap; transition: background 0.1s, color 0.1s;">' +
-        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><polyline points="21 8 21 21 3 21 3 8"/><rect width="22" height="5" x="1" y="3" rx="1"/><line x1="10" x2="14" y1="12" y2="12"/></svg>' +
-        '<span>Hide / Archive Project</span>' +
-      '</div>' +
+      let projectName = "";
+      const labelledBy = menu.getAttribute("aria-labelledby");
+      const triggerEl = labelledBy ? document.getElementById(labelledBy) : null;
+      if (triggerEl) {
+        const header = triggerEl.closest('[data-swiss-project], [class*="group/header"], [data-project-id], [data-project-label]');
+        projectName = header?.getAttribute("data-swiss-project") ||
+                      header?.getAttribute("data-project-label") ||
+                      header?.querySelector("[data-project-card]")?.getAttribute("data-swiss-project");
+        if (!projectName) {
+          const card = header?.querySelector("[data-project-card]") || header;
+          projectName = card ? card.textContent.trim() : "";
+        }
+      }
+      if (!projectName && window.__swissLastClickedProject && (Date.now() - window.__swissLastClickedProject.time < 3000)) {
+        projectName = window.__swissLastClickedProject.name;
+      }
+      if (!projectName) return;
 
-      '<div id="swiss-copy-action" class="swiss-menu-item" style="padding: 5px 8px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; margin-bottom: 2px; font-size: 13px; font-weight: 400; color: var(--secondary-foreground, #4a4a4a); white-space: nowrap; transition: background 0.1s, color 0.1s;">' +
-        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.8; flex-shrink: 0;"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>' +
-        '<span>Copy Project Name</span>' +
-      '</div>' +
+      const currentVer = "v2_archive";
+      if (menu.__swissMenuVersion === currentVer && menu.__swissProjectBound === projectName && menu.querySelector("#swiss-menu-archive-action")?.onclick) return;
+      menu.__swissMenuVersion = currentVer;
+      menu.__swissProjectBound = projectName;
 
-      '<div style="height: 1px; background: var(--border, rgba(0, 0, 0, 0.075)); margin: 3px 0 2px 0;"></div>' +
+      menu.querySelectorAll("#swiss-menu-archive-action, #swiss-menu-new-convo-action, #swiss-menu-color-group").forEach(el => el.remove());
 
-      '<div style="display: flex; justify-content: space-between; align-items: center; padding: 2px 6px; margin-top: 2px; margin-bottom: 4px;">' +
-        '<span style="font-size: 11px; font-weight: 500; color: var(--muted-foreground, #71717a); letter-spacing: 0.2px;">Set Color</span>' +
-        '<button class="swiss-reset-color-btn" style="border: none; background: transparent; color: var(--muted-foreground, #a1a1aa); font-size: 10px; font-weight: 400; cursor: pointer; padding: 0; transition: color 0.1s;" onmouseenter="this.style.color=\'#ef4444\'" onmouseleave="this.style.color=\'var(--muted-foreground, #a1a1aa)\'">Reset</button>' +
-      '</div>' +
+      const closeMenu = () => {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      };
 
-      '<div style="display: flex; gap: 6px; padding: 1px 6px 4px 6px; align-items: center; justify-content: flex-start;">' +
-        PRESET_COLORS.map(function(p) {
-          return '<div class="swiss-preset-swatch" data-color="' + p.hex + '" title="' + p.name + '" style="width: 15px; height: 15px; border-radius: 50%%; background: ' + p.hex + '; cursor: pointer; transition: transform 0.12s, box-shadow 0.12s; border: 1.5px solid transparent; flex-shrink: 0;"></div>';
-        }).join("") +
-        '<div id="swiss-custom-trigger" title="Custom 10x10 Palette" style="width: 15px; height: 15px; border-radius: 50%%; background: conic-gradient(from 0deg, #6c5ce7, #a259c6, #e05260, #e66735, #e69d28, #d4be22, #88b832, #3db862, #2ca88b, #259cb8, #2d7ee8, #4c6ee0, #6c5ce7); cursor: pointer; transition: transform 0.12s, box-shadow 0.12s; border: 1.5px solid transparent; flex-shrink: 0;"></div>' +
-      '</div>' +
-
-      '<div id="swiss-custom-grid-container" style="display: none; margin-top: 4px; padding: 2px 4px 4px 4px;">' +
-        '<div style="font-size: 10px; font-weight: 500; color: var(--muted-foreground, #71717a); margin-bottom: 4px; padding: 0 2px;">10&times;10 Palette</div>' +
-        '<div id="swiss-color-grid" style="display: grid; grid-template-columns: repeat(10, 16px); gap: 3px; justify-content: center; background: var(--muted, rgba(0, 0, 0, 0.03)); padding: 6px; border-radius: 6px; border: 1px solid var(--border, rgba(0, 0, 0, 0.075));">' +
-          GRID_COLORS.map(function(c) {
-            return '<div class="swiss-grid-cell" data-color="' + c + '" style="width: 16px; height: 16px; border-radius: 50%%; background: ' + c + '; cursor: pointer; transition: transform 0.12s;"></div>';
-          }).join("") +
-        '</div>' +
-      '</div>';
-
-      menu.innerHTML = html;
-
-      document.body.appendChild(menu);
-
-      document.getElementById("swiss-close-menu").onclick = () => menu.remove();
-
-      const setItemHover = (el, isWarn) => {
+      const setItemHover = (el) => {
         if (!el) return;
         el.onmouseenter = () => {
           el.style.background = "var(--secondary, rgba(0, 0, 0, 0.06))";
-          el.style.color = isWarn ? "#b45309" : "var(--foreground, #101010)";
+          el.style.color = "var(--foreground, #101010)";
         };
         el.onmouseleave = () => {
           el.style.background = "transparent";
-          el.style.color = isWarn ? "#c2410c" : "var(--secondary-foreground, #4a4a4a)";
+          el.style.color = "var(--secondary-foreground, #4a4a4a)";
         };
       };
 
-      const settingsBtn = document.getElementById("swiss-settings-action");
-      if (settingsBtn) {
-        setItemHover(settingsBtn, false);
-        settingsBtn.onclick = async () => {
-          menu.remove();
-          try {
-            await fetch("http://127.0.0.1:8765/api/gui/projects/open_settings", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ name: projectName })
-            });
-          } catch (e) {
-            console.warn("[SwissKnife] Open settings failed:", e);
-          }
-        };
-      }
+      // 1. New Conversation
+      const newConvoItem = document.createElement("div");
+      newConvoItem.setAttribute("role", "menuitem");
+      newConvoItem.setAttribute("tabindex", "-1");
+      newConvoItem.id = "swiss-menu-new-convo-action";
+      newConvoItem.className = "w-full pr-2 pl-2 text-left text-[13px] cursor-pointer outline-none no-focus-ring transition-colors select-none flex items-center rounded-md py-1 gap-1.5 text-secondary-foreground";
+      newConvoItem.style.cssText = "transition: background 0.1s, color 0.1s;";
+      newConvoItem.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="shrink-0" style="margin-left: 1px; margin-right: 1px;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
+        '<span>New Conversation</span>';
+      setItemHover(newConvoItem);
 
-      const newConvoBtn = document.getElementById("swiss-new-convo-action");
-      if (newConvoBtn) {
-        setItemHover(newConvoBtn, false);
-        newConvoBtn.onclick = () => {
-          menu.remove();
-          let gid = null;
-          try {
-            const indexedSample = document.querySelector(".w-full.relative > [data-index]");
-            const container = indexedSample?.parentElement;
-            const key = container ? Object.keys(container).find(k => k.startsWith("__reactFiber")) : null;
-            let fiber = key ? container[key] : null;
-            while (fiber) {
-              if (fiber.memoizedProps?.items) {
-                const h = fiber.memoizedProps.items.find(it => it.type === "header" && it.label === projectName);
-                if (h) gid = h.id.replace("header-", "");
-                break;
-              }
-              fiber = fiber.return;
+      newConvoItem.onclick = () => {
+        closeMenu();
+        let gid = null;
+        try {
+          const indexedSample = document.querySelector(".w-full.relative > [data-index]");
+          const container = indexedSample?.parentElement;
+          const key = container ? Object.keys(container).find(k => k.startsWith("__reactFiber")) : null;
+          let fiber = key ? container[key] : null;
+          while (fiber) {
+            if (fiber.memoizedProps?.items) {
+              const h = fiber.memoizedProps.items.find(it => it.type === "header" && it.label === projectName);
+              if (h) gid = h.id.replace("header-", "");
+              break;
             }
-          } catch (_) {}
-          if (gid) {
-            window.location.href = "/?section=" + gid;
+            fiber = fiber.return;
           }
-        };
-      }
-
-      const archiveBtn = document.getElementById("swiss-archive-action");
-      if (archiveBtn) {
-        setItemHover(archiveBtn, true);
-        archiveBtn.onclick = async () => {
-          menu.remove();
-          try {
-            if (!archivedProjects.includes(projectName)) {
-              archivedProjects.push(projectName);
-            }
-            if (window.__swissArchivedProjects && !window.__swissArchivedProjects.includes(projectName)) {
-              window.__swissArchivedProjects.push(projectName);
-            }
-            if (typeof window.__swissUpdateTagsAndDraggables === "function") {
-              requestAnimationFrame(window.__swissUpdateTagsAndDraggables);
-            } else {
-              requestAnimationFrame(updateTagsAndDraggables);
-            }
-            await fetch("http://127.0.0.1:8765/api/gui/projects/archive", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ name: projectName })
-            });
-            if (window.__swissToast) {
-              window.__swissToast("Project archived: " + projectName);
-            }
-          } catch (e) {
-            console.warn("[SwissKnife] Archive failed:", e);
-          }
-        };
-      }
-
-      const copyBtn = document.getElementById("swiss-copy-action");
-      setItemHover(copyBtn, false);
-      copyBtn.onclick = () => {
-        navigator.clipboard.writeText(projectName);
-        copyBtn.innerHTML = "<span>&check; Copied!</span>";
-        setTimeout(() => menu.remove(), 600);
+        } catch (_) {}
+        if (gid) {
+          window.location.href = "/?section=" + gid;
+        }
       };
 
-      const customTrig = document.getElementById("swiss-custom-trigger");
+      // 2. Archive
+      const archiveItem = document.createElement("div");
+      archiveItem.setAttribute("role", "menuitem");
+      archiveItem.setAttribute("tabindex", "-1");
+      archiveItem.id = "swiss-menu-archive-action";
+      archiveItem.className = "w-full pr-2 pl-2 text-left text-[13px] cursor-pointer outline-none no-focus-ring transition-colors select-none flex items-center rounded-md py-1 gap-1.5 text-secondary-foreground";
+      archiveItem.style.cssText = "transition: background 0.1s, color 0.1s;";
+      archiveItem.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="shrink-0" style="margin-left: 1px; margin-right: 1px;"><polyline points="21 8 21 21 3 21 3 8"/><rect width="22" height="5" x="1" y="3" rx="1"/><line x1="10" x2="14" y1="12" y2="12"/></svg>' +
+        '<span>Archive</span>';
+      setItemHover(archiveItem);
+
+      archiveItem.onclick = async () => {
+        closeMenu();
+        if (window.__swissToast) {
+          window.__swissToast("Project archived: " + projectName);
+        }
+        try {
+          if (!archivedProjects.includes(projectName)) {
+            archivedProjects.push(projectName);
+          }
+          if (window.__swissArchivedProjects && !window.__swissArchivedProjects.includes(projectName)) {
+            window.__swissArchivedProjects.push(projectName);
+          }
+          if (typeof window.__swissUpdateTagsAndDraggables === "function") {
+            requestAnimationFrame(window.__swissUpdateTagsAndDraggables);
+          } else {
+            requestAnimationFrame(updateTagsAndDraggables);
+          }
+          await fetch("http://127.0.0.1:8765/api/gui/projects/archive", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: projectName })
+          });
+        } catch (e) {
+          console.warn("[SwissKnife] Archive backend sync:", e);
+        }
+      };
+
+      if (deleteItem) {
+        deleteItem.parentNode.insertBefore(newConvoItem, deleteItem);
+        deleteItem.parentNode.insertBefore(archiveItem, deleteItem);
+      } else {
+        menu.appendChild(newConvoItem);
+        menu.appendChild(archiveItem);
+      }
+
+      // 3. Set Color group
+      const colorGroup = document.createElement("div");
+      colorGroup.id = "swiss-menu-color-group";
+      colorGroup.style.cssText = "margin-top: 1px;";
+
+      colorGroup.innerHTML = '<div role="separator" style="height: 1px; background: var(--border, rgba(0, 0, 0, 0.08)); margin: 4px -4px 3px -4px;"></div>' +
+        '<div style="display: flex; justify-content: space-between; align-items: center; padding: 2px 8px 3px 8px;">' +
+          '<span style="font-size: 11px; font-weight: 500; color: var(--muted-foreground, #71717a); user-select: none;">Set Color</span>' +
+          '<button class="swiss-menu-reset-btn swiss-reset-color-btn" style="border: none; background: transparent; color: var(--muted-foreground, #a1a1aa); font-size: 10px; font-weight: 400; cursor: pointer; padding: 0; transition: color 0.1s;" onmouseenter="this.style.color=\'#ef4444\'" onmouseleave="this.style.color=\'var(--muted-foreground, #a1a1aa)\'">Reset</button>' +
+        '</div>' +
+        '<div style="display: flex; gap: 6px; padding: 2px 8px 4px 8px; align-items: center;">' +
+          PRESET_COLORS.map(function(p) {
+            return '<div class="swiss-preset-swatch swiss-menu-swatch" data-color="' + p.hex + '" title="' + p.name + '" style="width: 15px; height: 15px; border-radius: 50%%; background: ' + p.hex + '; cursor: pointer; transition: transform 0.12s; border: 1.5px solid transparent; flex-shrink: 0;"></div>';
+          }).join("") +
+          '<div id="swiss-custom-trigger" class="swiss-menu-custom-trigger" title="Custom 10x10 Palette" style="width: 15px; height: 15px; border-radius: 50%%; background: conic-gradient(from 0deg, #6c5ce7, #a259c6, #e05260, #e66735, #e69d28, #d4be22, #88b832, #3db862, #2ca88b, #259cb8, #2d7ee8, #4c6ee0, #6c5ce7); cursor: pointer; transition: transform 0.12s; border: 1.5px solid transparent; flex-shrink: 0;"></div>' +
+        '</div>' +
+        '<div id="swiss-custom-grid-container" class="swiss-menu-custom-grid" style="display: none; padding: 2px 6px 4px 6px;">' +
+          '<div style="display: grid; grid-template-columns: repeat(10, 16px); gap: 3px; justify-content: center; background: var(--muted, rgba(0, 0, 0, 0.03)); padding: 6px; border-radius: 6px; border: 1px solid var(--border, rgba(0, 0, 0, 0.075));">' +
+            GRID_COLORS.map(function(c) {
+              return '<div class="swiss-grid-cell" data-color="' + c + '" style="width: 16px; height: 16px; border-radius: 50%%; background: ' + c + '; cursor: pointer; transition: transform 0.12s;"></div>';
+            }).join("") +
+          '</div>' +
+        '</div>';
+
+      const customModelsGroup = menu.querySelector(".swiss-custom-models-menu-group");
+      if (customModelsGroup) {
+        customModelsGroup.parentNode.insertBefore(colorGroup, customModelsGroup);
+      } else {
+        menu.appendChild(colorGroup);
+      }
+
+      const customTrig = colorGroup.querySelector("#swiss-custom-trigger");
       if (customTrig) {
         customTrig.onmouseenter = () => {
           customTrig.style.transform = "scale(1.3)";
-          customTrig.style.boxShadow = "0 1px 4px rgba(0,0,0,0.25)";
         };
         customTrig.onmouseleave = () => {
           customTrig.style.transform = "scale(1)";
-          customTrig.style.boxShadow = "none";
         };
         customTrig.onclick = (e) => {
           e.stopPropagation();
-          const gridBox = document.getElementById("swiss-custom-grid-container");
+          const gridBox = colorGroup.querySelector("#swiss-custom-grid-container");
           if (gridBox) {
             gridBox.style.display = (gridBox.style.display === "none") ? "block" : "none";
           }
@@ -619,7 +792,7 @@ func GenerateScript(cfg *Config) string {
       }
 
       const applyColor = async (colorVal) => {
-        menu.remove();
+        closeMenu();
         let hex = colorVal;
         if (colorVal.startsWith("hsl")) {
           const dummy = document.createElement("div");
@@ -633,6 +806,10 @@ func GenerateScript(cfg *Config) string {
           }
         }
 
+        if (window.__swissToast) {
+          window.__swissToast("Updated color for " + projectName);
+        }
+
         try {
           await fetch("http://127.0.0.1:8765/api/gui/color", {
             method: "POST",
@@ -644,23 +821,25 @@ func GenerateScript(cfg *Config) string {
         }
       };
 
-      menu.querySelectorAll(".swiss-preset-swatch, .swiss-grid-cell").forEach(el => {
+      colorGroup.querySelectorAll(".swiss-preset-swatch, .swiss-grid-cell").forEach(el => {
         el.onmouseenter = () => {
           el.style.transform = "scale(1.3)";
           el.style.zIndex = "10";
-          el.style.boxShadow = "0 1px 4px rgba(0,0,0,0.25)";
         };
         el.onmouseleave = () => {
           el.style.transform = "scale(1)";
           el.style.zIndex = "1";
-          el.style.boxShadow = "none";
         };
         el.onclick = () => applyColor(el.getAttribute("data-color"));
       });
 
-      menu.querySelectorAll(".swiss-reset-color-btn").forEach(btn => {
-        btn.onclick = async () => {
-          menu.remove();
+      const resetBtn = colorGroup.querySelector(".swiss-menu-reset-btn");
+      if (resetBtn) {
+        resetBtn.onclick = async () => {
+          closeMenu();
+          if (window.__swissToast) {
+            window.__swissToast("Reset color for " + projectName);
+          }
           try {
             await fetch("http://127.0.0.1:8765/api/gui/projects/delete", {
               method: "POST",
@@ -669,63 +848,39 @@ func GenerateScript(cfg *Config) string {
             });
           } catch (e) {}
         };
-      });
+      }
+    } catch (_) {}
+  }
 
-      const onDocClick = (e) => {
-        if (!menu.contains(e.target)) {
-          menu.remove();
-          document.removeEventListener("pointerdown", onDocClick);
-        }
-      };
-      setTimeout(() => document.addEventListener("pointerdown", onDocClick), 50);
-    };
-
-    if (!window.__swissToast) {
-      window.__swissToast = function(msg) {
-        let t = document.getElementById("swiss-toast-notification");
-        if (t) t.remove();
-        t = document.createElement("div");
-        t.id = "swiss-toast-notification";
-        t.style.cssText = "position: fixed; bottom: 24px; right: 24px; z-index: 9999999; background: var(--card, #ffffff); color: var(--foreground, #101010); border: 1px solid var(--border, rgba(0, 0, 0, 0.08)); padding: 8px 14px; border-radius: 8px; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 12px; font-weight: 500; box-shadow: 0 4px 12px rgba(0,0,0,0.08); pointer-events: none; transition: opacity 0.3s ease; opacity: 1;";
-        t.textContent = msg;
-        document.body.appendChild(t);
-        setTimeout(() => {
-          t.style.opacity = "0";
-          setTimeout(() => t.remove(), 300);
-        }, 2500);
-      };
-    }
-
-    if (!window.__swissContextMenuBound) {
-      window.__swissContextMenuBound = true;
-      document.addEventListener("contextmenu", (e) => {
-        const header = e.target.closest('[data-project-card], [class*="group/header"], [data-project-id], [data-project-label]');
-        if (header) {
-          e.preventDefault();
-          e.stopPropagation();
-          let pName = header.getAttribute("data-swiss-project") ||
-                      header.getAttribute("data-project-label") ||
-                      header.querySelector("[data-project-card]")?.getAttribute("data-swiss-project") ||
-                      header.querySelector("[data-swiss-project]")?.getAttribute("data-swiss-project");
-          if (!pName) {
-            const card = header.querySelector("[data-project-card]") || header;
-            pName = card.textContent.trim();
-          }
-          if (pName) {
-            window.__showSwissColorMenu(e.clientX, e.clientY, pName);
-          }
-        }
-      }, true);
-    }
-
+  window.__swissEnhanceProjectOptionsMenu = enhanceProjectOptionsMenu;
   window.__swissUpdateTagsAndDraggables = updateTagsAndDraggables;
-  updateTagsAndDraggables();
+
+  let isUpdatingSwiss = false;
+  let scheduledRafSwiss = null;
 
   function triggerSwissUpdate() {
-    if (typeof window.__swissUpdateTagsAndDraggables === "function") {
-      requestAnimationFrame(window.__swissUpdateTagsAndDraggables);
-    }
+    if (isUpdatingSwiss) return;
+    if (scheduledRafSwiss) return;
+    scheduledRafSwiss = requestAnimationFrame(() => {
+      scheduledRafSwiss = null;
+      if (isUpdatingSwiss) return;
+      isUpdatingSwiss = true;
+      try {
+        if (typeof window.__swissUpdateTagsAndDraggables === "function") {
+          window.__swissUpdateTagsAndDraggables();
+        }
+        if (typeof window.__swissEnhanceProjectOptionsMenu === "function") {
+          window.__swissEnhanceProjectOptionsMenu();
+        }
+      } finally {
+        setTimeout(() => {
+          isUpdatingSwiss = false;
+        }, 32);
+      }
+    });
   }
+
+  triggerSwissUpdate();
 
   // 1. Global capturing scroll & wheel listeners (catches all scrolling immediately)
   if (!window.__swissScrollCaptured) {
@@ -744,31 +899,42 @@ func GenerateScript(cfg *Config) string {
   }
   bindSidebarScroll();
 
-  // 3. MutationObserver watching childList and dynamic attributes
-  if (!window.__swissObserverAttached) {
-    window.__swissObserverAttached = true;
-    const ob = new MutationObserver(() => {
-      bindSidebarScroll();
-      triggerSwissUpdate();
-    });
-    ob.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["data-selected", "data-index", "data-testid"]
-    });
+  // 3. MutationObserver watching childList and dynamic attributes with re-entrancy protection
+  if (window.__swissObserverInstance) {
+    try { window.__swissObserverInstance.disconnect(); } catch (_) {}
   }
+  const ob = new MutationObserver((mutations) => {
+    if (isUpdatingSwiss) return;
+    let relevant = false;
+    for (const m of mutations) {
+      const t = m.target;
+      if (t && (t.id === "antigravity-swiss-styles" || t.id === "swiss-project-context-menu" || t.id === "swiss-custom-models-section" || t.hasAttribute?.("data-swiss-divider") || t.classList?.contains("swiss-convo-tabs-divider") || t.classList?.contains("swiss-convo-tabs-pill"))) {
+        continue;
+      }
+      relevant = true;
+      break;
+    }
+    if (!relevant) return;
+
+    bindSidebarScroll();
+    triggerSwissUpdate();
+  });
+  window.__swissObserverInstance = ob;
+  ob.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["data-selected", "data-index", "data-testid", "data-open", "role"]
+  });
 
   // 4. Fallback interval so no virtualized row ever misses its project styling
-  if (!window.__swissIntervalAttached) {
-    window.__swissIntervalAttached = true;
-    setInterval(() => {
-      bindSidebarScroll();
-      if (typeof window.__swissUpdateTagsAndDraggables === "function") {
-        window.__swissUpdateTagsAndDraggables();
-      }
-    }, 250);
+  if (window.__swissIntervalId) {
+    clearInterval(window.__swissIntervalId);
   }
+  window.__swissIntervalId = setInterval(() => {
+    bindSidebarScroll();
+    triggerSwissUpdate();
+  }, 1000);
 
   return {
     applied: true,
@@ -776,7 +942,7 @@ func GenerateScript(cfg *Config) string {
     dragEnabled: isDragEnabled,
     taggedCount: document.querySelectorAll("[data-swiss-project]").length
   };
-})();`, string(cssJSON), enabled, colorStylingEnabled, dragRearrangeEnabled, string(orderJSON), string(archivedJSON))
+})();`, string(cssJSON), enabled, colorStylingEnabled, dragRearrangeEnabled, string(orderJSON), string(archivedJSON), tabsMode, tabsFixedLimit, tabsAgeThreshold, tabsMin, tabsMax)
 
 	var cmCfg *custommodels.Config
 	if cmStore, err := custommodels.NewStore(""); err == nil {

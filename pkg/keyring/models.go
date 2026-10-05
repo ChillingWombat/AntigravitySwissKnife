@@ -8,6 +8,9 @@ type Account struct {
 	Label        string    `json:"label,omitempty"`
 	PlanTier     string    `json:"plan_tier,omitempty"`
 	Status       string    `json:"status,omitempty"`
+	Priority     string    `json:"priority,omitempty"`
+	Notes        string    `json:"notes,omitempty"`
+	Password     string    `json:"password,omitempty"`
 	TOTPSecret   string    `json:"totp_secret,omitempty"`
 	HasTOTP      bool      `json:"has_totp"`
 	IsActive     bool      `json:"is_active"`

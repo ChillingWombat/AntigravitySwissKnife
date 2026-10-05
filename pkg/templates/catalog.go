@@ -2,7 +2,7 @@ package templates
 
 // GetDefaultTemplates returns the full catalog of curated templates.
 func GetDefaultTemplates() []ScheduledTemplate {
-	return []ScheduledTemplate{
+	templates := []ScheduledTemplate{
 		// -------------------------------------------------------------
 		// Category 1: Personal Assistant & Daily Life (For Ordinary People)
 		// -------------------------------------------------------------
@@ -503,4 +503,11 @@ Instructions:
 4. Conclude with 2 actionable strategic recommendations for our roadmap.`,
 		},
 	}
+
+	for i := range templates {
+		if templates[i].DefaultSchedule.ScheduleText == "" {
+			templates[i].DefaultSchedule.ScheduleText = FormatSchedule(templates[i].DefaultSchedule)
+		}
+	}
+	return templates
 }

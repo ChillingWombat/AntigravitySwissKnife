@@ -1,9 +1,10 @@
-import React, { useState } from 'react'
-import { X, Trash2, Save, KeyRound, Tag, RefreshCw } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check } from 'lucide-react'
 import type { AccountState } from '../types'
 import { HorizontalQuotaBar } from './HorizontalQuotaBar'
 import { ToggleSwitch } from './ToggleSwitch'
 import { api } from '../api'
+import { generateTOTP } from '../utils/totp'
 
 interface AccountDetailModalProps {
   account: AccountState
@@ -17,12 +18,78 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   onSaved,
 }) => {
   const [label, setLabel] = useState(account.label || '')
-  const [planTier, setPlanTier] = useState(account.plan_tier || 'Pro')
+  const [priority, setPriority] = useState<string>(account.priority || 'High')
+  const [password, setPassword] = useState(account.password || '')
+  const [showPassword, setShowPassword] = useState(false)
   const [totpSecret, setTotpSecret] = useState(account.totp_secret || '')
+  const [showTotp, setShowTotp] = useState(false)
   const [refreshToken, setRefreshToken] = useState(account.refresh_token || '')
+  const [showOAuth, setShowOAuth] = useState(false)
+  const [isExtractingOAuth, setIsExtractingOAuth] = useState(false)
+  const [oauthSuccessMsg, setOauthSuccessMsg] = useState<string | null>(null)
+  const [status, setStatus] = useState<string>(account.status || (account.is_active ? 'ACTIVE' : 'STANDBY'))
+  const [planTier, setPlanTier] = useState(account.plan_tier || 'Pro')
+  const [notes, setNotes] = useState(account.notes || '')
   const [setActive, setSetActive] = useState(account.is_active)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Real-time derived 6-number verification code
+  const [derivedCode, setDerivedCode] = useState<string | null>(null)
+  const [formattedCode, setFormattedCode] = useState<string>('--- ---')
+  const [remainingSeconds, setRemainingSeconds] = useState<number>(30)
+  const [copiedTotp, setCopiedTotp] = useState(false)
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval>
+    const updateCode = async () => {
+      const clean = totpSecret?.trim()
+      if (!clean) {
+        setDerivedCode(null)
+        setFormattedCode('--- ---')
+        return
+      }
+      const res = await generateTOTP(clean)
+      if (res) {
+        setDerivedCode(res.code)
+        setFormattedCode(res.formattedCode)
+        setRemainingSeconds(res.remainingSeconds)
+      } else {
+        setDerivedCode(null)
+        setFormattedCode('--- ---')
+      }
+    }
+
+    updateCode()
+    timer = setInterval(updateCode, 1000)
+    return () => clearInterval(timer)
+  }, [totpSecret])
+
+  const handleCopyTotpCode = () => {
+    if (!derivedCode) return
+    navigator.clipboard.writeText(derivedCode)
+    setCopiedTotp(true)
+    setTimeout(() => setCopiedTotp(false), 1500)
+  }
+
+  const handleExtractGoogleOAuth = async () => {
+    setIsExtractingOAuth(true)
+    setError(null)
+    setOauthSuccessMsg(null)
+    try {
+      const res = await api.startGoogleOAuth()
+      if (res.success && res.refresh_token) {
+        setRefreshToken(res.refresh_token)
+        setOauthSuccessMsg(`Extracted token successfully for ${res.email || account.email}`)
+      } else {
+        setError(res.error || 'Failed to extract OAuth token from Google')
+      }
+    } catch (err: any) {
+      setError(err.message || 'Google OAuth extraction failed or timed out')
+    } finally {
+      setIsExtractingOAuth(false)
+    }
+  }
 
   const handleSave = async () => {
     setIsSaving(true)
@@ -32,6 +99,10 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         email: account.email,
         label: label.trim(),
         plan_tier: planTier,
+        status: status,
+        priority: priority,
+        password: password,
+        notes: notes.trim(),
         totp_secret: totpSecret.trim().toUpperCase(),
         refresh_token: refreshToken.trim(),
         set_active: setActive,
@@ -62,6 +133,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     }
   }
 
+  const st = (status || (account.is_active ? 'ACTIVE' : 'STANDBY')).toUpperCase()
+
   return (
     <div
       style={{
@@ -79,9 +152,9 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       <div
         className="google-card"
         style={{
-          width: '560px',
-          maxWidth: '92vw',
-          maxHeight: '90vh',
+          width: '580px',
+          maxWidth: '94vw',
+          maxHeight: '92vh',
           overflowY: 'auto',
           padding: '24px',
           backgroundColor: '#ffffff',
@@ -95,14 +168,24 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text)' }}>
-                {account.label || account.email}
+                {label || account.email}
               </h2>
-              <span className={`badge-chip ${account.is_active ? 'badge-green' : 'badge-neutral'}`}>
-                {account.is_active ? 'ACTIVE' : 'STANDBY'}
+              <span
+                className={`badge-chip ${
+                  st === 'BANNED'
+                    ? 'badge-red'
+                    : st === 'ERROR'
+                    ? 'badge-yellow'
+                    : account.is_active
+                    ? 'badge-green'
+                    : 'badge-neutral'
+                }`}
+              >
+                {st}
               </span>
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-              {account.label ? `${account.email} • ` : ''}Managed Session Account • {account.reset_horizon_text || 'Reset horizon calculating...'}
+              {account.email} • Priority: <span style={{ fontWeight: 600 }}>{priority}</span> • {account.reset_horizon_text || 'Reset horizon calculating...'}
             </div>
           </div>
           <button
@@ -120,6 +203,44 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           </button>
         </div>
 
+        {st === 'BANNED' && (
+          <div
+            style={{
+              backgroundColor: 'var(--red-bg)',
+              color: 'var(--red)',
+              padding: '10px 14px',
+              borderRadius: '8px',
+              fontSize: '12px',
+              marginBottom: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <ShieldAlert size={16} />
+            <span>Account banned or suspended upstream. Please appeal via Google or discard this account.</span>
+          </div>
+        )}
+
+        {st === 'ERROR' && (
+          <div
+            style={{
+              backgroundColor: 'var(--yellow-bg)',
+              color: 'var(--yellow)',
+              padding: '10px 14px',
+              borderRadius: '8px',
+              fontSize: '12px',
+              marginBottom: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <ShieldAlert size={16} />
+            <span>Authentication error. Verification or token re-extraction required.</span>
+          </div>
+        )}
+
         {error && (
           <div
             style={{
@@ -135,24 +256,39 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           </div>
         )}
 
+        {oauthSuccessMsg && (
+          <div
+            style={{
+              backgroundColor: 'var(--green-bg)',
+              color: 'var(--green)',
+              padding: '10px 14px',
+              borderRadius: '8px',
+              fontSize: '12px',
+              marginBottom: '16px',
+            }}
+          >
+            {oauthSuccessMsg}
+          </div>
+        )}
+
         {/* Live Quota Metrics Section */}
         <div
           style={{
             backgroundColor: 'var(--canvas)',
             border: '1px solid var(--border)',
             borderRadius: '12px',
-            padding: '16px',
-            marginBottom: '20px',
+            padding: '14px 16px',
+            marginBottom: '18px',
           }}
         >
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', marginBottom: '12px', textTransform: 'uppercase' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', marginBottom: '10px', textTransform: 'uppercase' }}>
             Live Quota Metrics
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
-                <span style={{ fontWeight: 500, color: 'var(--text)' }}>Next 5 Hours Quota:</span>
+                <span style={{ fontWeight: 500, color: 'var(--text)' }}>5H Quota:</span>
                 <span style={{ color: 'var(--text-muted)' }}>{account.reset_horizon_text}</span>
               </div>
               <HorizontalQuotaBar
@@ -164,7 +300,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
-                <span style={{ fontWeight: 500, color: 'var(--text)' }}>Weekly Horizon Quota:</span>
+                <span style={{ fontWeight: 500, color: 'var(--text)' }}>Weekly Quota:</span>
                 <span style={{ color: 'var(--text-muted)' }}>7-day allowance</span>
               </div>
               <HorizontalQuotaBar
@@ -177,7 +313,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         </div>
 
         {/* Form Fields */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px' }}>
+          {/* Account Alias */}
           <div>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
               <Tag size={14} /> Account Alias:
@@ -191,13 +328,14 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             />
           </div>
 
+          {/* Account Priority directly below Account Alias */}
           <div>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
-              Plan Tier / Membership:
+              Account Priority:
             </label>
             <select
-              value={planTier}
-              onChange={(e) => setPlanTier(e.target.value)}
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
               style={{
                 width: '100%',
                 backgroundColor: 'var(--canvas)',
@@ -208,44 +346,262 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 color: 'var(--text)',
               }}
             >
-              <option value="Free">Free (Standard free tier)</option>
-              <option value="Plus">Plus (Paid Plus)</option>
-              <option value="Pro">Pro (Full paid Pro)</option>
-              <option value="Pro - Trial">Pro - Trial (Pro trial membership)</option>
-              <option value="Edu">Edu (Educational paid subscription)</option>
-              <option value="Ultra 5X">Ultra 5X (5X quota multiplier)</option>
-              <option value="Ultra 10X">Ultra 10X (10X quota multiplier)</option>
-              <option value="Ultra 20X">Ultra 20X (20X maximum tier)</option>
+              <option value="High">High (Prioritized first in auto rotation)</option>
+              <option value="Mid">Mid (Normal rotation priority)</option>
+              <option value="Low">Low (Fallback standby only)</option>
             </select>
           </div>
 
+          {/* Optional Password / Vault field (hidden by default with eye toggle) */}
           <div>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
-              <KeyRound size={14} /> RFC 6238 TOTP MFA Secret (Base32):
+              <Lock size={14} /> Password (Optional / Vault):
             </label>
-            <input
-              type="text"
-              placeholder="e.g. JBSWY3DPEHPK3PXP"
-              value={totpSecret}
-              onChange={(e) => setTotpSecret(e.target.value)}
-              style={{ width: '100%', fontFamily: 'monospace' }}
-            />
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                placeholder="Optional login password or vault credential"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{ width: '100%', paddingRight: '40px' }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={{
+                  position: 'absolute',
+                  right: '8px',
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '4px',
+                }}
+                title={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
 
+          {/* OAuth Refresh Token with eye toggle & Google extraction button */}
           <div>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
               <RefreshCw size={14} /> OAuth Refresh Token:
             </label>
-            <input
-              type="password"
-              placeholder="1//... (Leave unchanged to preserve active credential)"
-              value={refreshToken}
-              onChange={(e) => setRefreshToken(e.target.value)}
-              style={{ width: '100%', fontFamily: 'monospace' }}
-            />
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center' }}>
+                <input
+                  type={showOAuth ? 'text' : 'password'}
+                  placeholder="1//... (Leave unchanged or extract via Google)"
+                  value={refreshToken}
+                  onChange={(e) => setRefreshToken(e.target.value)}
+                  style={{ width: '100%', fontFamily: 'monospace', paddingRight: '40px' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowOAuth(!showOAuth)}
+                  style={{
+                    position: 'absolute',
+                    right: '8px',
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '4px',
+                  }}
+                  title={showOAuth ? 'Hide OAuth token' : 'Show OAuth token'}
+                >
+                  {showOAuth ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={handleExtractGoogleOAuth}
+                disabled={isExtractingOAuth}
+                className="btn-pill-outlined"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                  padding: '7px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  backgroundColor: 'var(--primary-light)',
+                  color: 'var(--primary)',
+                  borderColor: 'var(--primary)',
+                }}
+                title="Open browser to login with Google and extract token"
+              >
+                <LogIn size={14} />
+                {isExtractingOAuth ? 'Waiting...' : 'Sign in with Google'}
+              </button>
+            </div>
           </div>
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', cursor: 'pointer', marginTop: '4px' }}>
+          {/* MFA / TOTP Secret Key with header-level verification code and copy button */}
+          <div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '6px',
+              }}
+            >
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: 'var(--text-muted)',
+                }}
+              >
+                <KeyRound size={14} /> MFA / TOTP Secret Key (Base32):
+              </label>
+
+              {/* Right end: Current derived 6-number verification code and tiny copy button */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span
+                  style={{
+                    fontFamily: 'monospace',
+                    fontSize: '12px',
+                    fontWeight: derivedCode ? 700 : 500,
+                    letterSpacing: '1px',
+                    color: derivedCode ? 'var(--green, #34a853)' : 'var(--text-muted)',
+                    backgroundColor: derivedCode ? 'var(--green-bg, rgba(52, 168, 83, 0.1))' : 'var(--hover)',
+                    padding: '2px 8px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border)',
+                  }}
+                  title={
+                    derivedCode
+                      ? `Current derived 6-number verification code (${remainingSeconds}s remaining)`
+                      : 'No MFA secret configured'
+                  }
+                >
+                  {formattedCode}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={handleCopyTotpCode}
+                  disabled={!derivedCode}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '3px 8px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    backgroundColor: copiedTotp ? 'var(--green-bg, rgba(52,168,83,0.15))' : 'var(--card-bg, #ffffff)',
+                    color: copiedTotp ? 'var(--green, #34a853)' : (!derivedCode ? 'var(--text-muted)' : 'var(--text)'),
+                    border: '1px solid var(--border)',
+                    borderRadius: '6px',
+                    cursor: derivedCode ? 'pointer' : 'not-allowed',
+                    opacity: derivedCode ? 1 : 0.5,
+                    transition: 'all 0.15s ease',
+                  }}
+                  title={derivedCode ? (copiedTotp ? 'Copied!' : 'Copy verification code') : 'No code to copy'}
+                >
+                  {copiedTotp ? <Check size={12} /> : <Copy size={12} />}
+                  <span>{copiedTotp ? 'Copied' : 'Copy'}</span>
+                </button>
+              </div>
+            </div>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <input
+                type={showTotp ? 'text' : 'password'}
+                placeholder="e.g. JBSWY3DPEHPK3PXP"
+                value={totpSecret}
+                onChange={(e) => setTotpSecret(e.target.value)}
+                style={{ width: '100%', fontFamily: 'monospace', paddingRight: '40px' }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowTotp(!showTotp)}
+                style={{
+                  position: 'absolute',
+                  right: '8px',
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '4px',
+                }}
+                title={showTotp ? 'Hide MFA secret' : 'Show MFA secret'}
+              >
+                {showTotp ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+
+          {/* Status & Plan Tier */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                Account Status:
+              </label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+                style={{
+                  width: '100%',
+                  backgroundColor: 'var(--canvas)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  padding: '8px 12px',
+                  fontSize: '13px',
+                  color: 'var(--text)',
+                }}
+              >
+                <option value="STANDBY">STANDBY</option>
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="ERROR">ERROR</option>
+                <option value="BANNED">BANNED</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                Plan Tier / Membership:
+              </label>
+              <select
+                value={planTier}
+                onChange={(e) => setPlanTier(e.target.value)}
+                style={{
+                  width: '100%',
+                  backgroundColor: 'var(--canvas)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  padding: '8px 12px',
+                  fontSize: '13px',
+                  color: 'var(--text)',
+                }}
+              >
+                <option value="Free">Free</option>
+                <option value="Plus">Plus</option>
+                <option value="Pro">Pro</option>
+                <option value="Pro - Trial">Pro - Trial</option>
+                <option value="Edu">Edu</option>
+                <option value="Ultra 5X">Ultra 5X</option>
+                <option value="Ultra 10X">Ultra 10X</option>
+                <option value="Ultra 20X">Ultra 20X</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Active account toggle */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', cursor: 'pointer', marginTop: '2px' }}>
             <ToggleSwitch
               size="sm"
               checked={setActive}
@@ -253,6 +609,31 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             />
             <span>Set as active Antigravity account upon save</span>
           </label>
+
+          {/* Section at bottom to write notes */}
+          <div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+              <FileText size={14} /> Account Notes:
+            </label>
+            <textarea
+              placeholder="Write private notes, recovery details, or usage reminders for this account..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              style={{
+                width: '100%',
+                backgroundColor: 'var(--canvas)',
+                border: '1px solid var(--border)',
+                borderRadius: '8px',
+                padding: '8px 12px',
+                fontSize: '12px',
+                color: 'var(--text)',
+                resize: 'vertical',
+                minHeight: '60px',
+                fontFamily: 'inherit',
+              }}
+            />
+          </div>
         </div>
 
         {/* Footer Actions */}
