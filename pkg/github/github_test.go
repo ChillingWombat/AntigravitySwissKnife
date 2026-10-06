@@ -117,3 +117,58 @@ func TestDetectRepositoryLive(t *testing.T) {
 		t.Errorf("expected full name ChillingWombat/AntigravitySwissKnife, got %q", repo.FullName)
 	}
 }
+
+func TestGetKanbanBoardLive(t *testing.T) {
+	svc := NewService(nil, nil)
+	repo, err := svc.DetectRepository(".")
+	if err != nil {
+		t.Fatalf("DetectRepository failed: %v", err)
+	}
+
+	board, err := svc.GetKanbanBoard(repo, 0)
+	if err != nil {
+		t.Fatalf("GetKanbanBoard failed: %v", err)
+	}
+
+	if len(board.Columns) != 4 {
+		t.Fatalf("expected 4 columns, got %d", len(board.Columns))
+	}
+	expectedCols := []string{"todo", "in_progress", "review", "done"}
+	for i, col := range board.Columns {
+		if col.ID != expectedCols[i] {
+			t.Errorf("col %d: expected ID %q, got %q", i, expectedCols[i], col.ID)
+		}
+	}
+}
+
+func TestMoveKanbanCardValidation(t *testing.T) {
+	svc := NewService(nil, nil)
+
+	// Nil repo
+	if err := svc.MoveKanbanCard(nil, &MoveKanbanCardRequest{Number: 1, TargetColumn: "done"}); err == nil {
+		t.Errorf("expected error for nil repo")
+	}
+
+	// Invalid number
+	repo := &RepoInfo{FullName: "test/repo"}
+	if err := svc.MoveKanbanCard(repo, &MoveKanbanCardRequest{Number: 0, TargetColumn: "done"}); err == nil {
+		t.Errorf("expected error for number 0")
+	}
+
+	// Empty target column
+	if err := svc.MoveKanbanCard(repo, &MoveKanbanCardRequest{Number: 1, TargetColumn: ""}); err == nil {
+		t.Errorf("expected error for empty target column")
+	}
+
+	// Invalid target column name
+	if err := svc.MoveKanbanCard(repo, &MoveKanbanCardRequest{Number: 1, TargetColumn: "non_existent_column"}); err == nil {
+		t.Errorf("expected error for invalid target column name")
+	}
+
+	// Nil repo for GetKanbanBoard
+	if _, err := svc.GetKanbanBoard(nil, 0); err == nil {
+		t.Errorf("expected error for nil repo in GetKanbanBoard")
+	}
+}
+
+

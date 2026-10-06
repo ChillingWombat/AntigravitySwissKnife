@@ -396,7 +396,8 @@ export function compareStandbyCandidates(
 export function rankStandbyAccounts(
   accounts: AccountState[],
   threshold: number,
-  mode: SwitchMode = 'balanced'
+  mode: SwitchMode = 'balanced',
+  thresholdWeekly: number = 0.05
 ): AccountState[] {
   const m = normalizeSwitchMode(mode)
   const candidates: AccountState[] = []
@@ -410,7 +411,7 @@ export function rankStandbyAccounts(
     if (cur5h <= threshold) continue
 
     const hasWeekly =
-      (acc.quota_weekly ?? 0) > 0.05 ||
+      (acc.quota_weekly ?? 0) > thresholdWeekly ||
       Boolean(acc.enable_credit_overages && (acc.credits ?? 0) > 0)
     if (!hasWeekly) continue
 
@@ -521,7 +522,8 @@ export function evaluateAutoSwitch(
   activeEmail: string,
   threshold: number,
   mode: SwitchMode = 'balanced',
-  activeDwellSec = 0
+  activeDwellSec = 0,
+  thresholdWeekly: number = 0.05
 ): { shouldSwitch: boolean; successor: AccountState | null; reason: string } {
   const m = normalizeSwitchMode(mode)
   const normActive = activeEmail.toLowerCase().trim()
@@ -529,7 +531,7 @@ export function evaluateAutoSwitch(
     (a) => a.is_active || (normActive !== '' && a.email.toLowerCase().trim() === normActive)
   )
 
-  const ranked = rankStandbyAccounts(accounts, threshold, m)
+  const ranked = rankStandbyAccounts(accounts, threshold, m, thresholdWeekly)
   if (ranked.length === 0) {
     return { shouldSwitch: false, successor: null, reason: 'No eligible standby accounts above threshold' }
   }
@@ -540,12 +542,19 @@ export function evaluateAutoSwitch(
   if (active) {
     const cur5h = active.quota_5h_current ?? active.quota_5h_available ?? 0
     const weekly = active.quota_weekly ?? 0
-    const hasWeekly = weekly > 0.05 || Boolean(active.enable_credit_overages && (active.credits ?? 0) > 0)
+    const hasWeekly = weekly > thresholdWeekly || Boolean(active.enable_credit_overages && (active.credits ?? 0) > 0)
     const is5hBreached = cur5h <= threshold
     const isWeeklyBreached = !hasWeekly
 
     if (is5hBreached || isWeeklyBreached) {
-      const reason = `Active quota (5h: ${(cur5h * 100).toFixed(1)}%, weekly: ${(weekly * 100).toFixed(1)}%) dropped below threshold (${(threshold * 100).toFixed(1)}%)`
+      let reason: string
+      if (is5hBreached && isWeeklyBreached) {
+        reason = `Active quota (5h: ${(cur5h * 100).toFixed(1)}%, weekly: ${(weekly * 100).toFixed(1)}%) dropped below thresholds (5h: ${(threshold * 100).toFixed(1)}%, weekly: ${(thresholdWeekly * 100).toFixed(1)}%)`
+      } else if (is5hBreached) {
+        reason = `Active 5h quota (${(cur5h * 100).toFixed(1)}%) dropped below threshold (${(threshold * 100).toFixed(1)}%)`
+      } else {
+        reason = `Active weekly quota (${(weekly * 100).toFixed(1)}%) dropped below threshold (${(thresholdWeekly * 100).toFixed(1)}%)`
+      }
       return { shouldSwitch: true, successor: best, reason }
     }
   }
@@ -566,7 +575,8 @@ export function sortAccounts(
   activeEmail: string,
   threshold: number,
   mode: SortMode,
-  switchMode?: SwitchMode
+  switchMode?: SwitchMode,
+  thresholdWeekly: number = 0.05
 ): AccountState[] {
   const copy = [...accounts]
   const swMode = normalizeSwitchMode(switchMode)
@@ -635,7 +645,7 @@ export function sortAccounts(
 
     const cur5h = a.quota_5h_current ?? a.quota_5h_available ?? 0
     const weekly = a.quota_weekly ?? 0
-    const hasWeekly = weekly > 0.05 || Boolean(a.enable_credit_overages && (a.credits ?? 0) > 0)
+    const hasWeekly = weekly > thresholdWeekly || Boolean(a.enable_credit_overages && (a.credits ?? 0) > 0)
     const isBelow = cur5h <= threshold || !hasWeekly
 
     if (!isBelow) {

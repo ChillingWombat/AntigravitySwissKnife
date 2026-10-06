@@ -21,6 +21,7 @@ from antigravity_swiss.core.constants import (
     DEFAULT_ANTIGRAVITY_CONFIG_DIR,
     DEFAULT_ANTIGRAVITY_DATA_DIR,
     DEFAULT_AUTO_SWITCH_THRESHOLD_FRACTION,
+    DEFAULT_AUTO_SWITCH_WEEKLY_THRESHOLD_FRACTION,
     DEFAULT_CLIENT_TIMEOUT_SECONDS,
     DEFAULT_POLLING_INTERVAL_SECONDS,
     DEFAULT_PROCESS_TERMINATE_TIMEOUT_SECONDS,
@@ -35,6 +36,7 @@ from antigravity_swiss.core.constants import (
     ENV_SETTINGS_FILE,
     ENV_SOCKET_PATH,
     ENV_SWITCH_THRESHOLD,
+    ENV_SWITCH_WEEKLY_THRESHOLD,
     ENV_WARMUP_ENABLED,
     MAX_SOCKET_PATH_LEN,
     SOCKET_DIR_MODE,
@@ -108,6 +110,7 @@ class SwissKnifeConfig:
     antigravity_data_dir: Path
     poll_interval_sec: float = DEFAULT_POLLING_INTERVAL_SECONDS
     auto_switch_threshold: float = DEFAULT_AUTO_SWITCH_THRESHOLD_FRACTION
+    auto_switch_weekly_threshold: float = DEFAULT_AUTO_SWITCH_WEEKLY_THRESHOLD_FRACTION
     auto_switch_enabled: bool = True
     warmup_enabled: bool = True
     warmup_model_id: str = DEFAULT_WARMUP_MODEL_ID
@@ -157,6 +160,7 @@ class SwissKnifeConfig:
         payload = {
             "poll_interval_sec": self.poll_interval_sec,
             "auto_switch_threshold": self.auto_switch_threshold,
+            "auto_switch_weekly_threshold": self.auto_switch_weekly_threshold,
             "auto_switch_enabled": self.auto_switch_enabled,
             "warmup_enabled": self.warmup_enabled,
             "warmup_model_id": self.warmup_model_id,
@@ -256,6 +260,8 @@ class SwissKnifeConfig:
                     instance.poll_interval_sec = float(data["poll_interval_sec"])
                 if "auto_switch_threshold" in data:
                     instance.auto_switch_threshold = float(data["auto_switch_threshold"])
+                if "auto_switch_weekly_threshold" in data:
+                    instance.auto_switch_weekly_threshold = float(data["auto_switch_weekly_threshold"])
                 if "auto_switch_enabled" in data:
                     instance.auto_switch_enabled = bool(data["auto_switch_enabled"])
                 if "warmup_enabled" in data:
@@ -282,6 +288,11 @@ class SwissKnifeConfig:
         if os.environ.get(ENV_SWITCH_THRESHOLD):
             try:
                 instance.auto_switch_threshold = float(os.environ[ENV_SWITCH_THRESHOLD])
+            except ValueError:
+                pass
+        if os.environ.get(ENV_SWITCH_WEEKLY_THRESHOLD):
+            try:
+                instance.auto_switch_weekly_threshold = float(os.environ[ENV_SWITCH_WEEKLY_THRESHOLD])
             except ValueError:
                 pass
         if os.environ.get(ENV_AUTO_SWITCH_ENABLED):

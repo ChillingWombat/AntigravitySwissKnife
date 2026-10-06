@@ -396,7 +396,7 @@ func TestGenerateAuxiliaryPluginsScript_MemoViewAndTelemetryBadge(t *testing.T) 
 
 	// Memo view checks
 	memoChecks := []string{
-		`id="swiss-m-record-audio"><svg`,
+		`id="swiss-m-record-audio"`,
 		`<span>Voice Memo</span>`,
 		`id="m-del" title="Delete Memo"`,
 		`<svg viewBox="0 0 24 24" width="11" height="11"`,
@@ -535,17 +535,21 @@ func TestAuxiliaryFileExplorerNavigationToolbar(t *testing.T) {
 		t.Errorf("expected CSS to define .swiss-browser-btn:disabled")
 	}
 
-	// 2. Verify all address bar buttons and input exist in JS
+	// 2. Verify all toolbar buttons and input exist in JS with expected hover titles
 	buttons := []struct {
 		id    string
 		title string
 	}{
-		{"swiss-f-back", "Back"},
-		{"swiss-f-up", "Up Directory"},
 		{"swiss-f-home", "Home Folder"},
 		{"swiss-f-refresh", "Refresh"},
+		{"swiss-f-new-file", "New File"},
+		{"swiss-f-new-dir", "New Folder"},
+		{"swiss-f-back", "Back"},
+		{"swiss-f-up", "Up Directory"},
+		{"swiss-f-hidden", "Toggle Hidden Files"},
 		{"swiss-f-reveal", "Open in System File Manager"},
 		{"swiss-f-term", "Open in Terminal"},
+		{"swiss-f-ide", "Open in VS Code"},
 	}
 
 	for _, b := range buttons {
@@ -557,30 +561,65 @@ func TestAuxiliaryFileExplorerNavigationToolbar(t *testing.T) {
 		}
 	}
 
-	// 3. Verify ordering: swiss-f-back, swiss-f-up, swiss-f-home, swiss-f-refresh appear BEFORE swiss-f-path;
-	// swiss-f-reveal and swiss-f-term appear AFTER swiss-f-path
-	idxBack := strings.Index(js, `id="swiss-f-back"`)
-	idxUp := strings.Index(js, `id="swiss-f-up"`)
+	// 3. Verify two-row layout ordering:
+	// Row 1 (address bar): swiss-f-home < swiss-f-refresh < swiss-f-path < swiss-f-new-file < swiss-f-new-dir
+	// Row 2 (search/actions bar): swiss-f-back < swiss-f-up < swiss-f-search < swiss-f-hidden < swiss-f-reveal < swiss-f-term < swiss-f-ide
 	idxHome := strings.Index(js, `id="swiss-f-home"`)
 	idxRefresh := strings.Index(js, `id="swiss-f-refresh"`)
 	idxPath := strings.Index(js, `id="swiss-f-path"`)
+	idxNewFile := strings.Index(js, `id="swiss-f-new-file"`)
+	idxNewDir := strings.Index(js, `id="swiss-f-new-dir"`)
+
+	idxBack := strings.Index(js, `id="swiss-f-back"`)
+	idxUp := strings.Index(js, `id="swiss-f-up"`)
+	idxSearch := strings.Index(js, `id="swiss-f-search"`)
+	idxHidden := strings.Index(js, `id="swiss-f-hidden"`)
 	idxReveal := strings.Index(js, `id="swiss-f-reveal"`)
 	idxTerm := strings.Index(js, `id="swiss-f-term"`)
+	idxIDE := strings.Index(js, `id="swiss-f-ide"`)
 
-	if idxBack == -1 || idxUp == -1 || idxHome == -1 || idxRefresh == -1 || idxPath == -1 || idxReveal == -1 || idxTerm == -1 {
-		t.Fatalf("one or more address bar element IDs not found in JS")
+	if idxHome == -1 || idxRefresh == -1 || idxPath == -1 || idxNewFile == -1 || idxNewDir == -1 ||
+		idxBack == -1 || idxUp == -1 || idxSearch == -1 || idxHidden == -1 || idxReveal == -1 || idxTerm == -1 || idxIDE == -1 {
+		t.Fatalf("one or more toolbar element IDs not found in JS")
 	}
 
-	// Check that Back, Up, Home, Refresh are strictly before Path input
-	if !(idxBack < idxUp && idxUp < idxHome && idxHome < idxRefresh && idxRefresh < idxPath) {
-		t.Errorf("expected button order swiss-f-back < swiss-f-up < swiss-f-home < swiss-f-refresh < swiss-f-path, got indices: back=%d, up=%d, home=%d, refresh=%d, path=%d",
-			idxBack, idxUp, idxHome, idxRefresh, idxPath)
+	// Row 1: Home < Refresh < Path < New File < New Folder
+	if !(idxHome < idxRefresh && idxRefresh < idxPath && idxPath < idxNewFile && idxNewFile < idxNewDir) {
+		t.Errorf("expected Row 1 order swiss-f-home < swiss-f-refresh < swiss-f-path < swiss-f-new-file < swiss-f-new-dir, got indices: home=%d, refresh=%d, path=%d, newFile=%d, newDir=%d",
+			idxHome, idxRefresh, idxPath, idxNewFile, idxNewDir)
 	}
 
-	// Check that Reveal and Term are strictly after Path input
-	if !(idxPath < idxReveal && idxReveal < idxTerm) {
-		t.Errorf("expected path input to be before reveal and term buttons, got indices: path=%d, reveal=%d, term=%d",
-			idxPath, idxReveal, idxTerm)
+	// Row 1 address bar appears before Row 2 search/actions row
+	if !(idxNewDir < idxBack) {
+		t.Errorf("expected Row 1 (new-dir) to appear before Row 2 (back), got: newDir=%d, back=%d", idxNewDir, idxBack)
+	}
+
+	// Row 2: Back < Up < Search < Hidden < Reveal < Term < IDE
+	if !(idxBack < idxUp && idxUp < idxSearch && idxSearch < idxHidden && idxHidden < idxReveal && idxReveal < idxTerm && idxTerm < idxIDE) {
+		t.Errorf("expected Row 2 order swiss-f-back < swiss-f-up < swiss-f-search < swiss-f-hidden < swiss-f-reveal < swiss-f-term < swiss-f-ide, got indices: back=%d, up=%d, search=%d, hidden=%d, reveal=%d, term=%d, ide=%d",
+			idxBack, idxUp, idxSearch, idxHidden, idxReveal, idxTerm, idxIDE)
+	}
+
+	// Verify icon-only attributes and dimensions for New File and New Folder
+	if !strings.Contains(js, `id="swiss-f-new-file" title="New File"><svg viewBox="0 0 24 24" width="13" height="13"`) {
+		t.Errorf("expected swiss-f-new-file to be icon-only with width=13 height=13")
+	}
+	if !strings.Contains(js, `id="swiss-f-new-dir" title="New Folder"><svg viewBox="0 0 24 24" width="13" height="13"`) {
+		t.Errorf("expected swiss-f-new-dir to be icon-only with width=13 height=13")
+	}
+
+	// Verify IDE button dynamic hover title, localStorage persistence, and workspace open API
+	if !strings.Contains(js, "antigravity_preferred_ide") {
+		t.Errorf("expected JS to check antigravity_preferred_ide in localStorage")
+	}
+	if !strings.Contains(js, "/api/files/open_ide") {
+		t.Errorf("expected JS to call /api/files/open_ide endpoint")
+	}
+	if !strings.Contains(js, "getIDELabel") {
+		t.Errorf("expected JS to define getIDELabel helper for dynamic hover title")
+	}
+	if !strings.Contains(js, "ctx-ide") || !strings.Contains(js, "ctx-blank-ide") {
+		t.Errorf("expected JS to include IDE action in row and blank context menus")
 	}
 
 	// 4. Verify history stack, home navigation, monotonic request ID and disabled initialization logic
@@ -874,7 +913,6 @@ func TestBrowserViewNarrowToolbarResponsiveness(t *testing.T) {
 		`title="Quick Ports (Right-click to delete)"`,
 		`<option value="" disabled selected>Quick Ports</option>`,
 		`<option value="__add__">+ Add Port...</option>`,
-		`delOpt.textContent = "Delete Port...";`,
 	}
 	for _, tok := range selectTemplateTokens {
 		if !strings.Contains(js, tok) {
@@ -886,7 +924,6 @@ func TestBrowserViewNarrowToolbarResponsiveness(t *testing.T) {
 	dropdownLogicTokens := []string{
 		`toolbar.querySelector("#swiss-port-select")`,
 		`val === "__add__"`,
-		`val === "__delete__"`,
 		"portSelect.onchange",
 		"portSelect.oncontextmenu",
 		"updateActivePortChip",
@@ -895,13 +932,28 @@ func TestBrowserViewNarrowToolbarResponsiveness(t *testing.T) {
 		"updateToolbarResponsiveness",
 		"ResizeObserver",
 		`toolbar.classList.toggle("compact-ports"`,
+		`toolbar.classList.toggle("compact-tools"`,
 		`row.scrollLeft += e.deltaY`,
-		`await showSwissPrompt("Enter port to delete`,
 	}
 	for _, tok := range dropdownLogicTokens {
 		if !strings.Contains(js, tok) {
 			t.Errorf("expected JS to contain dropdown logic token %q", tok)
 		}
+	}
+
+	// Verify that Delete Port option is removed from select options
+	if strings.Contains(js, "Delete Port...") {
+		t.Errorf("found removed Delete Port... option in auxiliary plugins script")
+	}
+
+	// Verify that port-select.active does not highlight with solid blue background
+	if strings.Contains(css, ".swiss-port-select.active {\n  background: #1a73e8") {
+		t.Errorf("found blue background on .swiss-port-select.active, should not highlight to blue")
+	}
+
+	// Verify tools row can split into two rows when narrow with 620px container query and hidden divider
+	if !strings.Contains(css, "@container swisstoolbar (max-width: 620px)") {
+		t.Errorf("expected CSS to contain max-width: 620px container query for tools row")
 	}
 
 	// 5. David-Design Zero-Decorative-Emoji verification: Ensure no decorative emojis in dropdown options
@@ -978,16 +1030,10 @@ addOpt.value = "__add__";
 addOpt.textContent = "+ Add Port...";
 portSelect.appendChild(addOpt);
 
-const delOpt = new MockElement("option");
-delOpt.value = "__delete__";
-delOpt.textContent = "Delete Port...";
-portSelect.appendChild(delOpt);
-
-assert.strictEqual(portSelect.options.length, 5);
+assert.strictEqual(portSelect.options.length, 4);
 assert.strictEqual(portSelect.value, ""); // defaults to placeholder Quick Ports
 assert.strictEqual(portSelect.options[0].textContent, "Quick Ports");
-assert.strictEqual(portSelect.options[4].textContent, "Delete Port...");
-assert.strictEqual(portSelect.options[4].textContent.includes("🗑"), false);
+assert.strictEqual(portSelect.options[3].textContent, "+ Add Port...");
 
 // 2. Simulate updateActivePortChip
 let currentBrowserUrl = "https://github.com";
@@ -1156,20 +1202,32 @@ func TestAuxiliaryFileExplorerHiddenFilesToggle(t *testing.T) {
 		}
 	}
 
-	// 3. Verify ordering in filter/actions row: search < hidden < new-file < new-dir
-	idxSearch := strings.Index(js, `id="swiss-f-search"`)
-	idxHidden := strings.Index(js, `id="swiss-f-hidden"`)
+	// 3. Verify ordering:
+	// Row 1 (address bar): path < new-file < new-dir
+	// Row 2 (search & actions): search < hidden < reveal < term < ide
+	idxPath := strings.Index(js, `id="swiss-f-path"`)
 	idxNewFile := strings.Index(js, `id="swiss-f-new-file"`)
 	idxNewDir := strings.Index(js, `id="swiss-f-new-dir"`)
+	idxSearch := strings.Index(js, `id="swiss-f-search"`)
+	idxHidden := strings.Index(js, `id="swiss-f-hidden"`)
+	idxReveal := strings.Index(js, `id="swiss-f-reveal"`)
+	idxTerm := strings.Index(js, `id="swiss-f-term"`)
+	idxIDE := strings.Index(js, `id="swiss-f-ide"`)
 
-	if idxSearch == -1 || idxHidden == -1 || idxNewFile == -1 || idxNewDir == -1 {
-		t.Fatalf("one or more filter row elements not found in JS: search=%d, hidden=%d, newFile=%d, newDir=%d",
-			idxSearch, idxHidden, idxNewFile, idxNewDir)
+	if idxPath == -1 || idxNewFile == -1 || idxNewDir == -1 ||
+		idxSearch == -1 || idxHidden == -1 || idxReveal == -1 || idxTerm == -1 || idxIDE == -1 {
+		t.Fatalf("one or more toolbar elements not found in JS: path=%d, newFile=%d, newDir=%d, search=%d, hidden=%d, reveal=%d, term=%d, ide=%d",
+			idxPath, idxNewFile, idxNewDir, idxSearch, idxHidden, idxReveal, idxTerm, idxIDE)
 	}
 
-	if !(idxSearch < idxHidden && idxHidden < idxNewFile && idxNewFile < idxNewDir) {
-		t.Errorf("expected filter row order swiss-f-search < swiss-f-hidden < swiss-f-new-file < swiss-f-new-dir, got: search=%d, hidden=%d, file=%d, dir=%d",
-			idxSearch, idxHidden, idxNewFile, idxNewDir)
+	if !(idxPath < idxNewFile && idxNewFile < idxNewDir) {
+		t.Errorf("expected Row 1 order path < new-file < new-dir, got: path=%d, file=%d, dir=%d",
+			idxPath, idxNewFile, idxNewDir)
+	}
+
+	if !(idxSearch < idxHidden && idxHidden < idxReveal && idxReveal < idxTerm && idxTerm < idxIDE) {
+		t.Errorf("expected Row 2 order search < hidden < reveal < term < ide, got: search=%d, hidden=%d, reveal=%d, term=%d, ide=%d",
+			idxSearch, idxHidden, idxReveal, idxTerm, idxIDE)
 	}
 
 	// 4. Verify Eye and EyeOff icons, localStorage persistence, and toggle logic
@@ -1416,6 +1474,64 @@ assert.strictEqual(notice.style.display, "block");
 	}
 }
 
+func TestGenerateAuxiliaryPluginsScript_VoiceTranscriptionAndAudioPayload(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
 
+	// 1. Verify Web Speech API initialization and configuration
+	speechTokens := []string{
+		"window.SpeechRecognition || window.webkitSpeechRecognition",
+		"speechRecognition = new SpeechRec()",
+		"speechRecognition.continuous = true",
+		"speechRecognition.interimResults = true",
+		`speechRecognition.lang = navigator.language || "en-US"`,
+		"speechRecognition.onresult",
+		"speechRecognition.onerror",
+		"speechRecognition.start()",
+		"speechRecognition.stop()",
+	}
+	for _, tok := range speechTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected auxiliary script to contain Web Speech API token %q", tok)
+		}
+	}
 
+	// 2. Verify audio recording, base64 payload conversion, and duration formatting
+	audioTokens := []string{
+		`mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true })`,
+		"mediaRecorder = new MediaRecorder(mediaStream)",
+		"mediaRecorder.start(250)",
+		"mediaRecorder.onstop",
+		"mediaStream.getTracks().forEach(t => t.stop())",
+		"readAsDataURL(audioBlob)",
+		"transcript: finalTranscript",
+		"audio_data: base64Audio",
+		"duration: formattedDuration",
+	}
+	for _, tok := range audioTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected auxiliary script to contain audio payload token %q", tok)
+		}
+	}
 
+	// 3. Verify speech transcription prompt and fallback prompt handling
+	promptTokens := []string{
+		`await showSwissPrompt("Voice recorded & transcribed! Edit title:", finalTranscript)`,
+		`await showSwissPrompt("Voice recorded! Enter a transcript / note title:", "Voice Memo Note")`,
+		`showToast("Microphone access error: " + err.message, "error")`,
+	}
+	for _, tok := range promptTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected auxiliary script to contain prompt/fallback token %q", tok)
+		}
+	}
+
+	// 4. David-Design Zero Decorative Emojis check in auxiliary script
+	forbiddenEmojis := []string{
+		"🎙️", "💬", "💾", "✏️", "📋", "🗑️", "📂", "⚡", "📁", "📜", "📝", "📕", "📄", "⏹️",
+	}
+	for _, emoji := range forbiddenEmojis {
+		if strings.Contains(js, emoji) {
+			t.Errorf("auxiliary script contains forbidden decorative emoji %q", emoji)
+		}
+	}
+}

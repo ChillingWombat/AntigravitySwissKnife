@@ -14,13 +14,16 @@ func GenerateGitHubExtensionScript() string {
   let cachedPRs = [];
   let cachedProjects = [];
   let cachedAgentTasks = [];
-  let activeTab = "issues"; // "issues" | "prs" | "tasks"
+  let cachedKanbanBoard = null;
+  let activeTab = "issues"; // "issues" | "prs" | "board" | "tasks"
   let activeFilter = "all"; // "all" | "open" | "mine"
   let activeSearch = "";
   let isLeftPanelOpen = true;
   let activeMainStageExt = null; // null | "github" | "browser" | "files" | "memos"
   let mainStageMode = "full"; // "full" | "split"
+  let stageViewMode = "kanban"; // "kanban" | "list"
   let selectedItem = null;
+  let draggedKanbanCard = null;
 
   // 1. Toast notifications helper
   function showToast(msg, isError = false) {
@@ -73,6 +76,14 @@ func GenerateGitHubExtensionScript() string {
           cachedAgentTasks = data.tasks;
         }
       }
+      const resKanban = await fetch("http://127.0.0.1:8765/api/github/kanban?workspace_path=.");
+      if (resKanban.ok) {
+        const data = await resKanban.json();
+        if (data.success && data.board) {
+          cachedKanbanBoard = data.board;
+        }
+      }
+
       if (activeMainStageExt === "github") {
         renderMainStageContent();
       }
@@ -218,13 +229,14 @@ func GenerateGitHubExtensionScript() string {
       <div class="swiss-gh-tabs-row">
         <button class="swiss-gh-tab-btn ${activeTab === "issues" ? "active" : ""}" data-tab="issues">Issues (${cachedIssues.length})</button>
         <button class="swiss-gh-tab-btn ${activeTab === "prs" ? "active" : ""}" data-tab="prs">PRs (${cachedPRs.length})</button>
+        <button class="swiss-gh-tab-btn ${activeTab === "board" ? "active" : ""}" data-tab="board">Board</button>
         <button class="swiss-gh-tab-btn ${activeTab === "tasks" ? "active" : ""}" data-tab="tasks">Agent Tasks (${cachedAgentTasks.length})</button>
       </div>
       <div class="swiss-gh-search-box">
         <input type="text" class="swiss-gh-search-input" placeholder="Search ${activeTab}..." value="${escapeHTML(activeSearch)}" id="swiss-gh-aux-search-field">
       </div>
       <div class="swiss-gh-list" id="swiss-gh-aux-items-list" style="flex: 1; overflow-y: auto;">
-        ${renderCardListHTML(filteredItems)}
+        ${activeTab === "board" ? renderAuxKanbanBoardHTML() : renderCardListHTML(filteredItems)}
       </div>
     ` + "`" + `;
 
@@ -245,11 +257,17 @@ func GenerateGitHubExtensionScript() string {
       activeSearch = e.target.value.toLowerCase();
       const listEl = auxView.querySelector("#swiss-gh-aux-items-list");
       if (listEl) {
-        listEl.innerHTML = renderCardListHTML(getFilteredItems());
+        listEl.innerHTML = activeTab === "board" ? renderAuxKanbanBoardHTML() : renderCardListHTML(getFilteredItems());
+        if (activeTab === "board") {
+          bindKanbanDragEvents(auxView);
+        }
         bindCardEventListeners(listEl);
       }
     });
 
+    if (activeTab === "board") {
+      bindKanbanDragEvents(auxView);
+    }
     bindCardEventListeners(auxView);
   };
 
@@ -820,20 +838,280 @@ func GenerateGitHubExtensionScript() string {
     }
   }
 
-  // 9. 3-Column GitHub Workspace View
-  function renderGitHubWorkspaceStage(container) {
-    if (!selectedItem && cachedIssues.length > 0) {
-      selectedItem = cachedIssues[0];
+  // 9. Kanban Data & Operations
+  function getEffectiveKanbanBoard() {
+    if (cachedKanbanBoard && cachedKanbanBoard.columns && cachedKanbanBoard.columns.length > 0) {
+      return cachedKanbanBoard;
+    }
+    const colMap = { todo: [], in_progress: [], review: [], done: [] };
+    const isWIP = l => ["in progress", "in-progress", "wip", "doing", "active", "working"].includes((l || "").toLowerCase());
+    const isRev = l => ["review", "in review", "in-review", "needs review", "under review", "qa"].includes((l || "").toLowerCase());
+
+    cachedIssues.forEach(iss => {
+      let col = "todo";
+      const st = (iss.state || "open").toLowerCase();
+      if (st === "closed") col = "done";
+      else if (iss.assigned_agent) col = "in_progress";
+      else if ((iss.labels || []).some(isWIP)) col = "in_progress";
+      else if ((iss.labels || []).some(isRev)) col = "review";
+      colMap[col].push({
+        id: "issue-" + iss.number,
+        type: "issue",
+        number: iss.number,
+        title: iss.title,
+        body: iss.body,
+        state: st,
+        column_id: col,
+        labels: iss.labels || [],
+        assigned_agent: iss.assigned_agent
+      });
+    });
+
+    cachedPRs.forEach(pr => {
+      let col = "review";
+      const st = (pr.state || "open").toLowerCase();
+      if (st === "closed" || st === "merged") col = "done";
+      else if (pr.is_draft || (pr.labels || []).some(isWIP)) col = "in_progress";
+      colMap[col].push({
+        id: "pr-" + pr.number,
+        type: "pr",
+        number: pr.number,
+        title: pr.title,
+        body: pr.body,
+        state: st,
+        column_id: col,
+        labels: pr.labels || [],
+        assigned_agent: pr.assigned_agent
+      });
+    });
+
+    return {
+      is_synthesized: true,
+      columns: [
+        { id: "todo", title: "Todo", cards: colMap.todo },
+        { id: "in_progress", title: "In Progress", cards: colMap.in_progress },
+        { id: "review", title: "Review", cards: colMap.review },
+        { id: "done", title: "Done", cards: colMap.done }
+      ]
+    };
+  }
+
+  async function moveKanbanCard(cardId, cardType, number, sourceCol, targetCol) {
+    if (sourceCol === targetCol) return;
+    try {
+      const res = await fetch("http://127.0.0.1:8765/api/github/kanban/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspace_path: ".",
+          card_id: cardId,
+          card_type: cardType || (cardId.startsWith("pr-") ? "pr" : "issue"),
+          number: number,
+          source_column: sourceCol,
+          target_column: targetCol
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast("Moved #" + number + " to " + targetCol.replace("_", " ").toUpperCase());
+      } else {
+        showToast(data.error || "Failed to move card", true);
+      }
+    } catch (err) {
+      showToast("Move failed: " + err.message, true);
+    } finally {
+      fetchRepoData();
+    }
+  }
+
+  function renderKanbanCardHTML(card, colId) {
+    const isPR = card.type === "pr" || (card.id && card.id.startsWith("pr-"));
+    const num = card.number;
+    const title = card.title || "";
+    const state = (card.state || "open").toLowerCase();
+    const assigned = card.assigned_agent;
+    const labels = card.labels || [];
+
+    let badgeClass = state === "closed" ? "closed" : (isPR ? "pr" : "open");
+    let agentHTML = "";
+    if (assigned) {
+      const isWorking = assigned.not_fully_idle;
+      agentHTML = ` + "`" + `
+        <span class="swiss-agent-task-badge ${isWorking ? "working" : "idle"}" title="Agent: ${escapeHTML(assigned.agent_label || 'Agent')}">
+          <span class="swiss-agent-pulse-dot" style="${isWorking ? "" : "display:none;"}"></span>
+          ${isWorking ? "Working" : "Idle"}: ${escapeHTML(assigned.agent_label || 'Agent')}
+        </span>
+      ` + "`" + `;
     }
 
-    container.innerHTML = ` + "`" + `
+    const labelsHTML = labels.slice(0, 3).map(l => '<span class="swiss-gh-label-chip">' + escapeHTML(l) + '</span>').join("");
+
+    return ` + "`" + `
+      <div class="swiss-gh-kanban-card" draggable="true" data-card-id="${card.id}" data-item-type="${isPR ? "pr" : "issue"}" data-item-num="${num}" data-col-id="${colId}">
+        <div class="swiss-gh-card-header">
+          <div class="swiss-gh-badge-row">
+            <span style="cursor: grab; opacity: 0.6; font-size: 10px;" title="Drag card across columns or into chat">⋮⋮</span>
+            <span class="swiss-gh-num-badge ${badgeClass}">${isPR ? "PR #" : "#"}${num} ${state.toUpperCase()}</span>
+          </div>
+          ${agentHTML}
+        </div>
+        <div class="swiss-gh-card-title">${escapeHTML(title)}</div>
+        ${labelsHTML ? '<div class="swiss-gh-chips-row">' + labelsHTML + '</div>' : ""}
+        <div class="swiss-gh-card-footer" style="display: flex; justify-content: flex-end; gap: 4px; margin-top: 4px;">
+          <button class="swiss-gh-action-btn swiss-btn-send-chat" data-item-num="${num}" data-item-type="${isPR ? "pr" : "issue"}" title="Send to Agent Chat">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+            Chat
+          </button>
+          <button class="swiss-gh-action-btn swiss-btn-edit-modal" data-item-num="${num}" data-item-type="${isPR ? "pr" : "issue"}" title="View & Edit Details">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+            Edit
+          </button>
+        </div>
+      </div>
+    ` + "`" + `;
+  }
+
+  function renderStageKanbanBoardHTML() {
+    const board = getEffectiveKanbanBoard();
+    const cols = board.columns || [];
+
+    return cols.map(col => {
+      let cards = col.cards || [];
+      if (activeSearch) {
+        cards = cards.filter(c => {
+          const title = (c.title || "").toLowerCase();
+          const num = (c.number || "").toString();
+          const agent = (c.assigned_agent ? (c.assigned_agent.agent_label || "") : "").toLowerCase();
+          return title.includes(activeSearch) || num.includes(activeSearch) || agent.includes(activeSearch);
+        });
+      }
+
+      return ` + "`" + `
+        <div class="swiss-gh-kanban-col" data-col-id="${col.id}">
+          <div class="swiss-gh-kanban-col-header">
+            <div class="swiss-gh-kanban-col-title-wrap">
+              <span>${escapeHTML(col.title)}</span>
+              <span class="swiss-gh-col-counter">${cards.length}</span>
+            </div>
+          </div>
+          <div class="swiss-gh-kanban-col-cards" data-col-id="${col.id}">
+            ${cards.length === 0 ? '<div style="padding: 16px; text-align: center; font-size: 11px; color: var(--text-muted, #94a3b8); margin: auto;">No items</div>' : cards.map(c => renderKanbanCardHTML(c, col.id)).join("")}
+          </div>
+        </div>
+      ` + "`" + `;
+    }).join("");
+  }
+
+  function renderAuxKanbanBoardHTML() {
+    const board = getEffectiveKanbanBoard();
+    const cols = board.columns || [];
+
+    return ` + "`" + `
+      <div style="display: flex; gap: 8px; overflow-x: auto; height: 100%; padding: 8px 6px; box-sizing: border-box;">
+        ${cols.map(col => {
+          let cards = col.cards || [];
+          if (activeSearch) {
+            cards = cards.filter(c => {
+              const title = (c.title || "").toLowerCase();
+              const num = (c.number || "").toString();
+              return title.includes(activeSearch) || num.includes(activeSearch);
+            });
+          }
+          return ` + "`" + `
+            <div class="swiss-gh-kanban-col" style="min-width: 200px; width: 200px; flex-shrink: 0;" data-col-id="${col.id}">
+              <div class="swiss-gh-kanban-col-header">
+                <div class="swiss-gh-kanban-col-title-wrap">
+                  <span>${escapeHTML(col.title)}</span>
+                  <span class="swiss-gh-col-counter">${cards.length}</span>
+                </div>
+              </div>
+              <div class="swiss-gh-kanban-col-cards" data-col-id="${col.id}">
+                ${cards.length === 0 ? '<div style="padding: 12px; text-align: center; font-size: 10.5px; color: var(--text-muted, #94a3b8); margin: auto;">No items</div>' : cards.map(c => renderKanbanCardHTML(c, col.id)).join("")}
+              </div>
+            </div>
+          ` + "`" + `;
+        }).join("")}
+      </div>
+    ` + "`" + `;
+  }
+
+  function bindKanbanDragEvents(containerEl) {
+    containerEl.querySelectorAll('.swiss-gh-kanban-card[draggable="true"]').forEach(card => {
+      card.addEventListener("dragstart", (e) => {
+        const itemType = card.dataset.itemType;
+        const itemNum = parseInt(card.dataset.itemNum, 10);
+        const item = (itemType === "pr" ? cachedPRs : cachedIssues).find(i => i.number === itemNum);
+
+        draggedKanbanCard = {
+          cardId: card.dataset.cardId,
+          type: itemType,
+          number: itemNum,
+          sourceColumn: card.dataset.colId
+        };
+        card.classList.add("dragging");
+
+        const markdownPayload = item ? formatMarkdownPayload(item, itemType) : ("#" + itemNum);
+        e.dataTransfer.setData("application/json", JSON.stringify(draggedKanbanCard));
+        e.dataTransfer.setData("text/plain", markdownPayload);
+        e.dataTransfer.effectAllowed = "move";
+      });
+
+      card.addEventListener("dragend", () => {
+        card.classList.remove("dragging");
+        draggedKanbanCard = null;
+        containerEl.querySelectorAll(".swiss-gh-kanban-col-cards").forEach(c => c.classList.remove("drag-over"));
+      });
+    });
+
+    containerEl.querySelectorAll(".swiss-gh-kanban-col-cards").forEach(dropZone => {
+      dropZone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        dropZone.classList.add("drag-over");
+      });
+
+      dropZone.addEventListener("dragleave", (e) => {
+        if (!dropZone.contains(e.relatedTarget)) {
+          dropZone.classList.remove("drag-over");
+        }
+      });
+
+      dropZone.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove("drag-over");
+
+        const targetCol = dropZone.dataset.colId;
+        let cardData = draggedKanbanCard;
+        if (!cardData) {
+          try {
+            const raw = e.dataTransfer.getData("application/json");
+            if (raw) cardData = JSON.parse(raw);
+          } catch (_) {}
+        }
+
+        if (cardData && cardData.sourceColumn !== targetCol) {
+          const cardEl = containerEl.querySelector('[data-card-id="' + cardData.cardId + '"]');
+          if (cardEl) {
+            cardEl.dataset.colId = targetCol;
+            dropZone.appendChild(cardEl);
+          }
+          await moveKanbanCard(cardData.cardId, cardData.type, cardData.number, cardData.sourceColumn, targetCol);
+        }
+      });
+    });
+  }
+
+  function renderStageListViewHTML() {
+    return ` + "`" + `
       <div class="swiss-gh-workspace-layout">
         <!-- Column 1: Issues / PRs List -->
         <div class="swiss-gh-col-left">
-          <div style="padding: 10px 12px; border-bottom: 1px solid var(--border, #e2e8f0); display: flex; align-items: center; justify-content: space-between;">
-            <span style="font-weight: 600; font-size: 13px;">${currentRepo ? currentRepo.FullName : "Repository"}</span>
-            <button class="swiss-gh-action-btn" id="swiss-stage-gh-refresh">↻</button>
-          </div>
           <div class="swiss-gh-tabs-row">
             <button class="swiss-gh-tab-btn ${activeTab === "issues" ? "active" : ""}" data-tab="issues">Issues (${cachedIssues.length})</button>
             <button class="swiss-gh-tab-btn ${activeTab === "prs" ? "active" : ""}" data-tab="prs">PRs (${cachedPRs.length})</button>
@@ -877,30 +1155,99 @@ func GenerateGitHubExtensionScript() string {
         </div>
       </div>
     ` + "`" + `;
+  }
+
+  // 10. Main Stage View Rendering (Kanban & List)
+  function renderGitHubWorkspaceStage(container) {
+    if (!selectedItem && cachedIssues.length > 0) {
+      selectedItem = cachedIssues[0];
+    }
+
+    container.innerHTML = ` + "`" + `
+      <div style="display: flex; flex-direction: column; width: 100%; height: 100%; overflow: hidden;">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 14px; border-bottom: 1px solid var(--border, #e2e8f0); background: var(--canvas, #ffffff); flex-shrink: 0;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-weight: 600; font-size: 13px;">${currentRepo ? currentRepo.FullName : "Repository"}</span>
+            <span class="swiss-gh-branch-chip">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="6" y1="3" x2="6" y2="15"></line>
+                <circle cx="18" cy="6" r="3"></circle>
+                <circle cx="6" cy="18" r="3"></circle>
+                <path d="M18 9a9 9 0 0 1-9 9"></path>
+              </svg>
+              ${currentRepo ? currentRepo.CurrentBranch : "main"}
+            </span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div class="swiss-gh-view-switcher">
+              <button class="swiss-gh-view-btn ${stageViewMode === "kanban" ? "active" : ""}" id="swiss-stage-view-kanban">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="3" width="7" height="18" rx="1"></rect>
+                  <rect x="14" y="3" width="7" height="18" rx="1"></rect>
+                </svg>
+                Kanban Board
+              </button>
+              <button class="swiss-gh-view-btn ${stageViewMode === "list" ? "active" : ""}" id="swiss-stage-view-list">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="8" y1="6" x2="21" y2="6"></line>
+                  <line x1="8" y1="12" x2="21" y2="12"></line>
+                  <line x1="8" y1="18" x2="21" y2="18"></line>
+                  <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                  <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                  <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                </svg>
+                List View
+              </button>
+            </div>
+            <button class="swiss-gh-action-btn" id="swiss-stage-gh-refresh" title="Refresh">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div id="swiss-stage-content-body" style="flex: 1; min-height: 0; display: flex; overflow: hidden;">
+          ${stageViewMode === "kanban" ? '<div class="swiss-gh-kanban-board" id="swiss-stage-kanban-board">' + renderStageKanbanBoardHTML() + '</div>' : renderStageListViewHTML()}
+        </div>
+      </div>
+    ` + "`" + `;
 
     container.querySelector("#swiss-stage-gh-refresh")?.addEventListener("click", fetchRepoData);
-    bindCardEventListeners(container);
-
-    // Stage card click selects item for editing in middle column
-    container.querySelectorAll(".swiss-gh-card").forEach(card => {
-      card.addEventListener("click", () => {
-        const num = parseInt(card.dataset.itemNum, 10);
-        const item = (activeTab === "prs" ? cachedPRs : cachedIssues).find(i => i.number === num);
-        if (item) {
-          selectedItem = item;
-          const detailCol = document.getElementById("swiss-stage-detail-col");
-          if (detailCol) {
-            detailCol.innerHTML = renderStageDetailHTML(selectedItem);
-            bindStageDetailEvents(detailCol);
-          }
-        }
-      });
+    container.querySelector("#swiss-stage-view-kanban")?.addEventListener("click", () => {
+      stageViewMode = "kanban";
+      renderGitHubWorkspaceStage(container);
+    });
+    container.querySelector("#swiss-stage-view-list")?.addEventListener("click", () => {
+      stageViewMode = "list";
+      renderGitHubWorkspaceStage(container);
     });
 
-    bindStageDetailEvents(container);
+    if (stageViewMode === "kanban") {
+      bindKanbanDragEvents(container);
+      bindCardEventListeners(container);
+    } else {
+      bindCardEventListeners(container);
+      container.querySelectorAll(".swiss-gh-card").forEach(card => {
+        card.addEventListener("click", () => {
+          const num = parseInt(card.dataset.itemNum, 10);
+          const item = (activeTab === "prs" ? cachedPRs : cachedIssues).find(i => i.number === num);
+          if (item) {
+            selectedItem = item;
+            const detailCol = document.getElementById("swiss-stage-detail-col");
+            if (detailCol) {
+              detailCol.innerHTML = renderStageDetailHTML(selectedItem);
+              bindStageDetailEvents(detailCol);
+            }
+          }
+        });
+      });
+      bindStageDetailEvents(container);
+    }
   }
 
   function renderStageDetailHTML(item) {
+
     if (!item) {
       return '<div style="margin: auto; color: var(--text-muted, #94a3b8); font-size: 13px;">Select an issue or pull request to view and edit</div>';
     }

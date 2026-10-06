@@ -41,6 +41,7 @@ type Config struct {
 	VSCodeExtensionPath        string                       `json:"vscode_extension_path,omitempty"`
 	AppAccountOverrides        map[string]map[string]string `json:"app_account_overrides,omitempty"`
 	Memo                       MemoConfig                   `json:"memo"`
+	PreferredIDE               string                       `json:"preferred_ide,omitempty"`
 
 	mu sync.RWMutex `json:"-"`
 }
@@ -82,6 +83,7 @@ func DefaultConfig() *Config {
 			ViewScope:       "all",
 			SearchScope:     "text",
 		},
+		PreferredIDE: "code",
 	}
 }
 
@@ -263,5 +265,27 @@ func (c *Config) SetMemoConfig(cfg MemoConfig) error {
 	c.mu.Unlock()
 	return c.Save()
 }
+
+// GetPreferredIDE returns the configured preferred IDE or default "code".
+func (c *Config) GetPreferredIDE() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.PreferredIDE == "" {
+		return "code"
+	}
+	return c.PreferredIDE
+}
+
+// SetPreferredIDE sets and persists the preferred IDE.
+func (c *Config) SetPreferredIDE(ide string) error {
+	c.mu.Lock()
+	c.PreferredIDE = ide
+	if c.PreferredIDE == "" {
+		c.PreferredIDE = "code"
+	}
+	c.mu.Unlock()
+	return c.Save()
+}
+
 
 

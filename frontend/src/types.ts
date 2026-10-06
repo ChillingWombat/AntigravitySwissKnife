@@ -99,6 +99,7 @@ export interface FleetQuotaSummary {
 export interface RuleConfig {
   auto_switch_enabled: boolean
   auto_switch_threshold: number
+  auto_switch_weekly_threshold?: number
   switch_mode?: SwitchMode
   polling_interval_seconds: number
   active_polling_interval_seconds?: number
@@ -661,5 +662,60 @@ export interface DiagnosticResult {
   redacted_token_count: number
   error?: string
 }
+
+export interface AgentTaskSummary {
+  conversation_id: string
+  conversation_title: string
+  agent_name: string
+  agent_label: string
+  status: string
+  not_fully_idle: boolean
+  bound_issue_number?: number
+  bound_pr_number?: number
+  last_modified?: string
+}
+
+export interface KanbanCard {
+  id: string
+  type: 'issue' | 'pr'
+  number: number
+  title: string
+  body?: string
+  state: string
+  column_id: string
+  labels?: string[]
+  assignees?: string[]
+  author?: string
+  url?: string
+  created_at?: string
+  updated_at?: string
+  assigned_agent?: AgentTaskSummary
+  project_item_id?: string
+}
+
+export interface KanbanColumn {
+  id: string
+  title: string
+  cards: KanbanCard[]
+}
+
+export interface KanbanBoard {
+  project_id?: string
+  project_title?: string
+  is_synthesized: boolean
+  columns: KanbanColumn[]
+}
+
+export interface MoveKanbanCardRequest {
+  workspace_path?: string
+  card_id: string
+  card_type: string
+  number: number
+  source_column: string
+  target_column: string
+  project_number?: number
+  project_item_id?: string
+}
+
 
 

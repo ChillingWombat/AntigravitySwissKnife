@@ -2,6 +2,7 @@ package webgui
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -273,6 +274,65 @@ func (s *Server) handleGitHubProjects(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, map[string]interface{}{"success": true, "projects": projects})
 }
+
+func (s *Server) handleGitHubKanbanBoard(w http.ResponseWriter, r *http.Request) {
+	ws := s.resolveWorkspace(r)
+	repo, err := s.githubService.DetectRepository(ws)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	projectNum := 0
+	if pStr := r.URL.Query().Get("project_number"); pStr != "" {
+		if pVal, err := strconv.Atoi(pStr); err == nil {
+			projectNum = pVal
+		}
+	}
+
+	board, err := s.githubService.GetKanbanBoard(repo, projectNum)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	writeJSON(w, map[string]interface{}{"success": true, "board": board, "repo": repo})
+}
+
+func (s *Server) handleGitHubKanbanMove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req github.MoveKanbanCardRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": "invalid payload: " + err.Error()})
+		return
+	}
+
+	ws := req.WorkspacePath
+	if ws == "" {
+		ws = s.resolveWorkspace(r)
+	}
+
+	repo, err := s.githubService.DetectRepository(ws)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	if err := s.githubService.MoveKanbanCard(repo, &req); err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Card #%d moved to %s", req.Number, req.TargetColumn),
+	})
+}
+
 
 func (s *Server) handleGitHubAgentTasks(w http.ResponseWriter, r *http.Request) {
 	ws := s.resolveWorkspace(r)

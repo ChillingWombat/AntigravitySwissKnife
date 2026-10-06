@@ -146,6 +146,7 @@ class AsyncUnixSocketServer:
             return {
                 "auto_switch_enabled": getattr(cfg, "auto_switch_enabled", True) if cfg else True,
                 "auto_switch_threshold": getattr(cfg, "auto_switch_threshold", 0.05) if cfg else 0.05,
+                "auto_switch_weekly_threshold": getattr(cfg, "auto_switch_weekly_threshold", 0.05) if cfg else 0.05,
                 "cooldown_seconds": getattr(re_cfg, "cooldown_seconds", 300.0) if re_cfg else 300.0,
                 "switch_margin": getattr(re_cfg, "switch_margin", 0.05) if re_cfg else 0.05,
                 "per_model_thresholds": getattr(re_cfg, "per_model_thresholds", {}) if re_cfg else {},
@@ -162,6 +163,9 @@ class AsyncUnixSocketServer:
                 if "auto_switch_threshold" in kwargs:
                     val = max(0.0, min(1.0, float(kwargs["auto_switch_threshold"])))
                     re_cfg.default_threshold = val
+                if "auto_switch_weekly_threshold" in kwargs:
+                    val_w = max(0.0, min(1.0, float(kwargs["auto_switch_weekly_threshold"])))
+                    re_cfg.weekly_threshold = val_w
                 if "cooldown_seconds" in kwargs:
                     re_cfg.cooldown_seconds = max(0.0, float(kwargs["cooldown_seconds"]))
                 if "switch_margin" in kwargs:
@@ -174,6 +178,8 @@ class AsyncUnixSocketServer:
                     config.auto_switch_enabled = bool(kwargs["auto_switch_enabled"])
                 if "auto_switch_threshold" in kwargs:
                     config.auto_switch_threshold = max(0.0, min(1.0, float(kwargs["auto_switch_threshold"])))
+                if "auto_switch_weekly_threshold" in kwargs:
+                    config.auto_switch_weekly_threshold = max(0.0, min(1.0, float(kwargs["auto_switch_weekly_threshold"])))
                 if hasattr(config, "save_settings"):
                     config.save_settings()
 

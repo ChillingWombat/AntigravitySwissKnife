@@ -76,4 +76,65 @@ func TestGitHubHandlers(t *testing.T) {
 	if got := store.GetBoundIssue("test-conv-001"); got != 25 {
 		t.Errorf("expected bound issue 25, got %d", got)
 	}
+
+	// 4. Test /api/github/kanban
+	reqKanban := httptest.NewRequest("GET", "/api/github/kanban?workspace_path=.", nil)
+	rrKanban := httptest.NewRecorder()
+	server.handleGitHubKanbanBoard(rrKanban, reqKanban)
+
+	if rrKanban.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rrKanban.Code)
+	}
+	var respKanban map[string]interface{}
+	if err := json.NewDecoder(rrKanban.Body).Decode(&respKanban); err != nil {
+		t.Fatal(err)
+	}
+	if !respKanban["success"].(bool) {
+		t.Fatalf("expected success true, got %v", respKanban)
+	}
+	boardMap, ok := respKanban["board"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected board object, got %v", respKanban["board"])
+	}
+	cols, ok := boardMap["columns"].([]interface{})
+	if !ok || len(cols) != 4 {
+		t.Fatalf("expected 4 columns, got %v", cols)
+	}
+
+	// 5. Test /api/github/kanban/move validation
+	moveBody, _ := json.Marshal(map[string]interface{}{
+		"workspace_path": ".",
+		"number":         0,
+		"target_column":  "in_progress",
+	})
+	reqMove := httptest.NewRequest("POST", "/api/github/kanban/move", bytes.NewReader(moveBody))
+	rrMove := httptest.NewRecorder()
+	server.handleGitHubKanbanMove(rrMove, reqMove)
+
+	if rrMove.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rrMove.Code)
+	}
+	var respMove map[string]interface{}
+	_ = json.NewDecoder(rrMove.Body).Decode(&respMove)
+	if respMove["success"].(bool) {
+		t.Errorf("expected failure for number 0, got success")
+	}
+
+	// 6. Test /api/github/kanban/move with invalid target column
+	invalidColBody, _ := json.Marshal(map[string]interface{}{
+		"workspace_path": ".",
+		"number":         1,
+		"target_column":  "invalid_column_name",
+	})
+	reqInvalidCol := httptest.NewRequest("POST", "/api/github/kanban/move", bytes.NewReader(invalidColBody))
+	rrInvalidCol := httptest.NewRecorder()
+	server.handleGitHubKanbanMove(rrInvalidCol, reqInvalidCol)
+	var respInvalidCol map[string]interface{}
+	_ = json.NewDecoder(rrInvalidCol.Body).Decode(&respInvalidCol)
+	if respInvalidCol["success"].(bool) {
+		t.Errorf("expected failure for invalid target column, got success")
+	}
 }
+
+
+

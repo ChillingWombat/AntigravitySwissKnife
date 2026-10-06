@@ -71,6 +71,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   onSaved,
 }) => {
   const [threshold, setThreshold] = useState<number>(initialRules?.auto_switch_threshold ?? 0.05)
+  const [weeklyThreshold, setWeeklyThreshold] = useState<number>(initialRules?.auto_switch_weekly_threshold ?? 0.05)
   const [switchMode, setSwitchMode] = useState<SwitchMode>(initialRules?.switch_mode || 'balanced')
   const [pollingInterval, setPollingInterval] = useState<number>(initialRules?.polling_interval_seconds ?? 60)
   const [activePollingInterval, setActivePollingInterval] = useState<number>(initialRules?.active_polling_interval_seconds ?? 120)
@@ -265,6 +266,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   useEffect(() => {
     if (initialRules) {
       setThreshold(initialRules.auto_switch_threshold)
+      if (initialRules.auto_switch_weekly_threshold !== undefined) {
+        setWeeklyThreshold(initialRules.auto_switch_weekly_threshold)
+      }
       if (initialRules.switch_mode) {
         setSwitchMode(initialRules.switch_mode)
       }
@@ -426,6 +430,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     try {
       await api.saveRules({
         auto_switch_threshold: threshold,
+        auto_switch_weekly_threshold: weeklyThreshold,
         switch_mode: switchMode,
         polling_interval_seconds: pollingInterval,
         active_polling_interval_seconds: activePollingInterval,
@@ -454,6 +459,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   }
 
   const thresholdPercent = Math.round(threshold * 100)
+  const weeklyThresholdPercent = Math.round(weeklyThreshold * 100)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -639,11 +645,11 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             </div>
           </div>
 
-          {/* Threshold Slider */}
+          {/* 5-Hour Threshold Slider */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
               <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                Exhaustion Threshold Trigger:
+                5-Hour Quota Threshold Trigger:
               </span>
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--primary)' }}>
                 {thresholdPercent}% Quota Remaining
@@ -662,7 +668,34 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               }}
             />
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-              Triggers proactive rotation to the next highest-quota standby account before reaching zero quota.
+              Triggers proactive rotation when the active account 5-hour quota drops to or below this threshold.
+            </div>
+          </div>
+
+          {/* 7-Day (Weekly) Quota Threshold Slider */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                7-Day (Weekly) Quota Threshold Trigger:
+              </span>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--primary)' }}>
+                {weeklyThresholdPercent}% Quota Remaining
+              </span>
+            </div>
+            <input
+              type="range"
+              min={1}
+              max={50}
+              value={weeklyThresholdPercent}
+              onChange={(e) => setWeeklyThreshold(Number(e.target.value) / 100)}
+              style={{
+                width: '100%',
+                accentColor: 'var(--primary)',
+                cursor: 'pointer',
+              }}
+            />
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              Triggers auto-rotation when the active account 7-day rolling quota drops to or below this threshold, preventing lockouts when 5-hour quota remains high.
             </div>
           </div>
 

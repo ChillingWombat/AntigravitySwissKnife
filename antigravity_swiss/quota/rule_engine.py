@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from antigravity_swiss.core.constants import (
     DEFAULT_AUTO_SWITCH_THRESHOLD_FRACTION,
+    DEFAULT_AUTO_SWITCH_WEEKLY_THRESHOLD_FRACTION,
 )
 from antigravity_swiss.core.errors import SwissKnifeError
 from antigravity_swiss.keyring.switcher import AccountRecord, AccountVault, KeyringService
@@ -38,7 +39,7 @@ class RuleEngineConfig:
     switch_margin: float = 0.05              # Target must have >= (threshold + margin)
     max_switches_in_window: int = 3          # Maximum switches before rate limiting
     switch_window_seconds: float = 600.0      # 10 minutes rolling rate limit window
-    weekly_threshold: float = 0.01           # Weekly quota below 1% treated as exhausted
+    weekly_threshold: float = DEFAULT_AUTO_SWITCH_WEEKLY_THRESHOLD_FRACTION  # 0.05 (5%)
     tier_weights: Dict[str, float] = field(default_factory=lambda: {
         "flash": 0.40,
         "pro": 0.30,
@@ -193,12 +194,14 @@ class AutoSwitchRuleEngine:
         self,
         current_email: str,
         threshold: float | None = None,
+        weekly_threshold: float | None = None,
     ) -> Tuple[Optional[str], float, bool]:
         """
         Select highest scoring standby account meeting threshold and margin.
         Returns: (best_email, best_score, all_exhausted)
         """
         active_thresh = self.config.default_threshold if threshold is None else threshold
+        active_weekly_thresh = self.config.weekly_threshold if weekly_threshold is None else weekly_threshold
         records = self.vault.list_account_records()
         candidates: List[Tuple[str, float, AccountRecord]] = []
 
@@ -219,7 +222,7 @@ class AutoSwitchRuleEngine:
             # 1. Burst remaining must exceed threshold + switch_margin
             # 2. Weekly remaining must exceed weekly_threshold
             required_min = active_thresh + self.config.switch_margin
-            if burst_remaining <= required_min or weekly_remaining <= self.config.weekly_threshold:
+            if burst_remaining <= required_min or weekly_remaining <= active_weekly_thresh:
                 continue
 
             score = self.calculate_account_score(rec.email, q_data)
@@ -246,6 +249,7 @@ class AutoSwitchRuleEngine:
         current_email: str,
         current_quota_data: Any,
         active_model_id: str = "gemini-3.8-flash-high",
+        weekly_threshold: float | None = None,
     ) -> EvaluationResult:
         """
         Main evaluation entry point.
@@ -259,6 +263,7 @@ class AutoSwitchRuleEngine:
             )
 
         threshold = self.config.get_threshold_for_model(active_model_id)
+        active_weekly_thresh = self.config.weekly_threshold if weekly_threshold is None else weekly_threshold
         fractions = self.extract_remaining_fractions(current_quota_data)
         current_burst = fractions.get("flash", 1.0)
         current_weekly = fractions.get("weekly_gemini", 1.0)
@@ -268,7 +273,7 @@ class AutoSwitchRuleEngine:
 
         # Check breach conditions
         burst_breached = current_burst <= threshold
-        weekly_breached = current_weekly <= self.config.weekly_threshold
+        weekly_breached = current_weekly <= active_weekly_thresh
 
         if not burst_breached and not weekly_breached:
             return EvaluationResult(
@@ -296,7 +301,9 @@ class AutoSwitchRuleEngine:
             )
 
         # Select best successor
-        best_email, best_score, all_exhausted = self.select_best_standby_account(current_email, threshold)
+        best_email, best_score, all_exhausted = self.select_best_standby_account(
+            current_email, threshold, active_weekly_thresh
+        )
 
         if all_exhausted or not best_email:
             reason = "All standby accounts exhausted or below threshold"
@@ -311,9 +318,9 @@ class AutoSwitchRuleEngine:
             )
 
         trigger_reason = (
-            "Weekly quota exhausted"
+            f"Weekly quota ({current_weekly:.1%}) below threshold ({active_weekly_thresh:.1%})"
             if weekly_breached
-            else f"Quota ({current_burst:.2%}) below threshold ({threshold:.2%})"
+            else f"Quota ({current_burst:.1%}) below threshold ({threshold:.1%})"
         )
         return EvaluationResult(
             should_switch=True,

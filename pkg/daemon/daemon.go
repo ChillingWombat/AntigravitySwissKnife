@@ -485,9 +485,14 @@ func (d *Daemon) registerRPCHandlers() {
 		} else {
 			switchMode = quota.NormalizeSwitchMode(switchMode)
 		}
+		threshWeekly := d.Config.AutoSwitchWeeklyThreshold
+		if threshWeekly <= 0 {
+			threshWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
+		}
 		return map[string]interface{}{
 			"auto_switch_enabled":              d.Config.AutoSwitchEnabled,
 			"auto_switch_threshold":            d.Config.AutoSwitchThreshold,
+			"auto_switch_weekly_threshold":     threshWeekly,
 			"switch_mode":                      switchMode,
 			"polling_interval_seconds":         d.Config.PollingIntervalSec,
 			"active_polling_interval_seconds":  activePoll,
@@ -514,6 +519,7 @@ func (d *Daemon) registerRPCHandlers() {
 		var p struct {
 			AutoSwitchEnabled           *bool     `json:"auto_switch_enabled"`
 			AutoSwitchThreshold         *float64  `json:"auto_switch_threshold"`
+			AutoSwitchWeeklyThreshold   *float64  `json:"auto_switch_weekly_threshold"`
 			SwitchMode                  *string   `json:"switch_mode"`
 			PollingIntervalSec          *int      `json:"polling_interval_seconds"`
 			ActivePollingIntervalSec    *int      `json:"active_polling_interval_seconds"`
@@ -542,6 +548,9 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 		if p.AutoSwitchThreshold != nil {
 			d.Config.AutoSwitchThreshold = *p.AutoSwitchThreshold
+		}
+		if p.AutoSwitchWeeklyThreshold != nil {
+			d.Config.AutoSwitchWeeklyThreshold = *p.AutoSwitchWeeklyThreshold
 		}
 		if p.SwitchMode != nil {
 			d.Config.SwitchMode = quota.NormalizeSwitchMode(*p.SwitchMode)
@@ -643,11 +652,15 @@ func (d *Daemon) registerRPCHandlers() {
 		summaries := quota.PollFleetAccounts(accounts, d.Keyring)
 		d.mu.RLock()
 		thresh := d.Config.AutoSwitchThreshold
+		threshWeekly := d.Config.AutoSwitchWeeklyThreshold
 		d.mu.RUnlock()
 		if thresh <= 0 {
 			thresh = core.DefaultAutoSwitchThresholdFraction
 		}
-		states := quota.BuildAccountQuotaStatesFromMapWithThreshold(accounts, summaries, thresh)
+		if threshWeekly <= 0 {
+			threshWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
+		}
+		states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, thresh, threshWeekly)
 		summary := quota.ComputeFleetSummary(states, active)
 		return summary, nil
 	})
@@ -819,18 +832,25 @@ func (d *Daemon) schedulerLoop() {
 						d.mu.RLock()
 						autoSwitch := d.Config.AutoSwitchEnabled
 						thresh := d.Config.AutoSwitchThreshold
+						threshWeekly := d.Config.AutoSwitchWeeklyThreshold
+						if thresh <= 0 {
+							thresh = core.DefaultAutoSwitchThresholdFraction
+						}
+						if threshWeekly <= 0 {
+							threshWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
+						}
 						switchMode := d.Config.SwitchMode
 						lastSw := d.lastSwitchTime
 						d.mu.RUnlock()
 
 						if autoSwitch {
 							accounts := d.Keyring.ListAccounts()
-							states := quota.BuildAccountQuotaStatesWithThreshold(accounts, sum, thresh)
+							states := quota.BuildAccountQuotaStatesWithThresholds(accounts, sum, thresh, threshWeekly)
 							var activeDwellSec float64
 							if !lastSw.IsZero() {
 								activeDwellSec = time.Since(lastSw).Seconds()
 							}
-							shouldSwitch, successor, _ := quota.EvaluateAutoSwitch(states, active, thresh, switchMode, activeDwellSec)
+							shouldSwitch, successor, _ := quota.EvaluateAutoSwitchWithThresholds(states, active, thresh, threshWeekly, switchMode, activeDwellSec)
 							if shouldSwitch && successor != nil && successor.Email != active {
 								_ = d.Keyring.SetActiveAccount(successor.Email)
 								d.mu.Lock()

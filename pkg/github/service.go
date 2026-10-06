@@ -96,7 +96,7 @@ func (s *Service) ListIssues(repo *RepoInfo, state string, search string) ([]Iss
 		Login string `json:"login"`
 	}
 	type ghComment struct {
-		ID int64 `json:"id"`
+		ID interface{} `json:"id"`
 	}
 	type rawIssue struct {
 		Number    int         `json:"number"`
@@ -558,6 +558,403 @@ func (s *Service) ListProjects(repo *RepoInfo) ([]ProjectBoard, error) {
 	var projects []ProjectBoard
 	_ = json.Unmarshal(out, &projects)
 	return projects, nil
+}
+
+// GetKanbanBoard returns the Kanban board for the repository.
+// If projectNumber > 0 and GitHub Projects v2 is accessible, it loads project items;
+// otherwise it synthesizes columns (Todo, In Progress, Review, Done) from issues and PRs.
+func (s *Service) GetKanbanBoard(repo *RepoInfo, projectNumber int) (*KanbanBoard, error) {
+	if repo == nil {
+		return nil, fmt.Errorf("repository info required")
+	}
+
+	if projectNumber > 0 {
+		board, err := s.getProjectV2Board(repo, projectNumber)
+		if err == nil && board != nil && len(board.Columns) > 0 {
+			return board, nil
+		}
+	}
+
+	return s.synthesizeKanbanBoard(repo)
+}
+
+// getProjectV2Board attempts to fetch a GitHub Projects v2 board via gh CLI.
+func (s *Service) getProjectV2Board(repo *RepoInfo, projectNumber int) (*KanbanBoard, error) {
+	if projectNumber <= 0 {
+		return nil, fmt.Errorf("invalid project number")
+	}
+
+	cmd := exec.Command("gh", "project", "item-list", strconv.Itoa(projectNumber),
+		"--owner", repo.Owner, "--format", "json", "--limit", "100")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("gh project item-list failed: %s: %w", string(out), err)
+	}
+
+	type rawProjectContent struct {
+		Number int    `json:"number"`
+		Title  string `json:"title"`
+		Body   string `json:"body"`
+		Type   string `json:"type"`
+		URL    string `json:"url"`
+	}
+	type rawProjectItem struct {
+		ID      string            `json:"id"`
+		Content rawProjectContent `json:"content"`
+		Status  string            `json:"status"`
+		Title   string            `json:"title"`
+		Type    string            `json:"type"`
+	}
+	type rawProjectResp struct {
+		TotalCount int              `json:"totalCount"`
+		Items      []rawProjectItem `json:"items"`
+	}
+
+	var resp rawProjectResp
+	if err := json.Unmarshal(out, &resp); err != nil {
+		var arr []rawProjectItem
+		if errArr := json.Unmarshal(out, &arr); errArr != nil {
+			return nil, fmt.Errorf("failed to parse gh project items: %w", err)
+		}
+		resp.Items = arr
+	}
+
+	if len(resp.Items) == 0 {
+		return nil, fmt.Errorf("no project items found")
+	}
+
+	colMap := map[string][]KanbanCard{
+		"todo":        {},
+		"in_progress": {},
+		"review":      {},
+		"done":        {},
+	}
+
+	for _, it := range resp.Items {
+		num := it.Content.Number
+		title := it.Content.Title
+		if title == "" {
+			title = it.Title
+		}
+		itemType := strings.ToLower(it.Content.Type)
+		if itemType == "" {
+			itemType = strings.ToLower(it.Type)
+		}
+		cardType := "issue"
+		if strings.Contains(itemType, "pr") || strings.Contains(itemType, "pull") {
+			cardType = "pr"
+		}
+
+		st := strings.ToLower(it.Status)
+		targetCol := "todo"
+		if strings.Contains(st, "progress") || strings.Contains(st, "doing") || strings.Contains(st, "working") {
+			targetCol = "in_progress"
+		} else if strings.Contains(st, "review") || strings.Contains(st, "qa") {
+			targetCol = "review"
+		} else if strings.Contains(st, "done") || strings.Contains(st, "closed") || strings.Contains(st, "completed") {
+			targetCol = "done"
+		}
+
+		card := KanbanCard{
+			ID:            it.ID,
+			Type:          cardType,
+			Number:        num,
+			Title:         title,
+			Body:          it.Content.Body,
+			ColumnID:      targetCol,
+			URL:           it.Content.URL,
+			ProjectItemID: it.ID,
+		}
+		colMap[targetCol] = append(colMap[targetCol], card)
+	}
+
+	columns := []KanbanColumn{
+		{ID: "todo", Title: "Todo", Cards: colMap["todo"]},
+		{ID: "in_progress", Title: "In Progress", Cards: colMap["in_progress"]},
+		{ID: "review", Title: "Review", Cards: colMap["review"]},
+		{ID: "done", Title: "Done", Cards: colMap["done"]},
+	}
+
+	return &KanbanBoard{
+		ProjectID:     strconv.Itoa(projectNumber),
+		ProjectTitle:  fmt.Sprintf("Project #%d", projectNumber),
+		IsSynthesized: false,
+		Columns:       columns,
+	}, nil
+}
+
+// synthesizeKanbanBoard builds Kanban columns from repository Issues, PRs, and live agent tasks.
+func (s *Service) synthesizeKanbanBoard(repo *RepoInfo) (*KanbanBoard, error) {
+	issues, err := s.ListIssues(repo, "all", "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to list issues for kanban board: %w", err)
+	}
+
+	prs, err := s.ListPullRequests(repo, "all")
+	if err != nil {
+		prs = []PullRequest{}
+	}
+
+	colMap := map[string][]KanbanCard{
+		"todo":        make([]KanbanCard, 0),
+		"in_progress": make([]KanbanCard, 0),
+		"review":      make([]KanbanCard, 0),
+		"done":        make([]KanbanCard, 0),
+	}
+
+	isWIPLabel := func(label string) bool {
+		l := strings.ToLower(strings.TrimSpace(label))
+		return l == "in progress" || l == "in-progress" || l == "wip" || l == "doing" || l == "active" || l == "working"
+	}
+	isReviewLabel := func(label string) bool {
+		l := strings.ToLower(strings.TrimSpace(label))
+		return l == "review" || l == "in review" || l == "in-review" || l == "needs review" || l == "under review" || l == "qa"
+	}
+
+	// 1. Process Issues
+	for _, iss := range issues {
+		colID := "todo"
+		if strings.EqualFold(iss.State, "closed") {
+			colID = "done"
+		} else {
+			hasWIP := false
+			hasReview := false
+			for _, lbl := range iss.Labels {
+				if isWIPLabel(lbl) {
+					hasWIP = true
+				}
+				if isReviewLabel(lbl) {
+					hasReview = true
+				}
+			}
+
+			if iss.AssignedAgent != nil {
+				colID = "in_progress"
+			} else if hasWIP {
+				colID = "in_progress"
+			} else if hasReview {
+				colID = "review"
+			} else {
+				colID = "todo"
+			}
+		}
+
+		card := KanbanCard{
+			ID:            fmt.Sprintf("issue-%d", iss.Number),
+			Type:          "issue",
+			Number:        iss.Number,
+			Title:         iss.Title,
+			Body:          iss.Body,
+			State:         strings.ToLower(iss.State),
+			ColumnID:      colID,
+			Labels:        iss.Labels,
+			Assignees:     iss.Assignees,
+			Author:        iss.Author,
+			URL:           iss.URL,
+			CreatedAt:     iss.CreatedAt,
+			UpdatedAt:     iss.UpdatedAt,
+			AssignedAgent: iss.AssignedAgent,
+		}
+		colMap[colID] = append(colMap[colID], card)
+	}
+
+	// 2. Process Pull Requests
+	for _, pr := range prs {
+		colID := "review"
+		if strings.EqualFold(pr.State, "closed") || strings.EqualFold(pr.State, "merged") {
+			colID = "done"
+		} else if pr.IsDraft {
+			colID = "in_progress"
+		} else {
+			hasWIP := false
+			for _, lbl := range pr.Labels {
+				if isWIPLabel(lbl) {
+					hasWIP = true
+					break
+				}
+			}
+			if hasWIP {
+				colID = "in_progress"
+			} else {
+				colID = "review"
+			}
+		}
+
+		card := KanbanCard{
+			ID:            fmt.Sprintf("pr-%d", pr.Number),
+			Type:          "pr",
+			Number:        pr.Number,
+			Title:         pr.Title,
+			Body:          pr.Body,
+			State:         strings.ToLower(pr.State),
+			ColumnID:      colID,
+			Labels:        pr.Labels,
+			Assignees:     pr.Assignees,
+			Author:        pr.Author,
+			URL:           pr.URL,
+			CreatedAt:     pr.CreatedAt,
+			UpdatedAt:     pr.UpdatedAt,
+			AssignedAgent: pr.AssignedAgent,
+		}
+		colMap[colID] = append(colMap[colID], card)
+	}
+
+	columns := []KanbanColumn{
+		{ID: "todo", Title: "Todo", Cards: colMap["todo"]},
+		{ID: "in_progress", Title: "In Progress", Cards: colMap["in_progress"]},
+		{ID: "review", Title: "Review", Cards: colMap["review"]},
+		{ID: "done", Title: "Done", Cards: colMap["done"]},
+	}
+
+	return &KanbanBoard{
+		ProjectTitle:  "Repository Kanban Board",
+		IsSynthesized: true,
+		Columns:       columns,
+	}, nil
+}
+
+// MoveKanbanCard updates a card's status and moves it to the target column.
+func (s *Service) MoveKanbanCard(repo *RepoInfo, req *MoveKanbanCardRequest) error {
+	if repo == nil {
+		return fmt.Errorf("repository info required")
+	}
+	if req == nil || req.Number <= 0 {
+		return fmt.Errorf("valid card number required")
+	}
+
+	targetCol := strings.ToLower(strings.TrimSpace(req.TargetColumn))
+	if targetCol == "" {
+		return fmt.Errorf("target column required")
+	}
+	if targetCol != "todo" && targetCol != "in_progress" && targetCol != "review" && targetCol != "done" {
+		return fmt.Errorf("invalid target column: %s", targetCol)
+	}
+
+	cardType := strings.ToLower(strings.TrimSpace(req.CardType))
+	if cardType == "" {
+		if strings.HasPrefix(req.CardID, "pr-") {
+			cardType = "pr"
+		} else {
+			cardType = "issue"
+		}
+	}
+
+	// 1. If project item exists, try updating project item status via gh CLI
+	if req.ProjectNumber > 0 && req.ProjectItemID != "" {
+		statusValue := "Todo"
+		switch targetCol {
+		case "in_progress":
+			statusValue = "In Progress"
+		case "review":
+			statusValue = "Review"
+		case "done":
+			statusValue = "Done"
+		}
+		cmdEdit := exec.Command("gh", "project", "item-edit", "--id", req.ProjectItemID,
+			"--text", statusValue)
+		_ = cmdEdit.Run()
+	}
+
+	// 2. Handle PR updates
+	if cardType == "pr" {
+		switch targetCol {
+		case "done":
+			cmd := exec.Command("gh", "pr", "close", strconv.Itoa(req.Number), "--repo", repo.FullName)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				return fmt.Errorf("failed to close PR: %s: %w", string(out), err)
+			}
+		case "review":
+			cmd := exec.Command("gh", "pr", "ready", strconv.Itoa(req.Number), "--repo", repo.FullName)
+			_ = cmd.Run()
+		case "in_progress":
+			cmd := exec.Command("gh", "pr", "ready", "--undo", strconv.Itoa(req.Number), "--repo", repo.FullName)
+			_ = cmd.Run()
+		}
+		return nil
+	}
+
+	// 3. Handle Issue updates
+	iss, err := s.GetIssue(repo, req.Number)
+	if err != nil {
+		return fmt.Errorf("failed to get issue #%d: %w", req.Number, err)
+	}
+
+	hasLabel := func(list []string, name string) bool {
+		for _, l := range list {
+			if strings.EqualFold(strings.TrimSpace(l), strings.TrimSpace(name)) {
+				return true
+			}
+		}
+		return false
+	}
+
+	wipLabels := []string{"in progress", "in-progress", "wip", "doing"}
+	reviewLabels := []string{"review", "in review", "in-review", "needs review", "under review"}
+
+	var toRemove []string
+	var toAdd []string
+	var targetState *string
+
+	isOpen := strings.EqualFold(iss.State, "open")
+
+	switch targetCol {
+	case "done":
+		if isOpen {
+			st := "closed"
+			targetState = &st
+		}
+		for _, l := range append(wipLabels, reviewLabels...) {
+			if hasLabel(iss.Labels, l) {
+				toRemove = append(toRemove, l)
+			}
+		}
+
+	case "todo":
+		if !isOpen {
+			st := "open"
+			targetState = &st
+		}
+		for _, l := range append(wipLabels, reviewLabels...) {
+			if hasLabel(iss.Labels, l) {
+				toRemove = append(toRemove, l)
+			}
+		}
+
+	case "in_progress":
+		if !isOpen {
+			st := "open"
+			targetState = &st
+		}
+		for _, l := range reviewLabels {
+			if hasLabel(iss.Labels, l) {
+				toRemove = append(toRemove, l)
+			}
+		}
+		if !hasLabel(iss.Labels, "in progress") && !hasLabel(iss.Labels, "wip") {
+			toAdd = append(toAdd, "in progress")
+		}
+
+	case "review":
+		if !isOpen {
+			st := "open"
+			targetState = &st
+		}
+		for _, l := range wipLabels {
+			if hasLabel(iss.Labels, l) {
+				toRemove = append(toRemove, l)
+			}
+		}
+		if !hasLabel(iss.Labels, "in review") && !hasLabel(iss.Labels, "review") {
+			toAdd = append(toAdd, "in review")
+		}
+	}
+
+	_, err = s.UpdateIssue(repo, req.Number, UpdateIssueRequest{
+		State:        targetState,
+		AddLabels:    toAdd,
+		RemoveLabels: toRemove,
+	})
+	return err
 }
 
 // GetAgentTasks returns all active and recent conversation tasks for the workspace.

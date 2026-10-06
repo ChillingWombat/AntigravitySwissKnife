@@ -1,6 +1,7 @@
 package quota
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -579,6 +580,99 @@ func TestCooldownAccountLifecycleAndRanking(t *testing.T) {
 	sortedWithActiveLow := SortAccountQuotaStates([]AccountQuotaState{standbyHealthy, activeStates[0]}, activeStates[0].Email, 0.05, "auto", SwitchModeBalanced)
 	if len(sortedWithActiveLow) != 2 || sortedWithActiveLow[0].Email != "active_low@example.com" {
 		t.Fatalf("active account even with low quota must remain pinned at Row 0, got %v", sortedWithActiveLow)
+	}
+}
+
+func TestWeeklyThreshold_EvaluationAndExclusion(t *testing.T) {
+	// 1. Active account has 100% 5h quota, but weekly quota is 4% (0.04)
+	activeWeeklyLow := AccountQuotaState{
+		Email:            "active_weekly_low@example.com",
+		IsActive:         true,
+		PlanTier:         "Pro",
+		Status:           "ACTIVE",
+		Quota5hCurrent:   1.0,
+		Quota5hAvailable: 1.0,
+		QuotaWeekly:      0.04, // 4%, below 5% weekly threshold
+	}
+	standbyHealthy := AccountQuotaState{
+		Email:            "standby_healthy@example.com",
+		IsActive:         false,
+		PlanTier:         "Pro",
+		Status:           "STANDBY",
+		Quota5hCurrent:   0.9,
+		Quota5hAvailable: 0.9,
+		QuotaWeekly:      0.8,
+	}
+
+	// With weekly threshold at 0.05, switch should trigger even though 5h quota is 100%
+	shouldSwitch, succ, reason := EvaluateAutoSwitchWithThresholds(
+		[]AccountQuotaState{activeWeeklyLow, standbyHealthy},
+		activeWeeklyLow.Email,
+		0.05,
+		0.05,
+		SwitchModeBalanced,
+		600.0,
+	)
+	if !shouldSwitch {
+		t.Fatalf("expected auto switch when weekly quota is below threshold (4%% <= 5%%)")
+	}
+	if succ == nil || succ.Email != standbyHealthy.Email {
+		t.Fatalf("expected successor %s, got %v", standbyHealthy.Email, succ)
+	}
+	if !strings.Contains(reason, "weekly") {
+		t.Fatalf("expected reason to mention weekly quota, got %q", reason)
+	}
+
+	// 2. Standby candidate with weekly quota below threshold is excluded from candidates
+	standbyWeeklyLow := AccountQuotaState{
+		Email:            "standby_weekly_low@example.com",
+		IsActive:         false,
+		PlanTier:         "Pro",
+		Status:           "STANDBY",
+		Quota5hCurrent:   1.0,
+		QuotaWeekly:      0.04, // below weekly threshold 0.05
+	}
+	candidates := RankStandbyAccountsWithThresholds(
+		[]AccountQuotaState{standbyWeeklyLow, standbyHealthy},
+		0.05,
+		0.05,
+		SwitchModeBalanced,
+	)
+	if len(candidates) != 1 || candidates[0].Email != standbyHealthy.Email {
+		t.Fatalf("expected only healthy standby candidate, got %v", candidates)
+	}
+
+	// 3. Account with weekly quota below threshold enters COOLDOWN via BuildAccountQuotaStatesFromMapWithThresholds
+	acc := &keyring.Account{
+		Email:    "test_weekly_cooldown@example.com",
+		Label:    "Weekly Cooldown Account",
+		PlanTier: "Pro",
+		Status:   "STANDBY",
+	}
+	summaries := map[string]*QuotaSummary{
+		"test_weekly_cooldown@example.com": {
+			AccountEmail:        "test_weekly_cooldown@example.com",
+			PlanTier:            "Pro",
+			Quota5hFraction:     1.0,
+			QuotaWeeklyFraction: 0.03, // 3%, below 0.05
+		},
+	}
+	states := BuildAccountQuotaStatesFromMapWithThresholds([]*keyring.Account{acc}, summaries, 0.05, 0.05)
+	if len(states) != 1 || states[0].Status != core.AccountStatusCooldown {
+		t.Fatalf("expected status %s for account with weekly quota below threshold, got %s", core.AccountStatusCooldown, states[0].Status)
+	}
+
+	// 4. Auto sorting places weekly-depleted standby in Tier 3 (cooldown) behind healthy standbys
+	sorted := SortAccountQuotaStatesWithThresholds(
+		[]AccountQuotaState{standbyWeeklyLow, standbyHealthy},
+		"",
+		0.05,
+		0.05,
+		"auto",
+		SwitchModeBalanced,
+	)
+	if len(sorted) != 2 || sorted[0].Email != standbyHealthy.Email || sorted[1].Email != standbyWeeklyLow.Email {
+		t.Fatalf("expected healthy standby before weekly-depleted standby, got %v", sorted)
 	}
 }
 

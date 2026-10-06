@@ -511,8 +511,173 @@ func GenerateGitHubExtensionCSS() string {
   box-sizing: border-box;
 }
 
+/* Kanban Board & Columns Styling */
+.swiss-gh-kanban-board {
+  display: flex;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  gap: 12px;
+  padding: 12px;
+  overflow-x: auto;
+  box-sizing: border-box;
+  background: var(--canvas-subtle, rgba(0, 0, 0, 0.01));
+}
+
+.swiss-gh-kanban-col {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 240px;
+  min-width: 220px;
+  max-width: 360px;
+  height: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--border, #e2e8f0);
+  background: var(--canvas, #ffffff);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+:is(.dark, [data-theme="dark"]) .swiss-gh-kanban-col {
+  background: #18191a;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.swiss-gh-kanban-col-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  background: rgba(0, 0, 0, 0.02);
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+}
+:is(.dark, [data-theme="dark"]) .swiss-gh-kanban-col-header {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.swiss-gh-kanban-col-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swiss-gh-col-counter {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-muted, #64748b);
+}
+:is(.dark, [data-theme="dark"]) .swiss-gh-col-counter {
+  background: rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+}
+
+.swiss-gh-kanban-col-cards {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  padding: 8px;
+  gap: 8px;
+  overflow-y: auto;
+  min-height: 80px;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.swiss-gh-kanban-col-cards.drag-over {
+  background: rgba(26, 115, 232, 0.06);
+  outline: 2px dashed #1a73e8;
+  outline-offset: -3px;
+  border-radius: 6px;
+}
+:is(.dark, [data-theme="dark"]) .swiss-gh-kanban-col-cards.drag-over {
+  background: rgba(138, 180, 248, 0.08);
+  outline-color: #8ab4f8;
+}
+
+/* Kanban Cards */
+.swiss-gh-kanban-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #e2e8f0);
+  background: var(--card, #ffffff);
+  cursor: grab;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+  user-select: none;
+}
+:is(.dark, [data-theme="dark"]) .swiss-gh-kanban-card {
+  background: #202124;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.swiss-gh-kanban-card:hover {
+  border-color: #1a73e8;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+:is(.dark, [data-theme="dark"]) .swiss-gh-kanban-card:hover {
+  border-color: #8ab4f8;
+}
+.swiss-gh-kanban-card:active {
+  cursor: grabbing;
+}
+.swiss-gh-kanban-card.dragging {
+  opacity: 0.45;
+  border: 1px dashed #1a73e8;
+}
+
+/* View Switcher Button Group */
+.swiss-gh-view-switcher {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 6px;
+  gap: 2px;
+}
+:is(.dark, [data-theme="dark"]) .swiss-gh-view-switcher {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.swiss-gh-view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #64748b);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s ease;
+}
+:is(.dark, [data-theme="dark"]) .swiss-gh-view-btn {
+  color: #94a3b8;
+}
+.swiss-gh-view-btn.active {
+  background: var(--canvas, #ffffff);
+  color: var(--text, #1e293b);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+:is(.dark, [data-theme="dark"]) .swiss-gh-view-btn.active {
+  background: #2b2c2f;
+  color: #f1f5f9;
+}
+
 /* GitHub Workspace 3-Column Layout */
 .swiss-gh-workspace-layout {
+
   display: flex;
   width: 100%;
   height: 100%;

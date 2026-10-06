@@ -12,8 +12,13 @@ import {
   Send,
   Save,
   Sparkles,
+  Kanban,
+  List,
+  GripVertical,
 } from 'lucide-react'
 import { api } from '../api'
+import type { KanbanBoard, KanbanCard, KanbanColumn } from '../types'
+import { getEffectiveKanbanColumns } from '../utils/kanban'
 
 export const GitHubWorkspacePage: React.FC = () => {
   const [repo, setRepo] = useState<any>(null)
@@ -21,6 +26,10 @@ export const GitHubWorkspacePage: React.FC = () => {
   const [prs, setPRs] = useState<any[]>([])
   const [agentTasks, setAgentTasks] = useState<any[]>([])
   const [loading, setLoading] = useState<boolean>(true)
+  const [viewMode, setViewMode] = useState<'list' | 'kanban'>('kanban')
+  const [kanbanBoard, setKanbanBoard] = useState<KanbanBoard | null>(null)
+  const [draggedCard, setDraggedCard] = useState<KanbanCard | null>(null)
+  const [dragOverCol, setDragOverCol] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'issues' | 'prs' | 'tasks'>('issues')
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [stateFilter, setStateFilter] = useState<'all' | 'open' | 'closed'>('all')
@@ -32,6 +41,7 @@ export const GitHubWorkspacePage: React.FC = () => {
   const [isCreatingIssue, setIsCreatingIssue] = useState<boolean>(false)
   const [newTitle, setNewTitle] = useState<string>('')
   const [newBody, setNewBody] = useState<string>('')
+
 
   const showToast = (msg: string) => {
     setToastMsg(msg)
@@ -62,12 +72,77 @@ export const GitHubWorkspacePage: React.FC = () => {
       if (tasksRes.success && tasksRes.tasks) {
         setAgentTasks(tasksRes.tasks)
       }
+      try {
+        const kbRes = await api.getGitHubKanbanBoard()
+        if (kbRes.success && kbRes.board) {
+          setKanbanBoard(kbRes.board)
+        }
+      } catch (_) {}
     } catch (err: any) {
       showToast('Error loading GitHub data: ' + err.message)
     } finally {
       setLoading(false)
     }
   }
+
+  const handleMoveCard = async (targetColumnId: string) => {
+    if (!draggedCard || draggedCard.column_id === targetColumnId) {
+      setDraggedCard(null)
+      setDragOverCol(null)
+      return
+    }
+
+    const sourceColId = draggedCard.column_id
+    const cardNum = draggedCard.number
+    const cardType = draggedCard.type || (draggedCard.id?.startsWith('pr-') ? 'pr' : 'issue')
+
+    // Optimistic UI update
+    const currentCols = getEffectiveColumns()
+    const nextCols = currentCols.map((col: KanbanColumn) => {
+      if (col.id === sourceColId) {
+        return { ...col, cards: col.cards.filter((c) => c.id !== draggedCard.id) }
+      }
+      if (col.id === targetColumnId) {
+        return { ...col, cards: [...col.cards, { ...draggedCard, column_id: targetColumnId }] }
+      }
+      return col
+    })
+    setKanbanBoard({
+      project_id: kanbanBoard?.project_id,
+      project_title: kanbanBoard?.project_title,
+      is_synthesized: kanbanBoard ? kanbanBoard.is_synthesized : true,
+      columns: nextCols,
+    })
+
+
+    try {
+      const res = await api.moveGitHubKanbanCard({
+        number: cardNum,
+        card_id: draggedCard.id || `${cardType}-${cardNum}`,
+        card_type: cardType,
+        source_column: sourceColId,
+        target_column: targetColumnId,
+      })
+      if (res.success) {
+        showToast(`Card #${cardNum} moved to ${targetColumnId.replace('_', ' ').toUpperCase()}`)
+        loadData()
+      } else {
+        showToast(res.error || 'Failed to move card')
+        loadData()
+      }
+    } catch (err: any) {
+      showToast('Move failed: ' + err.message)
+      loadData()
+    } finally {
+      setDraggedCard(null)
+      setDragOverCol(null)
+    }
+  }
+
+  const getEffectiveColumns = () =>
+    getEffectiveKanbanColumns(kanbanBoard, issues, prs, searchQuery)
+
+
 
   useEffect(() => {
     loadData()
@@ -285,6 +360,59 @@ export const GitHubWorkspacePage: React.FC = () => {
             />
           </div>
 
+          {/* View Mode Toggle: Kanban Board | List */}
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '2px',
+              borderRadius: '6px',
+              backgroundColor: 'var(--surface-variant)',
+              border: '1px solid var(--border)',
+            }}
+          >
+            <button
+              onClick={() => setViewMode('kanban')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '4px 10px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                fontWeight: viewMode === 'kanban' ? 600 : 500,
+                backgroundColor: viewMode === 'kanban' ? 'var(--surface)' : 'transparent',
+                color: viewMode === 'kanban' ? 'var(--text)' : 'var(--text-muted)',
+                border: 'none',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                boxShadow: viewMode === 'kanban' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+              }}
+            >
+              <Kanban size={13} /> Board
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '4px 10px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                fontWeight: viewMode === 'list' ? 600 : 500,
+                backgroundColor: viewMode === 'list' ? 'var(--surface)' : 'transparent',
+                color: viewMode === 'list' ? 'var(--text)' : 'var(--text-muted)',
+                border: 'none',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                boxShadow: viewMode === 'list' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+              }}
+            >
+              <List size={13} /> List
+            </button>
+          </div>
+
           <button
             onClick={() => setIsCreatingIssue(true)}
             style={{
@@ -304,6 +432,7 @@ export const GitHubWorkspacePage: React.FC = () => {
             <Plus size={14} /> New Issue
           </button>
 
+
           <button
             onClick={loadData}
             style={{
@@ -321,17 +450,343 @@ export const GitHubWorkspacePage: React.FC = () => {
         </div>
       </div>
 
-      {/* Tabs & Sub-Filters Row */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0 24px',
-          borderBottom: '1px solid var(--border)',
-          backgroundColor: 'var(--surface)',
-        }}
-      >
+      {viewMode === 'kanban' ? (
+        <div
+          style={{
+            display: 'flex',
+            flex: 1,
+            minHeight: 0,
+            padding: '16px 24px',
+            gap: '16px',
+            overflowX: 'auto',
+            backgroundColor: 'var(--canvas-subtle, rgba(0,0,0,0.01))',
+            boxSizing: 'border-box',
+          }}
+        >
+          {getEffectiveColumns().map((col: any) => {
+            const isDragOver = dragOverCol === col.id
+            const cards = col.cards || []
+
+            return (
+              <div
+                key={col.id}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  flex: '1 1 240px',
+                  minWidth: '260px',
+                  maxWidth: '380px',
+                  height: '100%',
+                  borderRadius: '8px',
+                  border: isDragOver ? '2px dashed #1a73e8' : '1px solid var(--border)',
+                  backgroundColor: isDragOver ? 'rgba(26, 115, 232, 0.04)' : 'var(--surface)',
+                  overflow: 'hidden',
+                  boxSizing: 'border-box',
+                  transition: 'background-color 0.15s ease, border-color 0.15s ease',
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                  if (dragOverCol !== col.id) setDragOverCol(col.id)
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    setDragOverCol(null)
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  handleMoveCard(col.id)
+                }}
+              >
+                {/* Column Header */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 14px',
+                    borderBottom: '1px solid var(--border)',
+                    backgroundColor: 'rgba(0,0,0,0.02)',
+                    userSelect: 'none',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                      {col.title}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        padding: '1px 7px',
+                        borderRadius: '10px',
+                        backgroundColor: 'rgba(0,0,0,0.06)',
+                        color: 'var(--text-muted)',
+                      }}
+                    >
+                      {cards.length}
+                    </span>
+                  </div>
+                  {col.id === 'todo' && (
+                    <button
+                      onClick={() => setIsCreatingIssue(true)}
+                      title="New Issue"
+                      style={{
+                        padding: '2px 6px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        borderRadius: '4px',
+                        border: '1px solid var(--border)',
+                        backgroundColor: 'transparent',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      +
+                    </button>
+                  )}
+                </div>
+
+                {/* Cards Container */}
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    flex: 1,
+                    padding: '10px',
+                    gap: '10px',
+                    overflowY: 'auto',
+                    minHeight: '80px',
+                  }}
+                >
+                  {cards.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '24px 12px',
+                        textAlign: 'center',
+                        fontSize: '12px',
+                        color: 'var(--text-muted)',
+                        margin: 'auto',
+                      }}
+                    >
+                      No items
+                    </div>
+                  ) : (
+                    cards.map((card: any) => {
+                      const isPR = card.type === 'pr' || (card.id && card.id.startsWith('pr-'))
+                      const num = card.number
+                      const title = card.title || ''
+                      const state = (card.state || 'open').toLowerCase()
+                      const assigned = card.assigned_agent
+                      const labels = card.labels || []
+
+                      let badgeBg = 'rgba(34, 197, 94, 0.12)'
+                      let badgeColor = '#16a34a'
+                      if (state === 'closed') {
+                        badgeBg = 'rgba(100, 116, 139, 0.12)'
+                        badgeColor = '#64748b'
+                      } else if (isPR) {
+                        badgeBg = 'rgba(168, 85, 247, 0.12)'
+                        badgeColor = '#9333ea'
+                      }
+
+                      return (
+                        <div
+                          key={card.id || `${card.type}-${num}`}
+                          draggable={true}
+                          onDragStart={(e) => {
+                            setDraggedCard(card)
+                            const markdownContext = `### GitHub ${isPR ? 'Pull Request' : 'Issue'} #${num}: ${title}\n- **Repository:** ${repo ? repo.full_name : ''}\n- **State:** ${state}\n\n${card.body || ''}`
+                            e.dataTransfer.setData('text/plain', markdownContext)
+                            e.dataTransfer.effectAllowed = 'move'
+                          }}
+                          onDragEnd={() => {
+                            setDraggedCard(null)
+                            setDragOverCol(null)
+                          }}
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px',
+                            padding: '10px 12px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border)',
+                            backgroundColor: 'var(--card, #ffffff)',
+                            cursor: 'grab',
+                            transition: 'all 0.12s ease',
+                            userSelect: 'none',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              <GripVertical size={12} style={{ color: 'var(--text-muted)', opacity: 0.6 }} />
+                              <span
+                                style={{
+                                  fontSize: '10.5px',
+                                  fontWeight: 700,
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  backgroundColor: badgeBg,
+                                  color: badgeColor,
+                                }}
+                              >
+                                {isPR ? 'PR #' : '#'}{num} {state.toUpperCase()}
+                              </span>
+                            </div>
+
+                            {/* Live Agent Task Pulse Indicator */}
+                            {assigned && (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '5px',
+                                  padding: '2px 6px',
+                                  borderRadius: '10px',
+                                  fontSize: '10px',
+                                  fontWeight: 600,
+                                  backgroundColor: assigned.not_fully_idle ? 'rgba(34, 197, 94, 0.12)' : 'rgba(100, 116, 139, 0.12)',
+                                  color: assigned.not_fully_idle ? '#15803d' : '#64748b',
+                                  border: assigned.not_fully_idle ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid transparent',
+                                }}
+                                title={`Agent: ${assigned.agent_label || assigned.agent_name || 'Agent'}`}
+                              >
+                                {assigned.not_fully_idle && (
+                                  <span
+                                    style={{
+                                      width: '6px',
+                                      height: '6px',
+                                      borderRadius: '50%',
+                                      backgroundColor: '#16a34a',
+                                      boxShadow: '0 0 0 2px rgba(34, 197, 94, 0.4)',
+                                    }}
+                                  />
+                                )}
+                                {assigned.not_fully_idle ? 'Working' : 'Idle'}: {assigned.agent_label || 'Agent'}
+                              </span>
+                            )}
+                          </div>
+
+                          <div
+                            style={{
+                              fontSize: '12.5px',
+                              fontWeight: 500,
+                              color: 'var(--text)',
+                              lineHeight: 1.35,
+                              wordBreak: 'break-word',
+                            }}
+                          >
+                            {title}
+                          </div>
+
+                          {labels && labels.length > 0 && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px' }}>
+                              {labels.slice(0, 3).map((lbl: string, lIdx: number) => (
+                                <span
+                                  key={lIdx}
+                                  style={{
+                                    fontSize: '9.5px',
+                                    padding: '1px 6px',
+                                    borderRadius: '10px',
+                                    backgroundColor: 'rgba(0,0,0,0.05)',
+                                    color: 'var(--text-muted)',
+                                    lineHeight: 1.2,
+                                  }}
+                                >
+                                  {lbl}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              paddingTop: '6px',
+                              borderTop: '1px solid var(--border)',
+                              marginTop: '2px',
+                            }}
+                          >
+                            <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
+                              @{card.author || 'user'}
+                            </span>
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              <button
+                                onClick={async () => {
+                                  const text = `### GitHub ${isPR ? 'Pull Request' : 'Issue'} #${num}: ${title}\n- **Repository:** ${repo ? repo.full_name : ''}\n- **State:** ${state}\n\n${card.body || ''}`
+                                  await navigator.clipboard.writeText(text)
+                                  showToast(`Copied #${num} markdown context to clipboard`)
+                                }}
+                                style={{
+                                  padding: '3px 6px',
+                                  fontSize: '10px',
+                                  fontWeight: 500,
+                                  borderRadius: '4px',
+                                  border: '1px solid var(--border)',
+                                  backgroundColor: 'transparent',
+                                  color: 'var(--text-muted)',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px',
+                                  whiteSpace: 'nowrap',
+                                }}
+                                title="Copy context for agent prompt"
+                              >
+                                <Send size={9} /> Copy Prompt
+                              </button>
+                              <button
+                                onClick={() => {
+                                  selectItemForEditing(card)
+                                  setViewMode('list')
+                                }}
+                                style={{
+                                  padding: '3px 6px',
+                                  fontSize: '10px',
+                                  fontWeight: 500,
+                                  borderRadius: '4px',
+                                  border: '1px solid var(--border)',
+                                  backgroundColor: 'transparent',
+                                  color: 'var(--text-muted)',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px',
+                                  whiteSpace: 'nowrap',
+                                }}
+                                title="Edit details"
+                              >
+                                Edit
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <>
+          {/* Tabs & Sub-Filters Row */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '0 24px',
+              borderBottom: '1px solid var(--border)',
+              backgroundColor: 'var(--surface)',
+            }}
+          >
+
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
             onClick={() => setActiveTab('issues')}
@@ -887,6 +1342,8 @@ export const GitHubWorkspacePage: React.FC = () => {
           </div>
         </div>
       </div>
+      </>
+      )}
 
       {/* New Issue Modal */}
       {isCreatingIssue && (

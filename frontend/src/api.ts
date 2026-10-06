@@ -504,20 +504,94 @@ export const api = {
       body: JSON.stringify({ path }),
     }),
 
-  // Quick Memos API
-  getMemos: () =>
-    request<{ success: boolean; memos: any[] }>('/api/memos'),
-
-  saveMemo: (memo: any) =>
-    request<{ success: boolean; memo: any }>('/api/memos/save', {
+  openIDE: (path: string, ide?: string) =>
+    request<{ success: boolean; dir: string; ide?: string; launched?: string }>('/api/files/open_ide', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(memo),
+      body: JSON.stringify({ path, ide }),
     }),
 
-  deleteMemo: (id: string) =>
-    request<{ success: boolean; deleted: string }>(`/api/memos/delete?id=${encodeURIComponent(id)}`, {
+  getPreferredIDE: () =>
+    request<{ success: boolean; preferred_ide: string }>('/api/files/ide/config'),
+
+  setPreferredIDE: (ide: string) =>
+    request<{ success: boolean; preferred_ide: string }>('/api/files/ide/config', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ preferred_ide: ide }),
+    }),
+
+  // Quick Memos API
+  getMemos: (params?: { workspacePath?: string; storage?: 'global' | 'project'; scope?: 'all' | 'current' }) => {
+    const q = new URLSearchParams();
+    if (params?.workspacePath) q.set('workspace_path', params.workspacePath);
+    if (params?.storage) q.set('storage', params.storage);
+    if (params?.scope) q.set('scope', params.scope);
+    const qs = q.toString();
+    const headers: Record<string, string> = {};
+    if (params?.workspacePath) {
+      headers['X-Workspace-Path'] = params.workspacePath;
+    }
+    return request<{ success: boolean; memos: any[]; fallback?: boolean }>(
+      qs ? `/api/memos?${qs}` : '/api/memos',
+      { headers }
+    );
+  },
+
+  saveMemo: (memo: any, options?: { workspacePath?: string; storage?: 'global' | 'project' }) => {
+    const q = new URLSearchParams();
+    if (options?.workspacePath) q.set('workspace_path', options.workspacePath);
+    if (options?.storage) q.set('storage', options.storage);
+    const qs = q.toString();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (options?.workspacePath) {
+      headers['X-Workspace-Path'] = options.workspacePath;
+    }
+    return request<{ success: boolean; memo: any; fallback?: boolean; storage_location_effective?: string }>(
+      qs ? `/api/memos/save?${qs}` : '/api/memos/save',
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(memo),
+      }
+    );
+  },
+
+  deleteMemo: (id: string, options?: { workspacePath?: string; storage?: 'global' | 'project' }) => {
+    const q = new URLSearchParams();
+    q.set('id', id);
+    if (options?.workspacePath) q.set('workspace_path', options.workspacePath);
+    if (options?.storage) q.set('storage', options.storage);
+    const headers: Record<string, string> = {};
+    if (options?.workspacePath) {
+      headers['X-Workspace-Path'] = options.workspacePath;
+    }
+    return request<{ success: boolean; deleted: string }>(`/api/memos/delete?${q.toString()}`, {
+      method: 'POST',
+      headers,
+    });
+  },
+
+  getMemoConfig: () =>
+    request<{
+      success: boolean;
+      config: { storage_location: string; view_scope: string; search_scope: string };
+      storage_location?: string;
+      view_scope?: string;
+      search_scope?: string;
+    }>('/api/memos/config'),
+
+  updateMemoConfig: (cfg: { storage_location?: string; view_scope?: string; search_scope?: string }) =>
+    request<{
+      success: boolean;
+      config: { storage_location: string; view_scope: string; search_scope: string };
+      storage_location?: string;
+      view_scope?: string;
+      search_scope?: string;
+    }>('/api/memos/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg),
     }),
 
   // Real Utilities & ACP Mesh API
@@ -617,4 +691,28 @@ export const api = {
     request<{ success: boolean; context: string }>(
       `/api/github/context?number=${number}&type=${type || 'issue'}&workspace_path=${encodeURIComponent(workspacePath || '.')}`
     ),
+
+  getGitHubKanbanBoard: (workspacePath?: string, projectNumber?: number) =>
+    request<{ success: boolean; board?: any; repo?: any; error?: string }>(
+      `/api/github/kanban?workspace_path=${encodeURIComponent(workspacePath || '.')}${
+        projectNumber ? `&project_number=${projectNumber}` : ''
+      }`
+    ),
+
+  moveGitHubKanbanCard: (data: {
+    workspace_path?: string
+    card_id: string
+    card_type: string
+    number: number
+    source_column: string
+    target_column: string
+    project_number?: number
+    project_item_id?: string
+  }) =>
+    request<{ success: boolean; message?: string; error?: string }>('/api/github/kanban/move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
 }
+

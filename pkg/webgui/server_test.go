@@ -622,6 +622,517 @@ func TestWebGUIMemosEndpoints(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestWebGUIMemos_ProjectScopedStorage(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	globalTmp := t.TempDir()
+	globalFile := filepath.Join(globalTmp, "global_memos.json")
+	srv.SetGlobalMemosPath(globalFile)
+
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+	wsDir := t.TempDir()
+
+	// 1. Save memo targeted to project workspace
+	payload := map[string]interface{}{
+		"title":   "Project Memo 1",
+		"content": "Work on milestone M10",
+		"type":    "text",
+		"tags":    []string{"project", "m10"},
+	}
+	pBytes, _ := json.Marshal(payload)
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/api/memos/save?storage=project", bytes.NewReader(pBytes))
+	if err != nil {
+		t.Fatalf("NewRequest error: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Workspace-Path", wsDir)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/memos/save failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	var saveRes struct {
+		Success  bool `json:"success"`
+		Fallback bool `json:"fallback"`
+		Memo     struct {
+			ID            string `json:"id"`
+			Title         string `json:"title"`
+			WorkspacePath string `json:"workspace_path"`
+			Project       string `json:"project"`
+		} `json:"memo"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&saveRes)
+	resp.Body.Close()
+
+	if !saveRes.Success || saveRes.Memo.ID == "" {
+		t.Fatalf("expected successful memo save with valid ID")
+	}
+	if saveRes.Fallback {
+		t.Fatalf("did not expect fallback for valid project directory")
+	}
+	if saveRes.Memo.WorkspacePath != wsDir {
+		t.Errorf("expected workspace_path %q, got %q", wsDir, saveRes.Memo.WorkspacePath)
+	}
+
+	// Verify physical file was written to <wsDir>/.antigravity/memos.json
+	projFile := filepath.Join(wsDir, ".antigravity", "memos.json")
+	data, err := os.ReadFile(projFile)
+	if err != nil {
+		t.Fatalf("expected project memos file at %q: %v", projFile, err)
+	}
+	if !strings.Contains(string(data), "Project Memo 1") {
+		t.Fatalf("project memos file does not contain expected title: %s", string(data))
+	}
+
+	// Verify global memos file was not written to
+	if _, err := os.Stat(globalFile); err == nil {
+		gData, _ := os.ReadFile(globalFile)
+		if strings.Contains(string(gData), "Project Memo 1") {
+			t.Fatalf("global memos file should not contain project-scoped memo")
+		}
+	}
+
+	// 2. Query memos for current workspace
+	reqList, _ := http.NewRequest(http.MethodGet, baseURL+"/api/memos?scope=current", nil)
+	reqList.Header.Set("X-Workspace-Path", wsDir)
+	respList, err := http.DefaultClient.Do(reqList)
+	if err != nil || respList.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/memos?scope=current failed: err=%v, code=%d", err, respList.StatusCode)
+	}
+	var listRes struct {
+		Success bool `json:"success"`
+		Memos   []struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		} `json:"memos"`
+	}
+	_ = json.NewDecoder(respList.Body).Decode(&listRes)
+	respList.Body.Close()
+
+	if !listRes.Success || len(listRes.Memos) != 1 || listRes.Memos[0].Title != "Project Memo 1" {
+		t.Fatalf("expected 1 project memo matching 'Project Memo 1', got %+v", listRes)
+	}
+}
+
+func TestWebGUIMemos_GracefulFallback(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	globalTmp := t.TempDir()
+	globalFile := filepath.Join(globalTmp, "fallback_global_memos.json")
+	srv.SetGlobalMemosPath(globalFile)
+
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// Case 1: Empty workspace path with storage=project
+	payload1 := map[string]interface{}{
+		"title":   "Fallback Empty Workspace",
+		"content": "No workspace passed",
+		"type":    "text",
+	}
+	pBytes1, _ := json.Marshal(payload1)
+	resp1, err := http.Post(baseURL+"/api/memos/save?storage=project", "application/json", bytes.NewReader(pBytes1))
+	if err != nil || resp1.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/memos/save empty ws failed: err=%v, code=%d", err, resp1.StatusCode)
+	}
+	var res1 struct {
+		Success  bool   `json:"success"`
+		Fallback bool   `json:"fallback"`
+		Storage  string `json:"storage_location_effective"`
+		Memo     struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		} `json:"memo"`
+	}
+	_ = json.NewDecoder(resp1.Body).Decode(&res1)
+	resp1.Body.Close()
+
+	if !res1.Success || !res1.Fallback || res1.Storage != "global" {
+		t.Fatalf("expected fallback: true and storage_location_effective: global, got %+v", res1)
+	}
+
+	// Verify written to global file
+	gData, err := os.ReadFile(globalFile)
+	if err != nil || !strings.Contains(string(gData), "Fallback Empty Workspace") {
+		t.Fatalf("expected memo in global fallback file: %v", err)
+	}
+
+	// Case 2: Nonexistent directory path with storage=project
+	payload2 := map[string]interface{}{
+		"title":   "Fallback Nonexistent Workspace",
+		"content": "Nonexistent path passed",
+		"type":    "text",
+	}
+	pBytes2, _ := json.Marshal(payload2)
+	req2, _ := http.NewRequest(http.MethodPost, baseURL+"/api/memos/save?storage=project&workspace_path=/nonexistent/path/999/xyz", bytes.NewReader(pBytes2))
+	req2.Header.Set("Content-Type", "application/json")
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil || resp2.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/memos/save nonexistent ws failed: err=%v, code=%d", err, resp2.StatusCode)
+	}
+	var res2 struct {
+		Success  bool   `json:"success"`
+		Fallback bool   `json:"fallback"`
+		Storage  string `json:"storage_location_effective"`
+	}
+	_ = json.NewDecoder(resp2.Body).Decode(&res2)
+	resp2.Body.Close()
+
+	if !res2.Success || !res2.Fallback || res2.Storage != "global" {
+		t.Fatalf("expected graceful fallback: true for nonexistent workspace, got %+v", res2)
+	}
+}
+
+func TestWebGUIMemos_ViewScopeFiltering(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	globalTmp := t.TempDir()
+	srv.SetGlobalMemosPath(filepath.Join(globalTmp, "global_memos.json"))
+
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+	ws1 := t.TempDir()
+	ws2 := t.TempDir()
+
+	// 1. Save Memo A in Workspace 1
+	pA, _ := json.Marshal(map[string]interface{}{
+		"title":   "Memo in WS1",
+		"content": "Workspace 1 specific notes",
+		"type":    "text",
+	})
+	reqA, _ := http.NewRequest(http.MethodPost, baseURL+"/api/memos/save?storage=project&workspace_path="+ws1, bytes.NewReader(pA))
+	reqA.Header.Set("Content-Type", "application/json")
+	respA, err := http.DefaultClient.Do(reqA)
+	if err != nil || respA.StatusCode != http.StatusOK {
+		t.Fatalf("save memo A failed: %v", err)
+	}
+	respA.Body.Close()
+
+	// 2. Save Memo B in Workspace 2
+	pB, _ := json.Marshal(map[string]interface{}{
+		"title":   "Memo in WS2",
+		"content": "Workspace 2 specific notes",
+		"type":    "text",
+	})
+	reqB, _ := http.NewRequest(http.MethodPost, baseURL+"/api/memos/save?storage=project&workspace_path="+ws2, bytes.NewReader(pB))
+	reqB.Header.Set("Content-Type", "application/json")
+	respB, err := http.DefaultClient.Do(reqB)
+	if err != nil || respB.StatusCode != http.StatusOK {
+		t.Fatalf("save memo B failed: %v", err)
+	}
+	respB.Body.Close()
+
+	// 3. Test scope=current on Workspace 1: should return only Memo in WS1
+	resp1, err := http.Get(baseURL + "/api/memos?scope=current&workspace_path=" + ws1)
+	if err != nil || resp1.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/memos scope=current ws1 failed: %v", err)
+	}
+	var res1 struct {
+		Success bool `json:"success"`
+		Memos   []struct {
+			Title string `json:"title"`
+		} `json:"memos"`
+	}
+	_ = json.NewDecoder(resp1.Body).Decode(&res1)
+	resp1.Body.Close()
+
+	if len(res1.Memos) != 1 || res1.Memos[0].Title != "Memo in WS1" {
+		t.Fatalf("expected only 'Memo in WS1' for ws1, got %+v", res1)
+	}
+
+	// 4. Test scope=current on Workspace 2: should return only Memo in WS2
+	resp2, err := http.Get(baseURL + "/api/memos?scope=current&workspace_path=" + ws2)
+	if err != nil || resp2.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/memos scope=current ws2 failed: %v", err)
+	}
+	var res2 struct {
+		Success bool `json:"success"`
+		Memos   []struct {
+			Title string `json:"title"`
+		} `json:"memos"`
+	}
+	_ = json.NewDecoder(resp2.Body).Decode(&res2)
+	resp2.Body.Close()
+
+	if len(res2.Memos) != 1 || res2.Memos[0].Title != "Memo in WS2" {
+		t.Fatalf("expected only 'Memo in WS2' for ws2, got %+v", res2)
+	}
+
+	// 5. Test scope=all: should return aggregated memos (both WS1 and WS2)
+	respAll, err := http.Get(baseURL + "/api/memos?scope=all")
+	if err != nil || respAll.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/memos scope=all failed: %v", err)
+	}
+	var resAll struct {
+		Success bool `json:"success"`
+		Memos   []struct {
+			Title string `json:"title"`
+		} `json:"memos"`
+	}
+	_ = json.NewDecoder(respAll.Body).Decode(&resAll)
+	respAll.Body.Close()
+
+	titles := make(map[string]bool)
+	for _, m := range resAll.Memos {
+		titles[m.Title] = true
+	}
+	if !titles["Memo in WS1"] || !titles["Memo in WS2"] {
+		t.Fatalf("expected aggregated list to contain both Memo in WS1 and Memo in WS2, got %+v", resAll)
+	}
+}
+
+func TestWebGUIMemos_DeleteProjectMemo(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	globalTmp := t.TempDir()
+	srv.SetGlobalMemosPath(filepath.Join(globalTmp, "global_memos.json"))
+
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+	ws := t.TempDir()
+
+	// 1. Save memo in workspace
+	p, _ := json.Marshal(map[string]interface{}{
+		"id":      "memo-del-target-99",
+		"title":   "Memo to Delete",
+		"content": "Will be removed soon",
+		"type":    "text",
+	})
+	req, _ := http.NewRequest(http.MethodPost, baseURL+"/api/memos/save?storage=project&workspace_path="+ws, bytes.NewReader(p))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("save memo failed: %v", err)
+	}
+	resp.Body.Close()
+
+	projFile := filepath.Join(ws, ".antigravity", "memos.json")
+	content, _ := os.ReadFile(projFile)
+	if !strings.Contains(string(content), "memo-del-target-99") {
+		t.Fatalf("memo was not saved to project file: %s", string(content))
+	}
+
+	// 2. Delete memo
+	reqDel, _ := http.NewRequest(http.MethodPost, baseURL+"/api/memos/delete?id=memo-del-target-99&workspace_path="+ws, nil)
+	respDel, err := http.DefaultClient.Do(reqDel)
+	if err != nil || respDel.StatusCode != http.StatusOK {
+		t.Fatalf("delete memo failed: %v", err)
+	}
+	var delRes struct {
+		Success bool   `json:"success"`
+		Deleted string `json:"deleted"`
+	}
+	_ = json.NewDecoder(respDel.Body).Decode(&delRes)
+	respDel.Body.Close()
+
+	if !delRes.Success || delRes.Deleted != "memo-del-target-99" {
+		t.Fatalf("unexpected delete result: %+v", delRes)
+	}
+
+	// 3. Confirm deletion in project file and GET endpoint
+	contentAfter, _ := os.ReadFile(projFile)
+	if strings.Contains(string(contentAfter), "memo-del-target-99") {
+		t.Fatalf("memo was still present in project file after deletion: %s", string(contentAfter))
+	}
+
+	respGet, _ := http.Get(baseURL + "/api/memos?scope=current&workspace_path=" + ws)
+	var listRes struct {
+		Success bool `json:"success"`
+		Memos   []struct {
+			ID string `json:"id"`
+		} `json:"memos"`
+	}
+	_ = json.NewDecoder(respGet.Body).Decode(&listRes)
+	respGet.Body.Close()
+
+	if len(listRes.Memos) != 0 {
+		t.Fatalf("expected 0 memos after deletion, got %d", len(listRes.Memos))
+	}
+}
+
+func TestWebGUIMemos_TranscriptAndVoiceFields(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	globalTmp := t.TempDir()
+	srv.SetGlobalMemosPath(filepath.Join(globalTmp, "global_memos.json"))
+
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+	ws := t.TempDir()
+
+	voicePayload := map[string]interface{}{
+		"title":      "Voice Note Review",
+		"type":       "audio",
+		"content":    "Voice memo transcript content",
+		"transcript": "Web Speech API transcribed this voice note flawlessly",
+		"audio_data": "data:audio/webm;codecs=opus;base64,GkXfo59ChoEBQveBAULygQ8USA0BAAAAAAAA...",
+		"duration":   "01:15",
+		"tags":       []string{"voice", "review"},
+	}
+	pBytes, _ := json.Marshal(voicePayload)
+	req, _ := http.NewRequest(http.MethodPost, baseURL+"/api/memos/save?storage=project&workspace_path="+ws, bytes.NewReader(pBytes))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("save voice memo failed: %v", err)
+	}
+	var saveRes struct {
+		Success bool `json:"success"`
+		Memo    struct {
+			ID            string   `json:"id"`
+			Title         string   `json:"title"`
+			Transcript    string   `json:"transcript"`
+			AudioData     string   `json:"audio_data"`
+			Duration      string   `json:"duration"`
+			WorkspacePath string   `json:"workspace_path"`
+			Project       string   `json:"project"`
+			Tags          []string `json:"tags"`
+		} `json:"memo"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&saveRes)
+	resp.Body.Close()
+
+	if !saveRes.Success {
+		t.Fatalf("save voice memo failed")
+	}
+	if saveRes.Memo.Transcript != "Web Speech API transcribed this voice note flawlessly" {
+		t.Errorf("transcript mismatch: got %q", saveRes.Memo.Transcript)
+	}
+	if !strings.HasPrefix(saveRes.Memo.AudioData, "data:audio/webm") {
+		t.Errorf("audio_data mismatch: got %q", saveRes.Memo.AudioData)
+	}
+	if saveRes.Memo.Duration != "01:15" {
+		t.Errorf("duration mismatch: got %q", saveRes.Memo.Duration)
+	}
+	if saveRes.Memo.WorkspacePath != ws {
+		t.Errorf("workspace_path mismatch: got %q", saveRes.Memo.WorkspacePath)
+	}
+	if saveRes.Memo.Project != filepath.Base(ws) {
+		t.Errorf("project mismatch: got %q", saveRes.Memo.Project)
+	}
+
+	// Verify persistence in GET /api/memos
+	respGet, _ := http.Get(baseURL + "/api/memos?scope=current&workspace_path=" + ws)
+	var listRes struct {
+		Success bool `json:"success"`
+		Memos   []struct {
+			ID         string `json:"id"`
+			Transcript string `json:"transcript"`
+			AudioData  string `json:"audio_data"`
+			Duration   string `json:"duration"`
+		} `json:"memos"`
+	}
+	_ = json.NewDecoder(respGet.Body).Decode(&listRes)
+	respGet.Body.Close()
+
+	if len(listRes.Memos) != 1 {
+		t.Fatalf("expected 1 voice memo in list, got %d", len(listRes.Memos))
+	}
+	if listRes.Memos[0].Transcript != "Web Speech API transcribed this voice note flawlessly" {
+		t.Errorf("retrieved transcript mismatch: %q", listRes.Memos[0].Transcript)
+	}
+	if listRes.Memos[0].Duration != "01:15" {
+		t.Errorf("retrieved duration mismatch: %q", listRes.Memos[0].Duration)
+	}
+}
+
+func TestWebGUIMemos_ConfigEndpoint(t *testing.T) {
+	cfgDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", cfgDir)
+
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// 1. GET /api/memos/config -> default settings
+	resp, err := http.Get(baseURL + "/api/memos/config")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/memos/config failed: %v", err)
+	}
+	var getRes struct {
+		Success         bool   `json:"success"`
+		StorageLocation string `json:"storage_location"`
+		ViewScope       string `json:"view_scope"`
+		SearchScope     string `json:"search_scope"`
+		Config          struct {
+			StorageLocation string `json:"storage_location"`
+			ViewScope       string `json:"view_scope"`
+			SearchScope     string `json:"search_scope"`
+		} `json:"config"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&getRes)
+	resp.Body.Close()
+
+	if !getRes.Success {
+		t.Fatalf("expected config success: true")
+	}
+	if getRes.StorageLocation != "global" || getRes.ViewScope != "all" || getRes.SearchScope != "text" {
+		t.Errorf("unexpected default config: %+v", getRes)
+	}
+
+	// 2. POST /api/memos/config -> update settings
+	updateBody, _ := json.Marshal(map[string]interface{}{
+		"storage_location": "project",
+		"view_scope":       "current",
+		"search_scope":     "all",
+	})
+	respPost, err := http.Post(baseURL+"/api/memos/config", "application/json", bytes.NewReader(updateBody))
+	if err != nil || respPost.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/memos/config failed: %v", err)
+	}
+	var postRes struct {
+		Success         bool   `json:"success"`
+		StorageLocation string `json:"storage_location"`
+		ViewScope       string `json:"view_scope"`
+		SearchScope     string `json:"search_scope"`
+	}
+	_ = json.NewDecoder(respPost.Body).Decode(&postRes)
+	respPost.Body.Close()
+
+	if !postRes.Success || postRes.StorageLocation != "project" || postRes.ViewScope != "current" || postRes.SearchScope != "all" {
+		t.Fatalf("unexpected updated config: %+v", postRes)
+	}
+
+	// 3. GET /api/memos/config again -> ensure persistence
+	respGet2, err := http.Get(baseURL + "/api/memos/config")
+	if err != nil || respGet2.StatusCode != http.StatusOK {
+		t.Fatalf("second GET /api/memos/config failed: %v", err)
+	}
+	var getRes2 struct {
+		Success         bool   `json:"success"`
+		StorageLocation string `json:"storage_location"`
+		ViewScope       string `json:"view_scope"`
+		SearchScope     string `json:"search_scope"`
+	}
+	_ = json.NewDecoder(respGet2.Body).Decode(&getRes2)
+	respGet2.Body.Close()
+
+	if getRes2.StorageLocation != "project" || getRes2.ViewScope != "current" || getRes2.SearchScope != "all" {
+		t.Fatalf("persisted config did not match updated values: %+v", getRes2)
+	}
+}
+
+
 func TestWebGUIUtilitiesImportEndpoints(t *testing.T) {
 	srv := NewServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
@@ -1326,5 +1837,128 @@ func TestFilesRecursiveCopyMoveAndBatch(t *testing.T) {
 		t.Fatalf("batch deleted directory should be gone")
 	}
 }
+
+func TestWebGUIFilesOpenIDEEndpoint(t *testing.T) {
+	cfgDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", cfgDir)
+
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+	tempDir := t.TempDir()
+
+	// 1. GET /api/files/open_ide returns default or current preferred IDE
+	resp, err := http.Get(baseURL + "/api/files/open_ide")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/files/open_ide failed: %v", err)
+	}
+	var getIDE map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&getIDE)
+	resp.Body.Close()
+	if getIDE["success"] != true {
+		t.Errorf("expected success: true, got %v", getIDE)
+	}
+	if getIDE["preferred_ide"] != "code" {
+		t.Errorf("expected default preferred_ide 'code', got %v", getIDE["preferred_ide"])
+	}
+
+	// 2. GET /api/files/ide/config and POST /api/files/ide/config to update preferred IDE
+	configBody, _ := json.Marshal(map[string]string{"preferred_ide": "cursor"})
+	resp, err = http.Post(baseURL+"/api/files/ide/config", "application/json", bytes.NewReader(configBody))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/files/ide/config failed: %v", err)
+	}
+	var postConfigRes map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&postConfigRes)
+	resp.Body.Close()
+	if postConfigRes["success"] != true || postConfigRes["preferred_ide"] != "cursor" {
+		t.Errorf("expected preferred_ide cursor, got %v", postConfigRes)
+	}
+
+	// Verify persistence via GET
+	resp, err = http.Get(baseURL + "/api/files/ide/config")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/files/ide/config failed: %v", err)
+	}
+	var checkConfigRes map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&checkConfigRes)
+	resp.Body.Close()
+	if checkConfigRes["preferred_ide"] != "cursor" {
+		t.Errorf("expected preferred_ide cursor, got %v", checkConfigRes)
+	}
+
+	// 3. POST /api/files/open_ide with folder workspace
+	ideReqBody, _ := json.Marshal(map[string]string{
+		"path": tempDir,
+		"ide":  "code",
+	})
+	resp, err = http.Post(baseURL+"/api/files/open_ide", "application/json", bytes.NewReader(ideReqBody))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/files/open_ide failed: %v", err)
+	}
+	var openRes map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&openRes)
+	resp.Body.Close()
+
+	if openRes["dir"] != tempDir {
+		t.Errorf("expected dir %s, got %v", tempDir, openRes["dir"])
+	}
+	if openRes["ide"] != "code" {
+		t.Errorf("expected ide code, got %v", openRes["ide"])
+	}
+
+	// 4. POST /api/files/open_ide without specifying ide uses persisted preferred_ide (cursor)
+	reqNoIDE, _ := json.Marshal(map[string]string{
+		"path": tempDir,
+	})
+	resp, err = http.Post(baseURL+"/api/files/open_ide", "application/json", bytes.NewReader(reqNoIDE))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/files/open_ide (empty ide) failed: %v", err)
+	}
+	var openFallbackRes map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&openFallbackRes)
+	resp.Body.Close()
+	if openFallbackRes["ide"] != "cursor" {
+		t.Errorf("expected fallback to preferred_ide 'cursor', got %v", openFallbackRes["ide"])
+	}
+
+	// 5. POST /api/files/ide alias with a file path (should resolve to parent directory)
+	subFile := filepath.Join(tempDir, "sample.txt")
+	_ = os.WriteFile(subFile, []byte("test"), 0644)
+	ideFileReq, _ := json.Marshal(map[string]string{
+		"path": subFile,
+		"ide":  "zed",
+	})
+	resp, err = http.Post(baseURL+"/api/files/ide", "application/json", bytes.NewReader(ideFileReq))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/files/ide alias failed: %v", err)
+	}
+	var aliasRes map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&aliasRes)
+	resp.Body.Close()
+
+	if aliasRes["dir"] != tempDir {
+		t.Errorf("expected dir to resolve to parent %s, got %v", tempDir, aliasRes["dir"])
+	}
+	if aliasRes["ide"] != "zed" {
+		t.Errorf("expected ide zed, got %v", aliasRes["ide"])
+	}
+
+	// 6. Verify unsupported method returns 405 MethodNotAllowed
+	req, _ := http.NewRequest(http.MethodDelete, baseURL+"/api/files/open_ide", nil)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE /api/files/open_ide error: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected status 405, got %d", resp.StatusCode)
+	}
+}
+
 
 

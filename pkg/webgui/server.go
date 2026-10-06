@@ -264,6 +264,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/files/move", s.handleFilesMove)
 	mux.HandleFunc("/api/files/reveal", s.handleFilesReveal)
 	mux.HandleFunc("/api/files/terminal", s.handleFilesTerminal)
+	mux.HandleFunc("/api/files/open_ide", s.handleFilesOpenIDE)
+	mux.HandleFunc("/api/files/ide", s.handleFilesOpenIDE)
+	mux.HandleFunc("/api/files/ide/config", s.handleFilesIDEConfig)
 
 	// GitHub Workspace & Agent Task Tracking API
 	mux.HandleFunc("/api/github/repo", s.handleGitHubRepo)
@@ -275,6 +278,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/github/prs", s.handleGitHubPRs)
 	mux.HandleFunc("/api/github/prs/detail", s.handleGitHubPRDetail)
 	mux.HandleFunc("/api/github/projects", s.handleGitHubProjects)
+	mux.HandleFunc("/api/github/kanban", s.handleGitHubKanbanBoard)
+	mux.HandleFunc("/api/github/kanban/move", s.handleGitHubKanbanMove)
+	mux.HandleFunc("/api/github/projects/board", s.handleGitHubKanbanBoard)
 	mux.HandleFunc("/api/github/agent-tasks", s.handleGitHubAgentTasks)
 	mux.HandleFunc("/api/github/agent-tasks/bind", s.handleGitHubAgentTaskBind)
 	mux.HandleFunc("/api/github/agent-tasks/label", s.handleGitHubAgentTaskLabel)
@@ -868,10 +874,16 @@ func (s *Server) handleFleetQuota(w http.ResponseWriter, r *http.Request) {
 			active = store.ActiveAccount()
 			summaries := quota.PollFleetAccounts(accounts, store)
 			thresh := core.DefaultAutoSwitchThresholdFraction
-			if c, errCfg := core.LoadConfig(); errCfg == nil && c.AutoSwitchThreshold > 0 {
-				thresh = c.AutoSwitchThreshold
+			threshWeekly := core.DefaultAutoSwitchWeeklyThresholdFraction
+			if c, errCfg := core.LoadConfig(); errCfg == nil {
+				if c.AutoSwitchThreshold > 0 {
+					thresh = c.AutoSwitchThreshold
+				}
+				if c.AutoSwitchWeeklyThreshold > 0 {
+					threshWeekly = c.AutoSwitchWeeklyThreshold
+				}
 			}
-			states := quota.BuildAccountQuotaStatesFromMapWithThreshold(accounts, summaries, thresh)
+			states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, thresh, threshWeekly)
 			summary = quota.ComputeFleetSummary(states, active)
 		} else {
 			summary = quota.ComputeFleetSummary(nil, "")
@@ -900,6 +912,9 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			}
 			if val, ok := p["auto_switch_threshold"].(float64); ok {
 				c.AutoSwitchThreshold = val
+			}
+			if val, ok := p["auto_switch_weekly_threshold"].(float64); ok {
+				c.AutoSwitchWeeklyThreshold = val
 			}
 			if val, ok := p["switch_mode"].(string); ok {
 				c.SwitchMode = quota.NormalizeSwitchMode(val)
@@ -986,9 +1001,14 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		if c != nil && c.SwitchMode != "" {
 			switchMode = quota.NormalizeSwitchMode(c.SwitchMode)
 		}
+		threshWeekly := core.DefaultAutoSwitchWeeklyThresholdFraction
+		if c != nil && c.AutoSwitchWeeklyThreshold > 0 {
+			threshWeekly = c.AutoSwitchWeeklyThreshold
+		}
 		cfg = map[string]interface{}{
 			"auto_switch_enabled":              c.AutoSwitchEnabled,
 			"auto_switch_threshold":            c.AutoSwitchThreshold,
+			"auto_switch_weekly_threshold":     threshWeekly,
 			"switch_mode":                      switchMode,
 			"polling_interval_seconds":         c.PollingIntervalSec,
 			"active_polling_interval_seconds":  c.ActivePollingIntervalSec,
@@ -1011,6 +1031,14 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			cfg["switch_mode"] = core.DefaultSwitchMode
 		} else {
 			cfg["switch_mode"] = quota.NormalizeSwitchMode(sm)
+		}
+		if _, ok := cfg["auto_switch_weekly_threshold"]; !ok {
+			c, _ := core.LoadConfig()
+			if c != nil && c.AutoSwitchWeeklyThreshold > 0 {
+				cfg["auto_switch_weekly_threshold"] = c.AutoSwitchWeeklyThreshold
+			} else {
+				cfg["auto_switch_weekly_threshold"] = core.DefaultAutoSwitchWeeklyThresholdFraction
+			}
 		}
 		if _, ok := cfg["default_gemini_reasoning_level"]; !ok {
 			c, _ := core.LoadConfig()
@@ -2612,18 +2640,203 @@ func (s *Server) handleCustomModelSecurityAudit(w http.ResponseWriter, r *http.R
 
 // MemoItem represents a quick text or voice memo.
 type MemoItem struct {
-	ID        string   `json:"id"`
-	Title     string   `json:"title"`
-	Content   string   `json:"content"`
-	Type      string   `json:"type"` // "text" | "audio"
-	AudioData string   `json:"audio_data,omitempty"`
-	CreatedAt string   `json:"created_at"`
-	Tags      []string `json:"tags"`
+	ID            string   `json:"id"`
+	Title         string   `json:"title"`
+	Content       string   `json:"content"`
+	Type          string   `json:"type"` // "text" | "audio"
+	AudioData     string   `json:"audio_data,omitempty"`
+	CreatedAt     string   `json:"created_at"`
+	Tags          []string `json:"tags"`
+	Transcript    string   `json:"transcript,omitempty"`
+	WorkspacePath string   `json:"workspace_path,omitempty"`
+	Project       string   `json:"project,omitempty"`
+	Duration      string   `json:"duration,omitempty"`
 }
 
 func getMemosPath() string {
+	dir := core.GetConfigDir()
+	target := filepath.Join(dir, "memos.json")
+	if _, err := os.Stat(target); err == nil {
+		return target
+	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "antigravity-swiss", "memos.json")
+	if home != "" {
+		legacy := filepath.Join(home, ".config", "antigravity-swiss", "memos.json")
+		if legacy != target {
+			if _, err := os.Stat(legacy); err == nil {
+				return legacy
+			}
+		}
+	}
+	return target
+}
+
+func (s *Server) getGlobalMemosPath() string {
+	if s != nil && s.globalMemosPath != "" {
+		return s.globalMemosPath
+	}
+	return getMemosPath()
+}
+
+func (s *Server) resolveWorkspacePath(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	ws := r.URL.Query().Get("workspace_path")
+	if ws == "" {
+		ws = r.Header.Get("X-Workspace-Path")
+	}
+	return cleanUserPath(ws)
+}
+
+func (s *Server) resolveStorageDestination(r *http.Request, storageMode, wsPath string) (string, bool) {
+	if storageMode == "" {
+		cfg, err := core.LoadConfig()
+		if err == nil {
+			storageMode = cfg.GetMemoConfig().StorageLocation
+		}
+	}
+	if wsPath == "" && r != nil {
+		wsPath = s.resolveWorkspacePath(r)
+	}
+
+	if storageMode == "project" {
+		if wsPath == "" {
+			return s.getGlobalMemosPath(), true
+		}
+		fi, err := os.Stat(wsPath)
+		if err != nil || !fi.IsDir() {
+			return s.getGlobalMemosPath(), true
+		}
+		dotDir := filepath.Join(wsPath, ".antigravity")
+		if err := os.MkdirAll(dotDir, 0755); err != nil {
+			return s.getGlobalMemosPath(), true
+		}
+		testFile := filepath.Join(dotDir, ".write_probe")
+		if err := os.WriteFile(testFile, []byte(""), 0644); err != nil {
+			return s.getGlobalMemosPath(), true
+		}
+		_ = os.Remove(testFile)
+
+		return filepath.Join(dotDir, "memos.json"), false
+	}
+
+	return s.getGlobalMemosPath(), false
+}
+
+func readMemosFile(p string) []MemoItem {
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return []MemoItem{}
+	}
+	str := strings.TrimSpace(string(data))
+	if str == "" || str == "null" {
+		return []MemoItem{}
+	}
+	var memos []MemoItem
+	if err := json.Unmarshal(data, &memos); err != nil {
+		return []MemoItem{}
+	}
+	if memos == nil {
+		return []MemoItem{}
+	}
+	return memos
+}
+
+func writeMemosFile(p string, memos []MemoItem) error {
+	if memos == nil {
+		memos = []MemoItem{}
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(memos, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(p, data, 0644)
+}
+
+func (s *Server) loadAllProjectMemos(currentWs string) []MemoItem {
+	memosMap := make(map[string]MemoItem)
+	var order []string
+
+	addMemos := func(list []MemoItem) {
+		for _, m := range list {
+			if m.ID == "" {
+				continue
+			}
+			if _, exists := memosMap[m.ID]; !exists {
+				order = append(order, m.ID)
+			}
+			memosMap[m.ID] = m
+		}
+	}
+
+	// 1. Current workspace if valid
+	if currentWs != "" {
+		projFile := filepath.Join(currentWs, ".antigravity", "memos.json")
+		addMemos(readMemosFile(projFile))
+	}
+
+	// 2. Known workspaces recorded in server
+	if s != nil {
+		for ws := range s.knownWorkspaces {
+			if ws != "" && ws != currentWs {
+				projFile := filepath.Join(ws, ".antigravity", "memos.json")
+				addMemos(readMemosFile(projFile))
+			}
+		}
+	}
+
+	// 3. Global memos
+	addMemos(readMemosFile(s.getGlobalMemosPath()))
+
+	// 4. Scan known projects from Antigravity databases
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		antigravityBase := filepath.Join(home, ".gemini", "antigravity")
+		appStorage := filepath.Join(home, ".config", "Antigravity", "app_storage.json")
+		if projects, err := importer.GetKnownProjects(antigravityBase, appStorage); err == nil {
+			for _, p := range projects {
+				for _, pPath := range p.Paths {
+					if pPath != "" && pPath != currentWs {
+						addMemos(readMemosFile(filepath.Join(pPath, ".antigravity", "memos.json")))
+					}
+				}
+			}
+		}
+		// 5. Scan ~/.gemini/config/projects/*.json
+		projConfigDir := filepath.Join(home, ".gemini", "config", "projects")
+		if entries, err := os.ReadDir(projConfigDir); err == nil {
+			for _, e := range entries {
+				if strings.HasSuffix(e.Name(), ".json") && !strings.HasSuffix(e.Name(), ".deleted") {
+					data, err := os.ReadFile(filepath.Join(projConfigDir, e.Name()))
+					if err == nil {
+						var meta struct {
+							FolderURI string `json:"folderUri"`
+							Path      string `json:"path"`
+						}
+						if err := json.Unmarshal(data, &meta); err == nil {
+							targetP := meta.Path
+							if targetP == "" && meta.FolderURI != "" {
+								targetP = cleanUserPath(meta.FolderURI)
+							}
+							if targetP != "" && targetP != currentWs {
+								addMemos(readMemosFile(filepath.Join(targetP, ".antigravity", "memos.json")))
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	result := make([]MemoItem, 0, len(order))
+	for _, id := range order {
+		result = append(result, memosMap[id])
+	}
+	return result
 }
 
 func cleanUserPath(raw string) string {
@@ -2690,24 +2903,64 @@ func cleanUserPath(raw string) string {
 }
 
 func (s *Server) handleMemos(w http.ResponseWriter, r *http.Request) {
-	p := getMemosPath()
-	var memos []MemoItem
-	if data, err := os.ReadFile(p); err == nil {
-		str := strings.TrimSpace(string(data))
-		if str == "" || str == "null" {
-			memos = []MemoItem{}
-			_ = os.WriteFile(p, []byte("[]"), 0644)
-		} else {
-			_ = json.Unmarshal(data, &memos)
-		}
-	} else if os.IsNotExist(err) {
-		_ = os.MkdirAll(filepath.Dir(p), 0755)
-		_ = os.WriteFile(p, []byte("[]"), 0644)
+	s.memoMu.RLock()
+	defer s.memoMu.RUnlock()
+
+	cfg, _ := core.LoadConfig()
+	memoCfg := cfg.GetMemoConfig()
+
+	scope := r.URL.Query().Get("scope")
+	if scope == "" {
+		scope = memoCfg.ViewScope
 	}
+	storageQuery := r.URL.Query().Get("storage")
+	ws := s.resolveWorkspacePath(r)
+
+	var memos []MemoItem
+	fallback := false
+
+	if scope == "current" || (scope == "" && storageQuery == "project") {
+		if ws != "" {
+			fi, err := os.Stat(ws)
+			if err == nil && fi.IsDir() {
+				projFile := filepath.Join(ws, ".antigravity", "memos.json")
+				projMemos := readMemosFile(projFile)
+				globalMemos := readMemosFile(s.getGlobalMemosPath())
+				seen := make(map[string]bool)
+				for _, m := range projMemos {
+					memos = append(memos, m)
+					seen[m.ID] = true
+				}
+				for _, m := range globalMemos {
+					if !seen[m.ID] {
+						cleanMPath := cleanUserPath(m.WorkspacePath)
+						if cleanMPath == ws || (m.Project != "" && m.Project == filepath.Base(ws)) {
+							memos = append(memos, m)
+							seen[m.ID] = true
+						}
+					}
+				}
+			} else {
+				memos = readMemosFile(s.getGlobalMemosPath())
+				fallback = true
+			}
+		} else {
+			memos = readMemosFile(s.getGlobalMemosPath())
+			fallback = true
+		}
+	} else {
+		// scope == "all"
+		memos = s.loadAllProjectMemos(ws)
+	}
+
 	if memos == nil {
 		memos = []MemoItem{}
 	}
-	writeJSON(w, map[string]interface{}{"success": true, "memos": memos})
+	res := map[string]interface{}{"success": true, "memos": memos}
+	if fallback {
+		res["fallback"] = true
+	}
+	writeJSON(w, res)
 }
 
 func (s *Server) handleMemosSave(w http.ResponseWriter, r *http.Request) {
@@ -2726,18 +2979,34 @@ func (s *Server) handleMemosSave(w http.ResponseWriter, r *http.Request) {
 	if memo.CreatedAt == "" {
 		memo.CreatedAt = time.Now().Format("2006-01-02 15:04")
 	}
-	p := getMemosPath()
-	_ = os.MkdirAll(filepath.Dir(p), 0755)
-	var memos []MemoItem
-	if data, err := os.ReadFile(p); err == nil {
-		str := strings.TrimSpace(string(data))
-		if str != "" && str != "null" {
-			_ = json.Unmarshal(data, &memos)
+
+	ws := s.resolveWorkspacePath(r)
+	if memo.WorkspacePath == "" && ws != "" {
+		memo.WorkspacePath = ws
+	}
+	if memo.WorkspacePath != "" {
+		memo.WorkspacePath = cleanUserPath(memo.WorkspacePath)
+	}
+	if memo.Project == "" && memo.WorkspacePath != "" {
+		memo.Project = filepath.Base(memo.WorkspacePath)
+	}
+
+	storageQuery := r.URL.Query().Get("storage")
+	storagePath, isFallback := s.resolveStorageDestination(r, storageQuery, memo.WorkspacePath)
+
+	s.memoMu.Lock()
+	defer s.memoMu.Unlock()
+
+	if memo.WorkspacePath != "" {
+		if fi, err := os.Stat(memo.WorkspacePath); err == nil && fi.IsDir() {
+			if s.knownWorkspaces == nil {
+				s.knownWorkspaces = make(map[string]struct{})
+			}
+			s.knownWorkspaces[memo.WorkspacePath] = struct{}{}
 		}
 	}
-	if memos == nil {
-		memos = []MemoItem{}
-	}
+
+	memos := readMemosFile(storagePath)
 	found := false
 	for i, m := range memos {
 		if m.ID == memo.ID {
@@ -2749,9 +3018,20 @@ func (s *Server) handleMemosSave(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		memos = append([]MemoItem{memo}, memos...)
 	}
-	data, _ := json.MarshalIndent(memos, "", "  ")
-	_ = os.WriteFile(p, data, 0644)
-	writeJSON(w, map[string]interface{}{"success": true, "memo": memo})
+	if err := writeMemosFile(storagePath, memos); err != nil {
+		http.Error(w, "failed to persist memo: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	res := map[string]interface{}{
+		"success": true,
+		"memo":    memo,
+	}
+	if isFallback {
+		res["fallback"] = true
+		res["storage_location_effective"] = "global"
+	}
+	writeJSON(w, res)
 }
 
 func (s *Server) handleMemosDelete(w http.ResponseWriter, r *http.Request) {
@@ -2767,27 +3047,126 @@ func (s *Server) handleMemosDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing id", http.StatusBadRequest)
 		return
 	}
-	p := getMemosPath()
-	var memos []MemoItem
-	if data, err := os.ReadFile(p); err == nil {
-		str := strings.TrimSpace(string(data))
-		if str != "" && str != "null" {
-			_ = json.Unmarshal(data, &memos)
+
+	ws := s.resolveWorkspacePath(r)
+	storageQuery := r.URL.Query().Get("storage")
+	if storageQuery == "" && ws != "" {
+		if fi, err := os.Stat(filepath.Join(ws, ".antigravity", "memos.json")); err == nil && !fi.IsDir() {
+			storageQuery = "project"
 		}
 	}
-	if memos == nil {
-		memos = []MemoItem{}
-	}
-	var filtered []MemoItem = []MemoItem{}
+	storagePath, _ := s.resolveStorageDestination(r, storageQuery, ws)
+
+	s.memoMu.Lock()
+	defer s.memoMu.Unlock()
+
+	memos := readMemosFile(storagePath)
+	filtered := make([]MemoItem, 0, len(memos))
 	for _, m := range memos {
 		if m.ID != id {
 			filtered = append(filtered, m)
 		}
 	}
-	data, _ := json.MarshalIndent(filtered, "", "  ")
-	_ = os.WriteFile(p, data, 0644)
+	_ = writeMemosFile(storagePath, filtered)
+
+	globalPath := s.getGlobalMemosPath()
+	if storagePath != globalPath {
+		gMemos := readMemosFile(globalPath)
+		gFiltered := make([]MemoItem, 0, len(gMemos))
+		gChanged := false
+		for _, m := range gMemos {
+			if m.ID == id {
+				gChanged = true
+			} else {
+				gFiltered = append(gFiltered, m)
+			}
+		}
+		if gChanged {
+			_ = writeMemosFile(globalPath, gFiltered)
+		}
+	}
+
 	writeJSON(w, map[string]interface{}{"success": true, "deleted": id})
 }
+
+func (s *Server) handleMemosConfig(w http.ResponseWriter, r *http.Request) {
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		cfg = core.DefaultConfig()
+	}
+
+	if r.Method == http.MethodGet {
+		mCfg := cfg.GetMemoConfig()
+		writeJSON(w, map[string]interface{}{
+			"success":          true,
+			"config":           mCfg,
+			"storage_location": mCfg.StorageLocation,
+			"view_scope":       mCfg.ViewScope,
+			"search_scope":     mCfg.SearchScope,
+		})
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		var req struct {
+			StorageLocation string           `json:"storage_location"`
+			ViewScope       string           `json:"view_scope"`
+			SearchScope     string           `json:"search_scope"`
+			Config          *core.MemoConfig `json:"config,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		current := cfg.GetMemoConfig()
+		if req.Config != nil {
+			if req.Config.StorageLocation != "" {
+				current.StorageLocation = req.Config.StorageLocation
+			}
+			if req.Config.ViewScope != "" {
+				current.ViewScope = req.Config.ViewScope
+			}
+			if req.Config.SearchScope != "" {
+				current.SearchScope = req.Config.SearchScope
+			}
+		}
+		if req.StorageLocation != "" {
+			current.StorageLocation = req.StorageLocation
+		}
+		if req.ViewScope != "" {
+			current.ViewScope = req.ViewScope
+		}
+		if req.SearchScope != "" {
+			current.SearchScope = req.SearchScope
+		}
+		if current.StorageLocation != "project" && current.StorageLocation != "global" {
+			current.StorageLocation = "global"
+		}
+		if current.ViewScope != "current" && current.ViewScope != "all" {
+			current.ViewScope = "all"
+		}
+		if current.SearchScope != "all" && current.SearchScope != "text" {
+			current.SearchScope = "text"
+		}
+
+		if err := cfg.SetMemoConfig(current); err != nil {
+			http.Error(w, "failed to save config: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		writeJSON(w, map[string]interface{}{
+			"success":          true,
+			"config":           current,
+			"storage_location": current.StorageLocation,
+			"view_scope":       current.ViewScope,
+			"search_scope":     current.SearchScope,
+		})
+		return
+	}
+
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+}
+
 
 // FileItem represents a filesystem entry returned by /api/files/list
 type FileItem struct {
@@ -3309,6 +3688,146 @@ func (s *Server) handleFilesTerminal(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, map[string]interface{}{"success": spawned, "dir": dir})
+}
+
+func (s *Server) handleFilesOpenIDE(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		pref := "code"
+		if cfg, err := core.LoadConfig(); err == nil {
+			pref = cfg.GetPreferredIDE()
+		}
+		writeJSON(w, map[string]interface{}{
+			"success":       true,
+			"preferred_ide": pref,
+		})
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var p struct {
+		Path string `json:"path"`
+		IDE  string `json:"ide"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&p)
+	dir := cleanUserPath(p.Path)
+	if dir == "" {
+		dir = "."
+	}
+	if fi, err := os.Stat(dir); err == nil && !fi.IsDir() {
+		dir = filepath.Dir(dir)
+	}
+
+	targetIDE := strings.TrimSpace(p.IDE)
+	if targetIDE == "" {
+		if cfg, err := core.LoadConfig(); err == nil {
+			targetIDE = cfg.GetPreferredIDE()
+		}
+	}
+	if targetIDE == "" {
+		targetIDE = "code"
+	}
+
+	norm := strings.ToLower(targetIDE)
+	var primaryBin string
+	switch norm {
+	case "cursor":
+		primaryBin = "cursor"
+	case "windsurf":
+		primaryBin = "windsurf"
+	case "codium", "vscodium":
+		primaryBin = "codium"
+	case "zed":
+		primaryBin = "zed"
+	case "code", "vscode":
+		primaryBin = "code"
+	default:
+		primaryBin = targetIDE
+	}
+
+	candidates := []string{primaryBin}
+	if norm == "codium" || norm == "vscodium" {
+		candidates = append(candidates, "vscodium", "codium")
+	} else if norm == "code" || norm == "vscode" {
+		candidates = append(candidates, "code", "vscode")
+	}
+
+	if norm == "code" || norm == "vscode" || p.IDE == "" {
+		for _, fb := range []string{"cursor", "windsurf", "codium", "vscodium", "zed"} {
+			found := false
+			for _, c := range candidates {
+				if c == fb {
+					found = true
+					break
+				}
+			}
+			if !found {
+				candidates = append(candidates, fb)
+			}
+		}
+	}
+
+	spawned := false
+	launched := ""
+	for _, cand := range candidates {
+		fields := strings.Fields(cand)
+		if len(fields) == 0 {
+			continue
+		}
+		args := append(fields[1:], dir)
+		cmd := exec.Command(fields[0], args...)
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			cmd.Dir = dir
+		}
+		if err := cmd.Start(); err == nil {
+			spawned = true
+			launched = cand
+			break
+		}
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"success":  spawned,
+		"dir":      dir,
+		"ide":      targetIDE,
+		"launched": launched,
+	})
+}
+
+func (s *Server) handleFilesIDEConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		pref := "code"
+		if cfg, err := core.LoadConfig(); err == nil {
+			pref = cfg.GetPreferredIDE()
+		}
+		writeJSON(w, map[string]interface{}{
+			"success":       true,
+			"preferred_ide": pref,
+		})
+		return
+	}
+	if r.Method == http.MethodPost {
+		var req struct {
+			PreferredIDE string `json:"preferred_ide"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		ide := strings.TrimSpace(req.PreferredIDE)
+		if ide == "" {
+			ide = "code"
+		}
+		cfg, err := core.LoadConfig()
+		if err != nil {
+			cfg = core.DefaultConfig()
+		}
+		_ = cfg.SetPreferredIDE(ide)
+		writeJSON(w, map[string]interface{}{
+			"success":       true,
+			"preferred_ide": ide,
+		})
+		return
+	}
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {

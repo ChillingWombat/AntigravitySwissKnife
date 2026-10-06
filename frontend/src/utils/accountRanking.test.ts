@@ -220,6 +220,31 @@ describe('accountRanking utility', () => {
       assert.strictEqual(ranked.length, 1)
       assert.strictEqual(ranked[0].email, 'healthy@gmail.com')
     })
+
+    it('excludes standby accounts below thresholdWeekly unless credit overages are enabled', () => {
+      const lowWeeklyStandby: AccountState = {
+        email: 'lowweekly@gmail.com',
+        label: 'Low Weekly Account',
+        plan_tier: 'Pro',
+        is_active: false,
+        status: 'STANDBY',
+        quota_5h_current: 1.0,
+        quota_5h_available: 1.0,
+        quota_weekly: 0.04,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const ranked = rankStandbyAccounts([lowWeeklyStandby], 0.05, 'balanced', 0.05)
+      assert.strictEqual(ranked.length, 0)
+
+      const overageStandby: AccountState = {
+        ...lowWeeklyStandby,
+        enable_credit_overages: true,
+        credits: 50,
+      }
+      const rankedOverage = rankStandbyAccounts([overageStandby], 0.05, 'balanced', 0.05)
+      assert.strictEqual(rankedOverage.length, 1)
+    })
   })
 
   describe('evaluateAutoSwitch & proactive rotation', () => {
@@ -288,6 +313,20 @@ describe('accountRanking utility', () => {
       const res = evaluateAutoSwitch([exhaustedActive, standbyReady], active.email, 0.05, 'max_continuous', 30)
       assert.strictEqual(res.shouldSwitch, true)
       assert.strictEqual(res.successor?.email, 'standby@gmail.com')
+      assert.ok(res.reason.includes('dropped below threshold'))
+    })
+
+    it('switches on weekly quota threshold breach even when 5h quota is 100%', () => {
+      const weeklyDepletedActive: AccountState = {
+        ...active,
+        quota_5h_current: 1.0,
+        quota_5h_available: 1.0,
+        quota_weekly: 0.04, // breached <= 0.05
+      }
+      const res = evaluateAutoSwitch([weeklyDepletedActive, standbyReady], active.email, 0.05, 'balanced', 0, 0.05)
+      assert.strictEqual(res.shouldSwitch, true)
+      assert.strictEqual(res.successor?.email, 'standby@gmail.com')
+      assert.ok(res.reason.includes('Active weekly quota (4.0%)'))
       assert.ok(res.reason.includes('dropped below threshold'))
     })
   })
@@ -466,6 +505,55 @@ describe('accountRanking utility', () => {
       assert.strictEqual(sorted[3].email, 'cooldown@gmail.com') // Tier 3
       assert.strictEqual(sorted[4].email, 'error@gmail.com')    // Tier 4
       assert.strictEqual(sorted[5].email, 'banned@gmail.com')   // Tier 5
+    })
+
+    it('demotes standby accounts below thresholdWeekly into Tier 3', () => {
+      const active: AccountState = {
+        email: 'active@gmail.com',
+        is_active: true,
+        plan_tier: 'Pro',
+        status: 'ACTIVE',
+        quota_5h_current: 0.8,
+        quota_5h_available: 0.8,
+        quota_weekly: 0.8,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const healthyStandby: AccountState = {
+        email: 'healthy@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'STANDBY',
+        quota_5h_current: 0.6,
+        quota_5h_available: 0.6,
+        quota_weekly: 0.8,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const lowWeeklyStandby: AccountState = {
+        email: 'lowweekly@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'STANDBY',
+        quota_5h_current: 0.9,
+        quota_5h_available: 0.9,
+        quota_weekly: 0.04, // <= 0.05
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+
+      const sorted = sortAccounts(
+        [lowWeeklyStandby, healthyStandby, active],
+        active.email,
+        0.05,
+        'auto',
+        'balanced',
+        0.05
+      )
+
+      assert.strictEqual(sorted[0].email, 'active@gmail.com')
+      assert.strictEqual(sorted[1].email, 'healthy@gmail.com')
+      assert.strictEqual(sorted[2].email, 'lowweekly@gmail.com')
     })
   })
 })

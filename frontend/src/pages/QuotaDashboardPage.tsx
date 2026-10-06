@@ -161,8 +161,9 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const activeAccount = fleet?.active_account || ''
   const autoSwitchOn = rules?.auto_switch_enabled ?? false
   const threshold = rules?.auto_switch_threshold ?? 0.10
+  const thresholdWeekly = rules?.auto_switch_weekly_threshold ?? 0.05
 
-  const sortedAccounts = sortAccounts(accounts, activeAccount, threshold, sortMode, rules?.switch_mode)
+  const sortedAccounts = sortAccounts(accounts, activeAccount, threshold, sortMode, rules?.switch_mode, thresholdWeekly)
 
   const errorAccountsCount = accounts.filter((a) =>
     a.status?.toUpperCase().includes('ERROR')
@@ -733,7 +734,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
             {sortedAccounts.map((acc, index) => {
               const isActive = activeAccount ? acc.email.toLowerCase() === activeAccount.toLowerCase() : Boolean(acc.is_active)
               const current5h = acc.quota_5h_current ?? acc.quota_5h_available ?? 0
-              const isHealthy = current5h > (rules?.auto_switch_threshold ?? 0.10) && (acc.quota_weekly ?? 0) > 0.05
+              const isHealthy = current5h > threshold && (acc.quota_weekly ?? 0) > thresholdWeekly
               const isNextSwitch = autoSwitchOn && sortMode === 'auto' && !isActive && !acc.status?.toUpperCase().includes('BANNED') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('COOLDOWN') && index === 1 && isHealthy
               return (
                 <tr
@@ -954,18 +955,45 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                         <AlertCircle size={12} /> ERROR
                       </button>
                     ) : isActive ? (
-                      <span
-                        className="badge-chip badge-green"
-                        style={{
-                          fontSize: '11px',
-                          padding: '4px 10px',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                        }}
-                      >
-                        <CheckCircle2 size={12} /> Active
-                      </span>
+                      !isHealthy ? (
+                        <span
+                          className="badge-chip"
+                          style={{
+                            fontSize: '11px',
+                            padding: '4px 10px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            color: '#b06000',
+                            backgroundColor: '#fef7e0',
+                            border: '1px solid #feefc3',
+                            fontWeight: 600,
+                          }}
+                          title={
+                            (acc.quota_weekly ?? 0) <= thresholdWeekly
+                              ? 'Active account 7-day (weekly) quota is depleted below threshold'
+                              : 'Active account 5-hour quota is depleted below threshold'
+                          }
+                        >
+                          <AlertTriangle size={12} />{' '}
+                          {(acc.quota_weekly ?? 0) <= thresholdWeekly
+                            ? 'Active (Weekly Low)'
+                            : 'Active (Quota Low)'}
+                        </span>
+                      ) : (
+                        <span
+                          className="badge-chip badge-green"
+                          style={{
+                            fontSize: '11px',
+                            padding: '4px 10px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          <CheckCircle2 size={12} /> Active
+                        </span>
+                      )
                     ) : acc.status?.toUpperCase() === 'COOLDOWN' ? (
                       <span
                         className="badge-chip"

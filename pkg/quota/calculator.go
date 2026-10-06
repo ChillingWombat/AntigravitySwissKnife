@@ -417,7 +417,7 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 			_, inCached := cachedMap[normEmail]
 			hasPolledData := cur5h > 0 || curWeekly > 0 || curSec > 0 || curSecWeekly > 0 || (resText != "" && resText != "Not Polled") || (summaries != nil && summaries[normEmail] != nil) || inCached
 			if hasPolledData {
-				isBelow := cur5h <= threshold || (curWeekly <= 0.05 && !(acc.EnableCreditOverages && credits > 0))
+				isBelow := cur5h <= threshold5h || (curWeekly <= thresholdWeekly && !(acc.EnableCreditOverages && credits > 0))
 				if isBelow {
 					status = "COOLDOWN"
 				} else if status == "COOLDOWN" {
@@ -882,11 +882,22 @@ func CompareStandbyCandidates(a, b AccountQuotaState, threshold float64, mode st
 
 // RankStandbyAccounts sorts standby accounts in default balanced mode (backwards-compatible).
 func RankStandbyAccounts(accounts []AccountQuotaState, threshold float64) []AccountQuotaState {
-	return RankStandbyAccountsWithMode(accounts, threshold, SwitchModeBalanced)
+	return RankStandbyAccountsWithThresholds(accounts, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction, SwitchModeBalanced)
 }
 
 // RankStandbyAccountsWithMode filters eligible standby candidates and sorts them by switch mode.
 func RankStandbyAccountsWithMode(accounts []AccountQuotaState, threshold float64, mode string) []AccountQuotaState {
+	return RankStandbyAccountsWithThresholds(accounts, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction, mode)
+}
+
+// RankStandbyAccountsWithThresholds filters eligible standby candidates and sorts them by switch mode using custom 5h and weekly thresholds.
+func RankStandbyAccountsWithThresholds(accounts []AccountQuotaState, threshold5h, thresholdWeekly float64, mode string) []AccountQuotaState {
+	if threshold5h <= 0 {
+		threshold5h = core.DefaultAutoSwitchThresholdFraction
+	}
+	if thresholdWeekly <= 0 {
+		thresholdWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
+	}
 	m := NormalizeSwitchMode(mode)
 	candidates := make([]AccountQuotaState, 0)
 
@@ -898,10 +909,10 @@ func RankStandbyAccountsWithMode(accounts []AccountQuotaState, threshold float64
 		if st == "BANNED" || st == "ERROR" || st == "COOLDOWN" {
 			continue
 		}
-		if acc.Quota5hCurrent <= threshold {
+		if acc.Quota5hCurrent <= threshold5h {
 			continue
 		}
-		hasWeekly := acc.QuotaWeekly > 0.05 || (acc.EnableCreditOverages && acc.Credits > 0)
+		hasWeekly := acc.QuotaWeekly > thresholdWeekly || (acc.EnableCreditOverages && acc.Credits > 0)
 		if !hasWeekly {
 			continue
 		}
@@ -909,7 +920,7 @@ func RankStandbyAccountsWithMode(accounts []AccountQuotaState, threshold float64
 	}
 
 	sort.Slice(candidates, func(i, j int) bool {
-		return CompareStandbyCandidates(candidates[i], candidates[j], threshold, m)
+		return CompareStandbyCandidates(candidates[i], candidates[j], threshold5h, m)
 	})
 
 	return candidates
@@ -970,8 +981,19 @@ func ShouldSwitchProactivelyMaxTokens(active, bestStandby AccountQuotaState, thr
 	return false, "Active account remains optimal for current window"
 }
 
-// EvaluateAutoSwitch evaluates whether the active account should switch and identifies the best successor.
+// EvaluateAutoSwitch evaluates whether the active account should switch and identifies the best successor (backwards-compatible).
 func EvaluateAutoSwitch(accounts []AccountQuotaState, activeEmail string, threshold float64, mode string, activeDwellSec float64) (bool, *AccountQuotaState, string) {
+	return EvaluateAutoSwitchWithThresholds(accounts, activeEmail, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction, mode, activeDwellSec)
+}
+
+// EvaluateAutoSwitchWithThresholds evaluates whether the active account should switch using both 5h and weekly thresholds.
+func EvaluateAutoSwitchWithThresholds(accounts []AccountQuotaState, activeEmail string, threshold5h, thresholdWeekly float64, mode string, activeDwellSec float64) (bool, *AccountQuotaState, string) {
+	if threshold5h <= 0 {
+		threshold5h = core.DefaultAutoSwitchThresholdFraction
+	}
+	if thresholdWeekly <= 0 {
+		thresholdWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
+	}
 	m := NormalizeSwitchMode(mode)
 	var active *AccountQuotaState
 	for i := range accounts {
@@ -981,7 +1003,7 @@ func EvaluateAutoSwitch(accounts []AccountQuotaState, activeEmail string, thresh
 		}
 	}
 
-	ranked := RankStandbyAccountsWithMode(accounts, threshold, m)
+	ranked := RankStandbyAccountsWithThresholds(accounts, threshold5h, thresholdWeekly, m)
 	if len(ranked) == 0 {
 		return false, nil, "No eligible standby accounts above threshold"
 	}
@@ -990,17 +1012,24 @@ func EvaluateAutoSwitch(accounts []AccountQuotaState, activeEmail string, thresh
 
 	// 1. Mandatory Threshold Trigger (applies in all modes)
 	if active != nil {
-		is5hBreached := active.Quota5hCurrent <= threshold
-		isWeeklyBreached := active.QuotaWeekly <= 0.05 && !(active.EnableCreditOverages && active.Credits > 0)
+		is5hBreached := active.Quota5hCurrent <= threshold5h
+		isWeeklyBreached := active.QuotaWeekly <= thresholdWeekly && !(active.EnableCreditOverages && active.Credits > 0)
 		if is5hBreached || isWeeklyBreached {
-			reason := fmt.Sprintf("Active quota (5h: %.1f%%, weekly: %.1f%%) dropped below threshold (%.1f%%)", active.Quota5hCurrent*100, active.QuotaWeekly*100, threshold*100)
+			var reason string
+			if is5hBreached && isWeeklyBreached {
+				reason = fmt.Sprintf("Active quota (5h: %.1f%%, weekly: %.1f%%) dropped below thresholds (5h: %.1f%%, weekly: %.1f%%)", active.Quota5hCurrent*100, active.QuotaWeekly*100, threshold5h*100, thresholdWeekly*100)
+			} else if is5hBreached {
+				reason = fmt.Sprintf("Active 5h quota (%.1f%%) dropped below threshold (%.1f%%)", active.Quota5hCurrent*100, threshold5h*100)
+			} else {
+				reason = fmt.Sprintf("Active weekly quota (%.1f%%) dropped below threshold (%.1f%%)", active.QuotaWeekly*100, thresholdWeekly*100)
+			}
 			return true, best, reason
 		}
 	}
 
 	// 2. Proactive rotation only in MaxTokens mode
 	if m == SwitchModeMaxTokens && active != nil {
-		shouldProactive, reason := ShouldSwitchProactivelyMaxTokens(*active, *best, threshold, activeDwellSec)
+		shouldProactive, reason := ShouldSwitchProactivelyMaxTokens(*active, *best, threshold5h, activeDwellSec)
 		if shouldProactive {
 			return true, best, reason
 		}
@@ -1009,8 +1038,19 @@ func EvaluateAutoSwitch(accounts []AccountQuotaState, activeEmail string, thresh
 	return false, nil, "Active account quota is healthy"
 }
 
-// SortAccountQuotaStates sorts all accounts for UI dashboard display in accordance with sortMode and switchMode.
+// SortAccountQuotaStates sorts all accounts for UI dashboard display in accordance with sortMode and switchMode (backwards-compatible).
 func SortAccountQuotaStates(accounts []AccountQuotaState, activeEmail string, threshold float64, sortMode string, switchMode string) []AccountQuotaState {
+	return SortAccountQuotaStatesWithThresholds(accounts, activeEmail, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction, sortMode, switchMode)
+}
+
+// SortAccountQuotaStatesWithThresholds sorts all accounts for UI dashboard display using custom 5h and weekly thresholds.
+func SortAccountQuotaStatesWithThresholds(accounts []AccountQuotaState, activeEmail string, threshold5h, thresholdWeekly float64, sortMode string, switchMode string) []AccountQuotaState {
+	if threshold5h <= 0 {
+		threshold5h = core.DefaultAutoSwitchThresholdFraction
+	}
+	if thresholdWeekly <= 0 {
+		thresholdWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
+	}
 	items := make([]AccountQuotaState, len(accounts))
 	copy(items, accounts)
 
@@ -1103,7 +1143,7 @@ func SortAccountQuotaStates(accounts []AccountQuotaState, activeEmail string, th
 		if st == "COOLDOWN" {
 			return 3
 		}
-		isBelow := a.Quota5hCurrent <= threshold || (a.QuotaWeekly <= 0.05 && !(a.EnableCreditOverages && a.Credits > 0))
+		isBelow := a.Quota5hCurrent <= threshold5h || (a.QuotaWeekly <= thresholdWeekly && !(a.EnableCreditOverages && a.Credits > 0))
 		if !isBelow {
 			if IsFreePlanTier(a.Email, a.PlanTier) {
 				return 2
@@ -1122,7 +1162,7 @@ func SortAccountQuotaStates(accounts []AccountQuotaState, activeEmail string, th
 
 		// Within Tier 1 or Tier 2: compare by switch mode
 		if tA == 1 || tA == 2 {
-			return CompareStandbyCandidates(items[i], items[j], threshold, swMode)
+			return CompareStandbyCandidates(items[i], items[j], threshold5h, swMode)
 		}
 
 		// Within Tier 3 (cooling down): prioritize paid over free, then highest available recovery

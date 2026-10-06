@@ -80,6 +80,53 @@ type ProjectBoard struct {
 	Closed      bool   `json:"closed"`
 }
 
+// KanbanCard represents an issue or pull request card on the Kanban board.
+type KanbanCard struct {
+	ID            string            `json:"id"`
+	Type          string            `json:"type"` // "issue" or "pr"
+	Number        int               `json:"number"`
+	Title         string            `json:"title"`
+	Body          string            `json:"body"`
+	State         string            `json:"state"` // "open", "closed", "merged"
+	ColumnID      string            `json:"column_id"` // "todo", "in_progress", "review", "done"
+	Labels        []string          `json:"labels"`
+	Assignees     []string          `json:"assignees"`
+	Author        string            `json:"author"`
+	URL           string            `json:"url"`
+	CreatedAt     time.Time         `json:"created_at"`
+	UpdatedAt     time.Time         `json:"updated_at"`
+	AssignedAgent *AgentTaskSummary `json:"assigned_agent,omitempty"`
+	ProjectItemID string            `json:"project_item_id,omitempty"`
+}
+
+// KanbanColumn represents a column on the Kanban board.
+type KanbanColumn struct {
+	ID    string       `json:"id"`    // "todo", "in_progress", "review", "done"
+	Title string       `json:"title"` // "Todo", "In Progress", "Review", "Done"
+	Cards []KanbanCard `json:"cards"`
+}
+
+// KanbanBoard represents the full Kanban board for the repository or a GitHub Project.
+type KanbanBoard struct {
+	ProjectID     string         `json:"project_id,omitempty"`
+	ProjectTitle  string         `json:"project_title,omitempty"`
+	IsSynthesized bool           `json:"is_synthesized"`
+	Columns       []KanbanColumn `json:"columns"`
+}
+
+// MoveKanbanCardRequest parameters for moving a card to another column.
+type MoveKanbanCardRequest struct {
+	WorkspacePath string `json:"workspace_path"`
+	CardID        string `json:"card_id"`
+	CardType      string `json:"card_type"` // "issue" or "pr"
+	Number        int    `json:"number"`
+	SourceColumn  string `json:"source_column"`
+	TargetColumn  string `json:"target_column"`
+	ProjectNumber int    `json:"project_number,omitempty"`
+	ProjectItemID string `json:"project_item_id,omitempty"`
+}
+
+
 // AgentTaskSummary links an Antigravity conversation and agent to a task.
 type AgentTaskSummary struct {
 	ConversationID    string    `json:"conversation_id"`

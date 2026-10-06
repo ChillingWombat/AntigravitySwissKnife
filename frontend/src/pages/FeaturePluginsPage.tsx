@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   StickyNote,
   RotateCw,
@@ -12,11 +12,14 @@ import {
   MicOff,
   Check,
   Search,
+  X,
   ArrowLeft,
   ArrowRight,
   ArrowUp,
   Folder,
+  Globe,
   FileCode,
+  Code,
   FileText,
   Terminal,
   File,
@@ -32,6 +35,13 @@ import {
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
+import { filterMemos, type MemoItem, type SearchScope } from '../utils/memoSearch'
+import {
+  formatDuration,
+  resolveVoiceMemoTitle,
+  getSupportedAudioMimeType,
+  blobToBase64,
+} from '../utils/memoVoice'
 
 interface FeaturePluginsPageProps {
   activeTab?: number
@@ -80,9 +90,25 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
     type: 'row' | 'blank'
     targetItem?: { name: string; isDir: boolean; type: string; size: string; path: string }
   } | null>(null)
+  const [preferredIDE, setPreferredIDE] = useState<string>(() => {
+    return localStorage.getItem('antigravity_preferred_ide') || 'code'
+  })
+
+  const getIDEName = (id: string) => {
+    const map: Record<string, string> = {
+      code: 'VS Code',
+      vscode: 'VS Code',
+      cursor: 'Cursor',
+      windsurf: 'Windsurf',
+      codium: 'VSCodium',
+      vscodium: 'VSCodium',
+      zed: 'Zed',
+    }
+    return map[id.toLowerCase()] || id || 'VS Code'
+  }
 
   // --- 3. Quick Memos State ---
-  const [memos, setMemos] = useState<Array<{ id: string; type: 'text' | 'voice'; content: string; createdAt: string; color: string; duration?: string }>>(() => {
+  const [memos, setMemos] = useState<MemoItem[]>(() => {
     try {
       const saved = localStorage.getItem('antigravity_memos')
       return saved ? JSON.parse(saved) : []
@@ -93,22 +119,112 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
   const [newMemoText, setNewMemoText] = useState('')
   const [isRecording, setIsRecording] = useState(false)
   const [recordingSeconds, setRecordingSeconds] = useState(0)
+  const [memoSearchQuery, setMemoSearchQuery] = useState('')
+  const [memoSearchScope, setMemoSearchScope] = useState<SearchScope>(() => {
+    return (localStorage.getItem('antigravity_memo_search_scope') as SearchScope) || 'text'
+  })
+  const [memoStorageLocation, setMemoStorageLocation] = useState<'global' | 'project'>(() => {
+    return (localStorage.getItem('antigravity_memo_storage_location') as 'global' | 'project') || 'global'
+  })
+  const [memoViewScope, setMemoViewScope] = useState<'all' | 'current'>(() => {
+    return (localStorage.getItem('antigravity_memo_view_scope') as 'all' | 'current') || 'all'
+  })
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const mediaStreamRef = useRef<MediaStream | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const speechRecognitionRef = useRef<any>(null)
+  const transcriptRef = useRef<string>('')
+  const recordIntervalRef = useRef<any>(null)
+  const recordingStartTimeRef = useRef<number>(0)
+
+  useEffect(() => {
+    return () => {
+      if (recordIntervalRef.current) {
+        clearInterval(recordIntervalRef.current)
+      }
+      if (speechRecognitionRef.current) {
+        try {
+          speechRecognitionRef.current.stop()
+        } catch {}
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((t) => t.stop())
+      }
+    }
+  }, [])
+
+  const displayedMemos = useMemo(() => {
+    return filterMemos(memos, memoSearchQuery, memoSearchScope)
+  }, [memos, memoSearchQuery, memoSearchScope])
 
   // Sync memos to localStorage
-  // Sync memos to backend and localStorage
   useEffect(() => {
     try {
       localStorage.setItem('antigravity_memos', JSON.stringify(memos))
     } catch {}
   }, [memos])
 
-  useEffect(() => {
-    api.getMemos().then((res) => {
-      if (res && res.memos && res.memos.length > 0) {
+  const loadMemos = async (
+    scopeOverride?: 'all' | 'current',
+    wsOverride?: string,
+    storageOverride?: 'global' | 'project'
+  ) => {
+    const scopeToUse = scopeOverride || memoViewScope
+    const storageToUse = storageOverride || memoStorageLocation
+    const currentWs = wsOverride !== undefined ? wsOverride : addressBarPath
+    const effectiveWs = currentWs && currentWs !== '.' ? currentWs : undefined
+
+    try {
+      const res = await api.getMemos({
+        workspacePath: effectiveWs,
+        storage: storageToUse,
+        scope: scopeToUse,
+      })
+      if (res && Array.isArray(res.memos)) {
         setMemos(res.memos)
+      }
+    } catch {
+      try {
+        const saved = localStorage.getItem('antigravity_memos')
+        if (saved) setMemos(JSON.parse(saved))
+      } catch {}
+    }
+  }
+
+  // Fetch remote memo config on mount and sync state & localStorage
+  useEffect(() => {
+    api.getMemoConfig().then((res) => {
+      if (res && res.success && res.config) {
+        if (res.config.storage_location === 'global' || res.config.storage_location === 'project') {
+          setMemoStorageLocation(res.config.storage_location)
+          localStorage.setItem('antigravity_memo_storage_location', res.config.storage_location)
+        }
+        if (res.config.view_scope === 'all' || res.config.view_scope === 'current') {
+          setMemoViewScope(res.config.view_scope)
+          localStorage.setItem('antigravity_memo_view_scope', res.config.view_scope)
+        }
+        if (res.config.search_scope === 'text' || res.config.search_scope === 'all') {
+          setMemoSearchScope(res.config.search_scope as SearchScope)
+          localStorage.setItem('antigravity_memo_search_scope', res.config.search_scope)
+        }
       }
     }).catch(() => {})
   }, [])
+
+  // Sync memos whenever scope, storage location, or workspace directory changes
+  useEffect(() => {
+    loadMemos(memoViewScope, addressBarPath, memoStorageLocation)
+  }, [memoViewScope, memoStorageLocation, addressBarPath])
+
+  const handleToggleViewScope = async (nextScope: 'all' | 'current') => {
+    setMemoViewScope(nextScope)
+    localStorage.setItem('antigravity_memo_view_scope', nextScope)
+    try {
+      await api.updateMemoConfig({ view_scope: nextScope })
+    } catch {}
+    loadMemos(nextScope, addressBarPath, memoStorageLocation)
+  }
 
   // Load real files from Go backend
   useEffect(() => {
@@ -411,57 +527,204 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
 
   const handleAddTextMemo = async () => {
     if (!newMemoText.trim()) return
-    const memoObj = {
+    const effectiveWs = addressBarPath && addressBarPath !== '.' ? addressBarPath : undefined
+    const projectName = effectiveWs ? effectiveWs.split('/').filter(Boolean).pop() : undefined
+
+    const memoObj: MemoItem = {
       id: `memo-${Date.now()}`,
       type: 'text' as const,
       content: newMemoText.trim(),
       title: newMemoText.trim().substring(0, 24),
+      workspace_path: effectiveWs,
+      project: projectName,
       createdAt: 'Just now',
       color: '#e8f0fe',
     }
     setMemos([memoObj, ...memos])
     setNewMemoText('')
     try {
-      await api.saveMemo(memoObj)
+      await api.saveMemo(memoObj, {
+        workspacePath: effectiveWs,
+        storage: memoStorageLocation,
+      })
     } catch {}
   }
 
   const handleDeleteMemo = async (id: string) => {
     setMemos(memos.filter(m => m.id !== id))
+    const effectiveWs = addressBarPath && addressBarPath !== '.' ? addressBarPath : undefined
     try {
-      await api.deleteMemo(id)
+      await api.deleteMemo(id, {
+        workspacePath: effectiveWs,
+        storage: memoStorageLocation,
+      })
+    } catch {}
+  }
+
+  const stopAndSaveRecording = async () => {
+    if (recordIntervalRef.current) {
+      clearInterval(recordIntervalRef.current)
+      recordIntervalRef.current = null
+    }
+    setIsRecording(false)
+
+    // Stop Speech Recognition
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.stop()
+      } catch {}
+      speechRecognitionRef.current = null
+    }
+
+    const recorder = mediaRecorderRef.current
+    if (!recorder) return
+
+    // Stop recorder and await stop event
+    const stopPromise = new Promise<void>((resolve) => {
+      recorder.onstop = () => resolve()
+    })
+
+    if (recorder.state === 'recording') {
+      recorder.stop()
+    }
+    await stopPromise
+
+    // Release microphone tracks
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop())
+      mediaStreamRef.current = null
+    }
+
+    const recordedBlob = new Blob(audioChunksRef.current, {
+      type: recorder.mimeType || 'audio/webm',
+    })
+    const base64Audio = await blobToBase64(recordedBlob)
+
+    const elapsedSeconds = Math.max(1, Math.round((Date.now() - recordingStartTimeRef.current) / 1000))
+    const formattedDuration = formatDuration(elapsedSeconds)
+    const finalTranscript = transcriptRef.current.trim()
+
+    let promptTitle: string | null = null
+    try {
+      if (finalTranscript) {
+        promptTitle = window.prompt('Voice recorded & transcribed! Edit title:', finalTranscript)
+      } else {
+        promptTitle = window.prompt('Voice recorded! Enter a transcript / note title:', 'Voice Memo Note')
+      }
+    } catch {
+      promptTitle = null
+    }
+
+    const effectiveTitle = promptTitle !== null && promptTitle.trim()
+      ? promptTitle.trim()
+      : resolveVoiceMemoTitle(finalTranscript, formattedDuration)
+
+    const finalTitle = effectiveTitle.toLowerCase().startsWith('[voice]')
+      ? effectiveTitle
+      : `[Voice] ${effectiveTitle}`
+
+    const effectiveWs = addressBarPath && addressBarPath !== '.' ? addressBarPath : undefined
+    const projectName = effectiveWs ? effectiveWs.split('/').filter(Boolean).pop() : undefined
+
+    const audioMemo: MemoItem = {
+      id: `memo-audio-${Date.now()}`,
+      type: 'voice',
+      title: finalTitle,
+      content: finalTranscript || effectiveTitle,
+      transcript: finalTranscript,
+      audio_data: base64Audio,
+      audioData: base64Audio,
+      duration: formattedDuration,
+      workspace_path: effectiveWs,
+      project: projectName,
+      createdAt: 'Just now',
+      created_at: new Date().toLocaleString(),
+      color: '#fef7e0',
+      tags: ['voice'],
+    }
+
+    setMemos((prev) => [audioMemo, ...prev])
+    setRecordingSeconds(0)
+
+    try {
+      await api.saveMemo(audioMemo, {
+        workspacePath: effectiveWs,
+        storage: memoStorageLocation,
+      })
     } catch {}
   }
 
   const handleToggleRecord = async () => {
     if (isRecording) {
-      setIsRecording(false)
-      const audioMemo = {
-        id: `memo-audio-${Date.now()}`,
-        type: 'voice' as const,
-        content: `Voice Recording #${memos.length + 1} (${recordingSeconds}s)`,
-        title: `Voice Memo (${recordingSeconds}s)`,
-        createdAt: 'Just now',
-        color: '#fef7e0',
-        duration: `0:${recordingSeconds < 10 ? '0' : ''}${recordingSeconds}`,
-      }
-      setMemos([audioMemo, ...memos])
-      setRecordingSeconds(0)
-      try {
-        await api.saveMemo(audioMemo)
-      } catch {}
+      await stopAndSaveRecording()
     } else {
-      setIsRecording(true)
-      setRecordingSeconds(1)
-      const interval = setInterval(() => {
-        setRecordingSeconds((prev) => {
-          if (prev >= 60) {
-            clearInterval(interval)
-            return prev
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        mediaStreamRef.current = stream
+        const mimeType = getSupportedAudioMimeType()
+        const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+        mediaRecorderRef.current = recorder
+        audioChunksRef.current = []
+        transcriptRef.current = ''
+        recordingStartTimeRef.current = Date.now()
+        setRecordingSeconds(0)
+
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) {
+            audioChunksRef.current.push(e.data)
           }
-          return prev + 1
-        })
-      }, 1000)
+        }
+
+        // Initialize Web Speech API concurrently
+        const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+        if (SpeechRec) {
+          try {
+            const recognition = new SpeechRec()
+            recognition.continuous = true
+            recognition.interimResults = true
+            recognition.lang = navigator.language || 'en-US'
+            recognition.onresult = (event: any) => {
+              let str = ''
+              for (let i = 0; i < event.results.length; ++i) {
+                if (event.results[i] && event.results[i][0]) {
+                  str += event.results[i][0].transcript + ' '
+                }
+              }
+              transcriptRef.current = str.trim()
+            }
+            recognition.onerror = (e: any) => {
+              console.warn('SpeechRecognition error:', e?.error || e)
+            }
+            recognition.onend = () => {
+              speechRecognitionRef.current = null
+            }
+            recognition.start()
+            speechRecognitionRef.current = recognition
+          } catch (recErr) {
+            console.warn('Speech recognition init failed:', recErr)
+            speechRecognitionRef.current = null
+          }
+        } else {
+          speechRecognitionRef.current = null
+        }
+
+        recorder.start(250)
+        setIsRecording(true)
+
+        recordIntervalRef.current = setInterval(() => {
+          setRecordingSeconds((prev) => {
+            if (prev >= 60) {
+              stopAndSaveRecording()
+              return prev
+            }
+            return prev + 1
+          })
+        }, 1000)
+      } catch (err: any) {
+        console.error('Microphone access denied or error:', err)
+        setSentFeedback('Microphone access error: ' + (err?.message || 'Access denied'))
+        setTimeout(() => setSentFeedback(''), 4000)
+      }
     }
   }
 
@@ -1000,6 +1263,22 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
                   <Folder size={13} />
                   <span>Open System</span>
                 </button>
+
+                <button
+                  onClick={async () => {
+                    try {
+                      await api.openIDE(addressBarPath, preferredIDE)
+                    } catch (e: any) {
+                      console.error('Failed to open IDE workspace:', e)
+                    }
+                  }}
+                  className="btn-pill-tonal"
+                  style={{ padding: '6px 12px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                  title={`Open folder in ${getIDEName(preferredIDE)}`}
+                >
+                  <Code size={13} />
+                  <span>Open {getIDEName(preferredIDE)}</span>
+                </button>
               </div>
             </div>
 
@@ -1019,15 +1298,42 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
                 ))}
               </div>
 
-              <div style={{ position: 'relative', width: '220px' }}>
-                <Search size={13} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <input
-                  type="text"
-                  placeholder="Filter files (e.g. *.ts)..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{ width: '100%', fontSize: '11px', padding: '5px 8px 5px 28px', borderRadius: '14px', border: '1px solid var(--border)', boxSizing: 'border-box' }}
-                />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <select
+                  value={preferredIDE}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setPreferredIDE(val)
+                    localStorage.setItem('antigravity_preferred_ide', val)
+                    api.setPreferredIDE(val).catch(() => {})
+                  }}
+                  style={{
+                    fontSize: '11px',
+                    padding: '4px 8px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: 'var(--canvas)',
+                    color: 'var(--text)',
+                  }}
+                  title="Configure Preferred IDE"
+                >
+                  <option value="code">VS Code (code)</option>
+                  <option value="cursor">Cursor (cursor)</option>
+                  <option value="windsurf">Windsurf (windsurf)</option>
+                  <option value="codium">VSCodium (codium)</option>
+                  <option value="zed">Zed (zed)</option>
+                </select>
+
+                <div style={{ position: 'relative', width: '200px' }}>
+                  <Search size={13} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                  <input
+                    type="text"
+                    placeholder="Filter files (e.g. *.ts)..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{ width: '100%', fontSize: '11px', padding: '5px 8px 5px 28px', borderRadius: '14px', border: '1px solid var(--border)', boxSizing: 'border-box' }}
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -1256,6 +1562,18 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
                         <Terminal size={13} />
                         <span>Open in Terminal</span>
                       </div>
+                      <div
+                        onClick={async () => {
+                          await api.openIDE(contextMenu.targetItem!.path, preferredIDE)
+                          setContextMenu(null)
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', cursor: 'pointer' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <Code size={13} />
+                        <span>Open in {getIDEName(preferredIDE)}</span>
+                      </div>
                     </>
                   ) : (
                     <>
@@ -1345,6 +1663,18 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
                         <Terminal size={13} />
                         <span>Open in Terminal</span>
                       </div>
+                      <div
+                        onClick={async () => {
+                          await api.openIDE(addressBarPath, preferredIDE)
+                          setContextMenu(null)
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', cursor: 'pointer' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <Code size={13} />
+                        <span>Open in {getIDEName(preferredIDE)}</span>
+                      </div>
                     </>
                   )}
                 </div>
@@ -1360,6 +1690,17 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
                 >
                   <Terminal size={12} />
                   <span>Terminal</span>
+                </button>
+                <button
+                  onClick={async () => {
+                    await api.openIDE(addressBarPath, preferredIDE)
+                  }}
+                  className="btn-pill-tonal"
+                  style={{ padding: '6px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}
+                  title={`Open in ${getIDEName(preferredIDE)}`}
+                >
+                  <Code size={12} />
+                  <span>IDE</span>
                 </button>
                 <button
                   onClick={async () => {
@@ -1721,14 +2062,14 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
               Capture fleeting ideas, voice recordings, or prompt snippets. Drag any memo card directly into Antigravity's chat input.
             </p>
 
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <textarea
                 rows={2}
                 placeholder="Type a quick memo or thought... (Drag onto Antigravity conversation later)"
                 value={newMemoText}
                 onChange={(e) => setNewMemoText(e.target.value)}
                 style={{
-                  flex: 1,
+                  width: '100%',
                   fontSize: '12px',
                   padding: '8px 12px',
                   borderRadius: '8px',
@@ -1736,91 +2077,262 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
                   boxSizing: 'border-box',
                 }}
               />
-              <button
-                onClick={handleAddTextMemo}
-                className="btn-pill-primary"
-                style={{ padding: '8px 18px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}
-              >
-                <Plus size={14} /> Add Memo
-              </button>
-              <button
-                onClick={handleToggleRecord}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '20px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  backgroundColor: isRecording ? '#dc2626' : '#fce8e6',
-                  color: isRecording ? '#ffffff' : '#dc2626',
-                  border: '1px solid #fad2cf',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-              >
-                {isRecording ? <MicOff size={14} /> : <Mic size={14} />}
-                <span>{isRecording ? `Recording... (${recordingSeconds}s)` : 'Sound Memo'}</span>
-              </button>
+              <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+                <button
+                  onClick={handleAddTextMemo}
+                  className="btn-pill-primary"
+                  style={{
+                    flex: '1 1 0',
+                    minWidth: 0,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    textAlign: 'center',
+                    padding: '8px 14px',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    borderRadius: '8px',
+                    gap: '6px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <Plus size={14} />
+                  <span>+ Text Memo</span>
+                </button>
+                <button
+                  onClick={handleToggleRecord}
+                  style={{
+                    flex: '1 1 0',
+                    minWidth: 0,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    textAlign: 'center',
+                    padding: '8px 14px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                    borderRadius: '8px',
+                    backgroundColor: isRecording ? '#dc2626' : 'var(--canvas)',
+                    color: isRecording ? '#ffffff' : 'var(--text)',
+                    border: isRecording ? '1px solid #dc2626' : '1px solid var(--border)',
+                    cursor: 'pointer',
+                    gap: '6px',
+                    transition: 'background 0.15s, border-color 0.15s',
+                  }}
+                >
+                  {isRecording ? <MicOff size={14} /> : <Mic size={14} />}
+                  <span>{isRecording ? `Recording... (${recordingSeconds}s)` : 'Voice Memo'}</span>
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Memos Masonry Grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '14px' }}>
-            {memos.map((memo) => (
-              <div
-                key={memo.id}
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData('text/plain', `[Memo]: ${memo.content}`)
-                }}
-                className="google-card"
+          {/* In-Panel Memo Search Bar */}
+          <div
+            className="google-card"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 12px',
+            }}
+          >
+            <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center' }}>
+              <Search
+                size={14}
                 style={{
-                  backgroundColor: memo.color,
-                  cursor: 'grab',
-                  padding: '16px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  border: '1px solid var(--border)',
-                  minHeight: '110px',
+                  position: 'absolute',
+                  left: '10px',
+                  color: 'var(--text-muted)',
+                  pointerEvents: 'none',
                 }}
-                title="Drag into Antigravity chat input"
-              >
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {memo.type === 'voice' ? (
-                        <span style={{ fontSize: '10px', fontWeight: 700, color: '#b06000', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                          <Mic size={12} /> Audio ({memo.duration})
-                        </span>
-                      ) : (
-                        <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                          <StickyNote size={12} /> Text Memo
-                        </span>
-                      )}
+              />
+              <input
+                type="text"
+                placeholder="Search memos..."
+                value={memoSearchQuery}
+                onChange={(e) => setMemoSearchQuery(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '6px 30px 6px 30px',
+                  fontSize: '12px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'transparent',
+                  color: 'var(--text)',
+                  boxSizing: 'border-box',
+                  outline: 'none',
+                }}
+              />
+              {memoSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setMemoSearchQuery('')}
+                  style={{
+                    position: 'absolute',
+                    right: '8px',
+                    background: 'none',
+                    border: 'none',
+                    padding: '2px',
+                    cursor: 'pointer',
+                    color: 'var(--text-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  title="Clear search"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+
+            {/* In-Panel View Scope Toggle */}
+            <button
+              type="button"
+              onClick={() => handleToggleViewScope(memoViewScope === 'all' ? 'current' : 'all')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                fontSize: '11px',
+                fontWeight: 600,
+                borderRadius: '6px',
+                border: '1px solid var(--border)',
+                backgroundColor: memoViewScope === 'current' ? 'var(--primary, #1a73e8)' : 'var(--canvas)',
+                color: memoViewScope === 'current' ? '#ffffff' : 'var(--text-muted)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.15s ease',
+              }}
+              title="Toggle memo view scope: All Projects vs Current Project Only"
+            >
+              <Globe size={13} />
+              <span>View: {memoViewScope === 'all' ? 'All' : 'Project'}</span>
+            </button>
+
+            {/* Search Scope Toggle */}
+            <button
+              type="button"
+              onClick={() => setMemoSearchScope(memoSearchScope === 'text' ? 'all' : 'text')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                fontSize: '11px',
+                fontWeight: 600,
+                borderRadius: '6px',
+                border: '1px solid var(--border)',
+                backgroundColor: memoSearchScope === 'all' ? 'var(--primary, #1a73e8)' : 'var(--canvas)',
+                color: memoSearchScope === 'all' ? '#ffffff' : 'var(--text-muted)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.15s ease',
+              }}
+              title="Toggle search scope: Text only vs Text + Voice"
+            >
+              <span>Scope: {memoSearchScope === 'text' ? 'Text' : 'Text+Voice'}</span>
+            </button>
+          </div>
+
+          {/* Memos Masonry Grid or Empty State */}
+          {displayedMemos.length === 0 ? (
+            <div
+              className="google-card"
+              style={{
+                textAlign: 'center',
+                padding: '32px 16px',
+                color: 'var(--text-muted)',
+                fontSize: '12px',
+              }}
+            >
+              {memoSearchQuery.trim() ? (
+                <>
+                  <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                    No memos found matching "{memoSearchQuery.trim()}"
+                  </div>
+                  <div style={{ fontSize: '11px' }}>
+                    Try searching different keywords or toggle scope to Text+Voice.
+                  </div>
+                </>
+              ) : (
+                <div>No memos yet. Click + Text Memo or Voice Memo above to get started.</div>
+              )}
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '14px' }}>
+              {displayedMemos.map((memo) => (
+                <div
+                  key={memo.id}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('text/plain', `[Memo]: ${memo.transcript || memo.content}`)
+                  }}
+                  className="google-card"
+                  style={{
+                    backgroundColor: memo.color,
+                    cursor: 'grab',
+                    padding: '16px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    border: '1px solid var(--border)',
+                    minHeight: '110px',
+                  }}
+                  title="Drag into Antigravity chat input"
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {memo.type === 'voice' || memo.type === 'audio' ? (
+                          <span style={{ fontSize: '10px', fontWeight: 700, color: '#b06000', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <Mic size={12} /> Audio ({memo.duration || '0:00'})
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <StickyNote size={12} /> Text Memo
+                          </span>
+                        )}
+                      </div>
+                      <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{memo.createdAt || memo.created_at}</span>
                     </div>
-                    <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{memo.createdAt}</span>
+
+                    {memo.title && memo.title !== memo.content && (
+                      <div style={{ fontWeight: 600, fontSize: '12px', color: 'var(--text)', marginBottom: '4px' }}>
+                        {memo.title}
+                      </div>
+                    )}
+
+                    <p style={{ margin: 0, fontSize: '13px', color: 'var(--text)', lineHeight: 1.5 }}>
+                      {memo.content}
+                    </p>
+
+                    {(memo.audio_data || memo.audioData) && (
+                      <audio
+                        controls
+                        src={memo.audio_data || memo.audioData}
+                        style={{ width: '100%', height: '28px', marginTop: '8px' }}
+                      />
+                    )}
                   </div>
 
-                  <p style={{ margin: 0, fontSize: '13px', color: 'var(--text)', lineHeight: 1.5 }}>
-                    {memo.content}
-                  </p>
+                  <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: '8px' }}>
+                    <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Drag to Chat</span>
+                    <button
+                      onClick={() => handleDeleteMemo(memo.id)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: 'var(--text-muted)' }}
+                      title="Delete Memo"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
-
-                <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: '8px' }}>
-                  <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Drag to Chat</span>
-                  <button
-                    onClick={() => handleDeleteMemo(memo.id)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: 'var(--text-muted)' }}
-                    title="Delete Memo"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
