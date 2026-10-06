@@ -15,12 +15,13 @@ import { ArchivedProjectsPage } from './pages/ArchivedProjectsPage'
 import { FeaturePluginsPage } from './pages/FeaturePluginsPage'
 import { TokenMonitorPage } from './pages/TokenMonitorPage'
 import { UtilitiesPage } from './pages/UtilitiesPage'
+import { GitHubWorkspacePage } from './pages/GitHubWorkspacePage'
 import { AppLockScreen } from './components/AppLockScreen'
 import type { FleetQuotaSummary, RuleConfig, SystemStatus } from './types'
 import { api } from './api'
 
 export const App: React.FC = () => {
-  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 1: Marketplace, 2: Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived, 7: Plugins, 8: Token Monitor, 9: Utilities
+  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 1: Marketplace, 2: Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived, 7: Plugins, 8: Token Monitor, 9: Utilities, 10: GitHub Workspace
   const [currentTab, setCurrentTab] = useState<number>(0) // 0: Dashboard, 1: MFA, 2: FP, 3: Cache, 4: Rules
   const [systemSettingsTab, setSystemSettingsTab] = useState<number>(0) // 0: General, 1: Path & Storage, 2: Error & Privacy, 3: About
   const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Overview Panel, 3: Chat History
@@ -318,7 +319,7 @@ export const App: React.FC = () => {
                 </div>
               )}
 
-              {currentTool !== 2 && currentTool !== 3 && currentTool !== 4 && currentTool !== 5 && currentTool !== 7 && currentTool !== 9 && (
+              {currentTool !== 2 && currentTool !== 3 && currentTool !== 4 && currentTool !== 5 && currentTool !== 7 && currentTool !== 9 && currentTool !== 10 && (
                 <h1 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', margin: 0 }}>
                   {currentTool === 1
                     ? 'Tools Marketplace'
@@ -326,6 +327,8 @@ export const App: React.FC = () => {
                     ? 'Archived Projects'
                     : currentTool === 8
                     ? 'Token & Cost Monitor'
+                    : currentTool === 10
+                    ? 'GitHub Workspace'
                     : ''}
                 </h1>
               )}
@@ -416,6 +419,7 @@ export const App: React.FC = () => {
           )}
           {currentTool === 8 && <TokenMonitorPage />}
           {currentTool === 9 && <UtilitiesPage initialTab={utilitiesTab} />}
+          {currentTool === 10 && <GitHubWorkspacePage />}
         </main>
       </div>
     </div>

@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/cache"
@@ -26,6 +27,7 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/process"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/enhancements"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/github"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/importer"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/system"
@@ -46,8 +48,12 @@ type Server struct {
 	enhancementsStore  *enhancements.Store
 	templatesStore     *templates.Store
 	oauthMgr           *keyring.GoogleOAuthManager
+	githubService      *github.Service
 	httpServer         *http.Server
 	addr               string
+	memoMu             sync.RWMutex
+	globalMemosPath    string
+	knownWorkspaces    map[string]struct{}
 }
 
 // NewServer initializes the web UI server.
@@ -63,6 +69,9 @@ func NewServer(addr string, socketPath string) *Server {
 	enhStore, _ := enhancements.NewStore("")
 	tmplStore, _ := templates.NewStore("")
 	oauthMgr := keyring.NewGoogleOAuthManager("", "")
+	ghStore, _ := github.NewStore("")
+	ghTracker := github.NewAgentTracker("", ghStore)
+	ghService := github.NewService(ghTracker, ghStore)
 	return &Server{
 		client:             client,
 		guiStore:           guiStore,
@@ -72,13 +81,41 @@ func NewServer(addr string, socketPath string) *Server {
 		enhancementsStore:  enhStore,
 		templatesStore:     tmplStore,
 		oauthMgr:           oauthMgr,
+		githubService:      ghService,
 		addr:               addr,
+		knownWorkspaces:    make(map[string]struct{}),
 	}
 }
 
 // SetGUIStore replaces the guiStore on the server (useful for testing with isolated temporary config directories).
 func (s *Server) SetGUIStore(store *gui.Store) {
 	s.guiStore = store
+}
+
+// SetGitHubService replaces the githubService on the server (useful for tests).
+func (s *Server) SetGitHubService(svc *github.Service) {
+	s.githubService = svc
+}
+
+// SetGlobalMemosPath replaces the global memos storage path (useful for testing with isolated temporary config directories).
+func (s *Server) SetGlobalMemosPath(path string) {
+	s.memoMu.Lock()
+	defer s.memoMu.Unlock()
+	s.globalMemosPath = path
+}
+
+// AddKnownWorkspace registers a project workspace directory for aggregated queries.
+func (s *Server) AddKnownWorkspace(ws string) {
+	clean := cleanUserPath(ws)
+	if clean == "" {
+		return
+	}
+	s.memoMu.Lock()
+	defer s.memoMu.Unlock()
+	if s.knownWorkspaces == nil {
+		s.knownWorkspaces = make(map[string]struct{})
+	}
+	s.knownWorkspaces[clean] = struct{}{}
 }
 
 // Start starts listening and serving HTTP requests.
@@ -184,6 +221,7 @@ func (s *Server) Start() error {
 	// Google OAuth Extraction
 	mux.HandleFunc("/api/oauth/google/start", s.handleGoogleOAuthStart)
 	mux.HandleFunc("/api/oauth/google/cancel", s.handleGoogleOAuthCancel)
+	mux.HandleFunc("/api/oauth/google/url", s.handleGoogleOAuthURL)
 
 	// Multi-Surface Antigravity Session Inspector
 	mux.HandleFunc("/api/surfaces", s.handleSurfaces)
@@ -225,6 +263,21 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/files/move", s.handleFilesMove)
 	mux.HandleFunc("/api/files/reveal", s.handleFilesReveal)
 	mux.HandleFunc("/api/files/terminal", s.handleFilesTerminal)
+
+	// GitHub Workspace & Agent Task Tracking API
+	mux.HandleFunc("/api/github/repo", s.handleGitHubRepo)
+	mux.HandleFunc("/api/github/issues", s.handleGitHubIssues)
+	mux.HandleFunc("/api/github/issues/detail", s.handleGitHubIssueDetail)
+	mux.HandleFunc("/api/github/issues/update", s.handleGitHubIssueUpdate)
+	mux.HandleFunc("/api/github/issues/comment", s.handleGitHubIssueComment)
+	mux.HandleFunc("/api/github/issues/create", s.handleGitHubIssueCreate)
+	mux.HandleFunc("/api/github/prs", s.handleGitHubPRs)
+	mux.HandleFunc("/api/github/prs/detail", s.handleGitHubPRDetail)
+	mux.HandleFunc("/api/github/projects", s.handleGitHubProjects)
+	mux.HandleFunc("/api/github/agent-tasks", s.handleGitHubAgentTasks)
+	mux.HandleFunc("/api/github/agent-tasks/bind", s.handleGitHubAgentTaskBind)
+	mux.HandleFunc("/api/github/agent-tasks/label", s.handleGitHubAgentTaskLabel)
+	mux.HandleFunc("/api/github/context", s.handleGitHubContext)
 
 	l, err := net.Listen("tcp", s.addr)
 	if err != nil {
@@ -1932,6 +1985,19 @@ func (s *Server) handleGoogleOAuthCancel(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, map[string]interface{}{
 		"success":   true,
 		"cancelled": true,
+	})
+}
+
+func (s *Server) handleGoogleOAuthURL(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed: GET required", http.StatusMethodNotAllowed)
+		return
+	}
+	authURL := s.oauthMgr.GetActiveAuthURL()
+	writeJSON(w, map[string]interface{}{
+		"success":  true,
+		"active":   authURL != "",
+		"auth_url": authURL,
 	})
 }
 

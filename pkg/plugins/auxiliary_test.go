@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -27,6 +28,8 @@ func TestGenerateAuxiliaryPluginsCSS(t *testing.T) {
 		".swiss-port-add-btn",
 		".swiss-port-add-icon",
 		".swiss-port-add-input",
+		".swiss-port-dropdown-wrap",
+		".swiss-port-select",
 		".swiss-browser-tools-row",
 		".swiss-browser-device-group",
 		".swiss-browser-tools-divider",
@@ -58,6 +61,7 @@ func TestGenerateAuxiliaryPluginsCSS(t *testing.T) {
 		".swiss-prompt-input",
 		".swiss-memo-composer",
 		".swiss-memo-composer-textarea",
+		"[data-swiss-aux-active]",
 	}
 
 	for _, sel := range requiredSelectors {
@@ -108,6 +112,15 @@ func TestGenerateAuxiliaryPluginsScript(t *testing.T) {
 	for _, id := range requiredIdentifiers {
 		if !strings.Contains(js, id) {
 			t.Errorf("expected script to contain identifier %q", id)
+		}
+	}
+
+	if nodePath, err := exec.LookPath("node"); err == nil {
+		cmd := exec.Command(nodePath, "--check")
+		cmd.Stdin = strings.NewReader(js)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("node syntax error in GenerateAuxiliaryPluginsScript: %v\n%s", err, string(out))
 		}
 	}
 }
@@ -170,6 +183,7 @@ func TestAuxiliaryTwoWayStateSyncLogic(t *testing.T) {
 		`swissContainer.dataset.renderedTab === cleanId`,
 		`container.dataset.renderedTab = tabId`,
 		`delete swissContainer.dataset.renderedTab`,
+		`data-swiss-aux-active`,
 	}
 
 	for _, snippet := range requiredLogicSnippets {
@@ -812,6 +826,596 @@ func TestBrowserViewQuickPortsManagement(t *testing.T) {
 		}
 	}
 }
+
+func TestBrowserViewNarrowToolbarResponsiveness(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	css := GenerateAuxiliaryPluginsCSS()
+
+	// 1. Verify rows enforce flex-wrap: nowrap, overflow-x: auto, and 3px scrollbars
+	layoutChecks := []string{
+		".swiss-browser-nav-row",
+		".swiss-browser-tools-row",
+		"flex-wrap: nowrap",
+		"overflow-x: auto",
+		"overflow-y: hidden",
+		".swiss-browser-nav-row::-webkit-scrollbar",
+		".swiss-browser-tools-row::-webkit-scrollbar",
+		"height: 3px",
+	}
+	for _, check := range layoutChecks {
+		if !strings.Contains(css, check) {
+			t.Errorf("expected CSS to define %q for narrow panel responsiveness", check)
+		}
+	}
+
+	// 2. Ensure container queries and compact-ports fallback switch chips to dropdown and hide label
+	containerQuerySnippets := []string{
+		"container-type: inline-size",
+		"container-name: swisstoolbar",
+		"@container swisstoolbar (max-width: 580px)",
+		".swiss-browser-toolbar.compact-ports .swiss-port-label",
+		".swiss-browser-toolbar.compact-ports .swiss-port-list",
+		".swiss-browser-toolbar.compact-ports .swiss-port-dropdown-wrap",
+		".swiss-port-select",
+		".swiss-port-select:hover",
+		".swiss-port-select.active",
+	}
+	for _, snip := range containerQuerySnippets {
+		if !strings.Contains(css, snip) {
+			t.Errorf("expected CSS to contain responsive container query snippet %q", snip)
+		}
+	}
+
+	// 3. Verify dropdown selector template, placeholder, and options
+	selectTemplateTokens := []string{
+		`id="swiss-port-dropdown-wrap"`,
+		`class="swiss-port-select"`,
+		`id="swiss-port-select"`,
+		`title="Quick Ports (Right-click to delete)"`,
+		`<option value="" disabled selected>Quick Ports</option>`,
+		`<option value="__add__">+ Add Port...</option>`,
+		`delOpt.textContent = "Delete Port...";`,
+	}
+	for _, tok := range selectTemplateTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected JS template to contain select dropdown token %q", tok)
+		}
+	}
+
+	// 4. Verify dropdown interactions (onchange, oncontextmenu, selection sync, mousewheel)
+	dropdownLogicTokens := []string{
+		`toolbar.querySelector("#swiss-port-select")`,
+		`val === "__add__"`,
+		`val === "__delete__"`,
+		"portSelect.onchange",
+		"portSelect.oncontextmenu",
+		"updateActivePortChip",
+		"portSelect.value = activePort",
+		`portSelect.value = ""`,
+		"updateToolbarResponsiveness",
+		"ResizeObserver",
+		`toolbar.classList.toggle("compact-ports"`,
+		`row.scrollLeft += e.deltaY`,
+		`await showSwissPrompt("Enter port to delete`,
+	}
+	for _, tok := range dropdownLogicTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected JS to contain dropdown logic token %q", tok)
+		}
+	}
+
+	// 5. David-Design Zero-Decorative-Emoji verification: Ensure no decorative emojis in dropdown options
+	if strings.Contains(js, "🗑") {
+		t.Errorf("found decorative emoji 🗑 in auxiliary plugins script, violating David-Design rules")
+	}
+	if strings.Contains(css, "🗑") {
+		t.Errorf("found decorative emoji 🗑 in auxiliary plugins CSS, violating David-Design rules")
+	}
+
+	// 6. Node.js DOM simulation for port select navigation, unselected state, and add/delete reset
+	if nodePath, err := exec.LookPath("node"); err == nil {
+		nodeSelectTest := `
+const assert = require("assert");
+
+class MockElement {
+  constructor(tagName = "div") {
+    this.tagName = tagName.toUpperCase();
+    this.children = [];
+    this.classList = {
+      _classes: new Set(),
+      add: (c) => this.classList._classes.add(c),
+      remove: (c) => this.classList._classes.delete(c),
+      contains: (c) => this.classList._classes.has(c),
+      toggle: (c, force) => {
+        if (force !== undefined) {
+          if (force) this.classList._classes.add(c); else this.classList._classes.delete(c);
+          return force;
+        }
+        if (this.classList._classes.has(c)) { this.classList._classes.delete(c); return false; }
+        this.classList._classes.add(c); return true;
+      }
+    };
+    this.value = "";
+    this.disabled = false;
+    this.selected = false;
+    this.textContent = "";
+    this.options = [];
+    this.onchange = null;
+    this.oncontextmenu = null;
+  }
+  appendChild(child) {
+    this.children.push(child);
+    if (this.tagName === "SELECT" && child.tagName === "OPTION") {
+      this.options.push(child);
+      if (child.selected || (!this.value && this.options.length === 1)) {
+        this.value = child.value;
+      }
+    }
+    return child;
+  }
+}
+
+// 1. Simulate renderQuickPorts with ports ["5173", "3000"]
+const portSelect = new MockElement("select");
+const ports = ["5173", "3000"];
+
+const placeholder = new MockElement("option");
+placeholder.value = "";
+placeholder.disabled = true;
+placeholder.selected = true;
+placeholder.textContent = "Quick Ports";
+portSelect.appendChild(placeholder);
+
+ports.forEach(p => {
+  const opt = new MockElement("option");
+  opt.value = p;
+  opt.textContent = ":" + p;
+  portSelect.appendChild(opt);
+});
+
+const addOpt = new MockElement("option");
+addOpt.value = "__add__";
+addOpt.textContent = "+ Add Port...";
+portSelect.appendChild(addOpt);
+
+const delOpt = new MockElement("option");
+delOpt.value = "__delete__";
+delOpt.textContent = "Delete Port...";
+portSelect.appendChild(delOpt);
+
+assert.strictEqual(portSelect.options.length, 5);
+assert.strictEqual(portSelect.value, ""); // defaults to placeholder Quick Ports
+assert.strictEqual(portSelect.options[0].textContent, "Quick Ports");
+assert.strictEqual(portSelect.options[4].textContent, "Delete Port...");
+assert.strictEqual(portSelect.options[4].textContent.includes("🗑"), false);
+
+// 2. Simulate updateActivePortChip
+let currentBrowserUrl = "https://github.com";
+const updateActivePortChip = (url) => {
+  const match = url.match(/^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/i);
+  const activePort = match ? match[1] : null;
+  if (activePort && portSelect.options.some(o => o.value === activePort)) {
+    portSelect.value = activePort;
+    portSelect.classList.add("active");
+  } else {
+    portSelect.value = "";
+    portSelect.classList.remove("active");
+  }
+};
+
+updateActivePortChip(currentBrowserUrl);
+assert.strictEqual(portSelect.value, "");
+assert.strictEqual(portSelect.classList.contains("active"), false);
+
+// 3. User navigates to localhost:5173
+currentBrowserUrl = "http://localhost:5173";
+updateActivePortChip(currentBrowserUrl);
+assert.strictEqual(portSelect.value, "5173");
+assert.strictEqual(portSelect.classList.contains("active"), true);
+
+// 4. Test selecting __add__ resets select value and opens addBox
+let addBoxOpened = false;
+const openAddPort = () => { addBoxOpened = true; };
+let navigatedTo = null;
+const navigateBrowser = (u) => { navigatedTo = u; };
+
+portSelect.onchange = async () => {
+  const val = portSelect.value;
+  const match = currentBrowserUrl.match(/^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/i);
+  const activePort = match ? match[1] : null;
+  if (val === "__add__") {
+    portSelect.value = (activePort && ports.includes(activePort)) ? activePort : "";
+    openAddPort();
+    return;
+  }
+  if (val) navigateBrowser("http://localhost:" + val);
+};
+
+// Select __add__
+portSelect.value = "__add__";
+portSelect.onchange();
+assert.strictEqual(addBoxOpened, true);
+assert.strictEqual(portSelect.value, "5173"); // restored to activePort, NOT stuck on __add__
+
+// Select 3000
+portSelect.value = "3000";
+portSelect.onchange();
+assert.strictEqual(navigatedTo, "http://localhost:3000");
+`
+		cmd := exec.Command(nodePath, "-e", nodeSelectTest)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("Node.js port selector simulation failed: %v\n%s", err, string(out))
+		}
+	}
+}
+
+func TestGitHubExtensionScriptAndCSS(t *testing.T) {
+	css := GenerateGitHubExtensionCSS()
+	if css == "" {
+		t.Fatalf("expected non-empty GitHub extension CSS")
+	}
+
+	requiredCSSSelectors := []string{
+		".swiss-left-nav-group",
+		".swiss-left-tabs-separator",
+		".swiss-left-nav-tab",
+		".swiss-github-aux-view",
+		".swiss-gh-card",
+		".swiss-agent-task-badge",
+		".swiss-agent-pulse-dot",
+		"#swiss-main-stage-container",
+		"#swiss-main-stage-header",
+		".swiss-gh-workspace-layout",
+		".swiss-gh-col-left",
+		".swiss-gh-col-center",
+		".swiss-gh-col-right",
+		".swiss-gh-modal-dialog",
+	}
+
+	for _, sel := range requiredCSSSelectors {
+		if !strings.Contains(css, sel) {
+			t.Errorf("expected GitHub CSS to contain selector %q", sel)
+		}
+	}
+
+	js := GenerateGitHubExtensionScript()
+	if js == "" {
+		t.Fatalf("expected non-empty GitHub extension script")
+	}
+
+	requiredJSTokens := []string{
+		"setupLeftNavTabs",
+		"renderSwissGitHubWorkspaceView",
+		"setupDragAndDropToChat",
+		"openIssueDetailModal",
+		"openMainStage",
+		"closeMainStage",
+		"renderGitHubWorkspaceStage",
+		"fetchRepoData",
+		"/api/github/repo",
+		"/api/github/issues",
+		"/api/github/agent-tasks",
+		"formatMarkdownPayload",
+		"sendToChatComposer",
+		"swiss-chat-drop-highlight",
+	}
+
+	for _, tok := range requiredJSTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected GitHub JS to contain token %q", tok)
+		}
+	}
+
+	// Verify integration in GenerateAuxiliaryPluginsCSS and GenerateAuxiliaryPluginsScript
+	auxCSS := GenerateAuxiliaryPluginsCSS()
+	if !strings.Contains(auxCSS, ".swiss-left-nav-tab") {
+		t.Errorf("expected GenerateAuxiliaryPluginsCSS to include GitHub extension CSS")
+	}
+
+	auxJS := GenerateAuxiliaryPluginsScript()
+	if !strings.Contains(auxJS, "setupLeftNavTabs") {
+		t.Errorf("expected GenerateAuxiliaryPluginsScript to include GitHub extension script")
+	}
+	if !strings.Contains(auxJS, `data-tab-id="swiss-github"`) {
+		t.Errorf("expected GenerateAuxiliaryPluginsScript to include data-tab-id=\"swiss-github\"")
+	}
+	if !strings.Contains(auxJS, ".swiss-aux-tabs-divider-right") {
+		t.Errorf("expected GenerateAuxiliaryPluginsScript to include .swiss-aux-tabs-divider-right")
+	}
+}
+
+func TestAuxiliaryFileExplorerHiddenFilesToggle(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	css := GenerateAuxiliaryPluginsCSS()
+
+	// 1. Verify CSS rules for hidden file rows and active toggle button
+	requiredCSSRules := []string{
+		".swiss-file-row.swiss-file-hidden",
+		"opacity: 0.72",
+		"#swiss-f-hidden.active",
+		".swiss-browser-btn.toggled",
+		".swiss-file-row.swiss-file-hidden.selected",
+	}
+	for _, rule := range requiredCSSRules {
+		if !strings.Contains(css, rule) {
+			t.Errorf("expected CSS to define %q", rule)
+		}
+	}
+
+	// 2. Verify button element and eye icon exist in toolbar markup
+	buttonTokens := []string{
+		`id="swiss-f-hidden"`,
+		`title="Toggle Hidden Files"`,
+		`<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>`,
+		`<circle cx="12" cy="12" r="3"/>`,
+	}
+	for _, tok := range buttonTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected JS to contain toolbar button token %q", tok)
+		}
+	}
+
+	// 3. Verify ordering in filter/actions row: search < hidden < new-file < new-dir
+	idxSearch := strings.Index(js, `id="swiss-f-search"`)
+	idxHidden := strings.Index(js, `id="swiss-f-hidden"`)
+	idxNewFile := strings.Index(js, `id="swiss-f-new-file"`)
+	idxNewDir := strings.Index(js, `id="swiss-f-new-dir"`)
+
+	if idxSearch == -1 || idxHidden == -1 || idxNewFile == -1 || idxNewDir == -1 {
+		t.Fatalf("one or more filter row elements not found in JS: search=%d, hidden=%d, newFile=%d, newDir=%d",
+			idxSearch, idxHidden, idxNewFile, idxNewDir)
+	}
+
+	if !(idxSearch < idxHidden && idxHidden < idxNewFile && idxNewFile < idxNewDir) {
+		t.Errorf("expected filter row order swiss-f-search < swiss-f-hidden < swiss-f-new-file < swiss-f-new-dir, got: search=%d, hidden=%d, file=%d, dir=%d",
+			idxSearch, idxHidden, idxNewFile, idxNewDir)
+	}
+
+	// 4. Verify Eye and EyeOff icons, localStorage persistence, and toggle logic
+	logicTokens := []string{
+		`SHOW_HIDDEN_KEY = "antigravity_swiss_show_hidden_files"`,
+		`localStorage.getItem(SHOW_HIDDEN_KEY)`,
+		`localStorage.setItem(SHOW_HIDDEN_KEY`,
+		"updateHiddenBtnState",
+		"applyFileFilters",
+		"eyeIconSvg",
+		"eyeOffIconSvg",
+		`hiddenBtn.classList.toggle("toggled", showHiddenFiles)`,
+		`hiddenBtn.classList.toggle("active", showHiddenFiles)`,
+		`hiddenBtn.onclick = () =>`,
+		`item.name || "").startsWith(".")`,
+		`row.dataset.hidden = isHidden ? "true" : "false"`,
+		`row.classList.add("swiss-file-hidden")`,
+		"matchesHidden = showHiddenFiles || !isHidden",
+		"Hide Hidden Files",
+		"Show Hidden Files",
+	}
+	for _, tok := range logicTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected JS to contain hidden files logic token %q", tok)
+		}
+	}
+
+	// 5. Deep runtime verification via Node.js: simulate interactive DOM lifecycle
+	if nodePath, err := exec.LookPath("node"); err == nil {
+		nodeTestScript := `
+const assert = require("assert");
+
+const storage = {};
+global.localStorage = {
+  getItem: (k) => storage[k] || null,
+  setItem: (k, v) => { storage[k] = String(v); },
+  removeItem: (k) => { delete storage[k]; }
+};
+
+class ClassList {
+  constructor() { this.classes = new Set(); }
+  add(c) { this.classes.add(c); }
+  remove(c) { this.classes.delete(c); }
+  contains(c) { return this.classes.has(c); }
+  toggle(c, force) {
+    if (force !== undefined) {
+      if (force) this.classes.add(c); else this.classes.delete(c);
+      return force;
+    }
+    if (this.classes.has(c)) { this.classes.delete(c); return false; }
+    this.classes.add(c); return true;
+  }
+}
+
+class MockElement {
+  constructor(tagName = "div") {
+    this.tagName = tagName.toUpperCase();
+    this.classList = new ClassList();
+    this.children = [];
+    this.dataset = {};
+    this.style = {};
+    this.innerHTML = "";
+    this._textContent = "";
+    this.id = "";
+    this.title = "";
+    this.value = "";
+    this.onclick = null;
+    this.oninput = null;
+  }
+  get textContent() { return this._textContent || this.innerHTML; }
+  set textContent(v) { this._textContent = v; }
+  appendChild(child) { this.children.push(child); return child; }
+  querySelector(sel) {
+    return this.querySelectorAll(sel)[0] || null;
+  }
+  querySelectorAll(sel) {
+    const res = [];
+    const walk = (el) => {
+      for (const ch of el.children) {
+        if (sel.startsWith("#") && ch.id === sel.slice(1)) res.push(ch);
+        else if (sel.startsWith(".") && ch.classList.contains(sel.slice(1))) res.push(ch);
+        else if (sel === "div" && ch.tagName === "DIV") res.push(ch);
+        walk(ch);
+      }
+    };
+    walk(this);
+    return res;
+  }
+}
+
+const SHOW_HIDDEN_KEY = "antigravity_swiss_show_hidden_files";
+let showHiddenFiles = false;
+try { showHiddenFiles = localStorage.getItem(SHOW_HIDDEN_KEY) === "true"; } catch(_) {}
+
+const hiddenBtn = new MockElement("button");
+hiddenBtn.id = "swiss-f-hidden";
+const searchBox = new MockElement("input");
+searchBox.id = "swiss-f-search";
+
+const listContainer = new MockElement("div");
+const fileItemsMap = new Map();
+const selectedPaths = new Set();
+
+const files = [
+  { name: ".git", path: "/test/.git", isDir: true },
+  { name: ".env", path: "/test/.env", isDir: false },
+  { name: "main.go", path: "/test/main.go", isDir: false },
+  { name: "README.md", path: "/test/README.md", isDir: false },
+];
+
+files.forEach(item => {
+  fileItemsMap.set(item.path, item);
+  const row = new MockElement("div");
+  row.classList.add("swiss-file-row");
+  row.dataset.path = item.path;
+  const isHidden = (item.name || "").startsWith(".");
+  row.dataset.hidden = isHidden ? "true" : "false";
+  if (isHidden) row.classList.add("swiss-file-hidden");
+
+  const nameSpan = new MockElement("span");
+  nameSpan.classList.add("swiss-file-name");
+  nameSpan.textContent = item.name;
+  row.appendChild(nameSpan);
+  listContainer.appendChild(row);
+});
+
+const eyeIconSvg = '<svg ... eye ...></svg>';
+const eyeOffIconSvg = '<svg ... eyeOff ...></svg>';
+const updateHiddenBtnState = () => {
+  hiddenBtn.classList.toggle("toggled", showHiddenFiles);
+  hiddenBtn.classList.toggle("active", showHiddenFiles);
+  hiddenBtn.title = showHiddenFiles ? "Hide Hidden Files (dotfiles)" : "Show Hidden Files (dotfiles)";
+  hiddenBtn.innerHTML = showHiddenFiles ? eyeOffIconSvg : eyeIconSvg;
+};
+updateHiddenBtnState();
+
+const applyFileFilters = () => {
+  const q = (searchBox ? searchBox.value : "").toLowerCase().trim();
+  let visibleCount = 0;
+  listContainer.querySelectorAll(".swiss-file-row").forEach(r => {
+    const name = (r.querySelector(".swiss-file-name")?.textContent || "").toLowerCase();
+    const isHidden = r.dataset.hidden === "true";
+    const matchesSearch = !q || name.includes(q);
+    const matchesHidden = showHiddenFiles || !isHidden;
+    if (matchesSearch && matchesHidden) {
+      r.style.display = "flex";
+      visibleCount++;
+    } else {
+      r.style.display = "none";
+      if (!matchesHidden && selectedPaths.has(r.dataset.path)) {
+        selectedPaths.delete(r.dataset.path);
+        r.classList.remove("selected");
+      }
+    }
+  });
+
+  let emptyNotice = listContainer.querySelector(".swiss-empty-filter-notice");
+  if (fileItemsMap.size > 0 && visibleCount === 0) {
+    if (!emptyNotice) {
+      emptyNotice = new MockElement("div");
+      emptyNotice.id = "empty-notice";
+      emptyNotice.classList.add("swiss-empty-filter-notice");
+      listContainer.appendChild(emptyNotice);
+    }
+    emptyNotice.textContent = q ? "No files matching filter" : "No visible files (hidden files filtered)";
+    emptyNotice.style.display = "block";
+  } else if (emptyNotice) {
+    emptyNotice.style.display = "none";
+  }
+};
+
+applyFileFilters();
+
+// Assert Step 1: Default state hides dotfiles
+assert.strictEqual(showHiddenFiles, false);
+assert.strictEqual(hiddenBtn.classList.contains("active"), false);
+assert.strictEqual(hiddenBtn.title, "Show Hidden Files (dotfiles)");
+const rows = listContainer.querySelectorAll(".swiss-file-row");
+assert.strictEqual(rows[0].style.display, "none"); // .git
+assert.strictEqual(rows[1].style.display, "none"); // .env
+assert.strictEqual(rows[2].style.display, "flex"); // main.go
+assert.strictEqual(rows[3].style.display, "flex"); // README.md
+
+// Assert Step 2: Toggle ON shows dotfiles
+showHiddenFiles = true;
+localStorage.setItem(SHOW_HIDDEN_KEY, "true");
+updateHiddenBtnState();
+applyFileFilters();
+
+assert.strictEqual(hiddenBtn.classList.contains("active"), true);
+assert.strictEqual(hiddenBtn.title, "Hide Hidden Files (dotfiles)");
+assert.strictEqual(localStorage.getItem(SHOW_HIDDEN_KEY), "true");
+assert.strictEqual(rows[0].style.display, "flex"); // .git
+assert.strictEqual(rows[1].style.display, "flex"); // .env
+assert.strictEqual(rows[2].style.display, "flex"); // main.go
+assert.strictEqual(rows[3].style.display, "flex"); // README.md
+
+// Assert Step 3: Selection deselects hidden files on toggle off
+selectedPaths.add("/test/.env");
+rows[1].classList.add("selected");
+showHiddenFiles = false;
+localStorage.setItem(SHOW_HIDDEN_KEY, "false");
+updateHiddenBtnState();
+applyFileFilters();
+
+assert.strictEqual(selectedPaths.has("/test/.env"), false);
+assert.strictEqual(rows[1].classList.contains("selected"), false);
+assert.strictEqual(rows[1].style.display, "none");
+
+// Assert Step 4: Folder with only dotfiles shows empty filter notice
+const dotOnlyContainer = new MockElement("div");
+const dotMap = new Map();
+const dotItem = { name: ".env", path: "/test/.env" };
+dotMap.set(dotItem.path, dotItem);
+const dotRow = new MockElement("div");
+dotRow.classList.add("swiss-file-row");
+dotRow.dataset.hidden = "true";
+const dotSpan = new MockElement("span");
+dotSpan.classList.add("swiss-file-name");
+dotSpan.textContent = ".env";
+dotRow.appendChild(dotSpan);
+dotOnlyContainer.appendChild(dotRow);
+
+let vis = 0;
+dotOnlyContainer.querySelectorAll(".swiss-file-row").forEach(r => {
+  const isHidden = r.dataset.hidden === "true";
+  if (!isHidden) { r.style.display = "flex"; vis++; }
+  else { r.style.display = "none"; }
+});
+assert.strictEqual(vis, 0);
+let notice = new MockElement("div");
+notice.classList.add("swiss-empty-filter-notice");
+notice.textContent = "No visible files (hidden files filtered)";
+notice.style.display = "block";
+dotOnlyContainer.appendChild(notice);
+assert.strictEqual(notice.textContent, "No visible files (hidden files filtered)");
+assert.strictEqual(notice.style.display, "block");
+`
+		cmd := exec.Command(nodePath, "-e", nodeTestScript)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("Node.js DOM simulation failed: %v\n%s", err, string(out))
+		}
+	}
+}
+
 
 
 

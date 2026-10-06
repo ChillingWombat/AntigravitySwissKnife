@@ -132,6 +132,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         return;
       }
 
+      const dark = isDarkMode();
       let css = "";
       const densityMode = enhConfig.tool_density_mode || "muted";
       const breakerEnabled = enhConfig.breaker_line_enabled !== false;
@@ -330,34 +331,6 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             .swiss-see-triangle-btn:hover {
               background-color: rgba(11, 87, 208, 0.15) !important;
             }
-          ` + "`" + `;
-        }
-
-        if (op.consistent_section_spacing) {
-          css += ` + "`" + `
-            .swiss-overview-bottom-spacer {
-              position: relative !important;
-              height: 28px !important;
-              width: 100%% !important;
-              pointer-events: none !important;
-              box-sizing: border-box !important;
-            }
-            .swiss-overview-spacer-line {
-              position: absolute !important;
-              top: 50%% !important;
-              left: 0 !important;
-              right: 0 !important;
-              width: 100%% !important;
-              height: 1px !important;
-              transform: translateY(-50%%) !important;
-              background: rgba(148, 163, 184, 0.35) !important;
-              z-index: 1 !important;
-            }
-            [data-theme="dark"] .swiss-overview-spacer-line,
-            .dark .swiss-overview-spacer-line {
-              background: rgba(148, 163, 184, 0.22) !important;
-            }
-          ` + "`" + `;
         }
       }
 
@@ -711,21 +684,25 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         "Background Tasks",
         "Terminals",
         "Goals",
+        "Goal",
         "Skills Used"
       ];
 
       const searchRoot = document.querySelector('[data-testid*="overview"], [data-testid="auxiliary-panel"], .part.auxiliarybar, aside') || document;
       const allCandidates = Array.from(searchRoot.querySelectorAll("h3, h4, [role='heading'], span, button"));
       const sectionHeaders = allCandidates.filter(el => {
-        if (!el || el.children.length > 3) return false;
+        if (!el || el.children.length > 2) return false;
         const text = (el.textContent || "").trim();
-        return titles.some(t => text.startsWith(t) && text.length < 45);
+        return titles.some(t => text === t || text.startsWith(t + " ") || text.startsWith(t + "("));
       });
 
       const sectionContainers = [];
 
       sectionHeaders.forEach((hdr, idx) => {
-        let container = hdr.closest('[class*="section"]') ||
+        let container = hdr.closest('.gap-6 > div') ||
+                        hdr.closest('.w-full.flex.flex-col.gap-2') ||
+                        hdr.closest('[class*="flex-col"][class*="gap-2"]') ||
+                        hdr.closest('[class*="section"]') ||
                         hdr.closest('[data-testid*="section"]') ||
                         (hdr.parentElement && hdr.parentElement !== document.body ? hdr.parentElement : null);
         if (!container) return;
@@ -780,38 +757,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         });
       }
 
-      if (op.consistent_section_spacing) {
-        sectionContainers.forEach(container => {
-          const hasSeeBtn = Array.from(container.querySelectorAll("button, a, span")).some(el => {
-            if (el.getAttribute("data-swiss-divider") === "true") return true;
-            const t = (el.textContent || "").trim();
-            return t.startsWith("See all") || t === "See less" || t.startsWith("See less");
-          });
-
-          let spacer = container.querySelector(":scope > .swiss-overview-bottom-spacer") || container.querySelector(".swiss-overview-bottom-spacer");
-          if (!hasSeeBtn) {
-            if (!spacer) {
-              spacer = document.createElement("div");
-              spacer.className = "swiss-overview-bottom-spacer";
-              container.appendChild(spacer);
-            }
-            let line = spacer.querySelector(".swiss-overview-spacer-line");
-            if (op.consistent_section_spacing_line) {
-              if (!line) {
-                line = document.createElement("div");
-                line.className = "swiss-overview-spacer-line";
-                spacer.appendChild(line);
-              }
-            } else if (line) {
-              line.remove();
-            }
-          } else if (spacer) {
-            spacer.remove();
-          }
-        });
-      } else {
-        searchRoot.querySelectorAll(".swiss-overview-bottom-spacer").forEach(el => el.remove());
-      }
+      searchRoot.querySelectorAll(".swiss-overview-bottom-spacer").forEach(el => el.remove());
     }
 
     // Attach scroll and DOM observers

@@ -41,10 +41,11 @@ type GoogleOAuthManager struct {
 }
 
 type activeGoogleFlow struct {
-	result chan *GoogleOAuthResult
-	err    chan error
-	server *http.Server
-	cancel context.CancelFunc
+	authURL string
+	result  chan *GoogleOAuthResult
+	err     chan error
+	server  *http.Server
+	cancel  context.CancelFunc
 }
 
 // NewGoogleOAuthManager creates a new extractor instance.
@@ -101,6 +102,16 @@ func (m *GoogleOAuthManager) IsFlowActive() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.activeFlow != nil
+}
+
+// GetActiveAuthURL returns the authorization URL of the currently waiting flow, if any.
+func (m *GoogleOAuthManager) GetActiveAuthURL() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.activeFlow != nil {
+		return m.activeFlow.authURL
+	}
+	return ""
 }
 
 // StartFlow starts the local loopback server, launches the browser, and returns the tokens.
@@ -215,6 +226,11 @@ func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*
 		"prompt":        {"select_account consent"},
 	}
 	authURL := fmt.Sprintf("%s?%s", GoogleOAuthAuthURL, authParams.Encode())
+	m.mu.Lock()
+	if m.activeFlow == flow {
+		flow.authURL = authURL
+	}
+	m.mu.Unlock()
 
 	if openBrowser {
 		_ = OpenBrowser(authURL)

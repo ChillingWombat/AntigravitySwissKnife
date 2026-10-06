@@ -13,9 +13,10 @@ const (
 	AppID      = "com.antigravity.swiss-knife"
 
 	// Default timeouts and intervals
-	DefaultPollingIntervalSeconds       = 60
-	DefaultAutoSwitchThresholdFraction  = 0.05
-	DefaultWarmupLeadTimeSeconds        = 2.0
+	DefaultPollingIntervalSeconds             = 60
+	DefaultAutoSwitchThresholdFraction        = 0.05
+	DefaultAutoSwitchWeeklyThresholdFraction  = 0.05
+	DefaultWarmupLeadTimeSeconds              = 2.0
 	DefaultSocketTimeout                = 5 * time.Second
 	DefaultShutdownGracePeriod          = 3 * time.Second
 

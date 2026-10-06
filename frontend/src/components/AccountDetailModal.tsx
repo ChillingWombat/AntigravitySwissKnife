@@ -40,6 +40,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [refreshToken, setRefreshToken] = useState(account.refresh_token || '')
   const [showOAuth, setShowOAuth] = useState(false)
   const [isExtractingOAuth, setIsExtractingOAuth] = useState(false)
+  const [oauthAuthUrl, setOauthAuthUrl] = useState<string | null>(null)
+  const [copiedOAuthUrl, setCopiedOAuthUrl] = useState(false)
   const [oauthSuccessMsg, setOauthSuccessMsg] = useState<string | null>(null)
   const oauthAbortControllerRef = useRef<AbortController | null>(null)
   const status = account.status || (account.is_active ? 'ACTIVE' : 'STANDBY')
@@ -126,21 +128,66 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       oauthAbortControllerRef.current = null
     }
     setIsExtractingOAuth(false)
+    setOauthAuthUrl(null)
+    setCopiedOAuthUrl(false)
     try {
       await api.cancelGoogleOAuth()
     } catch {}
   }
 
+  const handleCopyOAuthUrl = async () => {
+    let urlToCopy = oauthAuthUrl
+    if (!urlToCopy) {
+      try {
+        const info = await api.getGoogleOAuthURL()
+        if (info && info.auth_url) {
+          urlToCopy = info.auth_url
+          setOauthAuthUrl(info.auth_url)
+        }
+      } catch {}
+    }
+    if (urlToCopy) {
+      try {
+        await navigator.clipboard.writeText(urlToCopy)
+        setCopiedOAuthUrl(true)
+        setOauthSuccessMsg('Login address copied to clipboard! Paste it into your fingerprint browser to complete sign-in.')
+        setTimeout(() => setCopiedOAuthUrl(false), 3000)
+      } catch (err: any) {
+        setError('Failed to copy to clipboard: ' + (err?.message || err))
+      }
+    } else {
+      setError('Login address is generating. Please click again in a moment.')
+    }
+  }
+
   const handleExtractGoogleOAuth = async () => {
     if (isExtractingOAuth) {
-      await handleCancelGoogleOAuth()
+      await handleCopyOAuthUrl()
       return
     }
     setIsExtractingOAuth(true)
     setError(null)
     setOauthSuccessMsg(null)
+    setOauthAuthUrl(null)
+    setCopiedOAuthUrl(false)
     const controller = new AbortController()
     oauthAbortControllerRef.current = controller
+
+    // Asynchronously poll for the generated auth URL so it is immediately ready for clipboard copying
+    ;(async () => {
+      for (let i = 0; i < 20; i++) {
+        if (controller.signal.aborted) break
+        try {
+          const info = await api.getGoogleOAuthURL()
+          if (info && info.auth_url) {
+            setOauthAuthUrl(info.auth_url)
+            break
+          }
+        } catch {}
+        await new Promise((r) => setTimeout(r, 100))
+      }
+    })()
+
     try {
       const res = await api.startGoogleOAuth(controller.signal)
       if (res.success && res.refresh_token) {
@@ -165,6 +212,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       if (oauthAbortControllerRef.current === controller) {
         oauthAbortControllerRef.current = null
         setIsExtractingOAuth(false)
+        setOauthAuthUrl(null)
       }
     }
   }
@@ -571,33 +619,106 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   {showOAuth ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
-              <button
-                type="button"
-                onClick={handleExtractGoogleOAuth}
-                className={isExtractingOAuth ? "btn-pill-outlined" : "btn-pill-outlined"}
-                style={{
-                  width: RIGHT_ACTION_WIDTH,
-                  flexShrink: 0,
-                  height: CONTROL_HEIGHT,
-                  boxSizing: 'border-box',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px',
-                  whiteSpace: 'nowrap',
-                  padding: '0 12px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  backgroundColor: isExtractingOAuth ? 'rgba(217, 48, 37, 0.08)' : 'var(--primary-light)',
-                  color: isExtractingOAuth ? '#d93025' : 'var(--primary)',
-                  borderColor: isExtractingOAuth ? '#d93025' : 'var(--primary)',
-                }}
-                title={isExtractingOAuth ? "Cancel Google login extraction" : "Open browser to login with Google and extract token"}
-              >
-                <LogIn size={14} />
-                {isExtractingOAuth ? 'Cancel Login' : 'Sign in with Google'}
-              </button>
+              {isExtractingOAuth ? (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', width: RIGHT_ACTION_WIDTH, flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    onClick={handleExtractGoogleOAuth}
+                    className="btn-pill-outlined"
+                    style={{
+                      flex: 1,
+                      height: CONTROL_HEIGHT,
+                      boxSizing: 'border-box',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      whiteSpace: 'nowrap',
+                      padding: '0 6px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      backgroundColor: copiedOAuthUrl ? 'rgba(52, 168, 83, 0.08)' : 'var(--primary-light)',
+                      color: copiedOAuthUrl ? '#188038' : 'var(--primary)',
+                      borderColor: copiedOAuthUrl ? '#188038' : 'var(--primary)',
+                      cursor: 'pointer',
+                    }}
+                    title={copiedOAuthUrl ? 'Login address copied!' : 'Waiting for response. Click again to copy login address for fingerprint browser.'}
+                  >
+                    {copiedOAuthUrl ? <Check size={12} /> : <Copy size={12} />}
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {copiedOAuthUrl ? 'Copied Address!' : 'Waiting for response...'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCancelGoogleOAuth}
+                    className="btn-pill-outlined"
+                    style={{
+                      width: '28px',
+                      height: CONTROL_HEIGHT,
+                      boxSizing: 'border-box',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 0,
+                      flexShrink: 0,
+                      color: '#d93025',
+                      borderColor: '#fce8e6',
+                      backgroundColor: '#fdf2f2',
+                      cursor: 'pointer',
+                    }}
+                    title="Cancel Google sign in"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleExtractGoogleOAuth}
+                  className="btn-pill-outlined"
+                  style={{
+                    width: RIGHT_ACTION_WIDTH,
+                    flexShrink: 0,
+                    height: CONTROL_HEIGHT,
+                    boxSizing: 'border-box',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    whiteSpace: 'nowrap',
+                    padding: '0 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    backgroundColor: 'var(--primary-light)',
+                    color: 'var(--primary)',
+                    borderColor: 'var(--primary)',
+                    cursor: 'pointer',
+                  }}
+                  title="Open browser to login with Google and extract token"
+                >
+                  <LogIn size={14} />
+                  Sign in with Google
+                </button>
+              )}
             </div>
+            {isExtractingOAuth && (
+              <div
+                style={{
+                  marginTop: '6px',
+                  fontSize: '11px',
+                  color: 'var(--text-muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Copy size={11} />
+                <span>
+                  Waiting for response. Click <strong>Waiting for response...</strong> to copy the login URL for your fingerprint browser.
+                </span>
+              </div>
+            )}
           </div>
 
           {/* MFA / TOTP Secret Key with input-level verification code timer, shower and copier gadget */}

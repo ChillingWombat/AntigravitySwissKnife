@@ -301,8 +301,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
     zone_padding: rawOp?.zone_padding || 10,
     zone_gap: rawOp?.zone_gap || 10,
     replace_see_all_triangle: rawOp?.replace_see_all_triangle !== false,
-    consistent_section_spacing: rawOp?.consistent_section_spacing !== false,
-    consistent_section_spacing_line: rawOp?.consistent_section_spacing_line !== false,
     aux_tabs_format: rawOp?.aux_tabs_format || 'icon',
   }
   const activeColor =
@@ -2367,7 +2365,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 marginBottom: '20px',
               }}
             >
-              {/* Switch 1: Replace See all / See less with compact triangle */}
+              {/* Switch 1: Replace See all / See less with refined divider */}
               <label
                 style={{
                   display: 'flex',
@@ -2382,7 +2380,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   paddingRight: '16px',
                 }}
               >
-                <span>Replace "See all" & "See less" with Little Triangle (▾ / ▸)</span>
+                <span>Refined Expand/Contract Divider (▾ / ▴)</span>
                 <ToggleSwitch
                   size="sm"
                   checked={op.replace_see_all_triangle}
@@ -2395,56 +2393,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 />
               </label>
 
-              {/* Vertical Breaker 1 */}
-              <div style={{ width: '1px', height: '26px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 12px' }} />
-
-              {/* Switch 2: Subtle Count Badges */}
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '12px',
-                  fontSize: '13px',
-                  color: '#334155',
-                  cursor: 'pointer',
-                  flex: 1,
-                  minWidth: '220px',
-                  paddingRight: '16px',
-                }}
-              >
-                <span>Section Header Counter Badges</span>
-                <ToggleSwitch
-                  size="sm"
-                  checked={true}
-                  onChange={() => {}}
-                />
-              </label>
-
-              {/* Vertical Breaker 2 */}
-              <div style={{ width: '1px', height: '26px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 12px' }} />
-
-              {/* Switch 3: Click to Expand / Collapse */}
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '12px',
-                  fontSize: '13px',
-                  color: '#334155',
-                  cursor: 'pointer',
-                  flex: 1,
-                  minWidth: '220px',
-                }}
-              >
-                <span>Clickable Section Accordion</span>
-                <ToggleSwitch
-                  size="sm"
-                  checked={true}
-                  onChange={() => {}}
-                />
-              </label>
             </div>
 
             {/* 2-Column Layout: Settings on Left, Fixed Vertical Divider, Interactive Overview Preview on Right */}
@@ -3304,31 +3252,59 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               )}
                             </div>
 
-                            {/* "See all" vs Little Triangle Replacement */}
+                            {/* "See all" vs Refined Divider Replacement */}
                             <div style={{ marginTop: '6px' }}>
                               {op.replace_see_all_triangle ? (
-                                <button
-                                  type="button"
+                                <div
                                   onClick={() => setOverviewFilesExpanded(!overviewFilesExpanded)}
                                   style={{
-                                    display: 'inline-flex',
+                                    position: 'relative',
+                                    display: 'flex',
                                     alignItems: 'center',
-                                    gap: '4px',
-                                    fontSize: '11px',
-                                    fontWeight: 600,
-                                    color: '#0b57d0',
-                                    background: 'rgba(11, 87, 208, 0.08)',
-                                    border: '1px solid rgba(11, 87, 208, 0.15)',
-                                    borderRadius: '4px',
-                                    padding: '2px 6px',
+                                    justifyContent: 'center',
+                                    width: '100%',
+                                    height: '28px',
                                     cursor: 'pointer',
-                                    transition: 'all 0.15s',
+                                    userSelect: 'none',
+                                    boxSizing: 'border-box',
                                   }}
                                   title={overviewFilesExpanded ? 'Collapse files list' : 'Expand all 33 files'}
                                 >
-                                  <span style={{ fontSize: '9px' }}>{overviewFilesExpanded ? '▲' : '▼'}</span>
-                                  <span>{overviewFilesExpanded ? 'less' : '(33)'}</span>
-                                </button>
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      top: '50%',
+                                      left: 0,
+                                      right: 0,
+                                      width: '100%',
+                                      height: '1px',
+                                      transform: 'translateY(-50%)',
+                                      backgroundColor: 'rgba(148, 163, 184, 0.35)',
+                                      zIndex: 1,
+                                    }}
+                                  />
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      bottom: '50%',
+                                      left: '50%',
+                                      transform: 'translateX(-50%)',
+                                      marginBottom: '1px',
+                                      zIndex: 2,
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      width: '16px',
+                                      height: '11px',
+                                      color: '#64748b',
+                                      fontSize: '8px',
+                                    }}
+                                  >
+                                    <span style={{ fontSize: '8px', lineHeight: 1 }}>
+                                      {overviewFilesExpanded ? '▲' : '▼'}
+                                    </span>
+                                  </div>
+                                </div>
                               ) : (
                                 <button
                                   type="button"
@@ -3398,28 +3374,56 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
 
                             <div style={{ marginTop: '6px' }}>
                               {op.replace_see_all_triangle ? (
-                                <button
-                                  type="button"
+                                <div
                                   onClick={() => setOverviewUploadsExpanded(!overviewUploadsExpanded)}
                                   style={{
-                                    display: 'inline-flex',
+                                    position: 'relative',
+                                    display: 'flex',
                                     alignItems: 'center',
-                                    gap: '4px',
-                                    fontSize: '11px',
-                                    fontWeight: 600,
-                                    color: '#0b57d0',
-                                    background: 'rgba(11, 87, 208, 0.08)',
-                                    border: '1px solid rgba(11, 87, 208, 0.15)',
-                                    borderRadius: '4px',
-                                    padding: '2px 6px',
+                                    justifyContent: 'center',
+                                    width: '100%',
+                                    height: '28px',
                                     cursor: 'pointer',
-                                    transition: 'all 0.15s',
+                                    userSelect: 'none',
+                                    boxSizing: 'border-box',
                                   }}
                                   title={overviewUploadsExpanded ? 'Collapse uploads' : 'Expand all 14 uploads'}
                                 >
-                                  <span style={{ fontSize: '9px' }}>{overviewUploadsExpanded ? '▲' : '▼'}</span>
-                                  <span>{overviewUploadsExpanded ? 'less' : '(14)'}</span>
-                                </button>
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      top: '50%',
+                                      left: 0,
+                                      right: 0,
+                                      width: '100%',
+                                      height: '1px',
+                                      transform: 'translateY(-50%)',
+                                      backgroundColor: 'rgba(148, 163, 184, 0.35)',
+                                      zIndex: 1,
+                                    }}
+                                  />
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      bottom: '50%',
+                                      left: '50%',
+                                      transform: 'translateX(-50%)',
+                                      marginBottom: '1px',
+                                      zIndex: 2,
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      width: '16px',
+                                      height: '11px',
+                                      color: '#64748b',
+                                      fontSize: '8px',
+                                    }}
+                                  >
+                                    <span style={{ fontSize: '8px', lineHeight: 1 }}>
+                                      {overviewUploadsExpanded ? '▲' : '▼'}
+                                    </span>
+                                  </div>
+                                </div>
                               ) : (
                                 <button
                                   type="button"
@@ -3577,6 +3581,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
 
                             {/* Section Content */}
                             {!isCollapsed && sec.renderContent()}
+
                           </div>
 
                           {/* Horizontal Divider Line between sections (when in divider_line mode) */}

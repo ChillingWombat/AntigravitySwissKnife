@@ -335,8 +335,6 @@ export interface OverviewPanelConfig {
   zone_padding: number
   zone_gap: number
   replace_see_all_triangle: boolean
-  consistent_section_spacing?: boolean
-  consistent_section_spacing_line?: boolean
   aux_tabs_format?: 'icon' | 'icon_and_name'
 }
 

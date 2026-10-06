@@ -1,0 +1,993 @@
+import React, { useState, useEffect } from 'react'
+import {
+  GitPullRequest,
+  AlertCircle,
+  CheckCircle2,
+  GitBranch,
+  RefreshCw,
+  Search,
+  Bot,
+  ExternalLink,
+  Plus,
+  Send,
+  Save,
+  Sparkles,
+} from 'lucide-react'
+import { api } from '../api'
+
+export const GitHubWorkspacePage: React.FC = () => {
+  const [repo, setRepo] = useState<any>(null)
+  const [issues, setIssues] = useState<any[]>([])
+  const [prs, setPRs] = useState<any[]>([])
+  const [agentTasks, setAgentTasks] = useState<any[]>([])
+  const [loading, setLoading] = useState<boolean>(true)
+  const [activeTab, setActiveTab] = useState<'issues' | 'prs' | 'tasks'>('issues')
+  const [searchQuery, setSearchQuery] = useState<string>('')
+  const [stateFilter, setStateFilter] = useState<'all' | 'open' | 'closed'>('all')
+  const [selectedItem, setSelectedItem] = useState<any | null>(null)
+  const [commentText, setCommentText] = useState<string>('')
+  const [editTitle, setEditTitle] = useState<string>('')
+  const [editBody, setEditBody] = useState<string>('')
+  const [toastMsg, setToastMsg] = useState<string | null>(null)
+  const [isCreatingIssue, setIsCreatingIssue] = useState<boolean>(false)
+  const [newTitle, setNewTitle] = useState<string>('')
+  const [newBody, setNewBody] = useState<string>('')
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg)
+    setTimeout(() => setToastMsg(null), 3000)
+  }
+
+  const loadData = async () => {
+    setLoading(true)
+    try {
+      const repoRes = await api.getGitHubRepo()
+      if (repoRes.success && repoRes.repo) {
+        setRepo(repoRes.repo)
+      }
+      const issuesRes = await api.getGitHubIssues(undefined, stateFilter)
+      if (issuesRes.success && issuesRes.issues) {
+        setIssues(issuesRes.issues)
+        if (!selectedItem && issuesRes.issues.length > 0) {
+          setSelectedItem(issuesRes.issues[0])
+          setEditTitle(issuesRes.issues[0].title)
+          setEditBody(issuesRes.issues[0].body || '')
+        }
+      }
+      const prsRes = await api.getGitHubPRs()
+      if (prsRes.success && prsRes.prs) {
+        setPRs(prsRes.prs)
+      }
+      const tasksRes = await api.getGitHubAgentTasks()
+      if (tasksRes.success && tasksRes.tasks) {
+        setAgentTasks(tasksRes.tasks)
+      }
+    } catch (err: any) {
+      showToast('Error loading GitHub data: ' + err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadData()
+  }, [stateFilter])
+
+  const selectItemForEditing = (item: any) => {
+    setSelectedItem(item)
+    setEditTitle(item.title)
+    setEditBody(item.body || '')
+  }
+
+  const handleSaveIssue = async () => {
+    if (!selectedItem) return
+    try {
+      const res = await api.updateGitHubIssue({
+        number: selectedItem.number,
+        title: editTitle,
+        body: editBody,
+      })
+      if (res.success) {
+        showToast(`Issue #${selectedItem.number} updated`)
+        loadData()
+      }
+    } catch (err: any) {
+      showToast('Update failed: ' + err.message)
+    }
+  }
+
+  const handleToggleState = async () => {
+    if (!selectedItem) return
+    const isOpen = (selectedItem.state || 'open').toLowerCase() === 'open'
+    const nextState = isOpen ? 'closed' : 'open'
+    try {
+      const res = await api.updateGitHubIssue({
+        number: selectedItem.number,
+        state: nextState,
+      })
+      if (res.success) {
+        showToast(`Issue #${selectedItem.number} ${nextState}`)
+        loadData()
+      }
+    } catch (err: any) {
+      showToast('State change failed: ' + err.message)
+    }
+  }
+
+  const handleAddComment = async () => {
+    if (!selectedItem || !commentText.trim()) return
+    try {
+      const res = await api.addGitHubComment({
+        number: selectedItem.number,
+        comment: commentText.trim(),
+      })
+      if (res.success) {
+        showToast('Comment posted')
+        setCommentText('')
+        const detail = await api.getGitHubIssueDetail(selectedItem.number)
+        if (detail.success) {
+          setSelectedItem(detail.issue)
+        }
+      }
+    } catch (err: any) {
+      showToast('Comment failed: ' + err.message)
+    }
+  }
+
+  const handleCreateIssue = async () => {
+    if (!newTitle.trim()) return
+    try {
+      const res = await api.createGitHubIssue({
+        title: newTitle.trim(),
+        body: newBody.trim(),
+      })
+      if (res.success) {
+        showToast('Created issue #' + res.issue.number)
+        setIsCreatingIssue(false)
+        setNewTitle('')
+        setNewBody('')
+        loadData()
+      }
+    } catch (err: any) {
+      showToast('Creation failed: ' + err.message)
+    }
+  }
+
+  const handleCopyPromptContext = async () => {
+    if (!selectedItem) return
+    try {
+      const type = activeTab === 'prs' ? 'pr' : 'issue'
+      const res = await api.getGitHubContext(selectedItem.number, type)
+      if (res.success && res.context) {
+        await navigator.clipboard.writeText(res.context)
+        showToast('Copied issue context to clipboard (ready to paste to agent)!')
+      }
+    } catch (err: any) {
+      showToast('Copy failed: ' + err.message)
+    }
+  }
+
+  const handleLabelAgent = async (convId: string, currentLabel: string) => {
+    const label = prompt('Enter custom role / label for this agent:', currentLabel || '')
+    if (label !== null) {
+      await api.setGitHubAgentLabel({
+        conversation_id: convId,
+        agent_label: label,
+      })
+      showToast('Agent labeled')
+      loadData()
+    }
+  }
+
+  const handleBindTask = async (convId: string) => {
+    const numStr = prompt('Enter GitHub Issue # to bind to this conversation (or 0 to unbind):')
+    if (numStr !== null) {
+      const num = parseInt(numStr, 10) || 0
+      await api.bindGitHubAgentTask({
+        conversation_id: convId,
+        issue_number: num,
+      })
+      showToast('Task association updated')
+      loadData()
+    }
+  }
+
+  const filteredItems = (activeTab === 'issues' ? issues : activeTab === 'prs' ? prs : agentTasks).filter(
+    (item) => {
+      const title = (item.title || item.conversation_title || '').toLowerCase()
+      const num = (item.number || item.bound_issue_number || '').toString()
+      const agent = (item.agent_label || item.agent_name || '').toLowerCase()
+      const q = searchQuery.toLowerCase()
+      return title.includes(q) || num.includes(q) || agent.includes(q)
+    }
+  )
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      {/* Toast Notification */}
+      {toastMsg && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            zIndex: 1000,
+            backgroundColor: '#1a73e8',
+            color: '#fff',
+            padding: '10px 16px',
+            borderRadius: '8px',
+            fontSize: '13px',
+            fontWeight: 500,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          }}
+        >
+          {toastMsg}
+        </div>
+      )}
+
+      {/* Top Header Bar */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 24px',
+          borderBottom: '1px solid var(--border)',
+          backgroundColor: 'var(--surface)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text)' }}>
+              {repo ? repo.full_name : 'GitHub Workspace'}
+            </span>
+            {repo && (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  fontSize: '11px',
+                  backgroundColor: 'rgba(0,0,0,0.05)',
+                  color: 'var(--text-muted)',
+                }}
+              >
+                <GitBranch size={12} />
+                {repo.current_branch}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ position: 'relative' }}>
+            <Search
+              size={14}
+              style={{ position: 'absolute', left: '10px', top: '10px', color: 'var(--text-muted)' }}
+            />
+            <input
+              type="text"
+              placeholder="Search issues, PRs, agents..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                padding: '6px 12px 6px 30px',
+                fontSize: '13px',
+                borderRadius: '6px',
+                border: '1px solid var(--border)',
+                backgroundColor: 'var(--surface-variant)',
+                color: 'var(--text)',
+                width: '220px',
+                outline: 'none',
+              }}
+            />
+          </div>
+
+          <button
+            onClick={() => setIsCreatingIssue(true)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 12px',
+              borderRadius: '6px',
+              fontSize: '12px',
+              fontWeight: 600,
+              backgroundColor: '#1a73e8',
+              color: '#fff',
+              border: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            <Plus size={14} /> New Issue
+          </button>
+
+          <button
+            onClick={loadData}
+            style={{
+              padding: '6px 10px',
+              borderRadius: '6px',
+              border: '1px solid var(--border)',
+              backgroundColor: 'transparent',
+              color: 'var(--text-muted)',
+              cursor: 'pointer',
+            }}
+            title="Refresh"
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
+      </div>
+
+      {/* Tabs & Sub-Filters Row */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0 24px',
+          borderBottom: '1px solid var(--border)',
+          backgroundColor: 'var(--surface)',
+        }}
+      >
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={() => setActiveTab('issues')}
+            style={{
+              padding: '10px 14px',
+              fontSize: '13px',
+              fontWeight: activeTab === 'issues' ? 600 : 500,
+              color: activeTab === 'issues' ? '#1a73e8' : 'var(--text-muted)',
+              borderBottom: activeTab === 'issues' ? '2px solid #1a73e8' : '2px solid transparent',
+              background: 'transparent',
+              borderLeft: 'none',
+              borderRight: 'none',
+              borderTop: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            Issues ({issues.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('prs')}
+            style={{
+              padding: '10px 14px',
+              fontSize: '13px',
+              fontWeight: activeTab === 'prs' ? 600 : 500,
+              color: activeTab === 'prs' ? '#1a73e8' : 'var(--text-muted)',
+              borderBottom: activeTab === 'prs' ? '2px solid #1a73e8' : '2px solid transparent',
+              background: 'transparent',
+              borderLeft: 'none',
+              borderRight: 'none',
+              borderTop: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            Pull Requests ({prs.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('tasks')}
+            style={{
+              padding: '10px 14px',
+              fontSize: '13px',
+              fontWeight: activeTab === 'tasks' ? 600 : 500,
+              color: activeTab === 'tasks' ? '#1a73e8' : 'var(--text-muted)',
+              borderBottom: activeTab === 'tasks' ? '2px solid #1a73e8' : '2px solid transparent',
+              background: 'transparent',
+              borderLeft: 'none',
+              borderRight: 'none',
+              borderTop: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            Agent Tasks ({agentTasks.length})
+          </button>
+        </div>
+
+        {activeTab !== 'tasks' && (
+          <div style={{ display: 'flex', gap: '6px' }}>
+            {(['all', 'open', 'closed'] as const).map((filter) => (
+              <button
+                key={filter}
+                onClick={() => setStateFilter(filter)}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '12px',
+                  fontSize: '11px',
+                  fontWeight: stateFilter === filter ? 600 : 500,
+                  backgroundColor: stateFilter === filter ? '#1a73e8' : 'transparent',
+                  color: stateFilter === filter ? '#fff' : 'var(--text-muted)',
+                  border: '1px solid var(--border)',
+                  cursor: 'pointer',
+                  textTransform: 'capitalize',
+                }}
+              >
+                {filter}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 3-Column Workspace */}
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        {/* Column 1: Items List */}
+        <div
+          style={{
+            width: '360px',
+            borderRight: '1px solid var(--border)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflowY: 'auto',
+            backgroundColor: 'var(--surface-variant)',
+          }}
+        >
+          {filteredItems.map((item, idx) => {
+            const isSelected = selectedItem && (selectedItem.number === item.number || selectedItem.conversation_id === item.conversation_id)
+            if (activeTab === 'tasks') {
+              const isWorking = item.not_fully_idle
+              return (
+                <div
+                  key={item.conversation_id || idx}
+                  onClick={() => setSelectedItem(item)}
+                  style={{
+                    padding: '12px 16px',
+                    borderBottom: '1px solid var(--border)',
+                    backgroundColor: isSelected ? 'rgba(26, 115, 232, 0.08)' : 'transparent',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '2px 8px',
+                        borderRadius: '12px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        backgroundColor: isWorking ? 'rgba(34, 197, 94, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+                        color: isWorking ? '#15803d' : '#64748b',
+                      }}
+                    >
+                      <Bot size={12} />
+                      {isWorking ? 'Working' : 'Idle'}: {item.agent_label || 'Agent'}
+                    </span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{item.step_count} steps</span>
+                  </div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, marginTop: '6px', color: 'var(--text)' }}>
+                    {item.conversation_title || 'Active Conversation'}
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginTop: '8px',
+                      fontSize: '11px',
+                      color: 'var(--text-muted)',
+                    }}
+                  >
+                    <span>{item.bound_issue_number ? `Bound to #${item.bound_issue_number}` : 'Unbound'}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleLabelAgent(item.conversation_id, item.agent_label)
+                      }}
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        color: '#1a73e8',
+                        cursor: 'pointer',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                      }}
+                    >
+                      Label Agent
+                    </button>
+                  </div>
+                </div>
+              )
+            }
+
+            const isOpen = (item.state || 'open').toLowerCase() === 'open'
+            const assigned = item.assigned_agent
+
+            return (
+              <div
+                key={item.number || idx}
+                onClick={() => selectItemForEditing(item)}
+                style={{
+                  padding: '12px 16px',
+                  borderBottom: '1px solid var(--border)',
+                  backgroundColor: isSelected ? 'rgba(26, 115, 232, 0.08)' : 'transparent',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {activeTab === 'prs' ? (
+                      <GitPullRequest size={14} color="#9333ea" />
+                    ) : isOpen ? (
+                      <AlertCircle size={14} color="#16a34a" />
+                    ) : (
+                      <CheckCircle2 size={14} color="#64748b" />
+                    )}
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>
+                      #{item.number}
+                    </span>
+                  </div>
+                  {assigned && (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        padding: '1px 6px',
+                        borderRadius: '10px',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        backgroundColor: assigned.not_fully_idle ? 'rgba(34, 197, 94, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+                        color: assigned.not_fully_idle ? '#15803d' : '#64748b',
+                      }}
+                    >
+                      <Bot size={10} />
+                      {assigned.agent_label}
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ fontSize: '13px', fontWeight: 600, marginTop: '4px', color: 'var(--text)', lineHeight: 1.3 }}>
+                  {item.title}
+                </div>
+
+                {item.labels && item.labels.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+                    {item.labels.slice(0, 3).map((l: string, i: number) => (
+                      <span
+                        key={i}
+                        style={{
+                          fontSize: '10px',
+                          padding: '1px 6px',
+                          borderRadius: '8px',
+                          backgroundColor: 'rgba(0,0,0,0.05)',
+                          color: 'var(--text-muted)',
+                        }}
+                      >
+                        {l}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Column 2: In-Place Detail Viewer & Editor */}
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            overflowY: 'auto',
+            padding: '24px 32px',
+            backgroundColor: 'var(--surface)',
+          }}
+        >
+          {selectedItem ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '12px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      backgroundColor:
+                        (selectedItem.state || 'open').toLowerCase() === 'open'
+                          ? 'rgba(34, 197, 94, 0.15)'
+                          : 'rgba(148, 163, 184, 0.15)',
+                      color:
+                        (selectedItem.state || 'open').toLowerCase() === 'open' ? '#16a34a' : '#64748b',
+                    }}
+                  >
+                    #{selectedItem.number} {(selectedItem.state || 'open').toUpperCase()}
+                  </span>
+                  {selectedItem.url && (
+                    <a
+                      href={selectedItem.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#1a73e8' }}
+                    >
+                      View on GitHub <ExternalLink size={12} />
+                    </a>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={handleCopyPromptContext}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      backgroundColor: 'rgba(26, 115, 232, 0.1)',
+                      color: '#1a73e8',
+                      border: 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <Sparkles size={14} /> Copy Context for Agent
+                  </button>
+                  <button
+                    onClick={handleToggleState}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      backgroundColor: 'var(--surface-variant)',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {(selectedItem.state || 'open').toLowerCase() === 'open' ? 'Close Issue' : 'Reopen Issue'}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>TITLE</label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  style={{
+                    width: '100%',
+                    fontSize: '18px',
+                    fontWeight: 600,
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: 'var(--surface-variant)',
+                    color: 'var(--text)',
+                    marginTop: '4px',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>DESCRIPTION</label>
+                <textarea
+                  value={editBody}
+                  onChange={(e) => setEditBody(e.target.value)}
+                  style={{
+                    width: '100%',
+                    minHeight: '220px',
+                    fontSize: '13px',
+                    fontFamily: 'inherit',
+                    padding: '10px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: 'var(--surface-variant)',
+                    color: 'var(--text)',
+                    marginTop: '4px',
+                    resize: 'vertical',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  onClick={handleSaveIssue}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    backgroundColor: '#1a73e8',
+                    color: '#fff',
+                    border: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <Save size={14} /> Save Changes
+                </button>
+              </div>
+
+              {/* Comments Thread */}
+              <div style={{ marginTop: '16px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+                <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>
+                  Comments ({selectedItem.comments ? selectedItem.comments.length : 0})
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+                  {(selectedItem.comments || []).map((c: any, i: number) => (
+                    <div
+                      key={i}
+                      style={{
+                        padding: '12px',
+                        borderRadius: '6px',
+                        backgroundColor: 'var(--surface-variant)',
+                        border: '1px solid var(--border)',
+                      }}
+                    >
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                        @{c.author}
+                      </div>
+                      <div style={{ fontSize: '13px', color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>
+                        {c.body}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="text"
+                    placeholder="Write a comment..."
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleAddComment()
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '8px 12px',
+                      fontSize: '13px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      backgroundColor: 'var(--surface-variant)',
+                      color: 'var(--text)',
+                      outline: 'none',
+                    }}
+                  />
+                  <button
+                    onClick={handleAddComment}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      backgroundColor: '#1a73e8',
+                      color: '#fff',
+                      border: 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <Send size={14} /> Comment
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
+              Select an item to view and edit details
+            </div>
+          )}
+        </div>
+
+        {/* Column 3: Multi-Agent & Conversation Task Tracker */}
+        <div
+          style={{
+            width: '320px',
+            borderLeft: '1px solid var(--border)',
+            display: 'flex',
+            flexDirection: 'column',
+            backgroundColor: 'var(--surface-variant)',
+          }}
+        >
+          <div
+            style={{
+              padding: '12px 16px',
+              borderBottom: '1px solid var(--border)',
+              fontSize: '13px',
+              fontWeight: 700,
+              color: 'var(--text)',
+            }}
+          >
+            Agent Conversations ({agentTasks.length})
+          </div>
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            {agentTasks.map((t) => {
+              const isWorking = t.not_fully_idle
+              return (
+                <div
+                  key={t.conversation_id}
+                  style={{
+                    padding: '12px 16px',
+                    borderBottom: '1px solid var(--border)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '2px 8px',
+                        borderRadius: '12px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        backgroundColor: isWorking ? 'rgba(34, 197, 94, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+                        color: isWorking ? '#15803d' : '#64748b',
+                      }}
+                    >
+                      <Bot size={12} />
+                      {isWorking ? 'Working' : 'Idle'}: {t.agent_label || 'Agent'}
+                    </span>
+                    <button
+                      onClick={() => handleLabelAgent(t.conversation_id, t.agent_label)}
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        color: '#1a73e8',
+                        cursor: 'pointer',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                      }}
+                    >
+                      Label
+                    </button>
+                  </div>
+
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                    {t.conversation_title || 'Conversation'}
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginTop: '6px',
+                      fontSize: '11px',
+                      color: 'var(--text-muted)',
+                    }}
+                  >
+                    <span>{t.bound_issue_number ? `Task: #${t.bound_issue_number}` : 'No Issue Bound'}</span>
+                    <button
+                      onClick={() => handleBindTask(t.conversation_id)}
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        color: '#1a73e8',
+                        cursor: 'pointer',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                      }}
+                    >
+                      Bind Task
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* New Issue Modal */}
+      {isCreatingIssue && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+        >
+          <div
+            style={{
+              width: '560px',
+              backgroundColor: 'var(--surface)',
+              borderRadius: '10px',
+              padding: '24px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+              boxShadow: '0 8px 30px rgba(0,0,0,0.2)',
+            }}
+          >
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>Create New Issue</div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>TITLE</label>
+              <input
+                type="text"
+                placeholder="Issue title"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                style={{
+                  width: '100%',
+                  fontSize: '14px',
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'var(--surface-variant)',
+                  color: 'var(--text)',
+                  marginTop: '4px',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>DESCRIPTION</label>
+              <textarea
+                placeholder="Describe the issue or feature request..."
+                value={newBody}
+                onChange={(e) => setNewBody(e.target.value)}
+                style={{
+                  width: '100%',
+                  minHeight: '160px',
+                  fontSize: '13px',
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'var(--surface-variant)',
+                  color: 'var(--text)',
+                  marginTop: '4px',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button
+                onClick={() => setIsCreatingIssue(false)}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '6px',
+                  fontSize: '13px',
+                  backgroundColor: 'transparent',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateIssue}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '6px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  backgroundColor: '#1a73e8',
+                  color: '#fff',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                Create Issue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

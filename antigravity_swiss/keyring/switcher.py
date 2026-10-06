@@ -51,7 +51,15 @@ logger = logging.getLogger("antigravity_swiss.keyring")
 DEFAULT_CONFIG_DIR = Path.home() / ".config" / "antigravity-swiss"
 DEFAULT_ACCOUNTS_FILE = DEFAULT_CONFIG_DIR / "accounts.json"
 DEFAULT_LOCK_FILE = DEFAULT_CONFIG_DIR / "accounts.lock"
-ANTIGRAVITY_STORAGE_FILE = Path.home() / ".config" / "Antigravity" / "app_storage.json"
+def get_default_antigravity_storage_file() -> Path:
+    if os.environ.get("ANTIGRAVITY_STORAGE_FILE"):
+        return Path(os.environ["ANTIGRAVITY_STORAGE_FILE"]).expanduser().resolve()
+    if os.environ.get("ANTIGRAVITY_CONFIG_DIR"):
+        return Path(os.environ["ANTIGRAVITY_CONFIG_DIR"]).expanduser().resolve() / "app_storage.json"
+    return (Path.home() / ".config" / "Antigravity" / "app_storage.json").resolve()
+
+
+ANTIGRAVITY_STORAGE_FILE = get_default_antigravity_storage_file()
 
 
 class KeyringCredential(NamedTuple):
@@ -666,7 +674,7 @@ class KeyringService:
         self.vault = vault or AccountVault()
         self.service = service
         self.username = username
-        self.storage_path = Path(storage_path or ANTIGRAVITY_STORAGE_FILE).expanduser().resolve()
+        self.storage_path = Path(storage_path or get_default_antigravity_storage_file()).expanduser().resolve()
         self._switch_listeners: list[Callable[[str, str], None]] = []
 
     def register_switch_listener(self, listener: Callable[[str, str], None]) -> None:

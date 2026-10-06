@@ -13,11 +13,12 @@ import {
   Boxes,
   Coins,
   Wrench,
+  GitPullRequest,
 } from 'lucide-react'
 import type { SystemStatus } from '../types'
 
 interface NavRailProps {
-  currentTool: number // 0: Switcher, 1: Marketplace, 2: System Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived Projects, 7: Feature Plugins, 8: Token Monitor, 9: Utilities
+  currentTool: number // 0: Switcher, 1: Marketplace, 2: System Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived Projects, 7: Feature Plugins, 8: Token Monitor, 9: Utilities, 10: GitHub Workspace
   onSelectTool: (idx: number) => void
   status: SystemStatus | null
 }
@@ -237,6 +238,27 @@ export const NavRail: React.FC<NavRailProps> = ({
         >
           <Wrench size={18} color={currentTool === 9 ? 'var(--primary)' : 'var(--text-muted)'} />
           Utilities & Interop
+        </button>
+
+        <button
+          id="btnNavGitHub"
+          onClick={() => onSelectTool(10)}
+          style={{
+            width: '100%',
+            textAlign: 'left',
+            padding: '10px 16px',
+            borderRadius: '20px',
+            fontSize: '13px',
+            fontWeight: currentTool === 10 ? 600 : 500,
+            color: currentTool === 10 ? 'var(--on-primary-container)' : 'var(--text-muted)',
+            backgroundColor: currentTool === 10 ? 'var(--primary-container)' : 'transparent',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+          }}
+        >
+          <GitPullRequest size={18} color={currentTool === 10 ? 'var(--primary)' : 'var(--text-muted)'} />
+          GitHub Workspace
         </button>
 
         <button

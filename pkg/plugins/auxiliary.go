@@ -49,6 +49,22 @@ func GenerateAuxiliaryPluginsCSS() string {
   background: rgba(255, 255, 255, 0.08);
   color: #f1f5f9;
 }
+/* Auxiliary Active State Isolation: When a Swiss tab is active, suppress native factory tab highlights */
+[data-swiss-aux-active] button[data-tab-id]:not([data-tab-id^="swiss-"]),
+[data-swiss-aux-active] button:not(.swiss-aux-tab-btn):not([data-tab-id^="swiss-"]) {
+  background-color: transparent !important;
+  color: var(--secondary-foreground, #71717a) !important;
+}
+[data-swiss-aux-active] button[data-tab-id]:not([data-tab-id^="swiss-"]):hover,
+[data-swiss-aux-active] button:not(.swiss-aux-tab-btn):not([data-tab-id^="swiss-"]):hover {
+  background-color: var(--muted, rgba(148, 163, 184, 0.15)) !important;
+  color: var(--foreground, #1e293b) !important;
+}
+:is(.dark, [data-theme="dark"]) [data-swiss-aux-active] button[data-tab-id]:not([data-tab-id^="swiss-"]):hover,
+:is(.dark, [data-theme="dark"]) [data-swiss-aux-active] button:not(.swiss-aux-tab-btn):not([data-tab-id^="swiss-"]):hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #f1f5f9 !important;
+}
 .swiss-aux-tab-svg {
   width: 14px;
   height: 14px;
@@ -102,21 +118,47 @@ func GenerateAuxiliaryPluginsCSS() string {
   padding: 6px 10px;
   background: var(--canvas-subtle, #f8fafc);
   border-bottom: 1px solid var(--border, #e2e8f0);
+  min-width: 0;
+  box-sizing: border-box;
+  container-type: inline-size;
+  container-name: swisstoolbar;
 }
 .swiss-browser-nav-row {
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+  box-sizing: border-box;
+}
+.swiss-browser-nav-row::-webkit-scrollbar,
+.swiss-browser-tools-row::-webkit-scrollbar {
+  height: 3px;
+}
+.swiss-browser-nav-row::-webkit-scrollbar-track,
+.swiss-browser-tools-row::-webkit-scrollbar-track {
+  background: transparent;
+}
+.swiss-browser-nav-row::-webkit-scrollbar-thumb,
+.swiss-browser-tools-row::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 3px;
+}
+.swiss-browser-nav-row::-webkit-scrollbar-thumb:hover,
+.swiss-browser-tools-row::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
 }
 .swiss-browser-port-bar {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  flex-wrap: wrap;
-  flex: 1;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
 }
 .swiss-port-label {
   font-size: 10px;
@@ -127,12 +169,14 @@ func GenerateAuxiliaryPluginsCSS() string {
   letter-spacing: 0.5px;
   white-space: nowrap;
   user-select: none;
+  flex-shrink: 0;
 }
 .swiss-port-list {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
 }
 .swiss-port-chip {
   display: inline-flex;
@@ -149,6 +193,7 @@ func GenerateAuxiliaryPluginsCSS() string {
   transition: all 0.15s;
   user-select: none;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 .swiss-port-chip:hover {
   background: rgba(26, 115, 232, 0.08);
@@ -165,6 +210,82 @@ func GenerateAuxiliaryPluginsCSS() string {
   font-family: sans-serif;
   border-style: dashed;
 }
+.swiss-port-dropdown-wrap {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.swiss-port-select {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border, #cbd5e1);
+  background: var(--canvas, #ffffff);
+  color: var(--text, #1e293b);
+  font-size: 10px;
+  font-family: monospace;
+  cursor: pointer;
+  outline: none;
+  box-sizing: border-box;
+  max-width: 140px;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+.swiss-port-select:hover {
+  border-color: #1a73e8;
+  color: #1a73e8;
+}
+.swiss-port-select:focus {
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.15);
+}
+.swiss-port-select.active {
+  background: #1a73e8;
+  border-color: #1a73e8;
+  color: #ffffff;
+  font-weight: 600;
+}
+.swiss-port-select option {
+  background: var(--canvas, #ffffff);
+  color: var(--text, #1e293b);
+}
+:is(.dark, [data-theme="dark"]) .swiss-port-select {
+  background: #1e293b;
+  color: #f1f5f9;
+  border-color: #475569;
+}
+:is(.dark, [data-theme="dark"]) .swiss-port-select.active {
+  background: #1a73e8;
+  border-color: #1a73e8;
+  color: #ffffff;
+}
+:is(.dark, [data-theme="dark"]) .swiss-port-select option {
+  background: #1e293b;
+  color: #f1f5f9;
+}
+@container swisstoolbar (max-width: 580px) {
+  .swiss-port-label {
+    display: none !important;
+  }
+  .swiss-port-list {
+    display: none !important;
+  }
+  .swiss-port-dropdown-wrap {
+    display: inline-flex !important;
+  }
+}
+.swiss-browser-toolbar.compact-ports .swiss-port-label {
+  display: none;
+}
+.swiss-browser-toolbar.compact-ports .swiss-port-list {
+  display: none;
+}
+.swiss-browser-toolbar.compact-ports .swiss-port-dropdown-wrap {
+  display: inline-flex;
+}
 .swiss-port-add-box {
   display: inline-flex;
   align-items: center;
@@ -177,6 +298,7 @@ func GenerateAuxiliaryPluginsCSS() string {
   overflow: hidden;
   transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.15s, box-shadow 0.15s;
   vertical-align: middle;
+  flex-shrink: 0;
 }
 .swiss-port-add-box:hover {
   border-color: #1a73e8;
@@ -236,7 +358,7 @@ func GenerateAuxiliaryPluginsCSS() string {
 }
 .swiss-browser-url-input {
   flex: 1;
-  min-width: 140px;
+  min-width: 110px;
   max-width: 300px;
   padding: 4px 10px;
   font-size: 12px;
@@ -245,30 +367,42 @@ func GenerateAuxiliaryPluginsCSS() string {
   background: var(--canvas, #ffffff);
   color: var(--text, #1e293b);
   outline: none;
+  box-sizing: border-box;
+  flex-shrink: 0;
 }
 .swiss-browser-tools-row {
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+  box-sizing: border-box;
 }
 .swiss-browser-device-group {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .swiss-browser-tools-divider {
   width: 1px;
   height: 16px;
   background: var(--border, #e2e8f0);
   margin: 0 2px;
+  flex-shrink: 0;
 }
 .swiss-browser-annotation-group {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .swiss-browser-btn {
   display: inline-flex;
@@ -284,6 +418,7 @@ func GenerateAuxiliaryPluginsCSS() string {
   cursor: pointer;
   transition: background 0.15s;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 .swiss-browser-btn svg {
   flex-shrink: 0;
@@ -557,6 +692,25 @@ func GenerateAuxiliaryPluginsCSS() string {
   font-size: 10px;
   color: var(--text-muted, #94a3b8);
   font-family: monospace;
+}
+.swiss-file-row.swiss-file-hidden {
+  opacity: 0.72;
+}
+.swiss-file-row.swiss-file-hidden:hover,
+.swiss-file-row.swiss-file-hidden.selected {
+  opacity: 1;
+}
+.swiss-browser-btn.toggled,
+#swiss-f-hidden.active {
+  background: rgba(26, 115, 232, 0.12);
+  color: #1a73e8;
+  border-color: rgba(26, 115, 232, 0.4);
+}
+:is(.dark, [data-theme="dark"]) .swiss-browser-btn.toggled,
+:is(.dark, [data-theme="dark"]) #swiss-f-hidden.active {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.4);
 }
 
 /* In-Place Code Editor */
@@ -868,7 +1022,7 @@ func GenerateAuxiliaryPluginsCSS() string {
   border-color: #fbbc04;
   color: #fbbc04;
 }
-`
+` + "\n" + GenerateGitHubExtensionCSS()
 }
 
 // GenerateAuxiliaryPluginsScript returns the full client-side JavaScript injected into Antigravity 2.0
@@ -1078,6 +1232,12 @@ func GenerateAuxiliaryPluginsScript() string {
           label: "Memos",
           svg: '<svg class="swiss-aux-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><polyline points="15 3 15 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>'
         },
+        {
+          id: "github",
+          tabId: "swiss-github",
+          label: "GitHub",
+          svg: '<svg class="swiss-aux-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>'
+        },
       ];
 
       function getAuxTabFormat() {
@@ -1097,7 +1257,7 @@ func GenerateAuxiliaryPluginsScript() string {
         }
       }
 
-      // Configure tabs matching data-tab-id="swiss-browser", data-tab-id="swiss-files", data-tab-id="swiss-memos"
+      // Configure tabs matching data-tab-id="swiss-browser", data-tab-id="swiss-files", data-tab-id="swiss-memos", data-tab-id="swiss-github"
       const existingBtns = tabHeader.querySelectorAll('.swiss-aux-tab-btn');
       if (existingBtns.length > 0) {
         const curFmt = getAuxTabFormat();
@@ -1106,6 +1266,20 @@ func GenerateAuxiliaryPluginsScript() string {
           const t = tabs.find(x => x.id === tid);
           if (t) updateTabButtonMarkup(btn, t, curFmt);
         });
+
+        // Ensure right divider exists even if buttons already present
+        let dividerRight = tabHeader.querySelector('.swiss-aux-tabs-divider-right');
+        const curBtnGroup = tabHeader.querySelector('.swiss-aux-btn-group');
+        if (!dividerRight && curBtnGroup) {
+          dividerRight = document.createElement("div");
+          dividerRight.className = "swiss-aux-tabs-divider swiss-aux-tabs-divider-right";
+          dividerRight.style.height = "16px";
+          dividerRight.style.width = "1px";
+          dividerRight.style.backgroundColor = "var(--border, #e2e8f0)";
+          dividerRight.style.margin = "0 4px";
+          dividerRight.style.opacity = "0.7";
+          curBtnGroup.after(dividerRight);
+        }
 
         if (activeAuxTab) {
           const auxPanel = tabHeader.parentElement || document.querySelector('[data-testid="auxiliary-panel"]') || document.querySelector('.part.auxiliarybar');
@@ -1140,14 +1314,27 @@ func GenerateAuxiliaryPluginsScript() string {
         tabHeader.appendChild(btnGroup);
       }
 
+      let dividerRight = tabHeader.querySelector('.swiss-aux-tabs-divider-right');
+      if (!dividerRight) {
+        dividerRight = document.createElement("div");
+        dividerRight.className = "swiss-aux-tabs-divider swiss-aux-tabs-divider-right";
+        dividerRight.style.height = "16px";
+        dividerRight.style.width = "1px";
+        dividerRight.style.backgroundColor = "var(--border, #e2e8f0)";
+        dividerRight.style.margin = "0 4px";
+        dividerRight.style.opacity = "0.7";
+        btnGroup.after(dividerRight);
+      }
+
       const curFmt = getAuxTabFormat();
       tabs.forEach(t => {
         const btn = document.createElement("button");
         btn.className = "swiss-aux-tab-btn";
-        // Contract: data-tab-id="swiss-browser" data-tab-id="swiss-files" data-tab-id="swiss-memos"
+        // Contract: data-tab-id="swiss-browser" data-tab-id="swiss-files" data-tab-id="swiss-memos" data-tab-id="swiss-github"
         if (t.id === "browser") btn.setAttribute("data-tab-id", "swiss-browser");
         else if (t.id === "files") btn.setAttribute("data-tab-id", "swiss-files");
         else if (t.id === "memos") btn.setAttribute("data-tab-id", "swiss-memos");
+        else if (t.id === "github") btn.setAttribute("data-tab-id", "swiss-github");
         btn.dataset.swissTab = t.id;
         updateTabButtonMarkup(btn, t, curFmt);
         const activeTabTarget = activeAuxTab || localStorage.getItem("antigravity_active_aux_tab");
@@ -1195,12 +1382,15 @@ func GenerateAuxiliaryPluginsScript() string {
         if (!activeAuxTab || activeAuxTab !== savedTab) {
           switchAuxTab(savedTab);
         } else {
+          if (tabHeader) tabHeader.setAttribute("data-swiss-aux-active", savedTab.replace(/^swiss-/, ""));
           document.querySelectorAll(".swiss-aux-tab-btn").forEach(b => {
             const isActive = b.getAttribute("data-tab-id") === activeAuxTab;
             b.classList.toggle("active", isActive);
             b.setAttribute("aria-selected", isActive ? "true" : "false");
           });
         }
+      } else {
+        if (tabHeader) tabHeader.removeAttribute("data-swiss-aux-active");
       }
     }
 
@@ -1248,6 +1438,7 @@ func GenerateAuxiliaryPluginsScript() string {
         });
 
         if (tabHeader) {
+          tabHeader.setAttribute("data-swiss-aux-active", cleanId);
           tabHeader.querySelectorAll('button').forEach(fb => {
             const tid = fb.getAttribute("data-tab-id") || "";
             if (!tid.startsWith("swiss-")) {
@@ -1257,12 +1448,21 @@ func GenerateAuxiliaryPluginsScript() string {
             }
           });
         }
+        if (auxPanel) {
+          auxPanel.setAttribute("data-swiss-aux-active", cleanId);
+        }
 
         localStorage.setItem("antigravity_active_aux_tab", normalizedId);
         if (swissContainer.dataset.renderedTab !== cleanId) {
           renderSwissTabContent(swissContainer, cleanId);
         }
       } else {
+        if (tabHeader) {
+          tabHeader.removeAttribute("data-swiss-aux-active");
+        }
+        if (auxPanel) {
+          auxPanel.removeAttribute("data-swiss-aux-active");
+        }
         delete swissContainer.dataset.renderedTab;
         swissContainer.style.display = "none";
         children.forEach(child => {
@@ -1281,7 +1481,16 @@ func GenerateAuxiliaryPluginsScript() string {
       if (tabId === "browser") renderBrowserView(container);
       else if (tabId === "files") renderFilesView(container);
       else if (tabId === "memos") renderMemosView(container);
+      else if (tabId === "github") {
+        if (typeof window.renderSwissGitHubWorkspaceView === "function") {
+          window.renderSwissGitHubWorkspaceView(container);
+        }
+      }
     }
+
+    window.renderSwissBrowserView = renderBrowserView;
+    window.renderSwissFilesView = renderFilesView;
+    window.renderSwissMemosView = renderMemosView;
 
     // ----------------------------------------------------
     // 2. LIVE BROWSER & APP PREVIEWER WITH ANNOTATIONS
@@ -1307,6 +1516,17 @@ func GenerateAuxiliaryPluginsScript() string {
               <button class="swiss-port-chip" data-port="8080" title="Standard Web Server (Right-click to delete)">:8080</button>
               <button class="swiss-port-chip" data-port="8765" title="Antigravity Swiss Knife (Right-click to delete)">:8765</button>
               <button class="swiss-port-chip" data-port="4173" title="Vite Production Preview (Right-click to delete)">:4173</button>
+            </div>
+            <div class="swiss-port-dropdown-wrap" id="swiss-port-dropdown-wrap">
+              <select class="swiss-port-select" id="swiss-port-select" title="Quick Ports (Right-click to delete)">
+                <option value="" disabled selected>Quick Ports</option>
+                <option value="5173">:5173 (Vite)</option>
+                <option value="3000">:3000 (React)</option>
+                <option value="8080">:8080 (Web)</option>
+                <option value="8765">:8765 (Swiss Knife)</option>
+                <option value="4173">:4173 (Preview)</option>
+                <option value="__add__">+ Add Port...</option>
+              </select>
             </div>
             <div class="swiss-port-add-box" id="swiss-port-add-box">
               <button class="swiss-port-add-btn" id="swiss-port-add-btn" title="Add Port" type="button"><svg class="swiss-port-add-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
@@ -1418,7 +1638,9 @@ func GenerateAuxiliaryPluginsScript() string {
       // URL Navigation & Port Chips
       function navigateBrowser(url) {
         let finalUrl = url.trim();
-        if (!/^https?:\/\//i.test(finalUrl)) {
+        if (/^:\d+$/.test(finalUrl)) {
+          finalUrl = "http://localhost" + finalUrl;
+        } else if (!/^https?:\/\//i.test(finalUrl)) {
           if (/^(localhost|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(:\d+)?/i.test(finalUrl)) {
             finalUrl = "http://" + finalUrl;
           } else {
@@ -1437,11 +1659,21 @@ func GenerateAuxiliaryPluginsScript() string {
       }
 
       function updateActivePortChip(url) {
-        const match = url.match(/^http:\/\/(?:localhost|127\.0\.0\.1):(\d+)/i);
+        const match = url.match(/^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/i);
         const activePort = match ? match[1] : null;
         toolbar.querySelectorAll(".swiss-port-chip").forEach(chip => {
           chip.classList.toggle("active", chip.dataset.port === activePort);
         });
+        const portSelect = toolbar.querySelector("#swiss-port-select");
+        if (portSelect) {
+          if (activePort && Array.from(portSelect.options).some(o => o.value === activePort)) {
+            portSelect.value = activePort;
+            portSelect.classList.add("active");
+          } else {
+            portSelect.value = "";
+            portSelect.classList.remove("active");
+          }
+        }
       }
 
       // Toolbar event handlers
@@ -1476,9 +1708,13 @@ func GenerateAuxiliaryPluginsScript() string {
       function getSavedPorts() {
         try {
           const raw = localStorage.getItem(QUICK_PORTS_KEY);
-          if (raw) {
+          if (raw !== null) {
             const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) return parsed.map(p => String(p).trim()).filter(Boolean);
+            if (Array.isArray(parsed)) {
+              return parsed
+                .map(p => String(p).replace(/^:/, "").trim())
+                .filter(p => /^\d+$/.test(p) && parseInt(p, 10) >= 1 && parseInt(p, 10) <= 65535);
+            }
           }
         } catch (_) {}
         return [...DEFAULT_PORTS];
@@ -1492,33 +1728,70 @@ func GenerateAuxiliaryPluginsScript() string {
 
       function renderQuickPorts() {
         const portList = toolbar.querySelector("#swiss-port-list");
-        if (!portList) return;
-        portList.innerHTML = "";
+        const portSelect = toolbar.querySelector("#swiss-port-select");
         const ports = getSavedPorts();
 
-        ports.forEach(port => {
-          const chip = document.createElement("button");
-          chip.className = "swiss-port-chip";
-          chip.setAttribute("data-port", port);
-          chip.dataset.port = port;
-          const desc = PORT_TITLES[port]
-            ? (PORT_TITLES[port] + " (Right-click to delete)")
-            : ("Port :" + port + " (Right-click to delete)");
-          chip.title = desc;
-          chip.textContent = ":" + port;
+        if (portList) {
+          portList.innerHTML = "";
+          ports.forEach(port => {
+            const chip = document.createElement("button");
+            chip.type = "button";
+            chip.className = "swiss-port-chip";
+            chip.setAttribute("data-port", port);
+            chip.dataset.port = port;
+            const desc = PORT_TITLES[port]
+              ? (PORT_TITLES[port] + " (Right-click to delete)")
+              : ("Port :" + port + " (Right-click to delete)");
+            chip.title = desc;
+            chip.textContent = ":" + port;
 
-          chip.onclick = () => {
-            navigateBrowser("http://localhost:" + port);
-          };
+            chip.onclick = () => {
+              navigateBrowser("http://localhost:" + port);
+            };
 
-          chip.oncontextmenu = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            showPortContextMenu(port, e.clientX, e.clientY);
-          };
+            chip.oncontextmenu = (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              showPortContextMenu(port, e.clientX, e.clientY);
+            };
 
-          portList.appendChild(chip);
-        });
+            portList.appendChild(chip);
+          });
+        }
+
+        if (portSelect) {
+          portSelect.innerHTML = "";
+          const placeholder = document.createElement("option");
+          placeholder.value = "";
+          placeholder.disabled = true;
+          placeholder.selected = true;
+          placeholder.textContent = "Quick Ports";
+          portSelect.appendChild(placeholder);
+
+          ports.forEach(port => {
+            const opt = document.createElement("option");
+            opt.value = port;
+            const shortDesc = {
+              "5173": ":5173 (Vite)",
+              "3000": ":3000 (React)",
+              "8080": ":8080 (Web)",
+              "8765": ":8765 (Swiss Knife)",
+              "4173": ":4173 (Preview)"
+            }[port] || (":" + port);
+            opt.textContent = shortDesc;
+            portSelect.appendChild(opt);
+          });
+
+          const addOpt = document.createElement("option");
+          addOpt.value = "__add__";
+          addOpt.textContent = "+ Add Port...";
+          portSelect.appendChild(addOpt);
+
+          const delOpt = document.createElement("option");
+          delOpt.value = "__delete__";
+          delOpt.textContent = "Delete Port...";
+          portSelect.appendChild(delOpt);
+        }
 
         updateActivePortChip(currentBrowserUrl);
       }
@@ -1527,7 +1800,23 @@ func GenerateAuxiliaryPluginsScript() string {
         const menu = document.createElement("div");
         menu.className = "swiss-context-menu";
         menu.setAttribute("class", "swiss-context-menu");
-        menu.innerHTML = '<div class="swiss-context-item" id="ctx-port-delete" style="color:#ef4444;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg><span>Delete :' + port + '</span></div>';
+        menu.innerHTML = '<div class="swiss-context-item" id="ctx-port-open"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg><span>Open http://localhost:' + port + '</span></div>' +
+          '<div class="swiss-context-item" id="ctx-port-copy"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><span>Copy URL</span></div>' +
+          '<div class="swiss-context-divider"></div>' +
+          '<div class="swiss-context-item" id="ctx-port-delete" style="color:#ef4444;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg><span>Delete :' + port + '</span></div>';
+
+        menu.querySelector("#ctx-port-open").onclick = (e) => {
+          e.stopPropagation();
+          removeContextMenu();
+          navigateBrowser("http://localhost:" + port);
+        };
+
+        menu.querySelector("#ctx-port-copy").onclick = (e) => {
+          e.stopPropagation();
+          removeContextMenu();
+          navigator.clipboard.writeText("http://localhost:" + port);
+          showToast("URL copied to clipboard!");
+        };
 
         menu.querySelector("#ctx-port-delete").onclick = (e) => {
           e.stopPropagation();
@@ -1559,6 +1848,7 @@ func GenerateAuxiliaryPluginsScript() string {
             addInput.focus();
             addInput.select();
           }
+          addBox.scrollIntoView({ block: "nearest", inline: "nearest" });
         }, 50);
       }
 
@@ -1571,13 +1861,14 @@ func GenerateAuxiliaryPluginsScript() string {
 
       function submitNewPort() {
         if (!addInput) return;
-        const val = addInput.value.trim();
-        if (!val) {
+        const rawVal = addInput.value.trim();
+        if (!rawVal) {
           closeAddPort();
           return;
         }
-        const portNum = parseInt(val, 10);
-        if (!/^\d+$/.test(val) || isNaN(portNum) || portNum < 1 || portNum > 65535) {
+        const cleanVal = rawVal.replace(/^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)?:?/, "").trim();
+        const portNum = parseInt(cleanVal, 10);
+        if (!/^\d+$/.test(cleanVal) || isNaN(portNum) || portNum < 1 || portNum > 65535) {
           showToast("Invalid port number (1-65535)", "warning");
           addInput.focus();
           addInput.select();
@@ -1630,6 +1921,77 @@ func GenerateAuxiliaryPluginsScript() string {
       }
       window.__swissAddPortMousedown = onOutsideAddPortMousedown;
       document.addEventListener("mousedown", onOutsideAddPortMousedown);
+      // Dropdown Select Interactions
+      const portSelect = toolbar.querySelector("#swiss-port-select");
+      if (portSelect) {
+        portSelect.onchange = async () => {
+          const val = portSelect.value;
+          const match = currentBrowserUrl.match(/^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/i);
+          const activePort = match ? match[1] : null;
+          const ports = getSavedPorts();
+
+          if (val === "__add__") {
+            portSelect.value = (activePort && ports.includes(activePort)) ? activePort : "";
+            openAddPort();
+            return;
+          }
+          if (val === "__delete__") {
+            portSelect.value = (activePort && ports.includes(activePort)) ? activePort : "";
+            if (activePort && ports.includes(activePort)) {
+              deletePort(activePort);
+            } else if (ports.length > 0) {
+              const portToDel = await showSwissPrompt("Enter port to delete (" + ports.join(", ") + "):", ports[0]);
+              if (portToDel && ports.includes(portToDel.trim())) {
+                deletePort(portToDel.trim());
+              }
+            }
+            return;
+          }
+          if (val) {
+            navigateBrowser("http://localhost:" + val);
+          }
+        };
+
+        portSelect.oncontextmenu = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const match = currentBrowserUrl.match(/^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/i);
+          const port = (match && match[1]) || (portSelect.value && portSelect.value !== "__add__" && portSelect.value !== "__delete__" ? portSelect.value : null);
+          if (port) {
+            showPortContextMenu(port, e.clientX, e.clientY);
+          }
+        };
+      }
+
+      // Responsive Toolbar Check (Container Query fallback & width-based class toggling)
+      function updateToolbarResponsiveness() {
+        if (!toolbar) return;
+        const isNarrow = toolbar.clientWidth < 580;
+        toolbar.classList.toggle("compact-ports", isNarrow);
+      }
+      if (window.__swissToolbarRO) {
+        try { window.__swissToolbarRO.disconnect(); } catch (_) {}
+      }
+      if (typeof ResizeObserver !== "undefined") {
+        const ro = new ResizeObserver(() => updateToolbarResponsiveness());
+        ro.observe(toolbar);
+        window.__swissToolbarRO = ro;
+      } else {
+        window.addEventListener("resize", updateToolbarResponsiveness);
+      }
+      updateToolbarResponsiveness();
+
+      // Mousewheel Horizontal Scrolling for single-row preservation on narrow panels
+      const navRow = toolbar.querySelector(".swiss-browser-nav-row");
+      const toolsRow = toolbar.querySelector(".swiss-browser-tools-row");
+      [navRow, toolsRow].forEach(row => {
+        if (!row) return;
+        row.addEventListener("wheel", (e) => {
+          if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && row.scrollWidth > row.clientWidth) {
+            row.scrollLeft += e.deltaY;
+          }
+        }, { passive: true });
+      });
 
       renderQuickPorts();
 
@@ -2211,6 +2573,7 @@ func GenerateAuxiliaryPluginsScript() string {
         </div>
         <div style="display:flex; gap:6px;">
           <input type="text" placeholder="Filter files..." id="swiss-f-search" style="flex:1; padding:3px 8px; font-size:11px; border-radius:4px; border:1px solid var(--border,#cbd5e1); background:var(--canvas,#fff);" />
+          <button class="swiss-browser-btn" id="swiss-f-hidden" title="Toggle Hidden Files"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>
           <button class="swiss-browser-btn" id="swiss-f-new-file"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><polyline points="14 2 14 8 20 8"/><line x1="12" x2="12" y1="18" y2="12"/><line x1="9" x2="15" y1="15" y2="15"/></svg><span>File</span></button>
           <button class="swiss-browser-btn" id="swiss-f-new-dir"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg><span>Folder</span></button>
         </div>
@@ -2226,6 +2589,61 @@ func GenerateAuxiliaryPluginsScript() string {
       let selectedPaths = new Set();
       let fileItemsMap = new Map();
       let currentFetchId = 0;
+
+      const SHOW_HIDDEN_KEY = "antigravity_swiss_show_hidden_files";
+      let showHiddenFiles = false;
+      try {
+        showHiddenFiles = localStorage.getItem(SHOW_HIDDEN_KEY) === "true";
+      } catch (_) {}
+
+      const hiddenBtn = toolbar.querySelector("#swiss-f-hidden");
+      const eyeIconSvg = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
+      const eyeOffIconSvg = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>';
+
+      const updateHiddenBtnState = () => {
+        if (!hiddenBtn) return;
+        hiddenBtn.classList.toggle("toggled", showHiddenFiles);
+        hiddenBtn.classList.toggle("active", showHiddenFiles);
+        hiddenBtn.title = showHiddenFiles ? "Hide Hidden Files (dotfiles)" : "Show Hidden Files (dotfiles)";
+        hiddenBtn.innerHTML = showHiddenFiles ? eyeOffIconSvg : eyeIconSvg;
+      };
+      updateHiddenBtnState();
+
+      const applyFileFilters = () => {
+        const searchBox = toolbar.querySelector("#swiss-f-search");
+        const q = (searchBox ? searchBox.value : "").toLowerCase().trim();
+        let visibleCount = 0;
+        listContainer.querySelectorAll(".swiss-file-row").forEach(r => {
+          const name = (r.querySelector(".swiss-file-name")?.textContent || "").toLowerCase();
+          const isHidden = r.dataset.hidden === "true";
+          const matchesSearch = !q || name.includes(q);
+          const matchesHidden = showHiddenFiles || !isHidden;
+          if (matchesSearch && matchesHidden) {
+            r.style.display = "flex";
+            visibleCount++;
+          } else {
+            r.style.display = "none";
+            if (!matchesHidden && selectedPaths.has(r.dataset.path)) {
+              selectedPaths.delete(r.dataset.path);
+              r.classList.remove("selected");
+            }
+          }
+        });
+
+        let emptyNotice = listContainer.querySelector(".swiss-empty-filter-notice");
+        if (fileItemsMap.size > 0 && visibleCount === 0) {
+          if (!emptyNotice) {
+            emptyNotice = document.createElement("div");
+            emptyNotice.className = "swiss-empty-filter-notice";
+            emptyNotice.style.cssText = "padding:16px; font-size:11px; color:#94a3b8; text-align:center;";
+            listContainer.appendChild(emptyNotice);
+          }
+          emptyNotice.textContent = q ? "No files matching filter" : "No visible files (hidden files filtered)";
+          emptyNotice.style.display = "block";
+        } else if (emptyNotice) {
+          emptyNotice.style.display = "none";
+        }
+      };
 
       const updateNavButtons = () => {
         const backBtn = toolbar.querySelector("#swiss-f-back");
@@ -2303,6 +2721,11 @@ func GenerateAuxiliaryPluginsScript() string {
             }
             row.draggable = true;
             row.dataset.path = item.path;
+            const isHidden = (item.name || "").startsWith(".");
+            row.dataset.hidden = isHidden ? "true" : "false";
+            if (isHidden) {
+              row.classList.add("swiss-file-hidden");
+            }
 
             const iconSvg = item.isDir 
               ? '<svg class="swiss-file-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>'
@@ -2381,6 +2804,7 @@ func GenerateAuxiliaryPluginsScript() string {
 
             listContainer.appendChild(row);
           });
+          applyFileFilters();
         } catch (err) {
           if (fetchId !== currentFetchId) return;
           listContainer.innerHTML = ` + "`" + `<div style='padding:14px; color:#ef4444; font-size:11px; display:flex; flex-direction:column; gap:6px;'>
@@ -2433,14 +2857,20 @@ func GenerateAuxiliaryPluginsScript() string {
       };
       toolbar.querySelector("#swiss-f-home").onclick = () => loadFiles("~");
       toolbar.querySelector("#swiss-f-refresh").onclick = () => loadFiles(currentFilePath, false);
+      if (hiddenBtn) {
+        hiddenBtn.onclick = () => {
+          showHiddenFiles = !showHiddenFiles;
+          try {
+            localStorage.setItem(SHOW_HIDDEN_KEY, showHiddenFiles ? "true" : "false");
+          } catch (_) {}
+          updateHiddenBtnState();
+          applyFileFilters();
+        };
+      }
       const searchBox = toolbar.querySelector("#swiss-f-search");
       if (searchBox) {
-        searchBox.oninput = (e) => {
-          const q = (e.target.value || "").toLowerCase().trim();
-          listContainer.querySelectorAll(".swiss-file-row").forEach(r => {
-            const name = (r.querySelector(".swiss-file-name")?.textContent || "").toLowerCase();
-            r.style.display = (!q || name.includes(q)) ? "flex" : "none";
-          });
+        searchBox.oninput = () => {
+          applyFileFilters();
         };
       }
       toolbar.querySelector("#swiss-f-reveal").onclick = () => {
@@ -3169,5 +3599,5 @@ func GenerateAuxiliaryPluginsScript() string {
     console.warn("[SwissKnife] Auxiliary plugins exception:", err);
   }
 })();
-`
+` + "\n\n" + GenerateGitHubExtensionScript()
 }

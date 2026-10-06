@@ -920,6 +920,7 @@ func (s *Store) RemoveAccount(email string) error {
 			a.IsActive = true
 			break
 		}
+		_ = SyncAppStorageLoginUser(s.activeEmail)
 	}
 
 	return s.save()

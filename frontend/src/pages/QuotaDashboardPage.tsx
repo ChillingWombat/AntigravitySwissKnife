@@ -12,6 +12,7 @@ import {
   Search,
   Plus,
   Timer,
+  Trash2,
 } from 'lucide-react'
 import type { AccountState, FleetQuotaSummary, RuleConfig, DiscoveredAccount } from '../types'
 import { normalizePlanTier } from '../types'
@@ -1239,6 +1240,39 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
             onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
             <Copy size={13} /> Copy Email Address
+          </button>
+          <div style={{ height: '1px', backgroundColor: 'var(--border)', margin: '4px 0' }} />
+          <button
+            onClick={async () => {
+              const target = contextMenu.account.email
+              const isActive = contextMenu.account.is_active || target === activeAccount
+              setContextMenu(null)
+              const msg = isActive
+                ? `This account is currently ACTIVE. Removing it will switch to another available account in your fleet.\n\nAre you sure you want to remove ${target}?`
+                : `Are you sure you want to remove account ${target}?`
+              if (window.confirm(msg)) {
+                try {
+                  await api.deleteAccount(target)
+                  onRefresh()
+                } catch (err: any) {
+                  setSwitchFeedback('Failed to remove account: ' + err.message)
+                }
+              }
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              width: '100%',
+              padding: '8px 16px',
+              fontSize: '12px',
+              textAlign: 'left',
+              color: '#d93025',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#fdf2f2')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            <Trash2 size={13} /> Remove Account
           </button>
         </div>
       )}
