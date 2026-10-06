@@ -15,6 +15,7 @@ import {
   Info,
   Shield,
   ShieldCheck,
+  Loader2,
 } from 'lucide-react'
 import type {
   CustomModel,
@@ -38,6 +39,7 @@ import {
   extractContextWindow,
   detectThinkingLevels,
 } from '../utils/modelExtraction'
+import { getTestConnectionButtonPresentation } from '../utils/testConnectionButton'
 import { api } from '../api'
 
 const inferProviderType = (url: string): ProviderType => {
@@ -324,7 +326,15 @@ export const CustomModelsPage: React.FC = () => {
       const res = await api.testCustomModel(draftModel)
       setModalTestResult(res)
     } catch (err: any) {
-      setModalError(`Test request failed: ${err.message}`)
+      const message = err.message || 'Request failed'
+      setModalError(`Test request failed: ${message}`)
+      setModalTestResult({
+        success: false,
+        status_code: 0,
+        latency_ms: 0,
+        message,
+        endpoint: baseUrl.trim(),
+      })
     } finally {
       setModalTesting(false)
     }
@@ -836,7 +846,7 @@ export const CustomModelsPage: React.FC = () => {
                       className="btn-pill-tonal"
                       style={{ padding: '5px 12px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px' }}
                     >
-                      <Zap size={12} />
+                      {isTesting ? <Loader2 size={12} className="spin" /> : <Zap size={12} />}
                       {isTesting ? 'Testing...' : 'Test Connection'}
                     </button>
 
@@ -1386,59 +1396,56 @@ export const CustomModelsPage: React.FC = () => {
                 paddingTop: '16px',
                 marginTop: '8px',
                 gap: '12px',
-                flexWrap: 'wrap',
+                flexWrap: 'nowrap',
               }}
             >
-              {/* Bottom Left: Test Connection Button & Result Feedback */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  onClick={handleTestInModal}
-                  disabled={modalTesting || !baseUrl.trim()}
-                  className="btn-pill-tonal"
-                  style={{ padding: '7px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                >
-                  <Zap size={13} />
-                  {modalTesting ? 'Testing...' : 'Test Connection'}
-                </button>
-
-                {modalTestResult && (() => {
-                  const isSuccess = modalTestResult.success && modalTestResult.status_code >= 200 && modalTestResult.status_code < 300
-                  return (
-                    <div
-                      style={{
-                        fontSize: '11px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '5px',
-                        color: isSuccess ? 'var(--green)' : '#b3261e',
-                        fontWeight: 600,
-                        backgroundColor: isSuccess ? 'var(--green-bg)' : '#fce8e6',
-                        padding: '4px 10px',
-                        borderRadius: '9999px',
-                      }}
-                    >
-                      {isSuccess ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
-                      <span>
-                        {isSuccess
-                          ? `${modalTestResult.status_code} OK (${modalTestResult.latency_ms}ms)${
-                              modalTestResult.quota_result?.balance_value
-                                ? ` • Balance: ${modalTestResult.quota_result.balance_value}`
-                                : modalTestResult.quota_result?.quota_value
-                                ? ` • Quota: ${modalTestResult.quota_result.quota_value}`
-                                : modalTestResult.quota_result?.quota_type === 'quota'
-                                ? ' • Quota'
-                                : ''
-                            }`
-                          : `Failed: ${modalTestResult.message}`}
-                      </span>
-                    </div>
-                  )
-                })()}
-              </div>
+              {/* Bottom Left: Inline Test Connection Button */}
+              {(() => {
+                const testBtn = getTestConnectionButtonPresentation({
+                  isTesting: modalTesting,
+                  testResult: modalTestResult,
+                  baseUrl,
+                })
+                return (
+                  <button
+                    type="button"
+                    onClick={handleTestInModal}
+                    disabled={testBtn.disabled}
+                    title={testBtn.tooltip}
+                    className="btn-pill-tonal"
+                    style={{
+                      ...testBtn.style,
+                      padding: '0 12px',
+                      borderRadius: '20px',
+                      fontSize: '12px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      flexShrink: 0,
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    {testBtn.icon === 'spinner' ? (
+                      <Loader2 size={13} className="spin" style={{ flexShrink: 0 }} />
+                    ) : testBtn.icon === 'check' ? (
+                      <CheckCircle2 size={13} style={{ flexShrink: 0 }} />
+                    ) : testBtn.icon === 'alert' ? (
+                      <AlertCircle size={13} style={{ flexShrink: 0 }} />
+                    ) : (
+                      <Zap size={13} style={{ flexShrink: 0 }} />
+                    )}
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {testBtn.label}
+                    </span>
+                  </button>
+                )
+              })()}
 
               {/* Bottom Right: Delete (if editing), Cancel & Save Model */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                 {editingModel && (
                   <button
                     type="button"
