@@ -338,9 +338,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const dashWidth = enhConfig.prompt_jump_bar?.dash_width || 14;
 
       if (isGutter && convView) {
-        bar.style.cssText = "position: absolute; left: 18px; top: 28px; z-index: 45; display: flex; flex-direction: column; gap: 7px; padding: 4px 2px; background: transparent; border: none; box-shadow: none; user-select: none;";
+        bar.style.cssText = "position: absolute; left: 18px; top: 28px; z-index: 45; display: flex; flex-direction: column; gap: 7px; padding: 4px 2px; background: transparent; border: none; box-shadow: none; user-select: none; pointer-events: none;";
       } else {
-        bar.style.cssText = "position: fixed; left: 268px; top: 120px; z-index: 9999; display: flex; flex-direction: column; gap: 7px; padding: 4px 2px; background: transparent; border: none; box-shadow: none; user-select: none;";
+        bar.style.cssText = "position: fixed; left: 268px; top: 120px; z-index: 9999; display: flex; flex-direction: column; gap: 7px; padding: 4px 2px; background: transparent; border: none; box-shadow: none; user-select: none; pointer-events: none;";
       }
 
       if (!tooltip) {
@@ -400,7 +400,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         const hoverWidth = Math.max(22, dashWidth + 8);
 
         // Height is explicitly fixed without transition to prevent bouncing / shining
-        dash.style.cssText = "width: " + dashWidth + "px; height: 1.5px; border-radius: 2px; background: " + defaultColor + "; cursor: pointer; transition: width 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease;";
+        dash.style.cssText = "width: " + dashWidth + "px; height: 1.5px; border-radius: 2px; background: " + defaultColor + "; cursor: pointer; pointer-events: auto; transition: width 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease;";
 
         dash.onmouseenter = () => {
           dash.style.width = hoverWidth + "px";
@@ -599,7 +599,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         "Skills Used"
       ];
 
-      const allCandidates = Array.from(document.querySelectorAll("h3, h4, span, div, button"));
+      const searchRoot = document.querySelector('[data-testid*="overview"], [data-testid="auxiliary-panel"], .part.auxiliarybar, aside') || document;
+      const allCandidates = Array.from(searchRoot.querySelectorAll("h3, h4, [role='heading'], span, button"));
       const sectionHeaders = allCandidates.filter(el => {
         if (!el || el.children.length > 3) return false;
         const text = (el.textContent || "").trim();
@@ -626,7 +627,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       });
 
       if (op.replace_see_all_triangle) {
-        const seeButtons = Array.from(document.querySelectorAll("button, a, span")).filter(el => {
+        const seeButtons = Array.from(searchRoot.querySelectorAll("button, a, span")).filter(el => {
           if (!el || el.querySelector(".swiss-see-triangle-btn")) return false;
           const t = (el.textContent || "").trim();
           return (t.startsWith("See all") || t === "See less" || t.startsWith("See less"));
@@ -726,7 +727,18 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
       let scheduledRaf = null;
       let lastObservedStepCount = -1;
-      const ob = new MutationObserver(() => {
+      const ob = new MutationObserver((mutations) => {
+        const hasExternalMutation = mutations.some(m => {
+          const target = m.target;
+          if (target && target.nodeType === 1) {
+            const el = target;
+            if (el.id && el.id.startsWith("swiss-")) return false;
+            if (el.classList && (el.classList.contains("swiss-overview-zone") || el.classList.contains("swiss-overview-divider") || el.classList.contains("swiss-prompt-dash") || el.classList.contains("swiss-see-triangle-btn"))) return false;
+          }
+          return true;
+        });
+        if (!hasExternalMutation) return;
+
         if (scheduledRaf) return;
         scheduledRaf = requestAnimationFrame(() => {
           scheduledRaf = null;

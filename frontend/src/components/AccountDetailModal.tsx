@@ -219,7 +219,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             style={{
               backgroundColor: 'var(--red-bg)',
               color: 'var(--red)',
-              padding: '10px 14px',
+              padding: '10px 16px',
               borderRadius: '8px',
               fontSize: '12px',
               marginBottom: '16px',
@@ -238,7 +238,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             style={{
               backgroundColor: 'var(--yellow-bg)',
               color: 'var(--yellow)',
-              padding: '10px 14px',
+              padding: '10px 16px',
               borderRadius: '8px',
               fontSize: '12px',
               marginBottom: '16px',
@@ -257,7 +257,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             style={{
               backgroundColor: 'var(--red-bg)',
               color: 'var(--red)',
-              padding: '10px 14px',
+              padding: '10px 16px',
               borderRadius: '8px',
               fontSize: '12px',
               marginBottom: '16px',
@@ -272,7 +272,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             style={{
               backgroundColor: 'var(--green-bg)',
               color: 'var(--green)',
-              padding: '10px 14px',
+              padding: '10px 16px',
               borderRadius: '8px',
               fontSize: '12px',
               marginBottom: '20px',
@@ -288,7 +288,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             backgroundColor: 'var(--canvas)',
             border: '1px solid var(--border)',
             borderRadius: '12px',
-            padding: '16px 18px',
+            padding: '16px 20px',
             marginBottom: '24px',
           }}
         >
@@ -296,7 +296,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             Live Quota Metrics
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px' }}>
                 <span style={{ fontWeight: 500, color: 'var(--text)' }}>5H Quota:</span>
@@ -340,7 +340,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           </div>
 
           {/* Account Alias and Account Priority on the same row/level */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '14px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '16px' }}>
             <div>
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
                 <Tag size={14} /> Account Alias:
@@ -641,7 +641,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           </div>
 
           {/* Status & Plan Tier (Auto-ingested) */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                 <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
@@ -718,7 +718,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           </div>
 
           {/* AI Credits (Auto-ingested, no dollar sign) & Overage Setting */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', alignItems: 'center' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', alignItems: 'center' }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
@@ -857,7 +857,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             <p style={{ margin: '0 0 20px', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
               Are you sure you want to permanently remove account <strong>"{account.email}"</strong>? This will remove stored credentials and quota history.
             </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(false)}
@@ -871,7 +871,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 onClick={confirmDelete}
                 disabled={isSaving}
                 className="btn-pill-danger"
-                style={{ padding: '7px 18px', fontSize: '12px' }}
+                style={{ padding: '7px 16px', fontSize: '12px' }}
               >
                 {isSaving ? 'Deleting...' : 'Delete Account'}
               </button>

@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import type { AccountState, FleetQuotaSummary, RuleConfig, DiscoveredAccount } from '../types'
 import { normalizePlanTier } from '../types'
-import { COMPONENT_TOKENS, TABLE_MIN_WIDTH } from '../utils/layoutTokens'
+import { TABLE_MIN_WIDTH } from '../utils/layoutTokens'
 import { CircularGauge } from '../components/CircularGauge'
 import { HorizontalQuotaBar } from '../components/HorizontalQuotaBar'
 import { AccountDetailModal } from '../components/AccountDetailModal'
@@ -400,14 +400,14 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
 
               {/* Auto-Switch Toggle Button */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)' }}>
                   Auto-Switch
                 </span>
                 <ToggleSwitch
                   checked={autoSwitchOn}
                   onChange={handleToggleAutoSwitch}
                   disabled={isTogglingRules}
-                  size="sm"
+                  size="md"
                 />
               </div>
             </div>
@@ -430,14 +430,15 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               disabled={isScanning}
               className="btn-pill-outlined"
               style={{
-                padding: '7px 14px',
+                width: '172px',
+                padding: '7px 16px',
                 fontSize: '12px',
                 fontWeight: 600,
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '6px',
-                width: 'fit-content',
+                whiteSpace: 'nowrap',
               }}
               title="Scan machine for local Antigravity/Google accounts"
             >
@@ -449,12 +450,15 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               onClick={handleAddNewAccount}
               className="btn-pill-primary"
               style={{
+                width: '172px',
                 padding: '7px 16px',
                 fontSize: '12px',
                 fontWeight: 600,
                 display: 'inline-flex',
                 alignItems: 'center',
+                justifyContent: 'center',
                 gap: '6px',
+                whiteSpace: 'nowrap',
               }}
               title="Manually configure and add a new account"
             >
@@ -537,14 +541,14 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   <CircularGauge
                     percentage={(fleet?.fleet_5h_gemini_available ?? fleet?.fleet_5h_available ?? 0) * 100}
                     title="Gemini 5H"
-                    size={COMPONENT_TOKENS.GAUGE_DUAL_SIZE}
-                    strokeWidth={COMPONENT_TOKENS.GAUGE_DUAL_STROKE}
+                    size={72}
+                    strokeWidth={8}
                   />
                   <CircularGauge
                     percentage={(fleet?.fleet_weekly_gemini_available ?? fleet?.fleet_weekly_available ?? 0) * 100}
                     title="Gemini Weekly"
-                    size={COMPONENT_TOKENS.GAUGE_DUAL_SIZE}
-                    strokeWidth={COMPONENT_TOKENS.GAUGE_DUAL_STROKE}
+                    size={72}
+                    strokeWidth={8}
                   />
                 </div>
               </div>
@@ -561,14 +565,14 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   <CircularGauge
                     percentage={(fleet?.fleet_5h_claude_gpt_available ?? 0) * 100}
                     title="Claude/GPT 5H"
-                    size={COMPONENT_TOKENS.GAUGE_DUAL_SIZE}
-                    strokeWidth={COMPONENT_TOKENS.GAUGE_DUAL_STROKE}
+                    size={72}
+                    strokeWidth={8}
                   />
                   <CircularGauge
                     percentage={(fleet?.fleet_weekly_claude_gpt_available ?? 0) * 100}
                     title="Claude/GPT Weekly"
-                    size={COMPONENT_TOKENS.GAUGE_DUAL_SIZE}
-                    strokeWidth={COMPONENT_TOKENS.GAUGE_DUAL_STROKE}
+                    size={72}
+                    strokeWidth={8}
                   />
                 </div>
               </div>
@@ -664,8 +668,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 <th
                   onClick={() => setSortMode('identity')}
                   style={{
-                    width: '26%',
-                    minWidth: '200px',
+                    width: '220px',
+                    minWidth: '220px',
                     padding: '12px 16px',
                     textAlign: 'left',
                     fontSize: '11px',
@@ -685,14 +689,14 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   {sortMode === 'identity' && <ArrowUpDown size={11} />}
                 </div>
               </th>
-              <th style={{ width: '88px', minWidth: '84px', padding: '12px 8px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              <th style={{ width: '80px', minWidth: '80px', padding: '12px 8px', textAlign: 'center', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Plan
               </th>
               <th
                 onClick={() => setSortMode('quota_5h')}
                 style={{
-                  width: '22%',
-                  minWidth: '152px',
+                  width: '156px',
+                  minWidth: '156px',
                   padding: '12px 12px',
                   textAlign: 'left',
                   fontSize: '11px',
@@ -715,8 +719,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               <th
                 onClick={() => setSortMode('quota_weekly')}
                 style={{
-                  width: '22%',
-                  minWidth: '152px',
+                  width: '156px',
+                  minWidth: '156px',
                   padding: '12px 12px',
                   textAlign: 'left',
                   fontSize: '11px',
@@ -739,10 +743,10 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               <th
                 onClick={() => setSortMode('credits')}
                 style={{
-                  width: '104px',
-                  minWidth: '96px',
+                  width: '100px',
+                  minWidth: '100px',
                   padding: '12px 8px',
-                  textAlign: 'left',
+                  textAlign: 'center',
                   fontSize: '11px',
                   fontWeight: 600,
                   color: sortMode === 'credits' ? 'var(--primary)' : 'var(--text-muted)',
@@ -755,7 +759,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 }}
                 title="Click to sort by Available AI Credits"
               >
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                   <span>AI Credits</span>
                   {sortMode === 'credits' && <ArrowUpDown size={11} />}
                 </div>
@@ -763,10 +767,10 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               <th
                 onClick={() => setSortMode('priority')}
                 style={{
-                  width: '80px',
+                  width: '76px',
                   minWidth: '76px',
                   padding: '12px 8px',
-                  textAlign: 'left',
+                  textAlign: 'center',
                   fontSize: '11px',
                   fontWeight: 600,
                   color: sortMode === 'priority' ? 'var(--primary)' : 'var(--text-muted)',
@@ -779,12 +783,12 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 }}
                 title="Click to sort by Priority"
               >
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                   <span>Priority</span>
                   {sortMode === 'priority' && <ArrowUpDown size={11} />}
                 </div>
               </th>
-              <th style={{ width: '92px', minWidth: '88px', padding: '12px 16px', textAlign: 'right', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              <th style={{ width: '92px', minWidth: '92px', padding: '12px 16px', textAlign: 'center', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Action
               </th>
             </tr>
@@ -810,7 +814,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--canvas)')}
                   onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
-                  <td style={{ padding: '12px 18px', overflow: 'hidden' }}>
+                  <td style={{ padding: '12px 16px', overflow: 'hidden' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span style={{ fontWeight: 600, color: 'var(--text)', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {acc.label ? acc.label : acc.email}
@@ -829,7 +833,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                           }}
                           title="Next account in continuous rotation queue"
                         >
-                          Next Switch
+                          Next
                         </span>
                       )}
                     </div>
@@ -840,7 +844,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     ) : null}
                   </td>
 
-                  <td style={{ padding: '12px 10px' }}>
+                  <td style={{ padding: '12px 8px', textAlign: 'center' }}>
                     {renderPlanTierBadge(acc.plan_tier)}
                   </td>
 
@@ -908,8 +912,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     )}
                   </td>
 
-                  <td style={{ padding: '14px' }}>
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <td style={{ padding: '12px 8px', textAlign: 'center' }}>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
                       <span
                         style={{
                           fontWeight: acc.enable_credit_overages ? 600 : 500,
@@ -939,11 +943,11 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     </div>
                   </td>
 
-                  <td style={{ padding: '14px' }}>
+                  <td style={{ padding: '12px 8px', textAlign: 'center' }}>
                     {renderPriorityBadge(acc.priority)}
                   </td>
 
-                  <td style={{ padding: '14px 20px', textAlign: 'right' }}>
+                  <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                     {acc.status?.toUpperCase() === 'BANNED' ? (
                       <button
                         onClick={(e) => {
@@ -1117,7 +1121,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     errorDetailAccount.status?.toUpperCase() === 'BANNED' ? '#fce8e6' : '#fef7e0',
                   color:
                     errorDetailAccount.status?.toUpperCase() === 'BANNED' ? '#c5221f' : '#b06000',
-                  padding: '12px 14px',
+                  padding: '12px 16px',
                   borderRadius: '10px',
                   fontSize: '12px',
                   lineHeight: 1.5,
@@ -1176,7 +1180,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
         >
           <div
             style={{
-              padding: '6px 14px',
+              padding: '6px 16px',
               fontSize: '11px',
               fontWeight: 700,
               color: 'var(--text-muted)',
@@ -1198,7 +1202,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               alignItems: 'center',
               gap: '8px',
               width: '100%',
-              padding: '8px 14px',
+              padding: '8px 16px',
               fontSize: '12px',
               textAlign: 'left',
               color: 'var(--text)',
@@ -1225,7 +1229,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 alignItems: 'center',
                 gap: '8px',
                 width: '100%',
-                padding: '8px 14px',
+                padding: '8px 16px',
                 fontSize: '12px',
                 textAlign: 'left',
                 color: 'var(--primary)',
@@ -1246,7 +1250,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               alignItems: 'center',
               gap: '8px',
               width: '100%',
-              padding: '8px 14px',
+              padding: '8px 16px',
               fontSize: '12px',
               textAlign: 'left',
               color: 'var(--text)',
@@ -1354,7 +1358,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      padding: '10px 14px',
+                      padding: '10px 16px',
                       borderRadius: '8px',
                       border: `1.5px solid ${isSelected ? 'var(--primary)' : 'var(--border)'}`,
                       backgroundColor: isSelected ? 'rgba(26, 115, 232, 0.04)' : 'var(--card-bg, #ffffff)',

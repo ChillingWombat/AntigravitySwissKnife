@@ -529,7 +529,7 @@ export const CustomModelsPage: React.FC = () => {
                   onClick={() => setModelFilter(tab.id as ModelFilterOption)}
                   style={{
                     borderRadius: '16px',
-                    padding: '6px 14px',
+                    padding: '6px 16px',
                     fontSize: '12px',
                     fontWeight: isActive ? 600 : 500,
                     color: isActive ? 'var(--primary)' : 'var(--text-muted)',
@@ -970,13 +970,13 @@ export const CustomModelsPage: React.FC = () => {
             </div>
 
             {modalError && (
-              <div style={{ padding: '10px 14px', borderRadius: '8px', backgroundColor: '#fce8e6', color: '#b3261e', fontSize: '12px', marginBottom: '16px' }}>
+              <div style={{ padding: '10px 16px', borderRadius: '8px', backgroundColor: '#fce8e6', color: '#b3261e', fontSize: '12px', marginBottom: '16px' }}>
                 {modalError}
               </div>
             )}
 
             {/* Form Fields */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '20px' }}>
               {/* Display Name & Model Identifier */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
@@ -1352,7 +1352,7 @@ export const CustomModelsPage: React.FC = () => {
                   backgroundColor: 'var(--canvas)',
                   border: '1px solid var(--border)',
                   borderRadius: '8px',
-                  padding: '12px 14px',
+                  padding: '12px 16px',
                   fontSize: '11px',
                   color: 'var(--text-muted)',
                   lineHeight: 1.5,
@@ -1396,7 +1396,7 @@ export const CustomModelsPage: React.FC = () => {
                   onClick={handleTestInModal}
                   disabled={modalTesting || !baseUrl.trim()}
                   className="btn-pill-tonal"
-                  style={{ padding: '7px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  style={{ padding: '7px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
                 >
                   <Zap size={13} />
                   {modalTesting ? 'Testing...' : 'Test Connection'}
@@ -1445,7 +1445,7 @@ export const CustomModelsPage: React.FC = () => {
                     onClick={() => handleDeleteModel(editingModel.id, editingModel.display_name)}
                     disabled={modalSaving}
                     className="btn-pill-danger"
-                    style={{ padding: '7px 14px', fontSize: '12px' }}
+                    style={{ padding: '7px 16px', fontSize: '12px' }}
                   >
                     <Trash2 size={13} /> Delete Model
                   </button>

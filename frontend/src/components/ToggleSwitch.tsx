@@ -1,5 +1,4 @@
 import React from 'react'
-import { COMPONENT_TOKENS } from '../utils/layoutTokens'
 
 export interface ToggleSwitchProps {
   checked: boolean
@@ -23,10 +22,10 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
   style,
 }) => {
   const isSm = size === 'sm'
-  const width = isSm ? COMPONENT_TOKENS.TOGGLE_SM_WIDTH : COMPONENT_TOKENS.TOGGLE_MD_WIDTH
-  const height = isSm ? COMPONENT_TOKENS.TOGGLE_SM_HEIGHT : COMPONENT_TOKENS.TOGGLE_MD_HEIGHT
-  const knobSize = isSm ? COMPONENT_TOKENS.TOGGLE_SM_KNOB : COMPONENT_TOKENS.TOGGLE_MD_KNOB
-  const translate = width - knobSize - 4 // md: 36 - 16 - 4 = 16px; sm: 28 - 12 - 4 = 12px
+  const width = isSm ? 32 : 40
+  const height = isSm ? 16 : 20
+  const knobSize = isSm ? 12 : 16
+  const translate = width - knobSize - 4 // md: 40 - 16 - 4 = 20px; sm: 32 - 12 - 4 = 16px
 
   return (
     <label

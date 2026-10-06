@@ -336,10 +336,11 @@ func generatePreloadLoaderScript() string {
           }
         }
 
-        // 2. Inject persistent script into main world
-        if (fs.existsSync(jsPath)) {
+        // 2. Inject persistent script into main world once per page lifecycle
+        if (!window.__swissDesktopScriptInjected && fs.existsSync(jsPath)) {
           const js = fs.readFileSync(jsPath, 'utf8');
           if (js && js.trim()) {
+            window.__swissDesktopScriptInjected = true;
             try {
               webFrame.executeJavaScript(js).catch(() => {});
             } catch (_) {
@@ -359,7 +360,21 @@ func generatePreloadLoaderScript() string {
     } else {
       injectSwiss();
     }
-    window.addEventListener("focus", injectSwiss);
+
+    // On window focus, only refresh CSS stylesheets if modified, never re-executing JS
+    window.addEventListener("focus", () => {
+      try {
+        if (fs.existsSync(cssPath)) {
+          const css = fs.readFileSync(cssPath, 'utf8');
+          if (css && css.trim()) {
+            let styleEl = document.getElementById("antigravity-swiss-styles");
+            if (styleEl && styleEl.textContent !== css) {
+              styleEl.textContent = css;
+            }
+          }
+        }
+      } catch (_) {}
+    });
   } catch (err) {
     console.warn("[SwissKnife Preload] Loader initialization failed:", err);
   }

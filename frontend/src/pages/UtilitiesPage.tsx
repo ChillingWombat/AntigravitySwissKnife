@@ -343,7 +343,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) 
                     color: 'var(--text)',
                   }}
                 >
-                  <option value="auto">Auto-Match Workspace URI & Git Origin (Recommended)</option>
+                  <option value="auto">Auto-Match Workspace URI & Git Origin</option>
                   <option value="create-new">Re-create New Projects for each detected path</option>
                   <option value="standalone">Import as Standalone Chats (No Project association)</option>
                   <option value="single-dedicated">Group all into '[Imported] Shared Archive'</option>

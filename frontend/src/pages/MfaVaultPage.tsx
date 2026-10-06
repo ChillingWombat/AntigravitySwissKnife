@@ -98,7 +98,7 @@ export const MfaVaultPage: React.FC<MfaVaultPageProps> = ({
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* 1. TOP SECTION: Live MFA Authenticator Card */}
       <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
           Live MFA / TOTP Authenticator
         </div>
 
@@ -201,10 +201,10 @@ export const MfaVaultPage: React.FC<MfaVaultPageProps> = ({
               <th style={{ padding: '12px 20px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase' }}>
                 Account Email
               </th>
-              <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase' }}>
+              <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase' }}>
                 Account Alias
               </th>
-              <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase' }}>
+              <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase' }}>
                 MFA Status
               </th>
               <th style={{ padding: '12px 20px', textAlign: 'right', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase' }}>
@@ -228,10 +228,10 @@ export const MfaVaultPage: React.FC<MfaVaultPageProps> = ({
                   <td style={{ padding: '12px 20px', fontWeight: 600, color: 'var(--text)' }}>
                     {acc.email}
                   </td>
-                  <td style={{ padding: '12px 14px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  <td style={{ padding: '12px 16px', fontSize: '12px', color: 'var(--text-muted)' }}>
                     {acc.label || 'Standard'}
                   </td>
-                  <td style={{ padding: '12px 14px' }}>
+                  <td style={{ padding: '12px 16px' }}>
                     <span className={`badge-chip ${acc.has_mfa ? 'badge-green' : 'badge-neutral'}`}>
                       {acc.has_mfa ? 'PROTECTED' : 'NO MFA'}
                     </span>
@@ -257,11 +257,11 @@ export const MfaVaultPage: React.FC<MfaVaultPageProps> = ({
 
       {/* 3. BOTTOM SECTION: Configure TOTP Secret Key & Backup Codes */}
       <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
           Configure TOTP Secret Key
         </div>
 
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '12px' }}>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '12px' }}>
           <input
             type="text"
             placeholder="Enter Base32 TOTP secret (e.g. JBSWY3DPEHPK3PXP)"
@@ -288,7 +288,7 @@ export const MfaVaultPage: React.FC<MfaVaultPageProps> = ({
         </div>
 
         {feedback && (
-          <div style={{ fontSize: '12px', color: 'var(--primary)', marginBottom: '14px', fontWeight: 500 }}>
+          <div style={{ fontSize: '12px', color: 'var(--primary)', marginBottom: '16px', fontWeight: 500 }}>
             {feedback}
           </div>
         )}

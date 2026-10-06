@@ -1027,10 +1027,21 @@ func generateBaseScript(cfg *Config) string {
           }
         }
 
+        // 1. Optimistic client-side in-DOM scoped rendering immediately
+        renderDynamicProjectStyles(projectName, hex);
+
+        // 2. Cross-window sync via BroadcastChannel
+        if (window.__swissSyncChannel) {
+          try {
+            window.__swissSyncChannel.postMessage({ type: "color-update", project: projectName, color: hex });
+          } catch (_) {}
+        }
+
         if (window.__swissToast) {
           window.__swissToast("Updated color for " + projectName);
         }
 
+        // 3. Background persistence to daemon
         try {
           await fetch("http://127.0.0.1:8765/api/gui/color", {
             method: "POST",
@@ -1058,16 +1069,31 @@ func generateBaseScript(cfg *Config) string {
       if (resetBtn) {
         resetBtn.onclick = async () => {
           closeMenu();
+
+          // 1. Optimistic client-side in-DOM scoped styling removal immediately
+          renderDynamicProjectStyles(projectName, null);
+
+          // 2. Cross-window sync via BroadcastChannel
+          if (window.__swissSyncChannel) {
+            try {
+              window.__swissSyncChannel.postMessage({ type: "color-delete", project: projectName });
+            } catch (_) {}
+          }
+
           if (window.__swissToast) {
             window.__swissToast("Reset color for " + projectName);
           }
+
+          // 3. Background persistence to dedicated color delete endpoint
           try {
-            await fetch("http://127.0.0.1:8765/api/gui/projects/delete", {
+            await fetch("http://127.0.0.1:8765/api/gui/color/delete", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ name: projectName })
             });
-          } catch (e) {}
+          } catch (e) {
+            console.warn("[SwissKnife] Reset color failed:", e);
+          }
         };
       }
     } catch (_) {}
@@ -1090,24 +1116,20 @@ func generateBaseScript(cfg *Config) string {
         if (typeof window.__swissUpdateTagsAndDraggables === "function") {
           window.__swissUpdateTagsAndDraggables();
         }
-        if (typeof window.__swissEnhanceProjectOptionsMenu === "function") {
-          window.__swissEnhanceProjectOptionsMenu();
-        }
       } finally {
         setTimeout(() => {
           isUpdatingSwiss = false;
-        }, 32);
+        }, 50);
       }
     });
   }
 
   triggerSwissUpdate();
 
-  // 1. Global capturing scroll & wheel listeners (catches all scrolling immediately)
+  // 1. Passive scroll listeners
   if (!window.__swissScrollCaptured) {
     window.__swissScrollCaptured = true;
-    window.addEventListener("scroll", triggerSwissUpdate, { capture: true, passive: true });
-    window.addEventListener("wheel", triggerSwissUpdate, { capture: true, passive: true });
+    window.addEventListener("scroll", triggerSwissUpdate, { passive: true });
   }
 
   // 2. Direct listener on sidebar container if present
@@ -1127,17 +1149,34 @@ func generateBaseScript(cfg *Config) string {
   const ob = new MutationObserver((mutations) => {
     if (isUpdatingSwiss) return;
     let relevant = false;
+    let menuAppeared = false;
     for (const m of mutations) {
       const t = m.target;
-      if (t && (t.id === "antigravity-swiss-styles" || t.id === "swiss-project-context-menu" || t.id === "swiss-custom-models-section" || t.hasAttribute?.("data-swiss-divider") || t.classList?.contains("swiss-convo-tabs-divider") || t.classList?.contains("swiss-convo-tabs-pill"))) {
+      if (!t) continue;
+      if (t.id === "antigravity-swiss-styles" || 
+          t.id === "antigravity-swiss-dynamic-colors" || 
+          t.id === "swiss-project-context-menu" || 
+          t.id === "swiss-custom-models-section" || 
+          t.id === "swiss-toast-notification" ||
+          (typeof t.id === "string" && t.id.startsWith("swiss-")) ||
+          t.hasAttribute?.("data-swiss-divider") || 
+          t.hasAttribute?.("data-swiss-project") ||
+          t.classList?.contains("swiss-convo-tabs-divider") || 
+          t.classList?.contains("swiss-convo-tabs-pill") ||
+          t.closest?.("[id^='swiss-'], [class*='swiss-'], [data-swiss-project]")) {
         continue;
       }
+      if (t.getAttribute?.("role") === "menu" || t.querySelector?.('[role="menu"]')) {
+        menuAppeared = true;
+      }
       relevant = true;
-      break;
     }
     if (!relevant) return;
 
     bindSidebarScroll();
+    if (menuAppeared && typeof window.__swissEnhanceProjectOptionsMenu === "function") {
+      requestAnimationFrame(window.__swissEnhanceProjectOptionsMenu);
+    }
     triggerSwissUpdate();
   });
   window.__swissObserverInstance = ob;
@@ -1155,7 +1194,7 @@ func generateBaseScript(cfg *Config) string {
   window.__swissIntervalId = setInterval(() => {
     bindSidebarScroll();
     triggerSwissUpdate();
-  }, 1000);
+  }, 2000);
 
   return {
     applied: true,

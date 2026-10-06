@@ -691,7 +691,7 @@ func GenerateAuxiliaryPluginsScript() string {
 
         if (activeAuxTab) {
           const auxPanel = tabHeader.parentElement || document.querySelector('[data-testid="auxiliary-panel"]') || document.querySelector('.part.auxiliarybar');
-          const bodyContainer = (auxPanel ? auxPanel.querySelector('.flex-grow.overflow-hidden') : null) || document.querySelector('.flex-grow.overflow-hidden');
+          const bodyContainer = auxPanel ? auxPanel.querySelector('.flex-grow.overflow-hidden') : null;
           const swissContainer = document.querySelector("#swiss-aux-container");
           if (bodyContainer && swissContainer && swissContainer.parentElement !== bodyContainer) {
             bodyContainer.appendChild(swissContainer);
@@ -758,15 +758,18 @@ func GenerateAuxiliaryPluginsScript() string {
       }
 
       // Two-way state sync: Listen for clicks on native factory tabs (overview, review, terminal)
-      tabHeader.addEventListener("click", (e) => {
-        const targetBtn = e.target.closest("button");
-        if (!targetBtn) return;
-        const targetId = targetBtn.getAttribute("data-tab-id") || "";
-        if (targetId.startsWith("swiss-")) {
-          return;
-        }
-        switchAuxTab(null);
-      });
+      if (!tabHeader.__swissHeaderBound) {
+        tabHeader.__swissHeaderBound = true;
+        tabHeader.addEventListener("click", (e) => {
+          const targetBtn = e.target.closest("button");
+          if (!targetBtn) return;
+          const targetId = targetBtn.getAttribute("data-tab-id") || "";
+          if (targetId.startsWith("swiss-")) {
+            return;
+          }
+          switchAuxTab(null);
+        });
+      }
 
       // Restore saved tab state from localStorage
       const savedTab = localStorage.getItem("antigravity_active_aux_tab");
@@ -799,8 +802,7 @@ func GenerateAuxiliaryPluginsScript() string {
                         document.querySelector('.part.auxiliarybar .shrink-0.flex.items-center[class*="gap-0.5"].border-b') ||
                         document.querySelector('.shrink-0.flex.items-center.border-b');
       const auxPanel = tabHeader ? tabHeader.parentElement : (document.querySelector('[data-testid="auxiliary-panel"]') || document.querySelector('.part.auxiliarybar'));
-      const bodyContainer = (auxPanel ? auxPanel.querySelector('.flex-grow.overflow-hidden') : null) ||
-                            document.querySelector('.flex-grow.overflow-hidden');
+      const bodyContainer = auxPanel ? auxPanel.querySelector('.flex-grow.overflow-hidden') : null;
       if (!bodyContainer) return;
 
       let swissContainer = document.querySelector("#swiss-aux-container");
@@ -2027,8 +2029,8 @@ func GenerateAuxiliaryPluginsScript() string {
       assistantSteps.forEach((step, idx) => {
         if (step.querySelector(".swiss-telemetry-badge")) return; // already injected
 
-        // Calculate realistic token & speed telemetry for turn
-        const turnText = step.innerText || "";
+        // Calculate realistic token & speed telemetry for turn without forcing reflow
+        const turnText = (step.textContent || "").trim();
         const outToks = Math.max(32, Math.round(turnText.length / 3.8));
         const inToks = Math.round(outToks * 1.8) + 350;
         const cachedToks = Math.round(inToks * 0.45);
@@ -2071,16 +2073,41 @@ func GenerateAuxiliaryPluginsScript() string {
     setupAuxiliaryTabs();
     setupInChatTelemetry();
 
-    // Periodic check & mutation observer
-    setInterval(() => {
+    // Periodic check & mutation observer with singleton cleanup
+    if (window.__swissAuxIntervalId) {
+      clearInterval(window.__swissAuxIntervalId);
+    }
+    window.__swissAuxIntervalId = setInterval(() => {
       setupAuxiliaryTabs();
       setupInChatTelemetry();
-    }, 1500);
+    }, 2500);
 
-    const observer = new MutationObserver(() => {
-      setupAuxiliaryTabs();
-      setupInChatTelemetry();
+    if (window.__swissAuxObserverInstance) {
+      try { window.__swissAuxObserverInstance.disconnect(); } catch (_) {}
+    }
+
+    let auxRaf = null;
+    const observer = new MutationObserver((mutations) => {
+      // Ignore mutations originating from Swiss elements to prevent feedback loops
+      const hasExternal = mutations.some(m => {
+        const t = m.target;
+        if (t && t.nodeType === 1) {
+          if (t.id === "swiss-aux-container" || t.closest?.("#swiss-aux-container")) return false;
+          if (t.classList?.contains("swiss-telemetry-badge") || t.closest?.(".swiss-telemetry-badge")) return false;
+          if (t.classList?.contains("swiss-aux-tab-btn")) return false;
+        }
+        return true;
+      });
+      if (!hasExternal) return;
+
+      if (auxRaf) return;
+      auxRaf = requestAnimationFrame(() => {
+        auxRaf = null;
+        setupAuxiliaryTabs();
+        setupInChatTelemetry();
+      });
     });
+    window.__swissAuxObserverInstance = observer;
     observer.observe(document.body, { childList: true, subtree: true });
 
   } catch (err) {

@@ -340,7 +340,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             >
               <option value={30}>30 Seconds</option>
               <option value={60}>1 Minute</option>
-              <option value={120}>2 Minutes (Recommended)</option>
+              <option value={120}>2 Minutes</option>
               <option value={180}>3 Minutes</option>
               <option value={300}>5 Minutes</option>
             </select>
@@ -363,7 +363,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             >
               <option value={300}>5 Minutes</option>
               <option value={600}>10 Minutes</option>
-              <option value={900}>15 Minutes (Recommended)</option>
+              <option value={900}>15 Minutes</option>
               <option value={1800}>30 Minutes</option>
               <option value={3600}>1 Hour</option>
             </select>
@@ -386,7 +386,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             >
               <option value={10}>5–10 Seconds Gap</option>
               <option value={20}>5–20 Seconds Gap</option>
-              <option value={30}>5–30 Seconds Gap (Recommended)</option>
+              <option value={30}>5–30 Seconds Gap</option>
               <option value={45}>5–45 Seconds Gap</option>
               <option value={60}>5–60 Seconds Gap</option>
             </select>

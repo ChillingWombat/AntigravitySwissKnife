@@ -149,8 +149,12 @@ This roadmap classifies all existing and planned features based on **Feasibility
 | **Directory Watch Sync (inotify Auto-Import)**| Interoperability| Medium | Low | Medium | Desktop + Ext | Daemon-Assisted | **Completed** |
 | **ACP Agent Mesh & Status Inspector** | Interoperability| Medium | Medium | High | Desktop + Ext | Companion UI | **Completed** |
 | **Scheduled Task Automation Library** | Automations | Low | Medium | High | Desktop + Ext | Daemon-Assisted | **Completed** |
+| **Agent Kanban Board & GitHub Issues Sync** | Task Orchestration | Medium | Low | Critical | Desktop Only | Daemon-Assisted + Persistent | **Planned** |
+| **Google CodeMender Security Agent Manager** | Security & Remediation | Medium | Medium | High | Desktop + Ext | Companion UI + Daemon | **Planned** |
+| **Dev Study Buddy & Focus Body Double** | Productivity & Focus | Medium | Low | High | Desktop Only | Companion UI + Persistent | **Planned** |
 | **iPad Sidecar Mirroring & Pencil Draw**| Feature Plugins | Extreme | Low | Low | Desktop Only | Roadmap / Planned | **Planned** |
 | **Remote Filesystem Browser (SSH / S3)** | Feature Plugins | High | Low | Medium | Desktop Only | Roadmap / Planned | **Planned** |
+| **Multi-Platform Test Sandbox (MicroVM/noVNC)** | Sandboxing & QA | High | Low | High | Desktop Only | Daemon-Assisted | **Backlog** |
 | **Self-Hosted vLLM / Ollama Auto-Launcher**| Infrastructure | High | Low | Medium | Desktop + Ext | Under Evaluation | **Backlog** |
 | **Native Wayland Overlay Annotations** | System UI | Extreme | Low | Low | Desktop Only | Under Evaluation | **Backlog** |
 | **Multi-Agent Video Studio Generator** | Multimedia | High | Low | Low | Desktop + Ext | Out of Scope | **Discarded** |
