@@ -251,6 +251,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/memos", s.handleMemos)
 	mux.HandleFunc("/api/memos/save", s.handleMemosSave)
 	mux.HandleFunc("/api/memos/delete", s.handleMemosDelete)
+	mux.HandleFunc("/api/memos/config", s.handleMemosConfig)
 
 	// Real Filesystem Explorer API
 	mux.HandleFunc("/api/files/list", s.handleFilesList)

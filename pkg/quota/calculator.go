@@ -208,27 +208,43 @@ func PollFleetAccounts(accounts []*keyring.Account, store *keyring.Store) map[st
 
 // BuildAccountQuotaStates creates AccountQuotaState items from stored accounts.
 func BuildAccountQuotaStates(accounts []*keyring.Account, activeSummary *QuotaSummary) []AccountQuotaState {
-	return BuildAccountQuotaStatesWithThreshold(accounts, activeSummary, core.DefaultAutoSwitchThresholdFraction)
+	return BuildAccountQuotaStatesWithThresholds(accounts, activeSummary, core.DefaultAutoSwitchThresholdFraction, core.DefaultAutoSwitchWeeklyThresholdFraction)
 }
 
 // BuildAccountQuotaStatesWithThreshold creates AccountQuotaState items from stored accounts with custom threshold.
 func BuildAccountQuotaStatesWithThreshold(accounts []*keyring.Account, activeSummary *QuotaSummary, threshold float64) []AccountQuotaState {
+	return BuildAccountQuotaStatesWithThresholds(accounts, activeSummary, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction)
+}
+
+// BuildAccountQuotaStatesWithThresholds creates AccountQuotaState items from stored accounts with custom 5h and weekly thresholds.
+func BuildAccountQuotaStatesWithThresholds(accounts []*keyring.Account, activeSummary *QuotaSummary, threshold5h, thresholdWeekly float64) []AccountQuotaState {
 	var summaries map[string]*QuotaSummary
 	if activeSummary != nil {
 		summaries = map[string]*QuotaSummary{
 			strings.ToLower(strings.TrimSpace(activeSummary.AccountEmail)): activeSummary,
 		}
 	}
-	return BuildAccountQuotaStatesFromMapWithThreshold(accounts, summaries, threshold)
+	return BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, threshold5h, thresholdWeekly)
 }
 
 // BuildAccountQuotaStatesFromMap builds account states using live summaries and cached agent db.
 func BuildAccountQuotaStatesFromMap(accounts []*keyring.Account, summaries map[string]*QuotaSummary) []AccountQuotaState {
-	return BuildAccountQuotaStatesFromMapWithThreshold(accounts, summaries, core.DefaultAutoSwitchThresholdFraction)
+	return BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, core.DefaultAutoSwitchThresholdFraction, core.DefaultAutoSwitchWeeklyThresholdFraction)
 }
 
 // BuildAccountQuotaStatesFromMapWithThreshold builds account states using live summaries, cached agent db, and custom exhaustion threshold.
 func BuildAccountQuotaStatesFromMapWithThreshold(accounts []*keyring.Account, summaries map[string]*QuotaSummary, threshold float64) []AccountQuotaState {
+	return BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction)
+}
+
+// BuildAccountQuotaStatesFromMapWithThresholds builds account states using live summaries, cached agent db, and custom exhaustion thresholds.
+func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, summaries map[string]*QuotaSummary, threshold5h, thresholdWeekly float64) []AccountQuotaState {
+	if threshold5h <= 0 {
+		threshold5h = core.DefaultAutoSwitchThresholdFraction
+	}
+	if thresholdWeekly <= 0 {
+		thresholdWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
+	}
 	results := make([]AccountQuotaState, 0, len(accounts))
 	now := time.Now()
 
