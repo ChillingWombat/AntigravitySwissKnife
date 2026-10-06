@@ -168,6 +168,7 @@ func GenerateAuxiliaryPluginsCSS() string {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
   padding: 4px 8px;
   border-radius: 4px;
   border: 1px solid var(--border, #e2e8f0);
@@ -176,6 +177,11 @@ func GenerateAuxiliaryPluginsCSS() string {
   font-size: 11px;
   cursor: pointer;
   transition: background 0.15s;
+  white-space: nowrap;
+}
+.swiss-browser-btn svg {
+  flex-shrink: 0;
+  vertical-align: middle;
 }
 .swiss-browser-btn:hover {
   background: rgba(148, 163, 184, 0.15);
@@ -404,9 +410,19 @@ func GenerateAuxiliaryPluginsCSS() string {
   background: rgba(26, 115, 232, 0.12);
 }
 .swiss-file-icon {
-  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 16px;
-  text-align: center;
+  height: 16px;
+  flex-shrink: 0;
+}
+.swiss-file-svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  stroke: currentColor;
+  vertical-align: middle;
 }
 .swiss-file-name {
   flex: 1;
@@ -491,6 +507,12 @@ func GenerateAuxiliaryPluginsCSS() string {
   cursor: pointer;
   color: var(--text, #1e293b);
 }
+.swiss-context-item svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  stroke: currentColor;
+}
 .swiss-context-item:hover {
   background: rgba(26, 115, 232, 0.08);
   color: #1a73e8;
@@ -545,6 +567,15 @@ func GenerateAuxiliaryPluginsCSS() string {
   font-weight: 500;
   color: #1a73e8;
   user-select: none;
+}
+.swiss-telemetry-badge svg {
+  width: 11px;
+  height: 11px;
+  stroke: #1a73e8;
+  fill: none;
+  flex-shrink: 0;
+  display: inline-block;
+  vertical-align: middle;
 }
 .swiss-telemetry-badge .metric-dot {
   opacity: 0.4;
@@ -877,9 +908,9 @@ func GenerateAuxiliaryPluginsScript() string {
       toolbar.className = "swiss-browser-toolbar";
       toolbar.innerHTML = ` + "`" + `
         <div class="swiss-browser-nav-row">
-          <button class="swiss-browser-btn" id="swiss-b-back" title="Back">←</button>
-          <button class="swiss-browser-btn" id="swiss-b-fwd" title="Forward">→</button>
-          <button class="swiss-browser-btn" id="swiss-b-refresh" title="Reload">↻</button>
+          <button class="swiss-browser-btn" id="swiss-b-back" title="Back"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+          <button class="swiss-browser-btn" id="swiss-b-fwd" title="Forward"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
+          <button class="swiss-browser-btn" id="swiss-b-refresh" title="Reload"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button>
           <input type="text" class="swiss-browser-url-input" id="swiss-b-url" value="${currentBrowserUrl}" placeholder="http://localhost:5173" />
           <select class="swiss-browser-btn" id="swiss-b-device" title="Device Frame" style="outline:none;">
             <option value="responsive">Responsive / Desktop</option>
@@ -893,12 +924,12 @@ func GenerateAuxiliaryPluginsScript() string {
             <option value="0.75">75%</option>
             <option value="0.5">50%</option>
           </select>
-          <button class="swiss-browser-btn" id="swiss-b-touch" title="Toggle Touch Emulation">👆 Touch</button>
-          <button class="swiss-browser-btn" id="swiss-b-pen" title="Red Pen Drawing">✏️ Pen</button>
-          <button class="swiss-browser-btn" id="swiss-b-rect" title="Red Box Annotation">□ Box</button>
-          <button class="swiss-browser-btn" id="swiss-b-inspect" title="Interactive DOM Inspector">🎯 Inspect</button>
-          <button class="swiss-browser-btn" id="swiss-b-clear" title="Clear Annotations">✕</button>
-          <button class="swiss-browser-btn primary" id="swiss-b-send-chat" title="Send to Antigravity Chat">💬 Send to Chat</button>
+          <button class="swiss-browser-btn" id="swiss-b-touch" title="Toggle Touch Emulation"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg><span>Touch</span></button>
+          <button class="swiss-browser-btn" id="swiss-b-pen" title="Red Pen Drawing"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg><span>Pen</span></button>
+          <button class="swiss-browser-btn" id="swiss-b-rect" title="Red Box Annotation"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/></svg><span>Box</span></button>
+          <button class="swiss-browser-btn" id="swiss-b-inspect" title="Interactive DOM Inspector"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m22 12-4 0"/><path d="m6 12-4 0"/><path d="m12 6 0-4"/><path d="m12 22 0-4"/></svg><span>Inspect</span></button>
+          <button class="swiss-browser-btn" id="swiss-b-clear" title="Clear Annotations"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          <button class="swiss-browser-btn primary" id="swiss-b-send-chat" title="Send to Antigravity Chat"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg><span>Send to Chat</span></button>
         </div>
         <div class="swiss-browser-port-bar">
           <span class="swiss-port-label">Quick Ports:</span>
@@ -1616,16 +1647,16 @@ func GenerateAuxiliaryPluginsScript() string {
       toolbar.className = "swiss-files-toolbar";
       toolbar.innerHTML = ` + "`" + `
         <div class="swiss-files-address-bar">
-          <button class="swiss-browser-btn" id="swiss-f-up" title="Up Directory">↑</button>
+          <button class="swiss-browser-btn" id="swiss-f-up" title="Up Directory"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg></button>
           <input type="text" class="swiss-files-path-input" id="swiss-f-path" value="${currentFilePath}" />
-          <button class="swiss-browser-btn" id="swiss-f-refresh" title="Refresh">↻</button>
-          <button class="swiss-browser-btn" id="swiss-f-reveal" title="Open in System File Manager">📂</button>
-          <button class="swiss-browser-btn" id="swiss-f-term" title="Open in Terminal">>_</button>
+          <button class="swiss-browser-btn" id="swiss-f-refresh" title="Refresh"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button>
+          <button class="swiss-browser-btn" id="swiss-f-reveal" title="Open in System File Manager"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/></svg></button>
+          <button class="swiss-browser-btn" id="swiss-f-term" title="Open in Terminal"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg></button>
         </div>
         <div style="display:flex; gap:6px;">
           <input type="text" placeholder="Filter files..." id="swiss-f-search" style="flex:1; padding:3px 8px; font-size:11px; border-radius:4px; border:1px solid var(--border,#cbd5e1); background:var(--canvas,#fff);" />
-          <button class="swiss-browser-btn" id="swiss-f-new-file">+ File</button>
-          <button class="swiss-browser-btn" id="swiss-f-new-dir">+ Folder</button>
+          <button class="swiss-browser-btn" id="swiss-f-new-file"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><polyline points="14 2 14 8 20 8"/><line x1="12" x2="12" y1="18" y2="12"/><line x1="9" x2="15" y1="15" y2="15"/></svg><span>File</span></button>
+          <button class="swiss-browser-btn" id="swiss-f-new-dir"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg><span>Folder</span></button>
         </div>
       ` + "`" + `;
 
@@ -1638,12 +1669,16 @@ func GenerateAuxiliaryPluginsScript() string {
 
       // Load files
       const loadFiles = async (dirPath) => {
-        currentFilePath = dirPath;
-        toolbar.querySelector("#swiss-f-path").value = dirPath;
+        let targetPath = (dirPath || "").trim();
+        if (targetPath.startsWith("file://")) {
+          targetPath = decodeURIComponent(targetPath.replace(/^file:\/\//, ""));
+        }
+        currentFilePath = targetPath;
+        toolbar.querySelector("#swiss-f-path").value = targetPath;
         listContainer.innerHTML = "<div style='padding:12px; font-size:11px; color:#94a3b8;'>Loading files...</div>";
 
         try {
-          const res = await fetch(` + "`" + `${API_BASE}/api/files/list?path=${encodeURIComponent(dirPath)}` + "`" + `);
+          const res = await fetch(` + "`" + `${API_BASE}/api/files/list?path=${encodeURIComponent(targetPath)}` + "`" + `);
           const data = await res.json();
           if (!data.success) {
             listContainer.innerHTML = ` + "`" + `<div style='padding:12px; color:#ef4444; font-size:11px;'>Error: ${data.error}</div>` + "`" + `;
@@ -1651,15 +1686,29 @@ func GenerateAuxiliaryPluginsScript() string {
           }
 
           listContainer.innerHTML = "";
+          if (!data.files || data.files.length === 0) {
+            listContainer.innerHTML = "<div style='padding:16px; font-size:11px; color:#94a3b8; text-align:center;'>Empty folder</div>";
+            return;
+          }
+
           data.files.forEach(item => {
             const row = document.createElement("div");
             row.className = "swiss-file-row";
             row.draggable = true;
             row.dataset.path = item.path;
 
-            const icon = item.isDir ? "📁" : item.type === "code" ? "📜" : item.type === "markdown" ? "📝" : item.type === "pdf" ? "📕" : "📄";
+            const iconSvg = item.isDir 
+              ? '<svg class="swiss-file-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>'
+              : item.type === "code"
+              ? '<svg class="swiss-file-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>'
+              : item.type === "markdown"
+              ? '<svg class="swiss-file-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y2="9"/></svg>'
+              : item.type === "pdf"
+              ? '<svg class="swiss-file-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="M10 12a1 1 0 0 0-1-1H8v6h1a1 1 0 0 0 1-1v-4z"/></svg>'
+              : '<svg class="swiss-file-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>';
+
             row.innerHTML = ` + "`" + `
-              <span class="swiss-file-icon">${icon}</span>
+              <span class="swiss-file-icon">${iconSvg}</span>
               <span class="swiss-file-name">${item.name}</span>
               <span class="swiss-file-size">${item.size || ""}</span>
             ` + "`" + `;
@@ -1668,6 +1717,13 @@ func GenerateAuxiliaryPluginsScript() string {
             row.ondragstart = (e) => {
               e.dataTransfer.setData("text/plain", item.path);
               e.dataTransfer.setData("text/uri-list", "file://" + item.path);
+            };
+
+            // Single click on directory row navigates
+            row.onclick = () => {
+              if (item.isDir) {
+                loadFiles(item.path);
+              }
             };
 
             // Double click: open directory or open in-place editor
@@ -1697,12 +1753,24 @@ func GenerateAuxiliaryPluginsScript() string {
       };
       toolbar.querySelector("#swiss-f-refresh").onclick = () => loadFiles(currentFilePath);
       toolbar.querySelector("#swiss-f-up").onclick = () => {
-        const parts = currentFilePath.split("/").filter(Boolean);
-        if (parts.length > 1) {
-          parts.pop();
-          loadFiles("/" + parts.join("/"));
+        let clean = currentFilePath.replace(/\/+$/, "");
+        const lastSlash = clean.lastIndexOf("/");
+        if (lastSlash > 0) {
+          loadFiles(clean.substring(0, lastSlash));
+        } else if (lastSlash === 0) {
+          loadFiles("/");
         }
       };
+      const searchBox = toolbar.querySelector("#swiss-f-search");
+      if (searchBox) {
+        searchBox.oninput = (e) => {
+          const q = (e.target.value || "").toLowerCase().trim();
+          listContainer.querySelectorAll(".swiss-file-row").forEach(r => {
+            const name = (r.querySelector(".swiss-file-name")?.textContent || "").toLowerCase();
+            r.style.display = (!q || name.includes(q)) ? "flex" : "none";
+          });
+        };
+      }
       toolbar.querySelector("#swiss-f-reveal").onclick = () => {
         fetch(` + "`" + `${API_BASE}/api/files/reveal` + "`" + `, {
           method: "POST",
@@ -1760,13 +1828,13 @@ func GenerateAuxiliaryPluginsScript() string {
           editor.innerHTML = ` + "`" + `
             <div class="swiss-editor-toolbar">
               <div style="display:flex; align-items:center; gap:8px;">
-                <button class="swiss-browser-btn" id="swiss-ed-back">← Files</button>
+                <button class="swiss-browser-btn" id="swiss-ed-back"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg><span>Files</span></button>
                 <span style="font-size:11px; font-weight:600;">${name}</span>
                 <span style="font-size:10px; color:#94a3b8; font-family:monospace;">(${type})</span>
               </div>
               <div style="display:flex; gap:6px;">
-                <button class="swiss-browser-btn primary" id="swiss-ed-annotate">💬 Annotate to Chat</button>
-                <button class="swiss-browser-btn" id="swiss-ed-save">💾 Save</button>
+                <button class="swiss-browser-btn primary" id="swiss-ed-annotate"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Annotate to Chat</span></button>
+                <button class="swiss-browser-btn" id="swiss-ed-save"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg><span>Save</span></button>
               </div>
             </div>
             <div class="swiss-editor-body">
@@ -1833,12 +1901,12 @@ func GenerateAuxiliaryPluginsScript() string {
       menu.style.top = y + "px";
 
       menu.innerHTML = ` + "`" + `
-        <div class="swiss-context-item" id="ctx-rename">✏️ Rename</div>
-        <div class="swiss-context-item" id="ctx-copy">📋 Copy Path</div>
-        <div class="swiss-context-item" id="ctx-delete" style="color:#ef4444;">🗑️ Delete</div>
+        <div class="swiss-context-item" id="ctx-rename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg><span>Rename</span></div>
+        <div class="swiss-context-item" id="ctx-copy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><span>Copy Path</span></div>
+        <div class="swiss-context-item" id="ctx-delete" style="color:#ef4444;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg><span>Delete</span></div>
         <div class="swiss-context-divider"></div>
-        <div class="swiss-context-item" id="ctx-reveal">📂 Reveal in File Manager</div>
-        <div class="swiss-context-item" id="ctx-term">>_ Open in Terminal</div>
+        <div class="swiss-context-item" id="ctx-reveal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/></svg><span>Reveal in File Manager</span></div>
+        <div class="swiss-context-item" id="ctx-term"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg><span>Open in Terminal</span></div>
       ` + "`" + `;
 
       document.body.appendChild(menu);
@@ -1901,8 +1969,8 @@ func GenerateAuxiliaryPluginsScript() string {
       topBar.style.display = "flex";
       topBar.style.gap = "8px";
       topBar.innerHTML = ` + "`" + `
-        <button class="swiss-browser-btn primary" id="swiss-m-new-text" style="flex:1;">+ Text Memo</button>
-        <button class="swiss-browser-btn" id="swiss-m-record-audio">🎙️ Voice Memo</button>
+        <button class="swiss-browser-btn primary" id="swiss-m-new-text" style="flex:1;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span>Text Memo</span></button>
+        <button class="swiss-browser-btn" id="swiss-m-record-audio"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg><span>Voice Memo</span></button>
       ` + "`" + `;
       wrap.appendChild(topBar);
 
@@ -1916,68 +1984,115 @@ func GenerateAuxiliaryPluginsScript() string {
       let mediaRecorder = null;
       let recordedChunks = [];
 
+      const LOCAL_MEMOS_KEY = "antigravity_swiss_memos_backup";
+      const getLocalMemos = () => {
+        try {
+          const raw = localStorage.getItem(LOCAL_MEMOS_KEY);
+          return raw ? JSON.parse(raw) : [];
+        } catch (_) { return []; }
+      };
+      const saveLocalMemos = (memos) => {
+        try { localStorage.setItem(LOCAL_MEMOS_KEY, JSON.stringify(memos)); } catch (_) {}
+      };
+
+      const renderCards = (memos) => {
+        memoList.innerHTML = "";
+        if (!Array.isArray(memos) || memos.length === 0) {
+          memoList.innerHTML = "<div style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No memos yet. Click Text Memo or Voice Memo!</div>";
+          return;
+        }
+
+        memos.forEach(m => {
+          const card = document.createElement("div");
+          card.className = "swiss-memo-card";
+          card.draggable = true;
+
+          card.innerHTML = ` + "`" + `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+              <span style="font-weight:600; font-size:11px;">${m.title || "Memo"}</span>
+              <span style="font-size:9px; color:#94a3b8;">${m.created_at || ""}</span>
+            </div>
+            <div style="font-size:11px; color:var(--text,#1e293b); white-space:pre-wrap; margin-bottom:8px;">${m.content || ""}</div>
+            <div style="display:flex; justify-content:flex-end; gap:6px;">
+              <button class="swiss-browser-btn" id="m-insert" style="padding:2px 6px; font-size:10px;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Chat</span></button>
+              <button class="swiss-browser-btn" id="m-del" title="Delete Memo" style="padding:2px 6px; font-size:10px; color:#ef4444;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+            </div>
+          ` + "`" + `;
+
+          card.ondragstart = (e) => {
+            e.dataTransfer.setData("text/plain", m.content || "");
+          };
+
+          card.querySelector("#m-insert").onclick = () => {
+            insertTextToChatInput(m.content || "");
+          };
+
+          card.querySelector("#m-del").onclick = async () => {
+            const current = getLocalMemos().filter(item => item.id !== m.id);
+            saveLocalMemos(current);
+            try {
+              await fetch(` + "`" + `${API_BASE}/api/memos/delete?id=${encodeURIComponent(m.id)}` + "`" + `, { method: "POST" });
+            } catch (_) {}
+            loadMemos();
+          };
+
+          memoList.appendChild(card);
+        });
+      };
+
       const loadMemos = async () => {
         memoList.innerHTML = "<div style='font-size:11px; color:#94a3b8;'>Loading memos...</div>";
         try {
           const res = await fetch(` + "`" + `${API_BASE}/api/memos` + "`" + `);
+          if (!res.ok) throw new Error("HTTP " + res.status);
           const data = await res.json();
-          memoList.innerHTML = "";
-
-          if (data.memos.length === 0) {
-            memoList.innerHTML = "<div style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No memos yet. Click + Text Memo or Voice Memo!</div>";
-            return;
+          let memos = [];
+          if (Array.isArray(data.memos)) {
+            memos = data.memos;
+          } else if (Array.isArray(data)) {
+            memos = data;
           }
-
-          data.memos.forEach(m => {
-            const card = document.createElement("div");
-            card.className = "swiss-memo-card";
-            card.draggable = true;
-
-            card.innerHTML = ` + "`" + `
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                <span style="font-weight:600; font-size:11px;">${m.title}</span>
-                <span style="font-size:9px; color:#94a3b8;">${m.created_at}</span>
-              </div>
-              <div style="font-size:11px; color:var(--text,#1e293b); white-space:pre-wrap; margin-bottom:8px;">${m.content}</div>
-              <div style="display:flex; justify-content:flex-end; gap:6px;">
-                <button class="swiss-browser-btn" id="m-insert" style="padding:2px 6px; font-size:10px;">+ Chat</button>
-                <button class="swiss-browser-btn" id="m-del" style="padding:2px 6px; font-size:10px; color:#ef4444;">✕</button>
-              </div>
-            ` + "`" + `;
-
-            card.ondragstart = (e) => {
-              e.dataTransfer.setData("text/plain", m.content);
-            };
-
-            card.querySelector("#m-insert").onclick = () => {
-              insertTextToChatInput(m.content);
-            };
-
-            card.querySelector("#m-del").onclick = async () => {
-              await fetch(` + "`" + `${API_BASE}/api/memos/delete?id=${m.id}` + "`" + `, { method: "POST" });
-              loadMemos();
-            };
-
-            memoList.appendChild(card);
-          });
+          saveLocalMemos(memos);
+          renderCards(memos);
         } catch (err) {
-          memoList.innerHTML = "<div style='color:#ef4444; font-size:11px;'>Failed to load memos.</div>";
+          const fallback = getLocalMemos();
+          if (fallback.length > 0) {
+            renderCards(fallback);
+          } else {
+            memoList.innerHTML = "<div style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No memos yet. Click Text Memo or Voice Memo!</div>";
+          }
         }
       };
 
       topBar.querySelector("#swiss-m-new-text").onclick = async () => {
         const text = prompt("Enter quick memo text:");
         if (!text) return;
-        await fetch(` + "`" + `${API_BASE}/api/memos/save` + "`" + `, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: text.substring(0, 24) + (text.length > 24 ? "..." : ""),
-            content: text,
-            type: "text",
-            tags: ["quick"]
-          })
-        });
+        const titleStr = text.substring(0, 24) + (text.length > 24 ? "..." : "");
+        const newMemo = {
+          id: "memo-" + Date.now(),
+          title: titleStr,
+          content: text,
+          type: "text",
+          tags: ["quick"],
+          created_at: new Date().toLocaleString()
+        };
+        const current = getLocalMemos();
+        current.unshift(newMemo);
+        saveLocalMemos(current);
+        renderCards(current);
+
+        try {
+          await fetch(` + "`" + `${API_BASE}/api/memos/save` + "`" + `, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title: titleStr,
+              content: text,
+              type: "text",
+              tags: ["quick"]
+            })
+          });
+        } catch (_) {}
         loadMemos();
       };
 
@@ -1992,28 +2107,44 @@ func GenerateAuxiliaryPluginsScript() string {
             mediaRecorder.onstop = async () => {
               const noteText = prompt("Voice recorded! Enter a transcript / note title:", "Voice Memo Note");
               if (noteText) {
-                await fetch(` + "`" + `${API_BASE}/api/memos/save` + "`" + `, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    title: "🎙️ " + noteText,
-                    content: noteText,
-                    type: "audio",
-                    tags: ["voice"]
-                  })
-                });
+                const titleStr = "[Voice] " + noteText;
+                const newMemo = {
+                  id: "memo-" + Date.now(),
+                  title: titleStr,
+                  content: noteText,
+                  type: "audio",
+                  tags: ["voice"],
+                  created_at: new Date().toLocaleString()
+                };
+                const current = getLocalMemos();
+                current.unshift(newMemo);
+                saveLocalMemos(current);
+                renderCards(current);
+
+                try {
+                  await fetch(` + "`" + `${API_BASE}/api/memos/save` + "`" + `, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      title: titleStr,
+                      content: noteText,
+                      type: "audio",
+                      tags: ["voice"]
+                    })
+                  });
+                } catch (_) {}
                 loadMemos();
               }
             };
             mediaRecorder.start();
-            recordBtn.textContent = "⏹️ Stop Recording";
+            recordBtn.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="12" height="12" x="6" y="6" rx="2"/></svg><span>Stop Recording</span>';
             recordBtn.classList.add("active");
           } catch (err) {
             showToast("Microphone access error: " + err.message, "error");
           }
         } else if (mediaRecorder.state === "recording") {
           mediaRecorder.stop();
-          recordBtn.textContent = "🎙️ Voice Memo";
+          recordBtn.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg><span>Voice Memo</span>';
           recordBtn.classList.remove("active");
         }
       };
@@ -2040,7 +2171,7 @@ func GenerateAuxiliaryPluginsScript() string {
         const badge = document.createElement("div");
         badge.className = "swiss-telemetry-badge";
         badge.innerHTML = ` + "`" + `
-          <span>⚡ ${outToks + inToks} tokens (Prompt: ${inToks} · Cached: ${cachedToks} · Output: ${outToks})</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> ${outToks + inToks} tokens (Prompt: ${inToks} · Cached: ${cachedToks} · Output: ${outToks})</span>
           <span class="metric-dot">·</span>
           <span>${tps} tps</span>
           <span class="metric-dot">·</span>

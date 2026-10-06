@@ -24,6 +24,7 @@ type Config struct {
 	ConversationTabsMin         int               `json:"conversation_tabs_min"`         // default 3 (range 1-10)
 	ConversationTabsMax         int               `json:"conversation_tabs_max"`         // default 6 (range 1-10)
 	ReplaceSeeAllTriangle       bool              `json:"replace_see_all_triangle"`      // Toggle: Replace "See all" and "See less" text buttons with triangle divider (default true)
+	ConsistentProjectSpacing    bool              `json:"consistent_project_spacing"`   // Toggle: Add blank area below projects without contracted conversation tabs (default true)
 	AutoArchiveConversations    bool              `json:"auto_archive_conversations"`    // Toggle: Automatically archive stale conversations
 	AutoArchiveHorizon          string            `json:"auto_archive_horizon"`          // "3d", "7d", "14d" (default), "30d", "60d", "90d"
 	AutoInject                  bool              `json:"auto_inject"`                  // Automatically inject into Antigravity desktop app
@@ -59,6 +60,7 @@ func DefaultConfig() *Config {
 		ConversationTabsMin:         3,
 		ConversationTabsMax:         6,
 		ReplaceSeeAllTriangle:       true,
+		ConsistentProjectSpacing:    true,
 		AutoArchiveConversations:    true,
 		AutoArchiveHorizon:          "14d",
 		AutoInject:                  true,

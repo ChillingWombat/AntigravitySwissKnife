@@ -258,6 +258,7 @@ func (s *Server) Addr() string {
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Private-Network", "true")
 		origin := r.Header.Get("Origin")
 		if isAllowedLoopbackOrigin(origin) {
 			if origin != "" && origin != "null" {
@@ -267,7 +268,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Allow-Origin", "*")
 			}
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Origin, Accept")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Origin, Accept, Access-Control-Request-Private-Network")
 			w.Header().Set("Access-Control-Allow-Private-Network", "true")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 		}
@@ -287,8 +288,13 @@ func isAllowedLoopbackOrigin(origin string) bool {
 		return true
 	}
 	lower := strings.ToLower(origin)
-	if strings.HasPrefix(lower, "vscode-") ||
+	if strings.HasPrefix(lower, "vscode-app://") ||
+		strings.HasPrefix(lower, "vscode-file://") ||
+		strings.HasPrefix(lower, "vscode-webview://") ||
+		strings.HasPrefix(lower, "vscode-") ||
 		strings.HasPrefix(lower, "vscode:") ||
+		strings.HasPrefix(lower, "antigravity://") ||
+		strings.HasPrefix(lower, "antigravity-") ||
 		strings.HasPrefix(lower, "antigravity") ||
 		strings.HasPrefix(lower, "file://") ||
 		strings.HasPrefix(lower, "electron://") ||
@@ -2539,19 +2545,45 @@ func getMemosPath() string {
 
 func cleanUserPath(raw string) string {
 	p := strings.TrimSpace(raw)
-	p = strings.Trim(p, "\"'")
-	if strings.HasPrefix(p, "file://") {
+	p = strings.Trim(p, "\"'`")
+	for strings.HasPrefix(p, "file://") {
 		p = strings.TrimPrefix(p, "file://")
-	}
-	if strings.Contains(p, "%") {
-		if unescaped, err := url.PathUnescape(p); err == nil {
-			p = unescaped
-		} else if unescaped, err := url.QueryUnescape(p); err == nil {
-			p = unescaped
+		if strings.HasPrefix(p, "localhost/") {
+			p = strings.TrimPrefix(p, "localhost")
 		}
 	}
+	// Decode percent-encoded spaces and characters (e.g. %20, %2F)
+	for strings.Contains(p, "%") {
+		if unescaped, err := url.QueryUnescape(p); err == nil && unescaped != p {
+			p = unescaped
+		} else if unescaped, err := url.PathUnescape(p); err == nil && unescaped != p {
+			p = unescaped
+		} else {
+			break
+		}
+	}
+	p = strings.TrimSpace(p)
+	p = strings.Trim(p, "\"'`")
 	if p == "" {
 		return ""
+	}
+	// If path does not exist as-is and contains '+', check if replacing '+' with ' ' exists
+	if strings.Contains(p, "+") {
+		if _, err := os.Stat(p); os.IsNotExist(err) {
+			withSpaces := strings.ReplaceAll(p, "+", " ")
+			if _, err2 := os.Stat(withSpaces); err2 == nil {
+				p = withSpaces
+			}
+		}
+	}
+	// If relative path, check if it exists relative to working directory
+	if !filepath.IsAbs(p) {
+		if wd, err := os.Getwd(); err == nil && wd != "" {
+			candidate := filepath.Join(wd, p)
+			if _, err := os.Stat(candidate); err == nil {
+				p = candidate
+			}
+		}
 	}
 	return filepath.Clean(p)
 }
@@ -2667,14 +2699,32 @@ type FileItem struct {
 }
 
 func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
-	dirPath := cleanUserPath(r.URL.Query().Get("path"))
+	rawPath := r.URL.Query().Get("path")
+	if rawPath == "" && strings.Contains(r.URL.RawQuery, "path=") {
+		for _, part := range strings.Split(r.URL.RawQuery, "&") {
+			if strings.HasPrefix(part, "path=") {
+				rawPath = strings.TrimPrefix(part, "path=")
+				break
+			}
+		}
+	}
+	dirPath := cleanUserPath(rawPath)
 	if dirPath == "" {
-		dirPath = "/mnt/Data/Projects/Antigravity Swiss Knife"
+		if wd, err := os.Getwd(); err == nil && wd != "" {
+			dirPath = wd
+		} else {
+			dirPath = "/mnt/Data/Projects/Antigravity Swiss Knife"
+		}
+	}
+
+	// If target is a file instead of directory, list its parent directory
+	if fi, err := os.Stat(dirPath); err == nil && !fi.IsDir() {
+		dirPath = filepath.Dir(dirPath)
 	}
 
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
-		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error(), "files": []FileItem{}})
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error(), "path": dirPath, "files": []FileItem{}})
 		return
 	}
 
@@ -2726,7 +2776,16 @@ func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFilesRead(w http.ResponseWriter, r *http.Request) {
-	filePath := cleanUserPath(r.URL.Query().Get("path"))
+	rawPath := r.URL.Query().Get("path")
+	if rawPath == "" && strings.Contains(r.URL.RawQuery, "path=") {
+		for _, part := range strings.Split(r.URL.RawQuery, "&") {
+			if strings.HasPrefix(part, "path=") {
+				rawPath = strings.TrimPrefix(part, "path=")
+				break
+			}
+		}
+	}
+	filePath := cleanUserPath(rawPath)
 	if filePath == "" {
 		http.Error(w, "missing path parameter", http.StatusBadRequest)
 		return
@@ -2734,7 +2793,7 @@ func (s *Server) handleFilesRead(w http.ResponseWriter, r *http.Request) {
 
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error(), "path": filePath})
 		return
 	}
 

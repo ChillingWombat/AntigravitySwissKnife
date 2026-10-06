@@ -321,3 +321,87 @@ func TestGenerateAuxiliaryPluginsScript_DeviceFrames(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateAuxiliaryPluginsScript_EditorAndContextMenuIcons(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+
+	// Verify editor toolbar buttons have SVGs and clean labels
+	editorChecks := []string{
+		`id="swiss-ed-annotate"><svg`,
+		`<span>Annotate to Chat</span>`,
+		`id="swiss-ed-save"><svg`,
+		`<span>Save</span>`,
+		`id="swiss-ed-back"><svg`,
+		`<span>Files</span>`,
+	}
+	for _, token := range editorChecks {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected script to contain editor toolbar token %q", token)
+		}
+	}
+
+	// Verify context menu items have SVGs and clean labels
+	contextChecks := []string{
+		`id="ctx-rename"><svg`,
+		`<span>Rename</span>`,
+		`id="ctx-copy"><svg`,
+		`<span>Copy Path</span>`,
+		`id="ctx-delete" style="color:#ef4444;"><svg`,
+		`<span>Delete</span>`,
+		`id="ctx-reveal"><svg`,
+		`<span>Reveal in File Manager</span>`,
+		`id="ctx-term"><svg`,
+		`<span>Open in Terminal</span>`,
+	}
+	for _, token := range contextChecks {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected script to contain context menu token %q", token)
+		}
+	}
+}
+
+func TestGenerateAuxiliaryPluginsScript_MemoViewAndTelemetryBadge(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+
+	// Memo view checks
+	memoChecks := []string{
+		`id="swiss-m-record-audio"><svg`,
+		`<span>Voice Memo</span>`,
+		`id="m-del" title="Delete Memo"`,
+		`<svg viewBox="0 0 24 24" width="11" height="11"`,
+		`LOCAL_MEMOS_KEY = "antigravity_swiss_memos_backup"`,
+		`Array.isArray(data.memos)`,
+		`saveLocalMemos`,
+		`getLocalMemos`,
+		`titleStr = "[Voice] "`,
+		`Stop Recording</span>`,
+	}
+	for _, token := range memoChecks {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected script to contain memo view token %q", token)
+		}
+	}
+
+	// In-chat telemetry badge checks
+	telemetryChecks := []string{
+		`<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>`,
+		`tokens (Prompt:`,
+		`swiss-telemetry-badge`,
+	}
+	for _, token := range telemetryChecks {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected script to contain telemetry badge token %q", token)
+		}
+	}
+
+	// Strict verification: ensure no decorative emojis exist in script
+	forbiddenEmojis := []string{
+		"🎙️", "💬", "💾", "✏️", "📋", "🗑️", "📂", "⚡", "📁", "📜", "📝", "📕", "📄", "⏹️",
+	}
+	for _, emoji := range forbiddenEmojis {
+		if strings.Contains(js, emoji) {
+			t.Errorf("script contains forbidden decorative emoji %q", emoji)
+		}
+	}
+}
+

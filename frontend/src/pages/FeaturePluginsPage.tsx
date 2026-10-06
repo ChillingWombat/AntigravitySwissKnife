@@ -253,7 +253,7 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
         id: `memo-audio-${Date.now()}`,
         type: 'voice' as const,
         content: `Voice Recording #${memos.length + 1} (${recordingSeconds}s)`,
-        title: `🎙️ Voice Memo (${recordingSeconds}s)`,
+        title: `Voice Memo (${recordingSeconds}s)`,
         createdAt: 'Just now',
         color: '#fef7e0',
         duration: `0:${recordingSeconds < 10 ? '0' : ''}${recordingSeconds}`,

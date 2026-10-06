@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -980,4 +982,123 @@ func TestWebGUISettingsStorageAndPrivacy(t *testing.T) {
 		t.Errorf("sanitized report contains unredacted credentials: %s", reportStr)
 	}
 }
+
+func TestCORSAndPrivateNetworkAccessHeaders(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	allowedOrigins := []string{
+		"vscode-app://antigravity",
+		"electron://main",
+		"antigravity://workbench",
+		"plugin://swiss-tools",
+		"http://localhost:5173",
+		"http://127.0.0.1:3000",
+	}
+
+	for _, origin := range allowedOrigins {
+		req, _ := http.NewRequest("OPTIONS", baseURL+"/api/gui/config", nil)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Private-Network", "true")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("OPTIONS request failed: %v", err)
+		}
+		resp.Body.Close()
+
+		if resp.Header.Get("Access-Control-Allow-Private-Network") != "true" {
+			t.Errorf("expected Access-Control-Allow-Private-Network: true for origin %s", origin)
+		}
+		if resp.Header.Get("Access-Control-Allow-Origin") != origin {
+			t.Errorf("expected Access-Control-Allow-Origin: %s, got %s", origin, resp.Header.Get("Access-Control-Allow-Origin"))
+		}
+	}
+}
+
+func TestFilesEndpointsWithSpacesAndEncoding(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// Create temp directory with spaces
+	tempDir := t.TempDir()
+	spaceFolder := filepath.Join(tempDir, "Antigravity Project With Spaces")
+	if err := os.MkdirAll(spaceFolder, 0755); err != nil {
+		t.Fatalf("MkdirAll failed: %v", err)
+	}
+
+	testFile := filepath.Join(spaceFolder, "space sample.md")
+	content := "# Space Test Content"
+	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	// 1. cleanUserPath verification
+	clean1 := cleanUserPath(spaceFolder)
+	if clean1 != spaceFolder {
+		t.Errorf("expected %q, got %q", spaceFolder, clean1)
+	}
+
+	clean2 := cleanUserPath("file://" + spaceFolder)
+	if clean2 != spaceFolder {
+		t.Errorf("expected %q, got %q", spaceFolder, clean2)
+	}
+
+	clean3 := cleanUserPath(strings.ReplaceAll(spaceFolder, " ", "%20"))
+	if clean3 != spaceFolder {
+		t.Errorf("expected %q, got %q", spaceFolder, clean3)
+	}
+
+	// 2. GET /api/files/list with space folder and percent-encoded folder
+	reqPaths := []string{
+		spaceFolder,
+		url.QueryEscape(spaceFolder),
+		"file://" + spaceFolder,
+		"file://" + strings.ReplaceAll(spaceFolder, " ", "%20"),
+	}
+
+	for _, p := range reqPaths {
+		resp, err := http.Get(baseURL + "/api/files/list?path=" + url.QueryEscape(p))
+		if err != nil || resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /api/files/list failed for path %s: err=%v, code=%d", p, err, resp.StatusCode)
+		}
+		var listRes struct {
+			Success bool       `json:"success"`
+			Path    string     `json:"path"`
+			Files   []FileItem `json:"files"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&listRes)
+		resp.Body.Close()
+
+		if !listRes.Success || len(listRes.Files) == 0 {
+			t.Errorf("failed to list files for path %s: success=%v, files=%d", p, listRes.Success, len(listRes.Files))
+		}
+	}
+
+	// 3. GET /api/files/read with space file
+	resp, err := http.Get(baseURL + "/api/files/read?path=" + url.QueryEscape(testFile))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/files/read failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	var readRes struct {
+		Success bool   `json:"success"`
+		Content string `json:"content"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&readRes)
+	resp.Body.Close()
+
+	if !readRes.Success || readRes.Content != content {
+		t.Errorf("read file mismatch: expected %q, got %q", content, readRes.Content)
+	}
+}
+
 

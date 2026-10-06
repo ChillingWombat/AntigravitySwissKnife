@@ -1554,6 +1554,38 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 />
               </div>
 
+              {/* Consistent Blank Area Below All Projects Zone */}
+              <div
+                style={{
+                  padding: '14px 16px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border, #e2e8f0)',
+                  background: 'var(--card-bg, #ffffff)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '16px',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
+                    Consistent Blank Area Below All Projects
+                  </div>
+                  <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                    Add blank spacing area below projects without contracted conversation tabs for balanced, consistent project separation.
+                  </p>
+                </div>
+                <ToggleSwitch
+                  checked={guiConfig.consistent_project_spacing ?? true}
+                  onChange={(checked) =>
+                    setGuiConfig({
+                      ...guiConfig,
+                      consistent_project_spacing: checked,
+                    })
+                  }
+                />
+              </div>
+
               {/* Horizontal Divider Line between Simplicity Zone and Fixed Number Zone */}
               <div style={{ height: '1px', backgroundColor: 'var(--border, #e2e8f0)', margin: '2px 0' }} />
 
@@ -1837,8 +1869,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   onClick={() => setPreviewExpanded(!previewExpanded)}
                   title={previewExpanded ? 'Show fewer conversations' : 'Show all 5 conversations (2 hidden)'}
                   style={{
+                    position: 'relative',
                     display: 'flex',
-                    flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
                     width: '100%',
@@ -1851,15 +1883,33 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 >
                   <div
                     style={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: 0,
+                      right: 0,
+                      width: '100%',
+                      height: '1px',
+                      transform: 'translateY(-50%)',
+                      background: 'rgba(148, 163, 184, 0.35)',
+                      zIndex: 1,
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: '50%',
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      marginBottom: '1px',
+                      zIndex: 2,
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       width: '16px',
                       height: '11px',
-                      marginBottom: '2px',
                       color: '#64748b',
                       fontSize: '8px',
-                      transition: 'all 0.15s ease',
+                      transition: 'all 0.18s ease',
                     }}
                   >
                     <span
@@ -1872,7 +1922,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       ▼
                     </span>
                   </div>
-                  <div style={{ width: '100%', height: '1px', background: 'var(--border, #e2e8f0)' }}></div>
                 </div>
               ) : (
                 <div
@@ -1893,6 +1942,58 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               <div style={{ fontSize: '11px', color: '#64748b', textAlign: 'center' }}>
                 {previewExpanded ? '▲ Expanded (click to collapse)' : '▼ Collapsed: 2 hidden tabs (click to expand)'}
               </div>
+
+              {/* Project 2: Uncontracted project demonstrating consistent bottom spacing */}
+              <div
+                style={{
+                  background: '#059669',
+                  color: '#ffffff',
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginTop: '14px',
+                }}
+              >
+                <span>Secondary Project (Uncontracted)</span>
+                <span style={{ fontSize: '11px', opacity: 0.85 }}>▾</span>
+              </div>
+              <div
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  color: '#334155',
+                  background: 'rgba(5, 150, 105, 0.08)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Active Experiment Runner</span>
+                <span style={{ fontSize: '10px', color: '#64748b' }}>20m</span>
+              </div>
+              {guiConfig.consistent_project_spacing !== false && (
+                <div
+                  style={{
+                    height: '20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'repeating-linear-gradient(45deg, rgba(148, 163, 184, 0.06), rgba(148, 163, 184, 0.06) 4px, transparent 4px, transparent 8px)',
+                    borderRadius: '4px',
+                    border: '1px dashed rgba(148, 163, 184, 0.3)',
+                    fontSize: '10px',
+                    color: '#64748b',
+                    fontWeight: 500,
+                  }}
+                  title="20px consistent blank spacing area below uncontracted project"
+                >
+                  20px consistent spacing
+                </div>
+              )}
             </div>
           </div>
         </div>

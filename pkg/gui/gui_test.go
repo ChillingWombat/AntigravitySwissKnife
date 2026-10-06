@@ -240,6 +240,123 @@ func TestGenerateScript(t *testing.T) {
 	}
 }
 
+func TestSidebarDividerAndProjectSpacer(t *testing.T) {
+	cfg := &Config{
+		Enabled:                  true,
+		ColorStylingEnabled:      true,
+		ReplaceSeeAllTriangle:    true,
+		ConsistentProjectSpacing: true,
+	}
+
+	// 1. Verify CSS rules for divider centering and spacer
+	css := GenerateCSS(cfg)
+	if !strings.Contains(css, ".swiss-convo-tabs-divider") {
+		t.Errorf("GenerateCSS missing .swiss-convo-tabs-divider rule")
+	}
+	if !strings.Contains(css, "position: relative !important;") {
+		t.Errorf("GenerateCSS missing position: relative on divider")
+	}
+	if !strings.Contains(css, "position: absolute !important;") || !strings.Contains(css, "top: 50% !important;") {
+		t.Errorf("GenerateCSS missing absolute middle positioning on divider line")
+	}
+	if !strings.Contains(css, "bottom: 50% !important;") {
+		t.Errorf("GenerateCSS missing bottom: 50%%%% on pill")
+	}
+	if !strings.Contains(css, ".swiss-project-bottom-spacer") {
+		t.Errorf("GenerateCSS missing .swiss-project-bottom-spacer rule")
+	}
+	if !strings.Contains(css, "height: 20px !important;") {
+		t.Errorf("GenerateCSS missing height: 20px on spacer")
+	}
+
+	// 2. Verify JS script generation
+	script := GenerateScript(cfg)
+	if !strings.Contains(script, "const replaceSeeAllTriangle = true;") {
+		t.Errorf("GenerateScript missing replaceSeeAllTriangle constant")
+	}
+	if !strings.Contains(script, "const consistentProjectSpacing = true;") {
+		t.Errorf("GenerateScript missing consistentProjectSpacing constant")
+	}
+	if !strings.Contains(script, "spacerIndices.add") {
+		t.Errorf("GenerateScript missing spacerIndices computation")
+	}
+	if !strings.Contains(script, `el.appendChild(spacer)`) {
+		t.Errorf("GenerateScript missing spacer append logic")
+	}
+	if !strings.Contains(script, "swiss-project-bottom-spacer") {
+		t.Errorf("GenerateScript missing swiss-project-bottom-spacer reference")
+	}
+}
+
+func TestConversationTagBorderAndTransparency(t *testing.T) {
+	// 1. Verify GenerateCSS sets [data-index] to background: transparent !important
+	cfg := &Config{
+		Enabled:                       true,
+		ColorStylingEnabled:           true,
+		ActiveConversationIndicator:   "border",
+		ActiveConversationBorderWidth: "2px",
+		ProjectColors: map[string]string{
+			"Arbitrager": "#dc2626",
+		},
+	}
+	css := GenerateCSS(cfg)
+	if !strings.Contains(css, "[data-index]") || !strings.Contains(css, "background: transparent !important;") {
+		t.Errorf("GenerateCSS missing transparent rule for [data-index], got: %s", css)
+	}
+
+	// 2. Verify GenerateScript with ActiveConversationIndicator="border"
+	script := GenerateScript(cfg)
+	if !strings.Contains(script, "const isBorderMode = true;") {
+		t.Errorf("GenerateScript missing 'const isBorderMode = true;'")
+	}
+	if !strings.Contains(script, `const borderWidth = "2px";`) {
+		t.Errorf("GenerateScript missing 'const borderWidth = \"2px\";'")
+	}
+	if !strings.Contains(script, "'border: ' + borderWidth + ' solid ' + hex + ' !important;'") {
+		t.Errorf("GenerateScript missing active conversation border in dynamic styles")
+	}
+	if !strings.Contains(script, "'  border: ' + borderWidth + ' solid transparent !important;'") {
+		t.Errorf("GenerateScript missing inactive conversation transparent border in dynamic styles")
+	}
+	if !strings.Contains(script, "[data-index]") {
+		t.Errorf("GenerateScript dynamic styles missing [data-index] transparent rule")
+	}
+
+	// 3. Verify dynamic styles do NOT apply background-color to [data-index]
+	if strings.Contains(script, "[data-index][data-swiss-project=\"' + safeP + '\"] {") {
+		t.Errorf("GenerateScript dynamic styles must NOT apply background to [data-index]")
+	}
+
+	// 4. Verify GenerateScript with ActiveConversationIndicator="background"
+	cfgBg := &Config{
+		Enabled:                     true,
+		ColorStylingEnabled:         true,
+		ActiveConversationIndicator: "background",
+		ProjectColors: map[string]string{
+			"Arbitrager": "#dc2626",
+		},
+	}
+	scriptBg := GenerateScript(cfgBg)
+	if !strings.Contains(scriptBg, "const isBorderMode = false;") {
+		t.Errorf("GenerateScript with background indicator should have 'const isBorderMode = false;'")
+	}
+
+	// 5. Verify custom border width (e.g. 1.5px) is passed
+	cfgCustom := &Config{
+		Enabled:                       true,
+		ColorStylingEnabled:           true,
+		ActiveConversationIndicator:   "border",
+		ActiveConversationBorderWidth: "1.5px",
+		ProjectColors: map[string]string{
+			"Arbitrager": "#dc2626",
+		},
+	}
+	scriptCustom := GenerateScript(cfgCustom)
+	if !strings.Contains(scriptCustom, `const borderWidth = "1.5px";`) {
+		t.Errorf("GenerateScript missing custom borderWidth '1.5px'")
+	}
+}
+
 func TestStorePersistence(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "swiss_gui_test_*")
 	if err != nil {

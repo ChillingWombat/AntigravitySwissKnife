@@ -447,6 +447,7 @@ export interface GUIConfig {
   conversation_tabs_min: number
   conversation_tabs_max: number
   replace_see_all_triangle?: boolean
+  consistent_project_spacing?: boolean
   auto_archive_conversations: boolean
   auto_archive_horizon: '3d' | '7d' | '14d' | '30d' | '60d' | '90d'
   auto_inject: boolean
