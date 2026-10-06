@@ -358,6 +358,16 @@ func TestGenerateCustomModelsScript_CategoryHeaders(t *testing.T) {
 	}
 }
 
+func TestGenerateCustomModelsScript_GeminiReasoningSelector(t *testing.T) {
+	script := GenerateCustomModelsScript(nil)
+	if !containsSubstring(script, "gemini-reasoning-level-selector") {
+		t.Errorf("expected script to contain 'gemini-reasoning-level-selector'")
+	}
+	if !containsSubstring(script, `"Reasoning: "`) {
+		t.Errorf("expected script to contain 'Reasoning: '")
+	}
+}
+
 func TestResolveEndpoint_Custom(t *testing.T) {
 	raw := "https://my-custom-proxy.internal/v1/fast/chat"
 	res := ResolveEndpoint(ProviderCustom, raw, "custom-model")

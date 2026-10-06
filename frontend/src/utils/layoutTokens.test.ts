@@ -1,0 +1,151 @@
+import { describe, it } from 'node:test'
+import assert from 'node:assert/strict'
+import {
+  GRID_UNIT,
+  WINDOW_MIN_WIDTH,
+  WINDOW_MIN_HEIGHT,
+  WINDOW_ASPECT_RATIO,
+  NAV_RAIL_WIDTH,
+  HEADER_HEIGHT,
+  WORKSPACE_MIN_WIDTH,
+  WORKSPACE_MIN_HEIGHT,
+  WORKSPACE_ASPECT_RATIO,
+  PHI,
+  SPACING,
+  snapToGrid4,
+  ceilToGrid4,
+  floorToGrid4,
+  isGridAligned4,
+  calcMajorWidthCeil4,
+  calcMinorWidth,
+  calcGoldenSplit,
+  calcGoldenDimensionsFromHeight,
+  calcGoldenDimensionsFromWidth,
+} from './layoutTokens.ts'
+
+describe('Layout Tokens & Golden Ratio Math', () => {
+  it('enforces 4-pixel grid divisibility on base window and zone constants', () => {
+    assert.equal(GRID_UNIT, 4)
+    assert.ok(isGridAligned4(WINDOW_MIN_WIDTH), 'WINDOW_MIN_WIDTH must be divisible by 4')
+    assert.ok(isGridAligned4(WINDOW_MIN_HEIGHT), 'WINDOW_MIN_HEIGHT must be divisible by 4')
+    assert.ok(isGridAligned4(NAV_RAIL_WIDTH), 'NAV_RAIL_WIDTH must be divisible by 4')
+    assert.ok(isGridAligned4(HEADER_HEIGHT), 'HEADER_HEIGHT must be divisible by 4')
+    assert.ok(isGridAligned4(WORKSPACE_MIN_WIDTH), 'WORKSPACE_MIN_WIDTH must be divisible by 4')
+    assert.ok(isGridAligned4(WORKSPACE_MIN_HEIGHT), 'WORKSPACE_MIN_HEIGHT must be divisible by 4')
+
+    assert.equal(WINDOW_MIN_WIDTH % 4, 0)
+    assert.equal(WINDOW_MIN_HEIGHT % 4, 0)
+    assert.equal(NAV_RAIL_WIDTH % 4, 0)
+    assert.equal(HEADER_HEIGHT % 4, 0)
+    assert.equal(WORKSPACE_MIN_WIDTH % 4, 0)
+    assert.equal(WORKSPACE_MIN_HEIGHT % 4, 0)
+  })
+
+  it('verifies strict 16:9 window aspect ratio', () => {
+    assert.equal(WINDOW_MIN_WIDTH, 1152)
+    assert.equal(WINDOW_MIN_HEIGHT, 648)
+    assert.equal(WINDOW_MIN_WIDTH / WINDOW_MIN_HEIGHT, 16 / 9)
+    assert.equal(WINDOW_ASPECT_RATIO, 16 / 9)
+  })
+
+  it('verifies workspace golden ratio dimensions within 0.00003 error', () => {
+    assert.equal(WORKSPACE_MIN_WIDTH, WINDOW_MIN_WIDTH - NAV_RAIL_WIDTH)
+    assert.equal(WORKSPACE_MIN_HEIGHT, WINDOW_MIN_HEIGHT - HEADER_HEIGHT)
+    assert.equal(WORKSPACE_MIN_WIDTH, 932)
+    assert.equal(WORKSPACE_MIN_HEIGHT, 576)
+
+    const errorFromPhi = Math.abs(WORKSPACE_ASPECT_RATIO - PHI)
+    assert.ok(
+      errorFromPhi < 0.00003,
+      `Workspace ratio error (${errorFromPhi}) must be < 0.00003 from PHI (${PHI})`
+    )
+  })
+
+  it('validates SPACING scale tokens are all multiples of 4', () => {
+    for (const [key, val] of Object.entries(SPACING)) {
+      assert.ok(
+        isGridAligned4(val),
+        `Spacing ${key} (${val}px) must be an integer multiple of 4`
+      )
+    }
+  })
+
+  it('rounds accurately using snapToGrid4, ceilToGrid4, and floorToGrid4', () => {
+    assert.equal(snapToGrid4(0), 0)
+    assert.equal(snapToGrid4(2), 4) // Math.round(2/4)*4 = 4
+    assert.equal(snapToGrid4(1.9), 0)
+    assert.equal(snapToGrid4(5), 4)
+    assert.equal(snapToGrid4(7), 8)
+    assert.equal(snapToGrid4(129), 128)
+    assert.equal(snapToGrid4(130), 132)
+
+    assert.equal(ceilToGrid4(1), 4)
+    assert.equal(ceilToGrid4(4), 4)
+    assert.equal(ceilToGrid4(4.1), 8)
+    assert.equal(ceilToGrid4(7), 8)
+
+    assert.equal(floorToGrid4(3.9), 0)
+    assert.equal(floorToGrid4(4), 4)
+    assert.equal(floorToGrid4(7), 4)
+    assert.equal(floorToGrid4(8), 8)
+  })
+
+  it('calculates major and minor split widths using ceiling 4-increment step rule', () => {
+    const split = calcGoldenSplit(WORKSPACE_MIN_WIDTH)
+    assert.ok(isGridAligned4(split.major), 'Major width must be 4-pixel aligned')
+    assert.ok(isGridAligned4(split.minor), 'Minor width must be 4-pixel aligned')
+    assert.equal(split.major + split.minor, WORKSPACE_MIN_WIDTH)
+
+    // 932 / PHI = 576.007... -> ceilToGrid4 gives 580
+    assert.equal(calcMajorWidthCeil4(WORKSPACE_MIN_WIDTH), 580)
+    assert.equal(split.major, 580)
+    assert.equal(split.minor, 352)
+
+    // With gap = 16
+    const splitWithGap = calcGoldenSplit(WORKSPACE_MIN_WIDTH, 16)
+    assert.ok(isGridAligned4(splitWithGap.major))
+    assert.ok(isGridAligned4(splitWithGap.minor))
+    assert.equal(splitWithGap.major + splitWithGap.minor + 16, WORKSPACE_MIN_WIDTH)
+
+    // Direct invocation of calcMinorWidth
+    const minorCalculated = calcMinorWidth(WORKSPACE_MIN_WIDTH, split.major)
+    assert.equal(minorCalculated, 352)
+    const minorWithGapCalculated = calcMinorWidth(WORKSPACE_MIN_WIDTH, splitWithGap.major, 16)
+    assert.equal(minorWithGapCalculated, splitWithGap.minor)
+  })
+
+  it('verifies ceiling 4-increment rule biases ratios closer to 16:9 than floor rounding', () => {
+    const TARGET_16_9 = 16 / 9
+    const testHeights = [100, 160, 200, 240, 300, 320, 360, 400, 500, 576, 648]
+
+    for (const h of testHeights) {
+      const exactWidth = h * PHI
+      const ceilW = ceilToGrid4(exactWidth)
+      const floorW = floorToGrid4(exactWidth)
+
+      const ceilRatio = ceilW / h
+      const floorRatio = floorW / h
+
+      const ceilDelta = Math.abs(ceilRatio - TARGET_16_9)
+      const floorDelta = Math.abs(floorRatio - TARGET_16_9)
+
+      assert.ok(
+        ceilDelta <= floorDelta,
+        `For height ${h}: ceil delta (${ceilDelta}) must be <= floor delta (${floorDelta}) relative to 16:9`
+      )
+    }
+  })
+
+  it('computes golden dimensions from height and width snapped to 4px', () => {
+    const dimH = calcGoldenDimensionsFromHeight(200)
+    assert.ok(isGridAligned4(dimH.width))
+    assert.ok(isGridAligned4(dimH.height))
+    assert.equal(dimH.height, 200)
+    assert.equal(dimH.width, ceilToGrid4(200 * PHI)) // 200 * 1.618034 = 323.6 -> 324
+    assert.equal(dimH.width, 324)
+
+    const dimW = calcGoldenDimensionsFromWidth(500)
+    assert.ok(isGridAligned4(dimW.width))
+    assert.ok(isGridAligned4(dimW.height))
+  })
+})

@@ -152,7 +152,7 @@ except Exception as e:
 			Email:    email,
 			Name:     name,
 			IsActive: isActive,
-			PlanTier: "Google AI Pro", // default for subscribed accounts
+			PlanTier: "Pro", // default for subscribed accounts
 		}
 
 		if tokenEnc != "" {

@@ -21,6 +21,7 @@ import type {
   FetchModelsResponse,
   AutoArchiveResult,
   QuotaResult,
+  AvailableModelsResponse,
 } from './types'
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
@@ -149,6 +150,9 @@ export const api = {
     }),
 
   getRules: () => request<RuleConfig>('/api/rules'),
+
+  getAvailableModels: (force?: boolean) =>
+    request<AvailableModelsResponse>(force ? '/api/models/available?force=true' : '/api/models/available'),
 
   getSurfaces: () => request<import('./types').SurfacesResponse>('/api/surfaces'),
 

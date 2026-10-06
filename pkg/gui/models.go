@@ -10,7 +10,7 @@ type Config struct {
 	Enabled                     bool              `json:"enabled"`                       // Master toggle for GUI improvements
 	ColorStylingEnabled         bool              `json:"color_styling_enabled"`        // Toggle: Custom project colors & conversation tinting
 	SolidLeftEdge               bool              `json:"solid_left_edge"`              // Toggle: Include solid color edge on conversation tabs (default false)
-	TintOpacity                 float64           `json:"tint_opacity"`                 // Conversation tab tint opacity (default 0.14)
+	TintOpacity                 float64           `json:"tint_opacity"`                 // Conversation tab tint opacity (default 0.15)
 	ActiveConversationIndicator string            `json:"active_conversation_indicator"`// "background" (accent fill), "border" (border outline), "left_bar" (left accent bar)
 	ActiveConversationBorderWidth string          `json:"active_conversation_border_width,omitempty"` // "1px", "1.5px", "2px" (default), "3px"
 	ActiveConversationBold      bool              `json:"active_conversation_bold"`     // Toggle: Bold text on open conversation tab (default false)
@@ -18,11 +18,12 @@ type Config struct {
 	DragRearrangeEnabled        bool              `json:"drag_rearrange_enabled"`       // Toggle: Drag to rearrange projects order
 	ProjectOrder                []string          `json:"project_order"`                // Custom ordering of projects
 	ArchivedProjects            []string          `json:"archived_projects"`            // Names or IDs of hidden/archived projects
-	ConversationTabsMode        string            `json:"conversation_tabs_mode"`        // "fixed" (default) or "dynamic" (by chat age)
+	ConversationTabsMode        string            `json:"conversation_tabs_mode"`        // "dynamic" (default) or "fixed" (by chat age)
 	ConversationTabsFixedLimit  int               `json:"conversation_tabs_fixed_limit"` // 1-10 (default 6)
-	ConversationTabsAgeThreshold string           `json:"conversation_tabs_age_threshold"` // "1d" (default), "3d", "7d"
-	ConversationTabsMin         int               `json:"conversation_tabs_min"`         // default 2 (range 1-10)
+	ConversationTabsAgeThreshold string           `json:"conversation_tabs_age_threshold"` // "1d", "3d", "7d", "14d" (default), "30d"
+	ConversationTabsMin         int               `json:"conversation_tabs_min"`         // default 3 (range 1-10)
 	ConversationTabsMax         int               `json:"conversation_tabs_max"`         // default 6 (range 1-10)
+	ReplaceSeeAllTriangle       bool              `json:"replace_see_all_triangle"`      // Toggle: Replace "See all" and "See less" text buttons with triangle divider (default true)
 	AutoArchiveConversations    bool              `json:"auto_archive_conversations"`    // Toggle: Automatically archive stale conversations
 	AutoArchiveHorizon          string            `json:"auto_archive_horizon"`          // "3d", "7d", "14d" (default), "30d", "60d", "90d"
 	AutoInject                  bool              `json:"auto_inject"`                  // Automatically inject into Antigravity desktop app
@@ -34,7 +35,7 @@ func DefaultConfig() *Config {
 		Enabled:                     true,
 		ColorStylingEnabled:         true,
 		SolidLeftEdge:               false, // Legacy field preserved for backward compatibility
-		TintOpacity:                 0.14,
+		TintOpacity:                 0.15,
 		ActiveConversationIndicator: "background", // "background" (accent fill), "border" (outline), or "left_bar"
 		ActiveConversationBorderWidth: "2px",
 		ActiveConversationBold:      false,        // Regular text weight on open conversation tab by default
@@ -52,11 +53,12 @@ func DefaultConfig() *Config {
 			"David",
 		},
 		ArchivedProjects:            []string{},
-		ConversationTabsMode:        "fixed",
+		ConversationTabsMode:        "dynamic",
 		ConversationTabsFixedLimit:  6,
-		ConversationTabsAgeThreshold: "1d",
-		ConversationTabsMin:         2,
+		ConversationTabsAgeThreshold: "14d",
+		ConversationTabsMin:         3,
 		ConversationTabsMax:         6,
+		ReplaceSeeAllTriangle:       true,
 		AutoArchiveConversations:    true,
 		AutoArchiveHorizon:          "14d",
 		AutoInject:                  true,

@@ -22,9 +22,10 @@ type Config struct {
 	AllowAICreditsUsage        bool     `json:"allow_ai_credits_usage"`
 	AllowNonGeminiNativeModels bool     `json:"allow_non_gemini_native_models"`
 	ModelSourceHierarchy       []string `json:"model_source_hierarchy,omitempty"`
-	DefaultGeminiModel         string   `json:"default_gemini_model,omitempty"`
-	DefaultCustomModel         string   `json:"default_custom_model,omitempty"`
-	DefaultNonGeminiModel      string   `json:"default_non_gemini_model,omitempty"`
+	DefaultGeminiModel          string   `json:"default_gemini_model,omitempty"`
+	DefaultCustomModel          string   `json:"default_custom_model,omitempty"`
+	DefaultNonGeminiModel       string   `json:"default_non_gemini_model,omitempty"`
+	DefaultGeminiReasoningLevel string   `json:"default_gemini_reasoning_level,omitempty"`
 	ActiveAccount              string   `json:"active_account"`
 	AntigravityProtectedPID    int      `json:"antigravity_protected_pid"`
 	AutoImportActiveAccount    bool     `json:"auto_import_active_account"`
@@ -50,9 +51,10 @@ func DefaultConfig() *Config {
 		AllowAICreditsUsage:        false,
 		AllowNonGeminiNativeModels: false,
 		ModelSourceHierarchy:       []string{"gemini", "custom", "non_gemini", "credits"},
-		DefaultGeminiModel:         "gemini-2.5-pro",
+		DefaultGeminiModel:         "gemini-3.8-flash",
 		DefaultCustomModel:         "",
-		DefaultNonGeminiModel:      "claude-3-7-sonnet",
+		DefaultNonGeminiModel:      "claude-opus-4-6",
+		DefaultGeminiReasoningLevel: "high",
 	}
 }
 

@@ -276,6 +276,8 @@ func BuildAccountQuotaStatesFromMap(accounts []*keyring.Account, summaries map[s
 
 		if tier == "" {
 			tier = DetermineDefaultPlanTier(email, acc.PlanTier)
+		} else {
+			tier = NormalizePlanTier(tier)
 		}
 
 		avail5h := ComputeEffective5hAvailable(cur5h, curSec)
@@ -320,31 +322,31 @@ func BuildAccountQuotaStatesFromMap(accounts []*keyring.Account, summaries map[s
 // DetermineDefaultPlanTier computes a membership tier based on explicit tier or email domain/label heuristics.
 func DetermineDefaultPlanTier(email string, explicitTier string) string {
 	if explicitTier != "" {
-		return explicitTier
+		return NormalizePlanTier(explicitTier)
 	}
 	lower := strings.ToLower(email)
 	if strings.Contains(lower, ".edu") || strings.Contains(lower, "edu.") || strings.Contains(lower, "-edu") {
-		return "Edu"
+		return PlanTierEdu
 	}
 	if strings.Contains(lower, "ultra20") || strings.Contains(lower, "20x") {
-		return "Ultra 20X"
+		return PlanTierUltra20X
 	}
 	if strings.Contains(lower, "ultra10") || strings.Contains(lower, "10x") {
-		return "Ultra 10X"
+		return PlanTierUltra10X
 	}
 	if strings.Contains(lower, "ultra5") || strings.Contains(lower, "5x") {
-		return "Ultra 5X"
+		return PlanTierUltra5X
 	}
 	if strings.Contains(lower, "trial") {
-		return "Pro - Trial"
+		return PlanTierProTrial
 	}
 	if strings.Contains(lower, "plus") {
-		return "Plus"
+		return PlanTierPlus
 	}
 	if strings.Contains(lower, "free") {
-		return "Free"
+		return PlanTierFree
 	}
-	return "Pro"
+	return PlanTierPro
 }
 
 // ClassifyErrorStatus classifies an error code or message into "BANNED", "ERROR", or "STANDBY".

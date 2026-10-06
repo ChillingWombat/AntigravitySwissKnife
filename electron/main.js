@@ -197,10 +197,10 @@ async function createWindow() {
   Menu.setApplicationMenu(null);
 
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 960,
-    minHeight: 640,
+    width: 1152,
+    height: 648,
+    minWidth: 1152,
+    minHeight: 648,
     title: 'Antigravity Swiss Knife',
     icon: iconPath,
     show: !startMinimized,
@@ -215,6 +215,15 @@ async function createWindow() {
   });
 
   mainWindow.setMenu(null);
+
+  // Lock 16:9 aspect ratio for windowed resizing
+  mainWindow.setAspectRatio(16 / 9);
+
+  // Manage aspect ratio locking across window states
+  mainWindow.on('maximize', () => mainWindow.setAspectRatio(0));
+  mainWindow.on('unmaximize', () => mainWindow.setAspectRatio(16 / 9));
+  mainWindow.on('enter-full-screen', () => mainWindow.setAspectRatio(0));
+  mainWindow.on('leave-full-screen', () => mainWindow.setAspectRatio(16 / 9));
 
   // Intercept window close ('X') to minimize to system tray
   mainWindow.on('close', (event) => {
@@ -327,6 +336,41 @@ async function runE2eVerification() {
         console.error('[E2E-TEST] Title mismatch! Expected "Antigravity Swiss Knife", got:', title);
         process.exit(1);
       }
+
+      console.log('[E2E-TEST] Verifying window geometry and aspect ratio...');
+      const [curWidth, curHeight] = mainWindow.getSize();
+      const [minWidth, minHeight] = mainWindow.getMinimumSize();
+      console.log(`[E2E-TEST] Window size: ${curWidth}x${curHeight}, Minimum size: ${minWidth}x${minHeight}`);
+
+      // Verify minimum dimensions
+      if (minWidth !== 1152 || minHeight !== 648) {
+        console.error(`[E2E-TEST] Minimum size mismatch! Expected 1152x648, got: ${minWidth}x${minHeight}`);
+        process.exit(1);
+      }
+      if (minWidth % 4 !== 0 || minHeight % 4 !== 0) {
+        console.error(`[E2E-TEST] Minimum dimensions are not 4px aligned: ${minWidth}x${minHeight}`);
+        process.exit(1);
+      }
+      if (Math.abs((minWidth / minHeight) - (16 / 9)) >= 0.0001) {
+        console.error(`[E2E-TEST] Minimum aspect ratio is not 16:9: ${minWidth / minHeight}`);
+        process.exit(1);
+      }
+
+      // Verify current window dimensions (either exact 1152x648 or valid 16:9 4px-aligned multiple)
+      if (curWidth % 4 !== 0 || curHeight % 4 !== 0) {
+        console.error(`[E2E-TEST] Current dimensions are not 4px aligned: ${curWidth}x${curHeight}`);
+        process.exit(1);
+      }
+      if (Math.abs((curWidth / curHeight) - (16 / 9)) >= 0.0001) {
+        console.error(`[E2E-TEST] Current aspect ratio is not 16:9: ${curWidth / curHeight}`);
+        process.exit(1);
+      }
+      if (curWidth < minWidth || curHeight < minHeight) {
+        console.error(`[E2E-TEST] Current dimensions (${curWidth}x${curHeight}) smaller than minimum (${minWidth}x${minHeight})!`);
+        process.exit(1);
+      }
+
+      console.log('[E2E-TEST] Window geometry verified: 1152x648 (16:9 aspect ratio, 4px aligned)');
       console.log('[E2E-TEST] Probing API status on', DAEMON_URL);
       const status = await probeDaemonStatus(2000);
       console.log('[E2E-TEST] API status result:', (status && status.daemon_running) ? 'OK' : 'FAILED');

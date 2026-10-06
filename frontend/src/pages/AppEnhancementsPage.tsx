@@ -73,6 +73,70 @@ function hslToHex(hsl: string): string {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`
 }
 
+export function parseColorWithAlpha(colorStr: string): { r: number; g: number; b: number; alpha: number } {
+  const c = (colorStr || '').trim()
+  if (c.startsWith('#')) {
+    const hex = c.slice(1)
+    if (hex.length === 3) {
+      const r = parseInt(hex[0] + hex[0], 16)
+      const g = parseInt(hex[1] + hex[1], 16)
+      const b = parseInt(hex[2] + hex[2], 16)
+      return { r, g, b, alpha: 1.0 }
+    }
+    if (hex.length === 4) {
+      const r = parseInt(hex[0] + hex[0], 16)
+      const g = parseInt(hex[1] + hex[1], 16)
+      const b = parseInt(hex[2] + hex[2], 16)
+      const a = parseInt(hex[3] + hex[3], 16) / 255.0
+      return { r, g, b, alpha: a }
+    }
+    if (hex.length === 6) {
+      const r = parseInt(hex.slice(0, 2), 16)
+      const g = parseInt(hex.slice(2, 4), 16)
+      const b = parseInt(hex.slice(4, 6), 16)
+      return { r, g, b, alpha: 1.0 }
+    }
+    if (hex.length === 8) {
+      const r = parseInt(hex.slice(0, 2), 16)
+      const g = parseInt(hex.slice(2, 4), 16)
+      const b = parseInt(hex.slice(4, 6), 16)
+      const a = parseInt(hex.slice(6, 8), 16) / 255.0
+      return { r, g, b, alpha: a }
+    }
+  } else if (c.startsWith('rgba(')) {
+    const parts = c.slice(5, -1).split(',')
+    if (parts.length === 4) {
+      return {
+        r: parseInt(parts[0].trim(), 10) || 0,
+        g: parseInt(parts[1].trim(), 10) || 0,
+        b: parseInt(parts[2].trim(), 10) || 0,
+        alpha: parseFloat(parts[3].trim()) || 1.0,
+      }
+    }
+  } else if (c.startsWith('rgb(')) {
+    const parts = c.slice(4, -1).split(',')
+    if (parts.length === 3) {
+      return {
+        r: parseInt(parts[0].trim(), 10) || 0,
+        g: parseInt(parts[1].trim(), 10) || 0,
+        b: parseInt(parts[2].trim(), 10) || 0,
+        alpha: 1.0,
+      }
+    }
+  }
+  return { r: 11, g: 87, b: 208, alpha: 1.0 }
+}
+
+export function calculateColorMultiplier(r: number, g: number, b: number, alpha: number): number {
+  const alphaMult = Math.min(1.0, Math.max(0.05, alpha <= 0 ? 1.0 : alpha))
+  const y = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0
+  let lightnessMult = 1.0
+  if (y > 0.6) {
+    lightnessMult = Math.max(0.2, 1.0 - (y - 0.6) * 0.75)
+  }
+  return Math.min(1.0, Math.max(0.1, alphaMult * lightnessMult))
+}
+
 interface AppEnhancementsPageProps {
   activeCategoryTab?: number // 0: Chat View, 1: Project Panel, 2: Overview Panel, 3: Chat History
 }
@@ -97,6 +161,13 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
     tasks: true,
     terminals: true,
   })
+
+  const baseTintOpacity = guiConfig?.tint_opacity ?? 0.15
+  const previewProjColor = guiConfig?.project_colors?.['Antigravity Swiss Knife'] || '#0b57d0'
+  const parsedProjColor = parseColorWithAlpha(previewProjColor)
+  const projColorMult = calculateColorMultiplier(parsedProjColor.r, parsedProjColor.g, parsedProjColor.b, parsedProjColor.alpha)
+  const effectivePreviewOpacity = Number((baseTintOpacity * projColorMult).toFixed(3))
+  const effectiveActiveOpacity = Number((Math.min(1.0, (baseTintOpacity + 0.16) * projColorMult)).toFixed(3))
 
   const toggleSection = (key: string) => {
     setCollapsedSections((prev) => ({
@@ -198,7 +269,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
     try {
       localStorage.setItem('antigravity_swiss_aux_tab_format', format)
       window.dispatchEvent(new CustomEvent('swiss-aux-tab-format-updated', { detail: { format } }))
-    } catch (_) {}
+    } catch {}
     try {
       await api.updateEnhancements(updatedConfig)
     } catch (err: any) {
@@ -309,7 +380,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
         </div>
 
         {jb.enabled && (
-          <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '18px' }}>
+          <div style={{ borderTop: '1px solid var(--border, #e2e8f0)', paddingTop: '18px' }}>
             {/* Top row: 3 Switches with toggles on the right and vertical breaker lines */}
             <div
               style={{
@@ -353,7 +424,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               </label>
 
               {/* Vertical Breaker 1 */}
-              <div style={{ width: '1px', height: '26px', backgroundColor: '#cbd5e1', margin: '0 12px' }} />
+              <div style={{ width: '1px', height: '26px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 12px' }} />
 
               {/* Switch 2: Show Preview Tooltip on Hover */}
               <label
@@ -384,7 +455,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               </label>
 
               {/* Vertical Breaker 2 */}
-              <div style={{ width: '1px', height: '26px', backgroundColor: '#cbd5e1', margin: '0 12px' }} />
+              <div style={{ width: '1px', height: '26px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 12px' }} />
 
               {/* Switch 3: Pulse Highlight Target Prompt Card on Jump */}
               <label
@@ -414,13 +485,13 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               </label>
             </div>
 
-            {/* 2-Column Layout: Settings on Left, Interactive Gutter Preview on Right */}
+            {/* 2-Column Layout: Settings on Left, Fixed Vertical Divider, Interactive Gutter Preview on Right */}
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'minmax(0, 1.4fr) minmax(280px, 1fr)',
-                gap: '20px',
-                alignItems: 'start',
+                gridTemplateColumns: 'minmax(0, 1fr) 1px 360px',
+                gap: '24px',
+                alignItems: 'stretch',
               }}
             >
               {/* LEFT COLUMN: Line Width, Line Thickness, and Color Mode Settings */}
@@ -762,9 +833,14 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 </div>
               </div>
 
+              {/* VERTICAL DIVIDER */}
+              <div style={{ width: '1px', backgroundColor: 'var(--border, #e2e8f0)', alignSelf: 'stretch' }} />
+
               {/* RIGHT COLUMN: Interactive Gutter Live Preview Component */}
               <div
                 style={{
+                  width: '360px',
+                  boxSizing: 'border-box',
                   background: '#f8fafc',
                   borderRadius: '12px',
                   border: '1px dashed #cbd5e1',
@@ -945,8 +1021,9 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
             <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
               Predefined Default Project for New Conversations
             </h2>
-            <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)', maxWidth: '600px' }}>
+            <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)', maxWidth: '600px', lineHeight: 1.5 }}>
               Set a fixed predefined project when clicking the "+ New Conversation" button or pressing Ctrl+N / Cmd+N.
+              <br />
               By default, Antigravity picks the last opened chat's project; configuring this anchors new draft chats to your preferred project automatically.
             </p>
           </div>
@@ -1009,7 +1086,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
           </div>
 
           {guiConfig.color_styling_enabled && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(280px, 1fr)', gap: '28px', marginTop: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 1px 360px', gap: '24px', alignItems: 'stretch', marginTop: '16px' }}>
               {/* Settings Controls */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
                 {/* Mode Selection */}
@@ -1191,8 +1268,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   </div>
                 </div>
 
-                {/* Bold text option with darker divider line */}
-                <div style={{ paddingTop: '10px', borderTop: '1px solid #94a3b8' }}>
+                {/* Bold text option with unified divider line */}
+                <div style={{ paddingTop: '10px', borderTop: '1px solid var(--border, #e2e8f0)' }}>
                   <label
                     style={{
                       display: 'flex',
@@ -1221,21 +1298,21 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   </p>
                 </div>
 
-                {/* Opacity slider */}
-                <div style={{ paddingTop: '10px', borderTop: '1px solid #cbd5e1' }}>
+                {/* Opacity slider with unified divider line */}
+                <div style={{ paddingTop: '10px', borderTop: '1px solid var(--border, #e2e8f0)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                     <label style={{ fontSize: '13px', fontWeight: 500, color: '#1e293b' }}>
                       Conversation Tab Tint Opacity:
                     </label>
                     <span style={{ fontSize: '12px', fontWeight: 600, color: '#0b57d0' }}>
-                      {Math.round((guiConfig.tint_opacity || 0.14) * 100)}%
+                      {Math.round((guiConfig.tint_opacity ?? 0.15) * 100)}%
                     </span>
                   </div>
                   <input
                     type="range"
                     min="5"
                     max="35"
-                    value={Math.round((guiConfig.tint_opacity || 0.14) * 100)}
+                    value={Math.round((guiConfig.tint_opacity ?? 0.15) * 100)}
                     onChange={(e) =>
                       setGuiConfig({
                         ...guiConfig,
@@ -1247,9 +1324,14 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 </div>
               </div>
 
+              {/* VERTICAL DIVIDER */}
+              <div style={{ width: '1px', backgroundColor: 'var(--border, #e2e8f0)', alignSelf: 'stretch' }} />
+
               {/* Real-time Interactive Preview */}
               <div
                 style={{
+                  width: '360px',
+                  boxSizing: 'border-box',
                   background: '#f8fafc',
                   border: '1px solid #e2e8f0',
                   borderRadius: '10px',
@@ -1314,17 +1396,17 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       height: '32px',
                       backgroundColor:
                         guiConfig.active_conversation_indicator === 'background'
-                          ? `rgba(11, 87, 208, ${(guiConfig.tint_opacity || 0.14) + 0.16})`
-                          : `rgba(11, 87, 208, ${guiConfig.tint_opacity || 0.14})`,
+                          ? `rgba(${parsedProjColor.r}, ${parsedProjColor.g}, ${parsedProjColor.b}, ${effectiveActiveOpacity})`
+                          : `rgba(${parsedProjColor.r}, ${parsedProjColor.g}, ${parsedProjColor.b}, ${effectivePreviewOpacity})`,
                       border:
                         guiConfig.active_conversation_indicator === 'border'
-                          ? `${guiConfig.active_conversation_border_width || '2px'} solid #0b57d0`
+                          ? `${guiConfig.active_conversation_border_width || '2px'} solid ${previewProjColor}`
                           : '1px solid transparent',
                       borderLeft:
                         guiConfig.active_conversation_indicator === 'left_bar'
-                          ? '3px solid #0b57d0'
+                          ? `3px solid ${previewProjColor}`
                           : guiConfig.active_conversation_indicator === 'border'
-                          ? `${guiConfig.active_conversation_border_width || '2px'} solid #0b57d0`
+                          ? `${guiConfig.active_conversation_border_width || '2px'} solid ${previewProjColor}`
                           : '1px solid transparent',
                       borderRadius: '8px',
                       padding: '0 10px',
@@ -1340,19 +1422,19 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, overflow: 'hidden' }}>
-                      <MessageSquare size={13} style={{ color: '#0b57d0', flexShrink: 0 }} />
+                      <MessageSquare size={13} style={{ color: previewProjColor, flexShrink: 0 }} />
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         Task Completion Check
                       </span>
                     </div>
-                    <span style={{ fontSize: '11px', color: '#0b57d0', fontWeight: 600, flexShrink: 0 }}>Just now</span>
+                    <span style={{ fontSize: '11px', color: previewProjColor, fontWeight: 600, flexShrink: 0 }}>Just now</span>
                   </div>
 
                   {/* Ordinary Conversation Tab 1 */}
                   <div
                     style={{
                       height: '32px',
-                      backgroundColor: `rgba(11, 87, 208, ${guiConfig.tint_opacity || 0.14})`,
+                      backgroundColor: `rgba(${parsedProjColor.r}, ${parsedProjColor.g}, ${parsedProjColor.b}, ${effectivePreviewOpacity})`,
                       border: '1px solid transparent',
                       borderRadius: '8px',
                       padding: '0 10px',
@@ -1379,7 +1461,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   <div
                     style={{
                       height: '32px',
-                      backgroundColor: `rgba(11, 87, 208, ${guiConfig.tint_opacity || 0.14})`,
+                      backgroundColor: `rgba(${parsedProjColor.r}, ${parsedProjColor.g}, ${parsedProjColor.b}, ${effectivePreviewOpacity})`,
                       border: '1px solid transparent',
                       borderRadius: '8px',
                       padding: '0 10px',
@@ -1437,9 +1519,44 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1.2fr) minmax(280px, 1fr)', gap: '24px', alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 1px 360px', gap: '24px', alignItems: 'stretch' }}>
             {/* Left column: Controls stacked vertically */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {/* Simplicity Replacement Zone */}
+              <div
+                style={{
+                  padding: '14px 16px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border, #e2e8f0)',
+                  background: 'var(--card-bg, #ffffff)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '16px',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
+                    Simplicity Replacement for "See all" / "See less"
+                  </div>
+                  <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                    Replace raw text buttons with a sleek 1px divider and centered solid triangle (▾ / ▴).
+                  </p>
+                </div>
+                <ToggleSwitch
+                  checked={guiConfig.replace_see_all_triangle ?? true}
+                  onChange={(checked) =>
+                    setGuiConfig({
+                      ...guiConfig,
+                      replace_see_all_triangle: checked,
+                    })
+                  }
+                />
+              </div>
+
+              {/* Horizontal Divider Line between Simplicity Zone and Fixed Number Zone */}
+              <div style={{ height: '1px', backgroundColor: 'var(--border, #e2e8f0)', margin: '2px 0' }} />
+
               {/* Option 1: Fixed Limit */}
               <div
                 onClick={() =>
@@ -1451,8 +1568,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 style={{
                   padding: '16px',
                   borderRadius: '8px',
-                  border: `1.5px solid ${guiConfig.conversation_tabs_mode === 'fixed' || !guiConfig.conversation_tabs_mode ? '#0b57d0' : '#e2e8f0'}`,
-                  background: guiConfig.conversation_tabs_mode === 'fixed' || !guiConfig.conversation_tabs_mode ? '#f0f7ff' : 'var(--card-bg, #ffffff)',
+                  border: `1.5px solid ${guiConfig.conversation_tabs_mode === 'fixed' ? '#0b57d0' : '#e2e8f0'}`,
+                  background: guiConfig.conversation_tabs_mode === 'fixed' ? '#f0f7ff' : 'var(--card-bg, #ffffff)',
                   cursor: 'pointer',
                   transition: 'border-color 0.15s, background 0.15s',
                 }}
@@ -1461,7 +1578,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   <input
                     type="radio"
                     name="convo_tabs_mode"
-                    checked={guiConfig.conversation_tabs_mode === 'fixed' || !guiConfig.conversation_tabs_mode}
+                    checked={guiConfig.conversation_tabs_mode === 'fixed'}
                     onChange={() => {}}
                     style={{ accentColor: '#0b57d0' }}
                   />
@@ -1516,8 +1633,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 style={{
                   padding: '16px',
                   borderRadius: '8px',
-                  border: `1.5px solid ${guiConfig.conversation_tabs_mode === 'dynamic' ? '#0b57d0' : '#e2e8f0'}`,
-                  background: guiConfig.conversation_tabs_mode === 'dynamic' ? '#f0f7ff' : 'var(--card-bg, #ffffff)',
+                  border: `1.5px solid ${guiConfig.conversation_tabs_mode !== 'fixed' ? '#0b57d0' : '#e2e8f0'}`,
+                  background: guiConfig.conversation_tabs_mode !== 'fixed' ? '#f0f7ff' : 'var(--card-bg, #ffffff)',
                   cursor: 'pointer',
                   transition: 'border-color 0.15s, background 0.15s',
                 }}
@@ -1526,7 +1643,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   <input
                     type="radio"
                     name="convo_tabs_mode"
-                    checked={guiConfig.conversation_tabs_mode === 'dynamic'}
+                    checked={guiConfig.conversation_tabs_mode !== 'fixed'}
                     onChange={() => {}}
                     style={{ accentColor: '#0b57d0' }}
                   />
@@ -1540,7 +1657,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
                     <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Active within:</label>
                     <select
-                      value={guiConfig.conversation_tabs_age_threshold || '1d'}
+                      value={guiConfig.conversation_tabs_age_threshold || '14d'}
                       onChange={(e) =>
                         setGuiConfig({
                           ...guiConfig,
@@ -1563,6 +1680,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       <option value="1d">1 day</option>
                       <option value="3d">3 days</option>
                       <option value="7d">7 days</option>
+                      <option value="14d">14 days</option>
+                      <option value="30d">30 days</option>
                     </select>
                   </div>
 
@@ -1570,7 +1689,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Min tabs:</label>
                       <select
-                        value={guiConfig.conversation_tabs_min || 2}
+                        value={guiConfig.conversation_tabs_min ?? 3}
                         onChange={(e) =>
                           setGuiConfig({
                             ...guiConfig,
@@ -1602,7 +1721,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Max tabs:</label>
                       <select
-                        value={guiConfig.conversation_tabs_max || 6}
+                        value={guiConfig.conversation_tabs_max ?? 6}
                         onChange={(e) =>
                           setGuiConfig({
                             ...guiConfig,
@@ -1635,11 +1754,16 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               </div>
             </div>
 
+            {/* VERTICAL DIVIDER */}
+            <div style={{ width: '1px', backgroundColor: 'var(--border, #e2e8f0)', alignSelf: 'stretch' }} />
+
             {/* Right column: Interactive Micro-Interaction Preview */}
             <div
               style={{
+                width: '360px',
+                boxSizing: 'border-box',
                 borderRadius: '8px',
-                border: '1px solid #e2e8f0',
+                border: '1px solid var(--border, #e2e8f0)',
                 background: '#f8fafc',
                 padding: '16px',
                 display: 'flex',
@@ -1708,47 +1832,63 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 ))}
 
               {/* Centered Divider with Solid Triangle Above Continuous Line */}
-              <div
-                onClick={() => setPreviewExpanded(!previewExpanded)}
-                title={previewExpanded ? 'Show fewer conversations' : 'Show all 5 conversations (2 hidden)'}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: '100%',
-                  height: '24px',
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                  padding: '0',
-                  boxSizing: 'border-box',
-                }}
-              >
+              {guiConfig.replace_see_all_triangle !== false ? (
                 <div
+                  onClick={() => setPreviewExpanded(!previewExpanded)}
+                  title={previewExpanded ? 'Show fewer conversations' : 'Show all 5 conversations (2 hidden)'}
                   style={{
-                    display: 'inline-flex',
+                    display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    width: '16px',
-                    height: '11px',
-                    marginBottom: '2px',
-                    color: '#64748b',
-                    fontSize: '8px',
-                    transition: 'all 0.15s ease',
+                    width: '100%',
+                    height: '24px',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                    padding: '0',
+                    boxSizing: 'border-box',
                   }}
                 >
-                  <span
+                  <div
                     style={{
-                      display: 'inline-block',
-                      transform: previewExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                      transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '16px',
+                      height: '11px',
+                      marginBottom: '2px',
+                      color: '#64748b',
+                      fontSize: '8px',
+                      transition: 'all 0.15s ease',
                     }}
                   >
-                    ▼
-                  </span>
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        transform: previewExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                      }}
+                    >
+                      ▼
+                    </span>
+                  </div>
+                  <div style={{ width: '100%', height: '1px', background: 'var(--border, #e2e8f0)' }}></div>
                 </div>
-                <div style={{ width: '100%', height: '1px', background: 'rgba(148, 163, 184, 0.35)' }}></div>
-              </div>
+              ) : (
+                <div
+                  onClick={() => setPreviewExpanded(!previewExpanded)}
+                  style={{
+                    padding: '4px 0',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    color: '#2563eb',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  {previewExpanded ? 'See less' : 'See all 5'}
+                </div>
+              )}
 
               <div style={{ fontSize: '11px', color: '#64748b', textAlign: 'center' }}>
                 {previewExpanded ? '▲ Expanded (click to collapse)' : '▼ Collapsed: 2 hidden tabs (click to expand)'}
@@ -2086,7 +2226,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               </label>
 
               {/* Vertical Breaker 1 */}
-              <div style={{ width: '1px', height: '26px', backgroundColor: '#cbd5e1', margin: '0 12px' }} />
+              <div style={{ width: '1px', height: '26px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 12px' }} />
 
               {/* Switch 2: Subtle Count Badges */}
               <label
@@ -2112,7 +2252,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               </label>
 
               {/* Vertical Breaker 2 */}
-              <div style={{ width: '1px', height: '26px', backgroundColor: '#cbd5e1', margin: '0 12px' }} />
+              <div style={{ width: '1px', height: '26px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 12px' }} />
 
               {/* Switch 3: Click to Expand / Collapse */}
               <label
@@ -2137,13 +2277,13 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               </label>
             </div>
 
-            {/* 2-Column Layout: Settings on Left, Interactive Overview Preview on Right */}
+            {/* 2-Column Layout: Settings on Left, Fixed Vertical Divider, Interactive Overview Preview on Right */}
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'minmax(0, 1.25fr) minmax(360px, 1fr)',
+                gridTemplateColumns: 'minmax(0, 1fr) 1px 360px',
                 gap: '24px',
-                alignItems: 'start',
+                alignItems: 'stretch',
               }}
             >
               {/* LEFT COLUMN: Section Division Modes & Detailed Controls */}
@@ -2315,7 +2455,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       </div>
 
                       {/* Vertical Grey Breaker */}
-                      <div style={{ width: '1px', height: '40px', backgroundColor: '#cbd5e1', margin: '0 12px' }} />
+                      <div style={{ width: '1px', height: '40px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 12px' }} />
 
                       {/* Line Width Percent */}
                       <div style={{ flex: 1, minWidth: '180px', paddingLeft: '4px' }}>
@@ -2393,7 +2533,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       </div>
 
                       {/* Vertical Grey Breaker */}
-                      <div style={{ width: '1px', height: '40px', backgroundColor: '#cbd5e1', margin: '0 12px' }} />
+                      <div style={{ width: '1px', height: '40px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 12px' }} />
 
                       {/* Vertical Spacing / Margin */}
                       <div style={{ flex: 1, minWidth: '180px', paddingLeft: '4px' }}>
@@ -2580,7 +2720,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       </div>
 
                       {/* Vertical Grey Breaker */}
-                      <div style={{ width: '1px', height: '40px', backgroundColor: '#cbd5e1', margin: '0 12px' }} />
+                      <div style={{ width: '1px', height: '40px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 12px' }} />
 
                       {/* Gap Between Zones */}
                       <div style={{ flex: 1, minWidth: '180px', paddingLeft: '4px' }}>
@@ -2657,7 +2797,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       </div>
 
                       {/* Vertical Grey Breaker */}
-                      <div style={{ width: '1px', height: '40px', backgroundColor: '#cbd5e1', margin: '0 12px' }} />
+                      <div style={{ width: '1px', height: '40px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 12px' }} />
 
                       {/* Border Color */}
                       <div style={{ flex: 1, minWidth: '180px', paddingLeft: '4px' }}>
@@ -2694,12 +2834,17 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 )}
               </div>
 
+              {/* VERTICAL DIVIDER */}
+              <div style={{ width: '1px', backgroundColor: 'var(--border, #e2e8f0)', alignSelf: 'stretch' }} />
+
               {/* RIGHT COLUMN: Interactive Live Preview of Antigravity's Overview Panel */}
               <div
                 style={{
+                  width: '360px',
+                  boxSizing: 'border-box',
                   background: '#f8fafc',
                   borderRadius: '12px',
-                  border: '1px solid #e2e8f0',
+                  border: '1px solid var(--border, #e2e8f0)',
                   padding: '16px',
                   display: 'flex',
                   flexDirection: 'column',
@@ -2708,7 +2853,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   top: '20px',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border, #e2e8f0)', paddingBottom: '10px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <Sliders size={16} color="#0b57d0" />
                     <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>
@@ -2809,7 +2954,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       </div>
 
                       {/* Divider */}
-                      <div style={{ width: '1px', height: '14px', backgroundColor: '#cbd5e1', margin: '0 4px' }} />
+                      <div style={{ width: '1px', height: '14px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 4px' }} />
 
                       {/* Injected Swiss Tabs in chosen format */}
                       {(op.aux_tabs_format || 'icon') === 'icon' ? (

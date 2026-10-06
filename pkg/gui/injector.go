@@ -115,6 +115,7 @@ func (inj *Injector) ExecuteScript(wsURLStr string, expression string) (map[stri
 		return nil, fmt.Errorf("failed to connect to CDP websocket: %w", err)
 	}
 	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
 
 	// WebSocket handshake
 	reqPath := u.Path
@@ -259,6 +260,7 @@ func (inj *Injector) CaptureScreenshot(wsURLStr string, clip map[string]interfac
 		return nil, fmt.Errorf("failed to connect to CDP: %w", err)
 	}
 	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
 
 	reqPath := u.Path
 	if u.RawQuery != "" {

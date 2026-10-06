@@ -66,11 +66,11 @@ func detectModelMetadata(id string, displayName string, rawLimit int) (int, bool
 
 	if rawLimit > 0 {
 		ctx = rawLimit
-	} else if strings.Contains(lower, "gemini-2.5-pro") || strings.Contains(lower, "gemini-1.5-pro") {
+	} else if strings.Contains(lower, "gemini-3.8-pro") || strings.Contains(lower, "gemini-3.1-pro") || strings.Contains(lower, "gemini-2.5-pro") || strings.Contains(lower, "gemini-1.5-pro") {
 		ctx = 2097152
-	} else if strings.Contains(lower, "gemini-2.5-flash") || strings.Contains(lower, "gemini-2.0-flash") || strings.Contains(lower, "gemini-1.5-flash") {
+	} else if strings.Contains(lower, "gemini-3.8-flash") || strings.Contains(lower, "gemini-3.5-flash") || strings.Contains(lower, "gemini-2.5-flash") || strings.Contains(lower, "gemini-2.0-flash") || strings.Contains(lower, "gemini-1.5-flash") {
 		ctx = 1048576
-	} else if strings.Contains(lower, "claude-3-7") || strings.Contains(lower, "claude-3-5") || strings.Contains(lower, "claude-3-opus") {
+	} else if strings.Contains(lower, "claude-opus-4-6") || strings.Contains(lower, "claude-4-6") || strings.Contains(lower, "claude-3-7") || strings.Contains(lower, "claude-3-5") || strings.Contains(lower, "claude-3-opus") {
 		ctx = 200000
 	} else if strings.Contains(lower, "o1") || strings.Contains(lower, "o3") {
 		ctx = 200000
@@ -88,8 +88,12 @@ func detectModelMetadata(id string, displayName string, rawLimit int) (int, bool
 		strings.Contains(lower, "reasoner") ||
 		strings.Contains(lower, "thinking") ||
 		strings.Contains(lower, "claude-3-7") ||
+		strings.Contains(lower, "claude-opus-4-6") ||
+		strings.Contains(lower, "claude-4-6") ||
 		strings.Contains(lower, "qwq") ||
-		strings.Contains(lower, "gemini-2.5") {
+		strings.Contains(lower, "gemini-2.5") ||
+		strings.Contains(lower, "gemini-3.8") ||
+		strings.Contains(lower, "gemini-3.1") {
 		supportsThinking = true
 		thinkingLevels = []string{"off", "low", "medium", "high"}
 	}

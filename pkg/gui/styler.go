@@ -11,6 +11,103 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/plugins"
 )
 
+// ParseColorWithAlpha parses a hex string (3, 4, 6, 8 chars) or rgb/rgba string into r, g, b and alpha components.
+func ParseColorWithAlpha(colorStr string) (r, g, b int, alpha float64, err error) {
+	colorStr = strings.TrimSpace(colorStr)
+	if strings.HasPrefix(colorStr, "#") {
+		hex := strings.TrimPrefix(colorStr, "#")
+		if len(hex) == 3 {
+			r, err1 := strconv.ParseInt(string(hex[0])+string(hex[0]), 16, 32)
+			g, err2 := strconv.ParseInt(string(hex[1])+string(hex[1]), 16, 32)
+			b, err3 := strconv.ParseInt(string(hex[2])+string(hex[2]), 16, 32)
+			if err1 != nil || err2 != nil || err3 != nil {
+				return 0, 0, 0, 1.0, fmt.Errorf("invalid 3-digit hex: %s", hex)
+			}
+			return int(r), int(g), int(b), 1.0, nil
+		}
+		if len(hex) == 4 {
+			r, err1 := strconv.ParseInt(string(hex[0])+string(hex[0]), 16, 32)
+			g, err2 := strconv.ParseInt(string(hex[1])+string(hex[1]), 16, 32)
+			b, err3 := strconv.ParseInt(string(hex[2])+string(hex[2]), 16, 32)
+			a, err4 := strconv.ParseInt(string(hex[3])+string(hex[3]), 16, 32)
+			if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
+				return 0, 0, 0, 1.0, fmt.Errorf("invalid 4-digit hex: %s", hex)
+			}
+			return int(r), int(g), int(b), float64(a) / 255.0, nil
+		}
+		if len(hex) == 6 {
+			val, err := strconv.ParseInt(hex, 16, 32)
+			if err != nil {
+				return 0, 0, 0, 1.0, fmt.Errorf("invalid 6-digit hex: %s", hex)
+			}
+			return int((val >> 16) & 0xFF), int((val >> 8) & 0xFF), int(val & 0xFF), 1.0, nil
+		}
+		if len(hex) == 8 {
+			val, err := strconv.ParseInt(hex, 16, 64)
+			if err != nil {
+				return 0, 0, 0, 1.0, fmt.Errorf("invalid 8-digit hex: %s", hex)
+			}
+			r := int((val >> 24) & 0xFF)
+			g := int((val >> 16) & 0xFF)
+			b := int((val >> 8) & 0xFF)
+			a := int(val & 0xFF)
+			return r, g, b, float64(a) / 255.0, nil
+		}
+		return 0, 0, 0, 1.0, fmt.Errorf("hex string must be 3, 4, 6, or 8 chars: %s", hex)
+	} else if strings.HasPrefix(colorStr, "rgba(") {
+		inner := strings.TrimSuffix(strings.TrimPrefix(colorStr, "rgba("), ")")
+		parts := strings.Split(inner, ",")
+		if len(parts) == 4 {
+			r, _ := strconv.Atoi(strings.TrimSpace(parts[0]))
+			g, _ := strconv.Atoi(strings.TrimSpace(parts[1]))
+			b, _ := strconv.Atoi(strings.TrimSpace(parts[2]))
+			a, _ := strconv.ParseFloat(strings.TrimSpace(parts[3]), 64)
+			return r, g, b, a, nil
+		}
+	} else if strings.HasPrefix(colorStr, "rgb(") {
+		inner := strings.TrimSuffix(strings.TrimPrefix(colorStr, "rgb("), ")")
+		parts := strings.Split(inner, ",")
+		if len(parts) == 3 {
+			r, _ := strconv.Atoi(strings.TrimSpace(parts[0]))
+			g, _ := strconv.Atoi(strings.TrimSpace(parts[1]))
+			b, _ := strconv.Atoi(strings.TrimSpace(parts[2]))
+			return r, g, b, 1.0, nil
+		}
+	}
+	r, g, b, err = HexToRGB(colorStr)
+	return r, g, b, 1.0, err
+}
+
+// CalculateColorMultiplier calculates the dynamic opacity multiplier based on color alpha and luminance.
+// If the project color already has opacity / alpha or is lighter, the conversation tab dynamically scales
+// to achieve the lower opacity without altering the displayed setting percentage.
+func CalculateColorMultiplier(r, g, b int, alpha float64) float64 {
+	alphaMult := alpha
+	if alphaMult <= 0 {
+		alphaMult = 1.0
+	} else if alphaMult > 1.0 {
+		alphaMult = 1.0
+	}
+
+	// Perceived luminance using standard ITU-R BT.601 / WCAG coefficients
+	y := (0.2126*float64(r) + 0.7152*float64(g) + 0.0722*float64(b)) / 255.0
+	lightnessMult := 1.0
+	if y > 0.6 {
+		lightnessMult = 1.0 - (y-0.6)*0.75
+		if lightnessMult < 0.2 {
+			lightnessMult = 0.2
+		}
+	}
+
+	mult := alphaMult * lightnessMult
+	if mult < 0.1 {
+		mult = 0.1
+	} else if mult > 1.0 {
+		mult = 1.0
+	}
+	return mult
+}
+
 // HexToRGB converts a hex string (e.g. "#7c3aed" or "7c3aed" or "#fff") into r, g, b components.
 func HexToRGB(hex string) (int, int, int, error) {
 	hex = strings.TrimPrefix(hex, "#")
@@ -41,7 +138,7 @@ func GenerateCSS(cfg *Config) string {
 
 	opacity := cfg.TintOpacity
 	if opacity <= 0 || opacity > 1 {
-		opacity = 0.14
+		opacity = 0.15
 	}
 	hoverOpacity := opacity + 0.08
 	if hoverOpacity > 1 {
@@ -63,7 +160,6 @@ func GenerateCSS(cfg *Config) string {
 		fontWeight = "400"
 	}
 
-
 	var sb strings.Builder
 	sb.WriteString("/* Antigravity Swiss Knife - Project Panel Custom Colors */\n")
 
@@ -72,9 +168,20 @@ func GenerateCSS(cfg *Config) string {
 		if project == "" || hex == "" {
 			continue
 		}
-		r, g, b, err := HexToRGB(hex)
+		r, g, b, alpha, err := ParseColorWithAlpha(hex)
 		if err != nil {
 			r, g, b = 11, 87, 208 // fallback to blue
+			alpha = 1.0
+		}
+		mult := CalculateColorMultiplier(r, g, b, alpha)
+		effectiveOpacity := opacity * mult
+		effectiveHoverOpacity := hoverOpacity * mult
+		if effectiveHoverOpacity > 1.0 {
+			effectiveHoverOpacity = 1.0
+		}
+		effectiveSelectedOpacity := selectedOpacity * mult
+		if effectiveSelectedOpacity > 1.0 {
+			effectiveSelectedOpacity = 1.0
 		}
 
 		safeName := strings.ReplaceAll(project, `"`, `\"`)
@@ -122,13 +229,13 @@ func GenerateCSS(cfg *Config) string {
   background-color: rgba(%d, %d, %d, %.2f) !important;
   %s
 }
-`, safeName, safeName, r, g, b, opacity, r, g, b, opacity, r, g, b, opacity, borderWidth, borderStyle, safeName, safeName, r, g, b, hoverOpacity, safeName, safeName, r, g, b, opacity, selectedBorderStyle, fontWeight, safeName, safeName, r, g, b, hoverOpacity, selectedBorderStyle)
+`, safeName, safeName, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, borderWidth, borderStyle, safeName, safeName, r, g, b, effectiveHoverOpacity, safeName, safeName, r, g, b, effectiveOpacity, selectedBorderStyle, fontWeight, safeName, safeName, r, g, b, effectiveHoverOpacity, selectedBorderStyle)
 		} else {
 			selectedBorderStyle := ""
-			activeBgOpacity := selectedOpacity
+			activeBgOpacity := effectiveSelectedOpacity
 			if isLeftBarMode {
 				selectedBorderStyle = fmt.Sprintf("\n  border-left: 3px solid %s !important;", hex)
-				activeBgOpacity = opacity
+				activeBgOpacity = effectiveOpacity
 			}
 			rowCSS = fmt.Sprintf(`
 /* Conversation Row: Clean rounded corners, light tint, solid edge optional */
@@ -152,7 +259,7 @@ func GenerateCSS(cfg *Config) string {
   background-color: rgba(%d, %d, %d, %.2f) !important;%s
   font-weight: %s !important;
 }
-`, safeName, safeName, r, g, b, opacity, r, g, b, opacity, r, g, b, opacity, borderStyle, safeName, safeName, r, g, b, hoverOpacity, safeName, safeName, r, g, b, activeBgOpacity, selectedBorderStyle, fontWeight)
+`, safeName, safeName, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, borderStyle, safeName, safeName, r, g, b, effectiveHoverOpacity, safeName, safeName, r, g, b, activeBgOpacity, selectedBorderStyle, fontWeight)
 		}
 
 		sb.WriteString(fmt.Sprintf(`
@@ -305,7 +412,7 @@ func generateBaseScript(cfg *Config) string {
 	}
 	archivedJSON, _ := json.Marshal(archivedProjects)
 
-	tabsMode := "fixed"
+	tabsMode := "dynamic"
 	if cfg != nil && cfg.ConversationTabsMode != "" {
 		tabsMode = cfg.ConversationTabsMode
 	}
@@ -313,17 +420,21 @@ func generateBaseScript(cfg *Config) string {
 	if cfg != nil && cfg.ConversationTabsFixedLimit > 0 {
 		tabsFixedLimit = cfg.ConversationTabsFixedLimit
 	}
-	tabsAgeThreshold := "1d"
+	tabsAgeThreshold := "14d"
 	if cfg != nil && cfg.ConversationTabsAgeThreshold != "" {
 		tabsAgeThreshold = cfg.ConversationTabsAgeThreshold
 	}
-	tabsMin := 2
+	tabsMin := 3
 	if cfg != nil && cfg.ConversationTabsMin > 0 {
 		tabsMin = cfg.ConversationTabsMin
 	}
 	tabsMax := 6
 	if cfg != nil && cfg.ConversationTabsMax > 0 {
 		tabsMax = cfg.ConversationTabsMax
+	}
+	replaceSeeAllTriangle := true
+	if cfg != nil {
+		replaceSeeAllTriangle = cfg.ReplaceSeeAllTriangle
 	}
 
 	baseScript := fmt.Sprintf(`(() => {
@@ -338,6 +449,7 @@ func generateBaseScript(cfg *Config) string {
   const tabsAgeThreshold = %q;
   const tabsMin = %d;
   const tabsMax = %d;
+  const replaceSeeAllTriangle = %t;
   window.__swissArchivedProjects = Array.isArray(archivedProjects) ? archivedProjects : [];
 
   // 1. Manage stylesheet
@@ -955,7 +1067,7 @@ func generateBaseScript(cfg *Config) string {
     dragEnabled: isDragEnabled,
     taggedCount: document.querySelectorAll("[data-swiss-project]").length
   };
-})();`, string(cssJSON), enabled, colorStylingEnabled, dragRearrangeEnabled, string(orderJSON), string(archivedJSON), tabsMode, tabsFixedLimit, tabsAgeThreshold, tabsMin, tabsMax)
+})();`, string(cssJSON), enabled, colorStylingEnabled, dragRearrangeEnabled, string(orderJSON), string(archivedJSON), tabsMode, tabsFixedLimit, tabsAgeThreshold, tabsMin, tabsMax, replaceSeeAllTriangle)
 
 	return baseScript
 }

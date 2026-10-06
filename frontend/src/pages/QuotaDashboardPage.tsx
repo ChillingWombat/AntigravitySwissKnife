@@ -13,6 +13,7 @@ import {
   Plus,
 } from 'lucide-react'
 import type { AccountState, FleetQuotaSummary, RuleConfig, DiscoveredAccount } from '../types'
+import { normalizePlanTier } from '../types'
 import { CircularGauge } from '../components/CircularGauge'
 import { HorizontalQuotaBar } from '../components/HorizontalQuotaBar'
 import { AccountDetailModal } from '../components/AccountDetailModal'
@@ -187,8 +188,8 @@ const renderPriorityBadge = (priority?: string) => {
   )
 }
 
-const renderPlanTierBadge = (tier?: string) => {
-  const t = tier || 'Free'
+export const renderPlanTierBadge = (tier?: string) => {
+  const t = normalizePlanTier(tier)
   let style: React.CSSProperties = {
     display: 'inline-flex',
     alignItems: 'center',

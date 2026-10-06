@@ -21,6 +21,56 @@ const (
 	DefaultGoogleClientSecret = "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"
 )
 
+// Canonical plan tiers supported across Antigravity
+const (
+	PlanTierFree     = "Free"
+	PlanTierPlus     = "Plus"
+	PlanTierPro      = "Pro"
+	PlanTierProTrial = "Pro - Trial"
+	PlanTierEdu      = "Edu"
+	PlanTierUltra5X  = "Ultra 5X"
+	PlanTierUltra10X = "Ultra 10X"
+	PlanTierUltra20X = "Ultra 20X"
+)
+
+// NormalizePlanTier maps any API response or legacy label into canonical tier representation.
+func NormalizePlanTier(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return PlanTierFree
+	}
+	lower := strings.ToLower(trimmed)
+	if lower == "free" {
+		return PlanTierFree
+	}
+	if strings.Contains(lower, "trial") {
+		return PlanTierProTrial
+	}
+	if strings.Contains(lower, "20x") {
+		return PlanTierUltra20X
+	}
+	if strings.Contains(lower, "10x") {
+		return PlanTierUltra10X
+	}
+	if strings.Contains(lower, "5x") {
+		return PlanTierUltra5X
+	}
+	if strings.Contains(lower, "ultra") {
+		return PlanTierUltra20X
+	}
+	if strings.Contains(lower, "edu") || strings.Contains(lower, "education") {
+		return PlanTierEdu
+	}
+	if strings.Contains(lower, "plus") {
+		return PlanTierPlus
+	}
+	if strings.Contains(lower, "pro") {
+		return PlanTierPro
+	}
+	return trimmed
+}
+
+
 var (
 	CloudCodeLoadProjectURLs = []string{
 		"https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
@@ -159,30 +209,23 @@ func FetchProjectAndTier(accessToken string) (*ProjectContextResult, error) {
 			}
 
 			// Determine tier
+			var rawTier string
 			if res.PaidTier != nil && res.PaidTier.Name != "" {
-				result.TierName = res.PaidTier.Name
+				rawTier = res.PaidTier.Name
 			} else if res.PaidTier != nil && res.PaidTier.ID != "" {
-				result.TierName = res.PaidTier.ID
+				rawTier = res.PaidTier.ID
 			} else if res.CurrentTier != nil && res.CurrentTier.Name != "" {
-				result.TierName = res.CurrentTier.Name
+				rawTier = res.CurrentTier.Name
 			} else if res.CurrentTier != nil && res.CurrentTier.ID != "" {
-				result.TierName = res.CurrentTier.ID
+				rawTier = res.CurrentTier.ID
 			} else if len(res.AllowedTiers) > 0 {
-				result.TierName = res.AllowedTiers[0].Name
-			} else {
-				result.TierName = "Google AI Pro"
+				rawTier = res.AllowedTiers[0].Name
 			}
 
-			// Format tier cleanly
-			lowerTier := strings.ToLower(result.TierName)
-			if strings.Contains(lowerTier, "ultra") {
-				result.TierName = "Google AI Ultra"
-			} else if strings.Contains(lowerTier, "pro") {
-				result.TierName = "Google AI Pro"
-			} else if strings.Contains(lowerTier, "plus") {
-				result.TierName = "Plus"
-			} else if strings.Contains(lowerTier, "edu") {
-				result.TierName = "Edu"
+			if rawTier != "" {
+				result.TierName = NormalizePlanTier(rawTier)
+			} else {
+				result.TierName = ""
 			}
 
 			// Extract credits
@@ -414,14 +457,20 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 		}
 	}
 
-	tier := "Google AI Pro"
-	credits := 0.0
+	tier := acc.PlanTier
+	if tier == "" {
+		tier = PlanTierPro
+	}
+	tier = NormalizePlanTier(tier)
+	credits := acc.Credits
 	if pCtx != nil {
 		if pCtx.ProjectID != "" {
 			project = pCtx.ProjectID
 		}
 		if pCtx.TierName != "" {
-			tier = pCtx.TierName
+			tier = NormalizePlanTier(pCtx.TierName)
+			acc.PlanTier = tier
+		} else {
 			acc.PlanTier = tier
 		}
 		credits = pCtx.Credits
@@ -478,8 +527,12 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 				}
 				pTier := ca.PlanTier
 				if pTier == "" {
-					pTier = "Google AI Pro"
+					pTier = acc.PlanTier
 				}
+				if pTier == "" {
+					pTier = PlanTierPro
+				}
+				pTier = NormalizePlanTier(pTier)
 				acc.PlanTier = pTier
 				cAmount := ca.Credits
 				acc.Credits = cAmount

@@ -50,19 +50,26 @@ Establish a fixed minimal non-maximized window size of 1152×648 px (strict 16:9
 ## Team Roster
 | Agent | Type | Work Item | Status | Conv ID |
 |-------|------|-----------|--------|---------|
-| explorer_geom_survey_1 | teamwork_preview_explorer | Window Geometry Survey | in-progress | 9ac056e0-d8e5-446e-8f0f-9870f6da1dee |
-| explorer_layout_survey_2 | teamwork_preview_explorer | Layout Architecture Survey | in-progress | dbd75c17-c345-415f-8130-b54151fba5b5 |
-| explorer_comp_survey_3 | teamwork_preview_explorer | Component & Test Survey | in-progress | 140385e2-6fc3-4365-98c9-36a8d3d6cb78 |
+| explorer_geom_survey_1 | teamwork_preview_explorer | Window Geometry Survey | completed | 9ac056e0-d8e5-446e-8f0f-9870f6da1dee |
+| explorer_layout_survey_2 | teamwork_preview_explorer | Layout Architecture Survey | completed | dbd75c17-c345-415f-8130-b54151fba5b5 |
+| explorer_comp_survey_3 | teamwork_preview_explorer | Component & Test Survey | completed | 140385e2-6fc3-4365-98c9-36a8d3d6cb78 |
+| worker_geom_m1_1 | teamwork_preview_worker | Milestone 1 Geometry Implementation | completed | 47ef2074-2bb8-4c96-9dcc-44b83bed9f7a |
+| reviewer_geom_m1_1 | teamwork_preview_reviewer | M1 Reviewer 1 | completed | 3e2b36de-3ef0-4dc0-89f6-9b5c2d1803a6 |
+| reviewer_geom_m1_2 | teamwork_preview_reviewer | M1 Reviewer 2 | completed | c3fe2193-7dc2-4cca-b7f9-1b49b5f4b944 |
+| challenger_geom_m1_1 | teamwork_preview_challenger | M1 Challenger 1 | completed | cca9993f-3a29-4291-b3f4-6a6e6a442b1d |
+| challenger_geom_m1_2 | teamwork_preview_challenger | M1 Challenger 2 | completed | 8ef94e6d-6d59-4da0-a876-6096730b40df |
+| auditor_geom_m1_1 | teamwork_preview_auditor | M1 Forensic Auditor | completed | 4cd6905d-b6cc-4cdd-bf1a-538996c28c6c |
+| worker_layout_m2_1 | teamwork_preview_worker | Milestone 2 Layout Implementation | in-progress | 23014b4d-5dfc-47e4-837f-56922a6d0bc9 |
 
 ## Succession Status
 - Succession required: no
-- Spawn count: 3 / 16
-- Pending subagents: 9ac056e0-d8e5-446e-8f0f-9870f6da1dee, dbd75c17-c345-415f-8130-b54151fba5b5, 140385e2-6fc3-4365-98c9-36a8d3d6cb78
+- Spawn count: 10 / 16
+- Pending subagents: 23014b4d-5dfc-47e4-837f-56922a6d0bc9
 - Predecessor: none
 - Successor: not yet spawned
 
 ## Active Timers
-- Heartbeat cron: 22e8a004-e0c2-41d4-92e0-45bd204fac17/task-24
+- Heartbeat cron: 22e8a004-e0c2-41d4-92e0-45bd204fac17/task-204
 - Safety timer: none
 
 ## Artifact Index

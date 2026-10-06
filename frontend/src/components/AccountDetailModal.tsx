@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail, Sparkles } from 'lucide-react'
 import type { AccountState } from '../types'
+import { CANONICAL_PLAN_TIERS, normalizePlanTier } from '../types'
+import { renderPlanTierBadge } from '../pages/QuotaDashboardPage'
 import { HorizontalQuotaBar } from './HorizontalQuotaBar'
 import { ToggleSwitch } from './ToggleSwitch'
 import { api } from '../api'
@@ -29,7 +31,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [isExtractingOAuth, setIsExtractingOAuth] = useState(false)
   const [oauthSuccessMsg, setOauthSuccessMsg] = useState<string | null>(null)
   const status = account.status || (account.is_active ? 'ACTIVE' : 'STANDBY')
-  const planTier = account.plan_tier || 'Pro'
+  const [planTier, setPlanTier] = useState<string>(normalizePlanTier(account.plan_tier || 'Pro'))
   const credits =
     account.credits !== undefined && account.credits !== null
       ? account.credits
@@ -686,11 +688,13 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
                   Plan Tier / Membership:
                 </label>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                  Auto-detected
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  {renderPlanTierBadge(planTier)}
+                </div>
               </div>
-              <div
+              <select
+                value={normalizePlanTier(planTier)}
+                onChange={(e) => setPlanTier(e.target.value)}
                 style={{
                   width: '100%',
                   backgroundColor: 'var(--canvas)',
@@ -698,28 +702,18 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   borderRadius: '8px',
                   padding: '9px 12px',
                   fontSize: '13px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
+                  fontWeight: 600,
+                  color: 'var(--text)',
+                  cursor: 'pointer',
                   boxSizing: 'border-box',
                 }}
               >
-                <span style={{ fontWeight: 700, color: 'var(--text)' }}>
-                  {planTier || 'Free'}
-                </span>
-                <span
-                  style={{
-                    fontSize: '10px',
-                    fontWeight: 700,
-                    padding: '2px 8px',
-                    borderRadius: '10px',
-                    backgroundColor: planTier?.toLowerCase().includes('pro') ? 'rgba(26, 115, 232, 0.12)' : 'var(--tonal)',
-                    color: planTier?.toLowerCase().includes('pro') ? 'var(--primary)' : 'var(--text-muted)',
-                  }}
-                >
-                  OAuth Scope Verified
-                </span>
-              </div>
+                {CANONICAL_PLAN_TIERS.map((tier) => (
+                  <option key={tier} value={tier}>
+                    {tier}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 

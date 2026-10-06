@@ -72,3 +72,40 @@ Execution Protocol:
 3. Update progress.md regularly with status, milestones, and timestamps.
 4. Verify all tests pass cleanly (`npm test --prefix frontend`, `npm run build --prefix frontend`).
 5. When complete, provide your completion handoff report to Sentinel.
+
+## 2026-10-06T03:59:13Z
+
+## Server Restart Recovery Directive
+
+The server has restarted and background processes were temporarily interrupted. The user has explicitly requested: "please continue the task and subagents".
+
+Status check:
+- Your working directory: `/mnt/Data/Projects/Antigravity Swiss Knife/.agents/teamwork/orchestrator_3/`
+- Request log updated: `.agents/teamwork/ORIGINAL_REQUEST.md` (see timestamp 2026-10-06T03:58:02Z).
+- Milestone 1 (M6: Window Geometry & 16:9 Aspect Ratio Locking) is in progress. `worker_geom_m1_1` was dispatched to `.agents/teamwork/worker_geom_m1_1/`.
+
+Please revive your orchestration loop immediately:
+1. Re-check `worker_geom_m1_1` (revive by sending a continuation message if needed, or re-dispatch if unrecoverable).
+2. Reschedule your background heartbeat/timers.
+3. Advance Milestone 1 through its adversarial review gate (2 Reviewers, 2 Challengers, Forensic Auditor).
+4. Proceed through Milestones 2, 3, and 4 in order.
+5. Keep your `BRIEFING.md` and `progress.md` updated.
+6. Report milestone completions and final victory when ready.
+
+## 2026-10-06T04:38:31Z
+
+## Server Restart Recovery Directive (Milestone 2)
+
+The server has restarted and background processes were interrupted. The user has explicitly requested: "please continue the tasks and subagents".
+
+Status check:
+- Milestone 1 (M6: Window Geometry & 16:9 Aspect Ratio Locking) is certified PASS (100% consensus across all 5 gate agents).
+- Milestone 2 (M7: Golden Ratio Layout Architecture & 4-Pixel Grid Alignment) is active. `worker_layout_m2_1` was dispatched to `.agents/teamwork/worker_layout_m2_1/`.
+
+Please revive your orchestration loop immediately:
+1. Re-check and revive `worker_layout_m2_1` by sending a continuation message.
+2. Reschedule your background heartbeat/timers.
+3. Advance Milestone 2 through its adversarial review gate (2 Reviewers, 2 Challengers, Forensic Auditor).
+4. Proceed through Milestones 3 (Component & Gadget Sizing Compliance) and 4 (Automated Verification Suite & Adversarial Hardening).
+5. Keep your `BRIEFING.md`, `GATE_STATUS.md`, and `progress.md` updated.
+6. Report milestone completions and final victory when ready.

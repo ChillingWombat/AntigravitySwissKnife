@@ -149,6 +149,10 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/system/installations", s.handleSystemInstallations)
 	mux.HandleFunc("/api/system/check_updates", s.handleSystemCheckUpdates)
 
+	// Available models catalog
+	mux.HandleFunc("/api/models/available", s.handleAvailableModels)
+	mux.HandleFunc("/api/available_models", s.handleAvailableModels)
+
 	// Custom models provider
 	mux.HandleFunc("/api/custom_models", s.handleCustomModels)
 	mux.HandleFunc("/api/custom_models/presets", s.handleCustomModelPresets)
@@ -727,6 +731,9 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			if val, ok := p["default_non_gemini_model"].(string); ok {
 				c.DefaultNonGeminiModel = val
 			}
+			if val, ok := p["default_gemini_reasoning_level"].(string); ok {
+				c.DefaultGeminiReasoningLevel = val
+			}
 			if val, ok := p["auto_import_active_account"].(bool); ok {
 				c.AutoImportActiveAccount = val
 			}
@@ -743,6 +750,10 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 	var cfg map[string]interface{}
 	if err := s.client.Call("swiss.getRuleConfig", nil, &cfg); err != nil {
 		c, _ := core.LoadConfig()
+		geminiReasoning := c.DefaultGeminiReasoningLevel
+		if geminiReasoning == "" {
+			geminiReasoning = "high"
+		}
 		cfg = map[string]interface{}{
 			"auto_switch_enabled":              c.AutoSwitchEnabled,
 			"auto_switch_threshold":            c.AutoSwitchThreshold,
@@ -759,10 +770,34 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			"default_gemini_model":             c.DefaultGeminiModel,
 			"default_custom_model":             c.DefaultCustomModel,
 			"default_non_gemini_model":         c.DefaultNonGeminiModel,
+			"default_gemini_reasoning_level":   geminiReasoning,
 			"auto_import_active_account":       c.AutoImportActiveAccount,
+		}
+	} else if cfg != nil {
+		if _, ok := cfg["default_gemini_reasoning_level"]; !ok {
+			c, _ := core.LoadConfig()
+			if c != nil && c.DefaultGeminiReasoningLevel != "" {
+				cfg["default_gemini_reasoning_level"] = c.DefaultGeminiReasoningLevel
+			} else {
+				cfg["default_gemini_reasoning_level"] = "high"
+			}
 		}
 	}
 	writeJSON(w, cfg)
+}
+
+func (s *Server) handleAvailableModels(w http.ResponseWriter, r *http.Request) {
+	store, _ := keyring.NewStore("")
+	var acc *keyring.Account
+	if store != nil {
+		active := store.ActiveAccount()
+		if active != "" {
+			acc, _ = store.GetAccount(active)
+		}
+	}
+	force := r.URL.Query().Get("force") == "true" || r.URL.Query().Get("refresh") == "true"
+	catalog := quota.GetAvailableModelCatalog(acc, force)
+	writeJSON(w, catalog)
 }
 
 func (s *Server) handleSurfaces(w http.ResponseWriter, r *http.Request) {

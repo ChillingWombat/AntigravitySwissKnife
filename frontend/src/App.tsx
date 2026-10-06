@@ -112,7 +112,7 @@ export const App: React.FC = () => {
         ) : (
           <header
             style={{
-              height: '64px',
+              height: '72px',
               backgroundColor: '#ffffff',
               borderBottom: '1px solid var(--border)',
               boxSizing: 'border-box',

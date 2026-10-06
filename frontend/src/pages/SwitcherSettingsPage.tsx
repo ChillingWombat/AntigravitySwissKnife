@@ -14,7 +14,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
-import type { RuleConfig, SurfacesResponse } from '../types'
+import type { RuleConfig, SurfacesResponse, AvailableModelItem } from '../types'
 import { api } from '../api'
 
 interface SwitcherSettingsPageProps {
@@ -74,9 +74,30 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       ? initialRules.model_source_hierarchy
       : ['gemini', 'custom_model', 'non_gemini', 'ai_credits']
   )
-  const [defaultGemini, setDefaultGemini] = useState<string>(initialRules?.default_gemini_model || 'gemini-2.5-pro')
+  const [defaultGemini, setDefaultGemini] = useState<string>(initialRules?.default_gemini_model || 'gemini-3.8-flash')
   const [defaultCustom, setDefaultCustom] = useState<string>(initialRules?.default_custom_model || '')
-  const [defaultNonGemini, setDefaultNonGemini] = useState<string>(initialRules?.default_non_gemini_model || 'claude-3-7-sonnet')
+  const [defaultNonGemini, setDefaultNonGemini] = useState<string>(initialRules?.default_non_gemini_model || 'claude-opus-4-6')
+  const [geminiReasoningLevel, setGeminiReasoningLevel] = useState<string>(initialRules?.default_gemini_reasoning_level || 'high')
+
+  // Dynamic available model lists
+  const [geminiModelOptions, setGeminiModelOptions] = useState<AvailableModelItem[]>([
+    { id: 'gemini-3.8-flash', display_name: 'Gemini 3.8 Flash' },
+    { id: 'gemini-3.8-pro', display_name: 'Gemini 3.8 Pro' },
+    { id: 'gemini-3.5-flash-lite', display_name: 'Gemini 3.5 Flash Lite' },
+    { id: 'gemini-3.1-pro', display_name: 'Gemini 3.1 Pro' },
+    { id: 'gemini-2.5-pro', display_name: 'Gemini 2.5 Pro' },
+    { id: 'gemini-2.5-flash', display_name: 'Gemini 2.5 Flash' },
+    { id: 'gemini-2.0-flash', display_name: 'Gemini 2.0 Flash' },
+  ])
+  const [nonGeminiModelOptions, setNonGeminiModelOptions] = useState<AvailableModelItem[]>([
+    { id: 'claude-opus-4-6', display_name: 'Claude Opus 4.6' },
+    { id: 'claude-3-7-sonnet', display_name: 'Claude 3.7 Sonnet' },
+    { id: 'claude-3-5-sonnet', display_name: 'Claude 3.5 Sonnet' },
+    { id: 'claude-3-5-haiku', display_name: 'Claude 3.5 Haiku' },
+    { id: 'gpt-4o', display_name: 'OpenAI GPT-4o' },
+    { id: 'o3-mini', display_name: 'OpenAI o3-mini' },
+  ])
+  const [isFetchingModels, setIsFetchingModels] = useState<boolean>(false)
   const [autoImportActive, setAutoImportActive] = useState<boolean>(initialRules?.auto_import_active_account ?? false)
   const [surfacesData, setSurfacesData] = useState<SurfacesResponse | null>(null)
   const [isRefreshingSurfaces, setIsRefreshingSurfaces] = useState<boolean>(false)
@@ -117,17 +138,43 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       if (initialRules.default_gemini_model) {
         setDefaultGemini(initialRules.default_gemini_model)
       }
-      if (initialRules.default_custom_model) {
+      if (initialRules.default_custom_model !== undefined) {
         setDefaultCustom(initialRules.default_custom_model)
       }
       if (initialRules.default_non_gemini_model) {
         setDefaultNonGemini(initialRules.default_non_gemini_model)
+      }
+      if (initialRules.default_gemini_reasoning_level) {
+        setGeminiReasoningLevel(initialRules.default_gemini_reasoning_level)
       }
       if (initialRules.auto_import_active_account !== undefined) {
         setAutoImportActive(initialRules.auto_import_active_account)
       }
     }
   }, [initialRules])
+
+  const fetchAvailableModels = async (force: boolean = false) => {
+    setIsFetchingModels(true)
+    try {
+      const res = await api.getAvailableModels(force)
+      if (res && res.success) {
+        if (res.gemini_models && res.gemini_models.length > 0) {
+          setGeminiModelOptions(res.gemini_models)
+        }
+        if (res.non_gemini_models && res.non_gemini_models.length > 0) {
+          setNonGeminiModelOptions(res.non_gemini_models)
+        }
+      }
+    } catch (_) {
+      // Keep baseline models active
+    } finally {
+      setIsFetchingModels(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchAvailableModels()
+  }, [])
 
   const refreshSurfaces = () => {
     setIsRefreshingSurfaces(true)
@@ -145,10 +192,25 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     api.getCustomModels()
       .then((res) => {
         if (res && res.models) {
-          setCustomModelOptions(res.models.map((m) => ({ id: m.id, name: m.name })))
+          const enabled = res.models.filter((m) => m.enabled)
+          setCustomModelOptions(enabled.map((m) => ({ id: m.id, name: m.display_name || m.name || m.id })))
+          if (enabled.length > 0) {
+            setDefaultCustom((prev) => {
+              const exists = enabled.some((m) => m.id === prev)
+              return exists && prev !== '' ? prev : enabled[0].id
+            })
+          } else {
+            setDefaultCustom('')
+          }
+        } else {
+          setCustomModelOptions([])
+          setDefaultCustom('')
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        setCustomModelOptions([])
+        setDefaultCustom('')
+      })
   }, [])
 
   const moveHierarchyItem = (index: number, direction: 'up' | 'down') => {
@@ -179,6 +241,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
         default_gemini_model: defaultGemini,
         default_custom_model: defaultCustom,
         default_non_gemini_model: defaultNonGemini,
+        default_gemini_reasoning_level: geminiReasoningLevel,
         auto_import_active_account: autoImportActive,
       })
       setFeedback('Configuration saved successfully.')
@@ -543,8 +606,21 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
 
       {/* Section 4: Default Models Configuration */}
       <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
-          Default Models Configuration
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+            Default Models Configuration
+          </div>
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={() => fetchAvailableModels(true)}
+            disabled={isFetchingModels}
+            style={{ fontSize: '11px', padding: '4px 10px', height: '26px', gap: '5px', display: 'flex', alignItems: 'center', cursor: isFetchingModels ? 'not-allowed' : 'pointer' }}
+            title="Refresh active models from Google CloudCode and local configurations"
+          >
+            <RefreshCw size={12} className={isFetchingModels ? 'spinning' : ''} />
+            {isFetchingModels ? 'Refreshing...' : 'Refresh Models'}
+          </button>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -563,11 +639,11 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               onChange={(e) => setDefaultGemini(e.target.value)}
               style={{ width: '240px' }}
             >
-              <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-              <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-              <option value="gemini-2.0-flash-thinking">Gemini 2.0 Flash Thinking</option>
-              <option value="gemini-2.0-pro">Gemini 2.0 Pro</option>
-              <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+              {geminiModelOptions.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.display_name}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -610,11 +686,11 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               onChange={(e) => setDefaultNonGemini(e.target.value)}
               style={{ width: '240px' }}
             >
-              <option value="claude-3-7-sonnet">Claude 3.7 Sonnet</option>
-              <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
-              <option value="claude-3-5-haiku">Claude 3.5 Haiku</option>
-              <option value="gpt-4o">OpenAI GPT-4o</option>
-              <option value="o3-mini">OpenAI o3-mini</option>
+              {nonGeminiModelOptions.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.display_name}
+                </option>
+              ))}
             </select>
           </div>
         </div>

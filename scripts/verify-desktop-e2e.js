@@ -231,6 +231,10 @@ async function run() {
       passed: stdout.includes('[E2E-TEST] Window title: Antigravity Swiss Knife') || stdout.includes('Antigravity Swiss Knife'),
     },
     {
+      name: 'Window Geometry & 16:9 Aspect Ratio Verified (1152x648, 4px aligned)',
+      passed: stdout.includes('[E2E-TEST] Window geometry verified: 1152x648 (16:9 aspect ratio, 4px aligned)'),
+    },
+    {
       name: 'API Status Probe Succeeded (127.0.0.1:8765/api/status)',
       passed: stdout.includes('[E2E-TEST] API status result: OK'),
     },

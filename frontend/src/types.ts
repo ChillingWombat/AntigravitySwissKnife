@@ -21,7 +21,35 @@ export interface QuotaSummary {
   models: ModelQuota[]
   min_fraction: number
   overall_health: string
-  last_polled?: string
+}
+
+export const CANONICAL_PLAN_TIERS = [
+  'Free',
+  'Plus',
+  'Pro',
+  'Pro - Trial',
+  'Edu',
+  'Ultra 5X',
+  'Ultra 10X',
+  'Ultra 20X',
+] as const
+
+export type PlanTier = typeof CANONICAL_PLAN_TIERS[number]
+
+export function normalizePlanTier(raw?: string): string {
+  if (!raw) return 'Free'
+  const trimmed = raw.trim()
+  const lower = trimmed.toLowerCase()
+  if (lower === 'free') return 'Free'
+  if (lower.includes('trial')) return 'Pro - Trial'
+  if (lower.includes('20x')) return 'Ultra 20X'
+  if (lower.includes('10x')) return 'Ultra 10X'
+  if (lower.includes('5x')) return 'Ultra 5X'
+  if (lower.includes('ultra')) return 'Ultra 20X'
+  if (lower.includes('edu') || lower.includes('education')) return 'Edu'
+  if (lower.includes('plus')) return 'Plus'
+  if (lower.includes('pro')) return 'Pro'
+  return trimmed
 }
 
 export interface AccountState {
@@ -75,7 +103,26 @@ export interface RuleConfig {
   default_gemini_model?: string
   default_custom_model?: string
   default_non_gemini_model?: string
+  default_gemini_reasoning_level?: string
   auto_import_active_account?: boolean
+}
+
+export interface AvailableModelItem {
+  id: string
+  display_name: string
+  supports_thinking?: boolean
+  thinking_levels?: string[]
+  recommended?: boolean
+  provider?: string
+}
+
+export interface AvailableModelsResponse {
+  success: boolean
+  gemini_models: AvailableModelItem[]
+  non_gemini_models: AvailableModelItem[]
+  default_gemini?: string
+  default_non_gemini?: string
+  timestamp?: string
 }
 
 export interface SurfaceAccount {
@@ -386,9 +433,10 @@ export interface GUIConfig {
   archived_projects: string[]
   conversation_tabs_mode: 'fixed' | 'dynamic'
   conversation_tabs_fixed_limit: number
-  conversation_tabs_age_threshold: '1d' | '3d' | '7d'
+  conversation_tabs_age_threshold: '1d' | '3d' | '7d' | '14d' | '30d'
   conversation_tabs_min: number
   conversation_tabs_max: number
+  replace_see_all_triangle?: boolean
   auto_archive_conversations: boolean
   auto_archive_horizon: '3d' | '7d' | '14d' | '30d' | '60d' | '90d'
   auto_inject: boolean

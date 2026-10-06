@@ -68,9 +68,11 @@ func TestDetermineDefaultPlanTier(t *testing.T) {
 		{"heavy_user_5x@gmail.com", "", "Ultra 5X"},
 		{"ultra10_corp@gmail.com", "", "Ultra 10X"},
 		{"max_ultra20x@gmail.com", "", "Ultra 20X"},
-		// Explicit override takes precedence
+		// Explicit override takes precedence and normalizes legacy strings
 		{"user@stanford.edu", "Ultra 20X", "Ultra 20X"},
 		{"random@gmail.com", "Pro - Trial", "Pro - Trial"},
+		{"random@gmail.com", "Google AI Pro", "Pro"},
+		{"random@gmail.com", "Google AI Ultra", "Ultra 20X"},
 		{"random@gmail.com", "", "Pro"}, // fallback
 	}
 
@@ -78,6 +80,43 @@ func TestDetermineDefaultPlanTier(t *testing.T) {
 		got := DetermineDefaultPlanTier(tc.email, tc.explicitTier)
 		if got != tc.want {
 			t.Errorf("DetermineDefaultPlanTier(%q, %q) = %q, want %q", tc.email, tc.explicitTier, got, tc.want)
+		}
+	}
+}
+
+func TestNormalizePlanTier(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"", "Free"},
+		{"free", "Free"},
+		{"Free", "Free"},
+		{"plus", "Plus"},
+		{"Plus", "Plus"},
+		{"pro", "Pro"},
+		{"Pro", "Pro"},
+		{"Google AI Pro", "Pro"},
+		{"PRO", "Pro"},
+		{"Pro - Trial", "Pro - Trial"},
+		{"trial", "Pro - Trial"},
+		{"Pro Trial", "Pro - Trial"},
+		{"edu", "Edu"},
+		{"Edu", "Edu"},
+		{"Ultra 5X", "Ultra 5X"},
+		{"5x", "Ultra 5X"},
+		{"Ultra 10X", "Ultra 10X"},
+		{"10x", "Ultra 10X"},
+		{"Ultra 20X", "Ultra 20X"},
+		{"20x", "Ultra 20X"},
+		{"Google AI Ultra", "Ultra 20X"},
+		{"Ultra", "Ultra 20X"},
+	}
+
+	for _, tt := range tests {
+		got := NormalizePlanTier(tt.input)
+		if got != tt.want {
+			t.Errorf("NormalizePlanTier(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }

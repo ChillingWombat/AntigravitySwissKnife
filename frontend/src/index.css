@@ -22,6 +22,16 @@
   --red-bg: #fce8e6;
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+
+  /* Layout & Grid Tokens (Base 4-pixel grid & Golden Ratio) */
+  --grid-unit: 4px;
+  --window-min-width: 1152px;
+  --window-min-height: 648px;
+  --nav-rail-width: 220px;
+  --header-height: 72px;
+  --workspace-min-width: 932px;
+  --workspace-min-height: 576px;
+  --phi: 1.6180339887;
 }
 
 * {

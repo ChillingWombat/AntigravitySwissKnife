@@ -43,7 +43,7 @@ export const NavRail: React.FC<NavRailProps> = ({
       {/* Brand Header with mathematically aligned height and border */}
       <div
         style={{
-          height: '64px',
+          height: '72px',
           borderBottom: '1px solid var(--border)',
           boxSizing: 'border-box',
           display: 'flex',

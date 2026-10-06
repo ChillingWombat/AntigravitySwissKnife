@@ -69,6 +69,9 @@ func (s *Store) load() error {
 		if _, ok := raw["auto_archive_conversations"]; !ok {
 			cfg.AutoArchiveConversations = true
 		}
+		if _, ok := raw["replace_see_all_triangle"]; !ok {
+			cfg.ReplaceSeeAllTriangle = true
+		}
 	}
 	if cfg.ActiveConversationIndicator == "" {
 		cfg.ActiveConversationIndicator = "background"
@@ -77,22 +80,22 @@ func (s *Store) load() error {
 		cfg.ProjectColors = make(map[string]string)
 	}
 	if cfg.TintOpacity <= 0 {
-		cfg.TintOpacity = 0.14
+		cfg.TintOpacity = 0.15
 	}
 	if cfg.ArchivedProjects == nil {
 		cfg.ArchivedProjects = []string{}
 	}
 	if cfg.ConversationTabsMode == "" {
-		cfg.ConversationTabsMode = "fixed"
+		cfg.ConversationTabsMode = "dynamic"
 	}
 	if cfg.ConversationTabsFixedLimit <= 0 || cfg.ConversationTabsFixedLimit > 10 {
 		cfg.ConversationTabsFixedLimit = 6
 	}
 	if cfg.ConversationTabsAgeThreshold == "" {
-		cfg.ConversationTabsAgeThreshold = "1d"
+		cfg.ConversationTabsAgeThreshold = "14d"
 	}
 	if cfg.ConversationTabsMin <= 0 {
-		cfg.ConversationTabsMin = 2
+		cfg.ConversationTabsMin = 3
 	}
 	if cfg.ConversationTabsMax <= 0 {
 		cfg.ConversationTabsMax = 6
@@ -183,6 +186,7 @@ func (s *Store) GetConfig() Config {
 		ConversationTabsAgeThreshold: s.config.ConversationTabsAgeThreshold,
 		ConversationTabsMin:         s.config.ConversationTabsMin,
 		ConversationTabsMax:         s.config.ConversationTabsMax,
+		ReplaceSeeAllTriangle:       s.config.ReplaceSeeAllTriangle,
 		AutoArchiveConversations:    s.config.AutoArchiveConversations,
 		AutoArchiveHorizon:          s.config.AutoArchiveHorizon,
 		AutoInject:                  s.config.AutoInject,
@@ -202,19 +206,19 @@ func (s *Store) UpdateConfig(cfg *Config) error {
 		cfg.ArchivedProjects = []string{}
 	}
 	if cfg.TintOpacity <= 0 {
-		cfg.TintOpacity = 0.14
+		cfg.TintOpacity = 0.15
 	}
 	if cfg.ConversationTabsMode == "" {
-		cfg.ConversationTabsMode = "fixed"
+		cfg.ConversationTabsMode = "dynamic"
 	}
 	if cfg.ConversationTabsFixedLimit <= 0 || cfg.ConversationTabsFixedLimit > 10 {
 		cfg.ConversationTabsFixedLimit = 6
 	}
 	if cfg.ConversationTabsAgeThreshold == "" {
-		cfg.ConversationTabsAgeThreshold = "1d"
+		cfg.ConversationTabsAgeThreshold = "14d"
 	}
 	if cfg.ConversationTabsMin <= 0 {
-		cfg.ConversationTabsMin = 2
+		cfg.ConversationTabsMin = 3
 	}
 	if cfg.ConversationTabsMax <= 0 {
 		cfg.ConversationTabsMax = 6

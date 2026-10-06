@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
 )
 
 func TestWebGUIServesMinimalistLightHTML(t *testing.T) {
@@ -369,17 +370,17 @@ func TestWebGUIConversationTabsAndAutoArchiveEndpoints(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	if cfg.ConversationTabsMode != "fixed" {
-		t.Errorf("expected default tabs mode 'fixed', got %q", cfg.ConversationTabsMode)
+	if cfg.ConversationTabsMode != "dynamic" {
+		t.Errorf("expected default tabs mode 'dynamic', got %q", cfg.ConversationTabsMode)
 	}
 	if cfg.ConversationTabsFixedLimit != 6 {
 		t.Errorf("expected default tabs limit 6, got %d", cfg.ConversationTabsFixedLimit)
 	}
-	if cfg.ConversationTabsAgeThreshold != "1d" {
-		t.Errorf("expected default age threshold '1d', got %q", cfg.ConversationTabsAgeThreshold)
+	if cfg.ConversationTabsAgeThreshold != "14d" {
+		t.Errorf("expected default age threshold '14d', got %q", cfg.ConversationTabsAgeThreshold)
 	}
-	if cfg.ConversationTabsMin != 2 {
-		t.Errorf("expected default min tabs 2, got %d", cfg.ConversationTabsMin)
+	if cfg.ConversationTabsMin != 3 {
+		t.Errorf("expected default min tabs 3, got %d", cfg.ConversationTabsMin)
 	}
 	if cfg.ConversationTabsMax != 6 {
 		t.Errorf("expected default max tabs 6, got %d", cfg.ConversationTabsMax)
@@ -656,5 +657,83 @@ func TestWebGUIUtilitiesImportEndpoints(t *testing.T) {
 		t.Fatalf("POST /api/utilities/import failed: err=%v, code=%d", err, resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+func TestWebGUIAvailableModelsAndRules(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// 1. GET /api/models/available
+	resp, err := http.Get(baseURL + "/api/models/available")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/models/available failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	var cat quota.AvailableModelsCatalog
+	if err := json.NewDecoder(resp.Body).Decode(&cat); err != nil {
+		t.Fatalf("failed to decode AvailableModelsCatalog: %v", err)
+	}
+	resp.Body.Close()
+
+	if !cat.Success {
+		t.Errorf("expected cat.Success to be true")
+	}
+	if cat.DefaultGemini != "gemini-3.8-flash" {
+		t.Errorf("expected default gemini 'gemini-3.8-flash', got '%s'", cat.DefaultGemini)
+	}
+	if cat.DefaultNonGemini != "claude-opus-4-6" {
+		t.Errorf("expected default non-gemini 'claude-opus-4-6', got '%s'", cat.DefaultNonGemini)
+	}
+	if len(cat.GeminiModels) == 0 {
+		t.Errorf("expected non-empty GeminiModels")
+	}
+	if len(cat.NonGeminiModels) == 0 {
+		t.Errorf("expected non-empty NonGeminiModels")
+	}
+
+	// 2. GET /api/rules default reasoning level
+	resp, err = http.Get(baseURL + "/api/rules")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/rules failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	var rules map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&rules); err != nil {
+		t.Fatalf("failed to decode rules: %v", err)
+	}
+	resp.Body.Close()
+
+	if lvl, ok := rules["default_gemini_reasoning_level"].(string); !ok || lvl != "high" {
+		t.Errorf("expected default_gemini_reasoning_level 'high', got '%v'", rules["default_gemini_reasoning_level"])
+	}
+
+	// 3. POST /api/rules to update reasoning level
+	postData := map[string]interface{}{
+		"default_gemini_reasoning_level": "medium",
+	}
+	pBytes, _ := json.Marshal(postData)
+	resp, err = http.Post(baseURL+"/api/rules", "application/json", bytes.NewReader(pBytes))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/rules failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 4. Verify updated reasoning level
+	resp, err = http.Get(baseURL + "/api/rules")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/rules failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	var updatedRules map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&updatedRules)
+	resp.Body.Close()
+
+	if lvl, ok := updatedRules["default_gemini_reasoning_level"].(string); !ok || lvl != "medium" {
+		t.Errorf("expected default_gemini_reasoning_level 'medium', got '%v'", updatedRules["default_gemini_reasoning_level"])
+	}
 }
 
