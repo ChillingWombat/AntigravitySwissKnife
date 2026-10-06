@@ -383,13 +383,27 @@ button[data-swiss-divider="true"] {
   transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 .swiss-project-bottom-spacer {
-  height: 20px !important;
+  position: relative !important;
+  height: 32px !important;
   width: 100% !important;
   pointer-events: none !important;
   box-sizing: border-box !important;
 }
+.swiss-project-spacer-line {
+  position: absolute !important;
+  top: 50% !important;
+  left: 0 !important;
+  right: 0 !important;
+  width: 100% !important;
+  height: 1px !important;
+  transform: translateY(-50%) !important;
+  background: rgba(148, 163, 184, 0.35) !important;
+  z-index: 1 !important;
+}
 [data-theme="dark"] .swiss-convo-tabs-line,
-.dark .swiss-convo-tabs-line {
+.dark .swiss-convo-tabs-line,
+[data-theme="dark"] .swiss-project-spacer-line,
+.dark .swiss-project-spacer-line {
   background: rgba(148, 163, 184, 0.22) !important;
 }
 [data-theme="dark"] .swiss-convo-tabs-pill,
@@ -464,6 +478,10 @@ func generateBaseScript(cfg *Config) string {
 	if cfg != nil {
 		consistentProjectSpacing = cfg.ConsistentProjectSpacing
 	}
+	consistentProjectSpacingLine := true
+	if cfg != nil {
+		consistentProjectSpacingLine = cfg.ConsistentProjectSpacingLine
+	}
 	isBorderMode := cfg != nil && cfg.ActiveConversationIndicator == "border"
 	borderWidth := "2px"
 	if cfg != nil && cfg.ActiveConversationBorderWidth != "" {
@@ -489,6 +507,7 @@ func generateBaseScript(cfg *Config) string {
   const tabsMax = %d;
   const replaceSeeAllTriangle = %t;
   const consistentProjectSpacing = %t;
+  const consistentProjectSpacingLine = %t;
   const isBorderMode = %t;
   const borderWidth = %q;
   const isLeftBarMode = %t;
@@ -637,6 +656,16 @@ func generateBaseScript(cfg *Config) string {
               spacer = document.createElement("div");
               spacer.className = "swiss-project-bottom-spacer";
               el.appendChild(spacer);
+            }
+            let line = spacer.querySelector(".swiss-project-spacer-line");
+            if (consistentProjectSpacingLine) {
+              if (!line) {
+                line = document.createElement("div");
+                line.className = "swiss-project-spacer-line";
+                spacer.appendChild(line);
+              }
+            } else if (line) {
+              line.remove();
             }
           } else if (spacer) {
             spacer.remove();
@@ -1391,6 +1420,7 @@ func generateBaseScript(cfg *Config) string {
           t.classList?.contains("swiss-convo-tabs-divider") || 
           t.classList?.contains("swiss-convo-tabs-pill") ||
           t.classList?.contains("swiss-project-bottom-spacer") ||
+          t.classList?.contains("swiss-project-spacer-line") ||
           t.closest?.("[id^='swiss-'], [class*='swiss-'], [data-swiss-project]")) {
         continue;
       }
@@ -1430,7 +1460,7 @@ func generateBaseScript(cfg *Config) string {
     dragEnabled: isDragEnabled,
     taggedCount: document.querySelectorAll("[data-swiss-project]").length
   };
-})();`, string(cssJSON), enabled, colorStylingEnabled, dragRearrangeEnabled, string(orderJSON), string(archivedJSON), tabsMode, tabsFixedLimit, tabsAgeThreshold, tabsMin, tabsMax, replaceSeeAllTriangle, consistentProjectSpacing, isBorderMode, borderWidth, isLeftBarMode, fontWeight)
+})();`, string(cssJSON), enabled, colorStylingEnabled, dragRearrangeEnabled, string(orderJSON), string(archivedJSON), tabsMode, tabsFixedLimit, tabsAgeThreshold, tabsMin, tabsMax, replaceSeeAllTriangle, consistentProjectSpacing, consistentProjectSpacingLine, isBorderMode, borderWidth, isLeftBarMode, fontWeight)
 
 	return baseScript
 }

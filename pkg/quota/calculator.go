@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 )
 
@@ -218,6 +219,11 @@ func BuildAccountQuotaStates(accounts []*keyring.Account, activeSummary *QuotaSu
 
 // BuildAccountQuotaStatesFromMap builds account states using live summaries and cached agent db.
 func BuildAccountQuotaStatesFromMap(accounts []*keyring.Account, summaries map[string]*QuotaSummary) []AccountQuotaState {
+	return BuildAccountQuotaStatesFromMapWithThreshold(accounts, summaries, core.DefaultAutoSwitchThresholdFraction)
+}
+
+// BuildAccountQuotaStatesFromMapWithThreshold builds account states using live summaries, cached agent db, and custom exhaustion threshold.
+func BuildAccountQuotaStatesFromMapWithThreshold(accounts []*keyring.Account, summaries map[string]*QuotaSummary, threshold float64) []AccountQuotaState {
 	results := make([]AccountQuotaState, 0, len(accounts))
 	now := time.Now()
 
@@ -378,6 +384,21 @@ func BuildAccountQuotaStatesFromMap(accounts []*keyring.Account, summaries map[s
 		prio := acc.Priority
 		if prio == "" {
 			prio = "High"
+		}
+
+		// Cooldown evaluation for valid (non-banned, non-error) non-active accounts:
+		// A valid account whose quota is below threshold and waiting to be reset enters COOLDOWN.
+		// If quota recovers above threshold after reset, status returns to STANDBY.
+		if status != "BANNED" && status != "ERROR" && !acc.IsActive {
+			hasPolledData := cur5h > 0 || curWeekly > 0 || curSec > 0 || curSecWeekly > 0 || (resText != "" && resText != "Not Polled") || (summaries != nil && summaries[normEmail] != nil)
+			if hasPolledData {
+				isBelow := cur5h <= threshold || (curWeekly <= 0.05 && !(acc.EnableCreditOverages && credits > 0))
+				if isBelow {
+					status = "COOLDOWN"
+				} else if status == "COOLDOWN" {
+					status = "STANDBY"
+				}
+			}
 		}
 
 		results = append(results, AccountQuotaState{
@@ -849,7 +870,7 @@ func RankStandbyAccountsWithMode(accounts []AccountQuotaState, threshold float64
 			continue
 		}
 		st := strings.ToUpper(acc.Status)
-		if st == "BANNED" || st == "ERROR" {
+		if st == "BANNED" || st == "ERROR" || st == "COOLDOWN" {
 			continue
 		}
 		if acc.Quota5hCurrent <= threshold {
@@ -1049,6 +1070,9 @@ func SortAccountQuotaStates(accounts []AccountQuotaState, activeEmail string, th
 		}
 		if st == "ERROR" {
 			return 4
+		}
+		if st == "COOLDOWN" {
+			return 3
 		}
 		isAct := a.IsActive || a.Email == activeEmail
 		isBelow := a.Quota5hCurrent <= threshold || (a.QuotaWeekly <= 0.05 && !(a.EnableCreditOverages && a.Credits > 0))

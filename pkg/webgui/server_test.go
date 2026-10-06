@@ -931,7 +931,7 @@ func TestWebGUISettingsStorageAndPrivacy(t *testing.T) {
 	var privInfo map[string]interface{}
 	_ = json.NewDecoder(resp.Body).Decode(&privInfo)
 	resp.Body.Close()
-	if privInfo["github_repo"] != "ChillingWombat/antigravity-swiss-knife" {
+	if privInfo["github_repo"] != "ChillingWombat/AntigravitySwissKnife" {
 		t.Errorf("expected github_repo, got %v", privInfo["github_repo"])
 	}
 
@@ -1098,6 +1098,189 @@ func TestFilesEndpointsWithSpacesAndEncoding(t *testing.T) {
 
 	if !readRes.Success || readRes.Content != content {
 		t.Errorf("read file mismatch: expected %q, got %q", content, readRes.Content)
+	}
+
+	// 4. Unicode directory and files with spaces
+	unicodeFolder := filepath.Join(tempDir, "测试 目录 With Spaces")
+	if err := os.MkdirAll(unicodeFolder, 0755); err != nil {
+		t.Fatalf("MkdirAll unicode folder failed: %v", err)
+	}
+	unicodeFile := filepath.Join(unicodeFolder, "文档 file.txt")
+	uContent := "Unicode and spaces test content"
+	if err := os.WriteFile(unicodeFile, []byte(uContent), 0644); err != nil {
+		t.Fatalf("WriteFile unicode failed: %v", err)
+	}
+
+	resp, err = http.Get(baseURL + "/api/files/read?path=" + url.QueryEscape(unicodeFile))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/files/read unicode failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	var uReadRes struct {
+		Success bool   `json:"success"`
+		Content string `json:"content"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&uReadRes)
+	resp.Body.Close()
+	if !uReadRes.Success || uReadRes.Content != uContent {
+		t.Errorf("unicode read mismatch: expected %q, got %q", uContent, uReadRes.Content)
+	}
+
+	// 5. File literally named with % on disk
+	pctFile := filepath.Join(spaceFolder, "literal%20file.txt")
+	pctContent := "Literal percent test content"
+	if err := os.WriteFile(pctFile, []byte(pctContent), 0644); err != nil {
+		t.Fatalf("WriteFile pct failed: %v", err)
+	}
+	cleanPct := cleanUserPath(pctFile)
+	if cleanPct != pctFile {
+		t.Errorf("expected cleanUserPath to preserve literal percent filename %q, got %q", pctFile, cleanPct)
+	}
+}
+
+func TestFilesRecursiveCopyMoveAndBatch(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+	tempDir := t.TempDir()
+
+	// Setup source structure with spaces:
+	// /src folder/
+	//   file1.txt
+	//   sub dir/
+	//     nested.txt
+	srcFolder := filepath.Join(tempDir, "src folder")
+	subDir := filepath.Join(srcFolder, "sub dir")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("failed to create source structure: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcFolder, "file1.txt"), []byte("file1 content"), 0644); err != nil {
+		t.Fatalf("failed to write file1: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "nested.txt"), []byte("nested content"), 0644); err != nil {
+		t.Fatalf("failed to write nested: %v", err)
+	}
+
+	// 1. Recursive Directory Copy to target folder
+	dstFolder := filepath.Join(tempDir, "dest folder")
+	_ = os.MkdirAll(dstFolder, 0755)
+
+	copyBody, _ := json.Marshal(map[string]string{
+		"src": srcFolder,
+		"dst": dstFolder,
+	})
+	resp, err := http.Post(baseURL+"/api/files/copy", "application/json", strings.NewReader(string(copyBody)))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/files/copy failed: %v", err)
+	}
+	var copyRes map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&copyRes)
+	resp.Body.Close()
+
+	if copyRes["success"] != true {
+		t.Fatalf("copy failed: %v", copyRes["error"])
+	}
+
+	// Verify recursive copy
+	copiedSubFile := filepath.Join(dstFolder, "src folder", "sub dir", "nested.txt")
+	if data, err := os.ReadFile(copiedSubFile); err != nil || string(data) != "nested content" {
+		t.Fatalf("recursive copy nested file failed: %v, content=%s", err, string(data))
+	}
+
+	// 2. Duplicate in-place (same folder copy should generate unique "(copy)")
+	fileToDup := filepath.Join(srcFolder, "file1.txt")
+	dupBody, _ := json.Marshal(map[string]string{
+		"src": fileToDup,
+		"dst": fileToDup,
+	})
+	resp, err = http.Post(baseURL+"/api/files/copy", "application/json", strings.NewReader(string(dupBody)))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST in-place copy failed: %v", err)
+	}
+	var dupRes map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&dupRes)
+	resp.Body.Close()
+
+	if dupRes["success"] != true {
+		t.Fatalf("in-place copy failed: %v", dupRes["error"])
+	}
+	expectedDupFile := filepath.Join(srcFolder, "file1 (copy).txt")
+	if _, err := os.Stat(expectedDupFile); err != nil {
+		t.Fatalf("expected duplicate file %s to exist: %v", expectedDupFile, err)
+	}
+
+	// 3. Batch Copy
+	batchCopyBody, _ := json.Marshal(map[string]interface{}{
+		"items": []map[string]string{
+			{"src": filepath.Join(srcFolder, "file1.txt"), "dst": filepath.Join(tempDir, "batch_file1.txt")},
+			{"src": subDir, "dst": filepath.Join(tempDir, "batch_subdir")},
+		},
+	})
+	resp, err = http.Post(baseURL+"/api/files/copy", "application/json", strings.NewReader(string(batchCopyBody)))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST batch copy failed: %v", err)
+	}
+	var batchCopyRes map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&batchCopyRes)
+	resp.Body.Close()
+
+	if batchCopyRes["success"] != true {
+		t.Fatalf("batch copy failed: %v", batchCopyRes["error"])
+	}
+	if _, err := os.Stat(filepath.Join(tempDir, "batch_subdir", "nested.txt")); err != nil {
+		t.Fatalf("batch copy directory failed: %v", err)
+	}
+
+	// 4. Recursive Move
+	moveTo := filepath.Join(tempDir, "moved folder")
+	moveBody, _ := json.Marshal(map[string]string{
+		"src": filepath.Join(tempDir, "batch_subdir"),
+		"dst": moveTo,
+	})
+	resp, err = http.Post(baseURL+"/api/files/move", "application/json", strings.NewReader(string(moveBody)))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/files/move failed: %v", err)
+	}
+	var moveRes map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&moveRes)
+	resp.Body.Close()
+
+	if moveRes["success"] != true {
+		t.Fatalf("move failed: %v", moveRes["error"])
+	}
+	if _, err := os.Stat(filepath.Join(moveTo, "nested.txt")); err != nil {
+		t.Fatalf("moved file does not exist: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tempDir, "batch_subdir")); !os.IsNotExist(err) {
+		t.Fatalf("old moved dir should no longer exist")
+	}
+
+	// 5. Batch Delete
+	batchDelBody, _ := json.Marshal(map[string]interface{}{
+		"paths": []string{
+			filepath.Join(tempDir, "batch_file1.txt"),
+			moveTo,
+		},
+	})
+	resp, err = http.Post(baseURL+"/api/files/delete", "application/json", strings.NewReader(string(batchDelBody)))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST batch delete failed: %v", err)
+	}
+	var delRes map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&delRes)
+	resp.Body.Close()
+
+	if delRes["success"] != true {
+		t.Fatalf("batch delete failed: %v", delRes["error"])
+	}
+	if _, err := os.Stat(filepath.Join(tempDir, "batch_file1.txt")); !os.IsNotExist(err) {
+		t.Fatalf("batch deleted file should be gone")
+	}
+	if _, err := os.Stat(moveTo); !os.IsNotExist(err) {
+		t.Fatalf("batch deleted directory should be gone")
 	}
 }
 

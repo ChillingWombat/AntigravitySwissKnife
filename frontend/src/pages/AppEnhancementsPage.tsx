@@ -1562,28 +1562,69 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   border: '1px solid var(--border, #e2e8f0)',
                   background: 'var(--card-bg, #ffffff)',
                   display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '16px',
+                  flexDirection: 'column',
+                  gap: '12px',
                 }}
               >
-                <div>
-                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
-                    Consistent Blank Area Below All Projects
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '16px',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
+                      Consistent Blank Area Below All Projects
+                    </div>
+                    <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                      Add blank spacing area below projects without contracted conversation tabs for balanced, consistent project separation.
+                    </p>
                   </div>
-                  <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
-                    Add blank spacing area below projects without contracted conversation tabs for balanced, consistent project separation.
-                  </p>
+                  <ToggleSwitch
+                    checked={guiConfig.consistent_project_spacing ?? true}
+                    onChange={(checked) =>
+                      setGuiConfig({
+                        ...guiConfig,
+                        consistent_project_spacing: checked,
+                      })
+                    }
+                  />
                 </div>
-                <ToggleSwitch
-                  checked={guiConfig.consistent_project_spacing ?? true}
-                  onChange={(checked) =>
-                    setGuiConfig({
-                      ...guiConfig,
-                      consistent_project_spacing: checked,
-                    })
-                  }
-                />
+
+                {/* Sub-option: Horizontal Line at Middle of Blank Space */}
+                {(guiConfig.consistent_project_spacing ?? true) && (
+                  <div
+                    style={{
+                      paddingTop: '10px',
+                      borderTop: '1px solid var(--border, #f1f5f9)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '16px',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                        Horizontal Line at Middle of Blank Space
+                      </div>
+                      <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                        Add a centered 1px horizontal divider line in the middle of the added white space.
+                      </p>
+                    </div>
+                    <ToggleSwitch
+                      size="sm"
+                      checked={guiConfig.consistent_project_spacing_line ?? true}
+                      onChange={(checked) =>
+                        setGuiConfig({
+                          ...guiConfig,
+                          consistent_project_spacing_line: checked,
+                        })
+                      }
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Horizontal Divider Line between Simplicity Zone and Fixed Number Zone */}
@@ -1978,20 +2019,45 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               {guiConfig.consistent_project_spacing !== false && (
                 <div
                   style={{
-                    height: '20px',
+                    position: 'relative',
+                    height: '32px',
+                    width: '100%',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    background: 'repeating-linear-gradient(45deg, rgba(148, 163, 184, 0.06), rgba(148, 163, 184, 0.06) 4px, transparent 4px, transparent 8px)',
+                    background: (guiConfig.consistent_project_spacing_line ?? true)
+                      ? 'transparent'
+                      : 'repeating-linear-gradient(45deg, rgba(148, 163, 184, 0.06), rgba(148, 163, 184, 0.06) 4px, transparent 4px, transparent 8px)',
                     borderRadius: '4px',
-                    border: '1px dashed rgba(148, 163, 184, 0.3)',
+                    border: (guiConfig.consistent_project_spacing_line ?? true)
+                      ? 'none'
+                      : '1px dashed rgba(148, 163, 184, 0.3)',
                     fontSize: '10px',
                     color: '#64748b',
                     fontWeight: 500,
+                    boxSizing: 'border-box',
                   }}
-                  title="20px consistent blank spacing area below uncontracted project"
+                  title={
+                    (guiConfig.consistent_project_spacing_line ?? true)
+                      ? '32px consistent blank spacing area with horizontal line at middle'
+                      : '32px consistent blank spacing area below uncontracted project'
+                  }
                 >
-                  20px consistent spacing
+                  {(guiConfig.consistent_project_spacing_line ?? true) ? (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: 0,
+                        right: 0,
+                        height: '1px',
+                        background: 'rgba(148, 163, 184, 0.35)',
+                        transform: 'translateY(-50%)',
+                      }}
+                    />
+                  ) : (
+                    '32px consistent spacing'
+                  )}
                 </div>
               )}
             </div>

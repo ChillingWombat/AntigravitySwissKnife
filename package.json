@@ -10,7 +10,7 @@
     "desktop": "electron .",
     "desktop:dev": "npm run build:frontend && electron .",
     "desktop:minimized": "electron . --minimized",
-    "test:desktop": "node scripts/verify-desktop-e2e.js",
+    "test": "npm test --prefix frontend && go test ./pkg/...",
     "frontend:build": "npm run build:frontend",
     "go:build": "npm run build:go",
     "pack": "npm run build && electron-builder --dir",

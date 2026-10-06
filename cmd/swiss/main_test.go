@@ -11,7 +11,7 @@ import (
 
 func TestCLIHelpAndVersion(t *testing.T) {
 	cmd := exec.Command("go", "run", ".", "version")
-	cmd.Env = append(os.Environ(), "PATH="+os.Getenv("PATH")+":/home/david/.local/go/bin")
+	cmd.Env = os.Environ()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("version failed: %v, out: %s", err, string(out))
@@ -21,7 +21,7 @@ func TestCLIHelpAndVersion(t *testing.T) {
 	}
 
 	cmdHelp := exec.Command("go", "run", ".", "help")
-	cmdHelp.Env = append(os.Environ(), "PATH="+os.Getenv("PATH")+":/home/david/.local/go/bin")
+	cmdHelp.Env = os.Environ()
 	outHelp, err := cmdHelp.CombinedOutput()
 	if err != nil {
 		t.Fatalf("help failed: %v, out: %s", err, string(outHelp))
@@ -33,7 +33,7 @@ func TestCLIHelpAndVersion(t *testing.T) {
 
 func TestCLIAccountsAndStatus(t *testing.T) {
 	cmdStatus := exec.Command("go", "run", ".", "status", "--json")
-	cmdStatus.Env = append(os.Environ(), "PATH="+os.Getenv("PATH")+":/home/david/.local/go/bin")
+	cmdStatus.Env = os.Environ()
 	outStatus, err := cmdStatus.CombinedOutput()
 	if err != nil {
 		t.Fatalf("status failed: %v, out: %s", err, string(outStatus))
@@ -43,7 +43,7 @@ func TestCLIAccountsAndStatus(t *testing.T) {
 	}
 
 	cmdQuota := exec.Command("go", "run", ".", "quota")
-	cmdQuota.Env = append(os.Environ(), "PATH="+os.Getenv("PATH")+":/home/david/.local/go/bin")
+	cmdQuota.Env = os.Environ()
 	outQuota, err := cmdQuota.CombinedOutput()
 	if err != nil {
 		t.Fatalf("quota failed: %v, out: %s", err, string(outQuota))

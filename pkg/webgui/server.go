@@ -2343,7 +2343,7 @@ func (s *Server) handleUtilitiesACP(w http.ResponseWriter, r *http.Request) {
 			"id":              "agent-claude-code",
 			"name":            "Claude Code CLI",
 			"type":            "Terminal Agent Daemon",
-			"binary_path":     "/home/david/.local/bin/claude",
+			"binary_path":     filepath.Join(os.Getenv("HOME"), ".local", "bin", "claude"),
 			"pid":             claudePID,
 			"port_socket":     "127.0.0.1:45124",
 			"acp_version":     "v1.1.4",
@@ -2391,7 +2391,6 @@ func (s *Server) handleUtilitiesACP(w http.ResponseWriter, r *http.Request) {
 func getAgentImporterScriptPath() string {
 	candidates := []string{
 		"scripts/agent_importer.py",
-		"/mnt/Data/Projects/Antigravity Swiss Knife/scripts/agent_importer.py",
 	}
 	if exe, err := os.Executable(); err == nil {
 		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "..", "scripts", "agent_importer.py"))
@@ -2552,6 +2551,7 @@ func cleanUserPath(raw string) string {
 			p = strings.TrimPrefix(p, "localhost")
 		}
 	}
+	originalBeforeUnescape := p
 	// Decode percent-encoded spaces and characters (e.g. %20, %2F)
 	for strings.Contains(p, "%") {
 		if unescaped, err := url.QueryUnescape(p); err == nil && unescaped != p {
@@ -2560,6 +2560,14 @@ func cleanUserPath(raw string) string {
 			p = unescaped
 		} else {
 			break
+		}
+	}
+	// If unescaped path does not exist on disk but original literal with % did, restore it
+	if p != originalBeforeUnescape {
+		if _, err := os.Stat(p); os.IsNotExist(err) {
+			if _, errOrig := os.Stat(originalBeforeUnescape); errOrig == nil {
+				p = originalBeforeUnescape
+			}
 		}
 	}
 	p = strings.TrimSpace(p)
@@ -2713,7 +2721,7 @@ func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
 		if wd, err := os.Getwd(); err == nil && wd != "" {
 			dirPath = wd
 		} else {
-			dirPath = "/mnt/Data/Projects/Antigravity Swiss Knife"
+			dirPath = "."
 		}
 	}
 
@@ -2862,18 +2870,36 @@ func (s *Server) handleFilesDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var p struct {
-		Path string `json:"path"`
+		Path  string   `json:"path"`
+		Paths []string `json:"paths"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil || p.Path == "" {
-		http.Error(w, "missing path", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	p.Path = cleanUserPath(p.Path)
-	if err := os.RemoveAll(p.Path); err != nil {
-		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+
+	targets := p.Paths
+	if len(targets) == 0 && p.Path != "" {
+		targets = []string{p.Path}
+	}
+	if len(targets) == 0 {
+		http.Error(w, "missing path or paths", http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, map[string]interface{}{"success": true, "deleted": p.Path})
+
+	var deleted []string
+	for _, target := range targets {
+		cPath := cleanUserPath(target)
+		if cPath == "" {
+			continue
+		}
+		if err := os.RemoveAll(cPath); err != nil {
+			writeJSON(w, map[string]interface{}{"success": false, "error": err.Error(), "partial_deleted": deleted})
+			return
+		}
+		deleted = append(deleted, cPath)
+	}
+	writeJSON(w, map[string]interface{}{"success": true, "deleted": p.Path, "paths": deleted})
 }
 
 func (s *Server) handleFilesCreate(w http.ResponseWriter, r *http.Request) {
@@ -2904,32 +2930,165 @@ func (s *Server) handleFilesCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{"success": true, "path": p.Path, "is_dir": p.IsDir})
 }
 
+func copyPathRecursive(src, dst string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	if srcInfo.IsDir() {
+		if err := os.MkdirAll(dst, srcInfo.Mode()|0755); err != nil {
+			return err
+		}
+		entries, err := os.ReadDir(src)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			srcChild := filepath.Join(src, entry.Name())
+			dstChild := filepath.Join(dst, entry.Name())
+			if err := copyPathRecursive(srcChild, dstChild); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+
+	// Handle symlink
+	if srcInfo.Mode()&os.ModeSymlink != 0 {
+		linkTarget, err := os.Readlink(src)
+		if err == nil {
+			_ = os.Remove(dst)
+			return os.Symlink(linkTarget, dst)
+		}
+	}
+
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode()|0644)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return err
+	}
+	return dstFile.Sync()
+}
+
+func resolveCopyMoveDst(src, dst string, isCopy bool) string {
+	targetDst := dst
+	if fi, err := os.Stat(targetDst); err == nil && fi.IsDir() {
+		if filepath.Clean(src) != filepath.Clean(targetDst) && filepath.Base(src) != filepath.Base(targetDst) {
+			targetDst = filepath.Join(targetDst, filepath.Base(src))
+		}
+	}
+	if isCopy {
+		if _, err := os.Stat(targetDst); err == nil || filepath.Clean(src) == filepath.Clean(targetDst) {
+			targetDst = generateUniquePath(targetDst)
+		}
+	}
+	return targetDst
+}
+
+func generateUniquePath(p string) string {
+	dir := filepath.Dir(p)
+	base := filepath.Base(p)
+	fi, err := os.Stat(p)
+	isDir := err == nil && fi.IsDir()
+
+	ext := ""
+	stem := base
+	if !isDir {
+		ext = filepath.Ext(base)
+		stem = strings.TrimSuffix(base, ext)
+	}
+
+	candidate := filepath.Join(dir, fmt.Sprintf("%s (copy)%s", stem, ext))
+	if _, err := os.Stat(candidate); os.IsNotExist(err) {
+		return candidate
+	}
+
+	for i := 2; i < 1000; i++ {
+		candidate = filepath.Join(dir, fmt.Sprintf("%s (copy %d)%s", stem, i, ext))
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate
+		}
+	}
+	return candidate
+}
+
 func (s *Server) handleFilesCopy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	var p struct {
-		Src string `json:"src"`
-		Dst string `json:"dst"`
+		Src   string `json:"src"`
+		Dst   string `json:"dst"`
+		Items []struct {
+			Src string `json:"src"`
+			Dst string `json:"dst"`
+		} `json:"items"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil || p.Src == "" || p.Dst == "" {
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	items := p.Items
+	if len(items) == 0 && p.Src != "" && p.Dst != "" {
+		items = []struct {
+			Src string `json:"src"`
+			Dst string `json:"dst"`
+		}{
+			{Src: p.Src, Dst: p.Dst},
+		}
+	}
+	if len(items) == 0 {
 		http.Error(w, "missing src or dst", http.StatusBadRequest)
 		return
 	}
-	p.Src = cleanUserPath(p.Src)
-	p.Dst = cleanUserPath(p.Dst)
-	data, err := os.ReadFile(p.Src)
-	if err != nil {
-		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
-		return
+
+	type copyResult struct {
+		Src string `json:"src"`
+		Dst string `json:"dst"`
 	}
-	_ = os.MkdirAll(filepath.Dir(p.Dst), 0755)
-	if err := os.WriteFile(p.Dst, data, 0644); err != nil {
-		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
-		return
+	var results []copyResult
+
+	for _, item := range items {
+		src := cleanUserPath(item.Src)
+		dst := cleanUserPath(item.Dst)
+		if src == "" || dst == "" {
+			continue
+		}
+		targetDst := resolveCopyMoveDst(src, dst, true)
+		if err := copyPathRecursive(src, targetDst); err != nil {
+			writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		results = append(results, copyResult{Src: src, Dst: targetDst})
 	}
-	writeJSON(w, map[string]interface{}{"success": true, "src": p.Src, "dst": p.Dst})
+
+	resp := map[string]interface{}{
+		"success": true,
+		"results": results,
+		"count":   len(results),
+	}
+	if len(results) == 1 {
+		resp["src"] = results[0].Src
+		resp["dst"] = results[0].Dst
+	}
+	writeJSON(w, resp)
 }
 
 func (s *Server) handleFilesMove(w http.ResponseWriter, r *http.Request) {
@@ -2938,21 +3097,67 @@ func (s *Server) handleFilesMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var p struct {
-		Src string `json:"src"`
-		Dst string `json:"dst"`
+		Src   string `json:"src"`
+		Dst   string `json:"dst"`
+		Items []struct {
+			Src string `json:"src"`
+			Dst string `json:"dst"`
+		} `json:"items"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil || p.Src == "" || p.Dst == "" {
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	items := p.Items
+	if len(items) == 0 && p.Src != "" && p.Dst != "" {
+		items = []struct {
+			Src string `json:"src"`
+			Dst string `json:"dst"`
+		}{
+			{Src: p.Src, Dst: p.Dst},
+		}
+	}
+	if len(items) == 0 {
 		http.Error(w, "missing src or dst", http.StatusBadRequest)
 		return
 	}
-	p.Src = cleanUserPath(p.Src)
-	p.Dst = cleanUserPath(p.Dst)
-	_ = os.MkdirAll(filepath.Dir(p.Dst), 0755)
-	if err := os.Rename(p.Src, p.Dst); err != nil {
-		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
-		return
+
+	type moveResult struct {
+		Src string `json:"src"`
+		Dst string `json:"dst"`
 	}
-	writeJSON(w, map[string]interface{}{"success": true, "src": p.Src, "dst": p.Dst})
+	var results []moveResult
+
+	for _, item := range items {
+		src := cleanUserPath(item.Src)
+		dst := cleanUserPath(item.Dst)
+		if src == "" || dst == "" {
+			continue
+		}
+		targetDst := resolveCopyMoveDst(src, dst, false)
+		_ = os.MkdirAll(filepath.Dir(targetDst), 0755)
+		if err := os.Rename(src, targetDst); err != nil {
+			// Cross-device link fallback or directory move fallback
+			if copyErr := copyPathRecursive(src, targetDst); copyErr != nil {
+				writeJSON(w, map[string]interface{}{"success": false, "error": fmt.Sprintf("move failed: %v", copyErr)})
+				return
+			}
+			_ = os.RemoveAll(src)
+		}
+		results = append(results, moveResult{Src: src, Dst: targetDst})
+	}
+
+	resp := map[string]interface{}{
+		"success": true,
+		"results": results,
+		"count":   len(results),
+	}
+	if len(results) == 1 {
+		resp["src"] = results[0].Src
+		resp["dst"] = results[0].Dst
+	}
+	writeJSON(w, resp)
 }
 
 func (s *Server) handleFilesReveal(w http.ResponseWriter, r *http.Request) {

@@ -165,6 +165,61 @@ describe('accountRanking utility', () => {
       const ranked = rankStandbyAccounts([expiringLate, expiringSoon], 0.05, 'max_tokens')
       assert.strictEqual(ranked[0].email, 'soon@gmail.com')
     })
+
+    it('excludes BANNED, ERROR, and COOLDOWN accounts from standby candidates', () => {
+      const healthyStandby: AccountState = {
+        email: 'healthy@gmail.com',
+        label: 'Healthy Standby',
+        plan_tier: 'Pro',
+        is_active: false,
+        status: 'STANDBY',
+        quota_5h_current: 0.9,
+        quota_5h_available: 0.9,
+        quota_weekly: 0.9,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const cooldownAcc: AccountState = {
+        email: 'cooldown@gmail.com',
+        label: 'Cooldown Account',
+        plan_tier: 'Pro',
+        is_active: false,
+        status: 'COOLDOWN',
+        quota_5h_current: 0.95,
+        quota_5h_available: 0.95,
+        quota_weekly: 0.95,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const bannedAcc: AccountState = {
+        email: 'banned@gmail.com',
+        label: 'Banned Account',
+        plan_tier: 'Pro',
+        is_active: false,
+        status: 'BANNED',
+        quota_5h_current: 0.95,
+        quota_5h_available: 0.95,
+        quota_weekly: 0.95,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const errorAcc: AccountState = {
+        email: 'error@gmail.com',
+        label: 'Error Account',
+        plan_tier: 'Pro',
+        is_active: false,
+        status: 'ERROR',
+        quota_5h_current: 0.95,
+        quota_5h_available: 0.95,
+        quota_weekly: 0.95,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+
+      const ranked = rankStandbyAccounts([cooldownAcc, bannedAcc, errorAcc, healthyStandby], 0.05, 'balanced')
+      assert.strictEqual(ranked.length, 1)
+      assert.strictEqual(ranked[0].email, 'healthy@gmail.com')
+    })
   })
 
   describe('evaluateAutoSwitch & proactive rotation', () => {
@@ -326,6 +381,91 @@ describe('accountRanking utility', () => {
       assert.strictEqual(sorted[4].email, 'cooling@gmail.com') // Tier 3
       assert.strictEqual(sorted[5].email, 'err@gmail.com') // Tier 4
       assert.strictEqual(sorted[6].email, 'ban@gmail.com') // Tier 5
+    })
+
+    it('ranks accounts with status COOLDOWN strictly in Tier 3', () => {
+      const active: AccountState = {
+        email: 'active@gmail.com',
+        is_active: true,
+        plan_tier: 'Pro',
+        status: 'ACTIVE',
+        quota_5h_current: 0.8,
+        quota_5h_available: 0.8,
+        quota_weekly: 0.8,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const proStandby: AccountState = {
+        email: 'pro@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'STANDBY',
+        quota_5h_current: 0.8,
+        quota_5h_available: 0.8,
+        quota_weekly: 0.8,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const freeStandby: AccountState = {
+        email: 'free@gmail.com',
+        is_active: false,
+        plan_tier: 'Free',
+        status: 'STANDBY',
+        quota_5h_current: 0.8,
+        quota_5h_available: 0.8,
+        quota_weekly: 0.8,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const cooldownAcc: AccountState = {
+        email: 'cooldown@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'COOLDOWN',
+        quota_5h_current: 0.02,
+        quota_5h_available: 0.7,
+        quota_weekly: 0.7,
+        reset_horizon_text: 'Resets in 3h',
+        has_mfa: false,
+      }
+      const errorAcc: AccountState = {
+        email: 'error@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'ERROR',
+        quota_5h_current: 0.8,
+        quota_5h_available: 0.8,
+        quota_weekly: 0.8,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const bannedAcc: AccountState = {
+        email: 'banned@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'BANNED',
+        quota_5h_current: 0.8,
+        quota_5h_available: 0.8,
+        quota_weekly: 0.8,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+
+      const sorted = sortAccounts(
+        [bannedAcc, errorAcc, cooldownAcc, freeStandby, proStandby, active],
+        active.email,
+        0.05,
+        'auto',
+        'balanced'
+      )
+
+      assert.strictEqual(sorted.length, 6)
+      assert.strictEqual(sorted[0].email, 'active@gmail.com')   // Tier 0
+      assert.strictEqual(sorted[1].email, 'pro@gmail.com')      // Tier 1
+      assert.strictEqual(sorted[2].email, 'free@gmail.com')     // Tier 2
+      assert.strictEqual(sorted[3].email, 'cooldown@gmail.com') // Tier 3
+      assert.strictEqual(sorted[4].email, 'error@gmail.com')    // Tier 4
+      assert.strictEqual(sorted[5].email, 'banned@gmail.com')   // Tier 5
     })
   })
 })

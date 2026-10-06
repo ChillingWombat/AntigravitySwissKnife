@@ -26,6 +26,9 @@ import {
   Tablet,
   CheckCircle2,
   Save,
+  Copy,
+  Scissors,
+  Clipboard,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
@@ -52,9 +55,9 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
   const [capturedSnippet, setCapturedSnippet] = useState<string>('')
 
   // --- 2. File Explorer State ---
-  const [currentProjectFolder, setCurrentProjectFolder] = useState('/mnt/Data/Projects/Antigravity Swiss Knife')
-  const [addressBarPath, setAddressBarPath] = useState('/mnt/Data/Projects/Antigravity Swiss Knife')
-  const [historyStack, setHistoryStack] = useState<string[]>(['/mnt/Data/Projects/Antigravity Swiss Knife'])
+  const [currentProjectFolder, setCurrentProjectFolder] = useState('.')
+  const [addressBarPath, setAddressBarPath] = useState('.')
+  const [historyStack, setHistoryStack] = useState<string[]>(['.'])
   const [historyIndex, setHistoryIndex] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [filesList, setFilesList] = useState<Array<{ name: string; isDir: boolean; type: string; size: string; path: string; modTime: string }>>([])
@@ -69,6 +72,14 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
   const [fileSaveFeedback, setFileSaveFeedback] = useState<string | null>(null)
   const [isCodeEditingMode, setIsCodeEditingMode] = useState<boolean>(false)
   const [markdownViewMode, setMarkdownViewMode] = useState<'preview' | 'edit'>('edit')
+  const [selectedFilePaths, setSelectedFilePaths] = useState<string[]>([])
+  const [fileClipboard, setFileClipboard] = useState<{ action: 'copy' | 'cut'; items: Array<{ path: string; name: string; isDir: boolean }> }>({ action: 'copy', items: [] })
+  const [contextMenu, setContextMenu] = useState<{
+    x: number
+    y: number
+    type: 'row' | 'blank'
+    targetItem?: { name: string; isDir: boolean; type: string; size: string; path: string }
+  } | null>(null)
 
   // --- 3. Quick Memos State ---
   const [memos, setMemos] = useState<Array<{ id: string; type: 'text' | 'voice'; content: string; createdAt: string; color: string; duration?: string }>>(() => {
@@ -110,12 +121,188 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
       const res = await api.listFiles(dir)
       if (res && res.files) {
         setFilesList(res.files)
+        if (res.path && (!addressBarPath || addressBarPath === '.')) {
+          setAddressBarPath(res.path)
+          setHistoryStack([res.path])
+        }
       }
     } catch (err) {
       console.error('Error listing files:', err)
     } finally {
       setIsFilesLoading(false)
     }
+  }
+
+  // Dismiss context menu on outside events
+  useEffect(() => {
+    const handleCloseCtx = () => setContextMenu(null)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContextMenu(null)
+    }
+    if (contextMenu) {
+      window.addEventListener('click', handleCloseCtx)
+      window.addEventListener('contextmenu', handleCloseCtx)
+      window.addEventListener('keydown', handleKeyDown)
+      window.addEventListener('resize', handleCloseCtx)
+    }
+    return () => {
+      window.removeEventListener('click', handleCloseCtx)
+      window.removeEventListener('contextmenu', handleCloseCtx)
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('resize', handleCloseCtx)
+    }
+  }, [contextMenu])
+
+  const handleRowClick = (e: React.MouseEvent, item: { name: string; isDir: boolean; type: string; size: string; path: string }) => {
+    const isMulti = e.ctrlKey || e.metaKey
+    if (isMulti) {
+      e.preventDefault()
+      e.stopPropagation()
+      if (selectedFilePaths.includes(item.path)) {
+        setSelectedFilePaths(selectedFilePaths.filter((p) => p !== item.path))
+      } else {
+        setSelectedFilePaths([...selectedFilePaths, item.path])
+      }
+      return
+    }
+
+    setSelectedFilePaths([item.path])
+    if (item.isDir) {
+      handleNavigatePath(item.path)
+    } else {
+      handleSelectFile(item)
+    }
+  }
+
+  const handleRowContextMenu = (e: React.MouseEvent, item: { name: string; isDir: boolean; type: string; size: string; path: string }) => {
+    e.preventDefault()
+    e.stopPropagation()
+    window.getSelection()?.removeAllRanges()
+
+    if (!selectedFilePaths.includes(item.path)) {
+      setSelectedFilePaths([item.path])
+    }
+
+    const pad = 8
+    const menuWidth = 190
+    const menuHeight = 280
+    const x = Math.min(e.clientX, window.innerWidth - menuWidth - pad)
+    const y = Math.min(e.clientY, window.innerHeight - menuHeight - pad)
+
+    setContextMenu({
+      x,
+      y,
+      type: 'row',
+      targetItem: item,
+    })
+  }
+
+  const handleBlankContextMenu = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.swiss-file-item-row')) return
+    e.preventDefault()
+    e.stopPropagation()
+    window.getSelection()?.removeAllRanges()
+
+    const pad = 8
+    const menuWidth = 190
+    const menuHeight = 220
+    const x = Math.min(e.clientX, window.innerWidth - menuWidth - pad)
+    const y = Math.min(e.clientY, window.innerHeight - menuHeight - pad)
+
+    setContextMenu({
+      x,
+      y,
+      type: 'blank',
+    })
+  }
+
+  const handleCopySelected = () => {
+    const targets = filesList.filter((f) => selectedFilePaths.includes(f.path))
+    const items = targets.length > 0 ? targets : (contextMenu?.targetItem ? [contextMenu.targetItem] : [])
+    setFileClipboard({ action: 'copy', items })
+    setCopiedFileFeedback(`Copied ${items.length} item(s) to clipboard`)
+    setTimeout(() => setCopiedFileFeedback(null), 3000)
+    setContextMenu(null)
+  }
+
+  const handleCutSelected = () => {
+    const targets = filesList.filter((f) => selectedFilePaths.includes(f.path))
+    const items = targets.length > 0 ? targets : (contextMenu?.targetItem ? [contextMenu.targetItem] : [])
+    setFileClipboard({ action: 'cut', items })
+    setCopiedFileFeedback(`Cut ${items.length} item(s) to clipboard`)
+    setTimeout(() => setCopiedFileFeedback(null), 3000)
+    setContextMenu(null)
+  }
+
+  const handlePaste = async (targetFolder?: string) => {
+    if (!fileClipboard.items || fileClipboard.items.length === 0) return
+    const isCut = fileClipboard.action === 'cut'
+    const dest = targetFolder || addressBarPath
+    const payload = fileClipboard.items.map((i) => ({
+      src: i.path,
+      dst: `${dest}/${i.name}`,
+    }))
+
+    try {
+      const res = isCut ? await api.moveFiles(payload) : await api.copyFiles(payload)
+      if (res && res.success) {
+        setCopiedFileFeedback(`${isCut ? 'Moved' : 'Copied'} ${fileClipboard.items.length} item(s)`)
+        if (isCut) {
+          setFileClipboard({ action: 'copy', items: [] })
+        }
+        loadFiles(addressBarPath)
+      } else {
+        setCopiedFileFeedback('Paste error')
+      }
+    } catch (err: any) {
+      setCopiedFileFeedback(`Paste failed: ${err.message}`)
+    }
+    setTimeout(() => setCopiedFileFeedback(null), 3000)
+    setContextMenu(null)
+  }
+
+  const handleDeleteSelected = async () => {
+    const targets = filesList.filter((f) => selectedFilePaths.includes(f.path))
+    const items = targets.length > 0 ? targets : (contextMenu?.targetItem ? [contextMenu.targetItem] : [])
+    if (items.length === 0) return
+    const count = items.length
+    const msg = count === 1 ? `Delete '${items[0].name}'?` : `Delete ${count} selected items?`
+    if (!window.confirm(msg)) return
+
+    try {
+      const res = await api.deleteFiles(items.map((i) => i.path))
+      if (res && res.success) {
+        setCopiedFileFeedback(`Deleted ${count} item(s)`)
+        setSelectedFilePaths([])
+        loadFiles(addressBarPath)
+      } else {
+        setCopiedFileFeedback('Delete failed')
+      }
+    } catch (err: any) {
+      setCopiedFileFeedback(`Delete failed: ${err.message}`)
+    }
+    setTimeout(() => setCopiedFileFeedback(null), 3000)
+    setContextMenu(null)
+  }
+
+  const handleRenameItem = async () => {
+    if (!contextMenu?.targetItem) return
+    const item = contextMenu.targetItem
+    const newName = window.prompt('Rename to:', item.name)
+    if (!newName || newName === item.name) return
+    const parentDir = item.path.substring(0, item.path.lastIndexOf('/')) || '.'
+    const newPath = `${parentDir}/${newName}`
+    try {
+      const res = await api.renameFile(item.path, newPath)
+      if (res && res.success) {
+        setCopiedFileFeedback(`Renamed to '${newName}'`)
+        loadFiles(addressBarPath)
+      }
+    } catch (err: any) {
+      setCopiedFileFeedback(`Rename failed: ${err.message}`)
+    }
+    setTimeout(() => setCopiedFileFeedback(null), 3000)
+    setContextMenu(null)
   }
 
   const handleSelectFile = async (item: { name: string; isDir: boolean; type: string; path: string }) => {
@@ -739,9 +926,8 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
                     backgroundColor: 'var(--canvas)',
                   }}
                 >
-                  <option value="/mnt/Data/Projects/Antigravity Swiss Knife">Antigravity Swiss Knife (Primary)</option>
-                  <option value="/mnt/Data/Projects/Frontend-Web-App">Frontend-Web-App</option>
-                  <option value="/home/david/.gemini/antigravity">Antigravity Runtime State (~/.gemini)</option>
+                  <option value=".">Current Project Workspace</option>
+                  <option value="~/.gemini/antigravity">Antigravity Runtime State (~/.gemini)</option>
                 </select>
               </div>
 
@@ -855,9 +1041,23 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
           {/* Explorer Split View: Tree on Left, In-App Editor on Right */}
           <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: '16px' }}>
             {/* File List / Tree View */}
-            <div className="google-card" style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '6px', minHeight: '440px' }}>
-              <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.8px', padding: '4px 8px' }}>
-                Files &amp; Folders
+            <div
+              className="google-card"
+              onContextMenu={handleBlankContextMenu}
+              onClick={(e) => {
+                if (e.target === e.currentTarget) {
+                  setSelectedFilePaths([])
+                }
+              }}
+              style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '6px', minHeight: '440px', position: 'relative' }}
+            >
+              <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.8px', padding: '4px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Files &amp; Folders</span>
+                {selectedFilePaths.length > 1 && (
+                  <span style={{ fontSize: '10px', color: 'var(--primary)', fontWeight: 600 }}>
+                    {selectedFilePaths.length} selected
+                  </span>
+                )}
               </div>
 
               {isFilesLoading && (
@@ -874,53 +1074,281 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
 
               {filesList
                 .filter((item) => !searchQuery || item.name.toLowerCase().includes(searchQuery.toLowerCase()))
-                .map((item) => (
-                  <div
-                    key={item.path}
-                    onClick={() => handleSelectFile(item)}
-                    draggable={!item.isDir}
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData('text/plain', `[File: ${item.path}]`)
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '8px 10px',
-                      borderRadius: '8px',
-                      fontSize: '12px',
-                      cursor: 'pointer',
-                      backgroundColor: activeFileViewer?.path === item.path ? 'var(--primary-container)' : 'transparent',
-                      color: activeFileViewer?.path === item.path ? 'var(--primary)' : 'var(--text)',
-                      fontWeight: activeFileViewer?.path === item.path ? 600 : 500,
-                    }}
-                    onMouseEnter={(e) => {
-                      if (activeFileViewer?.path !== item.path) e.currentTarget.style.backgroundColor = 'var(--tonal)'
-                    }}
-                    onMouseLeave={(e) => {
-                      if (activeFileViewer?.path !== item.path) e.currentTarget.style.backgroundColor = 'transparent'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                      {item.isDir ? (
-                        <Folder size={15} color="var(--primary)" style={{ flexShrink: 0 }} />
-                      ) : item.type === 'markdown' ? (
-                        <FileText size={15} color="#059669" style={{ flexShrink: 0 }} />
-                      ) : item.type === 'pdf' ? (
-                        <File size={15} color="#dc2626" style={{ flexShrink: 0 }} />
-                      ) : item.type === 'office' ? (
-                        <FileText size={15} color="#d97706" style={{ flexShrink: 0 }} />
-                      ) : (
-                        <FileCode size={15} color="#2563eb" style={{ flexShrink: 0 }} />
-                      )}
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
-                    </div>
+                .map((item) => {
+                  const isSelected = selectedFilePaths.includes(item.path) || activeFileViewer?.path === item.path
+                  const isCut = fileClipboard.action === 'cut' && fileClipboard.items.some((i) => i.path === item.path)
+                  return (
+                    <div
+                      key={item.path}
+                      className="swiss-file-item-row"
+                      onClick={(e) => handleRowClick(e, item)}
+                      onContextMenu={(e) => handleRowContextMenu(e, item)}
+                      draggable={!item.isDir}
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', `[File: ${item.path}]`)
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '8px 10px',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                        backgroundColor: isSelected ? 'var(--primary-container)' : 'transparent',
+                        color: isSelected ? 'var(--primary)' : 'var(--text)',
+                        fontWeight: isSelected ? 600 : 500,
+                        opacity: isCut ? 0.5 : 1,
+                        transition: 'background-color 0.1s ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isSelected) e.currentTarget.style.backgroundColor = 'var(--tonal)'
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                        {item.isDir ? (
+                          <Folder size={15} color="var(--primary)" style={{ flexShrink: 0 }} />
+                        ) : item.type === 'markdown' ? (
+                          <FileText size={15} color="#059669" style={{ flexShrink: 0 }} />
+                        ) : item.type === 'pdf' ? (
+                          <File size={15} color="#dc2626" style={{ flexShrink: 0 }} />
+                        ) : item.type === 'office' ? (
+                          <FileText size={15} color="#d97706" style={{ flexShrink: 0 }} />
+                        ) : (
+                          <FileCode size={15} color="#2563eb" style={{ flexShrink: 0 }} />
+                        )}
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
+                      </div>
 
-                    {!item.isDir && item.size && (
-                      <span style={{ fontSize: '10px', color: 'var(--text-muted)', flexShrink: 0 }}>{item.size}</span>
-                    )}
-                  </div>
-                ))}
+                      {!item.isDir && item.size && (
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', flexShrink: 0 }}>{item.size}</span>
+                      )}
+                    </div>
+                  )
+                })}
+
+              {/* Custom Right-Click Context Menu */}
+              {contextMenu && (
+                <div
+                  style={{
+                    position: 'fixed',
+                    left: `${contextMenu.x}px`,
+                    top: `${contextMenu.y}px`,
+                    zIndex: 99999,
+                    backgroundColor: 'var(--canvas, #ffffff)',
+                    border: '1px solid var(--border, #cbd5e1)',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 18px rgba(0,0,0,0.12)',
+                    padding: '4px 0',
+                    minWidth: '180px',
+                    fontSize: '12px',
+                    userSelect: 'none',
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                  }}
+                >
+                  {contextMenu.type === 'row' && contextMenu.targetItem ? (
+                    <>
+                      <div
+                        onClick={handleCopySelected}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', cursor: 'pointer' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <Copy size={13} />
+                        <span>Copy</span>
+                      </div>
+                      <div
+                        onClick={handleCutSelected}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', cursor: 'pointer' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <Scissors size={13} />
+                        <span>Cut</span>
+                      </div>
+                      {contextMenu.targetItem.isDir && (
+                        <div
+                          onClick={() => handlePaste(contextMenu.targetItem?.path)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '6px 14px',
+                            cursor: fileClipboard.items.length > 0 ? 'pointer' : 'default',
+                            opacity: fileClipboard.items.length > 0 ? 1 : 0.4,
+                          }}
+                          onMouseEnter={(e) => {
+                            if (fileClipboard.items.length > 0) e.currentTarget.style.backgroundColor = 'var(--tonal)'
+                          }}
+                          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                        >
+                          <Clipboard size={13} />
+                          <span>Paste into Folder</span>
+                        </div>
+                      )}
+                      <div style={{ height: '1px', backgroundColor: 'var(--border-subtle)', margin: '4px 0' }} />
+                      <div
+                        onClick={() => {
+                          const targets = filesList.filter((f) => selectedFilePaths.includes(f.path))
+                          const text = (targets.length > 0 ? targets : [contextMenu.targetItem!]).map((t) => t.path).join('\n')
+                          navigator.clipboard.writeText(text)
+                          setCopiedFileFeedback('Path copied to clipboard')
+                          setTimeout(() => setCopiedFileFeedback(null), 3000)
+                          setContextMenu(null)
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', cursor: 'pointer' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <Copy size={13} />
+                        <span>Copy Path</span>
+                      </div>
+                      {selectedFilePaths.length <= 1 && (
+                        <div
+                          onClick={handleRenameItem}
+                          style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', cursor: 'pointer' }}
+                          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+                          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                        >
+                          <Edit3 size={13} />
+                          <span>Rename</span>
+                        </div>
+                      )}
+                      <div
+                        onClick={handleDeleteSelected}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', cursor: 'pointer', color: '#ef4444' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.08)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <Trash2 size={13} />
+                        <span>Delete</span>
+                      </div>
+                      <div style={{ height: '1px', backgroundColor: 'var(--border-subtle)', margin: '4px 0' }} />
+                      <div
+                        onClick={async () => {
+                          await api.revealFile(contextMenu.targetItem!.path)
+                          setContextMenu(null)
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', cursor: 'pointer' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <Folder size={13} />
+                        <span>Reveal in File Manager</span>
+                      </div>
+                      <div
+                        onClick={async () => {
+                          await api.openTerminal(contextMenu.targetItem!.path)
+                          setContextMenu(null)
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', cursor: 'pointer' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <Terminal size={13} />
+                        <span>Open in Terminal</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div
+                        onClick={() => handlePaste(addressBarPath)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          padding: '6px 14px',
+                          cursor: fileClipboard.items.length > 0 ? 'pointer' : 'default',
+                          opacity: fileClipboard.items.length > 0 ? 1 : 0.4,
+                        }}
+                        onMouseEnter={(e) => {
+                          if (fileClipboard.items.length > 0) e.currentTarget.style.backgroundColor = 'var(--tonal)'
+                        }}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <Clipboard size={13} />
+                        <span>Paste</span>
+                      </div>
+                      <div style={{ height: '1px', backgroundColor: 'var(--border-subtle)', margin: '4px 0' }} />
+                      <div
+                        onClick={async () => {
+                          setContextMenu(null)
+                          const name = window.prompt('Enter new file name:')
+                          if (!name) return
+                          await api.createFile(`${addressBarPath}/${name}`, false)
+                          loadFiles(addressBarPath)
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', cursor: 'pointer' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <Plus size={13} />
+                        <span>New File</span>
+                      </div>
+                      <div
+                        onClick={async () => {
+                          setContextMenu(null)
+                          const name = window.prompt('Enter new folder name:')
+                          if (!name) return
+                          await api.createFile(`${addressBarPath}/${name}`, true)
+                          loadFiles(addressBarPath)
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', cursor: 'pointer' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <Folder size={13} />
+                        <span>New Folder</span>
+                      </div>
+                      <div style={{ height: '1px', backgroundColor: 'var(--border-subtle)', margin: '4px 0' }} />
+                      <div
+                        onClick={() => {
+                          loadFiles(addressBarPath)
+                          setContextMenu(null)
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', cursor: 'pointer' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <RotateCw size={13} />
+                        <span>Refresh</span>
+                      </div>
+                      <div
+                        onClick={async () => {
+                          await api.revealFile(addressBarPath)
+                          setContextMenu(null)
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', cursor: 'pointer' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <Folder size={13} />
+                        <span>Reveal in File Manager</span>
+                      </div>
+                      <div
+                        onClick={async () => {
+                          await api.openTerminal(addressBarPath)
+                          setContextMenu(null)
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', cursor: 'pointer' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <Terminal size={13} />
+                        <span>Open in Terminal</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
 
               <div style={{ marginTop: 'auto', borderTop: '1px solid var(--border-subtle)', paddingTop: '10px', display: 'flex', gap: '6px' }}>
                 <button

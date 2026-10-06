@@ -602,7 +602,9 @@ func ImportClaudeCodeSession(transcriptPath, antigravityBase, appStoragePath str
 		}
 	}
 	if len(workspaceURIs) == 0 {
-		workspaceURIs = []string{"file://" + url.PathEscape("/mnt/Data/Projects/Antigravity Swiss Knife")}
+		if wd, err := os.Getwd(); err == nil && wd != "" {
+			workspaceURIs = []string{"file://" + url.PathEscape(wd)}
+		}
 	}
 
 	// 1. Write per-session DB

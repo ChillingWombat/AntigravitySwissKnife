@@ -64,7 +64,7 @@ export interface AccountState {
   notes?: string
   password?: string
   is_active: boolean
-  status: 'ACTIVE' | 'STANDBY' | 'ERROR' | 'BANNED' | string
+  status: 'ACTIVE' | 'STANDBY' | 'COOLDOWN' | 'ERROR' | 'BANNED' | string
   quota_5h_current?: number
   quota_5h_available: number
   reset_seconds?: number
@@ -448,6 +448,7 @@ export interface GUIConfig {
   conversation_tabs_max: number
   replace_see_all_triangle?: boolean
   consistent_project_spacing?: boolean
+  consistent_project_spacing_line?: boolean
   auto_archive_conversations: boolean
   auto_archive_horizon: '3d' | '7d' | '14d' | '30d' | '60d' | '90d'
   auto_inject: boolean

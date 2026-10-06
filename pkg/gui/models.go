@@ -25,6 +25,7 @@ type Config struct {
 	ConversationTabsMax         int               `json:"conversation_tabs_max"`         // default 6 (range 1-10)
 	ReplaceSeeAllTriangle       bool              `json:"replace_see_all_triangle"`      // Toggle: Replace "See all" and "See less" text buttons with triangle divider (default true)
 	ConsistentProjectSpacing    bool              `json:"consistent_project_spacing"`   // Toggle: Add blank area below projects without contracted conversation tabs (default true)
+	ConsistentProjectSpacingLine bool             `json:"consistent_project_spacing_line"` // Toggle: Add horizontal line at middle in the added white space (default true)
 	AutoArchiveConversations    bool              `json:"auto_archive_conversations"`    // Toggle: Automatically archive stale conversations
 	AutoArchiveHorizon          string            `json:"auto_archive_horizon"`          // "3d", "7d", "14d" (default), "30d", "60d", "90d"
 	AutoInject                  bool              `json:"auto_inject"`                  // Automatically inject into Antigravity desktop app
@@ -44,14 +45,12 @@ func DefaultConfig() *Config {
 			"Antigravity Swiss Knife": "#0b57d0", // Gemini blue
 			"Arbitrager":              "#7c3aed", // Vibrant purple
 			"Obsidian-HomePage":       "#059669", // Emerald green
-			"David":                   "#d97706", // Warm amber
 		},
 		DragRearrangeEnabled: true,
 		ProjectOrder: []string{
 			"Antigravity Swiss Knife",
 			"Arbitrager",
 			"Obsidian-HomePage",
-			"David",
 		},
 		ArchivedProjects:            []string{},
 		ConversationTabsMode:        "dynamic",
@@ -61,6 +60,7 @@ func DefaultConfig() *Config {
 		ConversationTabsMax:         6,
 		ReplaceSeeAllTriangle:       true,
 		ConsistentProjectSpacing:    true,
+		ConsistentProjectSpacingLine: true,
 		AutoArchiveConversations:    true,
 		AutoArchiveHorizon:          "14d",
 		AutoInject:                  true,

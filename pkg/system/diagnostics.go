@@ -15,7 +15,7 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 )
 
-const PublicGitHubRepo = "ChillingWombat/antigravity-swiss-knife"
+const PublicGitHubRepo = "ChillingWombat/AntigravitySwissKnife"
 
 // DiagnosticRequest carries the issue description and options from the user.
 type DiagnosticRequest struct {

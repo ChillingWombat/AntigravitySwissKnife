@@ -36,3 +36,17 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+
+# Persona & Agent Information
+.agents/
+GATE_STATUS.md
+TEST_INFRA.md
+TEST_READY.md
+
+# Test Data
+tests/stress_results.json
+*.test.data
+
+# Test Scripts
+tests/
+

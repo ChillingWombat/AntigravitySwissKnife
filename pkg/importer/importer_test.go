@@ -12,27 +12,27 @@ import (
 func TestMatchWorkspaceProject(t *testing.T) {
 	projects := []ProjectInfo{
 		{
-			ProjectID:   "proj-swiss",
-			ProjectName: "Antigravity Swiss Knife",
-			Paths:       []string{"/mnt/Data/Projects/Antigravity Swiss Knife"},
+			ProjectID:   "proj-app",
+			ProjectName: "App Workspace",
+			Paths:       []string{"/workspace/app"},
 		},
 		{
 			ProjectID:   "proj-notes",
 			ProjectName: "Notes",
-			Paths:       []string{"/home/david/Documents/Notes"},
+			Paths:       []string{"/workspace/notes"},
 		},
 	}
 
 	// 1. Exact match
-	pid, pName, status := MatchWorkspaceProject("/mnt/Data/Projects/Antigravity Swiss Knife", projects)
-	if pid != "proj-swiss" || status != "exact" {
-		t.Errorf("Expected exact match to proj-swiss, got pid=%s, status=%s", pid, status)
+	pid, pName, status := MatchWorkspaceProject("/workspace/app", projects)
+	if pid != "proj-app" || status != "exact" {
+		t.Errorf("Expected exact match to proj-app, got pid=%s, status=%s", pid, status)
 	}
 
 	// 2. Subpath match
-	pid, pName, status = MatchWorkspaceProject("/mnt/Data/Projects/Antigravity Swiss Knife/frontend/src", projects)
-	if pid != "proj-swiss" || status != "heuristic" {
-		t.Errorf("Expected subpath match to proj-swiss, got pid=%s, status=%s", pid, status)
+	pid, pName, status = MatchWorkspaceProject("/workspace/app/frontend/src", projects)
+	if pid != "proj-app" || status != "heuristic" {
+		t.Errorf("Expected subpath match to proj-app, got pid=%s, status=%s", pid, status)
 	}
 
 	// 3. Basename match
@@ -43,7 +43,7 @@ func TestMatchWorkspaceProject(t *testing.T) {
 
 	// 4. Empty/Fallback match
 	pid, _, status = MatchWorkspaceProject("", projects)
-	if pid != "proj-swiss" || status != "fallback" {
+	if pid != "proj-app" || status != "fallback" {
 		t.Errorf("Expected fallback match to first project, got pid=%s, status=%s", pid, status)
 	}
 	_ = pName
@@ -113,8 +113,8 @@ func TestWriteConversationDBAndSummary(t *testing.T) {
 	}
 
 	// 3. Write summary DB
-	workspaceURIs := []string{"file:///mnt/Data/Projects/Antigravity%20Swiss%20Knife"}
-	if err := InsertConversationSummary(summariesDB, cid, "[Claude Code] Optimize auth", "Please optimize", len(steps), workspaceURIs, "proj-swiss", "CLAUDE_CODE_IMPORT", "Claude Code"); err != nil {
+	workspaceURIs := []string{"file:///workspace/app"}
+	if err := InsertConversationSummary(summariesDB, cid, "[Claude Code] Optimize auth", "Please optimize", len(steps), workspaceURIs, "proj-app", "CLAUDE_CODE_IMPORT", "Claude Code"); err != nil {
 		t.Fatalf("InsertConversationSummary failed: %v", err)
 	}
 

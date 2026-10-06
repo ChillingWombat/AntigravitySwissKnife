@@ -404,7 +404,7 @@ export function rankStandbyAccounts(
   for (const acc of accounts) {
     if (acc.is_active) continue
     const st = (acc.status || '').toUpperCase()
-    if (st === 'BANNED' || st === 'ERROR') continue
+    if (st === 'BANNED' || st === 'ERROR' || st === 'COOLDOWN') continue
 
     const cur5h = acc.quota_5h_current ?? acc.quota_5h_available ?? 0
     if (cur5h <= threshold) continue
@@ -631,6 +631,7 @@ export function sortAccounts(
     const st = (a.status || '').toUpperCase()
     if (st === 'BANNED') return 5
     if (st === 'ERROR') return 4
+    if (st === 'COOLDOWN') return 3
 
     const cur5h = a.quota_5h_current ?? a.quota_5h_available ?? 0
     const weekly = a.quota_weekly ?? 0

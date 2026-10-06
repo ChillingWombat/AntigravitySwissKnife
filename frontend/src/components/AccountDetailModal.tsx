@@ -233,12 +233,14 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                         ? 'badge-red'
                         : st === 'ERROR'
                         ? 'badge-yellow'
+                        : st === 'COOLDOWN'
+                        ? 'badge-blue'
                         : account.is_active
                         ? 'badge-green'
                         : 'badge-neutral'
                     }`}
                   >
-                    {st}
+                    {st === 'COOLDOWN' ? 'COOL DOWN' : st}
                   </span>
                   {renderPlanTierBadge(account.plan_tier)}
                   {account.credits !== undefined && account.credits !== null && account.credits > 0 && (

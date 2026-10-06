@@ -375,6 +375,7 @@ func TestGenerateAuxiliaryPluginsScript_MemoViewAndTelemetryBadge(t *testing.T) 
 		`getLocalMemos`,
 		`titleStr = "[Voice] "`,
 		`Stop Recording</span>`,
+		`id: newMemo.id`,
 	}
 	for _, token := range memoChecks {
 		if !strings.Contains(js, token) {
@@ -401,6 +402,91 @@ func TestGenerateAuxiliaryPluginsScript_MemoViewAndTelemetryBadge(t *testing.T) 
 	for _, emoji := range forbiddenEmojis {
 		if strings.Contains(js, emoji) {
 			t.Errorf("script contains forbidden decorative emoji %q", emoji)
+		}
+	}
+}
+
+func TestAuxiliaryFileExplorerMultiSelectAndContextMenu(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	css := GenerateAuxiliaryPluginsCSS()
+
+	// 1. Verify CSS user-select none, high z-index, and selected highlight
+	cssTokens := []string{
+		"user-select: none",
+		"-webkit-user-select: none",
+		"z-index: 99999",
+		".swiss-file-row.selected",
+		".swiss-file-row.cut",
+		".swiss-context-item.disabled",
+	}
+	for _, tok := range cssTokens {
+		if !strings.Contains(css, tok) {
+			t.Errorf("expected CSS to contain %q", tok)
+		}
+	}
+
+	// 2. Verify Multi-Select with Ctrl / Cmd key
+	multiSelectTokens := []string{
+		"selectedPaths = new Set()",
+		"e.ctrlKey || e.metaKey",
+		`selectedPaths.has(item.path)`,
+		`selectedPaths.add(item.path)`,
+		`selectedPaths.delete(item.path)`,
+		`classList.add("selected")`,
+		`classList.remove("selected")`,
+	}
+	for _, tok := range multiSelectTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected JS to contain multi-select token %q", tok)
+		}
+	}
+
+	// 3. Verify Context Menu options (Copy, Cut, Paste, Blank context menu)
+	contextTokens := []string{
+		`id="ctx-file-copy"`,
+		`<span>Copy</span>`,
+		`id="ctx-file-cut"`,
+		`<span>Cut</span>`,
+		`id="ctx-file-paste"`,
+		`<span>Paste</span>`,
+		`id="ctx-blank-paste"`,
+		`id="ctx-blank-new-file"`,
+		`id="ctx-blank-new-dir"`,
+		`id="ctx-blank-refresh"`,
+		`id="ctx-blank-reveal"`,
+		`id="ctx-blank-term"`,
+		"positionContextMenu",
+		"removeContextMenu",
+		"executePaste",
+		"executeDelete",
+	}
+	for _, tok := range contextTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected JS to contain context menu token %q", tok)
+		}
+	}
+
+	// 4. Verify propagation and bubble prevention
+	bubbleTokens := []string{
+		"e.stopPropagation()",
+		"e.preventDefault()",
+		"window.getSelection()?.removeAllRanges()",
+	}
+	for _, tok := range bubbleTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected JS to contain bubble prevention token %q", tok)
+		}
+	}
+
+	// 5. Verify spaces in path and URI decoding
+	pathTokens := []string{
+		"decodeURIComponent",
+		"encodeURIComponent(targetPath)",
+		"targetPath.replace",
+	}
+	for _, tok := range pathTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected JS to contain path token %q", tok)
 		}
 	}
 }

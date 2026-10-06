@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 )
 
@@ -429,4 +430,133 @@ func TestSortAccountQuotaStates_AllTiers(t *testing.T) {
 		t.Errorf("expected row 6 = ban, got %s", sorted[6].Email)
 	}
 }
+
+func TestCooldownAccountLifecycleAndRanking(t *testing.T) {
+	// 1. Account quota below threshold enters COOLDOWN
+	acc := &keyring.Account{
+		Email:    "cooling_test@example.com",
+		Label:    "Cooling Test",
+		PlanTier: "Pro",
+		Status:   "STANDBY",
+		IsActive: false,
+	}
+
+	depletedSummary := &QuotaSummary{
+		AccountEmail:        "cooling_test@example.com",
+		PlanTier:            "Pro",
+		Quota5hFraction:     0.03, // below 0.05 threshold
+		QuotaWeeklyFraction: 0.50,
+	}
+
+	summaries := map[string]*QuotaSummary{
+		"cooling_test@example.com": depletedSummary,
+	}
+
+	states := BuildAccountQuotaStatesFromMapWithThreshold([]*keyring.Account{acc}, summaries, 0.05)
+	if len(states) != 1 {
+		t.Fatalf("expected 1 state, got %d", len(states))
+	}
+	if states[0].Status != core.AccountStatusCooldown {
+		t.Fatalf("expected status %s when quota below threshold, got %s", core.AccountStatusCooldown, states[0].Status)
+	}
+
+	// 2. Returns to STANDBY when quota recovers above threshold
+	accCooling := &keyring.Account{
+		Email:    "cooling_test@example.com",
+		Label:    "Cooling Test",
+		PlanTier: "Pro",
+		Status:   core.AccountStatusCooldown,
+		IsActive: false,
+	}
+
+	recoveredSummary := &QuotaSummary{
+		AccountEmail:        "cooling_test@example.com",
+		PlanTier:            "Pro",
+		Quota5hFraction:     0.90, // recovered above threshold
+		QuotaWeeklyFraction: 0.85,
+	}
+
+	summariesRecovered := map[string]*QuotaSummary{
+		"cooling_test@example.com": recoveredSummary,
+	}
+
+	statesRecovered := BuildAccountQuotaStatesFromMapWithThreshold([]*keyring.Account{accCooling}, summariesRecovered, 0.05)
+	if len(statesRecovered) != 1 {
+		t.Fatalf("expected 1 state, got %d", len(statesRecovered))
+	}
+	if statesRecovered[0].Status != core.AccountStatusStandby {
+		t.Fatalf("expected status %s after quota resets, got %s", core.AccountStatusStandby, statesRecovered[0].Status)
+	}
+
+	// 3. RankStandbyAccounts and RankStandbyAccountsWithMode strictly exclude COOLDOWN accounts
+	standbyHealthy := AccountQuotaState{
+		Email:           "healthy@example.com",
+		Status:          core.AccountStatusStandby,
+		IsActive:        false,
+		PlanTier:        "Pro",
+		Quota5hCurrent:  0.80,
+		QuotaWeekly:     0.80,
+	}
+	standbyCooldown := AccountQuotaState{
+		Email:           "cooldown@example.com",
+		Status:          core.AccountStatusCooldown,
+		IsActive:        false,
+		PlanTier:        "Pro",
+		Quota5hCurrent:  0.95, // High quota should still be excluded if status is COOLDOWN
+		QuotaWeekly:     0.95,
+	}
+
+	candidates := RankStandbyAccounts([]AccountQuotaState{standbyCooldown, standbyHealthy}, 0.05)
+	if len(candidates) != 1 {
+		t.Fatalf("expected 1 candidate, got %d", len(candidates))
+	}
+	if candidates[0].Email != "healthy@example.com" {
+		t.Fatalf("expected healthy@example.com candidate, got %s", candidates[0].Email)
+	}
+
+	// Verify all switch modes exclude COOLDOWN
+	for _, mode := range []string{SwitchModeBalanced, SwitchModeMaxTokens, SwitchModeMaxContinuous} {
+		mCandidates := RankStandbyAccountsWithMode([]AccountQuotaState{standbyCooldown, standbyHealthy}, 0.05, mode)
+		if len(mCandidates) != 1 || mCandidates[0].Email != "healthy@example.com" {
+			t.Fatalf("mode %s must exclude COOLDOWN accounts, got %v", mode, mCandidates)
+		}
+	}
+
+	// 4. EvaluateAutoSwitch excludes COOLDOWN accounts
+	activeExhausted := AccountQuotaState{
+		Email:           "active@example.com",
+		Status:          core.AccountStatusActive,
+		IsActive:        true,
+		PlanTier:        "Pro",
+		Quota5hCurrent:  0.02,
+		QuotaWeekly:     0.50,
+	}
+
+	// When only COOLDOWN accounts exist, should not switch
+	shouldSwitch, succ, reason := EvaluateAutoSwitch([]AccountQuotaState{activeExhausted, standbyCooldown}, activeExhausted.Email, 0.05, SwitchModeBalanced, 100)
+	if shouldSwitch || succ != nil {
+		t.Fatalf("expected no switch when only COOLDOWN standby exists, got shouldSwitch=%v, succ=%v, reason=%s", shouldSwitch, succ, reason)
+	}
+
+	// When both COOLDOWN and healthy exist, selects healthy
+	shouldSwitch2, succ2, _ := EvaluateAutoSwitch([]AccountQuotaState{activeExhausted, standbyCooldown, standbyHealthy}, activeExhausted.Email, 0.05, SwitchModeBalanced, 100)
+	if !shouldSwitch2 || succ2 == nil || succ2.Email != "healthy@example.com" {
+		t.Fatalf("expected switch to healthy@example.com, got succ=%v", succ2)
+	}
+
+	// 5. SortAccountQuotaStates ranks COOLDOWN accounts in Tier 3
+	cooldownState := AccountQuotaState{
+		Email:            "cooldown@example.com",
+		Status:           core.AccountStatusCooldown,
+		PlanTier:         "Pro",
+		Quota5hCurrent:   0.02,
+		Quota5hAvailable: 0.8,
+		QuotaWeekly:      0.8,
+	}
+	sortedList := SortAccountQuotaStates([]AccountQuotaState{standbyHealthy, cooldownState}, "", 0.05, "auto", SwitchModeBalanced)
+	if len(sortedList) != 2 || sortedList[0].Email != "healthy@example.com" || sortedList[1].Email != "cooldown@example.com" {
+		t.Fatalf("expected healthy before cooldown in auto sort, got %v", sortedList)
+	}
+}
+
 

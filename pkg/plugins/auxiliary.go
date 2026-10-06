@@ -391,6 +391,8 @@ func GenerateAuxiliaryPluginsCSS() string {
   flex: 1;
   overflow-y: auto;
   padding: 4px 0;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .swiss-file-row {
   display: flex;
@@ -400,6 +402,7 @@ func GenerateAuxiliaryPluginsCSS() string {
   font-size: 12px;
   cursor: pointer;
   user-select: none;
+  -webkit-user-select: none;
   border-bottom: 1px solid rgba(226, 232, 240, 0.4);
   transition: background 0.12s;
 }
@@ -407,7 +410,15 @@ func GenerateAuxiliaryPluginsCSS() string {
   background: rgba(26, 115, 232, 0.06);
 }
 .swiss-file-row.selected {
-  background: rgba(26, 115, 232, 0.12);
+  background: rgba(26, 115, 232, 0.14) !important;
+  color: #1a73e8;
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 #1a73e8;
+  padding-left: 11px;
+}
+.swiss-file-row.cut {
+  opacity: 0.5;
+  filter: grayscale(0.5);
 }
 .swiss-file-icon {
   display: inline-flex;
@@ -490,14 +501,16 @@ func GenerateAuxiliaryPluginsCSS() string {
 /* Context Menu */
 .swiss-context-menu {
   position: fixed;
-  z-index: 9999;
+  z-index: 99999;
   background: var(--canvas, #ffffff);
   border: 1px solid var(--border, #cbd5e1);
   border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.18);
   padding: 4px 0;
-  min-width: 160px;
+  min-width: 175px;
   font-size: 12px;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .swiss-context-item {
   display: flex;
@@ -506,6 +519,13 @@ func GenerateAuxiliaryPluginsCSS() string {
   padding: 6px 14px;
   cursor: pointer;
   color: var(--text, #1e293b);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.swiss-context-item.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 .swiss-context-item svg {
   width: 13px;
@@ -513,7 +533,7 @@ func GenerateAuxiliaryPluginsCSS() string {
   flex-shrink: 0;
   stroke: currentColor;
 }
-.swiss-context-item:hover {
+.swiss-context-item:hover:not(.disabled) {
   background: rgba(26, 115, 232, 0.08);
   color: #1a73e8;
 }
@@ -636,7 +656,8 @@ func GenerateAuxiliaryPluginsScript() string {
     const API_BASE = "http://127.0.0.1:8765";
     let activeAuxTab = null; // "swiss-browser" | "swiss-files" | "swiss-memos" | null (native)
     let currentBrowserUrl = "http://localhost:5173";
-    let currentFilePath = "/mnt/Data/Projects/Antigravity Swiss Knife";
+    let currentFilePath = ".";
+    let swissClipboard = { action: "copy", items: [] };
     let activeDevice = "responsive";
     let isDrawing = false;
     let drawTool = "none"; // "pen" | "rect" | "inspect" | "none"
@@ -1667,33 +1688,54 @@ func GenerateAuxiliaryPluginsScript() string {
       wrap.appendChild(listContainer);
       container.appendChild(wrap);
 
+      let selectedPaths = new Set();
+      let fileItemsMap = new Map();
+
       // Load files
       const loadFiles = async (dirPath) => {
         let targetPath = (dirPath || "").trim();
         if (targetPath.startsWith("file://")) {
-          targetPath = decodeURIComponent(targetPath.replace(/^file:\/\//, ""));
+          targetPath = targetPath.replace(/^file:\/\//, "");
         }
+        if (targetPath.includes("%")) {
+          try { targetPath = decodeURIComponent(targetPath); } catch (_) {}
+        }
+        targetPath = targetPath.replace(/\/+$/, "") || "/";
         currentFilePath = targetPath;
         toolbar.querySelector("#swiss-f-path").value = targetPath;
         listContainer.innerHTML = "<div style='padding:12px; font-size:11px; color:#94a3b8;'>Loading files...</div>";
 
         try {
           const res = await fetch(` + "`" + `${API_BASE}/api/files/list?path=${encodeURIComponent(targetPath)}` + "`" + `);
+          if (!res.ok) {
+            throw new Error("HTTP " + res.status + ": " + res.statusText);
+          }
           const data = await res.json();
           if (!data.success) {
-            listContainer.innerHTML = ` + "`" + `<div style='padding:12px; color:#ef4444; font-size:11px;'>Error: ${data.error}</div>` + "`" + `;
+            listContainer.innerHTML = ` + "`" + `<div style='padding:14px; color:#ef4444; font-size:11px; display:flex; flex-direction:column; gap:6px;'>
+              <div style='font-weight:600;'>Error loading directory:</div>
+              <div style='font-family:monospace; background:rgba(239,68,68,0.08); padding:6px 8px; border-radius:4px;'>${data.error || "Unknown error"}</div>
+              <button class="swiss-browser-btn" id="swiss-f-retry" style="align-self:flex-start; margin-top:4px;">Retry</button>
+            </div>` + "`" + `;
+            listContainer.querySelector("#swiss-f-retry")?.addEventListener("click", () => loadFiles(currentFilePath));
             return;
           }
 
           listContainer.innerHTML = "";
+          fileItemsMap.clear();
           if (!data.files || data.files.length === 0) {
             listContainer.innerHTML = "<div style='padding:16px; font-size:11px; color:#94a3b8; text-align:center;'>Empty folder</div>";
             return;
           }
 
           data.files.forEach(item => {
+            fileItemsMap.set(item.path, item);
             const row = document.createElement("div");
             row.className = "swiss-file-row";
+            if (selectedPaths.has(item.path)) row.classList.add("selected");
+            if (swissClipboard.action === "cut" && swissClipboard.items.some(ci => ci.path === item.path)) {
+              row.classList.add("cut");
+            }
             row.draggable = true;
             row.dataset.path = item.path;
 
@@ -1719,15 +1761,35 @@ func GenerateAuxiliaryPluginsScript() string {
               e.dataTransfer.setData("text/uri-list", "file://" + item.path);
             };
 
-            // Single click on directory row navigates
-            row.onclick = () => {
+            // Single click: toggle selection if Ctrl/Cmd, or navigate directory
+            row.onclick = (e) => {
+              const isMulti = e.ctrlKey || e.metaKey;
+              if (isMulti) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (selectedPaths.has(item.path)) {
+                  selectedPaths.delete(item.path);
+                  row.classList.remove("selected");
+                } else {
+                  selectedPaths.add(item.path);
+                  row.classList.add("selected");
+                }
+                return;
+              }
+
+              selectedPaths.clear();
+              listContainer.querySelectorAll(".swiss-file-row.selected").forEach(r => r.classList.remove("selected"));
+              selectedPaths.add(item.path);
+              row.classList.add("selected");
+
               if (item.isDir) {
                 loadFiles(item.path);
               }
             };
 
             // Double click: open directory or open in-place editor
-            row.ondblclick = () => {
+            row.ondblclick = (e) => {
+              e.stopPropagation();
               if (item.isDir) {
                 loadFiles(item.path);
               } else {
@@ -1735,16 +1797,48 @@ func GenerateAuxiliaryPluginsScript() string {
               }
             };
 
-            // Right click context menu
+            // Right click context menu on row
             row.oncontextmenu = (e) => {
               e.preventDefault();
-              showFileContextMenu(e.clientX, e.clientY, item, () => loadFiles(currentFilePath));
+              e.stopPropagation();
+              window.getSelection()?.removeAllRanges();
+
+              if (!selectedPaths.has(item.path)) {
+                selectedPaths.clear();
+                listContainer.querySelectorAll(".swiss-file-row.selected").forEach(r => r.classList.remove("selected"));
+                selectedPaths.add(item.path);
+                row.classList.add("selected");
+              }
+
+              const selectedItems = Array.from(selectedPaths).map(p => fileItemsMap.get(p) || { path: p, name: p.split("/").pop(), isDir: false });
+              showFileContextMenu(e.clientX, e.clientY, item, selectedItems, () => loadFiles(currentFilePath));
             };
 
             listContainer.appendChild(row);
           });
         } catch (err) {
-          listContainer.innerHTML = ` + "`" + `<div style='padding:12px; color:#ef4444; font-size:11px;'>Fetch error: ${err.message}</div>` + "`" + `;
+          listContainer.innerHTML = ` + "`" + `<div style='padding:14px; color:#ef4444; font-size:11px; display:flex; flex-direction:column; gap:6px;'>
+            <div style='font-weight:600;'>Unable to connect to Swiss Knife daemon:</div>
+            <div style='color:#64748b;'>${err.message}. Check that the daemon is running on ${API_BASE} (e.g. 'swiss daemon --with-web' or 'swiss web').</div>
+            <button class="swiss-browser-btn" id="swiss-f-retry" style="align-self:flex-start; margin-top:4px;">Retry</button>
+          </div>` + "`" + `;
+          listContainer.querySelector("#swiss-f-retry")?.addEventListener("click", () => loadFiles(currentFilePath));
+        }
+      };
+
+      // Background right-click on listContainer
+      listContainer.oncontextmenu = (e) => {
+        if (e.target.closest(".swiss-file-row")) return;
+        e.preventDefault();
+        e.stopPropagation();
+        window.getSelection()?.removeAllRanges();
+        showBlankContextMenu(e.clientX, e.clientY, currentFilePath, () => loadFiles(currentFilePath));
+      };
+
+      listContainer.onclick = (e) => {
+        if (e.target === listContainer) {
+          selectedPaths.clear();
+          listContainer.querySelectorAll(".swiss-file-row.selected").forEach(r => r.classList.remove("selected"));
         }
       };
 
@@ -1890,72 +1984,289 @@ func GenerateAuxiliaryPluginsScript() string {
         });
     }
 
-    // Context Menu for File Operations
-    function showFileContextMenu(x, y, item, onRefresh) {
-      const existing = document.querySelector(".swiss-context-menu");
-      if (existing) existing.remove();
+    // Context Menu Helpers & Dismissal
+    let activeContextMenu = null;
+    function removeContextMenu() {
+      if (activeContextMenu) {
+        activeContextMenu.remove();
+        activeContextMenu = null;
+      }
+      document.removeEventListener("click", onDocClick);
+      document.removeEventListener("contextmenu", onDocContextMenu);
+      document.removeEventListener("keydown", onDocKeydown);
+      window.removeEventListener("resize", removeContextMenu);
+    }
+    function onDocClick(e) {
+      if (activeContextMenu && !activeContextMenu.contains(e.target)) {
+        removeContextMenu();
+      }
+    }
+    function onDocContextMenu(e) {
+      if (activeContextMenu && !activeContextMenu.contains(e.target)) {
+        removeContextMenu();
+      }
+    }
+    function onDocKeydown(e) {
+      if (e.key === "Escape") {
+        removeContextMenu();
+      }
+    }
+
+    function positionContextMenu(menu, x, y) {
+      removeContextMenu();
+      menu.style.visibility = "hidden";
+      menu.style.left = "0px";
+      menu.style.top = "0px";
+      document.body.appendChild(menu);
+      const rect = menu.getBoundingClientRect();
+      const pad = 8;
+      let finalX = x;
+      let finalY = y;
+      if (finalX + rect.width > window.innerWidth - pad) {
+        finalX = Math.max(pad, window.innerWidth - rect.width - pad);
+      }
+      if (finalY + rect.height > window.innerHeight - pad) {
+        finalY = Math.max(pad, window.innerHeight - rect.height - pad);
+      }
+      menu.style.left = finalX + "px";
+      menu.style.top = finalY + "px";
+      menu.style.visibility = "visible";
+
+      activeContextMenu = menu;
+      setTimeout(() => {
+        document.addEventListener("click", onDocClick);
+        document.addEventListener("contextmenu", onDocContextMenu);
+        document.addEventListener("keydown", onDocKeydown);
+        window.addEventListener("resize", removeContextMenu);
+      }, 10);
+    }
+
+    async function executePaste(targetFolder, onRefresh) {
+      if (!swissClipboard.items || swissClipboard.items.length === 0) return;
+      const isCut = swissClipboard.action === "cut";
+      const payload = {
+        items: swissClipboard.items.map(item => ({
+          src: item.path,
+          dst: targetFolder + "/" + item.name
+        }))
+      };
+      const endpoint = isCut ? (API_BASE + "/api/files/move") : (API_BASE + "/api/files/copy");
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast((isCut ? "Moved " : "Copied ") + swissClipboard.items.length + " item(s)");
+          if (isCut) {
+            swissClipboard = { action: "copy", items: [] };
+          }
+          onRefresh();
+        } else {
+          showToast("Paste error: " + (data.error || "Unknown"), "error");
+        }
+      } catch (err) {
+        showToast("Paste failed: " + err.message, "error");
+      }
+    }
+
+    async function executeDelete(itemsToDelete, onRefresh) {
+      if (!itemsToDelete || itemsToDelete.length === 0) return;
+      const count = itemsToDelete.length;
+      const msg = count === 1 ? ("Delete '" + itemsToDelete[0].name + "'?") : ("Delete " + count + " selected items?");
+      if (!confirm(msg)) return;
+      try {
+        const res = await fetch(API_BASE + "/api/files/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paths: itemsToDelete.map(i => i.path) })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast("Deleted " + count + " item(s)");
+          onRefresh();
+        } else {
+          showToast("Delete failed: " + (data.error || "Unknown"), "error");
+        }
+      } catch (err) {
+        showToast("Delete failed: " + err.message, "error");
+      }
+    }
+
+    // Context Menu for File Operations on Rows
+    function showFileContextMenu(x, y, item, selectedItems, onRefresh) {
+      const isSingle = !selectedItems || selectedItems.length <= 1;
+      const targets = (selectedItems && selectedItems.length > 0) ? selectedItems : [item];
+      const hasClipboard = swissClipboard.items && swissClipboard.items.length > 0;
 
       const menu = document.createElement("div");
       menu.className = "swiss-context-menu";
-      menu.style.left = x + "px";
-      menu.style.top = y + "px";
 
-      menu.innerHTML = ` + "`" + `
-        <div class="swiss-context-item" id="ctx-rename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg><span>Rename</span></div>
-        <div class="swiss-context-item" id="ctx-copy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><span>Copy Path</span></div>
-        <div class="swiss-context-item" id="ctx-delete" style="color:#ef4444;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg><span>Delete</span></div>
-        <div class="swiss-context-divider"></div>
-        <div class="swiss-context-item" id="ctx-reveal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/></svg><span>Reveal in File Manager</span></div>
-        <div class="swiss-context-item" id="ctx-term"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg><span>Open in Terminal</span></div>
-      ` + "`" + `;
+      let itemsHtml = '<div class="swiss-context-item" id="ctx-file-copy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><span>Copy</span></div>' +
+        '<div class="swiss-context-item" id="ctx-file-cut"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" x2="8.12" y1="4" y2="15.88"/><line x1="14.47" x2="20" y1="14.48" y2="20"/><line x1="8.12" x2="12" y1="8.12" y2="12"/></svg><span>Cut</span></div>';
+      if (item.isDir) {
+        itemsHtml += '<div class="swiss-context-item ' + (hasClipboard ? '' : 'disabled') + '" id="ctx-file-paste"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/></svg><span>Paste</span></div>';
+      }
+      itemsHtml += '<div class="swiss-context-divider"></div>' +
+        '<div class="swiss-context-item" id="ctx-copy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><span>Copy Path</span></div>';
+      if (isSingle) {
+        itemsHtml += '<div class="swiss-context-item" id="ctx-rename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg><span>Rename</span></div>';
+      }
+      itemsHtml += '<div class="swiss-context-item" id="ctx-delete" style="color:#ef4444;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg><span>Delete</span></div>' +
+        '<div class="swiss-context-divider"></div>' +
+        '<div class="swiss-context-item" id="ctx-reveal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/></svg><span>Reveal in File Manager</span></div>' +
+        '<div class="swiss-context-item" id="ctx-term"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg><span>Open in Terminal</span></div>';
+      menu.innerHTML = itemsHtml;
 
-      document.body.appendChild(menu);
+      positionContextMenu(menu, x, y);
 
-      const closeMenu = () => { menu.remove(); document.removeEventListener("click", closeMenu); };
-      setTimeout(() => document.addEventListener("click", closeMenu), 10);
+      menu.querySelector("#ctx-file-copy")?.addEventListener("click", () => {
+        swissClipboard = { action: "copy", items: [...targets] };
+        document.querySelectorAll(".swiss-file-row.cut").forEach(r => r.classList.remove("cut"));
+        showToast("Copied " + targets.length + " item(s) to clipboard");
+        removeContextMenu();
+      });
 
-      menu.querySelector("#ctx-rename").onclick = async () => {
-        const newName = prompt("Rename to:", item.name);
-        if (!newName || newName === item.name) return;
-        const newPath = item.path.substring(0, item.path.lastIndexOf("/") + 1) + newName;
-        await fetch(` + "`" + `${API_BASE}/api/files/rename` + "`" + `, {
+      menu.querySelector("#ctx-file-cut")?.addEventListener("click", () => {
+        swissClipboard = { action: "cut", items: [...targets] };
+        document.querySelectorAll(".swiss-file-row.cut").forEach(r => r.classList.remove("cut"));
+        targets.forEach(t => {
+          const r = document.querySelector('[data-path="' + CSS.escape(t.path) + '"]');
+          if (r) r.classList.add("cut");
+        });
+        showToast("Cut " + targets.length + " item(s) to clipboard");
+        removeContextMenu();
+      });
+
+      menu.querySelector("#ctx-file-paste")?.addEventListener("click", () => {
+        if (!hasClipboard) return;
+        executePaste(item.path, onRefresh);
+        removeContextMenu();
+      });
+
+      menu.querySelector("#ctx-copy")?.addEventListener("click", () => {
+        const text = targets.map(t => t.path).join("\n");
+        navigator.clipboard.writeText(text);
+        showToast("Path" + (targets.length > 1 ? "s" : "") + " copied to clipboard!");
+        removeContextMenu();
+      });
+
+      const renameBtn = menu.querySelector("#ctx-rename");
+      if (renameBtn) {
+        renameBtn.addEventListener("click", async () => {
+          const newName = prompt("Rename to:", item.name);
+          if (!newName || newName === item.name) {
+            removeContextMenu();
+            return;
+          }
+          const newPath = item.path.substring(0, item.path.lastIndexOf("/") + 1) + newName;
+          await fetch(API_BASE + "/api/files/rename", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ old_path: item.path, new_path: newPath })
+          });
+          onRefresh();
+          removeContextMenu();
+        });
+      }
+
+      menu.querySelector("#ctx-delete")?.addEventListener("click", () => {
+        removeContextMenu();
+        executeDelete(targets, onRefresh);
+      });
+
+      menu.querySelector("#ctx-reveal")?.addEventListener("click", () => {
+        fetch(API_BASE + "/api/files/reveal", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ old_path: item.path, new_path: newPath })
+          body: JSON.stringify({ path: item.path })
+        });
+        removeContextMenu();
+      });
+
+      menu.querySelector("#ctx-term")?.addEventListener("click", () => {
+        fetch(API_BASE + "/api/files/terminal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: item.path })
+        });
+        removeContextMenu();
+      });
+    }
+
+    // Context Menu for Blank Background Area
+    function showBlankContextMenu(x, y, currentDir, onRefresh) {
+      const hasClipboard = swissClipboard.items && swissClipboard.items.length > 0;
+
+      const menu = document.createElement("div");
+      menu.className = "swiss-context-menu";
+
+      let blankHtml = '<div class="swiss-context-item ' + (hasClipboard ? '' : 'disabled') + '" id="ctx-blank-paste"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/></svg><span>Paste</span></div>' +
+        '<div class="swiss-context-divider"></div>' +
+        '<div class="swiss-context-item" id="ctx-blank-new-file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><polyline points="14 2 14 8 20 8"/><line x1="12" x2="12" y1="18" y2="12"/><line x1="9" x2="15" y1="15" y2="15"/></svg><span>New File</span></div>' +
+        '<div class="swiss-context-item" id="ctx-blank-new-dir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg><span>New Folder</span></div>' +
+        '<div class="swiss-context-divider"></div>' +
+        '<div class="swiss-context-item" id="ctx-blank-refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg><span>Refresh</span></div>' +
+        '<div class="swiss-context-item" id="ctx-blank-reveal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/></svg><span>Reveal in File Manager</span></div>' +
+        '<div class="swiss-context-item" id="ctx-blank-term"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg><span>Open in Terminal</span></div>';
+      menu.innerHTML = blankHtml;
+
+      positionContextMenu(menu, x, y);
+
+      menu.querySelector("#ctx-blank-paste")?.addEventListener("click", () => {
+        if (!hasClipboard) return;
+        executePaste(currentDir, onRefresh);
+        removeContextMenu();
+      });
+
+      menu.querySelector("#ctx-blank-new-file")?.addEventListener("click", async () => {
+        removeContextMenu();
+        const name = prompt("Enter new file name:");
+        if (!name) return;
+        await fetch(API_BASE + "/api/files/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: currentDir + "/" + name, is_dir: false })
         });
         onRefresh();
-      };
+      });
 
-      menu.querySelector("#ctx-copy").onclick = () => {
-        navigator.clipboard.writeText(item.path);
-        showToast("Path copied to clipboard!");
-      };
-
-      menu.querySelector("#ctx-delete").onclick = async () => {
-        if (!confirm(` + "`" + `Delete '${item.name}'?` + "`" + `)) return;
-        await fetch(` + "`" + `${API_BASE}/api/files/delete` + "`" + `, {
+      menu.querySelector("#ctx-blank-new-dir")?.addEventListener("click", async () => {
+        removeContextMenu();
+        const name = prompt("Enter new directory name:");
+        if (!name) return;
+        await fetch(API_BASE + "/api/files/create", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: item.path })
+          body: JSON.stringify({ path: currentDir + "/" + name, is_dir: true })
         });
         onRefresh();
-      };
+      });
 
-      menu.querySelector("#ctx-reveal").onclick = () => {
-        fetch(` + "`" + `${API_BASE}/api/files/reveal` + "`" + `, {
+      menu.querySelector("#ctx-blank-refresh")?.addEventListener("click", () => {
+        removeContextMenu();
+        onRefresh();
+      });
+
+      menu.querySelector("#ctx-blank-reveal")?.addEventListener("click", () => {
+        removeContextMenu();
+        fetch(API_BASE + "/api/files/reveal", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: item.path })
+          body: JSON.stringify({ path: currentDir })
         });
-      };
+      });
 
-      menu.querySelector("#ctx-term").onclick = () => {
-        fetch(` + "`" + `${API_BASE}/api/files/terminal` + "`" + `, {
+      menu.querySelector("#ctx-blank-term")?.addEventListener("click", () => {
+        removeContextMenu();
+        fetch(API_BASE + "/api/files/terminal", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: item.path })
+          body: JSON.stringify({ path: currentDir })
         });
-      };
+      });
     }
 
     // ----------------------------------------------------
@@ -2046,11 +2357,14 @@ func GenerateAuxiliaryPluginsScript() string {
           const res = await fetch(` + "`" + `${API_BASE}/api/memos` + "`" + `);
           if (!res.ok) throw new Error("HTTP " + res.status);
           const data = await res.json();
-          let memos = [];
+          let memos = null;
           if (Array.isArray(data.memos)) {
             memos = data.memos;
           } else if (Array.isArray(data)) {
             memos = data;
+          }
+          if (!memos) {
+            throw new Error(data && data.error ? data.error : "Invalid memos response");
           }
           saveLocalMemos(memos);
           renderCards(memos);
@@ -2086,6 +2400,7 @@ func GenerateAuxiliaryPluginsScript() string {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              id: newMemo.id,
               title: titleStr,
               content: text,
               type: "text",
@@ -2126,6 +2441,7 @@ func GenerateAuxiliaryPluginsScript() string {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
+                      id: newMemo.id,
                       title: titleStr,
                       content: noteText,
                       type: "audio",

@@ -120,7 +120,7 @@ func TestRunIssueDiagnosis_CompleteFlow(t *testing.T) {
 	if strings.Contains(res.SanitizedReport, "john@domain.com") {
 		t.Errorf("sanitized report contains unredacted email")
 	}
-	if !strings.HasPrefix(res.IssueURL, "https://github.com/ChillingWombat/antigravity-swiss-knife/issues/new") {
+	if !strings.HasPrefix(res.IssueURL, "https://github.com/ChillingWombat/AntigravitySwissKnife/issues/new") {
 		t.Errorf("unexpected issue URL: %s", res.IssueURL)
 	}
 }

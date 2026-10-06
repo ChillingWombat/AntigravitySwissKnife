@@ -74,10 +74,10 @@ func isTestMockEmail(email string) bool {
 	if norm == "" {
 		return true
 	}
-	if norm == "david.alt@google.com" || norm == "david.dev@google.com" {
+	if strings.HasSuffix(norm, "@example.com") || strings.HasSuffix(norm, ".test") || strings.HasSuffix(norm, "@mock.test") {
 		return true
 	}
-	if strings.HasSuffix(norm, "@example.com") || strings.HasSuffix(norm, ".test") {
+	if strings.HasPrefix(norm, "mock_") || strings.HasPrefix(norm, "test_") {
 		return true
 	}
 	return false

@@ -191,6 +191,11 @@ input:focus, select:focus, textarea:focus {
   background-color: var(--red-bg);
   color: var(--red);
 }
+.badge-blue {
+  background-color: #e8f0fe;
+  color: #1a73e8;
+  border: 1px solid #d2e3fc;
+}
 .badge-neutral {
   background-color: var(--tonal);
   color: var(--text-muted);

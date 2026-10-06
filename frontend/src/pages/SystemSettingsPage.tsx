@@ -1852,7 +1852,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
             </div>
 
             <a
-              href="https://github.com/ChillingWombat/antigravity-swiss-knife"
+              href="https://github.com/ChillingWombat/AntigravitySwissKnife"
               target="_blank"
               rel="noopener noreferrer"
               className="btn-pill-tonal"
@@ -1922,7 +1922,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               {/* Star on GitHub */}
               <button
                 type="button"
-                onClick={() => handleOpenExternal('https://github.com/ChillingWombat/antigravity-swiss-knife')}
+                onClick={() => handleOpenExternal('https://github.com/ChillingWombat/AntigravitySwissKnife')}
                 className="btn-pill-tonal"
                 style={{
                   height: '42px',

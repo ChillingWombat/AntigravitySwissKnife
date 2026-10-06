@@ -675,11 +675,19 @@ func (s *Store) SetActiveAccount(email string) error {
 		return fmt.Errorf("%w: %s", core.ErrAccountNotFound, email)
 	}
 
+	st := strings.ToUpper(strings.TrimSpace(target.Status))
+	if st == "COOLDOWN" {
+		return fmt.Errorf("account %s is in cooldown waiting for quota reset and cannot be switched on", email)
+	}
+	if st == "BANNED" {
+		return fmt.Errorf("account %s is banned and cannot be switched on", email)
+	}
+
 	s.activeEmail = target.Email
 	for _, a := range s.accounts {
 		if strings.EqualFold(a.Email, target.Email) {
 			a.IsActive = true
-			if a.Status != "BANNED" && a.Status != "ERROR" {
+			if a.Status != "BANNED" && a.Status != "ERROR" && a.Status != "COOLDOWN" {
 				a.Status = "ACTIVE"
 			}
 		} else {
@@ -769,11 +777,22 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 	acc.AllowClaudeGPT = allowClaudeGPT
 
 	if setActive {
+		targetStatus := strings.ToUpper(strings.TrimSpace(status))
+		if targetStatus == "" {
+			targetStatus = strings.ToUpper(strings.TrimSpace(acc.Status))
+		}
+		if targetStatus == "COOLDOWN" {
+			return fmt.Errorf("account %s is in cooldown waiting for quota reset and cannot be switched on", email)
+		}
+		if targetStatus == "BANNED" {
+			return fmt.Errorf("account %s is banned and cannot be switched on", email)
+		}
+
 		s.activeEmail = email
 		for e, a := range s.accounts {
 			if strings.EqualFold(e, email) {
 				a.IsActive = true
-				if a.Status != "BANNED" && a.Status != "ERROR" {
+				if a.Status != "BANNED" && a.Status != "ERROR" && a.Status != "COOLDOWN" {
 					a.Status = "ACTIVE"
 				}
 			} else {
@@ -792,6 +811,36 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 		}
 	}
 
+	return s.save()
+}
+
+// UpdateAccountStatus updates the status of an account (e.g. STANDBY, COOLDOWN, ERROR, BANNED).
+func (s *Store) UpdateAccountStatus(email, status string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var target *Account
+	for e, a := range s.accounts {
+		if strings.EqualFold(e, email) {
+			target = a
+			break
+		}
+	}
+	if target == nil {
+		return fmt.Errorf("%w: %s", core.ErrAccountNotFound, email)
+	}
+
+	st := strings.ToUpper(strings.TrimSpace(status))
+	if st == "ACTIVE" && !target.IsActive {
+		return fmt.Errorf("cannot set ACTIVE status without setting active account")
+	}
+	if st == "COOLDOWN" && target.IsActive {
+		target.IsActive = false
+		if strings.EqualFold(s.activeEmail, target.Email) {
+			s.activeEmail = ""
+		}
+	}
+	target.Status = st
 	return s.save()
 }
 

@@ -75,6 +75,9 @@ func (s *Store) load() error {
 		if _, ok := raw["consistent_project_spacing"]; !ok {
 			cfg.ConsistentProjectSpacing = true
 		}
+		if _, ok := raw["consistent_project_spacing_line"]; !ok {
+			cfg.ConsistentProjectSpacingLine = true
+		}
 	}
 	if cfg.ActiveConversationIndicator == "" {
 		cfg.ActiveConversationIndicator = "background"
@@ -191,6 +194,7 @@ func (s *Store) GetConfig() Config {
 		ConversationTabsMax:         s.config.ConversationTabsMax,
 		ReplaceSeeAllTriangle:       s.config.ReplaceSeeAllTriangle,
 		ConsistentProjectSpacing:    s.config.ConsistentProjectSpacing,
+		ConsistentProjectSpacingLine: s.config.ConsistentProjectSpacingLine,
 		AutoArchiveConversations:    s.config.AutoArchiveConversations,
 		AutoArchiveHorizon:          s.config.AutoArchiveHorizon,
 		AutoInject:                  s.config.AutoInject,

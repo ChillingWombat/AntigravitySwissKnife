@@ -32,6 +32,13 @@ const (
 	StatusWarning   = "WARNING"
 	StatusExhausted = "EXHAUSTED"
 
+	// Account Statuses
+	AccountStatusActive   = "ACTIVE"
+	AccountStatusStandby  = "STANDBY"
+	AccountStatusCooldown = "COOLDOWN"
+	AccountStatusError    = "ERROR"
+	AccountStatusBanned   = "BANNED"
+
 	// Minimalist Light Theme Design Tokens
 	LightSurface              = "#f0f4f9"
 	LightSurfaceContainer     = "#ffffff"

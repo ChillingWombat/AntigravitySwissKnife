@@ -19,6 +19,7 @@ import uuid
 import datetime
 import urllib.parse
 import subprocess
+import shutil
 import glob
 from typing import List, Dict, Any, Optional
 
@@ -133,9 +134,7 @@ def scan_dsh() -> List[Dict[str, Any]]:
         return candidates
 
     known_ws = get_known_antigravity_workspaces()
-    zstd_bin = "/home/linuxbrew/.linuxbrew/bin/zstd"
-    if not os.path.exists(zstd_bin):
-        zstd_bin = "zstd"
+    zstd_bin = shutil.which("zstd") or "zstd"
 
     for root, _, files in os.walk(dsh_dir):
         for f in files:
@@ -311,6 +310,8 @@ def scan_claude_code() -> List[Dict[str, Any]]:
 
         size = os.path.getsize(full_path)
         tok_est = max(msg_count * 150, int(size / 4))
+        curr_cwd = os.getcwd()
+        proj_id, proj_name = match_workspace_project(curr_cwd, known_ws)
         candidates.append({
             "id": entry,
             "source": "claude-code",
@@ -318,9 +319,9 @@ def scan_claude_code() -> List[Dict[str, Any]]:
             "message_count": msg_count,
             "tool_calls_count": tool_count,
             "token_estimate": tok_est,
-            "detected_project_path": "/mnt/Data/Projects/Antigravity Swiss Knife",
-            "target_antigravity_project": "Antigravity Swiss Knife",
-            "match_status": "exact",
+            "detected_project_path": curr_cwd,
+            "target_antigravity_project": proj_name,
+            "match_status": "exact" if proj_id != "standalone" else "fallback",
             "selected": True,
         })
         if len(candidates) >= 30:
@@ -342,7 +343,7 @@ def import_opencode_session(sid: str, match_mode: str = "auto") -> Optional[str]
         return None
 
     _, title, directory, agent, model_raw, tin, tout, created_ts = s_row
-    directory = directory or "/mnt/Data/Projects/Antigravity Swiss Knife"
+    directory = directory or os.getcwd()
 
     # Fetch messages
     cur.execute("SELECT id, time_created, data FROM message WHERE session_id = ? ORDER BY time_created ASC", (sid,))
@@ -452,7 +453,7 @@ def import_devin_session(sid: str, match_mode: str = "auto") -> Optional[str]:
         return None
 
     _, title, wdir, model, mode, created_ts = s_row
-    wdir = wdir or "/mnt/Data/Projects/Antigravity Swiss Knife"
+    wdir = wdir or os.getcwd()
 
     cur.execute("SELECT node_id, chat_message, created_at FROM message_nodes WHERE session_id = ? ORDER BY node_id ASC", (sid,))
     nodes = cur.fetchall()
@@ -542,9 +543,7 @@ def import_dsh_session(session_path: str, match_mode: str = "auto") -> Optional[
     if not os.path.exists(session_path):
         return None
 
-    zstd_bin = "/home/linuxbrew/.linuxbrew/bin/zstd"
-    if not os.path.exists(zstd_bin):
-        zstd_bin = "zstd"
+    zstd_bin = shutil.which("zstd") or "zstd"
 
     lines = []
     if session_path.endswith(".zstd"):
@@ -565,7 +564,7 @@ def import_dsh_session(session_path: str, match_mode: str = "auto") -> Optional[
 
     cid = str(uuid.uuid4())
     steps = []
-    cwd = "/mnt/Data/Projects/Antigravity Swiss Knife"
+    cwd = os.getcwd()
     title = "DSH Conversation"
     preview = "Imported DSH session"
 

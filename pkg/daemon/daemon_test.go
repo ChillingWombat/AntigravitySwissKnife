@@ -31,12 +31,12 @@ func TestDaemonFullLifecycleAndRPC(t *testing.T) {
 
 	// Seed test account
 	_ = d.Keyring.AddOrUpdateAccount(&keyring.Account{
-		Email:      "david.dev@google.com",
+		Email:      "developer@example.com",
 		Label:      "Primary Engineer",
 		TOTPSecret: "JBSWY3DPEHPK3PXP",
 	})
 	_ = d.Keyring.AddOrUpdateAccount(&keyring.Account{
-		Email: "david.alt@google.com",
+		Email: "standby@example.com",
 		Label: "Secondary Backup",
 	})
 
@@ -71,12 +71,12 @@ func TestDaemonFullLifecycleAndRPC(t *testing.T) {
 		Switched bool   `json:"switched"`
 		Account  string `json:"account"`
 	}
-	err = client.Call("swiss.switchAccount", map[string]string{"email": "david.alt@google.com"}, &switchResp)
+	err = client.Call("swiss.switchAccount", map[string]string{"email": "standby@example.com"}, &switchResp)
 	if err != nil {
 		t.Fatalf("swiss.switchAccount error: %v", err)
 	}
-	if switchResp.Account != "david.alt@google.com" {
-		t.Errorf("expected switched to david.alt@google.com, got %s", switchResp.Account)
+	if switchResp.Account != "standby@example.com" {
+		t.Errorf("expected switched to standby@example.com, got %s", switchResp.Account)
 	}
 
 	// 3. Test swiss.getTOTPCode
@@ -86,7 +86,7 @@ func TestDaemonFullLifecycleAndRPC(t *testing.T) {
 		ProgressFraction float64 `json:"progress_fraction"`
 		HasTOTP          bool    `json:"has_totp"`
 	}
-	err = client.Call("swiss.getTOTPCode", map[string]string{"email": "david.dev@google.com"}, &totpResp)
+	err = client.Call("swiss.getTOTPCode", map[string]string{"email": "developer@example.com"}, &totpResp)
 	if err != nil {
 		t.Fatalf("swiss.getTOTPCode error: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestDaemonFullLifecycleAndRPC(t *testing.T) {
 		MachineID string `json:"machine_id"`
 		UpdaterID string `json:"updater_id"`
 	}
-	err = client.Call("swiss.getFingerprofile", map[string]string{"email": "david.dev@google.com"}, &fpResp)
+	err = client.Call("swiss.getFingerprofile", map[string]string{"email": "developer@example.com"}, &fpResp)
 	if err != nil {
 		t.Fatalf("swiss.getFingerprofile error: %v", err)
 	}

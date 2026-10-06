@@ -11,6 +11,7 @@ import {
   X,
   Search,
   Plus,
+  Timer,
 } from 'lucide-react'
 import type { AccountState, FleetQuotaSummary, RuleConfig, DiscoveredAccount } from '../types'
 import { normalizePlanTier } from '../types'
@@ -732,7 +733,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               const isActive = activeAccount ? acc.email.toLowerCase() === activeAccount.toLowerCase() : Boolean(acc.is_active)
               const current5h = acc.quota_5h_current ?? acc.quota_5h_available ?? 0
               const isHealthy = current5h > (rules?.auto_switch_threshold ?? 0.10) && (acc.quota_weekly ?? 0) > 0.05
-              const isNextSwitch = autoSwitchOn && sortMode === 'auto' && !isActive && !acc.status?.toUpperCase().includes('BANNED') && !acc.status?.toUpperCase().includes('ERROR') && index === 1 && isHealthy
+              const isNextSwitch = autoSwitchOn && sortMode === 'auto' && !isActive && !acc.status?.toUpperCase().includes('BANNED') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('COOLDOWN') && index === 1 && isHealthy
               return (
                 <tr
                   key={acc.email}
@@ -951,6 +952,25 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                       >
                         <AlertCircle size={12} /> ERROR
                       </button>
+                    ) : acc.status?.toUpperCase() === 'COOLDOWN' ? (
+                      <span
+                        className="badge-chip"
+                        style={{
+                          fontSize: '11px',
+                          padding: '4px 10px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          color: '#1a73e8',
+                          backgroundColor: '#e8f0fe',
+                          border: '1px solid #d2e3fc',
+                          fontWeight: 600,
+                          cursor: 'default',
+                        }}
+                        title="Quota exhausted below threshold; cooling down until reset. Cannot be switched on."
+                      >
+                        <Timer size={12} /> Cool Down
+                      </span>
                     ) : isActive ? (
                       <span
                         className="badge-chip badge-green"
@@ -1169,7 +1189,10 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           >
             <Edit2 size={13} /> Edit Account Details
           </button>
-          {!contextMenu.account.is_active && contextMenu.account.email !== activeAccount && (
+          {!contextMenu.account.is_active &&
+            contextMenu.account.email !== activeAccount &&
+            contextMenu.account.status?.toUpperCase() !== 'COOLDOWN' &&
+            contextMenu.account.status?.toUpperCase() !== 'BANNED' && (
             <button
               onClick={async () => {
                 const target = contextMenu.account.email

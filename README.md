@@ -210,8 +210,8 @@ This roadmap classifies all existing and planned features based on **Feasibility
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/ChillingWombat/antigravity-swiss-knife.git
-cd "antigravity-swiss-knife"
+git clone https://github.com/ChillingWombat/AntigravitySwissKnife.git
+cd "AntigravitySwissKnife"
 
 # 2. Build Web GUI
 cd frontend

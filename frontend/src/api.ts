@@ -440,6 +440,13 @@ export const api = {
       body: JSON.stringify({ path }),
     }),
 
+  deleteFiles: (paths: string[]) =>
+    request<{ success: boolean; paths: string[] }>('/api/files/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths }),
+    }),
+
   createFile: (path: string, isDir = false) =>
     request<{ success: boolean; path: string; is_dir: boolean }>('/api/files/create', {
       method: 'POST',
@@ -454,11 +461,25 @@ export const api = {
       body: JSON.stringify({ src, dst }),
     }),
 
+  copyFiles: (items: Array<{ src: string; dst: string }>) =>
+    request<{ success: boolean; results: Array<{ src: string; dst: string }>; count: number }>('/api/files/copy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+    }),
+
   moveFile: (src: string, dst: string) =>
     request<{ success: boolean; src: string; dst: string }>('/api/files/move', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ src, dst }),
+    }),
+
+  moveFiles: (items: Array<{ src: string; dst: string }>) =>
+    request<{ success: boolean; results: Array<{ src: string; dst: string }>; count: number }>('/api/files/move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
     }),
 
   revealFile: (path: string) =>

@@ -242,10 +242,11 @@ func TestGenerateScript(t *testing.T) {
 
 func TestSidebarDividerAndProjectSpacer(t *testing.T) {
 	cfg := &Config{
-		Enabled:                  true,
-		ColorStylingEnabled:      true,
-		ReplaceSeeAllTriangle:    true,
-		ConsistentProjectSpacing: true,
+		Enabled:                      true,
+		ColorStylingEnabled:          true,
+		ReplaceSeeAllTriangle:        true,
+		ConsistentProjectSpacing:     true,
+		ConsistentProjectSpacingLine: true,
 	}
 
 	// 1. Verify CSS rules for divider centering and spacer
@@ -265,17 +266,26 @@ func TestSidebarDividerAndProjectSpacer(t *testing.T) {
 	if !strings.Contains(css, ".swiss-project-bottom-spacer") {
 		t.Errorf("GenerateCSS missing .swiss-project-bottom-spacer rule")
 	}
-	if !strings.Contains(css, "height: 20px !important;") {
-		t.Errorf("GenerateCSS missing height: 20px on spacer")
+	if !strings.Contains(css, "height: 32px !important;") {
+		t.Errorf("GenerateCSS missing height: 32px on spacer")
+	}
+	if !strings.Contains(css, ".swiss-project-spacer-line") {
+		t.Errorf("GenerateCSS missing .swiss-project-spacer-line rule")
+	}
+	if !strings.Contains(css, "[data-theme=\"dark\"] .swiss-project-spacer-line") {
+		t.Errorf("GenerateCSS missing dark theme rule for .swiss-project-spacer-line")
 	}
 
-	// 2. Verify JS script generation
+	// 2. Verify JS script generation with consistentProjectSpacingLine = true
 	script := GenerateScript(cfg)
 	if !strings.Contains(script, "const replaceSeeAllTriangle = true;") {
 		t.Errorf("GenerateScript missing replaceSeeAllTriangle constant")
 	}
 	if !strings.Contains(script, "const consistentProjectSpacing = true;") {
 		t.Errorf("GenerateScript missing consistentProjectSpacing constant")
+	}
+	if !strings.Contains(script, "const consistentProjectSpacingLine = true;") {
+		t.Errorf("GenerateScript missing consistentProjectSpacingLine constant")
 	}
 	if !strings.Contains(script, "spacerIndices.add") {
 		t.Errorf("GenerateScript missing spacerIndices computation")
@@ -285,6 +295,33 @@ func TestSidebarDividerAndProjectSpacer(t *testing.T) {
 	}
 	if !strings.Contains(script, "swiss-project-bottom-spacer") {
 		t.Errorf("GenerateScript missing swiss-project-bottom-spacer reference")
+	}
+	if !strings.Contains(script, "swiss-project-spacer-line") {
+		t.Errorf("GenerateScript missing swiss-project-spacer-line reference")
+	}
+	if !strings.Contains(script, "spacer.appendChild(line)") {
+		t.Errorf("GenerateScript missing spacer.appendChild(line) logic")
+	}
+
+	// 3. Verify JS script generation with consistentProjectSpacingLine = false
+	cfgDisabledLine := &Config{
+		Enabled:                      true,
+		ColorStylingEnabled:          true,
+		ConsistentProjectSpacing:     true,
+		ConsistentProjectSpacingLine: false,
+	}
+	scriptDisabled := GenerateScript(cfgDisabledLine)
+	if !strings.Contains(scriptDisabled, "const consistentProjectSpacingLine = false;") {
+		t.Errorf("GenerateScript missing 'const consistentProjectSpacingLine = false;' when disabled")
+	}
+
+	// 4. Verify default config has both spacing and spacing line enabled
+	defCfg := DefaultConfig()
+	if !defCfg.ConsistentProjectSpacing {
+		t.Errorf("DefaultConfig ConsistentProjectSpacing should default to true")
+	}
+	if !defCfg.ConsistentProjectSpacingLine {
+		t.Errorf("DefaultConfig ConsistentProjectSpacingLine should default to true")
 	}
 }
 
