@@ -13,11 +13,11 @@ Gate Result: **PASS** (Milestone 1 certified green across all criteria)
 ## Gate — Milestone 2 (Iteration 1)
 | Agent | Role | Verdict | Source |
 |-------|------|---------|--------|
-| worker_layout_m2_1 | teamwork_preview_worker | IN_PROGRESS | pending |
-| reviewer_layout_m2_1 | teamwork_preview_reviewer | PENDING | - |
-| reviewer_layout_m2_2 | teamwork_preview_reviewer | PENDING | - |
-| challenger_layout_m2_1 | teamwork_preview_challenger | PENDING | - |
-| challenger_layout_m2_2 | teamwork_preview_challenger | PENDING | - |
-| auditor_layout_m2_1 | teamwork_preview_auditor | PENDING | - |
+| worker_layout_m2_1 | teamwork_preview_worker | DONE (38/38 tests pass, build clean) | handoff.md |
+| reviewer_layout_m2_1 | teamwork_preview_reviewer | APPROVE | handoff.md |
+| reviewer_layout_m2_2 | teamwork_preview_reviewer | APPROVE | handoff.md |
+| challenger_layout_m2_1 | teamwork_preview_challenger | APPROVE | handoff.md |
+| challenger_layout_m2_2 | teamwork_preview_challenger | APPROVE | handoff.md |
+| auditor_layout_m2_1 | teamwork_preview_auditor | CLEAN | handoff.md |
 
-Gate Result: **IN_PROGRESS**
+Gate Result: **PASS** (Milestone 2 certified green across all criteria)

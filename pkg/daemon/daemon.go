@@ -397,6 +397,10 @@ func (d *Daemon) registerRPCHandlers() {
 		if jitter <= 0 {
 			jitter = 30
 		}
+		geminiReasoning := d.Config.DefaultGeminiReasoningLevel
+		if geminiReasoning == "" {
+			geminiReasoning = "high"
+		}
 		return map[string]interface{}{
 			"auto_switch_enabled":              d.Config.AutoSwitchEnabled,
 			"auto_switch_threshold":            d.Config.AutoSwitchThreshold,
@@ -407,6 +411,13 @@ func (d *Daemon) registerRPCHandlers() {
 			"warmup_enabled":                   d.Config.WarmupEnabled,
 			"warmup_lead_time_seconds":         d.Config.WarmupLeadTimeSec,
 			"preferred_native_model":           prefNative,
+			"allow_ai_credits_usage":           d.Config.AllowAICreditsUsage,
+			"allow_non_gemini_native_models":   d.Config.AllowNonGeminiNativeModels,
+			"model_source_hierarchy":           d.Config.ModelSourceHierarchy,
+			"default_gemini_model":             d.Config.DefaultGeminiModel,
+			"default_custom_model":             d.Config.DefaultCustomModel,
+			"default_non_gemini_model":         d.Config.DefaultNonGeminiModel,
+			"default_gemini_reasoning_level":   geminiReasoning,
 			"auto_import_active_account":       d.Config.AutoImportActiveAccount,
 		}, nil
 	}
@@ -416,16 +427,23 @@ func (d *Daemon) registerRPCHandlers() {
 	// 11. Rule Config: Set
 	setRuleConfigHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		var p struct {
-			AutoSwitchEnabled           *bool    `json:"auto_switch_enabled"`
-			AutoSwitchThreshold         *float64 `json:"auto_switch_threshold"`
-			PollingIntervalSec          *int     `json:"polling_interval_seconds"`
-			ActivePollingIntervalSec    *int     `json:"active_polling_interval_seconds"`
-			StandbyPollingIntervalSec   *int     `json:"standby_polling_interval_seconds"`
-			StandbyRandomJitterSec      *int     `json:"standby_random_jitter_seconds"`
-			WarmupEnabled               *bool    `json:"warmup_enabled"`
-			WarmupLeadTimeSec           *float64 `json:"warmup_lead_time_seconds"`
-			PreferredNativeModel        *string  `json:"preferred_native_model"`
-			AutoImportActiveAccount     *bool    `json:"auto_import_active_account"`
+			AutoSwitchEnabled           *bool     `json:"auto_switch_enabled"`
+			AutoSwitchThreshold         *float64  `json:"auto_switch_threshold"`
+			PollingIntervalSec          *int      `json:"polling_interval_seconds"`
+			ActivePollingIntervalSec    *int      `json:"active_polling_interval_seconds"`
+			StandbyPollingIntervalSec   *int      `json:"standby_polling_interval_seconds"`
+			StandbyRandomJitterSec      *int      `json:"standby_random_jitter_seconds"`
+			WarmupEnabled               *bool     `json:"warmup_enabled"`
+			WarmupLeadTimeSec           *float64  `json:"warmup_lead_time_seconds"`
+			PreferredNativeModel        *string   `json:"preferred_native_model"`
+			AllowAICreditsUsage         *bool     `json:"allow_ai_credits_usage"`
+			AllowNonGeminiNativeModels  *bool     `json:"allow_non_gemini_native_models"`
+			ModelSourceHierarchy        *[]string `json:"model_source_hierarchy"`
+			DefaultGeminiModel          *string   `json:"default_gemini_model"`
+			DefaultCustomModel          *string   `json:"default_custom_model"`
+			DefaultNonGeminiModel       *string   `json:"default_non_gemini_model"`
+			DefaultGeminiReasoningLevel *string   `json:"default_gemini_reasoning_level"`
+			AutoImportActiveAccount     *bool     `json:"auto_import_active_account"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: err.Error()}
@@ -458,6 +476,27 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 		if p.PreferredNativeModel != nil {
 			d.Config.PreferredNativeModel = *p.PreferredNativeModel
+		}
+		if p.AllowAICreditsUsage != nil {
+			d.Config.AllowAICreditsUsage = *p.AllowAICreditsUsage
+		}
+		if p.AllowNonGeminiNativeModels != nil {
+			d.Config.AllowNonGeminiNativeModels = *p.AllowNonGeminiNativeModels
+		}
+		if p.ModelSourceHierarchy != nil {
+			d.Config.ModelSourceHierarchy = *p.ModelSourceHierarchy
+		}
+		if p.DefaultGeminiModel != nil {
+			d.Config.DefaultGeminiModel = *p.DefaultGeminiModel
+		}
+		if p.DefaultCustomModel != nil {
+			d.Config.DefaultCustomModel = *p.DefaultCustomModel
+		}
+		if p.DefaultNonGeminiModel != nil {
+			d.Config.DefaultNonGeminiModel = *p.DefaultNonGeminiModel
+		}
+		if p.DefaultGeminiReasoningLevel != nil {
+			d.Config.DefaultGeminiReasoningLevel = *p.DefaultGeminiReasoningLevel
 		}
 		if p.AutoImportActiveAccount != nil {
 			d.Config.AutoImportActiveAccount = *p.AutoImportActiveAccount
@@ -564,6 +603,19 @@ func (d *Daemon) registerRPCHandlers() {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: "name required"}
 		}
 		if err := d.GUIStore.RemoveProjectColor(p.Name); err != nil {
+			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
+		}
+		return map[string]interface{}{"success": true, "name": p.Name}, nil
+	})
+
+	d.Server.Register("swiss.deleteGUIProject", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+		var p struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil || p.Name == "" {
+			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: "name required"}
+		}
+		if err := d.GUIStore.DeleteProject(p.Name); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
 		return map[string]interface{}{"success": true, "name": p.Name}, nil

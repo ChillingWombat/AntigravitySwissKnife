@@ -59,12 +59,18 @@ Establish a fixed minimal non-maximized window size of 1152×648 px (strict 16:9
 | challenger_geom_m1_1 | teamwork_preview_challenger | M1 Challenger 1 | completed | cca9993f-3a29-4291-b3f4-6a6e6a442b1d |
 | challenger_geom_m1_2 | teamwork_preview_challenger | M1 Challenger 2 | completed | 8ef94e6d-6d59-4da0-a876-6096730b40df |
 | auditor_geom_m1_1 | teamwork_preview_auditor | M1 Forensic Auditor | completed | 4cd6905d-b6cc-4cdd-bf1a-538996c28c6c |
-| worker_layout_m2_1 | teamwork_preview_worker | Milestone 2 Layout Implementation | in-progress | 23014b4d-5dfc-47e4-837f-56922a6d0bc9 |
+| worker_layout_m2_1 | teamwork_preview_worker | Milestone 2 Layout Implementation | completed | 23014b4d-5dfc-47e4-837f-56922a6d0bc9 |
+| reviewer_layout_m2_1 | teamwork_preview_reviewer | M2 Reviewer 1 | completed | 96cbcd9d-398f-4b6d-89ab-251b184b6da8 |
+| reviewer_layout_m2_2 | teamwork_preview_reviewer | M2 Reviewer 2 | completed | d1670262-8bc9-4565-a170-757c0e9b85df |
+| challenger_layout_m2_1 | teamwork_preview_challenger | M2 Challenger 1 | completed | bda39c29-98eb-4287-ba17-3d304d43fc87 |
+| challenger_layout_m2_2 | teamwork_preview_challenger | M2 Challenger 2 | completed | 577fa511-f2c9-41ec-8332-284ccc7fbe10 |
+| auditor_layout_m2_1 | teamwork_preview_auditor | M2 Forensic Auditor | completed | 46194ee1-070b-492a-9940-1135d8e2525c |
+| worker_comp_m3_1 | teamwork_preview_worker | Milestone 3 Component & Gadget Sizing | in-progress | f87a1a52-7e6e-403f-b9a9-e6c74a1263bf |
 
 ## Succession Status
-- Succession required: no
-- Spawn count: 10 / 16
-- Pending subagents: 23014b4d-5dfc-47e4-837f-56922a6d0bc9
+- Succession required: pending_subagents
+- Spawn count: 16 / 16
+- Pending subagents: f87a1a52-7e6e-403f-b9a9-e6c74a1263bf
 - Predecessor: none
 - Successor: not yet spawned
 

@@ -662,7 +662,7 @@ func TestWebGUIUtilitiesImportEndpoints(t *testing.T) {
 func TestWebGUIAvailableModelsAndRules(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
-	srv := NewServer("127.0.0.1:0", "")
+	srv := NewServer("127.0.0.1:0", filepath.Join(tempDir, "daemon.sock"))
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -734,6 +734,125 @@ func TestWebGUIAvailableModelsAndRules(t *testing.T) {
 
 	if lvl, ok := updatedRules["default_gemini_reasoning_level"].(string); !ok || lvl != "medium" {
 		t.Errorf("expected default_gemini_reasoning_level 'medium', got '%v'", updatedRules["default_gemini_reasoning_level"])
+	}
+}
+
+func TestWebGUICORSMiddlewareAndColorEndpoints(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	guiStore, err := gui.NewStore(filepath.Join(tempDir, "gui_config.json"))
+	if err != nil {
+		t.Fatalf("failed to init guiStore: %v", err)
+	}
+	cfg := gui.DefaultConfig()
+	cfg.Enabled = true
+	cfg.ColorStylingEnabled = true
+	cfg.ProjectOrder = []string{"Project Alpha", "Project Beta"}
+	_ = guiStore.UpdateConfig(cfg)
+
+	srv := NewServer("127.0.0.1:0", filepath.Join(tempDir, "daemon.sock"))
+	srv.SetGUIStore(guiStore)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+	client := &http.Client{}
+
+	// 1. CORS Preflight: OPTIONS /api/gui/color from vscode-file origin
+	req, _ := http.NewRequest(http.MethodOptions, baseURL+"/api/gui/color", nil)
+	req.Header.Set("Origin", "vscode-file://vscode-app")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	req.Header.Set("Access-Control-Request-Headers", "Content-Type")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("OPTIONS /api/gui/color failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("expected 204 No Content for CORS preflight, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "vscode-file://vscode-app" {
+		t.Errorf("expected Access-Control-Allow-Origin 'vscode-file://vscode-app', got '%s'", got)
+	}
+	if !strings.Contains(resp.Header.Get("Access-Control-Allow-Methods"), "POST") {
+		t.Errorf("expected POST in Access-Control-Allow-Methods, got '%s'", resp.Header.Get("Access-Control-Allow-Methods"))
+	}
+
+	// 2. CORS Preflight from localhost origin
+	req, _ = http.NewRequest(http.MethodOptions, baseURL+"/api/gui/color", nil)
+	req.Header.Set("Origin", "http://localhost:5173")
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("OPTIONS /api/gui/color failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("expected 204 for localhost preflight, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
+		t.Errorf("expected Access-Control-Allow-Origin 'http://localhost:5173', got '%s'", got)
+	}
+
+	// 3. Set Color via POST /api/gui/color
+	colorPayload, _ := json.Marshal(map[string]string{
+		"name":  "Project Alpha",
+		"color": "#7c3aed",
+	})
+	req, _ = http.NewRequest(http.MethodPost, baseURL+"/api/gui/color", bytes.NewReader(colorPayload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://127.0.0.1:8765")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/gui/color failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	currCfg := guiStore.GetConfig()
+	if currCfg.ProjectColors["Project Alpha"] != "#7c3aed" {
+		t.Errorf("expected color #7c3aed, got '%s'", currCfg.ProjectColors["Project Alpha"])
+	}
+
+	// 4. Delete Color via POST /api/gui/color/delete
+	delPayload, _ := json.Marshal(map[string]string{
+		"name": "Project Alpha",
+	})
+	req, _ = http.NewRequest(http.MethodPost, baseURL+"/api/gui/color/delete", bytes.NewReader(delPayload))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/gui/color/delete failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Verify color was removed, but project order and project settings were NOT wiped!
+	afterDelCfg := guiStore.GetConfig()
+	if _, exists := afterDelCfg.ProjectColors["Project Alpha"]; exists {
+		t.Errorf("expected Project Alpha color to be removed, but still exists: %s", afterDelCfg.ProjectColors["Project Alpha"])
+	}
+	if len(afterDelCfg.ProjectOrder) != 2 || afterDelCfg.ProjectOrder[0] != "Project Alpha" {
+		t.Errorf("expected ProjectOrder to be preserved, got %v", afterDelCfg.ProjectOrder)
+	}
+
+	// 5. Test alias /api/gui/projects/color/delete
+	_ = guiStore.SetProjectColor("Project Beta", "#059669")
+	betaPayload, _ := json.Marshal(map[string]string{"name": "Project Beta"})
+	req, _ = http.NewRequest(http.MethodPost, baseURL+"/api/gui/projects/color/delete", bytes.NewReader(betaPayload))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/gui/projects/color/delete failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	afterBetaCfg := guiStore.GetConfig()
+	if _, exists := afterBetaCfg.ProjectColors["Project Beta"]; exists {
+		t.Errorf("expected Project Beta color to be removed, but still exists")
+	}
+	if len(afterBetaCfg.ProjectOrder) != 2 {
+		t.Errorf("expected ProjectOrder to remain intact, got %v", afterBetaCfg.ProjectOrder)
 	}
 }
 

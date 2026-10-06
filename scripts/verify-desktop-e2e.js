@@ -29,6 +29,17 @@ async function probeUrl(url, timeoutMs = 1500) {
 async function run() {
   let allPassed = true;
 
+  // Snapshot any pre-existing daemons so we don't misclassify them as test orphans
+  let initialDaemonPids = [];
+  try {
+    const pgrepInit = execSync('pgrep -a swiss || true', { encoding: 'utf8' });
+    initialDaemonPids = pgrepInit
+      .trim()
+      .split('\n')
+      .filter((l) => l.includes('daemon --web'))
+      .map((l) => l.trim().split(' ')[0]);
+  } catch {}
+
   // ------------------------------------------------------------------
   // 1. Build & Asset Prerequisites
   // ------------------------------------------------------------------
@@ -268,7 +279,14 @@ async function run() {
   await new Promise((r) => setTimeout(r, 1000));
   try {
     const pgrep = execSync('pgrep -a swiss || true', { encoding: 'utf8' });
-    const lines = pgrep.trim().split('\n').filter((l) => l.includes('daemon --web'));
+    const lines = pgrep
+      .trim()
+      .split('\n')
+      .filter((l) => {
+        if (!l.includes('daemon --web')) return false;
+        const pid = l.trim().split(' ')[0];
+        return !initialDaemonPids.includes(pid);
+      });
     if (lines.length > 0) {
       console.error('  ✗ Orphaned swiss daemon processes detected:', lines.join('; '));
       allPassed = false;

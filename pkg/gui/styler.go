@@ -713,6 +713,102 @@ func generateBaseScript(cfg *Config) string {
     };
   }
 
+  // 3a. Dynamic scoped in-DOM project styling & cross-window sync
+  window.__swissDynamicColors = window.__swissDynamicColors || {};
+
+  function renderDynamicProjectStyles(projName, colorHex) {
+    try {
+      if (colorHex) {
+        window.__swissDynamicColors[projName] = colorHex;
+      } else if (projName) {
+        delete window.__swissDynamicColors[projName];
+      }
+
+      let dynStyleEl = document.getElementById("antigravity-swiss-dynamic-colors");
+      if (!dynStyleEl) {
+        dynStyleEl = document.createElement("style");
+        dynStyleEl.id = "antigravity-swiss-dynamic-colors";
+        (document.head || document.documentElement).appendChild(dynStyleEl);
+      }
+
+      let cssRules = [];
+      for (const [pName, hex] of Object.entries(window.__swissDynamicColors)) {
+        if (!pName || !hex) continue;
+        const safeP = pName.replace(/"/g, '\\\\\"');
+
+        let r = 11, g = 87, b = 208;
+        if (hex.startsWith("#")) {
+          const rawHex = hex.slice(1);
+          if (rawHex.length === 3) {
+            r = parseInt(rawHex[0] + rawHex[0], 16) || 11;
+            g = parseInt(rawHex[1] + rawHex[1], 16) || 87;
+            b = parseInt(rawHex[2] + rawHex[2], 16) || 208;
+          } else if (rawHex.length === 6) {
+            r = parseInt(rawHex.slice(0, 2), 16) || 11;
+            g = parseInt(rawHex.slice(2, 4), 16) || 87;
+            b = parseInt(rawHex.slice(4, 6), 16) || 208;
+          }
+        }
+
+        const baseOpacity = 0.15;
+        const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0;
+        const lightMult = lum > 0.6 ? Math.max(0.2, 1.0 - (lum - 0.6) * 0.75) : 1.0;
+        const effOpacity = (baseOpacity * lightMult).toFixed(2);
+        const effHoverOpacity = Math.min(1.0, (baseOpacity + 0.08) * lightMult).toFixed(2);
+        const effSelectedOpacity = Math.min(1.0, (baseOpacity + 0.16) * lightMult).toFixed(2);
+
+        cssRules.push(
+          '[data-swiss-project="' + safeP + '"] [data-project-card],' +
+          '[data-project-card][data-swiss-project="' + safeP + '"],' +
+          'div[data-swiss-project="' + safeP + '"][class*="group/header"] {' +
+          '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;' +
+          '  border-radius: 6px !important;' +
+          '}' +
+          '[data-swiss-project="' + safeP + '"] [data-project-card]:hover,' +
+          '[data-project-card][data-swiss-project="' + safeP + '"]:hover {' +
+          '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effHoverOpacity + ') !important;' +
+          '}' +
+          '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"],' +
+          '[data-index][data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"],' +
+          '[data-index][data-swiss-project="' + safeP + '"] {' +
+          '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;' +
+          '}' +
+          '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover,' +
+          '[data-index][data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover {' +
+          '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effHoverOpacity + ') !important;' +
+          '}' +
+          '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-selected="true"],' +
+          '[data-index][data-swiss-project="' + safeP + '"][data-selected="true"] [data-testid="conversation-row-sidebar"],' +
+          '[data-index][data-swiss-project="' + safeP + '"][data-selected="true"] {' +
+          '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effSelectedOpacity + ') !important;' +
+          '}'
+        );
+      }
+      dynStyleEl.textContent = cssRules.join("\n");
+      if (typeof window.__swissUpdateTagsAndDraggables === "function") {
+        window.__swissUpdateTagsAndDraggables();
+      }
+    } catch (e) {
+      console.warn("[SwissKnife] renderDynamicProjectStyles error:", e);
+    }
+  }
+
+  // Cross-window BroadcastChannel setup
+  if (!window.__swissSyncChannel && typeof BroadcastChannel !== "undefined") {
+    try {
+      window.__swissSyncChannel = new BroadcastChannel("swiss-sync");
+      window.__swissSyncChannel.onmessage = (ev) => {
+        const msg = ev?.data;
+        if (!msg) return;
+        if (msg.type === "color-update" && msg.project) {
+          renderDynamicProjectStyles(msg.project, msg.color);
+        } else if (msg.type === "color-delete" && msg.project) {
+          renderDynamicProjectStyles(msg.project, null);
+        }
+      };
+    } catch (_) {}
+  }
+
   // Track the most recently clicked project options button
   if (!window.__swissProjectOptionsTrackerBound) {
     window.__swissProjectOptionsTrackerBound = true;
@@ -734,7 +830,7 @@ func generateBaseScript(cfg *Config) string {
           setTimeout(window.__swissEnhanceProjectOptionsMenu, 150);
         }
       }
-    }, true);
+    }, { capture: false, passive: true });
   }
 
   function enhanceProjectOptionsMenu() {

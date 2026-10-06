@@ -785,8 +785,8 @@ export const CustomModelsPage: React.FC = () => {
                         percentage={gaugePct}
                         emptyGrey={emptyGrey}
                         title={gaugeTitle}
-                        size={86}
-                        strokeWidth={7}
+                        size={88}
+                        strokeWidth={8}
                       />
                     </div>
                   </div>

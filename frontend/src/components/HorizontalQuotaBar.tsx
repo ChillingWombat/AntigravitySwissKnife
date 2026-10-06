@@ -1,4 +1,5 @@
 import React from 'react'
+import { COMPONENT_TOKENS } from '../utils/layoutTokens'
 
 interface HorizontalQuotaBarProps {
   fraction: number // 0.0 to 1.0
@@ -9,7 +10,7 @@ interface HorizontalQuotaBarProps {
 
 export const HorizontalQuotaBar: React.FC<HorizontalQuotaBarProps> = ({
   fraction,
-  height = 9,
+  height = COMPONENT_TOKENS.QUOTA_BAR_HEIGHT,
   maxWidth = 160,
   title,
 }) => {
@@ -28,7 +29,7 @@ export const HorizontalQuotaBar: React.FC<HorizontalQuotaBarProps> = ({
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: '6px',
+        gap: `${COMPONENT_TOKENS.QUOTA_BAR_GAP}px`,
         width: '100%',
         maxWidth: maxWidth,
       }}

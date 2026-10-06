@@ -10,6 +10,10 @@ import {
   WORKSPACE_MIN_WIDTH,
   WORKSPACE_MIN_HEIGHT,
   WORKSPACE_ASPECT_RATIO,
+  WORKSPACE_PADDING_X,
+  WORKSPACE_CONTENT_MIN_WIDTH,
+  TABLE_MIN_WIDTH,
+  COMPONENT_TOKENS,
   PHI,
   SPACING,
   snapToGrid4,
@@ -147,5 +151,27 @@ describe('Layout Tokens & Golden Ratio Math', () => {
     const dimW = calcGoldenDimensionsFromWidth(500)
     assert.ok(isGridAligned4(dimW.width))
     assert.ok(isGridAligned4(dimW.height))
+  })
+
+  it('validates COMPONENT_TOKENS are all positive multiples of 4', () => {
+    for (const [key, val] of Object.entries(COMPONENT_TOKENS)) {
+      assert.ok(
+        isGridAligned4(val),
+        `Component token ${key} (${val}px) must be an integer multiple of 4`
+      )
+      assert.ok(val > 0, `Component token ${key} must be positive`)
+    }
+  })
+
+  it('verifies viewport budgeting and table width constraints', () => {
+    assert.ok(isGridAligned4(WORKSPACE_PADDING_X), 'WORKSPACE_PADDING_X must be divisible by 4')
+    assert.ok(isGridAligned4(TABLE_MIN_WIDTH), 'TABLE_MIN_WIDTH must be divisible by 4')
+    assert.equal(WORKSPACE_CONTENT_MIN_WIDTH, WORKSPACE_MIN_WIDTH - 2 * WORKSPACE_PADDING_X)
+    assert.equal(WORKSPACE_CONTENT_MIN_WIDTH, 884)
+    assert.equal(TABLE_MIN_WIDTH, 880)
+    assert.ok(
+      TABLE_MIN_WIDTH <= WORKSPACE_CONTENT_MIN_WIDTH,
+      `TABLE_MIN_WIDTH (${TABLE_MIN_WIDTH}) must fit within WORKSPACE_CONTENT_MIN_WIDTH (${WORKSPACE_CONTENT_MIN_WIDTH}) to eliminate horizontal scrollbar`
+    )
   })
 })

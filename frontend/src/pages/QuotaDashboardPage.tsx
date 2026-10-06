@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import type { AccountState, FleetQuotaSummary, RuleConfig, DiscoveredAccount } from '../types'
 import { normalizePlanTier } from '../types'
+import { COMPONENT_TOKENS, TABLE_MIN_WIDTH } from '../utils/layoutTokens'
 import { CircularGauge } from '../components/CircularGauge'
 import { HorizontalQuotaBar } from '../components/HorizontalQuotaBar'
 import { AccountDetailModal } from '../components/AccountDetailModal'
@@ -536,14 +537,14 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   <CircularGauge
                     percentage={(fleet?.fleet_5h_gemini_available ?? fleet?.fleet_5h_available ?? 0) * 100}
                     title="Gemini 5H"
-                    size={74}
-                    strokeWidth={7}
+                    size={COMPONENT_TOKENS.GAUGE_DUAL_SIZE}
+                    strokeWidth={COMPONENT_TOKENS.GAUGE_DUAL_STROKE}
                   />
                   <CircularGauge
                     percentage={(fleet?.fleet_weekly_gemini_available ?? fleet?.fleet_weekly_available ?? 0) * 100}
                     title="Gemini Weekly"
-                    size={74}
-                    strokeWidth={7}
+                    size={COMPONENT_TOKENS.GAUGE_DUAL_SIZE}
+                    strokeWidth={COMPONENT_TOKENS.GAUGE_DUAL_STROKE}
                   />
                 </div>
               </div>
@@ -560,14 +561,14 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   <CircularGauge
                     percentage={(fleet?.fleet_5h_claude_gpt_available ?? 0) * 100}
                     title="Claude/GPT 5H"
-                    size={74}
-                    strokeWidth={7}
+                    size={COMPONENT_TOKENS.GAUGE_DUAL_SIZE}
+                    strokeWidth={COMPONENT_TOKENS.GAUGE_DUAL_STROKE}
                   />
                   <CircularGauge
                     percentage={(fleet?.fleet_weekly_claude_gpt_available ?? 0) * 100}
                     title="Claude/GPT Weekly"
-                    size={74}
-                    strokeWidth={7}
+                    size={COMPONENT_TOKENS.GAUGE_DUAL_SIZE}
+                    strokeWidth={COMPONENT_TOKENS.GAUGE_DUAL_STROKE}
                   />
                 </div>
               </div>
@@ -657,15 +658,15 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
         </div>
 
         <div style={{ overflowX: 'auto', width: '100%' }}>
-          <table style={{ width: '100%', minWidth: '960px', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+          <table style={{ width: '100%', minWidth: `${TABLE_MIN_WIDTH}px`, borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <thead>
               <tr>
                 <th
                   onClick={() => setSortMode('identity')}
                   style={{
                     width: '26%',
-                    minWidth: '220px',
-                    padding: '12px 18px',
+                    minWidth: '200px',
+                    padding: '12px 16px',
                     textAlign: 'left',
                     fontSize: '11px',
                     fontWeight: 600,
@@ -684,14 +685,14 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   {sortMode === 'identity' && <ArrowUpDown size={11} />}
                 </div>
               </th>
-              <th style={{ width: '90px', minWidth: '85px', padding: '12px 10px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              <th style={{ width: '88px', minWidth: '84px', padding: '12px 8px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Plan
               </th>
               <th
                 onClick={() => setSortMode('quota_5h')}
                 style={{
                   width: '22%',
-                  minWidth: '160px',
+                  minWidth: '152px',
                   padding: '12px 12px',
                   textAlign: 'left',
                   fontSize: '11px',
@@ -715,7 +716,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 onClick={() => setSortMode('quota_weekly')}
                 style={{
                   width: '22%',
-                  minWidth: '160px',
+                  minWidth: '152px',
                   padding: '12px 12px',
                   textAlign: 'left',
                   fontSize: '11px',
@@ -738,9 +739,9 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               <th
                 onClick={() => setSortMode('credits')}
                 style={{
-                  width: '110px',
-                  minWidth: '100px',
-                  padding: '12px 10px',
+                  width: '104px',
+                  minWidth: '96px',
+                  padding: '12px 8px',
                   textAlign: 'left',
                   fontSize: '11px',
                   fontWeight: 600,
@@ -763,8 +764,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 onClick={() => setSortMode('priority')}
                 style={{
                   width: '80px',
-                  minWidth: '75px',
-                  padding: '12px 10px',
+                  minWidth: '76px',
+                  padding: '12px 8px',
                   textAlign: 'left',
                   fontSize: '11px',
                   fontWeight: 600,
@@ -783,7 +784,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   {sortMode === 'priority' && <ArrowUpDown size={11} />}
                 </div>
               </th>
-              <th style={{ width: '95px', minWidth: '90px', padding: '12px 16px', textAlign: 'right', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              <th style={{ width: '92px', minWidth: '88px', padding: '12px 16px', textAlign: 'right', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Action
               </th>
             </tr>

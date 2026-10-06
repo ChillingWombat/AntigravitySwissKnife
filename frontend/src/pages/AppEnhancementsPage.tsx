@@ -73,7 +73,7 @@ function hslToHex(hsl: string): string {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`
 }
 
-export function parseColorWithAlpha(colorStr: string): { r: number; g: number; b: number; alpha: number } {
+function parseColorWithAlpha(colorStr: string): { r: number; g: number; b: number; alpha: number } {
   const c = (colorStr || '').trim()
   if (c.startsWith('#')) {
     const hex = c.slice(1)
@@ -127,7 +127,7 @@ export function parseColorWithAlpha(colorStr: string): { r: number; g: number; b
   return { r: 11, g: 87, b: 208, alpha: 1.0 }
 }
 
-export function calculateColorMultiplier(r: number, g: number, b: number, alpha: number): number {
+function calculateColorMultiplier(r: number, g: number, b: number, alpha: number): number {
   const alphaMult = Math.min(1.0, Math.max(0.05, alpha <= 0 ? 1.0 : alpha))
   const y = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0
   let lightnessMult = 1.0

@@ -124,7 +124,7 @@ export const MfaVaultPage: React.FC<MfaVaultPageProps> = ({
                   r={ringRadius}
                   fill="none"
                   stroke="#e5e9f0"
-                  strokeWidth="5"
+                  strokeWidth="4"
                 />
                 <circle
                   cx="28"
@@ -132,7 +132,7 @@ export const MfaVaultPage: React.FC<MfaVaultPageProps> = ({
                   r={ringRadius}
                   fill="none"
                   stroke={remainingSec <= 5 ? 'var(--red)' : 'var(--primary)'}
-                  strokeWidth="5"
+                  strokeWidth="4"
                   strokeDasharray={ringCircumference}
                   strokeDashoffset={ringOffset}
                   strokeLinecap="round"

@@ -1,4 +1,5 @@
 import React from 'react'
+import { COMPONENT_TOKENS } from '../utils/layoutTokens'
 
 interface CircularGaugeProps {
   percentage: number | null // 0 to 100, or null if untracked/no quota
@@ -11,8 +12,8 @@ interface CircularGaugeProps {
 export const CircularGauge: React.FC<CircularGaugeProps> = ({
   percentage,
   title,
-  size = 130,
-  strokeWidth = 11,
+  size = COMPONENT_TOKENS.GAUGE_SIZE_DEFAULT,
+  strokeWidth = COMPONENT_TOKENS.GAUGE_STROKE_DEFAULT,
   emptyGrey = false,
 }) => {
   const radius = (size - strokeWidth) / 2

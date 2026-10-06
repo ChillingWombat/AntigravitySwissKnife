@@ -20,6 +20,27 @@ export const WORKSPACE_MIN_WIDTH = 932 // 233 * 4 (WINDOW_MIN_WIDTH - NAV_RAIL_W
 export const WORKSPACE_MIN_HEIGHT = 576 // 144 * 4 (WINDOW_MIN_HEIGHT - HEADER_HEIGHT)
 export const WORKSPACE_ASPECT_RATIO = 932 / 576 // 1.6180555555555556 (error < 0.00003 from PHI)
 
+// Viewport & Content Budgeting
+export const WORKSPACE_PADDING_X = 24 // 6 * 4
+export const WORKSPACE_CONTENT_MIN_WIDTH = 884 // WORKSPACE_MIN_WIDTH - (WORKSPACE_PADDING_X * 2) = 932 - 48 = 884
+export const TABLE_MIN_WIDTH = 880 // 220 * 4 (Fits cleanly inside WORKSPACE_CONTENT_MIN_WIDTH 884px)
+
+// Component & Gadget Sizing Tokens (Multiples of 4)
+export const COMPONENT_TOKENS = {
+  GAUGE_SIZE_DEFAULT: 128, // 32 * 4
+  GAUGE_STROKE_DEFAULT: 12, // 3 * 4
+  GAUGE_DUAL_SIZE: 72, // 18 * 4
+  GAUGE_DUAL_STROKE: 8, // 2 * 4
+  QUOTA_BAR_HEIGHT: 8, // 2 * 4
+  QUOTA_BAR_GAP: 8, // 2 * 4
+  TOGGLE_MD_WIDTH: 36, // 9 * 4
+  TOGGLE_MD_HEIGHT: 20, // 5 * 4
+  TOGGLE_MD_KNOB: 16, // 4 * 4
+  TOGGLE_SM_WIDTH: 28, // 7 * 4
+  TOGGLE_SM_HEIGHT: 16, // 4 * 4
+  TOGGLE_SM_KNOB: 12, // 3 * 4
+} as const
+
 // Golden Ratio Constant
 export const PHI = 1.618033988749895
 

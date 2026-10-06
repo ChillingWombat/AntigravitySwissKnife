@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -138,7 +139,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/gui/projects/open_settings", s.handleGUIProjectsOpenSettings)
 	mux.HandleFunc("/api/gui/conversations/auto-archive", s.handleGUIConversationsAutoArchive)
 	mux.HandleFunc("/api/gui/color", s.handleGUIProjectColor)
-	mux.HandleFunc("/api/gui/color/delete", s.handleGUIProjectDelete)
+	mux.HandleFunc("/api/gui/color/delete", s.handleGUIProjectColorDelete)
+	mux.HandleFunc("/api/gui/projects/color/delete", s.handleGUIProjectColorDelete)
 	mux.HandleFunc("/api/gui/reorder", s.handleGUIProjectOrder)
 	mux.HandleFunc("/api/gui/apply", s.handleGUIApply)
 	mux.HandleFunc("/api/gui/desktop/install", s.handleGUIDesktopInstall)
@@ -220,7 +222,7 @@ func (s *Server) Start() error {
 	s.addr = l.Addr().String()
 
 	s.httpServer = &http.Server{
-		Handler:      mux,
+		Handler:      s.corsMiddleware(mux),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
@@ -242,6 +244,51 @@ func (s *Server) Stop() error {
 // Addr returns the network address the server is listening on.
 func (s *Server) Addr() string {
 	return s.addr
+}
+
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if isAllowedLoopbackOrigin(origin) {
+			if origin != "" && origin != "null" {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			} else {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			}
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Origin, Accept")
+			w.Header().Set("Access-Control-Max-Age", "86400")
+		}
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isAllowedLoopbackOrigin(origin string) bool {
+	origin = strings.TrimSpace(origin)
+	if origin == "" || origin == "null" {
+		return true
+	}
+	if strings.HasPrefix(origin, "vscode-file://") || strings.HasPrefix(origin, "file://") {
+		return true
+	}
+	if u, err := url.Parse(origin); err == nil {
+		h := u.Hostname()
+		if h == "127.0.0.1" || h == "localhost" || h == "::1" || h == "0.0.0.0" {
+			return true
+		}
+	}
+	lower := strings.ToLower(origin)
+	if strings.Contains(lower, "127.0.0.1") || strings.Contains(lower, "localhost") {
+		return true
+	}
+	return false
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -958,16 +1005,47 @@ func (s *Server) handleGUIProjectDelete(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if s.guiStore != nil {
-		_ = s.guiStore.DeleteProject(p.Name)
+		if errDel := s.guiStore.DeleteProject(p.Name); errDel != nil {
+			http.Error(w, errDel.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	var res interface{}
+	if err := s.client.Call("swiss.deleteGUIProject", p, &res); err != nil {
+		if s.guiStore != nil {
+			writeJSON(w, map[string]interface{}{"success": true, "name": p.Name})
+			return
+		}
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	writeJSON(w, res)
+}
+
+func (s *Server) handleGUIProjectColorDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var p struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil || p.Name == "" {
+		http.Error(w, "invalid parameters, name is required", http.StatusBadRequest)
+		return
+	}
+
+	if s.guiStore != nil {
+		if errRem := s.guiStore.RemoveProjectColor(p.Name); errRem != nil {
+			http.Error(w, errRem.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	var res interface{}
 	if err := s.client.Call("swiss.removeGUIProjectColor", p, &res); err != nil {
 		if s.guiStore != nil {
-			if errRem := s.guiStore.RemoveProjectColor(p.Name); errRem != nil {
-				http.Error(w, errRem.Error(), http.StatusInternalServerError)
-				return
-			}
 			writeJSON(w, map[string]interface{}{"success": true, "name": p.Name})
 			return
 		}
