@@ -160,9 +160,17 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       if (res && res.success) {
         if (res.gemini_models && res.gemini_models.length > 0) {
           setGeminiModelOptions(res.gemini_models)
+          setDefaultGemini((prev) => {
+            if (res.gemini_models.some((m) => m.id === prev)) return prev
+            return res.default_gemini || res.gemini_models[0].id
+          })
         }
         if (res.non_gemini_models && res.non_gemini_models.length > 0) {
           setNonGeminiModelOptions(res.non_gemini_models)
+          setDefaultNonGemini((prev) => {
+            if (res.non_gemini_models.some((m) => m.id === prev)) return prev
+            return res.default_non_gemini || res.non_gemini_models[0].id
+          })
         }
       }
     } catch (_) {
