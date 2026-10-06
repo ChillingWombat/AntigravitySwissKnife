@@ -202,6 +202,16 @@ func (d *Daemon) registerRPCHandlers() {
 		if err := d.Keyring.UpdateAccountFull(p.Email, p.Label, p.PlanTier, p.Status, p.Priority, p.Notes, p.Password, p.TOTPSecret, p.RefreshToken, p.Credits, p.EnableCreditOverages, p.AllowClaudeGPT, p.SetActive); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
+		if p.SetActive {
+			var allEmails []string
+			for _, a := range d.Keyring.ListAccounts() {
+				allEmails = append(allEmails, a.Email)
+			}
+			if acc, _ := d.Keyring.GetAccount(p.Email); acc != nil {
+				_ = keyring.SyncAllSurfaces(acc, allEmails, d.Profiles)
+				_, _ = gui.NewInjector(0).RefreshUserStatus()
+			}
+		}
 		return map[string]interface{}{"success": true, "email": p.Email}, nil
 	}
 	d.Server.Register("swiss.updateAccount", updateHandler)

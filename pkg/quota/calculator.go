@@ -71,6 +71,17 @@ func ComputeEffective5hAvailable(currentFrac float64, resetSeconds float64) floa
 	return cur
 }
 
+// ComputeEffectiveWeeklyAvailable calculates available weekly quota in the next 5 hours with reset replenishing.
+func ComputeEffectiveWeeklyAvailable(weeklyFrac float64, resetWeeklySeconds float64) float64 {
+	cur := math.Max(0.0, math.Min(1.0, weeklyFrac))
+	if resetWeeklySeconds > 0.0 && resetWeeklySeconds <= FiveHourWindowSeconds {
+		h := resetWeeklySeconds / 3600.0
+		replenishedBoost := (1.0 - cur) * ((5.0 - h) / 5.0)
+		return math.Max(0.0, math.Min(1.0, cur+replenishedBoost))
+	}
+	return cur
+}
+
 // FormatHorizonSec returns human-readable countdown string.
 func FormatHorizonSec(sec float64) string {
 	s := int(math.Max(0.0, sec))
@@ -394,9 +405,9 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 
 		avail5h := ComputeEffective5hAvailable(cur5h, curSec)
 		hasCreditOverages := acc.EnableCreditOverages && credits > 0
-		weeklyResetsIn5h := curSecWeekly > 0 && curSecWeekly <= FiveHourWindowSeconds
-		if !hasCreditOverages && !weeklyResetsIn5h && curWeekly <= thresholdWeekly {
-			avail5h = math.Min(avail5h, curWeekly)
+		if !hasCreditOverages && curWeekly <= thresholdWeekly {
+			availWeeklyIn5h := ComputeEffectiveWeeklyAvailable(curWeekly, curSecWeekly)
+			avail5h = math.Min(avail5h, availWeeklyIn5h)
 		}
 		if resText == "Not Polled" && curSec > 0 {
 			resText = FormatHorizonSec(curSec)
@@ -740,11 +751,11 @@ func ExtractAccountMetrics(acc AccountQuotaState, mode string) AccountMetrics {
 		sec7d = ParseHorizonTextSeconds(acc.ResetHorizonWeeklyText)
 	}
 
-	// Cap effective 5h available quota by weekly quota if weekly is depleted and not resetting within 5h window
+	// Cap effective 5h available quota by weekly quota available over 5h window if credit overages are not enabled and weekly quota is depleted
 	hasCreditOverages := acc.EnableCreditOverages && acc.Credits > 0
-	weeklyResetsIn5h := sec7d > 0.0 && sec7d <= FiveHourWindowSeconds
-	if !hasCreditOverages && !weeklyResetsIn5h && q7d <= 0.05 {
-		q5hAvail = math.Min(q5hAvail, q7d)
+	if !hasCreditOverages && q7d <= 0.05 {
+		availWeeklyIn5h := ComputeEffectiveWeeklyAvailable(q7d, sec7d)
+		q5hAvail = math.Min(q5hAvail, availWeeklyIn5h)
 	}
 
 	var r7dSoonness float64
@@ -1156,7 +1167,14 @@ func SortAccountQuotaStatesWithThresholds(accounts []AccountQuotaState, activeEm
 
 		cur5h := a.Quota5hCurrent
 		weekly := a.QuotaWeekly
-		hasWeekly := weekly > thresholdWeekly || (a.EnableCreditOverages && a.Credits > 0)
+		hasCreditOverages := a.EnableCreditOverages && a.Credits > 0
+		hasWeekly := weekly > thresholdWeekly || hasCreditOverages
+		sec7d := a.ResetSecondsWeekly
+		if sec7d <= 0.0 && a.ResetHorizonWeeklyText != "" {
+			sec7d = ParseHorizonTextSeconds(a.ResetHorizonWeeklyText)
+		}
+		availWeeklyIn5h := ComputeEffectiveWeeklyAvailable(weekly, sec7d)
+		recoversWeeklyIn5h := hasWeekly || availWeeklyIn5h > thresholdWeekly
 		is5hBelow := cur5h <= threshold5h || st == "COOLDOWN"
 
 		if !is5hBelow && hasWeekly {
@@ -1166,8 +1184,8 @@ func SortAccountQuotaStatesWithThresholds(accounts []AccountQuotaState, activeEm
 			return 1
 		}
 
-		if hasWeekly {
-			return 3 // 5h Cooldown with healthy weekly quota
+		if recoversWeeklyIn5h {
+			return 3 // 5h Cooldown with healthy or recovering weekly quota
 		}
 
 		return 4 // Weekly Depleted
@@ -1197,10 +1215,7 @@ func SortAccountQuotaStatesWithThresholds(accounts []AccountQuotaState, activeEm
 			if pa != pb {
 				return pa < pb
 			}
-			diffWeekly := items[i].QuotaWeekly - items[j].QuotaWeekly
-			if math.Abs(diffWeekly) > 0.001 {
-				return diffWeekly > 0
-			}
+
 			sec7dI := items[i].ResetSecondsWeekly
 			if sec7dI <= 0 && items[i].ResetHorizonWeeklyText != "" {
 				sec7dI = ParseHorizonTextSeconds(items[i].ResetHorizonWeeklyText)
@@ -1209,8 +1224,27 @@ func SortAccountQuotaStatesWithThresholds(accounts []AccountQuotaState, activeEm
 			if sec7dJ <= 0 && items[j].ResetHorizonWeeklyText != "" {
 				sec7dJ = ParseHorizonTextSeconds(items[j].ResetHorizonWeeklyText)
 			}
+			// Sooner weekly reset first if both known and differ by > 60s
 			if sec7dI > 0 && sec7dJ > 0 && math.Abs(sec7dI-sec7dJ) > 60 {
 				return sec7dI < sec7dJ
+			}
+			if sec7dI > 0 && sec7dJ <= 0 {
+				return true
+			}
+			if sec7dI <= 0 && sec7dJ > 0 {
+				return false
+			}
+
+			// Blended readiness score for depleted accounts (higher 5h or weekly quota first)
+			scoreI := 0.5*items[i].QuotaWeekly + 0.5*items[i].Quota5hCurrent
+			scoreJ := 0.5*items[j].QuotaWeekly + 0.5*items[j].Quota5hCurrent
+			if math.Abs(scoreI-scoreJ) > 0.001 {
+				return scoreI > scoreJ
+			}
+
+			diffWeekly := items[i].QuotaWeekly - items[j].QuotaWeekly
+			if math.Abs(diffWeekly) > 0.001 {
+				return diffWeekly > 0
 			}
 			diff5h := items[i].Quota5hAvailable - items[j].Quota5hAvailable
 			if math.Abs(diff5h) > 0.001 {

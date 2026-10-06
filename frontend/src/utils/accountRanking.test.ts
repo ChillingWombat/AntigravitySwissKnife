@@ -11,6 +11,7 @@ import {
   shouldSwitchProactivelyMaxTokens,
   evaluateAutoSwitch,
   sortAccounts,
+  computeEffectiveWeeklyAvailable,
 } from './accountRanking.ts'
 import type { AccountState } from '../types.ts'
 
@@ -651,6 +652,100 @@ describe('accountRanking utility', () => {
       const metrics = extractAccountMetrics(albert, 'balanced')
       assert.strictEqual(metrics.q7d, 0.01)
       assert.ok(metrics.q5hAvail <= 0.01, `Expected effective 5h available to be capped at weekly quota 0.01, got ${metrics.q5hAvail}`)
+    })
+
+    it('ranks Jose Antonio (84% 5h, 0% weekly) ahead of Albert (0% 5h, 1% weekly) due to 5h readiness in Tier 4', () => {
+      const jose: AccountState = {
+        email: 'jose@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'COOLDOWN',
+        quota_5h_current: 0.84,
+        quota_5h_available: 0.84,
+        quota_weekly: 0.0,
+        reset_seconds_weekly: 300000,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const albert: AccountState = {
+        email: 'albert@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'COOLDOWN',
+        quota_5h_current: 0.0,
+        quota_5h_available: 0.86,
+        quota_weekly: 0.01,
+        reset_seconds: 2400,
+        reset_seconds_weekly: 300000,
+        reset_horizon_text: 'Resets in 40m',
+        has_mfa: false,
+      }
+
+      const sorted = sortAccounts([albert, jose], '', 0.05, 'auto', 'balanced', 0.05)
+      assert.strictEqual(sorted[0].email, 'jose@gmail.com', 'Jose Antonio with 84% 5h quota should outrank Albert with 0% 5h quota')
+      assert.strictEqual(sorted[1].email, 'albert@gmail.com')
+    })
+
+    it('places account with weekly quota recovering within 5h into Tier 3 rather than Tier 4', () => {
+      const weeklyRecovering: AccountState = {
+        email: 'recovering@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'COOLDOWN',
+        quota_5h_current: 0.0,
+        quota_5h_available: 0.5,
+        quota_weekly: 0.0,
+        reset_seconds: 3600,
+        reset_seconds_weekly: 1800, // Weekly resets in 30 minutes!
+        reset_horizon_text: 'Resets in 1h',
+        has_mfa: false,
+      }
+      const weeklyDepleted: AccountState = {
+        email: 'depleted@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'COOLDOWN',
+        quota_5h_current: 0.0,
+        quota_5h_available: 0.5,
+        quota_weekly: 0.01,
+        reset_seconds: 3600,
+        reset_seconds_weekly: 400000, // 4.5 days away
+        reset_horizon_text: 'Resets in 1h',
+        has_mfa: false,
+      }
+
+      const sorted = sortAccounts([weeklyDepleted, weeklyRecovering], '', 0.05, 'auto', 'balanced', 0.05)
+      assert.strictEqual(sorted[0].email, 'recovering@gmail.com', 'Account recovering weekly quota in 30m enters Tier 3')
+      assert.strictEqual(sorted[1].email, 'depleted@gmail.com', 'Account depleted for 4.5 days remains in Tier 4')
+    })
+
+    it('bypasses weekly cap when enable_credit_overages is true with positive credits', () => {
+      const creditAcc: AccountState = {
+        email: 'credits@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'STANDBY',
+        quota_5h_current: 0.8,
+        quota_5h_available: 0.8,
+        quota_weekly: 0.0,
+        enable_credit_overages: true,
+        credits: 100,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const metrics = extractAccountMetrics(creditAcc, 'balanced')
+      assert.strictEqual(metrics.q5hAvail, 0.8, 'Credits allow 5h available to not be capped by weekly 0')
+
+      const sorted = sortAccounts([creditAcc], '', 0.05, 'auto', 'balanced', 0.05)
+      // Should be in Tier 1 (Healthy Paid Standby) because hasWeekly is true via credits
+      assert.strictEqual(sorted[0].email, 'credits@gmail.com')
+    })
+
+    it('computes computeEffectiveWeeklyAvailable smoothly at 18000s boundary', () => {
+      const atBoundary = computeEffectiveWeeklyAvailable(0.02, 18000)
+      assert.strictEqual(atBoundary, 0.02, 'At exactly 5h boundary boost is 0')
+      const insideWindow = computeEffectiveWeeklyAvailable(0.0, 3600)
+      assert.strictEqual(insideWindow, 0.8, '1 hour reset provides 80% replenishment across 5h window')
     })
   })
 })

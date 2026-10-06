@@ -191,6 +191,16 @@ export function computeEffective5hAvailable(currentFrac: number, resetSeconds: n
   return cur
 }
 
+export function computeEffectiveWeeklyAvailable(weeklyFrac: number, resetWeeklySec: number): number {
+  const cur = clamp01(weeklyFrac)
+  if (resetWeeklySec > 0 && resetWeeklySec <= FIVE_HOUR_WINDOW_SECONDS) {
+    const h = resetWeeklySec / 3600.0
+    const replenishedBoost = (1.0 - cur) * ((5.0 - h) / 5.0)
+    return clamp01(cur + replenishedBoost)
+  }
+  return cur
+}
+
 export interface AccountMetrics {
   q5hCur: number
   q5hAvail: number
@@ -237,11 +247,11 @@ export function extractAccountMetrics(acc: AccountState, mode: SwitchMode): Acco
     sec7d = parseHorizonTextSeconds(acc.reset_horizon_weekly_text)
   }
 
-  // Cap effective 5h available quota by weekly quota if weekly is depleted and not resetting within 5h window
+  // Cap effective 5h available quota by weekly quota available over 5h window if credit overages are not enabled and weekly quota is depleted
   const hasCredits = Boolean(acc.enable_credit_overages && (acc.credits ?? 0) > 0)
-  const weeklyResetsIn5h = sec7d > 0 && sec7d <= FIVE_HOUR_WINDOW_SECONDS
-  if (!hasCredits && !weeklyResetsIn5h && q7d <= 0.05) {
-    q5hAvail = Math.min(q5hAvail, q7d)
+  if (!hasCredits && q7d <= 0.05) {
+    const availWeeklyIn5h = computeEffectiveWeeklyAvailable(q7d, sec7d)
+    q5hAvail = Math.min(q5hAvail, availWeeklyIn5h)
   }
 
   let r7dSoonness = 0.35
@@ -655,7 +665,11 @@ export function sortAccounts(
 
     const cur5h = a.quota_5h_current ?? a.quota_5h_available ?? 0
     const weekly = a.quota_weekly ?? 0
-    const hasWeekly = weekly > thresholdWeekly || Boolean(a.enable_credit_overages && (a.credits ?? 0) > 0)
+    const hasCredits = Boolean(a.enable_credit_overages && (a.credits ?? 0) > 0)
+    const hasWeekly = weekly > thresholdWeekly || hasCredits
+    const sec7d = a.reset_seconds_weekly ?? parseHorizonTextSeconds(a.reset_horizon_weekly_text)
+    const availWeeklyIn5h = computeEffectiveWeeklyAvailable(weekly, sec7d)
+    const recoversWeeklyIn5h = hasWeekly || availWeeklyIn5h > thresholdWeekly
     const is5hBelow = cur5h <= threshold || st === 'COOLDOWN'
 
     if (!is5hBelow && hasWeekly) {
@@ -665,8 +679,8 @@ export function sortAccounts(
       return 1 // Healthy Paid Standby
     }
 
-    if (hasWeekly) {
-      return 3 // 5h Cooldown with healthy weekly quota
+    if (recoversWeeklyIn5h) {
+      return 3 // 5h Cooldown with healthy or recovering weekly quota
     }
 
     return 4 // Weekly Depleted / Exhausted
@@ -701,16 +715,28 @@ export function sortAccounts(
       const pb = priorityRank(b.priority)
       if (pa !== pb) return pa - pb
 
-      // Higher remaining weekly quota first (e.g. 4% > 1% > 0%)
-      const diffWeekly = (b.quota_weekly ?? 0) - (a.quota_weekly ?? 0)
-      if (Math.abs(diffWeekly) > 0.001) {
-        return diffWeekly
-      }
       // Sooner weekly reset first if available
       const sec7dA = a.reset_seconds_weekly ?? parseHorizonTextSeconds(a.reset_horizon_weekly_text)
       const sec7dB = b.reset_seconds_weekly ?? parseHorizonTextSeconds(b.reset_horizon_weekly_text)
       if (sec7dA > 0 && sec7dB > 0 && Math.abs(sec7dA - sec7dB) > 60) {
         return sec7dA - sec7dB
+      }
+      if (sec7dA > 0 && sec7dB <= 0) return -1
+      if (sec7dA <= 0 && sec7dB > 0) return 1
+
+      // Blended readiness score for depleted accounts (higher 5h or weekly quota first)
+      const cur5hA = a.quota_5h_current ?? a.quota_5h_available ?? 0
+      const cur5hB = b.quota_5h_current ?? b.quota_5h_available ?? 0
+      const scoreA = 0.5 * (a.quota_weekly ?? 0) + 0.5 * cur5hA
+      const scoreB = 0.5 * (b.quota_weekly ?? 0) + 0.5 * cur5hB
+      if (Math.abs(scoreA - scoreB) > 0.001) {
+        return scoreB - scoreA
+      }
+
+      // Higher remaining weekly quota first (e.g. 4% > 1% > 0%)
+      const diffWeekly = (b.quota_weekly ?? 0) - (a.quota_weekly ?? 0)
+      if (Math.abs(diffWeekly) > 0.001) {
+        return diffWeekly
       }
       // Highest 5h available recovery
       const diff5h = (b.quota_5h_available ?? 0) - (a.quota_5h_available ?? 0)

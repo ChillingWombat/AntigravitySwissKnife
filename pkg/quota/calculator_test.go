@@ -1,6 +1,7 @@
 package quota
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -788,6 +789,78 @@ func TestExtractAccountMetrics_WeeklyDepletionCap(t *testing.T) {
 	metrics := ExtractAccountMetrics(albert, SwitchModeBalanced)
 	if metrics.Q5hAvail > 0.01 {
 		t.Errorf("expected Q5hAvail to be capped by weekly quota (0.01), got %f", metrics.Q5hAvail)
+	}
+}
+
+func TestSortAccountQuotaStates_JoseAntonioVsAlbert(t *testing.T) {
+	jose := AccountQuotaState{
+		Email:              "jose@example.com",
+		PlanTier:           "Pro",
+		Status:             "COOLDOWN",
+		Quota5hCurrent:     0.84,
+		Quota5hAvailable:   0.84,
+		QuotaWeekly:        0.0,
+		ResetSecondsWeekly: 300000,
+	}
+	albert := AccountQuotaState{
+		Email:              "alberto@example.com",
+		PlanTier:           "Pro",
+		Status:             "COOLDOWN",
+		Quota5hCurrent:     0.0,
+		Quota5hAvailable:   0.86,
+		QuotaWeekly:        0.01,
+		ResetSeconds:       2400,
+		ResetSecondsWeekly: 300000,
+	}
+
+	sorted := SortAccountQuotaStatesWithThresholds([]AccountQuotaState{albert, jose}, "", 0.05, 0.05, "auto", SwitchModeBalanced)
+	if len(sorted) != 2 {
+		t.Fatalf("expected 2 accounts, got %d", len(sorted))
+	}
+	if sorted[0].Email != "jose@example.com" {
+		t.Errorf("expected Jose Antonio (84%% 5h quota) to outrank Albert (0%% 5h quota) in Tier 4, got %s", sorted[0].Email)
+	}
+}
+
+func TestSortAccountQuotaStates_WeeklyRecoveringEntersTier3(t *testing.T) {
+	recovering := AccountQuotaState{
+		Email:              "recovering@example.com",
+		PlanTier:           "Pro",
+		Status:             "COOLDOWN",
+		Quota5hCurrent:     0.0,
+		Quota5hAvailable:   0.5,
+		QuotaWeekly:        0.0,
+		ResetSeconds:       3600,
+		ResetSecondsWeekly: 1800, // Weekly resets in 30m!
+	}
+	depleted := AccountQuotaState{
+		Email:              "depleted@example.com",
+		PlanTier:           "Pro",
+		Status:             "COOLDOWN",
+		Quota5hCurrent:     0.0,
+		Quota5hAvailable:   0.5,
+		QuotaWeekly:        0.01,
+		ResetSeconds:       3600,
+		ResetSecondsWeekly: 400000, // 4.5 days
+	}
+
+	sorted := SortAccountQuotaStatesWithThresholds([]AccountQuotaState{depleted, recovering}, "", 0.05, 0.05, "auto", SwitchModeBalanced)
+	if len(sorted) != 2 {
+		t.Fatalf("expected 2 accounts, got %d", len(sorted))
+	}
+	if sorted[0].Email != "recovering@example.com" {
+		t.Errorf("expected account recovering weekly in 30m to enter Tier 3 ahead of Tier 4, got %s", sorted[0].Email)
+	}
+}
+
+func TestComputeEffectiveWeeklyAvailable_Boundary(t *testing.T) {
+	b5h := ComputeEffectiveWeeklyAvailable(0.02, 18000.0)
+	if b5h != 0.02 {
+		t.Errorf("expected exactly 0.02 at 5h boundary, got %f", b5h)
+	}
+	inWindow := ComputeEffectiveWeeklyAvailable(0.0, 3600.0)
+	if math.Abs(inWindow-0.80) > 0.001 {
+		t.Errorf("expected 0.80 for 1h reset, got %f", inWindow)
 	}
 }
 

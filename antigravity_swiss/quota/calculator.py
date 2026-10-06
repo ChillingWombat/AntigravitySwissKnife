@@ -35,6 +35,8 @@ class AccountQuotaState:
     notes: str = ""
     password: str = ""
     reset_seconds_weekly: float = 0.0
+    enable_credit_overages: bool = False
+    credits: int = 0
 
     @property
     def hours_until_reset(self) -> float:
@@ -75,12 +77,23 @@ class AccountQuotaState:
         else:
             avail = cur
 
-        # Cap by weekly quota if weekly is depleted and not resetting within 5h
+        has_credits = self.enable_credit_overages and self.credits > 0
         qwk = max(0.0, min(1.0, float(self.quota_weekly)))
-        sec_weekly = float(self.reset_seconds_weekly)
-        if qwk <= 0.05 and (sec_weekly <= 0 or sec_weekly > 18000.0):
-            avail = min(avail, qwk)
+        if not has_credits and qwk <= 0.05:
+            sec_weekly = float(self.reset_seconds_weekly)
+            weekly_avail = compute_effective_weekly_available(self.quota_weekly, sec_weekly)
+            avail = min(avail, weekly_avail)
         return avail
+
+
+def compute_effective_weekly_available(weekly_frac: float, reset_seconds_weekly: float) -> float:
+    """Calculates available weekly quota in the next 5 hours with reset replenishing."""
+    cur = max(0.0, min(1.0, float(weekly_frac)))
+    if 0.0 < reset_seconds_weekly <= 18000.0:
+        h = reset_seconds_weekly / 3600.0
+        replenished_boost = (1.0 - cur) * ((5.0 - h) / 5.0)
+        return max(0.0, min(1.0, cur + replenished_boost))
+    return cur
 
 
 def compute_fleet_quota_summary(
@@ -332,7 +345,11 @@ def sort_account_quota_states(
         q5h_cur = max(0.0, min(1.0, float(a.quota_5h_current)))
         q5h_avail = a.quota_5h_available
         qwk = max(0.0, min(1.0, float(a.quota_weekly)))
-        has_weekly = qwk > 0.05
+        sec_weekly = float(a.reset_seconds_weekly)
+        qwk_avail = compute_effective_weekly_available(qwk, sec_weekly)
+        has_credits = bool(a.enable_credit_overages and a.credits > 0)
+        has_weekly = qwk > threshold or has_credits
+        recovers_weekly_in_5h = has_weekly or qwk_avail > threshold
         is_5h_below = q5h_cur <= threshold or st == "COOLDOWN"
         is_free = is_free_plan_tier(a.email, a.plan_tier)
         tier_mult = plan_tier_capacity_multiplier(a.plan_tier)
@@ -341,7 +358,7 @@ def sort_account_quota_states(
         # Tier 0: Active account (Row 1 pinned)
         # Tier 1: Healthy Paid Standby successors
         # Tier 2: Healthy Free Standby successors (Free ranked strictly after paid)
-        # Tier 3: 5h Cooldown with healthy weekly quota (recovering in <= 5h)
+        # Tier 3: 5h Cooldown with healthy or recovering weekly quota (recovering in <= 5h)
         # Tier 4: Weekly Depleted / Exhausted accounts
         # Tier 5: Error accounts
         # Tier 6: Banned accounts
@@ -353,13 +370,19 @@ def sort_account_quota_states(
             tier = 5
         elif not is_5h_below and has_weekly:
             tier = 2 if is_free else 1
-        elif has_weekly:
+        elif recovers_weekly_in_5h:
             tier = 3
         else:
             tier = 4
 
         prio_map = {"HIGH": 0, "MID": 1, "LOW": 2}
         prio_rank = prio_map.get((a.priority or "High").upper(), 0)
+
+        if tier == 4:
+            # Weekly depleted accounts: paid before free, user priority, sooner weekly reset, blended readiness
+            sec_7d = sec_weekly if sec_weekly > 0 else 99999999.0
+            depleted_score = round(0.5 * qwk + 0.5 * q5h_cur, 4)
+            return (tier, 1 if is_free else 0, prio_rank, sec_7d, -depleted_score, -round(q5h_avail, 4), (a.label or a.email).lower())
 
         sm = (switch_mode or "balanced").lower()
         if sm == "max_continuous":
@@ -373,11 +396,7 @@ def sort_account_quota_states(
             # balanced
             score = tier_mult * (0.42 * q5h_cur + 0.12 * q5h_avail + 0.32 * qwk)
 
-        if tier == 4:
-            # Weekly depleted accounts: rank by remaining weekly quota, then 5h available
-            return (tier, prio_rank, -round(qwk, 4), -round(q5h_avail, 4), (a.label or a.email).lower())
-
-        return (tier, prio_rank, -round(score, 4), -round(q5h_cur, 4), (a.label or a.email).lower())
+        return (tier, 1 if is_free else 0, prio_rank, -round(score, 4), -round(q5h_cur, 4), (a.label or a.email).lower())
 
     return sorted(items, key=_auto_sort_key)
 

@@ -527,6 +527,9 @@ func TestLiveRefreshUserStatus(t *testing.T) {
 	if !res.Success {
 		t.Errorf("RefreshUserStatus returned non-success: %+v", res)
 	}
+	if !res.FiberRefreshed && !res.ReloadFallback {
+		t.Errorf("RefreshUserStatus neither refreshed fiber nor reloaded fallback: %+v", res)
+	}
 	t.Logf("Live RefreshUserStatus succeeded: %+v", res)
 }
 

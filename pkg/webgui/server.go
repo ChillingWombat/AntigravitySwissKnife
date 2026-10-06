@@ -520,6 +520,16 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		if p.SetActive {
+			var allEmails []string
+			for _, a := range store.ListAccounts() {
+				allEmails = append(allEmails, a.Email)
+			}
+			if acc, _ := store.GetAccount(p.Email); acc != nil {
+				_ = keyring.SyncAllSurfaces(acc, allEmails, nil)
+				_, _ = gui.NewInjector(0).RefreshUserStatus()
+			}
+		}
 		res = map[string]interface{}{"success": true, "email": p.Email}
 	}
 	writeJSON(w, res)

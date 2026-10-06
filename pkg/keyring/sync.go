@@ -338,12 +338,21 @@ func extractPictureFromIDToken(idToken string) string {
 	if len(parts) < 2 {
 		return ""
 	}
-	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		payloadBytes, err = base64.URLEncoding.DecodeString(parts[1])
-		if err != nil {
-			return ""
+	var payloadBytes []byte
+	var err error
+	for _, enc := range []*base64.Encoding{
+		base64.RawURLEncoding,
+		base64.URLEncoding,
+		base64.RawStdEncoding,
+		base64.StdEncoding,
+	} {
+		payloadBytes, err = enc.DecodeString(parts[1])
+		if err == nil {
+			break
 		}
+	}
+	if err != nil {
+		return ""
 	}
 	var claims map[string]interface{}
 	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
@@ -372,6 +381,9 @@ func SyncStateVscdb(acc *Account) error {
 	}
 	defer db.Close()
 
+	// Configure busy timeout to handle concurrent access by Antigravity Electron process
+	_, _ = db.Exec("PRAGMA busy_timeout = 5000;")
+
 	var tableCount int
 	err = db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ItemTable'").Scan(&tableCount)
 	if err != nil || tableCount == 0 {
@@ -382,26 +394,14 @@ func SyncStateVscdb(acc *Account) error {
 	if acc.Email != "" {
 		sentinel := buildUserStatusSentinel(acc.Email)
 		if sentinel != "" {
-			var hasKey int
-			_ = db.QueryRow("SELECT COUNT(*) FROM ItemTable WHERE key='antigravityUnifiedStateSync.userStatus'").Scan(&hasKey)
-			if hasKey > 0 {
-				_, _ = db.Exec("UPDATE ItemTable SET value=? WHERE key='antigravityUnifiedStateSync.userStatus'", sentinel)
-			} else {
-				_, _ = db.Exec("INSERT OR REPLACE INTO ItemTable(key, value) VALUES('antigravityUnifiedStateSync.userStatus', ?)", sentinel)
-			}
+			_, _ = db.Exec("INSERT OR REPLACE INTO ItemTable(key, value) VALUES('antigravityUnifiedStateSync.userStatus', ?)", sentinel)
 		}
 	}
 
 	// 2. Update profileUrl if present
 	picture := extractPictureFromIDToken(acc.IDToken)
 	if picture != "" {
-		var hasKey int
-		_ = db.QueryRow("SELECT COUNT(*) FROM ItemTable WHERE key='antigravity.profileUrl'").Scan(&hasKey)
-		if hasKey > 0 {
-			_, _ = db.Exec("UPDATE ItemTable SET value=? WHERE key='antigravity.profileUrl'", picture)
-		} else {
-			_, _ = db.Exec("INSERT OR REPLACE INTO ItemTable(key, value) VALUES('antigravity.profileUrl', ?)", picture)
-		}
+		_, _ = db.Exec("INSERT OR REPLACE INTO ItemTable(key, value) VALUES('antigravity.profileUrl', ?)", picture)
 	}
 
 	return nil

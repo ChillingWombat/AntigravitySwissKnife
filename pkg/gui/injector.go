@@ -264,11 +264,13 @@ func (inj *Injector) ApplyConfig(cfg *Config) (*ApplyResult, error) {
 
 // RefreshUserStatusResult captures metrics from in-app React Fiber user status refresh.
 type RefreshUserStatusResult struct {
-	Success      bool   `json:"success"`
-	Message      string `json:"message"`
-	Port         int    `json:"port"`
-	WindowsCount int    `json:"windows_count"`
-	Email        string `json:"email,omitempty"`
+	Success        bool   `json:"success"`
+	Message        string `json:"message"`
+	Port           int    `json:"port"`
+	WindowsCount   int    `json:"windows_count"`
+	Email          string `json:"email,omitempty"`
+	FiberRefreshed bool   `json:"fiber_refreshed,omitempty"`
+	ReloadFallback bool   `json:"reload_fallback,omitempty"`
 }
 
 // RefreshUserStatusScript is evaluated in Antigravity's Electron renderer via Chrome DevTools Protocol.
@@ -283,12 +285,23 @@ const RefreshUserStatusScript = `(async () => {
 			window.location.reload();
 			return { reloaded: true, reason: "no_root" };
 		}
-		const key = Object.keys(root).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactContainer"));
-		if (!key) {
-			window.location.reload();
-			return { reloaded: true, reason: "no_fiber_key" };
+		let key = Object.keys(root).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactContainer"));
+		let curr = key ? root[key] : null;
+		if (!curr && root.firstElementChild) {
+			const childKey = Object.keys(root.firstElementChild).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactContainer"));
+			if (childKey) {
+				curr = root.firstElementChild[childKey];
+			}
 		}
-		let curr = root[key];
+		if (!curr) {
+			window.location.reload();
+			return { reloaded: true, reason: "no_fiber_node" };
+		}
+		// If curr is FiberRootNode, step into root FiberNode (.current)
+		if (curr.current) {
+			curr = curr.current;
+		}
+
 		const queue = [curr];
 		const visited = new Set();
 		let usp = null, modelCtx = null;
@@ -308,21 +321,26 @@ const RefreshUserStatusScript = `(async () => {
 			if (node.child) queue.push(node.child);
 			if (node.sibling) queue.push(node.sibling);
 		}
-		if (!usp) {
+
+		// Validate USP interface
+		if (!usp || typeof usp.pushUpdate !== "function" || !usp.lsClient || typeof usp.lsClient.getUserStatus !== "function") {
 			window.location.reload();
-			return { reloaded: true, reason: "no_usp" };
+			return { reloaded: true, reason: "invalid_usp_interface" };
 		}
-		let email = "";
-		if (usp.lsClient && typeof usp.lsClient.getUserStatus === "function") {
-			const resp = await usp.lsClient.getUserStatus({ metadata: usp.metadata });
-			if (resp && resp.userStatus) {
-				usp.pushUpdate(resp.userStatus);
-				email = String(resp.userStatus.email || "");
-			}
+
+		const resp = await usp.lsClient.getUserStatus({ metadata: usp.metadata });
+		if (!resp || !resp.userStatus) {
+			window.location.reload();
+			return { reloaded: true, reason: "empty_user_status_response" };
 		}
+
+		usp.pushUpdate(resp.userStatus);
+		const email = String(resp.userStatus.email || "");
+
 		if (modelCtx && typeof modelCtx.refreshModels === "function") {
 			try { await modelCtx.refreshModels(); } catch(_) {}
 		}
+
 		return {
 			success: true,
 			fiber_refreshed: true,
@@ -359,6 +377,8 @@ func (inj *Injector) RefreshUserStatus() (*RefreshUserStatusResult, error) {
 	var lastErr error
 	var lastEmail string
 	refreshedCount := 0
+	anyFiberRefreshed := false
+	anyReloaded := false
 
 	for _, page := range pages {
 		res, err := inj.ExecuteScript(page.WebSocketDebuggerURL, RefreshUserStatusScript)
@@ -366,8 +386,16 @@ func (inj *Injector) RefreshUserStatus() (*RefreshUserStatusResult, error) {
 			lastErr = err
 			// Fallback: Attempt CDP Page reload
 			_, _ = inj.ExecuteScript(page.WebSocketDebuggerURL, "window.location.reload()")
+			anyReloaded = true
+			refreshedCount++
 		} else {
 			refreshedCount++
+			if fb, ok := res["fiber_refreshed"].(bool); ok && fb {
+				anyFiberRefreshed = true
+			}
+			if rl, ok := res["reloaded"].(bool); ok && rl {
+				anyReloaded = true
+			}
 			if em, ok := res["email"].(string); ok && em != "" {
 				lastEmail = em
 			}
@@ -382,12 +410,21 @@ func (inj *Injector) RefreshUserStatus() (*RefreshUserStatusResult, error) {
 		}, lastErr
 	}
 
+	refreshMethod := "zero-flicker React Fiber"
+	if anyReloaded && !anyFiberRefreshed {
+		refreshMethod = "fallback page reload"
+	} else if anyReloaded && anyFiberRefreshed {
+		refreshMethod = "mixed Fiber and reload"
+	}
+
 	return &RefreshUserStatusResult{
-		Success:      true,
-		Port:         port,
-		WindowsCount: refreshedCount,
-		Email:        lastEmail,
-		Message:      fmt.Sprintf("Successfully refreshed user status in %d Antigravity window(s)", refreshedCount),
+		Success:        true,
+		Port:           port,
+		WindowsCount:   refreshedCount,
+		Email:          lastEmail,
+		FiberRefreshed: anyFiberRefreshed,
+		ReloadFallback: anyReloaded,
+		Message:        fmt.Sprintf("Successfully refreshed user status (%s) in %d Antigravity window(s)", refreshMethod, refreshedCount),
 	}, nil
 }
 

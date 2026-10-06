@@ -3,6 +3,7 @@ package keyring
 import (
 	"database/sql"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -573,9 +574,13 @@ func TestSyncStateVscdb(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Mint token with picture claim
+	claimsWithPic := fmt.Sprintf(`{"email":"switched_user@gmail.com","picture":"https://lh3.googleusercontent.com/a/test_avatar_123"}`)
+	idTokenWithPic := fmt.Sprintf("header.%s.sig", base64.RawURLEncoding.EncodeToString([]byte(claimsWithPic)))
+
 	testAcc := &Account{
-		Email: "switched_user@gmail.com",
-		IDToken: mintMinimalIDToken("switched_user@gmail.com"),
+		Email:   "switched_user@gmail.com",
+		IDToken: idTokenWithPic,
 	}
 
 	if err := SyncStateVscdb(testAcc); err != nil {
@@ -597,6 +602,15 @@ func TestSyncStateVscdb(t *testing.T) {
 	expectedUpdated := buildUserStatusSentinel("switched_user@gmail.com")
 	if valStatus != expectedUpdated {
 		t.Errorf("userStatus not updated correctly:\nexpected: %s\ngot:      %s", expectedUpdated, valStatus)
+	}
+
+	var valPic string
+	err = checkDB.QueryRow("SELECT value FROM ItemTable WHERE key='antigravity.profileUrl'").Scan(&valPic)
+	if err != nil {
+		t.Fatalf("failed to query updated profileUrl: %v", err)
+	}
+	if valPic != "https://lh3.googleusercontent.com/a/test_avatar_123" {
+		t.Errorf("profileUrl not updated correctly:\nexpected: https://lh3.googleusercontent.com/a/test_avatar_123\ngot:      %s", valPic)
 	}
 }
 
