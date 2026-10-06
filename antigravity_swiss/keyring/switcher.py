@@ -701,6 +701,12 @@ class KeyringService:
     def get_active_credential(self) -> KeyringCredential:
         raw = self.backend.lookup(service=self.service, username=self.username)
         if not raw:
+            active = self.vault.get_active_account()
+            if active:
+                rec = self.vault.get_account(active)
+                if rec and rec.credential:
+                    self.set_active_credential(rec.credential)
+                    return rec.credential
             raise KeyringNotFoundError(
                 f"No credential found in keyring for service='{self.service}', username='{self.username}'"
             )

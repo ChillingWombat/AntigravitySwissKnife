@@ -133,13 +133,15 @@ type AgentTaskSummary struct {
 	ConversationTitle string    `json:"conversation_title"`
 	AgentName         string    `json:"agent_name"`
 	AgentLabel        string    `json:"agent_label"` // User-assigned persona/label (e.g. "Lead Orchestrator")
-	Status            string    `json:"status"`      // "working", "idle", "completed"
-	NotFullyIdle      bool      `json:"not_fully_idle"`
-	BoundIssueNumber  int       `json:"bound_issue_number,omitempty"`
-	BoundPRNumber     int       `json:"bound_pr_number,omitempty"`
-	LastModified      time.Time `json:"last_modified"`
-	WorkspaceURI      string    `json:"workspace_uri"`
-	StepCount         int       `json:"step_count"`
+	Status               string    `json:"status"`      // "working", "idle", "completed"
+	NotFullyIdle         bool      `json:"not_fully_idle"`
+	ParentConversationID string    `json:"parent_conversation_id,omitempty"`
+	NestingDepth         int       `json:"nesting_depth,omitempty"`
+	BoundIssueNumber     int       `json:"bound_issue_number,omitempty"`
+	BoundPRNumber        int       `json:"bound_pr_number,omitempty"`
+	LastModified         time.Time `json:"last_modified"`
+	WorkspaceURI         string    `json:"workspace_uri"`
+	StepCount            int       `json:"step_count"`
 }
 
 // UpdateIssueRequest parameters for modifying an existing issue.

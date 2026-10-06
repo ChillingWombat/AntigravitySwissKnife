@@ -335,10 +335,12 @@ func GenerateGitHubExtensionScript() string {
       let agentHTML = "";
       if (assigned) {
         const isWorking = assigned.not_fully_idle;
+        const shortId = assigned.conversation_id ? assigned.conversation_id.slice(0, 6) : "";
+        const label = assigned.agent_label || assigned.agent_name || "Agent";
         agentHTML = ` + "`" + `
-          <span class="swiss-agent-task-badge ${isWorking ? "working" : "idle"}" title="Agent: ${assigned.agent_label}">
+          <span class="swiss-agent-task-badge ${isWorking ? "working" : "idle"}" data-conv-id="${assigned.conversation_id || ""}" title="Agent: ${escapeHTML(label)}${shortId ? " [#" + shortId + "]" : ""}&#10;Click to jump to conversation" style="cursor: pointer;">
             <span class="swiss-agent-pulse-dot" style="${isWorking ? "" : "display:none;"}"></span>
-            ${assigned.agent_label}
+            ${escapeHTML(label)}${shortId ? " [#" + shortId + "]" : ""}
           </span>
         ` + "`" + `;
       }
@@ -438,6 +440,16 @@ func GenerateGitHubExtensionScript() string {
       btn.addEventListener("click", () => {
         const convId = btn.dataset.convId;
         window.location.href = "/c/" + convId;
+      });
+    });
+
+    parentEl.querySelectorAll(".swiss-agent-task-badge[data-conv-id]").forEach(badge => {
+      badge.addEventListener("click", (e) => {
+        const convId = badge.dataset.convId;
+        if (convId) {
+          e.stopPropagation();
+          window.location.href = "/c/" + convId;
+        }
       });
     });
 
@@ -1026,10 +1038,17 @@ func GenerateGitHubExtensionScript() string {
       '</button>';
     }).join("");
 
+    let chatLabel = "Chat with Agent";
+    if (item && item.assigned_agent && item.assigned_agent.conversation_id) {
+      const shortId = item.assigned_agent.conversation_id.slice(0, 6);
+      const label = item.assigned_agent.agent_label || item.assigned_agent.agent_name || "Agent";
+      chatLabel = "Jump to " + label + " [#" + shortId + "]";
+    }
+
     let menuHTML = '<div class="swiss-gh-menu-header">Move to Board</div>' +
       categoryItemsHTML +
       '<div class="swiss-gh-menu-divider"></div>' +
-      '<button class="swiss-gh-menu-item" id="swiss-gh-ctx-chat"><span>Chat with Agent</span></button>' +
+      '<button class="swiss-gh-menu-item" id="swiss-gh-ctx-chat"><span>' + escapeHTML(chatLabel) + '</span></button>' +
       '<button class="swiss-gh-menu-item" id="swiss-gh-ctx-edit"><span>View & Edit Details</span></button>';
 
     if (item && item.url) {
@@ -1050,7 +1069,9 @@ func GenerateGitHubExtensionScript() string {
     menu.querySelector("#swiss-gh-ctx-chat")?.addEventListener("click", (ev) => {
       ev.stopPropagation();
       removeGHContextMenu();
-      if (item) {
+      if (item && item.assigned_agent && item.assigned_agent.conversation_id) {
+        window.location.href = "/c/" + item.assigned_agent.conversation_id;
+      } else if (item) {
         sendToChatComposer(formatMarkdownPayload(item, normalizedType));
         showToast("Attached #" + itemNum + " to prompt");
       }
@@ -1110,10 +1131,12 @@ func GenerateGitHubExtensionScript() string {
     let agentHTML = "";
     if (assigned) {
       const isWorking = assigned.not_fully_idle;
+      const shortId = assigned.conversation_id ? assigned.conversation_id.slice(0, 6) : "";
+      const label = assigned.agent_label || assigned.agent_name || "Agent";
       agentHTML = ` + "`" + `
-        <span class="swiss-agent-task-badge ${isWorking ? "working" : "idle"}" title="Agent: ${escapeHTML(assigned.agent_label || 'Agent')}">
+        <span class="swiss-agent-task-badge ${isWorking ? "working" : "idle"}" data-conv-id="${assigned.conversation_id || ""}" title="Agent: ${escapeHTML(label)}${shortId ? " [#" + shortId + "]" : ""}&#10;Click to jump to conversation" style="cursor: pointer;">
           <span class="swiss-agent-pulse-dot" style="${isWorking ? "" : "display:none;"}"></span>
-          ${isWorking ? "Working" : "Idle"}: ${escapeHTML(assigned.agent_label || 'Agent')}
+          ${isWorking ? "Working" : "Idle"}: ${escapeHTML(label)}${shortId ? " [#" + shortId + "]" : ""}
         </span>
       ` + "`" + `;
     }

@@ -51,7 +51,8 @@ func (at *AgentTracker) ListWorkspaceTasks(workspacePath string) ([]AgentTaskSum
 	defer db.Close()
 
 	// Query last 100 conversations
-	query := `SELECT conversation_id, title, step_count, last_modified_time, workspace_uris, agent_name, not_fully_idle
+	query := `SELECT conversation_id, title, step_count, last_modified_time, workspace_uris, agent_name, not_fully_idle,
+	                 COALESCE(parent_conversation_id, ''), COALESCE(nesting_depth, 0)
 	          FROM conversation_summaries
 	          ORDER BY last_modified_time DESC
 	          LIMIT 100`
@@ -74,9 +75,11 @@ func (at *AgentTracker) ListWorkspaceTasks(workspacePath string) ([]AgentTaskSum
 			urisJSON     string
 			agentName    string
 			notFullyIdle bool
+			parentConvID string
+			nestingDepth int
 		)
 
-		if err := rows.Scan(&convID, &title, &stepCount, &lastModStr, &urisJSON, &agentName, &notFullyIdle); err != nil {
+		if err := rows.Scan(&convID, &title, &stepCount, &lastModStr, &urisJSON, &agentName, &notFullyIdle, &parentConvID, &nestingDepth); err != nil {
 			continue
 		}
 
@@ -120,16 +123,18 @@ func (at *AgentTracker) ListWorkspaceTasks(workspacePath string) ([]AgentTaskSum
 		}
 
 		tasks = append(tasks, AgentTaskSummary{
-			ConversationID:    convID,
-			ConversationTitle: title,
-			AgentName:         agentName,
-			AgentLabel:        agentLabel,
-			Status:            status,
-			NotFullyIdle:      notFullyIdle,
-			BoundIssueNumber:  boundIssue,
-			LastModified:      lastMod,
-			WorkspaceURI:      urisJSON,
-			StepCount:         stepCount,
+			ConversationID:       convID,
+			ConversationTitle:    title,
+			AgentName:            agentName,
+			AgentLabel:           agentLabel,
+			Status:               status,
+			NotFullyIdle:         notFullyIdle,
+			ParentConversationID: parentConvID,
+			NestingDepth:         nestingDepth,
+			BoundIssueNumber:     boundIssue,
+			LastModified:         lastMod,
+			WorkspaceURI:         urisJSON,
+			StepCount:            stepCount,
 		})
 	}
 

@@ -835,6 +835,12 @@ export const GitHubWorkspacePage: React.FC = () => {
                             {/* Live Agent Task Pulse Indicator */}
                             {assigned && (
                               <span
+                                onClick={(e) => {
+                                  if (assigned.conversation_id) {
+                                    e.stopPropagation()
+                                    window.location.href = `/c/${assigned.conversation_id}`
+                                  }
+                                }}
                                 style={{
                                   display: 'inline-flex',
                                   alignItems: 'center',
@@ -843,11 +849,12 @@ export const GitHubWorkspacePage: React.FC = () => {
                                   borderRadius: '10px',
                                   fontSize: '10px',
                                   fontWeight: 600,
+                                  cursor: assigned.conversation_id ? 'pointer' : 'default',
                                   backgroundColor: assigned.not_fully_idle ? 'rgba(34, 197, 94, 0.12)' : 'rgba(100, 116, 139, 0.12)',
                                   color: assigned.not_fully_idle ? '#15803d' : '#64748b',
                                   border: assigned.not_fully_idle ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid transparent',
                                 }}
-                                title={`Agent: ${assigned.agent_label || assigned.agent_name || 'Agent'}`}
+                                title={`Agent: ${assigned.agent_label || assigned.agent_name || 'Agent'} (${assigned.conversation_id ? assigned.conversation_id.slice(0, 8) : ''})${assigned.parent_conversation_id ? ` · Subagent of ${assigned.parent_conversation_id.slice(0, 8)}` : ''}\nClick to jump to conversation`}
                               >
                                 {assigned.not_fully_idle && (
                                   <span
@@ -861,6 +868,11 @@ export const GitHubWorkspacePage: React.FC = () => {
                                   />
                                 )}
                                 {assigned.not_fully_idle ? 'Working' : 'Idle'}: {assigned.agent_label || 'Agent'}
+                                {assigned.conversation_id && (
+                                  <span style={{ opacity: 0.75, fontFamily: 'monospace', fontSize: '9px' }}>
+                                    [#{assigned.conversation_id.slice(0, 6)}]
+                                  </span>
+                                )}
                               </span>
                             )}
                           </div>
@@ -1093,6 +1105,12 @@ export const GitHubWorkspacePage: React.FC = () => {
                   </div>
                   {assigned && (
                     <span
+                      onClick={(e) => {
+                        if (assigned.conversation_id) {
+                          e.stopPropagation()
+                          window.location.href = `/c/${assigned.conversation_id}`
+                        }
+                      }}
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -1101,12 +1119,19 @@ export const GitHubWorkspacePage: React.FC = () => {
                         borderRadius: '10px',
                         fontSize: '10px',
                         fontWeight: 600,
+                        cursor: assigned.conversation_id ? 'pointer' : 'default',
                         backgroundColor: assigned.not_fully_idle ? 'rgba(34, 197, 94, 0.15)' : 'rgba(148, 163, 184, 0.15)',
                         color: assigned.not_fully_idle ? '#15803d' : '#64748b',
                       }}
+                      title={`Agent: ${assigned.agent_label || assigned.agent_name || 'Agent'} (${assigned.conversation_id ? assigned.conversation_id.slice(0, 8) : ''})${assigned.parent_conversation_id ? ` · Subagent of ${assigned.parent_conversation_id.slice(0, 8)}` : ''}\nClick to jump to conversation`}
                     >
                       <Bot size={10} />
-                      {assigned.agent_label}
+                      {assigned.agent_label || 'Agent'}
+                      {assigned.conversation_id && (
+                        <span style={{ opacity: 0.75, fontFamily: 'monospace', fontSize: '9px' }}>
+                          [#{assigned.conversation_id.slice(0, 6)}]
+                        </span>
+                      )}
                     </span>
                   )}
                 </div>
@@ -1427,6 +1452,33 @@ export const GitHubWorkspacePage: React.FC = () => {
                     {t.conversation_title || 'Conversation'}
                   </div>
 
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                    <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--text-muted)' }}>
+                      ID: #{t.conversation_id.slice(0, 8)}
+                    </span>
+                    {t.parent_conversation_id && (
+                      <span style={{ fontSize: '10px', color: '#1a73e8' }} title={`Subagent of ${t.parent_conversation_id}`}>
+                        ↳ Subagent
+                      </span>
+                    )}
+                    <button
+                      onClick={() => { window.location.href = `/c/${t.conversation_id}` }}
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        color: '#1a73e8',
+                        cursor: 'pointer',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        padding: '0 2px',
+                        marginLeft: 'auto',
+                      }}
+                      title="Focus conversation"
+                    >
+                      Focus →
+                    </button>
+                  </div>
+
                   <div
                     style={{
                       display: 'flex',
@@ -1634,11 +1686,15 @@ export const GitHubWorkspacePage: React.FC = () => {
           <button
             onClick={async () => {
               const card = contextMenu.item
-              const isPR = contextMenu.itemType === 'pr'
-              const text = `### GitHub ${isPR ? 'Pull Request' : 'Issue'} #${card.number}: ${card.title}\n- **Repository:** ${repo ? repo.full_name : ''}\n- **State:** ${card.state || 'open'}\n\n${card.body || ''}`
               setContextMenu(null)
-              await navigator.clipboard.writeText(text)
-              showToast(`Copied #${card.number} markdown context to clipboard`)
+              if (card.assigned_agent && card.assigned_agent.conversation_id) {
+                window.location.href = `/c/${card.assigned_agent.conversation_id}`
+              } else {
+                const isPR = contextMenu.itemType === 'pr'
+                const text = `### GitHub ${isPR ? 'Pull Request' : 'Issue'} #${card.number}: ${card.title}\n- **Repository:** ${repo ? repo.full_name : ''}\n- **State:** ${card.state || 'open'}\n\n${card.body || ''}`
+                await navigator.clipboard.writeText(text)
+                showToast(`Copied #${card.number} markdown context to clipboard`)
+              }
             }}
             style={{
               display: 'flex',
@@ -1655,7 +1711,9 @@ export const GitHubWorkspacePage: React.FC = () => {
             onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(26,115,232,0.08)')}
             onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
-            Chat with Agent
+            {contextMenu.item.assigned_agent && contextMenu.item.assigned_agent.conversation_id
+              ? `Jump to ${contextMenu.item.assigned_agent.agent_label || 'Agent'} [#{contextMenu.item.assigned_agent.conversation_id.slice(0, 6)}]`
+              : 'Chat with Agent'}
           </button>
           <button
             onClick={() => {
