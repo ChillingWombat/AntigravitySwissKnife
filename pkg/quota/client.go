@@ -205,20 +205,10 @@ func FetchProjectAndTier(accessToken string) (*ProjectContextResult, error) {
 			if res.PaidTier != nil && len(res.PaidTier.AvailableCredits) > 0 {
 				cItem := res.PaidTier.AvailableCredits[0]
 				credAmount = parseCreditVal(cItem.CreditAmount)
-				if credAmount == 0 {
-					credAmount = parseCreditVal(cItem.MinimumCreditAmountForUsage)
-				}
 			}
 			if credAmount == 0 && res.CurrentTier != nil && len(res.CurrentTier.AvailableCredits) > 0 {
 				cItem := res.CurrentTier.AvailableCredits[0]
 				credAmount = parseCreditVal(cItem.CreditAmount)
-			}
-			if credAmount == 0 {
-				if strings.Contains(lowerTier, "ultra") {
-					credAmount = 50
-				} else if strings.Contains(lowerTier, "pro") {
-					credAmount = 20
-				}
 			}
 			result.Credits = credAmount
 			return result, nil
@@ -425,7 +415,7 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	}
 
 	tier := "Google AI Pro"
-	credits := 20.0
+	credits := 0.0
 	if pCtx != nil {
 		if pCtx.ProjectID != "" {
 			project = pCtx.ProjectID
@@ -434,10 +424,8 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 			tier = pCtx.TierName
 			acc.PlanTier = tier
 		}
-		if pCtx.Credits > 0 {
-			credits = pCtx.Credits
-			acc.Credits = credits
-		}
+		credits = pCtx.Credits
+		acc.Credits = credits
 	}
 
 	// Step 2: Query Live Quota Summary
@@ -494,9 +482,6 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 				}
 				acc.PlanTier = pTier
 				cAmount := ca.Credits
-				if cAmount == 0 {
-					cAmount = 20
-				}
 				acc.Credits = cAmount
 
 				minFrac := ca.Quota5h

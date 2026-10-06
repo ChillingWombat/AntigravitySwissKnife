@@ -14,7 +14,7 @@ type Account struct {
 	TOTPSecret   string    `json:"totp_secret,omitempty"`
 	HasTOTP              bool      `json:"has_totp"`
 	IsActive             bool      `json:"is_active"`
-	Credits              float64   `json:"credits,omitempty"`
+	Credits              float64   `json:"credits"`
 	EnableCreditOverages bool      `json:"enable_credit_overages"`
 	AccessToken          string    `json:"access_token,omitempty"`
 	RefreshToken         string    `json:"refresh_token,omitempty"`

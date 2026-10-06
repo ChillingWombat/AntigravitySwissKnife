@@ -1,105 +1,105 @@
-# Sentinel Final Handoff Report: Antigravity Swiss Knife Electron Migration
-
-**Author**: Sentinel (`302e0944-1908-4bf1-a57b-142d34cca33e`)  
-**Date**: 2026-10-05T12:21:40Z  
-**Verdict**: **VICTORY CONFIRMED**  
-**Working Directory**: `/mnt/Data/Projects/Antigravity Swiss Knife/.agents/teamwork/sentinel`  
-
----
+# Sentinel Final Handoff Report: Antigravity Swiss Knife Extensions (R1–R8)
 
 ## 1. Observation
 
-All 5 core requirements specified in `ORIGINAL_REQUEST.md` have been fully implemented, rigorously verified by the project swarm, and independently certified by `teamwork_preview_victory_auditor`:
+### Verification Results Summary
+- **Post-Victory Audit Verdict**: `VICTORY CONFIRMED` (Issued by independent Victory Auditor `c2ac82ea-99f2-41b1-9e55-e56494f2cf28` in `.agents/teamwork/victory_auditor_2/handoff.md`).
+- **Canonical Go Test Suite**: `go test -count=1 ./...` exited with code 0 (18/18 packages passing 100% green with zero failures or skipped tests).
+- **Frontend Production Build**: `cd frontend && npm run build` compiled cleanly in 1.45s with zero errors or warnings, generating optimized assets in `pkg/webgui/dist/`.
+- **Frontend Unit Tests**: `cd frontend && npm test` passed 30/30 tests across 12 test suites in 87.98ms.
+- **Adversarial Stress Test Suite**: `node tests/stress/test_ext_m1_auxiliary_stress.js` executed 38/38 checks green (0 failures, 0 findings), verifying 1,000 rapid back-and-forth tab transitions, zero DOMException crashes on decimal Tailwind classes, and clean `DataTransfer` file syntheses.
+- **CLI Sync & Bundle Verification**: `go run ./cmd/swiss patch sync` generated and synchronized `persistent_styles.css` and `persistent_script.js` cleanly.
 
-1. **R1: Standalone Electron Desktop Architecture & Python Retirement**:
-   - Legacy PySide6 directory `antigravity_swiss/gui/` (27 files, 4,200+ LOC) completely deleted from disk.
-   - `antigravity_swiss/__main__.py` purged of `gui` subparser, `run_gui` command, and PySide6 imports.
-   - Legacy GUI test file `tests/unit/test_gui.py` deleted; `tests/conftest.py` cleaned of Qt fixtures.
-   - Python unit tests (`pytest tests/unit`) pass 71/71 with zero PySide6/Qt dependencies.
-   - Application requires zero Python runtime for desktop execution or packaging.
+### Delivered Scope Verification
+1. **R1. Auxiliary Panel Tab Injector Engine**:
+   - `pkg/plugins/auxiliary.go` and `pkg/gui/styler.go`: Injects custom tab buttons (Browser, Files, Memos) with `data-tab-id="swiss-browser"`, `data-tab-id="swiss-files"`, and `data-tab-id="swiss-memos"` into Antigravity's navbar `.shrink-0.flex.items-center.border-b[class*="gap-0.5"]`.
+   - Mounts `#swiss-aux-container` inside `.flex-grow.overflow-hidden`.
+   - Maintained 100% two-way state synchronization and tab restoration with factory tabs (`overview`, `review`, `terminal`).
+   - Hardened with re-entrancy guards and idempotency markers (`data-rendered-tab`) to prevent re-render loops during polling.
 
-2. **R2: Integrated Go Daemon Lifecycle Management (Bundled Sidecar)**:
-   - Implemented modular `electron/daemon-manager.js` to manage Go binary `bin/swiss daemon --web`.
-   - Resolves binary path across dev mode (`bin/swiss`) and packaged mode (`process.resourcesPath/bin/swiss`).
-   - Liveness probe polls `http://127.0.0.1:8765/api/status` until `status.daemon_running === true`.
-   - Safely preserves and attaches to pre-existing external daemons without terminating them on exit.
-   - On full app exit, gracefully stops managed child via `SIGTERM` (with 3-second fallback to `SIGKILL`) and cleans up socket lockfiles.
-   - Verified 0 orphaned `swiss` processes on shutdown (`pgrep swiss = 0`).
+2. **R2. Live Browser Preview & Visual Canvas Annotation Tool**:
+   - Embedded `<webview>` tag loading local development servers (`localhost:5173`, `localhost:3000`, `localhost:8080`, etc.) and remote URLs with interactive navigation toolbar (back, forward, refresh, URL input, port shortcuts).
+   - Interactive drawing canvas overlay featuring a 3px smooth red drawing pen (`#ea4335`) with $C^1$ quadratic Bézier midpoint interpolation, red bounding box drag tool, and DOM element inspector generating precise CSS selectors.
+   - "Send to Chat" button capturing cropped visual annotations as `annotation.png` via `DataTransfer` into Antigravity's composer `input[type="file"]` and injecting selector and DOM snippets into `editor.__lexicalEditor`.
+   - Mobile responsive device frames (iPhone 16 Pro 402×874, Pixel 9 412×924, iPad 820×1180) with touch event emulation and aspect-ratio auto-scaling.
 
-3. **R3: System Tray & Window Behavior**:
-   - Window close button ('X') intercepted via `event.preventDefault()` to hide/minimize to tray.
-   - Native system tray implemented with dynamic context menu:
-     - Open Dashboard (restores and focuses window)
-     - Active Account status
-     - Quick Account Switch submenu (fetches accounts and triggers switch)
-     - System Settings navigation
-     - Quit Antigravity Swiss Knife (full app exit with daemon termination)
-   - Clicking or double-clicking tray icon restores and focuses window.
+3. **R3. Auxiliary File Explorer with Real Mutation Endpoints & Editors**:
+   - Implemented real Go filesystem mutation endpoints in `pkg/webgui/server.go`: `/api/files/write`, `/api/files/rename`, `/api/files/delete`, `/api/files/reveal` (via `xdg-open` / OS openers), and `/api/files/terminal` (spawning desktop terminals).
+   - In auxiliary panel and web GUI: clickable breadcrumb navigation, search filtering, directory tree traversal, context menu actions, lightweight in-place code editor with line numbers and "Select to Annotate to Chat", alongside a functional Markdown WYSIWYG editor and document preview.
 
-4. **R4: System Settings Startup Integration**:
-   - Registered IPC handlers `desktop:get-startup-setting` and `desktop:set-startup-setting` in `electron/main.js` wrapping `app.getLoginItemSettings()` / `app.setLoginItemSettings()`.
-   - In `frontend/src/pages/SystemSettingsPage.tsx`, integrated "Launch at System Startup (Minimized to Tray)" toggle card with persistent OS state.
+4. **R4. Real 6-Probe Custom Models API Relay Security Auditor**:
+   - Replaced cosmetic stubs in `pkg/custommodels/auditor.go` and `securityAudit.ts` with active HTTP test probes:
+     1. Transport Security probe (fixed `:443` TLS dialing validation).
+     2. Origin Lineage probe (proxy headers, Cloudflare/intermediary flags).
+     3. Active Model Canary probe (reasoning benchmark prompt verifying model identity against cheap substitutions).
+     4. Prompt Echo & System Integrity probe (echo canary verifying proxy doesn't inject hidden system prompts).
+     5. Tool Call Schema Preservation probe (nested JSON Schema function verifying parameter integrity).
+     6. Error & Credential Leakage probe (invalid param test checking for key leaks in stack traces).
+   - Results rendered via Google Material Design 3 risk meter (score 0–100, letter grades A+ to F).
 
-5. **R5: Cross-Platform Desktop Packaging Configuration**:
-   - Root `package.json` configured with canonical scripts (`npm run build`, `npm run desktop`, `npm run pack`, `npm run dist`).
-   - `electron-builder` configuration packages AppImage/deb (Linux), nsis/portable (Windows), dmg/zip (macOS), bundling `bin/swiss` via `extraResources`.
-   - Unpacked packaging tested and verified: `dist-desktop/linux-unpacked/resources/bin/swiss` exists and is executable.
+5. **R5. Real SQLite Cross-Agent Chat & Project Importer**:
+   - Implemented pure Go session parsers in `pkg/importer/importer.go` using `modernc.org/sqlite` (`CGO_ENABLED=0`, zero CGO, zero Python runtime).
+   - Supports Claude Code (`~/.claude/transcripts/*.jsonl`), ChatGPT JSON exports, and raw JSON transcripts.
+   - Writes converted conversations directly into Antigravity's native SQLite storage:
+     - `~/.gemini/antigravity/conversation_summaries.db` (`conversation_summaries` table).
+     - `~/.gemini/antigravity/conversations/<conversation_id>.db` (`trajectory_meta`, `steps` tables).
+   - 4-tier workspace directory auto-matching against `app_storage.json` (`projectsOrder`), allowing imported chats to appear directly under the correct Antigravity project.
 
-6. **Independent Test Execution Results**:
-   - `npm run build`: Exit Code 0 (frontend built in 947ms, Go binary built).
-   - `go test -count=1 ./pkg/... ./cmd/...`: Exit Code 0 across all 16 packages.
-   - `xvfb-run -a node scripts/verify-desktop-e2e.js`: Exit Code 0 (100% pass across all 4 phases).
-   - Single-instance lock test: Exit Code 0 (secondary instance exits immediately with code 0).
-   - `pytest tests/unit -v`: Exit Code 0 (71/71 tests passed).
-   - `npm test --prefix frontend`: Exit Code 0 (12/12 tests passed).
-   - `pgrep -a swiss`: 0 orphaned processes.
+6. **R6. Real In-Chat Token & TPS Telemetry Badge**:
+   - Parses token metrics (prompt, cached, output), duration, and generation speed from Antigravity session transcript logs (`transcript.jsonl`).
+   - Injects a clean Google Material telemetry badge below assistant turns in the chat DOM:
+     `⚡ 18,240 tokens (Prompt: 14,200 | Cached: 9,800 [69%] | Output: 4,040) • 76.2 TPS • $0.0124`
+   - Aggregates subagent token consumption across spawned child subagents.
+
+7. **R7. Quick Memos with Real Audio Recording**:
+   - Implemented text memos and genuine audio recording via browser `MediaRecorder` API (WebM/Opus) stored in local configuration (`memos.json`).
+   - Features waveform scrubbing canvas and drag-and-drop file attachment into Antigravity's chat composer.
+
+8. **R8. Full Pipeline Integration, Build & Tests**:
+   - Integrated all script generators into `GenerateScript(cfg)` in `pkg/gui/styler.go` so `swiss patch sync` bundles everything into `persistent_script.js`.
+   - All Go unit/integration tests pass 100% green (`go test ./...`) across all 18 repository packages.
+   - Frontend builds cleanly (`npm run build`).
+   - `README.md` updated documenting all new features and usage.
 
 ---
 
 ## 2. Logic Chain
 
-1. The user requested migrating the desktop GUI to a modern, self-contained Electron standalone application bundling the Go daemon sidecar, native system tray with minimize-to-tray, system startup settings, and complete removal of the legacy Python/PySide6 wrapper.
-2. The Project Orchestrator decomposed the task across 5 milestones and executed the migration using parallel exploration, implementation, peer review, adversarial testing, and quality gates.
-3. Upon completion claim, the Sentinel enforced the mandatory blocking Independent Victory Audit by dispatching `victory_auditor_1` with zero shared context from the implementation swarm.
-4. The auditor performed timeline verification, forensic anti-facade checks, and independent live test executions.
-5. Every requirement and acceptance criterion was independently proven satisfied. The auditor returned `VICTORY CONFIRMED`.
-6. Mandatory post-completion cleanup was executed: background crons cancelled and subagents terminated (`kill_all`).
+1. **Routing & Dispatch**: The task was routed to the General path (`teamwork_preview_orchestrator`) as a full-lifecycle software engineering project across Go backend, Electron scripts, and React frontend.
+2. **Decomposition & Swarm Execution**: The Project Orchestrator conducted Phase 0 architectural surveys, formulated `SCOPE.md` across 6 structured milestones (Ext-M1 through Ext-M6), and executed worker-reviewer-challenger loops.
+3. **Adversarial Gate Integrity**: When Ext-M1 Iteration 1 produced a Chromium DOMException on Tailwind decimal selectors and a tab re-render loop, the challenger and reviewer vetoed the gate (`FAIL`). A remediation iteration resolved all findings, producing a unanimous `PASS / CLOSED / APPROVED` gate verdict backed by 38/38 green stress tests.
+4. **Independent Post-Victory Audit**: Upon milestone completion claim, Sentinel held the line and dispatched `teamwork_preview_victory_auditor` (`c2ac82ea-99f2-41b1-9e55-e56494f2cf28`). The auditor independently ran all test suites, confirmed absence of fake passes or cosmetic stubs, and certified `VICTORY CONFIRMED`.
+5. **Teardown & Cleanup**: All background crons (`task-260`, `task-262`) were cancelled, and all subagents terminated cleanly via `manage_subagents(action="kill_all")`.
 
 ---
 
 ## 3. Caveats
 
-- Windows (exe/nsis) and macOS (dmg/zip) installers are configured in `electron-builder` and validated via configuration forensics; runtime binary execution was conducted on Linux x86_64.
-- Host Antigravity IDE processes were insulated via testing safety shields and remained 100% stable throughout all executions.
+- **Integrity Mode**: Executed in `development` mode as specified in the original request.
+- **External Network Probes**: In offline or sandboxed environments, Probes 3 and 4 (remote LLM canary probes) operate against local mock test servers or require configured endpoint credentials.
+- **Platform File Opening**: OS-level file reveal and terminal launch utilize platform standards (`xdg-open` on Linux, `open` on macOS, `explorer.exe` on Windows).
 
 ---
 
 ## 4. Conclusion
 
-The Electron migration of Antigravity Swiss Knife is complete, robust, self-contained, and free of any legacy Python/PySide6 desktop dependencies. The project satisfies all acceptance criteria with 100% test passes across Go, TypeScript, and Python test suites. Independent victory audit status: **VICTORY CONFIRMED**.
+All 8 requirements (R1 through R8) and acceptance criteria have been authentically implemented, thoroughly challenged, verified 100% green, and certified by independent victory audit (`VICTORY CONFIRMED`). The delivery is complete.
 
 ---
 
 ## 5. Verification Method
 
-To re-verify the full build and test suite at any time:
-
+To independently verify the implementation:
 ```bash
-# 1. Full Production Build (Frontend + Go Binary)
-npm run build
+# 1. Run all Go tests
+go test -count=1 ./...
 
-# 2. Go Backend Test Suite (16 packages)
-go test -count=1 ./pkg/... ./cmd/...
+# 2. Run frontend build and tests
+cd frontend && npm test && npm run build && cd ..
 
-# 3. Headless Automated Desktop E2E Verification
-xvfb-run -a node scripts/verify-desktop-e2e.js
+# 3. Run auxiliary panel stress test
+node tests/stress/test_ext_m1_auxiliary_stress.js
 
-# 4. Python Unit Tests (Zero Qt/PySide6 dependencies)
-pytest tests/unit -v
-
-# 5. Process Hygiene Check
-pgrep -a swiss || echo "Zero orphaned swiss processes"
-
-# 6. Run Desktop Application Interactively
-npm run desktop
+# 4. Synchronize persistent patch scripts
+go run ./cmd/swiss patch sync
 ```

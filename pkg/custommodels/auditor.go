@@ -29,6 +29,7 @@ type SecurityAuditProbe struct {
 type SecurityAuditReport struct {
 	RiskLevel       string               `json:"risk_level"` // "low", "medium", "high", "critical"
 	RiskScore       int                  `json:"risk_score"` // 0-100
+	SecurityGrade   string               `json:"security_grade"` // "A+", "A", "B", "C", "D", "F"
 	ModelID         string               `json:"model_id"`
 	Endpoint        string               `json:"endpoint"`
 	ProviderType    string               `json:"provider_type"`
@@ -116,7 +117,11 @@ func (a *Auditor) probeTransportSecurity(endpoint string, u *url.URL, parseErr e
 	if strings.HasPrefix(strings.ToLower(endpoint), "https://") {
 		// Test TLS Handshake
 		conf := &tls.Config{InsecureSkipVerify: false}
-		conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 3 * time.Second}, "tcp", u.Host, conf)
+		dialHost := u.Host
+		if !strings.Contains(dialHost, ":") {
+			dialHost = dialHost + ":443"
+		}
+		conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 3 * time.Second}, "tcp", dialHost, conf)
 		if err != nil {
 			return SecurityAuditProbe{
 				ID:          "tls_transport",
@@ -125,7 +130,7 @@ func (a *Auditor) probeTransportSecurity(endpoint string, u *url.URL, parseErr e
 				Description: "Verifies encrypted transport with valid trusted certificates.",
 				Status:      "warning",
 				Details:     fmt.Sprintf("HTTPS scheme configured, but TLS handshake failed: %v", err),
-				Evidence:    fmt.Sprintf("Host: %s", u.Host),
+				Evidence:    fmt.Sprintf("Host: %s", dialHost),
 			}
 		}
 		_ = conn.Close()
@@ -368,7 +373,7 @@ func (a *Auditor) probeToolCallSchema(model CustomModel, isReachable bool) Secur
 		}
 	}
 
-	// Send a request with tools definition to verify proxy accepts and parses JSON Schema tools
+	// Send a request with deeply nested tools definition to verify proxy accepts and parses JSON Schema tools
 	payload := map[string]interface{}{
 		"model":      model.Name,
 		"max_tokens": 16,
@@ -379,14 +384,26 @@ func (a *Auditor) probeToolCallSchema(model CustomModel, isReachable bool) Secur
 			{
 				"type": "function",
 				"function": map[string]interface{}{
-					"name":        "canary_function",
-					"description": "Verification probe function",
+					"name":        "canary_complex_nested_verifier",
+					"description": "Verification probe function testing nested parameter schema preservation",
 					"parameters": map[string]interface{}{
 						"type": "object",
 						"properties": map[string]interface{}{
 							"token": map[string]string{"type": "string"},
+							"nested_config": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"mode":    map[string]string{"type": "string"},
+									"retries": map[string]string{"type": "integer"},
+									"flags": map[string]interface{}{
+										"type":  "array",
+										"items": map[string]string{"type": "string"},
+									},
+								},
+								"required": []string{"mode"},
+							},
 						},
-						"required": []string{"token"},
+						"required": []string{"token", "nested_config"},
 					},
 				},
 			},
@@ -418,11 +435,12 @@ func (a *Auditor) probeToolCallSchema(model CustomModel, isReachable bool) Secur
 }
 
 func (a *Auditor) probeCredentialLeakage(model CustomModel, headers http.Header) SecurityAuditProbe {
+	// 1. Scan response headers for echoed API keys or auth tokens
 	for k, v := range headers {
 		lowerK := strings.ToLower(k)
 		if strings.Contains(lowerK, "token") || strings.Contains(lowerK, "key") || strings.Contains(lowerK, "auth") {
 			val := strings.Join(v, ", ")
-			if strings.Contains(val, "sk-") || strings.Contains(val, "bearer") {
+			if strings.Contains(val, "sk-") || strings.Contains(val, "bearer") || (model.APIKey != "" && len(model.APIKey) > 6 && strings.Contains(val, model.APIKey)) {
 				return SecurityAuditProbe{
 					ID:          "credential_leakage",
 					Name:        "API Key / Credential Header Leakage",
@@ -436,14 +454,56 @@ func (a *Auditor) probeCredentialLeakage(model CustomModel, headers http.Header)
 		}
 	}
 
+	// 2. Active Error & Credential Leakage probe: send intentionally invalid parameters
+	// to test if error traceback dumps internal server paths or private keys.
+	invalidPayload := map[string]interface{}{
+		"model":       model.Name,
+		"temperature": -999.0, // Invalid temperature forces HTTP 400 error
+		"messages": []map[string]string{
+			{"role": "user", "content": "ping"},
+		},
+	}
+	_, err := a.executeModelRequest(model, invalidPayload)
+	if err != nil {
+		errStr := err.Error()
+		lowerErr := strings.ToLower(errStr)
+		// Check for leaked API key in error response
+		if model.APIKey != "" && len(model.APIKey) > 6 && strings.Contains(errStr, model.APIKey) {
+			return SecurityAuditProbe{
+				ID:          "credential_leakage",
+				Name:        "API Key Reflected in Error Body",
+				Category:    "Data Leakage",
+				Description: "Ensures proxy does not reflect API credentials in error messages.",
+				Status:      "failed",
+				Details:     "Relay proxy returned error payload containing the caller's private API key!",
+				Evidence:    "Error body leaks private key tokens",
+			}
+		}
+		// Check for internal server tracebacks or file paths
+		if strings.Contains(lowerErr, "traceback (most recent call last)") ||
+			strings.Contains(lowerErr, "stack trace:") ||
+			strings.Contains(lowerErr, "/var/app/") ||
+			strings.Contains(lowerErr, "/www/server/") {
+			return SecurityAuditProbe{
+				ID:          "credential_leakage",
+				Name:        "Internal Server Traceback Leakage",
+				Category:    "Data Leakage",
+				Description: "Ensures proxy does not expose backend server stack traces or filesystem paths.",
+				Status:      "warning",
+				Details:     "Proxy exposes internal server stack traces or filesystem paths upon invalid requests.",
+				Evidence:    "Traceback / internal path markers observed in error response",
+			}
+		}
+	}
+
 	return SecurityAuditProbe{
 		ID:          "credential_leakage",
 		Name:        "Credential & Traceback Shielding",
 		Category:    "Data Leakage",
 		Description: "Ensures proxy does not reflect API credentials or internal network traces.",
 		Status:      "passed",
-		Details:     "Zero sensitive credentials or tokens reflected in response headers.",
-		Evidence:    "Clean response headers. No API key reflections detected.",
+		Details:     "Zero sensitive credentials or internal stack traces exposed in headers or error responses.",
+		Evidence:    "Clean error handling. No credential or internal traceback reflections detected.",
 	}
 }
 
@@ -524,6 +584,23 @@ func (a *Auditor) computeRiskAssessment(report *SecurityAuditReport) {
 	}
 
 	report.RiskScore = score
+
+	// Material Design 3 Letter Grade: A+ through F
+	switch {
+	case score <= 5:
+		report.SecurityGrade = "A+"
+	case score <= 15:
+		report.SecurityGrade = "A"
+	case score <= 30:
+		report.SecurityGrade = "B"
+	case score <= 50:
+		report.SecurityGrade = "C"
+	case score <= 70:
+		report.SecurityGrade = "D"
+	default:
+		report.SecurityGrade = "F"
+	}
+
 	switch {
 	case score >= 60:
 		report.RiskLevel = "critical"

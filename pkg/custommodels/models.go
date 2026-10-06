@@ -53,9 +53,13 @@ type CustomModel struct {
 	ThinkingLevels   []string     `json:"thinking_levels,omitempty"` // e.g. ["off", "low", "medium", "high"]
 	ThinkingLevel    string       `json:"thinking_level,omitempty"`  // Active level e.g. "medium", "off"
 	Enabled          bool         `json:"enabled"`
-	Notes            string       `json:"notes,omitempty"` // User notes or description
-	CreatedAt        string       `json:"created_at,omitempty"`
-	UpdatedAt        string       `json:"updated_at,omitempty"`
+	Notes              string       `json:"notes,omitempty"` // User notes or description
+	SecurityRiskLevel  string       `json:"security_risk_level,omitempty"`
+	SecurityAuditScore int          `json:"security_audit_score,omitempty"`
+	SecurityGrade      string       `json:"security_grade,omitempty"`
+	LastSecurityAudit  string       `json:"last_security_audit,omitempty"`
+	CreatedAt          string       `json:"created_at,omitempty"`
+	UpdatedAt          string       `json:"updated_at,omitempty"`
 }
 
 // Config holds the full custom models configuration file structure.

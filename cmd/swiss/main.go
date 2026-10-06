@@ -489,6 +489,14 @@ func runSwitch(args []string) {
 		fmt.Fprintf(os.Stderr, "Failed to switch account: %v\n", err)
 		os.Exit(1)
 	}
+	if acc, _ := store.GetAccount(email); acc != nil {
+		var allEmails []string
+		for _, a := range store.ListAccounts() {
+			allEmails = append(allEmails, a.Email)
+		}
+		profStore, _ := fingerprint.NewStore("")
+		_ = keyring.SyncAllSurfaces(acc, allEmails, profStore)
+	}
 	fmt.Printf("[OK] Successfully switched active account to: %s (direct)\n", email)
 }
 

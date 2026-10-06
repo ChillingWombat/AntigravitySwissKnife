@@ -461,5 +461,200 @@ func TestWebGUIConversationTabsAndAutoArchiveEndpoints(t *testing.T) {
 	}
 }
 
+func TestWebGUIFileExplorerEndpoints(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
 
+	baseURL := "http://" + srv.Addr()
+	tempDir := t.TempDir()
+
+	// 1. Create directory via POST /api/files/create
+	subDir := filepath.Join(tempDir, "subfolder")
+	createDirPayload := map[string]interface{}{"path": subDir, "is_dir": true}
+	cdData, _ := json.Marshal(createDirPayload)
+	resp, err := http.Post(baseURL+"/api/files/create", "application/json", bytes.NewReader(cdData))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/files/create dir failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 2. Write file via POST /api/files/write
+	filePath := filepath.Join(subDir, "hello.txt")
+	writeFilePayload := map[string]string{"path": filePath, "content": "Hello Antigravity!"}
+	wfData, _ := json.Marshal(writeFilePayload)
+	resp, err = http.Post(baseURL+"/api/files/write", "application/json", bytes.NewReader(wfData))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/files/write failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 3. Read file via GET /api/files/read
+	resp, err = http.Get(baseURL + "/api/files/read?path=" + filePath)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/files/read failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	var readRes struct {
+		Success bool   `json:"success"`
+		Content string `json:"content"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&readRes)
+	resp.Body.Close()
+	if !readRes.Success || readRes.Content != "Hello Antigravity!" {
+		t.Errorf("read file mismatch: expected 'Hello Antigravity!', got %q", readRes.Content)
+	}
+
+	// 4. List files via GET /api/files/list
+	resp, err = http.Get(baseURL + "/api/files/list?path=" + subDir)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/files/list failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	var listRes struct {
+		Success bool       `json:"success"`
+		Files   []FileItem `json:"files"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&listRes)
+	resp.Body.Close()
+	if !listRes.Success || len(listRes.Files) == 0 || listRes.Files[0].Name != "hello.txt" {
+		t.Errorf("list files mismatch: expected hello.txt in listing")
+	}
+
+	// 5. Copy file via POST /api/files/copy
+	copyPath := filepath.Join(subDir, "hello_copy.txt")
+	copyPayload := map[string]string{"src": filePath, "dst": copyPath}
+	cpData, _ := json.Marshal(copyPayload)
+	resp, err = http.Post(baseURL+"/api/files/copy", "application/json", bytes.NewReader(cpData))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/files/copy failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 6. Rename/move file via POST /api/files/rename
+	renamedPath := filepath.Join(subDir, "hello_renamed.txt")
+	renamePayload := map[string]string{"old_path": copyPath, "new_path": renamedPath}
+	rnData, _ := json.Marshal(renamePayload)
+	resp, err = http.Post(baseURL+"/api/files/rename", "application/json", bytes.NewReader(rnData))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/files/rename failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 7. Delete file via POST /api/files/delete
+	delPayload := map[string]string{"path": renamedPath}
+	dlData, _ := json.Marshal(delPayload)
+	resp, err = http.Post(baseURL+"/api/files/delete", "application/json", bytes.NewReader(dlData))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/files/delete failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 8. Reveal file via POST /api/files/reveal
+	revPayload := map[string]string{"path": filePath}
+	rvData, _ := json.Marshal(revPayload)
+	resp, err = http.Post(baseURL+"/api/files/reveal", "application/json", bytes.NewReader(rvData))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/files/reveal failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestWebGUIMemosEndpoints(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// 1. Save memo via POST /api/memos/save
+	savePayload := map[string]interface{}{
+		"title":   "Test Memo",
+		"content": "Quick reminder for Antigravity",
+		"type":    "text",
+		"tags":    []string{"test", "quick"},
+	}
+	sData, _ := json.Marshal(savePayload)
+	resp, err := http.Post(baseURL+"/api/memos/save", "application/json", bytes.NewReader(sData))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/memos/save failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	var saveRes struct {
+		Success bool `json:"success"`
+		Memo    struct {
+			ID string `json:"id"`
+		} `json:"memo"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&saveRes)
+	resp.Body.Close()
+	if !saveRes.Success || saveRes.Memo.ID == "" {
+		t.Fatalf("expected memo save success with id")
+	}
+
+	// 2. List memos via GET /api/memos
+	resp, err = http.Get(baseURL + "/api/memos")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/memos failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	var listRes struct {
+		Success bool `json:"success"`
+		Memos   []struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		} `json:"memos"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&listRes)
+	resp.Body.Close()
+	if !listRes.Success || len(listRes.Memos) == 0 {
+		t.Fatalf("expected at least 1 memo in list")
+	}
+
+	// 3. Delete memo via POST /api/memos/delete
+	resp, err = http.Post(baseURL+"/api/memos/delete?id="+saveRes.Memo.ID, "application/json", nil)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/memos/delete failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestWebGUIUtilitiesImportEndpoints(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// 1. GET /api/utilities/import/scan?source=claude-code
+	resp, err := http.Get(baseURL + "/api/utilities/import/scan?source=claude-code")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/utilities/import/scan failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	var scanRes struct {
+		Success bool `json:"success"`
+		Source  string `json:"source"`
+		Count   int `json:"count"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&scanRes)
+	resp.Body.Close()
+	if !scanRes.Success || scanRes.Source != "claude-code" {
+		t.Errorf("expected successful scan for claude-code, got %+v", scanRes)
+	}
+
+	// 2. POST /api/utilities/import with empty list
+	payload := map[string]interface{}{
+		"candidate_ids": []string{},
+		"source": "claude-code",
+		"mode": "auto",
+	}
+	pData, _ := json.Marshal(payload)
+	resp, err = http.Post(baseURL+"/api/utilities/import", "application/json", bytes.NewReader(pData))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/utilities/import failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+}
 

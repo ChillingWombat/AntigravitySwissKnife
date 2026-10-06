@@ -220,9 +220,7 @@ func BuildAccountQuotaStatesFromMap(accounts []*keyring.Account, summaries map[s
 			if s.PlanTier != "" {
 				tier = s.PlanTier
 			}
-			if s.Credits > 0 {
-				credits = s.Credits
-			}
+			credits = s.Credits
 			cur5h = s.Quota5hFraction
 			curWeekly = s.QuotaWeeklyFraction
 			if cur5h == 0 && curWeekly == 0 && len(s.Models) > 0 {
@@ -259,9 +257,7 @@ func BuildAccountQuotaStatesFromMap(accounts []*keyring.Account, summaries map[s
 			if ca.PlanTier != "" {
 				tier = ca.PlanTier
 			}
-			if ca.Credits > 0 {
-				credits = ca.Credits
-			}
+			credits = ca.Credits
 			cur5h = ca.Quota5h
 			curWeekly = ca.QuotaWeekly
 			if ca.Quota5hClaudeGPT > 0 {
@@ -280,14 +276,6 @@ func BuildAccountQuotaStatesFromMap(accounts []*keyring.Account, summaries map[s
 
 		if tier == "" {
 			tier = DetermineDefaultPlanTier(email, acc.PlanTier)
-		}
-		if credits == 0 {
-			lowerTier := strings.ToLower(tier)
-			if strings.Contains(lowerTier, "ultra") {
-				credits = 50
-			} else if strings.Contains(lowerTier, "pro") {
-				credits = 20
-			}
 		}
 
 		avail5h := ComputeEffective5hAvailable(cur5h, curSec)

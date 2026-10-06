@@ -25,6 +25,7 @@ import {
   ChevronRight,
   Tablet,
   CheckCircle2,
+  Save,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
@@ -63,6 +64,11 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
   const [codeLineRange, setCodeLineRange] = useState('L1-L20')
   const [pdfHighlightMode, setPdfHighlightMode] = useState<'highlight' | 'underline'>('highlight')
   const [copiedFileFeedback, setCopiedFileFeedback] = useState<string | null>(null)
+  const [fileEditorContent, setFileEditorContent] = useState<string>('')
+  const [isSavingFile, setIsSavingFile] = useState<boolean>(false)
+  const [fileSaveFeedback, setFileSaveFeedback] = useState<string | null>(null)
+  const [isCodeEditingMode, setIsCodeEditingMode] = useState<boolean>(false)
+  const [markdownViewMode, setMarkdownViewMode] = useState<'preview' | 'edit'>('edit')
 
   // --- 3. Quick Memos State ---
   const [memos, setMemos] = useState<Array<{ id: string; type: 'text' | 'voice'; content: string; createdAt: string; color: string; duration?: string }>>(() => {
@@ -119,20 +125,40 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
     }
     try {
       const res = await api.readFile(item.path)
+      const text = res.content || ''
+      setFileEditorContent(text)
       setActiveFileViewer({
         name: item.name,
         type: item.type as any,
         path: item.path,
-        content: res.content || '',
+        content: text,
       })
     } catch (err) {
       console.error('Error reading file:', err)
+      const errText = `Error loading file: ${err}`
+      setFileEditorContent(errText)
       setActiveFileViewer({
         name: item.name,
         type: item.type as any,
         path: item.path,
-        content: `Error loading file: ${err}`,
+        content: errText,
       })
+    }
+  }
+
+  const handleSaveFileContent = async () => {
+    if (!activeFileViewer) return
+    setIsSavingFile(true)
+    setFileSaveFeedback(null)
+    try {
+      await api.writeFile(activeFileViewer.path, fileEditorContent)
+      setActiveFileViewer((prev) => (prev ? { ...prev, content: fileEditorContent } : null))
+      setFileSaveFeedback('Saved to disk!')
+      setTimeout(() => setFileSaveFeedback(null), 3000)
+    } catch (err: any) {
+      setFileSaveFeedback(`Save error: ${err.message}`)
+    } finally {
+      setIsSavingFile(false)
     }
   }
 
@@ -774,7 +800,13 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
                 />
 
                 <button
-                  onClick={() => alert(`Opening ${addressBarPath} in system file manager (xdg-open)`)}
+                  onClick={async () => {
+                    try {
+                      await api.revealFile(addressBarPath)
+                    } catch (e: any) {
+                      console.error('Failed to open system file manager:', e)
+                    }
+                  }}
                   className="btn-pill-tonal"
                   style={{ padding: '6px 12px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px' }}
                   title="Open folder in Linux File Manager (Nautilus/Dolphin)"
@@ -975,6 +1007,50 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
 
                   {activeFileViewer.type === 'code' && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ display: 'flex', backgroundColor: 'var(--tonal)', borderRadius: '14px', padding: '2px' }}>
+                        <button
+                          onClick={() => setIsCodeEditingMode(false)}
+                          style={{
+                            border: 'none',
+                            padding: '3px 10px',
+                            borderRadius: '12px',
+                            fontSize: '11px',
+                            fontWeight: !isCodeEditingMode ? 700 : 500,
+                            backgroundColor: !isCodeEditingMode ? '#ffffff' : 'transparent',
+                            color: !isCodeEditingMode ? 'var(--primary)' : 'var(--text-muted)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Annotate
+                        </button>
+                        <button
+                          onClick={() => setIsCodeEditingMode(true)}
+                          style={{
+                            border: 'none',
+                            padding: '3px 10px',
+                            borderRadius: '12px',
+                            fontSize: '11px',
+                            fontWeight: isCodeEditingMode ? 700 : 500,
+                            backgroundColor: isCodeEditingMode ? '#ffffff' : 'transparent',
+                            color: isCodeEditingMode ? 'var(--primary)' : 'var(--text-muted)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Edit
+                        </button>
+                      </div>
+
+                      <button
+                        onClick={handleSaveFileContent}
+                        disabled={isSavingFile}
+                        className="btn-pill-tonal"
+                        style={{ padding: '4px 10px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        title="Save changes to disk"
+                      >
+                        <Save size={11} />
+                        <span>{isSavingFile ? 'Saving...' : 'Save'}</span>
+                      </button>
+
                       <button
                         onClick={handleSendCodeAnnotationToChat}
                         className="btn-pill-primary"
@@ -983,6 +1059,66 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
                         <Send size={11} />
                         <span>Annotate to Chat</span>
                       </button>
+
+                      {fileSaveFeedback && (
+                        <span style={{ fontSize: '11px', color: 'var(--green)', fontWeight: 600 }}>
+                          {fileSaveFeedback}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {activeFileViewer.type === 'markdown' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ display: 'flex', backgroundColor: 'var(--tonal)', borderRadius: '14px', padding: '2px' }}>
+                        <button
+                          onClick={() => setMarkdownViewMode('edit')}
+                          style={{
+                            border: 'none',
+                            padding: '3px 10px',
+                            borderRadius: '12px',
+                            fontSize: '11px',
+                            fontWeight: markdownViewMode === 'edit' ? 700 : 500,
+                            backgroundColor: markdownViewMode === 'edit' ? '#ffffff' : 'transparent',
+                            color: markdownViewMode === 'edit' ? 'var(--primary)' : 'var(--text-muted)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Edit Source
+                        </button>
+                        <button
+                          onClick={() => setMarkdownViewMode('preview')}
+                          style={{
+                            border: 'none',
+                            padding: '3px 10px',
+                            borderRadius: '12px',
+                            fontSize: '11px',
+                            fontWeight: markdownViewMode === 'preview' ? 700 : 500,
+                            backgroundColor: markdownViewMode === 'preview' ? '#ffffff' : 'transparent',
+                            color: markdownViewMode === 'preview' ? 'var(--primary)' : 'var(--text-muted)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Preview
+                        </button>
+                      </div>
+
+                      <button
+                        onClick={handleSaveFileContent}
+                        disabled={isSavingFile}
+                        className="btn-pill-primary"
+                        style={{ padding: '4px 12px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        title="Save changes to disk"
+                      >
+                        <Save size={11} />
+                        <span>{isSavingFile ? 'Saving...' : 'Save File'}</span>
+                      </button>
+
+                      {fileSaveFeedback && (
+                        <span style={{ fontSize: '11px', color: 'var(--green)', fontWeight: 600 }}>
+                          {fileSaveFeedback}
+                        </span>
+                      )}
                     </div>
                   )}
 
@@ -1021,54 +1157,99 @@ export const FeaturePluginsPage: React.FC<FeaturePluginsPageProps> = ({
                 </div>
 
                 {/* Viewer Content Body */}
-                <div style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
+                <div style={{ flex: 1, padding: '16px', overflowY: 'auto' }}>
                   {activeFileViewer.type === 'markdown' && (
-                    <div style={{ fontSize: '13px', lineHeight: 1.6, color: 'var(--text)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                        <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--green)', textTransform: 'uppercase' }}>
-                          ● WYSIWYG Live Markdown Editor Active
-                        </span>
-                      </div>
-                      <pre
-                        style={{
-                          whiteSpace: 'pre-wrap',
-                          fontFamily: 'inherit',
-                          margin: 0,
-                          backgroundColor: 'transparent',
-                          color: 'var(--text)',
-                        }}
-                      >
-                        {activeFileViewer.content || 'Empty markdown document.'}
-                      </pre>
+                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                      {markdownViewMode === 'edit' ? (
+                        <textarea
+                          value={fileEditorContent}
+                          onChange={(e) => setFileEditorContent(e.target.value)}
+                          placeholder="Type markdown content..."
+                          style={{
+                            width: '100%',
+                            flex: 1,
+                            minHeight: '380px',
+                            fontFamily: 'monospace',
+                            fontSize: '12px',
+                            lineHeight: 1.6,
+                            padding: '12px',
+                            borderRadius: '8px',
+                            border: '1px solid var(--border)',
+                            backgroundColor: 'var(--canvas)',
+                            color: 'var(--text)',
+                            boxSizing: 'border-box',
+                            resize: 'vertical',
+                          }}
+                        />
+                      ) : (
+                        <div style={{ fontSize: '13px', lineHeight: 1.6, color: 'var(--text)', padding: '8px' }}>
+                          <pre
+                            style={{
+                              whiteSpace: 'pre-wrap',
+                              fontFamily: 'inherit',
+                              margin: 0,
+                              backgroundColor: 'transparent',
+                              color: 'var(--text)',
+                            }}
+                          >
+                            {fileEditorContent || 'Empty markdown document.'}
+                          </pre>
+                        </div>
+                      )}
                     </div>
                   )}
 
                   {activeFileViewer.type === 'code' && (
-                    <div style={{ fontFamily: 'monospace', fontSize: '12px', lineHeight: 1.6 }}>
-                      {(activeFileViewer.content || 'Empty code file.')
-                        .split('\n')
-                        .map((line, i) => (
-                          <div
-                            key={i}
-                            onClick={() => {
-                              setCodeSnippetToAnnotate(line)
-                              setCodeLineRange(`L${i + 1}`)
-                            }}
-                            style={{
-                              padding: '1px 6px',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              gap: '12px',
-                              borderRadius: '2px',
-                              backgroundColor: codeSnippetToAnnotate === line ? '#fef3c7' : 'transparent',
-                            }}
-                          >
-                            <span style={{ color: 'var(--text-muted)', userSelect: 'none', width: '32px', textAlign: 'right' }}>
-                              {i + 1}
-                            </span>
-                            <span>{line || ' '}</span>
-                          </div>
-                        ))}
+                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                      {isCodeEditingMode ? (
+                        <textarea
+                          value={fileEditorContent}
+                          onChange={(e) => setFileEditorContent(e.target.value)}
+                          placeholder="Edit code..."
+                          style={{
+                            width: '100%',
+                            flex: 1,
+                            minHeight: '380px',
+                            fontFamily: 'monospace',
+                            fontSize: '12px',
+                            lineHeight: 1.6,
+                            padding: '12px',
+                            borderRadius: '8px',
+                            border: '1px solid var(--border)',
+                            backgroundColor: 'var(--canvas)',
+                            color: 'var(--text)',
+                            boxSizing: 'border-box',
+                            resize: 'vertical',
+                          }}
+                        />
+                      ) : (
+                        <div style={{ fontFamily: 'monospace', fontSize: '12px', lineHeight: 1.6 }}>
+                          {(fileEditorContent || 'Empty code file.')
+                            .split('\n')
+                            .map((line, i) => (
+                              <div
+                                key={i}
+                                onClick={() => {
+                                  setCodeSnippetToAnnotate(line)
+                                  setCodeLineRange(`L${i + 1}`)
+                                }}
+                                style={{
+                                  padding: '1px 6px',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  gap: '12px',
+                                  borderRadius: '2px',
+                                  backgroundColor: codeSnippetToAnnotate === line ? '#fef3c7' : 'transparent',
+                                }}
+                              >
+                                <span style={{ color: 'var(--text-muted)', userSelect: 'none', width: '32px', textAlign: 'right' }}>
+                                  {i + 1}
+                                </span>
+                                <span>{line || ' '}</span>
+                              </div>
+                            ))}
+                        </div>
+                      )}
                     </div>
                   )}
 

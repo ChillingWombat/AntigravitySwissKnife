@@ -54,14 +54,9 @@ export function sortAccounts(
 
   if (mode === 'credits') {
     return copy.sort((a, b) => {
-      const getCred = (acc: AccountState) => {
-        if (acc.credits !== undefined && acc.credits !== null && Number(acc.credits) > 0) return Number(acc.credits)
-        const lower = (acc.plan_tier || '').toLowerCase()
-        if (lower.includes('ultra')) return 50
-        if (lower.includes('pro')) return 20
-        return 0
-      }
-      return getCred(b) - getCred(a)
+      const credA = (a.credits !== undefined && a.credits !== null) ? Number(a.credits) : 0
+      const credB = (b.credits !== undefined && b.credits !== null) ? Number(b.credits) : 0
+      return credB - credA
     })
   }
 
@@ -642,7 +637,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               >
                 <option value="auto">Auto</option>
                 <option value="identity">Account Name</option>
-                <option value="credits">Credits</option>
+                <option value="credits">AI Credits</option>
                 <option value="priority">Priority</option>
                 <option value="quota_5h">5-Hour Quota</option>
                 <option value="quota_weekly">Weekly Quota</option>
@@ -742,8 +737,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               <th
                 onClick={() => setSortMode('credits')}
                 style={{
-                  width: '95px',
-                  minWidth: '85px',
+                  width: '110px',
+                  minWidth: '100px',
                   padding: '12px 10px',
                   textAlign: 'left',
                   fontSize: '11px',
@@ -756,10 +751,10 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   cursor: 'pointer',
                   userSelect: 'none',
                 }}
-                title="Click to sort by Available Model Credits"
+                title="Click to sort by Available AI Credits"
               >
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                  <span>Credits</span>
+                  <span>AI Credits</span>
                   {sortMode === 'credits' && <ArrowUpDown size={11} />}
                 </div>
               </th>
@@ -913,8 +908,15 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
 
                   <td style={{ padding: '14px' }}>
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text)' }}>
-                        {((acc.credits !== undefined && acc.credits !== null) ? Number(acc.credits) : (acc.plan_tier?.toLowerCase() === 'ultra' ? 50 : acc.plan_tier?.toLowerCase() === 'pro' ? 20 : 0))} Credits
+                      <span
+                        style={{
+                          fontWeight: acc.enable_credit_overages ? 600 : 500,
+                          fontSize: '13px',
+                          color: acc.enable_credit_overages ? 'var(--text)' : 'var(--text-subtle)',
+                        }}
+                        title={acc.enable_credit_overages ? 'AI Credits usage enabled' : 'Credit usage disabled (do not use credits)'}
+                      >
+                        {((acc.credits !== undefined && acc.credits !== null) ? Number(acc.credits) : 0)}
                       </span>
                       {acc.enable_credit_overages ? (
                         <span

@@ -290,8 +290,8 @@ button[data-swiss-divider="true"]:hover .swiss-convo-tabs-pill,
 	return sb.String()
 }
 
-// GenerateScript generates the JavaScript snippet to evaluate inside Antigravity Electron renderer.
-func GenerateScript(cfg *Config) string {
+// generateBaseScript generates the base project tags and conversation tabs styling script.
+func generateBaseScript(cfg *Config) string {
 	css := GenerateCSS(cfg)
 	cssJSON, _ := json.Marshal(css)
 	enabled := cfg != nil && cfg.Enabled
@@ -957,10 +957,23 @@ func GenerateScript(cfg *Config) string {
   };
 })();`, string(cssJSON), enabled, colorStylingEnabled, dragRearrangeEnabled, string(orderJSON), string(archivedJSON), tabsMode, tabsFixedLimit, tabsAgeThreshold, tabsMin, tabsMax)
 
-	var cmCfg *custommodels.Config
-	if cmStore, err := custommodels.NewStore(""); err == nil {
-		c := cmStore.GetConfig()
-		cmCfg = &c
+	return baseScript
+}
+
+// GenerateScript generates the JavaScript snippet to evaluate inside Antigravity Electron renderer.
+func GenerateScript(cfg *Config) string {
+	return GenerateScriptWithCustomModels(cfg, nil)
+}
+
+// GenerateScriptWithCustomModels generates the complete script including project tags, custom models, enhancements, and auxiliary plugins.
+func GenerateScriptWithCustomModels(cfg *Config, cmCfg *custommodels.Config) string {
+	baseScript := generateBaseScript(cfg)
+
+	if cmCfg == nil {
+		if cmStore, err := custommodels.NewStore(""); err == nil {
+			c := cmStore.GetConfig()
+			cmCfg = &c
+		}
 	}
 	customScript := custommodels.GenerateCustomModelsScript(cmCfg)
 
@@ -971,39 +984,7 @@ func GenerateScript(cfg *Config) string {
 	}
 	enhScript := enhancements.GenerateEnhancementsScript(enhCfg)
 
-	return baseScript + ";\n\n" + customScript + ";\n\n" + enhScript + ";"
-}
-
-// GenerateScriptWithCustomModels generates the complete script including project tags, custom models, enhancements, and auxiliary plugins.
-func GenerateScriptWithCustomModels(cfg *Config, cmCfg *custommodels.Config) string {
-	if cmCfg == nil {
-		if cmStore, err := custommodels.NewStore(""); err == nil {
-			c := cmStore.GetConfig()
-			cmCfg = &c
-		}
-	}
-	base := GenerateScript(cfg)
-	customScript := ""
-	if cmCfg != nil {
-		customScript = custommodels.GenerateCustomModelsScript(cmCfg)
-	}
-	var enhCfg *enhancements.EnhancementsConfig
-	if enhStore, err := enhancements.NewStore(""); err == nil {
-		c := enhStore.GetConfig()
-		enhCfg = &c
-	}
-	enhScript := enhancements.GenerateEnhancementsScript(enhCfg)
 	pluginsScript := plugins.GenerateAuxiliaryPluginsScript()
 
-	res := base
-	if customScript != "" {
-		res += ";\n\n" + customScript
-	}
-	if enhScript != "" {
-		res += ";\n\n" + enhScript
-	}
-	if pluginsScript != "" {
-		res += ";\n\n" + pluginsScript
-	}
-	return res
+	return baseScript + ";\n\n" + customScript + ";\n\n" + enhScript + ";\n\n" + pluginsScript + ";"
 }

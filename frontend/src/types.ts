@@ -181,6 +181,7 @@ export interface SecurityAuditProbe {
 export interface SecurityAuditReport {
   risk_level: 'low' | 'medium' | 'high' | 'critical'
   risk_score: number // 0 (safest) to 100 (critical danger)
+  security_grade?: string // 'A+' | 'A' | 'B' | 'C' | 'D' | 'F'
   model_id: string
   endpoint: string
   provider_type: string

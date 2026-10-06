@@ -154,32 +154,60 @@ export const SecurityReportModal: React.FC<SecurityReportModalProps> = ({ report
             </div>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-            <div style={{ fontSize: '12px', fontWeight: 700, color: badgeColor }}>
-              Risk Score: {report.risk_score} / 100
-            </div>
-            {/* Visual Risk Progress Bar */}
-            <div
-              style={{
-                width: '140px',
-                height: '8px',
-                borderRadius: '4px',
-                backgroundColor: 'rgba(0, 0, 0, 0.1)',
-                overflow: 'hidden',
-              }}
-            >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            {(() => {
+              const grade = report.security_grade || (report.risk_score <= 5 ? 'A+' : report.risk_score <= 15 ? 'A' : report.risk_score <= 30 ? 'B' : report.risk_score <= 50 ? 'C' : report.risk_score <= 70 ? 'D' : 'F')
+              return (
+                <div
+                  style={{
+                    width: '46px',
+                    height: '46px',
+                    borderRadius: '50%',
+                    backgroundColor: '#ffffff',
+                    border: `2.5px solid ${badgeColor}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '18px',
+                    fontWeight: 900,
+                    color: badgeColor,
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.06)',
+                    flexShrink: 0,
+                  }}
+                  title={`Security Grade: ${grade}`}
+                >
+                  {grade}
+                </div>
+              )
+            })()}
+
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: badgeColor }}>
+                Risk Score: {report.risk_score} / 100
+              </div>
+              {/* Visual Risk Progress Bar */}
               <div
                 style={{
-                  width: `${report.risk_score}%`,
-                  height: '100%',
-                  backgroundColor: badgeColor,
+                  width: '140px',
+                  height: '8px',
                   borderRadius: '4px',
-                  transition: 'width 0.4s ease',
+                  backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                  overflow: 'hidden',
                 }}
-              />
-            </div>
-            <div style={{ fontSize: '10px', color: badgeColor, opacity: 0.85 }}>
-              {isLow ? 'Clean & Trusted' : isMed ? 'Advisory Notice' : isHigh ? 'Elevation Warning' : 'Critical Danger'}
+              >
+                <div
+                  style={{
+                    width: `${report.risk_score}%`,
+                    height: '100%',
+                    backgroundColor: badgeColor,
+                    borderRadius: '4px',
+                    transition: 'width 0.4s ease',
+                  }}
+                />
+              </div>
+              <div style={{ fontSize: '10px', color: badgeColor, opacity: 0.85 }}>
+                {isLow ? 'Clean & Trusted' : isMed ? 'Advisory Notice' : isHigh ? 'Elevation Warning' : 'Critical Danger'}
+              </div>
             </div>
           </div>
         </div>

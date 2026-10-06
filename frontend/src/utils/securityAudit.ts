@@ -315,9 +315,23 @@ export async function auditModelSecurity(model: CustomModel): Promise<SecurityAu
       ? `High Risk Warning: ${failedCount} critical failures and ${warningCount} warning(s). Potential model spoofing or non-standard proxy behavior detected.`
       : `CRITICAL DANGER: Severe security failure detected (Insecure transport or credential leakage). Do not use this endpoint with production data or confidential prompts!`
 
+  const securityGrade =
+    riskScore <= 5
+      ? 'A+'
+      : riskScore <= 15
+      ? 'A'
+      : riskScore <= 30
+      ? 'B'
+      : riskScore <= 50
+      ? 'C'
+      : riskScore <= 70
+      ? 'D'
+      : 'F'
+
   return {
     risk_level: riskLevel,
     risk_score: riskScore,
+    security_grade: securityGrade,
     model_id: model.id,
     endpoint: model.base_url,
     provider_type: model.provider_type,

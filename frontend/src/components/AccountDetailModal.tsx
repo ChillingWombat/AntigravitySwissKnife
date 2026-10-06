@@ -33,10 +33,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const credits =
     account.credits !== undefined && account.credits !== null
       ? account.credits
-      : account.plan_tier?.toLowerCase() === 'ultra'
-      ? 50
-      : account.plan_tier?.toLowerCase() === 'pro'
-      ? 20
       : 0
   const [enableCreditOverages, setEnableCreditOverages] = useState<boolean>(account.enable_credit_overages ?? false)
   const [notes, setNotes] = useState(account.notes || '')

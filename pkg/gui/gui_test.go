@@ -553,3 +553,33 @@ func TestAutoArchiveHorizon(t *testing.T) {
 	}
 }
 
+func TestGenerateScriptBundlingAuxiliaryPlugins(t *testing.T) {
+	cfg := DefaultConfig()
+	script := GenerateScript(cfg)
+
+	// Verify auxiliary plugins script is bundled
+	if !strings.Contains(script, "setupAuxiliaryTabs") {
+		t.Errorf("GenerateScript missing setupAuxiliaryTabs from auxiliary plugins")
+	}
+	if !strings.Contains(script, "swiss-aux-container") {
+		t.Errorf("GenerateScript missing swiss-aux-container from auxiliary plugins")
+	}
+
+	// Verify no duplicate script inclusion
+	countSetupAux := strings.Count(script, "function setupAuxiliaryTabs()")
+	if countSetupAux != 1 {
+		t.Errorf("expected setupAuxiliaryTabs to appear exactly 1 time, got %d", countSetupAux)
+	}
+
+	// Verify custom models script appears exactly once
+	countCustomModels := strings.Count(script, "updateModelSelector")
+	if countCustomModels < 1 {
+		t.Errorf("expected updateModelSelector to appear in script, got %d", countCustomModels)
+	}
+
+	// Verify enhancements script appears
+	if !strings.Contains(script, "applyEnhancementsStyles") {
+		t.Errorf("expected applyEnhancementsStyles to appear in script")
+	}
+}
+

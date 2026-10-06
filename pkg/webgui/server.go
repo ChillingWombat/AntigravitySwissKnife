@@ -24,6 +24,7 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/process"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/enhancements"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/importer"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/system"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/templates"
@@ -1933,6 +1934,23 @@ func (s *Server) handleUtilitiesImportScan(w http.ResponseWriter, r *http.Reques
 		source = "opencode"
 	}
 
+	antigravityBase, appStoragePath := importer.DefaultPaths()
+
+	// Pure Go native scanner for Claude Code
+	if source == "claude-code" {
+		candidates, err := importer.ScanClaudeCode("", antigravityBase, appStoragePath)
+		if err == nil {
+			writeJSON(w, map[string]interface{}{
+				"success":    true,
+				"source":     source,
+				"count":      len(candidates),
+				"candidates": candidates,
+			})
+			return
+		}
+	}
+
+	// Python script fallback for legacy formats
 	scriptPath := getAgentImporterScriptPath()
 	cmd := exec.Command("python3", scriptPath, "scan", "--source", source)
 	out, err := cmd.Output()
@@ -1972,6 +1990,32 @@ func (s *Server) handleUtilitiesImport(w http.ResponseWriter, r *http.Request) {
 		req.Mode = "auto"
 	}
 
+	antigravityBase, appStoragePath := importer.DefaultPaths()
+
+	// Pure Go native importer for Claude Code
+	if req.Source == "claude-code" {
+		home, _ := os.UserHomeDir()
+		claudeDir := filepath.Join(home, ".claude", "transcripts")
+		var results []importer.ImportResult
+		for _, cid := range req.CandidateIDs {
+			p := filepath.Join(claudeDir, cid)
+			if !strings.HasSuffix(p, ".jsonl") {
+				p += ".jsonl"
+			}
+			res, err := importer.ImportClaudeCodeSession(p, antigravityBase, appStoragePath, "")
+			if err == nil && res != nil {
+				results = append(results, *res)
+			}
+		}
+		writeJSON(w, map[string]interface{}{
+			"success":        len(results) > 0,
+			"imported_count": len(results),
+			"results":        results,
+		})
+		return
+	}
+
+	// Python script fallback
 	scriptPath := getAgentImporterScriptPath()
 	idsArg := strings.Join(req.CandidateIDs, ",")
 	cmd := exec.Command("python3", scriptPath, "import", "--source", req.Source, "--ids", idsArg, "--mode", req.Mode)
@@ -2101,6 +2145,16 @@ func (s *Server) handleMemosDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{"success": true, "deleted": id})
 }
 
+// FileItem represents a filesystem entry returned by /api/files/list
+type FileItem struct {
+	Name    string `json:"name"`
+	IsDir   bool   `json:"isDir"`
+	Type    string `json:"type"`
+	Size    string `json:"size"`
+	Path    string `json:"path"`
+	ModTime string `json:"modTime"`
+}
+
 func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
 	dirPath := r.URL.Query().Get("path")
 	if dirPath == "" {
@@ -2111,15 +2165,6 @@ func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error(), "files": []interface{}{}})
 		return
-	}
-
-	type FileItem struct {
-		Name    string `json:"name"`
-		IsDir   bool   `json:"isDir"`
-		Type    string `json:"type"`
-		Size    string `json:"size"`
-		Path    string `json:"path"`
-		ModTime string `json:"modTime"`
 	}
 
 	var files []FileItem

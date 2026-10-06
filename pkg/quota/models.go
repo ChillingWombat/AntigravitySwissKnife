@@ -46,7 +46,7 @@ func FormatResetHorizon(resetTime time.Time, now time.Time) string {
 type QuotaSummary struct {
 	AccountEmail          string       `json:"account_email"`
 	PlanTier              string       `json:"plan_tier,omitempty"`
-	Credits               float64      `json:"credits,omitempty"`
+	Credits               float64      `json:"credits"`
 	Quota5hFraction       float64      `json:"quota_5h_fraction,omitempty"`
 	QuotaWeeklyFraction   float64      `json:"quota_weekly_fraction,omitempty"`
 	Quota5hClaudeGPT      float64      `json:"quota_5h_claude_gpt,omitempty"`

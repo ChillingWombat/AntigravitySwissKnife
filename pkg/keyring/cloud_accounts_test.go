@@ -17,7 +17,7 @@ func TestReadCloudAccountsDB(t *testing.T) {
 
 	foundTorres := false
 	for _, a := range accounts {
-		t.Logf("Account: %s, Plan: %s, 5H: %.2f, Wk: %.2f, HasRefresh: %v", a.Email, a.PlanTier, a.Quota5h, a.QuotaWeekly, a.RefreshToken != "")
+		t.Logf("Account: %s, Plan: %s, Credits: %.0f, 5H: %.2f, Wk: %.2f, HasRefresh: %v", a.Email, a.PlanTier, a.Credits, a.Quota5h, a.QuotaWeekly, a.RefreshToken != "")
 		if a.Email == "torreswader@gmail.com" {
 			foundTorres = true
 			if a.RefreshToken == "" {
