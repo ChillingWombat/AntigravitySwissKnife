@@ -208,13 +208,18 @@ func PollFleetAccounts(accounts []*keyring.Account, store *keyring.Store) map[st
 
 // BuildAccountQuotaStates creates AccountQuotaState items from stored accounts.
 func BuildAccountQuotaStates(accounts []*keyring.Account, activeSummary *QuotaSummary) []AccountQuotaState {
+	return BuildAccountQuotaStatesWithThreshold(accounts, activeSummary, core.DefaultAutoSwitchThresholdFraction)
+}
+
+// BuildAccountQuotaStatesWithThreshold creates AccountQuotaState items from stored accounts with custom threshold.
+func BuildAccountQuotaStatesWithThreshold(accounts []*keyring.Account, activeSummary *QuotaSummary, threshold float64) []AccountQuotaState {
 	var summaries map[string]*QuotaSummary
 	if activeSummary != nil {
 		summaries = map[string]*QuotaSummary{
 			strings.ToLower(strings.TrimSpace(activeSummary.AccountEmail)): activeSummary,
 		}
 	}
-	return BuildAccountQuotaStatesFromMap(accounts, summaries)
+	return BuildAccountQuotaStatesFromMapWithThreshold(accounts, summaries, threshold)
 }
 
 // BuildAccountQuotaStatesFromMap builds account states using live summaries and cached agent db.
@@ -336,6 +341,9 @@ func BuildAccountQuotaStatesFromMapWithThreshold(accounts []*keyring.Account, su
 			}
 		} else if ca, ok := cachedMap[normEmail]; ok {
 			// 2. Check cached agent DB
+			if caSt := strings.ToUpper(strings.TrimSpace(ca.Status)); caSt == "BANNED" || caSt == "ERROR" {
+				status = caSt
+			}
 			if ca.PlanTier != "" {
 				tier = ca.PlanTier
 			}
@@ -390,7 +398,8 @@ func BuildAccountQuotaStatesFromMapWithThreshold(accounts []*keyring.Account, su
 		// A valid account whose quota is below threshold and waiting to be reset enters COOLDOWN.
 		// If quota recovers above threshold after reset, status returns to STANDBY.
 		if status != "BANNED" && status != "ERROR" && !acc.IsActive {
-			hasPolledData := cur5h > 0 || curWeekly > 0 || curSec > 0 || curSecWeekly > 0 || (resText != "" && resText != "Not Polled") || (summaries != nil && summaries[normEmail] != nil)
+			_, inCached := cachedMap[normEmail]
+			hasPolledData := cur5h > 0 || curWeekly > 0 || curSec > 0 || curSecWeekly > 0 || (resText != "" && resText != "Not Polled") || (summaries != nil && summaries[normEmail] != nil) || inCached
 			if hasPolledData {
 				isBelow := cur5h <= threshold || (curWeekly <= 0.05 && !(acc.EnableCreditOverages && credits > 0))
 				if isBelow {
@@ -1064,6 +1073,10 @@ func SortAccountQuotaStates(accounts []AccountQuotaState, activeEmail string, th
 	// Tier 4: Error accounts
 	// Tier 5: Banned accounts
 	getTier := func(a AccountQuotaState) int {
+		isAct := a.IsActive || a.Email == activeEmail
+		if isAct {
+			return 0
+		}
 		st := strings.ToUpper(a.Status)
 		if st == "BANNED" {
 			return 5
@@ -1074,11 +1087,7 @@ func SortAccountQuotaStates(accounts []AccountQuotaState, activeEmail string, th
 		if st == "COOLDOWN" {
 			return 3
 		}
-		isAct := a.IsActive || a.Email == activeEmail
 		isBelow := a.Quota5hCurrent <= threshold || (a.QuotaWeekly <= 0.05 && !(a.EnableCreditOverages && a.Credits > 0))
-		if isAct && !isBelow {
-			return 0
-		}
 		if !isBelow {
 			if IsFreePlanTier(a.Email, a.PlanTier) {
 				return 2

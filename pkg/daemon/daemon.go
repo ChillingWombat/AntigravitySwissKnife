@@ -641,7 +641,13 @@ func (d *Daemon) registerRPCHandlers() {
 		accounts := d.Keyring.ListAccounts()
 		active := d.Keyring.ActiveAccount()
 		summaries := quota.PollFleetAccounts(accounts, d.Keyring)
-		states := quota.BuildAccountQuotaStatesFromMap(accounts, summaries)
+		d.mu.RLock()
+		thresh := d.Config.AutoSwitchThreshold
+		d.mu.RUnlock()
+		if thresh <= 0 {
+			thresh = core.DefaultAutoSwitchThresholdFraction
+		}
+		states := quota.BuildAccountQuotaStatesFromMapWithThreshold(accounts, summaries, thresh)
 		summary := quota.ComputeFleetSummary(states, active)
 		return summary, nil
 	})
@@ -819,7 +825,7 @@ func (d *Daemon) schedulerLoop() {
 
 						if autoSwitch {
 							accounts := d.Keyring.ListAccounts()
-							states := quota.BuildAccountQuotaStates(accounts, sum)
+							states := quota.BuildAccountQuotaStatesWithThreshold(accounts, sum, thresh)
 							var activeDwellSec float64
 							if !lastSw.IsZero() {
 								activeDwellSec = time.Since(lastSw).Seconds()

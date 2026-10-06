@@ -81,11 +81,38 @@ func OpenBrowser(targetURL string) error {
 	return exec.Command(cmd, args...).Start()
 }
 
+// CancelFlow aborts any active OAuth loopback flow and shuts down the loopback server immediately.
+func (m *GoogleOAuthManager) CancelFlow() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.activeFlow != nil {
+		if m.activeFlow.cancel != nil {
+			m.activeFlow.cancel()
+		}
+		if m.activeFlow.server != nil {
+			_ = m.activeFlow.server.Close()
+		}
+		m.activeFlow = nil
+	}
+}
+
+// IsFlowActive returns whether an OAuth authorization flow is currently waiting for callback.
+func (m *GoogleOAuthManager) IsFlowActive() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.activeFlow != nil
+}
+
 // StartFlow starts the local loopback server, launches the browser, and returns the tokens.
 func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*GoogleOAuthResult, error) {
 	m.mu.Lock()
 	if m.activeFlow != nil {
-		m.activeFlow.cancel()
+		if m.activeFlow.cancel != nil {
+			m.activeFlow.cancel()
+		}
+		if m.activeFlow.server != nil {
+			_ = m.activeFlow.server.Close()
+		}
 		m.activeFlow = nil
 	}
 
@@ -195,13 +222,13 @@ func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*
 
 	select {
 	case res := <-flow.result:
-		_ = server.Shutdown(context.Background())
+		_ = server.Close()
 		return res, nil
 	case err := <-flow.err:
-		_ = server.Shutdown(context.Background())
+		_ = server.Close()
 		return nil, err
 	case <-flowCtx.Done():
-		_ = server.Shutdown(context.Background())
+		_ = server.Close()
 		return nil, flowCtx.Err()
 	}
 }

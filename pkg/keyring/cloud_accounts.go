@@ -157,6 +157,8 @@ except Exception as e:
 			status = "BANNED"
 		} else if upperStatus == "ERROR" || upperStatus == "INVALID" || upperStatus == "EXPIRED" {
 			status = "ERROR"
+		} else if upperStatus == "COOLDOWN" {
+			status = "COOLDOWN"
 		} else if isActive {
 			status = "ACTIVE"
 		}
@@ -293,7 +295,7 @@ func SyncStoreFromCloudAccountsDB(s *Store, homeDir string) error {
 					modified = true
 				}
 				caSt := strings.ToUpper(strings.TrimSpace(ca.Status))
-				if caSt == "BANNED" || caSt == "ERROR" {
+				if caSt == "BANNED" || caSt == "ERROR" || caSt == "COOLDOWN" {
 					if acc.Status != caSt {
 						acc.Status = caSt
 						modified = true

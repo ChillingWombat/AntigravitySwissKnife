@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -400,6 +401,136 @@ func TestBatchImportAndExportAccounts(t *testing.T) {
 	}
 	if bob.RefreshToken != "1//oauth_refresh_bob" {
 		t.Errorf("expected reloaded bob RefreshToken to match, got %s", bob.RefreshToken)
+	}
+}
+
+func TestCooldownAccountSwitching(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "keyring_cooldown_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	configPath := filepath.Join(tmpDir, "accounts.json")
+	store, err := NewStore(configPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	// 1. Setup accounts
+	err = store.UpdateAccountFull("active@example.com", "Active User", "Pro", "ACTIVE", "High", "", "", "", "", 100, false, false, true)
+	if err != nil {
+		t.Fatalf("failed to add active account: %v", err)
+	}
+	err = store.UpdateAccountFull("standby@example.com", "Standby User", "Pro", "STANDBY", "Mid", "", "", "", "", 50, false, false, false)
+	if err != nil {
+		t.Fatalf("failed to add standby account: %v", err)
+	}
+	err = store.UpdateAccountFull("cooling@example.com", "Cooling User", "Pro", "COOLDOWN", "Mid", "", "", "", "", 0, false, false, false)
+	if err != nil {
+		t.Fatalf("failed to add cooling account: %v", err)
+	}
+	err = store.UpdateAccountFull("banned@example.com", "Banned User", "Free", "BANNED", "Low", "", "", "", "", 0, false, false, false)
+	if err != nil {
+		t.Fatalf("failed to add banned account: %v", err)
+	}
+
+	if store.ActiveAccount() != "active@example.com" {
+		t.Fatalf("expected active@example.com to be active, got %s", store.ActiveAccount())
+	}
+
+	// 2. SetActiveAccount rejects switching to COOLDOWN
+	err = store.SetActiveAccount("cooling@example.com")
+	if err == nil {
+		t.Fatalf("expected error switching to COOLDOWN account, got nil")
+	}
+	expectedCooldownMsg := "account cooling@example.com is in cooldown waiting for quota reset and cannot be switched on"
+	if !strings.Contains(err.Error(), expectedCooldownMsg) {
+		t.Fatalf("expected error message %q, got %q", expectedCooldownMsg, err.Error())
+	}
+	if store.ActiveAccount() != "active@example.com" {
+		t.Fatalf("active account changed despite switch rejection: %s", store.ActiveAccount())
+	}
+
+	// 3. SetActiveAccount rejects switching to BANNED
+	err = store.SetActiveAccount("banned@example.com")
+	if err == nil {
+		t.Fatalf("expected error switching to BANNED account, got nil")
+	}
+	if !strings.Contains(err.Error(), "is banned and cannot be switched on") {
+		t.Fatalf("expected banned rejection message, got %q", err.Error())
+	}
+
+	// 4. UpdateAccountFull and UpdateAccountDetails reject setActive on COOLDOWN
+	err = store.UpdateAccountFull("cooling@example.com", "Cooling User", "Pro", "COOLDOWN", "Mid", "", "", "", "", 0, false, false, true)
+	if err == nil || !strings.Contains(err.Error(), expectedCooldownMsg) {
+		t.Fatalf("expected UpdateAccountFull to reject setActive on COOLDOWN, got: %v", err)
+	}
+	err = store.UpdateAccountDetails("cooling@example.com", "Cooling User", "Pro", "COOLDOWN", "Mid", "", "", "", "", true)
+	if err == nil || !strings.Contains(err.Error(), expectedCooldownMsg) {
+		t.Fatalf("expected UpdateAccountDetails to reject setActive on COOLDOWN, got: %v", err)
+	}
+
+	// 5. Transition to STANDBY allows switching on
+	err = store.UpdateAccountStatus("cooling@example.com", "STANDBY")
+	if err != nil {
+		t.Fatalf("UpdateAccountStatus to STANDBY failed: %v", err)
+	}
+	coolingAcc, err := store.GetAccount("cooling@example.com")
+	if err != nil || coolingAcc.Status != "STANDBY" {
+		t.Fatalf("expected status STANDBY, got %v, err=%v", coolingAcc, err)
+	}
+
+	err = store.SetActiveAccount("cooling@example.com")
+	if err != nil {
+		t.Fatalf("expected successful switch to reset account, got error: %v", err)
+	}
+	if store.ActiveAccount() != "cooling@example.com" {
+		t.Fatalf("expected active account to be cooling@example.com, got %s", store.ActiveAccount())
+	}
+	coolingAcc, _ = store.GetAccount("cooling@example.com")
+	if !coolingAcc.IsActive || coolingAcc.Status != "ACTIVE" {
+		t.Fatalf("expected active cooling account to have IsActive=true and Status=ACTIVE, got %v", coolingAcc)
+	}
+	oldActive, _ := store.GetAccount("active@example.com")
+	if oldActive.IsActive || oldActive.Status != "STANDBY" {
+		t.Fatalf("expected old active account to be demoted to STANDBY, got %v", oldActive)
+	}
+
+	// 6. Transitioning active account to COOLDOWN deactivates it cleanly
+	err = store.UpdateAccountStatus("cooling@example.com", "COOLDOWN")
+	if err != nil {
+		t.Fatalf("UpdateAccountStatus to COOLDOWN failed: %v", err)
+	}
+	coolingAcc, _ = store.GetAccount("cooling@example.com")
+	if coolingAcc.IsActive || coolingAcc.Status != "COOLDOWN" {
+		t.Fatalf("expected cooling account to be deactivated, got is_active=%v, status=%s", coolingAcc.IsActive, coolingAcc.Status)
+	}
+	if store.ActiveAccount() != "" {
+		t.Fatalf("expected empty activeAccount when active account enters cooldown, got %s", store.ActiveAccount())
+	}
+
+	// 7. Creating new account with status COOLDOWN when activeEmail is empty does not auto-activate
+	err = store.UpdateAccountFull("new_cold@example.com", "Cold", "Free", "COOLDOWN", "Low", "", "", "", "", 0, false, false, false)
+	if err != nil {
+		t.Fatalf("failed to add new_cold account: %v", err)
+	}
+	coldAcc, _ := store.GetAccount("new_cold@example.com")
+	if coldAcc.IsActive {
+		t.Fatalf("expected new COOLDOWN account not to be active, got IsActive=true")
+	}
+	if store.ActiveAccount() != "" {
+		t.Fatalf("expected activeEmail to remain empty, got %s", store.ActiveAccount())
+	}
+
+	// 8. Store reload from disk retains correct state
+	reloadedStore, err := NewStore(configPath)
+	if err != nil {
+		t.Fatalf("failed to reload store from disk: %v", err)
+	}
+	reloadedCold, _ := reloadedStore.GetAccount("new_cold@example.com")
+	if reloadedCold.Status != "COOLDOWN" || reloadedCold.IsActive {
+		t.Fatalf("expected reloaded status COOLDOWN, got status=%s, is_active=%v", reloadedCold.Status, reloadedCold.IsActive)
 	}
 }
 

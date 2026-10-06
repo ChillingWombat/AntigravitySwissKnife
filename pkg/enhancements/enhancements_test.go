@@ -39,6 +39,15 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.DefaultNewProject != "auto" {
 		t.Errorf("expected DefaultNewProject to be 'auto', got %s", cfg.DefaultNewProject)
 	}
+	if !cfg.OverviewPanel.ReplaceSeeAllTriangle {
+		t.Errorf("expected OverviewPanel.ReplaceSeeAllTriangle to be true by default")
+	}
+	if !cfg.OverviewPanel.ConsistentSectionSpacing {
+		t.Errorf("expected OverviewPanel.ConsistentSectionSpacing to be true by default")
+	}
+	if !cfg.OverviewPanel.ConsistentSectionSpacingLine {
+		t.Errorf("expected OverviewPanel.ConsistentSectionSpacingLine to be true by default")
+	}
 }
 
 func TestStore_Operations(t *testing.T) {
@@ -139,6 +148,63 @@ func TestGenerateEnhancementsScript(t *testing.T) {
 	}
 	if !strings.Contains(script, "new-conversation-button") {
 		t.Errorf("expected script to intercept new-conversation-button")
+	}
+	if !strings.Contains(script, "swiss-overview-tabs-divider") {
+		t.Errorf("expected script to contain swiss-overview-tabs-divider")
+	}
+	if !strings.Contains(script, "swiss-overview-bottom-spacer") {
+		t.Errorf("expected script to contain swiss-overview-bottom-spacer")
+	}
+	if !strings.Contains(script, "swiss-overview-spacer-line") {
+		t.Errorf("expected script to contain swiss-overview-spacer-line")
+	}
+}
+
+func TestOverviewPanel_SpacingAndDivider(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "enhancements-overview-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	configPath := filepath.Join(tmpDir, "enhancements.json")
+	store, err := NewStore(configPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	cfg := store.GetConfig()
+	if !cfg.OverviewPanel.ReplaceSeeAllTriangle {
+		t.Errorf("expected ReplaceSeeAllTriangle to default to true")
+	}
+	if !cfg.OverviewPanel.ConsistentSectionSpacing {
+		t.Errorf("expected ConsistentSectionSpacing to default to true")
+	}
+	if !cfg.OverviewPanel.ConsistentSectionSpacingLine {
+		t.Errorf("expected ConsistentSectionSpacingLine to default to true")
+	}
+
+	// Update and verify persistence
+	cfg.OverviewPanel.ConsistentSectionSpacing = false
+	cfg.OverviewPanel.ConsistentSectionSpacingLine = false
+	cfg.OverviewPanel.ReplaceSeeAllTriangle = false
+	if err := store.UpdateConfig(cfg); err != nil {
+		t.Fatalf("failed to update config: %v", err)
+	}
+
+	store2, err := NewStore(configPath)
+	if err != nil {
+		t.Fatalf("failed to load store2: %v", err)
+	}
+	loaded := store2.GetConfig()
+	if loaded.OverviewPanel.ConsistentSectionSpacing {
+		t.Errorf("expected ConsistentSectionSpacing false to persist")
+	}
+	if loaded.OverviewPanel.ConsistentSectionSpacingLine {
+		t.Errorf("expected ConsistentSectionSpacingLine false to persist")
+	}
+	if loaded.OverviewPanel.ReplaceSeeAllTriangle {
+		t.Errorf("expected ReplaceSeeAllTriangle false to persist")
 	}
 }
 

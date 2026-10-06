@@ -30,8 +30,10 @@ type OverviewPanelConfig struct {
 	ZoneBackgroundContrast string `json:"zone_background_contrast"` // "whiter" (whiter background like chat input box), "subtle", "card" (default: "whiter")
 	ZonePadding            int    `json:"zone_padding"`             // Internal padding for section zone in px (default: 10)
 	ZoneGap                int    `json:"zone_gap"`                 // Vertical gap between section zones in px (default: 10)
-	ReplaceSeeAllTriangle  bool   `json:"replace_see_all_triangle"` // Replace "See all (N)" and "See less" with a compact little triangle (default: true)
-	AuxTabsFormat          string `json:"aux_tabs_format"`          // "icon" (default: compact icon-only matching native) or "icon_and_name"
+	ReplaceSeeAllTriangle        bool   `json:"replace_see_all_triangle"`        // Replace "See all (N)" and "See less" with a compact refined triangle divider (default: true)
+	ConsistentSectionSpacing     bool   `json:"consistent_section_spacing"`      // Add blank spacing gap below sections without contracted items (default: true)
+	ConsistentSectionSpacingLine bool   `json:"consistent_section_spacing_line"` // Add centered horizontal split line in the blank spacing gap (default: true)
+	AuxTabsFormat                string `json:"aux_tabs_format"`                 // "icon" (default: compact icon-only matching native) or "icon_and_name"
 }
 
 // EnhancementsConfig holds configuration for usability improvements and add-on features.
@@ -76,8 +78,10 @@ func DefaultConfig() *EnhancementsConfig {
 			ZoneBackgroundContrast: "whiter",
 			ZonePadding:            10,
 			ZoneGap:                10,
-			ReplaceSeeAllTriangle:  true,
-			AuxTabsFormat:          "icon",
+			ReplaceSeeAllTriangle:        true,
+			ConsistentSectionSpacing:     true,
+			ConsistentSectionSpacingLine: true,
+			AuxTabsFormat:                "icon",
 		},
 		ToolDensityMode:    "muted",
 		BreakerLineEnabled: true,

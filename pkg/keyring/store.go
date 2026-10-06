@@ -722,12 +722,29 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 	defer s.mu.Unlock()
 
 	acc, exists := s.accounts[email]
+	targetStatus := strings.ToUpper(strings.TrimSpace(status))
+	if targetStatus == "" && exists {
+		targetStatus = strings.ToUpper(strings.TrimSpace(acc.Status))
+	}
+	if targetStatus == "" {
+		targetStatus = "STANDBY"
+	}
+
+	if setActive {
+		if targetStatus == "COOLDOWN" {
+			return fmt.Errorf("account %s is in cooldown waiting for quota reset and cannot be switched on", email)
+		}
+		if targetStatus == "BANNED" {
+			return fmt.Errorf("account %s is banned and cannot be switched on", email)
+		}
+	}
+
 	if !exists {
 		acc = &Account{
 			Email:  email,
 			Status: "STANDBY",
 		}
-		if s.activeEmail == "" {
+		if s.activeEmail == "" && targetStatus != "COOLDOWN" && targetStatus != "BANNED" && targetStatus != "ERROR" {
 			s.activeEmail = email
 			acc.IsActive = true
 		}
@@ -777,17 +794,6 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 	acc.AllowClaudeGPT = allowClaudeGPT
 
 	if setActive {
-		targetStatus := strings.ToUpper(strings.TrimSpace(status))
-		if targetStatus == "" {
-			targetStatus = strings.ToUpper(strings.TrimSpace(acc.Status))
-		}
-		if targetStatus == "COOLDOWN" {
-			return fmt.Errorf("account %s is in cooldown waiting for quota reset and cannot be switched on", email)
-		}
-		if targetStatus == "BANNED" {
-			return fmt.Errorf("account %s is banned and cannot be switched on", email)
-		}
-
 		s.activeEmail = email
 		for e, a := range s.accounts {
 			if strings.EqualFold(e, email) {
@@ -804,7 +810,12 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 		}
 	} else {
 		acc.IsActive = (s.activeEmail != "" && strings.EqualFold(email, s.activeEmail))
-		if !acc.IsActive && acc.Status == "ACTIVE" {
+		if acc.Status == "COOLDOWN" && acc.IsActive {
+			acc.IsActive = false
+			if strings.EqualFold(s.activeEmail, acc.Email) {
+				s.activeEmail = ""
+			}
+		} else if !acc.IsActive && acc.Status == "ACTIVE" {
 			acc.Status = "STANDBY"
 		} else if acc.IsActive && acc.Status == "STANDBY" {
 			acc.Status = "ACTIVE"

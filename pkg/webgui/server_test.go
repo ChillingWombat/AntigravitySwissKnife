@@ -1137,6 +1137,49 @@ func TestFilesEndpointsWithSpacesAndEncoding(t *testing.T) {
 	}
 }
 
+func TestCleanUserPath_HomeDir(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("UserHomeDir not available")
+	}
+	clean := cleanUserPath("~")
+	if clean != home {
+		t.Errorf("expected cleanUserPath(~) = %q, got %q", home, clean)
+	}
+
+	cleanSub := cleanUserPath("~/subfolder")
+	expectedSub := filepath.Join(home, "subfolder")
+	if cleanSub != expectedSub {
+		t.Errorf("expected cleanUserPath(~/subfolder) = %q, got %q", expectedSub, cleanSub)
+	}
+
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+	resp, err := http.Get(baseURL + "/api/files/list?path=~")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/files/list?path=~ failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	var res struct {
+		Success bool       `json:"success"`
+		Path    string     `json:"path"`
+		Files   []FileItem `json:"files"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		t.Fatalf("decode JSON failed: %v", err)
+	}
+	if !res.Success {
+		t.Errorf("expected success true for path=~")
+	}
+	if res.Path != home {
+		t.Errorf("expected returned path %q, got %q", home, res.Path)
+	}
+}
+
 func TestFilesRecursiveCopyMoveAndBatch(t *testing.T) {
 	srv := NewServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {

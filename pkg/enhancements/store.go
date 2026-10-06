@@ -71,6 +71,26 @@ func (s *Store) load() error {
 	if cfg.OverviewPanel.AuxTabsFormat == "" {
 		cfg.OverviewPanel.AuxTabsFormat = "icon"
 	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err == nil {
+		if opRaw, ok := raw["overview_panel"].(map[string]interface{}); ok {
+			if _, ok := opRaw["replace_see_all_triangle"]; !ok {
+				cfg.OverviewPanel.ReplaceSeeAllTriangle = true
+			}
+			if _, ok := opRaw["consistent_section_spacing"]; !ok {
+				cfg.OverviewPanel.ConsistentSectionSpacing = true
+			}
+			if _, ok := opRaw["consistent_section_spacing_line"]; !ok {
+				cfg.OverviewPanel.ConsistentSectionSpacingLine = true
+			}
+		} else {
+			cfg.OverviewPanel.ReplaceSeeAllTriangle = true
+			cfg.OverviewPanel.ConsistentSectionSpacing = true
+			cfg.OverviewPanel.ConsistentSectionSpacingLine = true
+		}
+	}
+
 	s.config = cfg
 	return nil
 }

@@ -183,6 +183,7 @@ func (s *Server) Start() error {
 
 	// Google OAuth Extraction
 	mux.HandleFunc("/api/oauth/google/start", s.handleGoogleOAuthStart)
+	mux.HandleFunc("/api/oauth/google/cancel", s.handleGoogleOAuthCancel)
 
 	// Multi-Surface Antigravity Session Inspector
 	mux.HandleFunc("/api/surfaces", s.handleSurfaces)
@@ -812,7 +813,11 @@ func (s *Server) handleFleetQuota(w http.ResponseWriter, r *http.Request) {
 			accounts = store.ListAccounts()
 			active = store.ActiveAccount()
 			summaries := quota.PollFleetAccounts(accounts, store)
-			states := quota.BuildAccountQuotaStatesFromMap(accounts, summaries)
+			thresh := core.DefaultAutoSwitchThresholdFraction
+			if c, errCfg := core.LoadConfig(); errCfg == nil && c.AutoSwitchThreshold > 0 {
+				thresh = c.AutoSwitchThreshold
+			}
+			states := quota.BuildAccountQuotaStatesFromMapWithThreshold(accounts, summaries, thresh)
 			summary = quota.ComputeFleetSummary(states, active)
 		} else {
 			summary = quota.ComputeFleetSummary(nil, "")
@@ -1895,8 +1900,8 @@ func (s *Server) handleTemplatesSidecarsUpdate(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Server) handleGoogleOAuthStart(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost && r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed: POST required", http.StatusMethodNotAllowed)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
@@ -1915,6 +1920,18 @@ func (s *Server) handleGoogleOAuthStart(w http.ResponseWriter, r *http.Request) 
 		"email":         res.Email,
 		"refresh_token": res.RefreshToken,
 		"access_token":  res.AccessToken,
+	})
+}
+
+func (s *Server) handleGoogleOAuthCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed: POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	s.oauthMgr.CancelFlow()
+	writeJSON(w, map[string]interface{}{
+		"success":   true,
+		"cancelled": true,
 	})
 }
 
@@ -2574,6 +2591,15 @@ func cleanUserPath(raw string) string {
 	p = strings.Trim(p, "\"'`")
 	if p == "" {
 		return ""
+	}
+	if p == "~" {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			p = home
+		}
+	} else if strings.HasPrefix(p, "~/") || strings.HasPrefix(p, `~\`) {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			p = filepath.Join(home, p[2:])
+		}
 	}
 	// If path does not exist as-is and contains '+', check if replacing '+' with ' ' exists
 	if strings.Contains(p, "+") {

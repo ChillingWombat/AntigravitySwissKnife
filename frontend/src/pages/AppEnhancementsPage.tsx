@@ -286,21 +286,24 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
   }
 
   const jb = config.prompt_jump_bar
-  const op = config.overview_panel || {
-    enabled: true,
-    division_style: 'border_zone',
-    line_thickness: 1,
-    line_width_percent: 100,
-    line_color: '#e2e8f0',
-    line_style: 'solid',
-    line_margin: 12,
-    zone_border_radius: 8,
-    zone_border_color: '#e2e8f0',
-    zone_background_contrast: 'whiter',
-    zone_padding: 10,
-    zone_gap: 10,
-    replace_see_all_triangle: true,
-    aux_tabs_format: 'icon',
+  const rawOp = config.overview_panel
+  const op = {
+    enabled: rawOp ? rawOp.enabled : true,
+    division_style: rawOp?.division_style || 'border_zone',
+    line_thickness: rawOp?.line_thickness || 1,
+    line_width_percent: rawOp?.line_width_percent || 100,
+    line_color: rawOp?.line_color || '#e2e8f0',
+    line_style: rawOp?.line_style || 'solid',
+    line_margin: rawOp?.line_margin || 12,
+    zone_border_radius: rawOp?.zone_border_radius || 8,
+    zone_border_color: rawOp?.zone_border_color || '#e2e8f0',
+    zone_background_contrast: rawOp?.zone_background_contrast || 'whiter',
+    zone_padding: rawOp?.zone_padding || 10,
+    zone_gap: rawOp?.zone_gap || 10,
+    replace_see_all_triangle: rawOp?.replace_see_all_triangle !== false,
+    consistent_section_spacing: rawOp?.consistent_section_spacing !== false,
+    consistent_section_spacing_line: rawOp?.consistent_section_spacing_line !== false,
+    aux_tabs_format: rawOp?.aux_tabs_format || 'icon',
   }
   const activeColor =
     jb.color_mode === 'default'

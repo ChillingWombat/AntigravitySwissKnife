@@ -720,6 +720,11 @@ class KeyringService:
             target_record = self.vault.get_account(account_email)
             if not target_record:
                 raise AccountNotFoundError(account_email)
+            st = (target_record.status or "").strip().upper()
+            if st == "COOLDOWN":
+                raise ValueError(f"account {account_email} is in cooldown waiting for quota reset and cannot be switched on")
+            if st == "BANNED":
+                raise ValueError(f"account {account_email} is banned and cannot be switched on")
 
             active_email = self.vault.get_active_account()
             if active_email and active_email != account_email:

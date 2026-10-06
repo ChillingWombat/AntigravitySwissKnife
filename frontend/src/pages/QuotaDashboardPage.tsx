@@ -952,6 +952,19 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                       >
                         <AlertCircle size={12} /> ERROR
                       </button>
+                    ) : isActive ? (
+                      <span
+                        className="badge-chip badge-green"
+                        style={{
+                          fontSize: '11px',
+                          padding: '4px 10px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        <CheckCircle2 size={12} /> Active
+                      </span>
                     ) : acc.status?.toUpperCase() === 'COOLDOWN' ? (
                       <span
                         className="badge-chip"
@@ -970,19 +983,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                         title="Quota exhausted below threshold; cooling down until reset. Cannot be switched on."
                       >
                         <Timer size={12} /> Cool Down
-                      </span>
-                    ) : isActive ? (
-                      <span
-                        className="badge-chip badge-green"
-                        style={{
-                          fontSize: '11px',
-                          padding: '4px 10px',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                        }}
-                      >
-                        <CheckCircle2 size={12} /> Active
                       </span>
                     ) : (
                       <button
@@ -1191,8 +1191,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           </button>
           {!contextMenu.account.is_active &&
             contextMenu.account.email !== activeAccount &&
-            contextMenu.account.status?.toUpperCase() !== 'COOLDOWN' &&
-            contextMenu.account.status?.toUpperCase() !== 'BANNED' && (
+            contextMenu.account.status?.trim().toUpperCase() !== 'COOLDOWN' &&
+            contextMenu.account.status?.trim().toUpperCase() !== 'BANNED' && (
             <button
               onClick={async () => {
                 const target = contextMenu.account.email

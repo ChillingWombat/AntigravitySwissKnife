@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail } from 'lucide-react'
 import type { AccountState } from '../types'
 import { renderPlanTierBadge } from '../pages/QuotaDashboardPage'
@@ -41,6 +41,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [showOAuth, setShowOAuth] = useState(false)
   const [isExtractingOAuth, setIsExtractingOAuth] = useState(false)
   const [oauthSuccessMsg, setOauthSuccessMsg] = useState<string | null>(null)
+  const oauthAbortControllerRef = useRef<AbortController | null>(null)
   const status = account.status || (account.is_active ? 'ACTIVE' : 'STANDBY')
   const [notes, setNotes] = useState(account.notes || '')
   const [isSaving, setIsSaving] = useState(false)
@@ -100,12 +101,48 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     setTimeout(() => setCopiedTotp(false), 1500)
   }
 
+  useEffect(() => {
+    return () => {
+      if (oauthAbortControllerRef.current) {
+        oauthAbortControllerRef.current.abort()
+        oauthAbortControllerRef.current = null
+        api.cancelGoogleOAuth().catch(() => {})
+      }
+    }
+  }, [])
+
+  const handleClose = () => {
+    if (oauthAbortControllerRef.current) {
+      oauthAbortControllerRef.current.abort()
+      oauthAbortControllerRef.current = null
+      api.cancelGoogleOAuth().catch(() => {})
+    }
+    onClose()
+  }
+
+  const handleCancelGoogleOAuth = async () => {
+    if (oauthAbortControllerRef.current) {
+      oauthAbortControllerRef.current.abort()
+      oauthAbortControllerRef.current = null
+    }
+    setIsExtractingOAuth(false)
+    try {
+      await api.cancelGoogleOAuth()
+    } catch {}
+  }
+
   const handleExtractGoogleOAuth = async () => {
+    if (isExtractingOAuth) {
+      await handleCancelGoogleOAuth()
+      return
+    }
     setIsExtractingOAuth(true)
     setError(null)
     setOauthSuccessMsg(null)
+    const controller = new AbortController()
+    oauthAbortControllerRef.current = controller
     try {
-      const res = await api.startGoogleOAuth()
+      const res = await api.startGoogleOAuth(controller.signal)
       if (res.success && res.refresh_token) {
         setRefreshToken(res.refresh_token)
         if (res.email && !email.trim()) {
@@ -116,13 +153,19 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           }
         }
         setOauthSuccessMsg(`Extracted token successfully for ${res.email || email || account.email}`)
-      } else {
+      } else if (!controller.signal.aborted) {
         setError(res.error || 'Failed to extract OAuth token from Google')
       }
     } catch (err: any) {
+      if (controller.signal.aborted || err.name === 'AbortError') {
+        return
+      }
       setError(err.message || 'Google OAuth extraction failed or timed out')
     } finally {
-      setIsExtractingOAuth(false)
+      if (oauthAbortControllerRef.current === controller) {
+        oauthAbortControllerRef.current = null
+        setIsExtractingOAuth(false)
+      }
     }
   }
 
@@ -155,7 +198,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         allow_claude_gpt: allowClaudeGpt,
       })
       onSaved()
-      onClose()
+      handleClose()
     } catch (err: any) {
       setError(err.message || 'Failed to update account')
     } finally {
@@ -172,9 +215,10 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     setIsSaving(true)
     setError(null)
     try {
-      await api.deleteAccount(account.email)
+      const targetEmail = account.email || email.trim()
+      await api.deleteAccount(targetEmail)
       onSaved()
-      onClose()
+      handleClose()
     } catch (err: any) {
       setError(err.message || 'Failed to remove account')
     } finally {
@@ -196,7 +240,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         justifyContent: 'center',
         zIndex: 1000,
       }}
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
         className="google-card"
@@ -233,14 +277,14 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                         ? 'badge-red'
                         : st === 'ERROR'
                         ? 'badge-yellow'
-                        : st === 'COOLDOWN'
-                        ? 'badge-blue'
                         : account.is_active
                         ? 'badge-green'
+                        : st === 'COOLDOWN'
+                        ? 'badge-blue'
                         : 'badge-neutral'
                     }`}
                   >
-                    {st === 'COOLDOWN' ? 'COOL DOWN' : st}
+                    {account.is_active && st !== 'BANNED' && st !== 'ERROR' ? 'ACTIVE' : st === 'COOLDOWN' ? 'COOL DOWN' : st}
                   </span>
                   {renderPlanTierBadge(account.plan_tier)}
                   {account.credits !== undefined && account.credits !== null && account.credits > 0 && (
@@ -257,7 +301,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             style={{
               padding: '6px',
               borderRadius: '50%',
@@ -530,8 +574,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               <button
                 type="button"
                 onClick={handleExtractGoogleOAuth}
-                disabled={isExtractingOAuth}
-                className="btn-pill-outlined"
+                className={isExtractingOAuth ? "btn-pill-outlined" : "btn-pill-outlined"}
                 style={{
                   width: RIGHT_ACTION_WIDTH,
                   flexShrink: 0,
@@ -545,14 +588,14 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   padding: '0 12px',
                   fontSize: '12px',
                   fontWeight: 600,
-                  backgroundColor: 'var(--primary-light)',
-                  color: 'var(--primary)',
-                  borderColor: 'var(--primary)',
+                  backgroundColor: isExtractingOAuth ? 'rgba(217, 48, 37, 0.08)' : 'var(--primary-light)',
+                  color: isExtractingOAuth ? '#d93025' : 'var(--primary)',
+                  borderColor: isExtractingOAuth ? '#d93025' : 'var(--primary)',
                 }}
-                title="Open browser to login with Google and extract token"
+                title={isExtractingOAuth ? "Cancel Google login extraction" : "Open browser to login with Google and extract token"}
               >
                 <LogIn size={14} />
-                {isExtractingOAuth ? 'Waiting...' : 'Sign in with Google'}
+                {isExtractingOAuth ? 'Cancel Login' : 'Sign in with Google'}
               </button>
             </div>
           </div>
@@ -819,7 +862,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
         {/* Footer Actions */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '20px' }}>
-          {!isNewAccount ? (
+          {(!isNewAccount || Boolean(email.trim())) ? (
             <button
               onClick={handleDelete}
               disabled={isSaving}
@@ -833,7 +876,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
           <div style={{ display: 'flex', gap: '10px' }}>
             <button
-              onClick={onClose}
+              onClick={handleClose}
               disabled={isSaving}
               className="btn-pill-outlined"
             >

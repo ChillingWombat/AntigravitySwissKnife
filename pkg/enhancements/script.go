@@ -233,6 +233,86 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
         if (op.replace_see_all_triangle) {
           css += ` + "`" + `
+            [data-swiss-divider="true"] {
+              display: block !important;
+              width: 100%% !important;
+              height: 28px !important;
+              min-height: 28px !important;
+              padding: 0 !important;
+              margin: 0 !important;
+              background: transparent !important;
+              border: none !important;
+              box-shadow: none !important;
+              cursor: pointer !important;
+              outline: none !important;
+            }
+            .swiss-overview-tabs-divider {
+              position: relative !important;
+              display: flex !important;
+              align-items: center !important;
+              justify-content: center !important;
+              width: 100%% !important;
+              height: 28px !important;
+              padding: 0 !important;
+              box-sizing: border-box !important;
+              cursor: pointer !important;
+              user-select: none !important;
+            }
+            .swiss-overview-tabs-line {
+              position: absolute !important;
+              top: 50%% !important;
+              left: 0 !important;
+              right: 0 !important;
+              width: 100%% !important;
+              height: 1px !important;
+              transform: translateY(-50%%) !important;
+              background: rgba(148, 163, 184, 0.35) !important;
+              transition: background-color 0.18s ease !important;
+              z-index: 1 !important;
+            }
+            .swiss-overview-tabs-pill {
+              position: absolute !important;
+              bottom: 50%% !important;
+              left: 50%% !important;
+              transform: translateX(-50%%) !important;
+              margin-bottom: 1px !important;
+              z-index: 2 !important;
+              display: inline-flex !important;
+              align-items: center !important;
+              justify-content: center !important;
+              width: 16px !important;
+              height: 11px !important;
+              color: #64748b !important;
+              font-size: 8px !important;
+              transition: all 0.18s ease !important;
+            }
+            .swiss-overview-tabs-triangle {
+              display: inline-block !important;
+              font-size: 8px !important;
+              line-height: 1 !important;
+              transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            }
+            [data-theme="dark"] .swiss-overview-tabs-line,
+            .dark .swiss-overview-tabs-line {
+              background: rgba(148, 163, 184, 0.22) !important;
+            }
+            [data-theme="dark"] .swiss-overview-tabs-pill,
+            .dark .swiss-overview-tabs-pill {
+              color: #94a3b8 !important;
+            }
+            [data-swiss-divider="true"]:hover .swiss-overview-tabs-line,
+            .swiss-overview-tabs-divider:hover .swiss-overview-tabs-line {
+              background: rgba(148, 163, 184, 0.65) !important;
+            }
+            [data-swiss-divider="true"]:hover .swiss-overview-tabs-pill,
+            .swiss-overview-tabs-divider:hover .swiss-overview-tabs-pill {
+              color: #1e293b !important;
+              transform: translateX(-50%%) scale(1.18) !important;
+            }
+            [data-theme="dark"] [data-swiss-divider="true"]:hover .swiss-overview-tabs-pill,
+            .dark [data-swiss-divider="true"]:hover .swiss-overview-tabs-pill {
+              color: #f1f5f9 !important;
+            }
             .swiss-see-triangle-btn {
               cursor: pointer !important;
               display: inline-flex !important;
@@ -249,6 +329,33 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             }
             .swiss-see-triangle-btn:hover {
               background-color: rgba(11, 87, 208, 0.15) !important;
+            }
+          ` + "`" + `;
+        }
+
+        if (op.consistent_section_spacing) {
+          css += ` + "`" + `
+            .swiss-overview-bottom-spacer {
+              position: relative !important;
+              height: 28px !important;
+              width: 100%% !important;
+              pointer-events: none !important;
+              box-sizing: border-box !important;
+            }
+            .swiss-overview-spacer-line {
+              position: absolute !important;
+              top: 50%% !important;
+              left: 0 !important;
+              right: 0 !important;
+              width: 100%% !important;
+              height: 1px !important;
+              transform: translateY(-50%%) !important;
+              background: rgba(148, 163, 184, 0.35) !important;
+              z-index: 1 !important;
+            }
+            [data-theme="dark"] .swiss-overview-spacer-line,
+            .dark .swiss-overview-spacer-line {
+              background: rgba(148, 163, 184, 0.22) !important;
             }
           ` + "`" + `;
         }
@@ -586,7 +693,15 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
     function applyOverviewPanelEnhancements() {
       const op = enhConfig.overview_panel;
-      if (!op || !op.enabled) return;
+      if (!op || !op.enabled) {
+        document.querySelectorAll(".swiss-overview-bottom-spacer").forEach(el => el.remove());
+        document.querySelectorAll('[data-swiss-divider="true"]').forEach(btn => {
+          btn.removeAttribute("data-swiss-divider");
+          const orig = btn.getAttribute("data-orig-see-text") || "See all";
+          btn.textContent = orig;
+        });
+        return;
+      }
 
       const titles = [
         "Subagents",
@@ -607,11 +722,17 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         return titles.some(t => text.startsWith(t) && text.length < 45);
       });
 
+      const sectionContainers = [];
+
       sectionHeaders.forEach((hdr, idx) => {
         let container = hdr.closest('[class*="section"]') ||
                         hdr.closest('[data-testid*="section"]') ||
                         (hdr.parentElement && hdr.parentElement !== document.body ? hdr.parentElement : null);
         if (!container) return;
+
+        if (!sectionContainers.includes(container)) {
+          sectionContainers.push(container);
+        }
 
         if (op.division_style === "border_zone") {
           if (!container.classList.contains("swiss-overview-zone")) {
@@ -626,25 +747,70 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         }
       });
 
-      if (op.replace_see_all_triangle) {
-        const seeButtons = Array.from(searchRoot.querySelectorAll("button, a, span")).filter(el => {
-          if (!el || el.querySelector(".swiss-see-triangle-btn")) return false;
-          const t = (el.textContent || "").trim();
-          return (t.startsWith("See all") || t === "See less" || t.startsWith("See less"));
-        });
+      const seeButtons = Array.from(searchRoot.querySelectorAll("button, a, span")).filter(el => {
+        if (!el) return false;
+        if (el.getAttribute("data-swiss-divider") === "true") return true;
+        const t = (el.textContent || "").trim();
+        return (t.startsWith("See all") || t === "See less" || t.startsWith("See less"));
+      });
 
+      if (op.replace_see_all_triangle) {
         seeButtons.forEach(btn => {
-          const rawText = (btn.textContent || "").trim();
-          const isSeeAll = rawText.startsWith("See all");
-          const countMatch = rawText.match(/\\((\\d+)\\)/);
-          const count = countMatch ? countMatch[1] : "";
+          const rawText = btn.getAttribute("data-orig-see-text") || (btn.textContent || "").trim();
+          const isSeeAll = rawText.toLowerCase().includes("see all");
+          const symbol = isSeeAll ? "▾" : "▴";
+          btn.setAttribute("data-swiss-divider", "true");
           btn.setAttribute("data-orig-see-text", rawText);
-          const iconSvg = isSeeAll
-            ? '<svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>'
-            : '<svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M19 15l-7-7-7 7"/></svg>';
-          const countBadge = count ? ' <span>(' + count + ')</span>' : '';
-          btn.innerHTML = '<span class="swiss-see-triangle-btn" title="' + rawText + '">' + iconSvg + countBadge + '</span>';
+          btn.setAttribute("title", rawText);
+          const curTriangle = btn.querySelector(".swiss-overview-tabs-triangle");
+          if (!curTriangle || curTriangle.textContent !== symbol) {
+            btn.innerHTML = '<div class="swiss-overview-tabs-divider">' +
+              '<div class="swiss-overview-tabs-pill"><span class="swiss-overview-tabs-triangle">' + symbol + '</span></div>' +
+              '<div class="swiss-overview-tabs-line"></div>' +
+            '</div>';
+          }
         });
+      } else {
+        seeButtons.forEach(btn => {
+          if (btn.getAttribute("data-swiss-divider") === "true") {
+            btn.removeAttribute("data-swiss-divider");
+            const orig = btn.getAttribute("data-orig-see-text") || "See all";
+            btn.textContent = orig;
+          }
+        });
+      }
+
+      if (op.consistent_section_spacing) {
+        sectionContainers.forEach(container => {
+          const hasSeeBtn = Array.from(container.querySelectorAll("button, a, span")).some(el => {
+            if (el.getAttribute("data-swiss-divider") === "true") return true;
+            const t = (el.textContent || "").trim();
+            return t.startsWith("See all") || t === "See less" || t.startsWith("See less");
+          });
+
+          let spacer = container.querySelector(":scope > .swiss-overview-bottom-spacer") || container.querySelector(".swiss-overview-bottom-spacer");
+          if (!hasSeeBtn) {
+            if (!spacer) {
+              spacer = document.createElement("div");
+              spacer.className = "swiss-overview-bottom-spacer";
+              container.appendChild(spacer);
+            }
+            let line = spacer.querySelector(".swiss-overview-spacer-line");
+            if (op.consistent_section_spacing_line) {
+              if (!line) {
+                line = document.createElement("div");
+                line.className = "swiss-overview-spacer-line";
+                spacer.appendChild(line);
+              }
+            } else if (line) {
+              line.remove();
+            }
+          } else if (spacer) {
+            spacer.remove();
+          }
+        });
+      } else {
+        searchRoot.querySelectorAll(".swiss-overview-bottom-spacer").forEach(el => el.remove());
       }
     }
 
@@ -733,7 +899,18 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           if (target && target.nodeType === 1) {
             const el = target;
             if (el.id && el.id.startsWith("swiss-")) return false;
-            if (el.classList && (el.classList.contains("swiss-overview-zone") || el.classList.contains("swiss-overview-divider") || el.classList.contains("swiss-prompt-dash") || el.classList.contains("swiss-see-triangle-btn"))) return false;
+            if (el.classList && (
+              el.classList.contains("swiss-overview-zone") ||
+              el.classList.contains("swiss-overview-divider") ||
+              el.classList.contains("swiss-overview-bottom-spacer") ||
+              el.classList.contains("swiss-overview-spacer-line") ||
+              el.classList.contains("swiss-overview-tabs-divider") ||
+              el.classList.contains("swiss-overview-tabs-pill") ||
+              el.classList.contains("swiss-overview-tabs-line") ||
+              el.classList.contains("swiss-overview-tabs-triangle") ||
+              el.classList.contains("swiss-prompt-dash") ||
+              el.classList.contains("swiss-see-triangle-btn")
+            )) return false;
           }
           return true;
         });

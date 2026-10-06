@@ -98,11 +98,16 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  startGoogleOAuth: () =>
+  startGoogleOAuth: (signal?: AbortSignal) =>
     request<{ success: boolean; email?: string; refresh_token?: string; access_token?: string; error?: string }>(
       '/api/oauth/google/start',
-      { method: 'POST' }
+      { method: 'POST', signal }
     ),
+
+  cancelGoogleOAuth: () =>
+    request<{ success: boolean; cancelled?: boolean }>('/api/oauth/google/cancel', {
+      method: 'POST',
+    }),
 
   getAuthStatus: () => request<{ password_required: boolean }>('/api/auth/status'),
 

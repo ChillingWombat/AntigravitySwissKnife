@@ -342,6 +342,8 @@ def sort_account_quota_states(
             tier = 5
         elif is_err:
             tier = 4
+        elif st == "COOLDOWN":
+            tier = 3
         elif not is_below:
             tier = 2 if is_free else 1
         else:

@@ -557,6 +557,29 @@ func TestCooldownAccountLifecycleAndRanking(t *testing.T) {
 	if len(sortedList) != 2 || sortedList[0].Email != "healthy@example.com" || sortedList[1].Email != "cooldown@example.com" {
 		t.Fatalf("expected healthy before cooldown in auto sort, got %v", sortedList)
 	}
+
+	// 6. Active account below threshold is pinned to Tier 0 and does not enter COOLDOWN
+	activeAcc := &keyring.Account{
+		Email:    "active_low@example.com",
+		Label:    "Active Low",
+		PlanTier: "Pro",
+		Status:   "ACTIVE",
+		IsActive: true,
+	}
+	activeLowSummary := &QuotaSummary{
+		AccountEmail:    "active_low@example.com",
+		PlanTier:        "Pro",
+		Quota5hFraction: 0.01,
+	}
+	activeStates := BuildAccountQuotaStatesWithThreshold([]*keyring.Account{activeAcc}, activeLowSummary, 0.05)
+	if len(activeStates) != 1 || activeStates[0].Status == core.AccountStatusCooldown {
+		t.Fatalf("active account must never enter COOLDOWN status, got %s", activeStates[0].Status)
+	}
+
+	sortedWithActiveLow := SortAccountQuotaStates([]AccountQuotaState{standbyHealthy, activeStates[0]}, activeStates[0].Email, 0.05, "auto", SwitchModeBalanced)
+	if len(sortedWithActiveLow) != 2 || sortedWithActiveLow[0].Email != "active_low@example.com" {
+		t.Fatalf("active account even with low quota must remain pinned at Row 0, got %v", sortedWithActiveLow)
+	}
 }
 
 

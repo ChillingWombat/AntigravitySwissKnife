@@ -98,7 +98,7 @@ func GenerateAuxiliaryPluginsCSS() string {
 .swiss-browser-toolbar {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   padding: 6px 10px;
   background: var(--canvas-subtle, #f8fafc);
   border-bottom: 1px solid var(--border, #e2e8f0);
@@ -108,21 +108,31 @@ func GenerateAuxiliaryPluginsCSS() string {
   align-items: center;
   gap: 6px;
   width: 100%;
+  flex-wrap: wrap;
 }
 .swiss-browser-port-bar {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 4px;
-  width: 100%;
   font-size: 11px;
+  flex-wrap: wrap;
+  flex: 1;
 }
 .swiss-port-label {
   font-size: 10px;
   font-weight: 600;
   color: var(--text-muted, #71717a);
-  margin-right: 4px;
+  margin-right: 2px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  white-space: nowrap;
+  user-select: none;
+}
+.swiss-port-list {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
 }
 .swiss-port-chip {
   display: inline-flex;
@@ -138,6 +148,7 @@ func GenerateAuxiliaryPluginsCSS() string {
   cursor: pointer;
   transition: all 0.15s;
   user-select: none;
+  white-space: nowrap;
 }
 .swiss-port-chip:hover {
   background: rgba(26, 115, 232, 0.08);
@@ -154,8 +165,79 @@ func GenerateAuxiliaryPluginsCSS() string {
   font-family: sans-serif;
   border-style: dashed;
 }
+.swiss-port-add-box {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  width: 22px;
+  border-radius: 10px;
+  border: 1px dashed var(--border, #cbd5e1);
+  background: var(--canvas, #ffffff);
+  box-sizing: border-box;
+  overflow: hidden;
+  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.15s, box-shadow 0.15s;
+  vertical-align: middle;
+}
+.swiss-port-add-box:hover {
+  border-color: #1a73e8;
+}
+.swiss-port-add-box.expanded {
+  width: 96px;
+  border-style: solid;
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.15);
+}
+.swiss-port-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  color: var(--text-muted, #64748b);
+  flex-shrink: 0;
+}
+.swiss-port-add-btn:hover {
+  color: #1a73e8;
+}
+.swiss-port-add-icon {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), color 0.15s;
+}
+.swiss-port-add-box.expanded .swiss-port-add-icon {
+  transform: rotate(45deg);
+  color: #94a3b8;
+}
+.swiss-port-add-box.expanded .swiss-port-add-btn:hover .swiss-port-add-icon {
+  color: #ef4444;
+}
+.swiss-port-add-input {
+  width: 0;
+  opacity: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 10px;
+  font-family: monospace;
+  color: var(--text, #1e293b);
+  pointer-events: none;
+  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.15s;
+  box-sizing: border-box;
+}
+.swiss-port-add-box.expanded .swiss-port-add-input {
+  width: 66px;
+  opacity: 1;
+  padding: 0 4px 0 2px;
+  pointer-events: auto;
+}
 .swiss-browser-url-input {
   flex: 1;
+  min-width: 140px;
+  max-width: 300px;
   padding: 4px 10px;
   font-size: 12px;
   border-radius: 14px;
@@ -163,6 +245,30 @@ func GenerateAuxiliaryPluginsCSS() string {
   background: var(--canvas, #ffffff);
   color: var(--text, #1e293b);
   outline: none;
+}
+.swiss-browser-tools-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+.swiss-browser-device-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.swiss-browser-tools-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border, #e2e8f0);
+  margin: 0 2px;
+}
+.swiss-browser-annotation-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 .swiss-browser-btn {
   display: inline-flex;
@@ -185,6 +291,11 @@ func GenerateAuxiliaryPluginsCSS() string {
 }
 .swiss-browser-btn:hover {
   background: rgba(148, 163, 184, 0.15);
+}
+.swiss-browser-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 .swiss-browser-btn.primary {
   background: #1a73e8;
@@ -553,6 +664,51 @@ func GenerateAuxiliaryPluginsCSS() string {
   padding: 12px;
   gap: 10px;
 }
+.swiss-memo-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--canvas, #ffffff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  padding: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+:is(.dark, [data-theme="dark"]) .swiss-memo-composer {
+  background: var(--card, #1e293b);
+  border-color: var(--border, #334155);
+}
+.swiss-memo-composer-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 56px;
+  max-height: 140px;
+  resize: vertical;
+  border: 1px solid var(--border, #cbd5e1);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  font-family: inherit;
+  background: transparent;
+  color: var(--text, #1e293b);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.swiss-memo-composer-textarea:focus {
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.15);
+}
+:is(.dark, [data-theme="dark"]) .swiss-memo-composer-textarea {
+  color: #f8fafc;
+  border-color: #475569;
+}
+.swiss-memo-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  align-items: center;
+}
 .swiss-memo-card {
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 8px;
@@ -570,6 +726,77 @@ func GenerateAuxiliaryPluginsCSS() string {
 .swiss-memo-card.recording {
   border-color: #ea4335;
   background: rgba(234, 67, 53, 0.04);
+}
+
+/* Swiss Prompt Modal Dialog */
+.swiss-prompt-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100000;
+  padding: 16px;
+  box-sizing: border-box;
+}
+.swiss-prompt-dialog {
+  background: var(--canvas, #ffffff);
+  color: var(--text, #1e293b);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  width: 380px;
+  max-width: 100%;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  box-sizing: border-box;
+}
+:is(.dark, [data-theme="dark"]) .swiss-prompt-dialog {
+  background: var(--card, #1e293b);
+  color: var(--foreground, #f8fafc);
+  border-color: var(--border, #334155);
+}
+.swiss-prompt-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text, #1e293b);
+  margin: 0;
+  line-height: 1.4;
+  word-break: break-word;
+}
+:is(.dark, [data-theme="dark"]) .swiss-prompt-title {
+  color: var(--foreground, #f8fafc);
+}
+.swiss-prompt-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border, #cbd5e1);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  background: transparent;
+  color: var(--text, #1e293b);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.swiss-prompt-input:focus {
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.15);
+}
+:is(.dark, [data-theme="dark"]) .swiss-prompt-input {
+  color: #f8fafc;
+  border-color: #475569;
+}
+.swiss-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 /* In-Chat Telemetry Badge */
@@ -657,6 +884,7 @@ func GenerateAuxiliaryPluginsScript() string {
     let activeAuxTab = null; // "swiss-browser" | "swiss-files" | "swiss-memos" | null (native)
     let currentBrowserUrl = "http://localhost:5173";
     let currentFilePath = ".";
+    let fileHistory = [];
     let swissClipboard = { action: "copy", items: [] };
     let activeDevice = "responsive";
     let isDrawing = false;
@@ -681,6 +909,144 @@ func GenerateAuxiliaryPluginsScript() string {
       toast._timeout = setTimeout(() => {
         toast.className = "swiss-aux-toast";
       }, 3000);
+    }
+
+    function showSwissPrompt(title, defaultValue = "", options = {}) {
+      return new Promise((resolve) => {
+        const backdrop = document.createElement("div");
+        backdrop.className = "swiss-prompt-backdrop";
+
+        const dialog = document.createElement("div");
+        dialog.className = "swiss-prompt-dialog";
+
+        const titleEl = document.createElement("div");
+        titleEl.className = "swiss-prompt-title";
+        titleEl.textContent = title;
+        dialog.appendChild(titleEl);
+
+        const isMultiline = options.multiline || false;
+        const inputEl = document.createElement(isMultiline ? "textarea" : "input");
+        inputEl.className = "swiss-prompt-input";
+        if (!isMultiline) {
+          inputEl.type = "text";
+        } else {
+          inputEl.rows = options.rows || 3;
+        }
+        inputEl.value = defaultValue || "";
+        if (options.placeholder) inputEl.placeholder = options.placeholder;
+        dialog.appendChild(inputEl);
+
+        const actions = document.createElement("div");
+        actions.className = "swiss-prompt-actions";
+
+        const cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.className = "swiss-browser-btn";
+        cancelBtn.textContent = options.cancelText || "Cancel";
+
+        const confirmBtn = document.createElement("button");
+        confirmBtn.type = "button";
+        confirmBtn.className = "swiss-browser-btn primary";
+        confirmBtn.textContent = options.confirmText || "OK";
+
+        actions.appendChild(cancelBtn);
+        actions.appendChild(confirmBtn);
+        dialog.appendChild(actions);
+        backdrop.appendChild(dialog);
+        document.body.appendChild(backdrop);
+
+        let resolved = false;
+        const cleanup = (value) => {
+          if (resolved) return;
+          resolved = true;
+          document.removeEventListener("keydown", onKeyDown, true);
+          backdrop.remove();
+          resolve(value);
+        };
+
+        cancelBtn.onclick = () => cleanup(null);
+        confirmBtn.onclick = () => cleanup(inputEl.value);
+
+        backdrop.onclick = (e) => {
+          if (e.target === backdrop) cleanup(null);
+        };
+
+        const onKeyDown = (e) => {
+          if (e.isComposing || e.keyCode === 229) return;
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            cleanup(null);
+          } else if (e.key === "Enter" && (!isMultiline || e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            e.stopPropagation();
+            cleanup(inputEl.value);
+          }
+        };
+        document.addEventListener("keydown", onKeyDown, true);
+
+        setTimeout(() => {
+          inputEl.focus();
+          if (inputEl.select) inputEl.select();
+        }, 30);
+      });
+    }
+
+    // Context Menu Helpers & Dismissal
+    let activeContextMenu = null;
+    function removeContextMenu() {
+      if (activeContextMenu) {
+        activeContextMenu.remove();
+        activeContextMenu = null;
+      }
+      document.removeEventListener("click", onDocClick);
+      document.removeEventListener("contextmenu", onDocContextMenu);
+      document.removeEventListener("keydown", onDocKeydown);
+      window.removeEventListener("resize", removeContextMenu);
+    }
+    function onDocClick(e) {
+      if (activeContextMenu && !activeContextMenu.contains(e.target)) {
+        removeContextMenu();
+      }
+    }
+    function onDocContextMenu(e) {
+      if (activeContextMenu && !activeContextMenu.contains(e.target)) {
+        removeContextMenu();
+      }
+    }
+    function onDocKeydown(e) {
+      if (e.key === "Escape") {
+        removeContextMenu();
+      }
+    }
+
+    function positionContextMenu(menu, x, y) {
+      removeContextMenu();
+      menu.style.visibility = "hidden";
+      menu.style.left = "0px";
+      menu.style.top = "0px";
+      document.body.appendChild(menu);
+      const rect = menu.getBoundingClientRect();
+      const pad = 8;
+      let finalX = x;
+      let finalY = y;
+      if (finalX + rect.width > window.innerWidth - pad) {
+        finalX = Math.max(pad, window.innerWidth - rect.width - pad);
+      }
+      if (finalY + rect.height > window.innerHeight - pad) {
+        finalY = Math.max(pad, window.innerHeight - rect.height - pad);
+      }
+      menu.style.left = finalX + "px";
+      menu.style.top = finalY + "px";
+      menu.style.visibility = "visible";
+
+      activeContextMenu = menu;
+      setTimeout(() => {
+        document.addEventListener("click", onDocClick);
+        document.addEventListener("contextmenu", onDocContextMenu);
+        document.addEventListener("keydown", onDocKeydown);
+        window.addEventListener("resize", removeContextMenu);
+      }, 10);
     }
 
     // 1. Auxiliary Panel Tab Injector Engine
@@ -933,33 +1299,45 @@ func GenerateAuxiliaryPluginsScript() string {
           <button class="swiss-browser-btn" id="swiss-b-fwd" title="Forward"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
           <button class="swiss-browser-btn" id="swiss-b-refresh" title="Reload"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button>
           <input type="text" class="swiss-browser-url-input" id="swiss-b-url" value="${currentBrowserUrl}" placeholder="http://localhost:5173" />
-          <select class="swiss-browser-btn" id="swiss-b-device" title="Device Frame" style="outline:none;">
-            <option value="responsive">Responsive / Desktop</option>
-            <option value="iphone-16-pro">iPhone 16 Pro (402×874)</option>
-            <option value="pixel-9">Pixel 9 (412×924)</option>
-            <option value="ipad">iPad (820×1180)</option>
-          </select>
-          <select class="swiss-browser-btn" id="swiss-b-scale" title="Viewport Scale" style="outline:none;">
-            <option value="fit" selected>Fit Screen</option>
-            <option value="1">100%</option>
-            <option value="0.75">75%</option>
-            <option value="0.5">50%</option>
-          </select>
-          <button class="swiss-browser-btn" id="swiss-b-touch" title="Toggle Touch Emulation"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg><span>Touch</span></button>
-          <button class="swiss-browser-btn" id="swiss-b-pen" title="Red Pen Drawing"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg><span>Pen</span></button>
-          <button class="swiss-browser-btn" id="swiss-b-rect" title="Red Box Annotation"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/></svg><span>Box</span></button>
-          <button class="swiss-browser-btn" id="swiss-b-inspect" title="Interactive DOM Inspector"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m22 12-4 0"/><path d="m6 12-4 0"/><path d="m12 6 0-4"/><path d="m12 22 0-4"/></svg><span>Inspect</span></button>
-          <button class="swiss-browser-btn" id="swiss-b-clear" title="Clear Annotations"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
-          <button class="swiss-browser-btn primary" id="swiss-b-send-chat" title="Send to Antigravity Chat"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg><span>Send to Chat</span></button>
+          <div class="swiss-browser-port-bar">
+            <span class="swiss-port-label">Quick Ports:</span>
+            <div class="swiss-port-list" id="swiss-port-list">
+              <button class="swiss-port-chip" data-port="5173" title="Vite Development Server (Right-click to delete)">:5173</button>
+              <button class="swiss-port-chip" data-port="3000" title="React / Next.js Server (Right-click to delete)">:3000</button>
+              <button class="swiss-port-chip" data-port="8080" title="Standard Web Server (Right-click to delete)">:8080</button>
+              <button class="swiss-port-chip" data-port="8765" title="Antigravity Swiss Knife (Right-click to delete)">:8765</button>
+              <button class="swiss-port-chip" data-port="4173" title="Vite Production Preview (Right-click to delete)">:4173</button>
+            </div>
+            <div class="swiss-port-add-box" id="swiss-port-add-box">
+              <button class="swiss-port-add-btn" id="swiss-port-add-btn" title="Add Port" type="button"><svg class="swiss-port-add-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+              <input type="text" class="swiss-port-add-input" id="swiss-port-add-input" placeholder="Port..." maxlength="8" />
+            </div>
+          </div>
         </div>
-        <div class="swiss-browser-port-bar">
-          <span class="swiss-port-label">Quick Ports:</span>
-          <button class="swiss-port-chip" data-port="5173" title="Vite Development Server">:5173</button>
-          <button class="swiss-port-chip" data-port="3000" title="React / Next.js Server">:3000</button>
-          <button class="swiss-port-chip" data-port="8080" title="Standard Web Server">:8080</button>
-          <button class="swiss-port-chip" data-port="8765" title="Antigravity Swiss Knife">:8765</button>
-          <button class="swiss-port-chip" data-port="4173" title="Vite Production Preview">:4173</button>
-          <button class="swiss-port-chip custom" data-port="custom" title="Connect to custom local port">+ Port</button>
+        <div class="swiss-browser-tools-row">
+          <div class="swiss-browser-device-group">
+            <select class="swiss-browser-btn" id="swiss-b-device" title="Device Frame" style="outline:none;">
+              <option value="responsive">Responsive / Desktop</option>
+              <option value="iphone-16-pro">iPhone 16 Pro (402×874)</option>
+              <option value="pixel-9">Pixel 9 (412×924)</option>
+              <option value="ipad">iPad (820×1180)</option>
+            </select>
+            <select class="swiss-browser-btn" id="swiss-b-scale" title="Viewport Scale" style="outline:none;">
+              <option value="fit" selected>Fit Screen</option>
+              <option value="1">100%</option>
+              <option value="0.75">75%</option>
+              <option value="0.5">50%</option>
+            </select>
+            <button class="swiss-browser-btn" id="swiss-b-touch" title="Toggle Touch Emulation"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg><span>Touch</span></button>
+          </div>
+          <div class="swiss-browser-tools-divider"></div>
+          <div class="swiss-browser-annotation-group">
+            <button class="swiss-browser-btn" id="swiss-b-pen" title="Red Pen Drawing"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg><span>Pen</span></button>
+            <button class="swiss-browser-btn" id="swiss-b-rect" title="Red Box Annotation"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/></svg><span>Box</span></button>
+            <button class="swiss-browser-btn" id="swiss-b-inspect" title="Interactive DOM Inspector"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m22 12-4 0"/><path d="m6 12-4 0"/><path d="m12 6 0-4"/><path d="m12 22 0-4"/></svg><span>Inspect</span></button>
+            <button class="swiss-browser-btn" id="swiss-b-clear" title="Clear Annotations"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+            <button class="swiss-browser-btn primary" id="swiss-b-send-chat" title="Send to Antigravity Chat"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg><span>Send to Chat</span></button>
+          </div>
         </div>
       ` + "`" + `;
 
@@ -1084,21 +1462,176 @@ func GenerateAuxiliaryPluginsScript() string {
         if (webview.goForward) webview.goForward();
       };
 
-      // Port shortcuts
-      toolbar.querySelectorAll(".swiss-port-chip").forEach(chip => {
-        chip.onclick = () => {
-          const port = chip.dataset.port;
-          if (port === "custom") {
-            const customPort = prompt("Enter local port number (e.g. 8000, 4200, 5000):", "8000");
-            if (customPort && /^\d+$/.test(customPort.trim())) {
-              navigateBrowser(` + "`" + `http://localhost:${customPort.trim()}` + "`" + `);
-            }
+      // Quick Ports Management & localStorage persistence
+      const QUICK_PORTS_KEY = "antigravity_swiss_quick_ports";
+      const DEFAULT_PORTS = ["5173", "3000", "8080", "8765", "4173"];
+      const PORT_TITLES = {
+        "5173": "Vite Development Server",
+        "3000": "React / Next.js Server",
+        "8080": "Standard Web Server",
+        "8765": "Antigravity Swiss Knife",
+        "4173": "Vite Production Preview"
+      };
+
+      function getSavedPorts() {
+        try {
+          const raw = localStorage.getItem(QUICK_PORTS_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) return parsed.map(p => String(p).trim()).filter(Boolean);
+          }
+        } catch (_) {}
+        return [...DEFAULT_PORTS];
+      }
+
+      function savePorts(ports) {
+        try {
+          localStorage.setItem(QUICK_PORTS_KEY, JSON.stringify(ports));
+        } catch (_) {}
+      }
+
+      function renderQuickPorts() {
+        const portList = toolbar.querySelector("#swiss-port-list");
+        if (!portList) return;
+        portList.innerHTML = "";
+        const ports = getSavedPorts();
+
+        ports.forEach(port => {
+          const chip = document.createElement("button");
+          chip.className = "swiss-port-chip";
+          chip.setAttribute("data-port", port);
+          chip.dataset.port = port;
+          const desc = PORT_TITLES[port]
+            ? (PORT_TITLES[port] + " (Right-click to delete)")
+            : ("Port :" + port + " (Right-click to delete)");
+          chip.title = desc;
+          chip.textContent = ":" + port;
+
+          chip.onclick = () => {
+            navigateBrowser("http://localhost:" + port);
+          };
+
+          chip.oncontextmenu = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            showPortContextMenu(port, e.clientX, e.clientY);
+          };
+
+          portList.appendChild(chip);
+        });
+
+        updateActivePortChip(currentBrowserUrl);
+      }
+
+      function showPortContextMenu(port, x, y) {
+        const menu = document.createElement("div");
+        menu.className = "swiss-context-menu";
+        menu.setAttribute("class", "swiss-context-menu");
+        menu.innerHTML = '<div class="swiss-context-item" id="ctx-port-delete" style="color:#ef4444;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg><span>Delete :' + port + '</span></div>';
+
+        menu.querySelector("#ctx-port-delete").onclick = (e) => {
+          e.stopPropagation();
+          removeContextMenu();
+          deletePort(port);
+        };
+
+        positionContextMenu(menu, x, y);
+      }
+
+      function deletePort(portToDelete) {
+        const ports = getSavedPorts().filter(p => String(p) !== String(portToDelete));
+        savePorts(ports);
+        renderQuickPorts();
+        showToast("Port :" + portToDelete + " removed");
+      }
+
+      // Add Port Box Interactions
+      const addBox = toolbar.querySelector("#swiss-port-add-box");
+      const addBtn = toolbar.querySelector("#swiss-port-add-btn");
+      const addInput = toolbar.querySelector("#swiss-port-add-input");
+
+      function openAddPort() {
+        if (!addBox) return;
+        addBox.classList.add("expanded");
+        if (addBtn) addBtn.title = "Cancel";
+        setTimeout(() => {
+          if (addInput) {
+            addInput.focus();
+            addInput.select();
+          }
+        }, 50);
+      }
+
+      function closeAddPort() {
+        if (!addBox) return;
+        addBox.classList.remove("expanded");
+        if (addBtn) addBtn.title = "Add Port";
+        if (addInput) addInput.value = "";
+      }
+
+      function submitNewPort() {
+        if (!addInput) return;
+        const val = addInput.value.trim();
+        if (!val) {
+          closeAddPort();
+          return;
+        }
+        const portNum = parseInt(val, 10);
+        if (!/^\d+$/.test(val) || isNaN(portNum) || portNum < 1 || portNum > 65535) {
+          showToast("Invalid port number (1-65535)", "warning");
+          addInput.focus();
+          addInput.select();
+          return;
+        }
+        const portStr = String(portNum);
+        const ports = getSavedPorts();
+        if (!ports.includes(portStr)) {
+          ports.push(portStr);
+          savePorts(ports);
+          renderQuickPorts();
+          showToast("Port :" + portStr + " saved");
+        } else {
+          showToast("Port :" + portStr + " already exists", "warning");
+        }
+        closeAddPort();
+        navigateBrowser("http://localhost:" + portStr);
+      }
+
+      if (addBtn) {
+        addBtn.onclick = (e) => {
+          e.stopPropagation();
+          if (addBox.classList.contains("expanded")) {
+            closeAddPort();
           } else {
-            navigateBrowser(` + "`" + `http://localhost:${port}` + "`" + `);
+            openAddPort();
           }
         };
-      });
-      updateActivePortChip(currentBrowserUrl);
+      }
+
+      if (addInput) {
+        addInput.onkeydown = (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            submitNewPort();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            closeAddPort();
+          }
+        };
+      }
+
+      const onOutsideAddPortMousedown = (e) => {
+        if (addBox && addBox.classList.contains("expanded") && !addBox.contains(e.target)) {
+          closeAddPort();
+        }
+      };
+      if (window.__swissAddPortMousedown) {
+        document.removeEventListener("mousedown", window.__swissAddPortMousedown);
+      }
+      window.__swissAddPortMousedown = onOutsideAddPortMousedown;
+      document.addEventListener("mousedown", onOutsideAddPortMousedown);
+
+      renderQuickPorts();
 
       // Scaling & Fit
       function applyDeviceScale() {
@@ -1541,7 +2074,7 @@ func GenerateAuxiliaryPluginsScript() string {
 
       // Send to Antigravity Chat button workflow
       toolbar.querySelector("#swiss-b-send-chat").onclick = async () => {
-        const comment = prompt(
+        const comment = await showSwissPrompt(
           "Add comment to attach with this preview snapshot to Antigravity chat:",
           userComment || "Review UI alignment and inspected element markup."
         );
@@ -1668,9 +2201,11 @@ func GenerateAuxiliaryPluginsScript() string {
       toolbar.className = "swiss-files-toolbar";
       toolbar.innerHTML = ` + "`" + `
         <div class="swiss-files-address-bar">
+          <button class="swiss-browser-btn" id="swiss-f-back" title="Back" disabled><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
           <button class="swiss-browser-btn" id="swiss-f-up" title="Up Directory"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg></button>
-          <input type="text" class="swiss-files-path-input" id="swiss-f-path" value="${currentFilePath}" />
+          <button class="swiss-browser-btn" id="swiss-f-home" title="Home Folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></button>
           <button class="swiss-browser-btn" id="swiss-f-refresh" title="Refresh"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button>
+          <input type="text" class="swiss-files-path-input" id="swiss-f-path" value="${currentFilePath}" />
           <button class="swiss-browser-btn" id="swiss-f-reveal" title="Open in System File Manager"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/></svg></button>
           <button class="swiss-browser-btn" id="swiss-f-term" title="Open in Terminal"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg></button>
         </div>
@@ -1690,9 +2225,19 @@ func GenerateAuxiliaryPluginsScript() string {
 
       let selectedPaths = new Set();
       let fileItemsMap = new Map();
+      let currentFetchId = 0;
+
+      const updateNavButtons = () => {
+        const backBtn = toolbar.querySelector("#swiss-f-back");
+        if (backBtn) {
+          backBtn.disabled = fileHistory.length === 0;
+          backBtn.style.opacity = fileHistory.length > 0 ? "1" : "0.5";
+        }
+      };
+      updateNavButtons();
 
       // Load files
-      const loadFiles = async (dirPath) => {
+      const loadFiles = async (dirPath, pushHistory = true) => {
         let targetPath = (dirPath || "").trim();
         if (targetPath.startsWith("file://")) {
           targetPath = targetPath.replace(/^file:\/\//, "");
@@ -1700,26 +2245,46 @@ func GenerateAuxiliaryPluginsScript() string {
         if (targetPath.includes("%")) {
           try { targetPath = decodeURIComponent(targetPath); } catch (_) {}
         }
-        targetPath = targetPath.replace(/\/+$/, "") || "/";
-        currentFilePath = targetPath;
-        toolbar.querySelector("#swiss-f-path").value = targetPath;
+        if (targetPath !== "~") {
+          targetPath = targetPath.replace(/[/\\]+$/, "") || "/";
+        }
+        const fetchId = ++currentFetchId;
+        const pathInput = toolbar.querySelector("#swiss-f-path");
+        if (pathInput) pathInput.value = targetPath;
+        const backBtn = toolbar.querySelector("#swiss-f-back");
+        if (backBtn) backBtn.disabled = true;
         listContainer.innerHTML = "<div style='padding:12px; font-size:11px; color:#94a3b8;'>Loading files...</div>";
 
         try {
           const res = await fetch(` + "`" + `${API_BASE}/api/files/list?path=${encodeURIComponent(targetPath)}` + "`" + `);
+          if (fetchId !== currentFetchId) return;
           if (!res.ok) {
             throw new Error("HTTP " + res.status + ": " + res.statusText);
           }
           const data = await res.json();
+          if (fetchId !== currentFetchId) return;
           if (!data.success) {
             listContainer.innerHTML = ` + "`" + `<div style='padding:14px; color:#ef4444; font-size:11px; display:flex; flex-direction:column; gap:6px;'>
               <div style='font-weight:600;'>Error loading directory:</div>
               <div style='font-family:monospace; background:rgba(239,68,68,0.08); padding:6px 8px; border-radius:4px;'>${data.error || "Unknown error"}</div>
               <button class="swiss-browser-btn" id="swiss-f-retry" style="align-self:flex-start; margin-top:4px;">Retry</button>
             </div>` + "`" + `;
-            listContainer.querySelector("#swiss-f-retry")?.addEventListener("click", () => loadFiles(currentFilePath));
+            listContainer.querySelector("#swiss-f-retry")?.addEventListener("click", () => loadFiles(targetPath, false));
+            updateNavButtons();
             return;
           }
+
+          const prevPath = currentFilePath;
+          const loadedPath = data.path || targetPath;
+          if (pushHistory && prevPath && prevPath !== "." && prevPath !== loadedPath) {
+            if (fileHistory.length === 0 || fileHistory[fileHistory.length - 1] !== prevPath) {
+              fileHistory.push(prevPath);
+              if (fileHistory.length > 50) fileHistory.shift();
+            }
+          }
+          currentFilePath = loadedPath;
+          if (pathInput) pathInput.value = loadedPath;
+          updateNavButtons();
 
           listContainer.innerHTML = "";
           fileItemsMap.clear();
@@ -1811,18 +2376,20 @@ func GenerateAuxiliaryPluginsScript() string {
               }
 
               const selectedItems = Array.from(selectedPaths).map(p => fileItemsMap.get(p) || { path: p, name: p.split("/").pop(), isDir: false });
-              showFileContextMenu(e.clientX, e.clientY, item, selectedItems, () => loadFiles(currentFilePath));
+              showFileContextMenu(e.clientX, e.clientY, item, selectedItems, () => loadFiles(currentFilePath, false));
             };
 
             listContainer.appendChild(row);
           });
         } catch (err) {
+          if (fetchId !== currentFetchId) return;
           listContainer.innerHTML = ` + "`" + `<div style='padding:14px; color:#ef4444; font-size:11px; display:flex; flex-direction:column; gap:6px;'>
             <div style='font-weight:600;'>Unable to connect to Swiss Knife daemon:</div>
             <div style='color:#64748b;'>${err.message}. Check that the daemon is running on ${API_BASE} (e.g. 'swiss daemon --with-web' or 'swiss web').</div>
             <button class="swiss-browser-btn" id="swiss-f-retry" style="align-self:flex-start; margin-top:4px;">Retry</button>
           </div>` + "`" + `;
-          listContainer.querySelector("#swiss-f-retry")?.addEventListener("click", () => loadFiles(currentFilePath));
+          listContainer.querySelector("#swiss-f-retry")?.addEventListener("click", () => loadFiles(targetPath, false));
+          updateNavButtons();
         }
       };
 
@@ -1832,7 +2399,7 @@ func GenerateAuxiliaryPluginsScript() string {
         e.preventDefault();
         e.stopPropagation();
         window.getSelection()?.removeAllRanges();
-        showBlankContextMenu(e.clientX, e.clientY, currentFilePath, () => loadFiles(currentFilePath));
+        showBlankContextMenu(e.clientX, e.clientY, currentFilePath, () => loadFiles(currentFilePath, false));
       };
 
       listContainer.onclick = (e) => {
@@ -1845,16 +2412,27 @@ func GenerateAuxiliaryPluginsScript() string {
       toolbar.querySelector("#swiss-f-path").onkeydown = (e) => {
         if (e.key === "Enter") loadFiles(e.target.value);
       };
-      toolbar.querySelector("#swiss-f-refresh").onclick = () => loadFiles(currentFilePath);
+      toolbar.querySelector("#swiss-f-back").onclick = () => {
+        if (fileHistory.length > 0) {
+          const prev = fileHistory.pop();
+          loadFiles(prev, false);
+        }
+      };
       toolbar.querySelector("#swiss-f-up").onclick = () => {
-        let clean = currentFilePath.replace(/\/+$/, "");
-        const lastSlash = clean.lastIndexOf("/");
+        let clean = currentFilePath.replace(/[/\\]+$/, "");
+        const lastSlash = Math.max(clean.lastIndexOf("/"), clean.lastIndexOf("\\"));
         if (lastSlash > 0) {
-          loadFiles(clean.substring(0, lastSlash));
+          if (lastSlash === 2 && clean[1] === ":") {
+            loadFiles(clean.substring(0, 3));
+          } else {
+            loadFiles(clean.substring(0, lastSlash));
+          }
         } else if (lastSlash === 0) {
           loadFiles("/");
         }
       };
+      toolbar.querySelector("#swiss-f-home").onclick = () => loadFiles("~");
+      toolbar.querySelector("#swiss-f-refresh").onclick = () => loadFiles(currentFilePath, false);
       const searchBox = toolbar.querySelector("#swiss-f-search");
       if (searchBox) {
         searchBox.oninput = (e) => {
@@ -1880,27 +2458,27 @@ func GenerateAuxiliaryPluginsScript() string {
         });
       };
       toolbar.querySelector("#swiss-f-new-file").onclick = async () => {
-        const name = prompt("Enter new file name:");
-        if (!name) return;
+        const name = await showSwissPrompt("Enter new file name:");
+        if (!name || !name.trim()) return;
         await fetch(` + "`" + `${API_BASE}/api/files/create` + "`" + `, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: currentFilePath + "/" + name, is_dir: false })
+          body: JSON.stringify({ path: currentFilePath + "/" + name.trim(), is_dir: false })
         });
-        loadFiles(currentFilePath);
+        loadFiles(currentFilePath, false);
       };
       toolbar.querySelector("#swiss-f-new-dir").onclick = async () => {
-        const name = prompt("Enter new directory name:");
-        if (!name) return;
+        const name = await showSwissPrompt("Enter new directory name:");
+        if (!name || !name.trim()) return;
         await fetch(` + "`" + `${API_BASE}/api/files/create` + "`" + `, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: currentFilePath + "/" + name, is_dir: true })
+          body: JSON.stringify({ path: currentFilePath + "/" + name.trim(), is_dir: true })
         });
-        loadFiles(currentFilePath);
+        loadFiles(currentFilePath, false);
       };
 
-      loadFiles(currentFilePath);
+      loadFiles(currentFilePath, false);
     }
 
     // In-Place Editor / Annotator for Code & Markdown
@@ -1963,7 +2541,7 @@ func GenerateAuxiliaryPluginsScript() string {
             else showToast("Save failed: " + rData.error, "error");
           };
 
-          editor.querySelector("#swiss-ed-annotate").onclick = () => {
+          editor.querySelector("#swiss-ed-annotate").onclick = async () => {
             const start = textarea.selectionStart;
             const end = textarea.selectionEnd;
             const selectedText = textarea.value.substring(start, end).trim();
@@ -1974,7 +2552,7 @@ func GenerateAuxiliaryPluginsScript() string {
             }
 
             const lineNum = textarea.value.substring(0, start).split("\n").length;
-            const comment = prompt("Enter annotation note for selected snippet:", "Please review this logic and suggest improvements:");
+            const comment = await showSwissPrompt("Enter annotation note for selected snippet:", "Please review this logic and suggest improvements:");
             if (comment === null) return;
 
             const snippetMsg = "[Annotated Code: " + name + " (around line " + lineNum + ")]\nComment: \"" + comment + "\"\n` + "\x60\x60\x60" + `\n" + selectedText + "\n` + "\x60\x60\x60" + `";
@@ -1982,63 +2560,6 @@ func GenerateAuxiliaryPluginsScript() string {
             showToast("Annotation snippet injected into Antigravity chat input!");
           };
         });
-    }
-
-    // Context Menu Helpers & Dismissal
-    let activeContextMenu = null;
-    function removeContextMenu() {
-      if (activeContextMenu) {
-        activeContextMenu.remove();
-        activeContextMenu = null;
-      }
-      document.removeEventListener("click", onDocClick);
-      document.removeEventListener("contextmenu", onDocContextMenu);
-      document.removeEventListener("keydown", onDocKeydown);
-      window.removeEventListener("resize", removeContextMenu);
-    }
-    function onDocClick(e) {
-      if (activeContextMenu && !activeContextMenu.contains(e.target)) {
-        removeContextMenu();
-      }
-    }
-    function onDocContextMenu(e) {
-      if (activeContextMenu && !activeContextMenu.contains(e.target)) {
-        removeContextMenu();
-      }
-    }
-    function onDocKeydown(e) {
-      if (e.key === "Escape") {
-        removeContextMenu();
-      }
-    }
-
-    function positionContextMenu(menu, x, y) {
-      removeContextMenu();
-      menu.style.visibility = "hidden";
-      menu.style.left = "0px";
-      menu.style.top = "0px";
-      document.body.appendChild(menu);
-      const rect = menu.getBoundingClientRect();
-      const pad = 8;
-      let finalX = x;
-      let finalY = y;
-      if (finalX + rect.width > window.innerWidth - pad) {
-        finalX = Math.max(pad, window.innerWidth - rect.width - pad);
-      }
-      if (finalY + rect.height > window.innerHeight - pad) {
-        finalY = Math.max(pad, window.innerHeight - rect.height - pad);
-      }
-      menu.style.left = finalX + "px";
-      menu.style.top = finalY + "px";
-      menu.style.visibility = "visible";
-
-      activeContextMenu = menu;
-      setTimeout(() => {
-        document.addEventListener("click", onDocClick);
-        document.addEventListener("contextmenu", onDocContextMenu);
-        document.addEventListener("keydown", onDocKeydown);
-        window.addEventListener("resize", removeContextMenu);
-      }, 10);
     }
 
     async function executePaste(targetFolder, onRefresh) {
@@ -2156,19 +2677,19 @@ func GenerateAuxiliaryPluginsScript() string {
       const renameBtn = menu.querySelector("#ctx-rename");
       if (renameBtn) {
         renameBtn.addEventListener("click", async () => {
-          const newName = prompt("Rename to:", item.name);
-          if (!newName || newName === item.name) {
-            removeContextMenu();
+          removeContextMenu();
+          const newName = await showSwissPrompt("Rename to:", item.name);
+          if (!newName || newName.trim() === item.name) {
             return;
           }
-          const newPath = item.path.substring(0, item.path.lastIndexOf("/") + 1) + newName;
+          const trimmed = newName.trim();
+          const newPath = item.path.substring(0, item.path.lastIndexOf("/") + 1) + trimmed;
           await fetch(API_BASE + "/api/files/rename", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ old_path: item.path, new_path: newPath })
           });
           onRefresh();
-          removeContextMenu();
         });
       }
 
@@ -2223,24 +2744,24 @@ func GenerateAuxiliaryPluginsScript() string {
 
       menu.querySelector("#ctx-blank-new-file")?.addEventListener("click", async () => {
         removeContextMenu();
-        const name = prompt("Enter new file name:");
-        if (!name) return;
+        const name = await showSwissPrompt("Enter new file name:");
+        if (!name || !name.trim()) return;
         await fetch(API_BASE + "/api/files/create", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: currentDir + "/" + name, is_dir: false })
+          body: JSON.stringify({ path: currentDir + "/" + name.trim(), is_dir: false })
         });
         onRefresh();
       });
 
       menu.querySelector("#ctx-blank-new-dir")?.addEventListener("click", async () => {
         removeContextMenu();
-        const name = prompt("Enter new directory name:");
-        if (!name) return;
+        const name = await showSwissPrompt("Enter new directory name:");
+        if (!name || !name.trim()) return;
         await fetch(API_BASE + "/api/files/create", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: currentDir + "/" + name, is_dir: true })
+          body: JSON.stringify({ path: currentDir + "/" + name.trim(), is_dir: true })
         });
         onRefresh();
       });
@@ -2285,6 +2806,19 @@ func GenerateAuxiliaryPluginsScript() string {
       ` + "`" + `;
       wrap.appendChild(topBar);
 
+      const composer = document.createElement("div");
+      composer.className = "swiss-memo-composer";
+      composer.id = "swiss-m-composer";
+      composer.style.display = "none";
+      composer.innerHTML = ` + "`" + `
+        <textarea id="swiss-m-composer-input" class="swiss-memo-composer-textarea" placeholder="Type quick memo... (Enter or Ctrl+Enter to save, Esc to cancel)" rows="3"></textarea>
+        <div class="swiss-memo-composer-actions">
+          <button type="button" class="swiss-browser-btn" id="swiss-m-composer-cancel"><span>Cancel</span></button>
+          <button type="button" class="swiss-browser-btn primary" id="swiss-m-composer-save"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg><span>Save Memo</span></button>
+        </div>
+      ` + "`" + `;
+      wrap.appendChild(composer);
+
       const memoList = document.createElement("div");
       memoList.style.display = "flex";
       memoList.style.flexDirection = "column";
@@ -2292,6 +2826,7 @@ func GenerateAuxiliaryPluginsScript() string {
       wrap.appendChild(memoList);
       container.appendChild(wrap);
 
+      let mediaStream = null;
       let mediaRecorder = null;
       let recordedChunks = [];
 
@@ -2341,18 +2876,21 @@ func GenerateAuxiliaryPluginsScript() string {
           card.querySelector("#m-del").onclick = async () => {
             const current = getLocalMemos().filter(item => item.id !== m.id);
             saveLocalMemos(current);
+            renderCards(current);
             try {
               await fetch(` + "`" + `${API_BASE}/api/memos/delete?id=${encodeURIComponent(m.id)}` + "`" + `, { method: "POST" });
             } catch (_) {}
-            loadMemos();
+            loadMemos(true);
           };
 
           memoList.appendChild(card);
         });
       };
 
-      const loadMemos = async () => {
-        memoList.innerHTML = "<div style='font-size:11px; color:#94a3b8;'>Loading memos...</div>";
+      const loadMemos = async (silent = false) => {
+        if (!silent && memoList.children.length === 0) {
+          memoList.innerHTML = "<div style='font-size:11px; color:#94a3b8;'>Loading memos...</div>";
+        }
         try {
           const res = await fetch(` + "`" + `${API_BASE}/api/memos` + "`" + `);
           if (!res.ok) throw new Error("HTTP " + res.status);
@@ -2372,22 +2910,37 @@ func GenerateAuxiliaryPluginsScript() string {
           const fallback = getLocalMemos();
           if (fallback.length > 0) {
             renderCards(fallback);
-          } else {
+          } else if (!silent || memoList.children.length === 0) {
             memoList.innerHTML = "<div style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No memos yet. Click Text Memo or Voice Memo!</div>";
           }
         }
       };
 
-      topBar.querySelector("#swiss-m-new-text").onclick = async () => {
-        const text = prompt("Enter quick memo text:");
+      const composerInput = composer.querySelector("#swiss-m-composer-input");
+      const composerCancel = composer.querySelector("#swiss-m-composer-cancel");
+      const composerSave = composer.querySelector("#swiss-m-composer-save");
+
+      const closeComposer = () => {
+        composer.style.display = "none";
+        composerInput.value = "";
+      };
+
+      const openComposer = () => {
+        composer.style.display = "flex";
+        setTimeout(() => composerInput.focus(), 30);
+      };
+
+      const createAndSaveMemo = async (text, memoType, tags) => {
         if (!text) return;
-        const titleStr = text.substring(0, 24) + (text.length > 24 ? "..." : "");
+        const trimmed = text.trim();
+        if (!trimmed) return;
+        const titleStr = trimmed.substring(0, 24) + (trimmed.length > 24 ? "..." : "");
         const newMemo = {
           id: "memo-" + Date.now(),
           title: titleStr,
-          content: text,
-          type: "text",
-          tags: ["quick"],
+          content: trimmed,
+          type: memoType || "text",
+          tags: tags || ["quick"],
           created_at: new Date().toLocaleString()
         };
         const current = getLocalMemos();
@@ -2402,31 +2955,77 @@ func GenerateAuxiliaryPluginsScript() string {
             body: JSON.stringify({
               id: newMemo.id,
               title: titleStr,
-              content: text,
-              type: "text",
-              tags: ["quick"]
+              content: trimmed,
+              type: memoType || "text",
+              tags: tags || ["quick"],
+              created_at: newMemo.created_at
             })
           });
         } catch (_) {}
-        loadMemos();
+        loadMemos(true);
+      };
+
+      topBar.querySelector("#swiss-m-new-text").onclick = () => {
+        if (composer.style.display === "none") {
+          openComposer();
+        } else {
+          if (!composerInput.value.trim()) {
+            closeComposer();
+          } else {
+            composerInput.focus();
+          }
+        }
+      };
+
+      composerCancel.onclick = () => {
+        closeComposer();
+      };
+
+      composerSave.onclick = async () => {
+        const text = composerInput.value;
+        if (!text.trim()) {
+          composerInput.focus();
+          return;
+        }
+        closeComposer();
+        await createAndSaveMemo(text, "text", ["quick"]);
+      };
+
+      composerInput.onkeydown = async (e) => {
+        if (e.isComposing || e.keyCode === 229) return;
+        if (e.key === "Escape") {
+          e.preventDefault();
+          closeComposer();
+        } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey || !e.shiftKey)) {
+          e.preventDefault();
+          const text = composerInput.value;
+          if (!text.trim()) return;
+          closeComposer();
+          await createAndSaveMemo(text, "text", ["quick"]);
+        }
       };
 
       const recordBtn = topBar.querySelector("#swiss-m-record-audio");
       recordBtn.onclick = async () => {
         if (!mediaRecorder || mediaRecorder.state === "inactive") {
           try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorder = new MediaRecorder(stream);
+            mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(mediaStream);
             recordedChunks = [];
             mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
             mediaRecorder.onstop = async () => {
-              const noteText = prompt("Voice recorded! Enter a transcript / note title:", "Voice Memo Note");
-              if (noteText) {
-                const titleStr = "[Voice] " + noteText;
+              if (mediaStream) {
+                mediaStream.getTracks().forEach(t => t.stop());
+                mediaStream = null;
+              }
+              const noteText = await showSwissPrompt("Voice recorded! Enter a transcript / note title:", "Voice Memo Note");
+              if (noteText !== null) {
+                const finalTitle = noteText.trim() || "Voice Memo Note";
+                const titleStr = "[Voice] " + finalTitle;
                 const newMemo = {
                   id: "memo-" + Date.now(),
                   title: titleStr,
-                  content: noteText,
+                  content: finalTitle,
                   type: "audio",
                   tags: ["voice"],
                   created_at: new Date().toLocaleString()
@@ -2443,13 +3042,14 @@ func GenerateAuxiliaryPluginsScript() string {
                     body: JSON.stringify({
                       id: newMemo.id,
                       title: titleStr,
-                      content: noteText,
+                      content: finalTitle,
                       type: "audio",
-                      tags: ["voice"]
+                      tags: ["voice"],
+                      created_at: newMemo.created_at
                     })
                   });
                 } catch (_) {}
-                loadMemos();
+                loadMemos(true);
               }
             };
             mediaRecorder.start();
@@ -2460,12 +3060,20 @@ func GenerateAuxiliaryPluginsScript() string {
           }
         } else if (mediaRecorder.state === "recording") {
           mediaRecorder.stop();
+          if (mediaStream) {
+            mediaStream.getTracks().forEach(t => t.stop());
+            mediaStream = null;
+          }
           recordBtn.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg><span>Voice Memo</span>';
           recordBtn.classList.remove("active");
         }
       };
 
-      loadMemos();
+      const initialMemos = getLocalMemos();
+      if (initialMemos.length > 0) {
+        renderCards(initialMemos);
+      }
+      loadMemos(initialMemos.length > 0);
     }
 
     // ----------------------------------------------------
