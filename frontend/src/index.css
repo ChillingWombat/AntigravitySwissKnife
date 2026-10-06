@@ -195,3 +195,18 @@ input:focus, select:focus, textarea:focus {
   background-color: var(--tonal);
   color: var(--text-muted);
 }
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin,
+.spinning,
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
