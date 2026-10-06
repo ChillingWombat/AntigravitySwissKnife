@@ -1,0 +1,72 @@
+# BRIEFING — 2026-10-06T03:42:30Z
+
+## Mission
+Establish a fixed minimal non-maximized window size of 1152×648 px (strict 16:9 aspect ratio, 4-pixel aligned) for Antigravity Swiss Knife, and design layout zones, sections, and gadgets adhering as close to the golden ratio as possible with 4-pixel increment ceiling rounding for widths.
+
+## 🔒 My Identity
+- Archetype: orchestrator
+- Roles: orchestrator, user_liaison, human_reporter, successor
+- Working directory: /mnt/Data/Projects/Antigravity Swiss Knife/.agents/teamwork/orchestrator_3
+- Original parent: parent
+- Original parent conversation ID: dc683912-2bb9-478d-b27a-37f6add366be
+
+## 🔒 My Workflow
+- **Pattern**: Project
+- **Scope document**: /mnt/Data/Projects/Antigravity Swiss Knife/PROJECT.md
+1. **Decompose**: Survey full scope with 3 Explorers, merge feature inventory, partition into milestones (geometry, layout architecture & tokens, components/gadgets, E2E test suite).
+2. **Dispatch & Execute**:
+   - Implementation Track: Sequential / parallel sub-orchestrators or Iteration Loops (Explorer -> Worker -> Reviewers (2) -> Challengers (2) -> Forensic Auditor -> Gate)
+   - E2E Testing Track: Requirements-driven test suite (Tiers 1-4)
+3. **On failure**: Retry -> Replace -> Skip -> Redistribute -> Redesign -> Escalate
+4. **Succession**: At 16 spawns, write handoff.md, spawn successor
+- **Work items**:
+  1. Survey & Architecture Mapping [in-progress]
+  2. M1: Minimal Window Geometry & 16:9 Aspect Ratio Locking (electron/main.js) [pending]
+  3. M2: Golden Ratio Layout Architecture & 4px Alignment Tokens [pending]
+  4. M3: Component & Gadget Sizing Compliance [pending]
+  5. M4: Automated Verification & Adversarial Hardening Suite [pending]
+- **Current phase**: 0 (Survey)
+- **Current focus**: Survey phase with 3 parallel Explorers
+
+## 🔒 Key Constraints
+- Fixed minimal non-maximized window size of 1152×648 px (strict 16:9 aspect ratio, 4-pixel aligned).
+- mainWindow.setAspectRatio(16 / 9) in electron/main.js.
+- Snap all layout boundaries, margins, paddings, rail widths, header heights to integer multiples of 4px.
+- NavRail at 220px (55 × 4) and Header at 72px (18 × 4) at base size, yielding main content workspace 932×576 px (aspect ratio 1.61806, within 0.00003 of phi).
+- Ceiling 4-increment step rule (W_major = ceil(W / phi)_4).
+- Programmatic tests asserting integer multiples of 4, width ceiling rounding pushing quantized ratios closer to 16:9 than floor rounding.
+- TypeScript check and Vite build pass with 0 errors.
+- DISPATCH-ONLY: Never write source code or run build/test commands directly. Delegate all exploration, implementation, review, test execution, and auditing.
+- Never reuse a subagent after it has delivered its handoff — always spawn fresh.
+
+## Current Parent
+- Conversation ID: dc683912-2bb9-478d-b27a-37f6add366be
+- Updated: 2026-10-06T03:41:26Z
+
+## Key Decisions Made
+- Fresh orchestrator session orchestrator_3 created to deliver 1152×648 16:9 Window Geometry & Golden Ratio Layout Architecture.
+- Starting Phase 0 (Survey) with 3 parallel Explorers.
+
+## Team Roster
+| Agent | Type | Work Item | Status | Conv ID |
+|-------|------|-----------|--------|---------|
+| explorer_geom_survey_1 | teamwork_preview_explorer | Window Geometry Survey | in-progress | 9ac056e0-d8e5-446e-8f0f-9870f6da1dee |
+| explorer_layout_survey_2 | teamwork_preview_explorer | Layout Architecture Survey | in-progress | dbd75c17-c345-415f-8130-b54151fba5b5 |
+| explorer_comp_survey_3 | teamwork_preview_explorer | Component & Test Survey | in-progress | 140385e2-6fc3-4365-98c9-36a8d3d6cb78 |
+
+## Succession Status
+- Succession required: no
+- Spawn count: 3 / 16
+- Pending subagents: 9ac056e0-d8e5-446e-8f0f-9870f6da1dee, dbd75c17-c345-415f-8130-b54151fba5b5, 140385e2-6fc3-4365-98c9-36a8d3d6cb78
+- Predecessor: none
+- Successor: not yet spawned
+
+## Active Timers
+- Heartbeat cron: 22e8a004-e0c2-41d4-92e0-45bd204fac17/task-24
+- Safety timer: none
+
+## Artifact Index
+- /mnt/Data/Projects/Antigravity Swiss Knife/.agents/teamwork/orchestrator_3/DISPATCH.md — Task assignment log
+- /mnt/Data/Projects/Antigravity Swiss Knife/.agents/teamwork/orchestrator_3/BRIEFING.md — Persistent working memory
+- /mnt/Data/Projects/Antigravity Swiss Knife/.agents/teamwork/orchestrator_3/plan.md — Execution plan
+- /mnt/Data/Projects/Antigravity Swiss Knife/.agents/teamwork/orchestrator_3/progress.md — Liveness & status tracking

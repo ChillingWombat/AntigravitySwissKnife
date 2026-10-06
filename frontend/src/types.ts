@@ -278,6 +278,7 @@ export interface OverviewPanelConfig {
   zone_padding: number
   zone_gap: number
   replace_see_all_triangle: boolean
+  aux_tabs_format?: 'icon' | 'icon_and_name'
 }
 
 export interface EnhancementsConfig {

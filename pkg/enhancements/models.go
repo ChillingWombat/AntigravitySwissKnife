@@ -31,6 +31,7 @@ type OverviewPanelConfig struct {
 	ZonePadding            int    `json:"zone_padding"`             // Internal padding for section zone in px (default: 10)
 	ZoneGap                int    `json:"zone_gap"`                 // Vertical gap between section zones in px (default: 10)
 	ReplaceSeeAllTriangle  bool   `json:"replace_see_all_triangle"` // Replace "See all (N)" and "See less" with a compact little triangle (default: true)
+	AuxTabsFormat          string `json:"aux_tabs_format"`          // "icon" (default: compact icon-only matching native) or "icon_and_name"
 }
 
 // EnhancementsConfig holds configuration for usability improvements and add-on features.
@@ -76,6 +77,7 @@ func DefaultConfig() *EnhancementsConfig {
 			ZonePadding:            10,
 			ZoneGap:                10,
 			ReplaceSeeAllTriangle:  true,
+			AuxTabsFormat:          "icon",
 		},
 		ToolDensityMode:    "muted",
 		BreakerLineEnabled: true,

@@ -68,6 +68,9 @@ func (s *Store) load() error {
 	if cfg.OverviewPanel.DivisionStyle == "" {
 		cfg.OverviewPanel = DefaultConfig().OverviewPanel
 	}
+	if cfg.OverviewPanel.AuxTabsFormat == "" {
+		cfg.OverviewPanel.AuxTabsFormat = "icon"
+	}
 	s.config = cfg
 	return nil
 }
@@ -155,4 +158,17 @@ func (s *Store) SetDefaultNewProject(project string) error {
 	s.config.DefaultNewProject = project
 	return s.save()
 }
+
+// SetAuxTabsFormat sets the auxiliary extension tab switcher display format ("icon" or "icon_and_name").
+func (s *Store) SetAuxTabsFormat(format string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if format != "icon_and_name" {
+		format = "icon"
+	}
+	s.config.OverviewPanel.AuxTabsFormat = format
+	return s.save()
+}
+
 

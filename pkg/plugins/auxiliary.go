@@ -9,8 +9,11 @@ func GenerateAuxiliaryPluginsCSS() string {
 .swiss-aux-tab-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  justify-content: center;
+  gap: 5px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
   font-size: 11px;
   font-weight: 500;
   border-radius: 4px;
@@ -20,15 +23,44 @@ func GenerateAuxiliaryPluginsCSS() string {
   cursor: pointer;
   transition: all 0.15s ease;
   user-select: none;
+  box-sizing: border-box;
+  line-height: 1;
+}
+.swiss-aux-tab-btn.icon-only {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  padding: 0;
 }
 .swiss-aux-tab-btn:hover {
-  background: rgba(148, 163, 184, 0.12);
+  background: rgba(148, 163, 184, 0.15);
   color: var(--text, #1e293b);
 }
 .swiss-aux-tab-btn.active {
-  color: #1a73e8;
-  background: rgba(26, 115, 232, 0.08);
+  color: var(--text, #1e293b);
+  background: rgba(0, 0, 0, 0.08);
   font-weight: 600;
+}
+:is(.dark, [data-theme="dark"]) .swiss-aux-tab-btn.active {
+  color: #f1f5f9;
+  background: rgba(255, 255, 255, 0.12);
+}
+:is(.dark, [data-theme="dark"]) .swiss-aux-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f1f5f9;
+}
+.swiss-aux-tab-svg {
+  width: 14px;
+  height: 14px;
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+.swiss-aux-tab-label {
+  font-size: 11px;
+  line-height: 1;
+  pointer-events: none;
 }
 .swiss-aux-tabs-divider {
   height: 16px;
@@ -608,10 +640,55 @@ func GenerateAuxiliaryPluginsScript() string {
                         document.querySelector('.shrink-0.flex.items-center.border-b');
       if (!tabHeader) return;
 
+      // Define Swiss tabs with Antigravity-matching monochrome SVG stroke icons
+      const tabs = [
+        {
+          id: "browser",
+          tabId: "swiss-browser",
+          label: "Browser",
+          svg: '<svg class="swiss-aux-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'
+        },
+        {
+          id: "files",
+          tabId: "swiss-files",
+          label: "Files",
+          svg: '<svg class="swiss-aux-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>'
+        },
+        {
+          id: "memos",
+          tabId: "swiss-memos",
+          label: "Memos",
+          svg: '<svg class="swiss-aux-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><polyline points="15 3 15 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>'
+        },
+      ];
+
+      function getAuxTabFormat() {
+        return localStorage.getItem("antigravity_swiss_aux_tab_format") ||
+               (window.__SWISS_ENH_CONFIG__ && window.__SWISS_ENH_CONFIG__.overview_panel && window.__SWISS_ENH_CONFIG__.overview_panel.aux_tabs_format) ||
+               "icon";
+      }
+
+      function updateTabButtonMarkup(btn, t, fmt) {
+        btn.title = "Antigravity Swiss Knife: " + t.label;
+        if (fmt === "icon_and_name") {
+          btn.classList.remove("icon-only");
+          btn.innerHTML = t.svg + '<span class="swiss-aux-tab-label">' + t.label + '</span>';
+        } else {
+          btn.classList.add("icon-only");
+          btn.innerHTML = t.svg;
+        }
+      }
+
       // Configure tabs matching data-tab-id="swiss-browser", data-tab-id="swiss-files", data-tab-id="swiss-memos"
-      if (tabHeader.querySelector('[data-tab-id="swiss-browser"]') ||
-          tabHeader.querySelector('[data-tab-id="swiss-files"]') ||
-          tabHeader.querySelector('[data-tab-id="swiss-memos"]')) {
+      const existingBtns = tabHeader.querySelectorAll('.swiss-aux-tab-btn');
+      if (existingBtns.length > 0) {
+        const curFmt = getAuxTabFormat();
+        existingBtns.forEach(btn => {
+          const tid = btn.dataset.swissTab;
+          const t = tabs.find(x => x.id === tid);
+          if (t) updateTabButtonMarkup(btn, t, curFmt);
+        });
+
         if (activeAuxTab) {
           const auxPanel = tabHeader.parentElement || document.querySelector('[data-testid="auxiliary-panel"]') || document.querySelector('.part.auxiliarybar');
           const bodyContainer = (auxPanel ? auxPanel.querySelector('.flex-grow.overflow-hidden') : null) || document.querySelector('.flex-grow.overflow-hidden');
@@ -622,13 +699,6 @@ func GenerateAuxiliaryPluginsScript() string {
         }
         return;
       }
-
-      // Create Swiss Tab Buttons: Browser, Files, Memos
-      const tabs = [
-        { id: "browser", tabId: "swiss-browser", label: "Browser", icon: "🌐" },
-        { id: "files", tabId: "swiss-files", label: "Files", icon: "📁" },
-        { id: "memos", tabId: "swiss-memos", label: "Memos", icon: "📝" },
-      ];
 
       let divider = tabHeader.querySelector('.swiss-aux-tabs-divider');
       if (!divider) {
@@ -652,6 +722,7 @@ func GenerateAuxiliaryPluginsScript() string {
         tabHeader.appendChild(btnGroup);
       }
 
+      const curFmt = getAuxTabFormat();
       tabs.forEach(t => {
         const btn = document.createElement("button");
         btn.className = "swiss-aux-tab-btn";
@@ -660,8 +731,7 @@ func GenerateAuxiliaryPluginsScript() string {
         else if (t.id === "files") btn.setAttribute("data-tab-id", "swiss-files");
         else if (t.id === "memos") btn.setAttribute("data-tab-id", "swiss-memos");
         btn.dataset.swissTab = t.id;
-        btn.title = ` + "`" + `Antigravity Swiss Knife: ${t.label}` + "`" + `;
-        btn.innerHTML = ` + "`" + `<span>${t.icon}</span><span>${t.label}</span>` + "`" + `;
+        updateTabButtonMarkup(btn, t, curFmt);
         const activeTabTarget = activeAuxTab || localStorage.getItem("antigravity_active_aux_tab");
         if (activeTabTarget && (btn.getAttribute("data-tab-id") === activeTabTarget || t.id === activeTabTarget || ("swiss-" + t.id) === activeTabTarget)) {
           btn.classList.add("active");
@@ -673,6 +743,19 @@ func GenerateAuxiliaryPluginsScript() string {
         };
         btnGroup.appendChild(btn);
       });
+
+      // Bind dynamic format update listeners once
+      if (!window.__swissAuxFormatListenerBound) {
+        window.__swissAuxFormatListenerBound = true;
+        window.addEventListener("swiss-aux-tab-format-updated", () => {
+          setupAuxiliaryTabs();
+        });
+        window.addEventListener("storage", (e) => {
+          if (e.key === "antigravity_swiss_aux_tab_format") {
+            setupAuxiliaryTabs();
+          }
+        });
+      }
 
       // Two-way state sync: Listen for clicks on native factory tabs (overview, review, terminal)
       tabHeader.addEventListener("click", (e) => {

@@ -14,6 +14,7 @@ import {
   FileText,
   Image,
   Sliders,
+  Globe,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
@@ -186,6 +187,25 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
     }
   }
 
+  const handleAuxTabsFormatChange = async (format: 'icon' | 'icon_and_name') => {
+    if (!config) return
+    const updatedOp = { ...op, aux_tabs_format: format }
+    const updatedConfig: EnhancementsConfig = {
+      ...config,
+      overview_panel: updatedOp,
+    }
+    setConfig(updatedConfig)
+    try {
+      localStorage.setItem('antigravity_swiss_aux_tab_format', format)
+      window.dispatchEvent(new CustomEvent('swiss-aux-tab-format-updated', { detail: { format } }))
+    } catch (_) {}
+    try {
+      await api.updateEnhancements(updatedConfig)
+    } catch (err: any) {
+      console.error('Failed to auto-save aux_tabs_format:', err)
+    }
+  }
+
   if (loading || !config) {
     return (
       <div style={{ padding: '32px', textAlign: 'center', color: '#64748b' }}>
@@ -209,6 +229,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
     zone_padding: 10,
     zone_gap: 10,
     replace_see_all_triangle: true,
+    aux_tabs_format: 'icon',
   }
   const activeColor =
     jb.color_mode === 'default'
@@ -1742,6 +1763,255 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
   {/* Category 3: Overview Panel */}
   {activeCategoryTab === 2 && (
     <>
+      {/* Feature Card: Auxiliary Extension Tab Switchers Format */}
+      <div className="google-card" style={{ marginBottom: '20px' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            marginBottom: '16px',
+          }}
+        >
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Sliders size={18} color="var(--primary)" />
+              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+                Extension Tab Switchers Format
+              </h2>
+              <span
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  backgroundColor: '#e8f0fe',
+                  color: '#0b57d0',
+                }}
+              >
+                In-App UI
+              </span>
+            </div>
+            <p style={{ margin: '6px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
+              Configure how injected Swiss extensions (Browser, Files, Memos) are displayed alongside Antigravity's native tabs (Overview, Review, Terminal) in the auxiliary panel header.
+            </p>
+          </div>
+        </div>
+
+        {/* 2-Option Selector Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+          {/* Option 1: Just an Icon (Compact) */}
+          <div
+            onClick={() => handleAuxTabsFormatChange('icon')}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+              padding: '16px',
+              borderRadius: '10px',
+              border: `1.5px solid ${(op.aux_tabs_format || 'icon') === 'icon' ? '#0b57d0' : '#e2e8f0'}`,
+              backgroundColor: (op.aux_tabs_format || 'icon') === 'icon' ? '#eff6ff' : '#ffffff',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '13px', color: '#1e293b' }}>
+                <span>Just an Icon (Compact)</span>
+                <span
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    padding: '2px 6px',
+                    borderRadius: '10px',
+                    backgroundColor: '#dcfce7',
+                    color: '#15803d',
+                  }}
+                >
+                  Matches Native Tabs
+                </span>
+              </div>
+              <input
+                type="radio"
+                name="aux_tabs_format"
+                checked={(op.aux_tabs_format || 'icon') === 'icon'}
+                onChange={() => handleAuxTabsFormatChange('icon')}
+                style={{ accentColor: '#0b57d0', cursor: 'pointer' }}
+              />
+            </div>
+
+            <div style={{ fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+              Displays clean monochrome stroke icons matching Antigravity's native tabs without text. Hovering displays the tab name tooltip.
+            </div>
+
+            {/* Visual Demo of Icon Only Tabs */}
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '6px 10px',
+                backgroundColor: '#f1f5f9',
+                borderRadius: '6px',
+                width: 'fit-content',
+                border: '1px solid #e2e8f0',
+              }}
+            >
+              <div
+                style={{
+                  width: '24px',
+                  height: '24px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '4px',
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  color: '#1e293b',
+                }}
+                title="Browser"
+              >
+                <Globe size={14} />
+              </div>
+              <div
+                style={{
+                  width: '24px',
+                  height: '24px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '4px',
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  color: '#1e293b',
+                }}
+                title="Files"
+              >
+                <Folder size={14} />
+              </div>
+              <div
+                style={{
+                  width: '24px',
+                  height: '24px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '4px',
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  color: '#1e293b',
+                }}
+                title="Memos"
+              >
+                <FileText size={14} />
+              </div>
+            </div>
+          </div>
+
+          {/* Option 2: Icon and Name */}
+          <div
+            onClick={() => handleAuxTabsFormatChange('icon_and_name')}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+              padding: '16px',
+              borderRadius: '10px',
+              border: `1.5px solid ${op.aux_tabs_format === 'icon_and_name' ? '#0b57d0' : '#e2e8f0'}`,
+              backgroundColor: op.aux_tabs_format === 'icon_and_name' ? '#eff6ff' : '#ffffff',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '13px', color: '#1e293b' }}>
+                <span>Icon and Name</span>
+              </div>
+              <input
+                type="radio"
+                name="aux_tabs_format"
+                checked={op.aux_tabs_format === 'icon_and_name'}
+                onChange={() => handleAuxTabsFormatChange('icon_and_name')}
+                style={{ accentColor: '#0b57d0', cursor: 'pointer' }}
+              />
+            </div>
+
+            <div style={{ fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+              Displays clean monochrome stroke icons accompanied by full tab names for immediate text navigation.
+            </div>
+
+            {/* Visual Demo of Icon and Name Tabs */}
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '6px 10px',
+                backgroundColor: '#f1f5f9',
+                borderRadius: '6px',
+                width: 'fit-content',
+                border: '1px solid #e2e8f0',
+              }}
+            >
+              <div
+                style={{
+                  height: '24px',
+                  padding: '0 8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  borderRadius: '4px',
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  color: '#1e293b',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                }}
+              >
+                <Globe size={13} />
+                <span>Browser</span>
+              </div>
+              <div
+                style={{
+                  height: '24px',
+                  padding: '0 8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  borderRadius: '4px',
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  color: '#1e293b',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                }}
+              >
+                <Folder size={13} />
+                <span>Files</span>
+              </div>
+              <div
+                style={{
+                  height: '24px',
+                  padding: '0 8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  borderRadius: '4px',
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  color: '#1e293b',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                }}
+              >
+                <FileText size={13} />
+                <span>Memos</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="google-card">
         {/* Header with Master Toggle on the Right */}
         <div
@@ -2471,16 +2741,182 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.02)',
                   }}
                 >
-                  {/* Top icon bar */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', color: '#64748b' }}>
-                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                      <FileText size={16} />
-                      <Split size={16} />
+                  {/* Top Auxiliary Header Tab Strip Preview */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                      {/* Native Tab 1: Overview (Active) */}
+                      <div
+                        style={{
+                          width: '24px',
+                          height: '24px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderRadius: '4px',
+                          backgroundColor: 'rgba(0,0,0,0.08)',
+                          color: '#1e293b',
+                        }}
+                        title="Overview"
+                      >
+                        <FileText size={14} />
+                      </div>
+                      {/* Native Tab 2: Review */}
+                      <div
+                        style={{
+                          width: '24px',
+                          height: '24px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderRadius: '4px',
+                          color: '#64748b',
+                        }}
+                        title="Review"
+                      >
+                        <Split size={14} />
+                      </div>
+                      {/* Native Tab 3: Terminal */}
+                      <div
+                        style={{
+                          width: '24px',
+                          height: '24px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderRadius: '4px',
+                          color: '#64748b',
+                          fontSize: '11px',
+                          fontFamily: 'monospace',
+                          fontWeight: 700,
+                        }}
+                        title="Terminal"
+                      >
+                        {'>_'}
+                      </div>
+                      {/* Native Plus */}
+                      <div
+                        style={{
+                          width: '20px',
+                          height: '20px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderRadius: '4px',
+                          color: '#94a3b8',
+                        }}
+                      >
+                        <Plus size={13} />
+                      </div>
+
+                      {/* Divider */}
+                      <div style={{ width: '1px', height: '14px', backgroundColor: '#cbd5e1', margin: '0 4px' }} />
+
+                      {/* Injected Swiss Tabs in chosen format */}
+                      {(op.aux_tabs_format || 'icon') === 'icon' ? (
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                          <div
+                            style={{
+                              width: '24px',
+                              height: '24px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderRadius: '4px',
+                              color: '#64748b',
+                              backgroundColor: 'transparent',
+                            }}
+                            title="Browser"
+                          >
+                            <Globe size={14} />
+                          </div>
+                          <div
+                            style={{
+                              width: '24px',
+                              height: '24px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderRadius: '4px',
+                              color: '#64748b',
+                              backgroundColor: 'transparent',
+                            }}
+                            title="Files"
+                          >
+                            <Folder size={14} />
+                          </div>
+                          <div
+                            style={{
+                              width: '24px',
+                              height: '24px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderRadius: '4px',
+                              color: '#64748b',
+                              backgroundColor: 'transparent',
+                            }}
+                            title="Memos"
+                          >
+                            <FileText size={14} />
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <div
+                            style={{
+                              height: '22px',
+                              padding: '0 6px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              borderRadius: '4px',
+                              color: '#64748b',
+                              fontSize: '11px',
+                              fontWeight: 500,
+                            }}
+                          >
+                            <Globe size={12} />
+                            <span>Browser</span>
+                          </div>
+                          <div
+                            style={{
+                              height: '22px',
+                              padding: '0 6px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              borderRadius: '4px',
+                              color: '#64748b',
+                              fontSize: '11px',
+                              fontWeight: 500,
+                            }}
+                          >
+                            <Folder size={12} />
+                            <span>Files</span>
+                          </div>
+                          <div
+                            style={{
+                              height: '22px',
+                              padding: '0 6px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              borderRadius: '4px',
+                              color: '#64748b',
+                              fontSize: '11px',
+                              fontWeight: 500,
+                            }}
+                          >
+                            <FileText size={12} />
+                            <span>Memos</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                      <Plus size={16} />
-                      <span style={{ fontSize: '13px', lineHeight: 1 }}>⤢</span>
-                      <span style={{ fontSize: '13px', lineHeight: 1 }}>✕</span>
+
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', color: '#94a3b8' }}>
+                      <span style={{ fontSize: '13px', lineHeight: 1, cursor: 'pointer' }}>⤢</span>
+                      <span style={{ fontSize: '13px', lineHeight: 1, cursor: 'pointer' }}>✕</span>
                     </div>
                   </div>
 

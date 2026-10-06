@@ -135,7 +135,7 @@ export const App: React.FC = () => {
                     gap: '2px',
                   }}
                 >
-                  {['Chat View', 'Project Panel', 'Overview Panel', 'Chat History'].map((tab, idx) => {
+                  {['Chat View', 'Project Panel', 'Auxiliary & Overview Panel', 'Chat History'].map((tab, idx) => {
                     const isActive = enhancementTab === idx
                     return (
                       <button

@@ -141,3 +141,38 @@ func TestGenerateEnhancementsScript(t *testing.T) {
 		t.Errorf("expected script to intercept new-conversation-button")
 	}
 }
+
+func TestOverviewPanel_AuxTabsFormat(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.OverviewPanel.AuxTabsFormat != "icon" {
+		t.Errorf("expected AuxTabsFormat to be 'icon' by default, got %s", cfg.OverviewPanel.AuxTabsFormat)
+	}
+
+	tmpDir, err := os.MkdirTemp("", "enhancements-aux-tabs-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := NewStore(filepath.Join(tmpDir, "enhancements.json"))
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	if err := store.SetAuxTabsFormat("icon_and_name"); err != nil {
+		t.Fatalf("failed to set aux tabs format: %v", err)
+	}
+
+	if store.GetConfig().OverviewPanel.AuxTabsFormat != "icon_and_name" {
+		t.Errorf("expected AuxTabsFormat to be 'icon_and_name', got %s", store.GetConfig().OverviewPanel.AuxTabsFormat)
+	}
+
+	// Invalid fallback to "icon"
+	if err := store.SetAuxTabsFormat("something_else"); err != nil {
+		t.Fatalf("failed to set aux tabs format: %v", err)
+	}
+	if store.GetConfig().OverviewPanel.AuxTabsFormat != "icon" {
+		t.Errorf("expected AuxTabsFormat fallback to 'icon', got %s", store.GetConfig().OverviewPanel.AuxTabsFormat)
+	}
+}
+

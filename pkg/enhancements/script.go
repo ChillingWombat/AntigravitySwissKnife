@@ -24,6 +24,12 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
   try {
     let enhConfig = %s;
     if (!enhConfig) return;
+    if (typeof window !== "undefined") {
+      window.__SWISS_ENH_CONFIG__ = enhConfig;
+      if (enhConfig.overview_panel && enhConfig.overview_panel.aux_tabs_format) {
+        localStorage.setItem("antigravity_swiss_aux_tab_format", enhConfig.overview_panel.aux_tabs_format);
+      }
+    }
 
     let projectColors = {};
 
@@ -35,6 +41,14 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             const loaded = await res.json();
             if (loaded) {
               enhConfig = loaded;
+              window.__SWISS_ENH_CONFIG__ = loaded;
+              if (loaded.overview_panel && loaded.overview_panel.aux_tabs_format) {
+                const prevFmt = localStorage.getItem("antigravity_swiss_aux_tab_format");
+                if (prevFmt !== loaded.overview_panel.aux_tabs_format) {
+                  localStorage.setItem("antigravity_swiss_aux_tab_format", loaded.overview_panel.aux_tabs_format);
+                  window.dispatchEvent(new CustomEvent("swiss-aux-tab-format-updated"));
+                }
+              }
               applyEnhancementsStyles();
               renderPromptJumpBar();
               applyDefaultProjectHandler();

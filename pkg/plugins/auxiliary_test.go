@@ -41,6 +41,9 @@ func TestGenerateAuxiliaryPluginsCSS(t *testing.T) {
 		".swiss-editor-container",
 		".swiss-memos-view",
 		".swiss-telemetry-badge",
+		".swiss-aux-tab-btn.icon-only",
+		".swiss-aux-tab-svg",
+		".swiss-aux-tab-label",
 	}
 
 	for _, sel := range requiredSelectors {
@@ -69,6 +72,10 @@ func TestGenerateAuxiliaryPluginsScript(t *testing.T) {
 		`data-tab-id="swiss-browser"`,
 		`data-tab-id="swiss-files"`,
 		`data-tab-id="swiss-memos"`,
+		"swiss-aux-tab-svg",
+		"getAuxTabFormat",
+		"icon-only",
+		"swiss-aux-tab-format-updated",
 		`partition="persist:swiss-browser"`,
 		`allowRunningInsecureContent=yes`,
 		`webSecurity=no`,

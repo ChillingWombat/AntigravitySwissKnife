@@ -147,3 +147,54 @@ Integrate all script generators into GenerateScript(cfg) in pkg/gui/styler.go so
 ## 2026-10-05T22:16:45Z
 
 The server was restarted. Please revive orchestrator and subagents, check current progress across all requirements (R1 through R8), and continue the autonomous full-lifecycle delivery until all features are completely implemented, verified, and all gaps filled.
+
+## 2026-10-06T03:39:21Z
+
+Use a full multi-agent team, which also includes repeated adversarial reviews. Establish a fixed minimal non-maximized window size of 1152×648 px (strict 16:9 aspect ratio, 4-pixel aligned) for Antigravity Swiss Knife, and design layout zones, sections, and gadgets adhering as close to the golden ratio as possible with 4-pixel increment ceiling rounding for widths.
+
+Working directory: /mnt/Data/Projects/Antigravity Swiss Knife
+Integrity mode: development
+
+## Requirements
+
+### R1. Minimal Window Geometry & Strict 16:9 Aspect Ratio Locking
+Configure non-maximized window geometry in the desktop runtime (`electron/main.js`):
+- Minimal window dimensions must be set to 1152×648 px, satisfying both strict 16:9 aspect ratio (1152 / 648 = 16 / 9) and exact 4-pixel divisibility (1152 = 288 × 4, 648 = 162 × 4).
+- Window resizing while non-maximized must strictly preserve the 16:9 aspect ratio via `mainWindow.setAspectRatio(16 / 9)`.
+- Default initial window dimensions must be 1152×648 px (or a 16:9 multiple of 4 such as 1152×648).
+
+### R2. Golden Ratio Layout Architecture & 4-Pixel Grid Alignment
+Define and implement structured layout tokens and zone proportions in `frontend/src`:
+- Snap all layout boundaries, margins, paddings, rail widths, and header heights to integer multiples of 4 pixels.
+- Structure top-level application zones to achieve golden ratio proportions: NavRail at 220 px (55 × 4) and Header at 72 px (18 × 4) at base window size, giving a main content workspace of 932×576 px whose aspect ratio is 1.61806 (within 0.00003 of golden ratio $\phi \approx 1.618034$).
+- When partitioning content areas, cards, or master-detail zones, calculate widths using the ceiling 4-increment step rule ($W_{\text{major}} = \lceil W / \phi \rceil_4$), biasing the resulting aspect ratio closer to 16:9 (1.7778 > 1.6180).
+
+### R3. Component & Gadget Sizing Compliance
+Align cards, modals, gauges, and interactive gadget containers across the application to the 4-pixel grid and golden ratio proportions:
+- Modals and dashboard summary cards must utilize width-to-height dimensions or internal splits approximating $\phi$ snapped to 4-pixel multiples.
+- Ensure that responsive expansion beyond the minimum window size maintains 4-pixel grid alignment and proportional harmony without horizontal scrolling or visual clipping.
+
+### R4. Automated Verification Suite
+Provide an automated test suite verifying all layout mathematics and configurations:
+- Programmatic tests asserting that window dimensions, layout tokens, and calculated section widths are integer multiples of 4.
+- Programmatic tests confirming that width ceiling rounding pushes quantized ratios closer to 16:9 than floor rounding.
+- Verification that `frontend` TypeScript check and Vite build succeed with zero errors.
+
+## Acceptance Criteria
+
+### Window Geometry & Aspect Ratio
+- [ ] `electron/main.js` sets `minWidth: 1152`, `minHeight: 648`, and calls `mainWindow.setAspectRatio(16 / 9)`.
+- [ ] Both `minWidth` (1152) and `minHeight` (648) are divisible by 4 with zero remainder, and 1152 / 648 = 16 / 9.
+
+### Layout Zoning & Golden Ratio Math
+- [ ] Layout configuration tokens module exports base 4-pixel grid constants, golden ratio calculation helpers, and zone dimensions.
+- [ ] Top-level layout (NavRail 220px, Header 72px) produces a content canvas of 932×576 px at minimal window size, with aspect ratio within 0.01 of $\phi \approx 1.618034$.
+- [ ] Zone division logic applies ceiling 4-increment rounding for widths when dividing containers.
+
+### Component & Gadget Styling
+- [ ] Dashboard cards, modal dialogs, and key gadgets conform to 4-pixel spacing and golden-ratio derived dimensions.
+- [ ] No layout overflow or clipping occurs at the minimal 1152×648 window viewport.
+
+### Quality & Test Verification
+- [ ] Automated tests run via `npm test --prefix frontend` (or `node --test`) and pass 100%.
+- [ ] `npm run build --prefix frontend` succeeds with 0 errors.
