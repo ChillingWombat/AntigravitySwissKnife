@@ -18,7 +18,7 @@ import {
 } from 'lucide-react'
 import { api } from '../api'
 import type { KanbanBoard, KanbanCard, KanbanColumn } from '../types'
-import { getEffectiveKanbanColumns } from '../utils/kanban'
+import { getEffectiveKanbanColumns, findItemColumn } from '../utils/kanban'
 
 export const GitHubWorkspacePage: React.FC = () => {
   const [repo, setRepo] = useState<any>(null)
@@ -41,6 +41,26 @@ export const GitHubWorkspacePage: React.FC = () => {
   const [isCreatingIssue, setIsCreatingIssue] = useState<boolean>(false)
   const [newTitle, setNewTitle] = useState<string>('')
   const [newBody, setNewBody] = useState<string>('')
+  const [contextMenu, setContextMenu] = useState<{
+    x: number
+    y: number
+    item: any
+    itemType: 'issue' | 'pr'
+    currentColId: string
+  } | null>(null)
+
+  useEffect(() => {
+    const handleGlobalClick = () => setContextMenu(null)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContextMenu(null)
+    }
+    window.addEventListener('click', handleGlobalClick)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('click', handleGlobalClick)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
 
 
   const showToast = (msg: string) => {
@@ -141,6 +161,51 @@ export const GitHubWorkspacePage: React.FC = () => {
 
   const getEffectiveColumns = () =>
     getEffectiveKanbanColumns(kanbanBoard, issues, prs, searchQuery)
+
+  const handleDirectMove = async (item: any, itemType: string, sourceColId: string, targetColId: string) => {
+    if (sourceColId === targetColId) return
+    const cardNum = item.number
+    const cardType = itemType || (item.pull_request ? 'pr' : 'issue')
+    const cardId = item.id ? String(item.id) : `${cardType}-${cardNum}`
+
+    // Optimistic UI update
+    const currentCols = getEffectiveColumns()
+    const nextCols = currentCols.map((col: KanbanColumn) => {
+      if (col.id === sourceColId) {
+        return { ...col, cards: col.cards.filter((c) => c.number !== cardNum) }
+      }
+      if (col.id === targetColId) {
+        return { ...col, cards: [...col.cards, { ...item, column_id: targetColId }] }
+      }
+      return col
+    })
+    setKanbanBoard({
+      project_id: kanbanBoard?.project_id,
+      project_title: kanbanBoard?.project_title,
+      is_synthesized: kanbanBoard ? kanbanBoard.is_synthesized : true,
+      columns: nextCols,
+    })
+
+    try {
+      const res = await api.moveGitHubKanbanCard({
+        number: cardNum,
+        card_id: cardId,
+        card_type: cardType,
+        source_column: sourceColId,
+        target_column: targetColId,
+      })
+      if (res.success) {
+        showToast(`Card #${cardNum} moved to ${targetColId.replace('_', ' ').toUpperCase()}`)
+        loadData()
+      } else {
+        showToast(res.error || 'Failed to move card')
+        loadData()
+      }
+    } catch (err: any) {
+      showToast('Move failed: ' + err.message)
+      loadData()
+    }
+  }
 
 
 
@@ -450,6 +515,126 @@ export const GitHubWorkspacePage: React.FC = () => {
         </div>
       </div>
 
+      {/* Primary Navigation Tabs */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0 24px',
+          borderBottom: '1px solid var(--border)',
+          backgroundColor: 'var(--surface)',
+          flexShrink: 0,
+        }}
+      >
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={() => setViewMode('kanban')}
+            style={{
+              padding: '10px 14px',
+              fontSize: '13px',
+              fontWeight: viewMode === 'kanban' ? 600 : 500,
+              color: viewMode === 'kanban' ? '#1a73e8' : 'var(--text-muted)',
+              borderBottom: viewMode === 'kanban' ? '2px solid #1a73e8' : '2px solid transparent',
+              background: 'transparent',
+              borderLeft: 'none',
+              borderRight: 'none',
+              borderTop: 'none',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <Kanban size={14} /> Board
+          </button>
+          <button
+            onClick={() => {
+              setViewMode('list')
+              setActiveTab('issues')
+            }}
+            style={{
+              padding: '10px 14px',
+              fontSize: '13px',
+              fontWeight: viewMode === 'list' && activeTab === 'issues' ? 600 : 500,
+              color: viewMode === 'list' && activeTab === 'issues' ? '#1a73e8' : 'var(--text-muted)',
+              borderBottom: viewMode === 'list' && activeTab === 'issues' ? '2px solid #1a73e8' : '2px solid transparent',
+              background: 'transparent',
+              borderLeft: 'none',
+              borderRight: 'none',
+              borderTop: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            Issues ({issues.length})
+          </button>
+          <button
+            onClick={() => {
+              setViewMode('list')
+              setActiveTab('prs')
+            }}
+            style={{
+              padding: '10px 14px',
+              fontSize: '13px',
+              fontWeight: viewMode === 'list' && activeTab === 'prs' ? 600 : 500,
+              color: viewMode === 'list' && activeTab === 'prs' ? '#1a73e8' : 'var(--text-muted)',
+              borderBottom: viewMode === 'list' && activeTab === 'prs' ? '2px solid #1a73e8' : '2px solid transparent',
+              background: 'transparent',
+              borderLeft: 'none',
+              borderRight: 'none',
+              borderTop: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            Pull Requests ({prs.length})
+          </button>
+          <button
+            onClick={() => {
+              setViewMode('list')
+              setActiveTab('tasks')
+            }}
+            style={{
+              padding: '10px 14px',
+              fontSize: '13px',
+              fontWeight: viewMode === 'list' && activeTab === 'tasks' ? 600 : 500,
+              color: viewMode === 'list' && activeTab === 'tasks' ? '#1a73e8' : 'var(--text-muted)',
+              borderBottom: viewMode === 'list' && activeTab === 'tasks' ? '2px solid #1a73e8' : '2px solid transparent',
+              background: 'transparent',
+              borderLeft: 'none',
+              borderRight: 'none',
+              borderTop: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            Agent Tasks ({agentTasks.length})
+          </button>
+        </div>
+
+        {viewMode === 'list' && activeTab !== 'tasks' && (
+          <div style={{ display: 'flex', gap: '6px' }}>
+            {(['all', 'open', 'closed'] as const).map((filter) => (
+              <button
+                key={filter}
+                onClick={() => setStateFilter(filter)}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '12px',
+                  fontSize: '11px',
+                  fontWeight: stateFilter === filter ? 600 : 500,
+                  backgroundColor: stateFilter === filter ? '#1a73e8' : 'transparent',
+                  color: stateFilter === filter ? '#fff' : 'var(--text-muted)',
+                  border: '1px solid var(--border)',
+                  cursor: 'pointer',
+                  textTransform: 'capitalize',
+                }}
+              >
+                {filter}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       {viewMode === 'kanban' ? (
         <div
           style={{
@@ -595,6 +780,17 @@ export const GitHubWorkspacePage: React.FC = () => {
                         <div
                           key={card.id || `${card.type}-${num}`}
                           draggable={true}
+                          onContextMenu={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setContextMenu({
+                              x: e.clientX,
+                              y: e.clientY,
+                              item: card,
+                              itemType: isPR ? 'pr' : 'issue',
+                              currentColId: col.id,
+                            })
+                          }}
                           onDragStart={(e) => {
                             setDraggedCard(card)
                             const markdownContext = `### GitHub ${isPR ? 'Pull Request' : 'Issue'} #${num}: ${title}\n- **Repository:** ${repo ? repo.full_name : ''}\n- **State:** ${state}\n\n${card.body || ''}`
@@ -774,100 +970,8 @@ export const GitHubWorkspacePage: React.FC = () => {
           })}
         </div>
       ) : (
-        <>
-          {/* Tabs & Sub-Filters Row */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '0 24px',
-              borderBottom: '1px solid var(--border)',
-              backgroundColor: 'var(--surface)',
-            }}
-          >
-
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            onClick={() => setActiveTab('issues')}
-            style={{
-              padding: '10px 14px',
-              fontSize: '13px',
-              fontWeight: activeTab === 'issues' ? 600 : 500,
-              color: activeTab === 'issues' ? '#1a73e8' : 'var(--text-muted)',
-              borderBottom: activeTab === 'issues' ? '2px solid #1a73e8' : '2px solid transparent',
-              background: 'transparent',
-              borderLeft: 'none',
-              borderRight: 'none',
-              borderTop: 'none',
-              cursor: 'pointer',
-            }}
-          >
-            Issues ({issues.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('prs')}
-            style={{
-              padding: '10px 14px',
-              fontSize: '13px',
-              fontWeight: activeTab === 'prs' ? 600 : 500,
-              color: activeTab === 'prs' ? '#1a73e8' : 'var(--text-muted)',
-              borderBottom: activeTab === 'prs' ? '2px solid #1a73e8' : '2px solid transparent',
-              background: 'transparent',
-              borderLeft: 'none',
-              borderRight: 'none',
-              borderTop: 'none',
-              cursor: 'pointer',
-            }}
-          >
-            Pull Requests ({prs.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('tasks')}
-            style={{
-              padding: '10px 14px',
-              fontSize: '13px',
-              fontWeight: activeTab === 'tasks' ? 600 : 500,
-              color: activeTab === 'tasks' ? '#1a73e8' : 'var(--text-muted)',
-              borderBottom: activeTab === 'tasks' ? '2px solid #1a73e8' : '2px solid transparent',
-              background: 'transparent',
-              borderLeft: 'none',
-              borderRight: 'none',
-              borderTop: 'none',
-              cursor: 'pointer',
-            }}
-          >
-            Agent Tasks ({agentTasks.length})
-          </button>
-        </div>
-
-        {activeTab !== 'tasks' && (
-          <div style={{ display: 'flex', gap: '6px' }}>
-            {(['all', 'open', 'closed'] as const).map((filter) => (
-              <button
-                key={filter}
-                onClick={() => setStateFilter(filter)}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: '12px',
-                  fontSize: '11px',
-                  fontWeight: stateFilter === filter ? 600 : 500,
-                  backgroundColor: stateFilter === filter ? '#1a73e8' : 'transparent',
-                  color: stateFilter === filter ? '#fff' : 'var(--text-muted)',
-                  border: '1px solid var(--border)',
-                  cursor: 'pointer',
-                  textTransform: 'capitalize',
-                }}
-              >
-                {filter}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* 3-Column Workspace */}
-      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        /* 3-Column Workspace */
+        <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {/* Column 1: Items List */}
         <div
           style={{
@@ -955,6 +1059,18 @@ export const GitHubWorkspacePage: React.FC = () => {
               <div
                 key={item.number || idx}
                 onClick={() => selectItemForEditing(item)}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  const colId = findItemColumn(getEffectiveColumns(), item.number, activeTab === 'prs' ? 'pr' : 'issue')
+                  setContextMenu({
+                    x: e.clientX,
+                    y: e.clientY,
+                    item,
+                    itemType: activeTab === 'prs' ? 'pr' : 'issue',
+                    currentColId: colId,
+                  })
+                }}
                 style={{
                   padding: '12px 16px',
                   borderBottom: '1px solid var(--border)',
@@ -1342,7 +1458,6 @@ export const GitHubWorkspacePage: React.FC = () => {
           </div>
         </div>
       </div>
-      </>
       )}
 
       {/* New Issue Modal */}
@@ -1443,6 +1558,153 @@ export const GitHubWorkspacePage: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {contextMenu && (
+        <div
+          style={{
+            position: 'fixed',
+            left: Math.min(contextMenu.x, window.innerWidth - 200),
+            top: Math.min(contextMenu.y, window.innerHeight - 240),
+            zIndex: 99999,
+            minWidth: '180px',
+            backgroundColor: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: '8px',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.08)',
+            padding: '4px 0',
+            userSelect: 'none',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            style={{
+              fontSize: '10px',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+              color: 'var(--text-muted)',
+              padding: '6px 12px 4px',
+            }}
+          >
+            Move to Board
+          </div>
+          {[
+            { id: 'todo', label: 'Todo' },
+            { id: 'in_progress', label: 'In Progress' },
+            { id: 'review', label: 'Review' },
+            { id: 'done', label: 'Done' },
+          ].map((col) => {
+            const isCurrent = contextMenu.currentColId === col.id
+            return (
+              <button
+                key={col.id}
+                onClick={async () => {
+                  const targetCol = col.id
+                  const card = contextMenu.item
+                  const itemType = contextMenu.itemType
+                  const currentCol = contextMenu.currentColId
+                  setContextMenu(null)
+                  await handleDirectMove(card, itemType, currentCol, targetCol)
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  width: '100%',
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  color: isCurrent ? '#1a73e8' : 'var(--text)',
+                  fontWeight: isCurrent ? 600 : 400,
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(26,115,232,0.08)')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                <span>{col.label}</span>
+                {isCurrent && <span style={{ color: '#1a73e8', fontWeight: 600 }}>✓</span>}
+              </button>
+            )
+          })}
+          <div style={{ height: '1px', backgroundColor: 'var(--border)', margin: '4px 0', opacity: 0.6 }} />
+          <button
+            onClick={async () => {
+              const card = contextMenu.item
+              const isPR = contextMenu.itemType === 'pr'
+              const text = `### GitHub ${isPR ? 'Pull Request' : 'Issue'} #${card.number}: ${card.title}\n- **Repository:** ${repo ? repo.full_name : ''}\n- **State:** ${card.state || 'open'}\n\n${card.body || ''}`
+              setContextMenu(null)
+              await navigator.clipboard.writeText(text)
+              showToast(`Copied #${card.number} markdown context to clipboard`)
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              width: '100%',
+              padding: '6px 12px',
+              fontSize: '12px',
+              color: 'var(--text)',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(26,115,232,0.08)')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            Chat with Agent
+          </button>
+          <button
+            onClick={() => {
+              selectItemForEditing(contextMenu.item)
+              setViewMode('list')
+              setContextMenu(null)
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              width: '100%',
+              padding: '6px 12px',
+              fontSize: '12px',
+              color: 'var(--text)',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(26,115,232,0.08)')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            View & Edit Details
+          </button>
+          {contextMenu.item.url && (
+            <button
+              onClick={() => {
+                const url = contextMenu.item.url
+                setContextMenu(null)
+                window.open(url, '_blank')
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                width: '100%',
+                padding: '6px 12px',
+                fontSize: '12px',
+                color: 'var(--text)',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                textAlign: 'left',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(26,115,232,0.08)')}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+            >
+              Open on GitHub ↗
+            </button>
+          )}
         </div>
       )}
     </div>

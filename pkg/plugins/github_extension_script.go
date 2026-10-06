@@ -15,7 +15,7 @@ func GenerateGitHubExtensionScript() string {
   let cachedProjects = [];
   let cachedAgentTasks = [];
   let cachedKanbanBoard = null;
-  let activeTab = "issues"; // "issues" | "prs" | "board" | "tasks"
+  let activeTab = "board"; // "board" | "issues" | "prs" | "tasks"
   let activeFilter = "all"; // "all" | "open" | "mine"
   let activeSearch = "";
   let isLeftPanelOpen = true;
@@ -227,9 +227,9 @@ func GenerateGitHubExtensionScript() string {
         </div>
       </div>
       <div class="swiss-gh-tabs-row">
+        <button class="swiss-gh-tab-btn ${activeTab === "board" ? "active" : ""}" data-tab="board">Board</button>
         <button class="swiss-gh-tab-btn ${activeTab === "issues" ? "active" : ""}" data-tab="issues">Issues (${cachedIssues.length})</button>
         <button class="swiss-gh-tab-btn ${activeTab === "prs" ? "active" : ""}" data-tab="prs">PRs (${cachedPRs.length})</button>
-        <button class="swiss-gh-tab-btn ${activeTab === "board" ? "active" : ""}" data-tab="board">Board</button>
         <button class="swiss-gh-tab-btn ${activeTab === "tasks" ? "active" : ""}" data-tab="tasks">Agent Tasks (${cachedAgentTasks.length})</button>
       </div>
       <div class="swiss-gh-search-box">
@@ -397,6 +397,16 @@ func GenerateGitHubExtensionScript() string {
 
       card.addEventListener("dragend", () => {
         card.classList.remove("dragging");
+      });
+
+      card.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const itemType = card.dataset.itemType;
+        const itemNum = parseInt(card.dataset.itemNum, 10);
+        const cardId = itemType + "-" + itemNum;
+        const currentCol = getItemCurrentColumn(itemNum, itemType);
+        showGitHubContextMenu(e, itemNum, itemType, cardId, currentCol);
       });
     });
 
@@ -896,6 +906,39 @@ func GenerateGitHubExtensionScript() string {
     };
   }
 
+  function getItemCurrentColumn(number, type) {
+    const board = getEffectiveKanbanBoard();
+    if (board && board.columns) {
+      for (const col of board.columns) {
+        if ((col.cards || []).some(c => c.number === number && (c.type === type || (c.id && c.id.startsWith(type))))) {
+          return col.id;
+        }
+      }
+    }
+    if (type === "pr") {
+      const pr = cachedPRs.find(p => p.number === number);
+      if (pr) {
+        const st = (pr.state || "open").toLowerCase();
+        if (st === "closed" || st === "merged") return "done";
+        if (pr.is_draft) return "in_progress";
+        return "review";
+      }
+      return "review";
+    }
+    const iss = cachedIssues.find(i => i.number === number);
+    if (iss) {
+      const st = (iss.state || "open").toLowerCase();
+      if (st === "closed") return "done";
+      if (iss.assigned_agent) return "in_progress";
+      const isWIP = l => ["in progress", "in-progress", "wip", "doing"].includes((l || "").toLowerCase());
+      if ((iss.labels || []).some(isWIP)) return "in_progress";
+      const isRev = l => ["review", "in review", "in-review"].includes((l || "").toLowerCase());
+      if ((iss.labels || []).some(isRev)) return "review";
+      return "todo";
+    }
+    return "todo";
+  }
+
   async function moveKanbanCard(cardId, cardType, number, sourceCol, targetCol) {
     if (sourceCol === targetCol) return;
     try {
@@ -922,6 +965,137 @@ func GenerateGitHubExtensionScript() string {
     } finally {
       fetchRepoData();
     }
+  }
+
+  // Context Menu Helpers & Implementation
+  let activeGHContextMenu = null;
+
+  function removeGHContextMenu() {
+    if (activeGHContextMenu) {
+      activeGHContextMenu.remove();
+      activeGHContextMenu = null;
+    }
+    document.removeEventListener("click", onGHDocClick);
+    document.removeEventListener("contextmenu", onGHDocContextMenu);
+    document.removeEventListener("keydown", onGHDocKeydown);
+    window.removeEventListener("resize", removeGHContextMenu);
+  }
+
+  function onGHDocClick(e) {
+    if (activeGHContextMenu && !activeGHContextMenu.contains(e.target)) {
+      removeGHContextMenu();
+    }
+  }
+
+  function onGHDocContextMenu(e) {
+    if (activeGHContextMenu && !activeGHContextMenu.contains(e.target)) {
+      removeGHContextMenu();
+    }
+  }
+
+  function onGHDocKeydown(e) {
+    if (e.key === "Escape") {
+      removeGHContextMenu();
+    }
+  }
+
+  function showGitHubContextMenu(e, itemNum, itemType, cardId, currentColId) {
+    removeGHContextMenu();
+
+    const isPR = itemType === "pr" || (cardId && cardId.startsWith("pr-"));
+    const normalizedType = isPR ? "pr" : "issue";
+    const item = (normalizedType === "pr" ? cachedPRs : cachedIssues).find(i => i.number === itemNum);
+    const currentCol = currentColId || getItemCurrentColumn(itemNum, normalizedType);
+    const actualCardId = cardId || (normalizedType + "-" + itemNum);
+
+    const menu = document.createElement("div");
+    menu.className = "swiss-gh-context-menu";
+
+    const colCategories = [
+      { id: "todo", label: "Todo" },
+      { id: "in_progress", label: "In Progress" },
+      { id: "review", label: "Review" },
+      { id: "done", label: "Done" }
+    ];
+
+    let categoryItemsHTML = colCategories.map(c => {
+      const isCurrent = c.id === currentCol;
+      return '<button class="swiss-gh-menu-item ' + (isCurrent ? 'active' : '') + '" data-target-col="' + c.id + '">' +
+        '<span>' + c.label + '</span>' +
+        (isCurrent ? '<span class="swiss-gh-menu-check">✓</span>' : '') +
+      '</button>';
+    }).join("");
+
+    let menuHTML = '<div class="swiss-gh-menu-header">Move to Board</div>' +
+      categoryItemsHTML +
+      '<div class="swiss-gh-menu-divider"></div>' +
+      '<button class="swiss-gh-menu-item" id="swiss-gh-ctx-chat"><span>Chat with Agent</span></button>' +
+      '<button class="swiss-gh-menu-item" id="swiss-gh-ctx-edit"><span>View & Edit Details</span></button>';
+
+    if (item && item.url) {
+      menuHTML += '<button class="swiss-gh-menu-item" id="swiss-gh-ctx-open"><span>Open on GitHub ↗</span></button>';
+    }
+
+    menu.innerHTML = menuHTML;
+
+    menu.querySelectorAll(".swiss-gh-menu-item[data-target-col]").forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const targetCol = btn.dataset.targetCol;
+        removeGHContextMenu();
+        await moveKanbanCard(actualCardId, normalizedType, itemNum, currentCol, targetCol);
+      });
+    });
+
+    menu.querySelector("#swiss-gh-ctx-chat")?.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      removeGHContextMenu();
+      if (item) {
+        sendToChatComposer(formatMarkdownPayload(item, normalizedType));
+        showToast("Attached #" + itemNum + " to prompt");
+      }
+    });
+
+    menu.querySelector("#swiss-gh-ctx-edit")?.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      removeGHContextMenu();
+      openIssueDetailModal(itemNum);
+    });
+
+    menu.querySelector("#swiss-gh-ctx-open")?.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      removeGHContextMenu();
+      if (item && item.url) {
+        window.open(item.url, "_blank");
+      }
+    });
+
+    menu.style.visibility = "hidden";
+    menu.style.left = "0px";
+    menu.style.top = "0px";
+    document.body.appendChild(menu);
+
+    const rect = menu.getBoundingClientRect();
+    const pad = 8;
+    let finalX = e.clientX;
+    let finalY = e.clientY;
+    if (finalX + rect.width > window.innerWidth - pad) {
+      finalX = Math.max(pad, window.innerWidth - rect.width - pad);
+    }
+    if (finalY + rect.height > window.innerHeight - pad) {
+      finalY = Math.max(pad, window.innerHeight - rect.height - pad);
+    }
+    menu.style.left = finalX + "px";
+    menu.style.top = finalY + "px";
+    menu.style.visibility = "visible";
+
+    activeGHContextMenu = menu;
+    setTimeout(() => {
+      document.addEventListener("click", onGHDocClick);
+      document.addEventListener("contextmenu", onGHDocContextMenu);
+      document.addEventListener("keydown", onGHDocKeydown);
+      window.addEventListener("resize", removeGHContextMenu);
+    }, 10);
   }
 
   function renderKanbanCardHTML(card, colId) {
@@ -1066,6 +1240,16 @@ func GenerateGitHubExtensionScript() string {
         draggedKanbanCard = null;
         containerEl.querySelectorAll(".swiss-gh-kanban-col-cards").forEach(c => c.classList.remove("drag-over"));
       });
+
+      card.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const itemType = card.dataset.itemType;
+        const itemNum = parseInt(card.dataset.itemNum, 10);
+        const cardId = card.dataset.cardId || (itemType + "-" + itemNum);
+        const currentCol = card.dataset.colId || getItemCurrentColumn(itemNum, itemType);
+        showGitHubContextMenu(e, itemNum, itemType, cardId, currentCol);
+      });
     });
 
     containerEl.querySelectorAll(".swiss-gh-kanban-col-cards").forEach(dropZone => {
@@ -1113,8 +1297,9 @@ func GenerateGitHubExtensionScript() string {
         <!-- Column 1: Issues / PRs List -->
         <div class="swiss-gh-col-left">
           <div class="swiss-gh-tabs-row">
-            <button class="swiss-gh-tab-btn ${activeTab === "issues" ? "active" : ""}" data-tab="issues">Issues (${cachedIssues.length})</button>
-            <button class="swiss-gh-tab-btn ${activeTab === "prs" ? "active" : ""}" data-tab="prs">PRs (${cachedPRs.length})</button>
+            <button class="swiss-gh-tab-btn ${stageViewMode === "kanban" ? "active" : ""}" data-tab="board">Board</button>
+            <button class="swiss-gh-tab-btn ${activeTab === "issues" && stageViewMode === "list" ? "active" : ""}" data-tab="issues">Issues (${cachedIssues.length})</button>
+            <button class="swiss-gh-tab-btn ${activeTab === "prs" && stageViewMode === "list" ? "active" : ""}" data-tab="prs">PRs (${cachedPRs.length})</button>
           </div>
           <div class="swiss-gh-list" id="swiss-stage-gh-list">
             ${renderCardListHTML(getFilteredItems())}
@@ -1228,6 +1413,19 @@ func GenerateGitHubExtensionScript() string {
       bindCardEventListeners(container);
     } else {
       bindCardEventListeners(container);
+      container.querySelectorAll(".swiss-gh-col-left .swiss-gh-tab-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const tab = btn.dataset.tab;
+          if (tab === "board") {
+            stageViewMode = "kanban";
+            renderGitHubWorkspaceStage(container);
+          } else {
+            activeTab = tab;
+            stageViewMode = "list";
+            renderGitHubWorkspaceStage(container);
+          }
+        });
+      });
       container.querySelectorAll(".swiss-gh-card").forEach(card => {
         card.addEventListener("click", () => {
           const num = parseInt(card.dataset.itemNum, 10);

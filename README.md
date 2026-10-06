@@ -26,11 +26,11 @@ Unlike brittle proxy-based MITM solutions, Antigravity Swiss Knife runs **100% n
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │                                Antigravity Swiss Knife                                 │
 ├─────────────────────┬──────────────────────┬────────────────────┬──────────────────────┤
-│ 1. Account Switcher │ 2. Custom Models     │ 3. UI Enhancements │ 4. Feature Plugins   │
+│ 1. Account Switcher │ 2. Custom Models     │ 3. UI Enhancements │ 4. Extensions        │
 │ • 2x2 Gauge Matrix  │ • 6-Probe Security   │ • Jump Bar         │ • App/Web Preview    │
 │ • Dual Quota Bars   │   Audit Engine       │ • Turn Counter     │ • Auxiliary Explorer │
-│ • MFA / TOTP Vault  │ • Model Canary Test  │ • Density Modes    │ • Mobile Simulator   │
-│ • FP Virtualization │ • OpenAI / Anthropic │ • Project Coloring │ • Quick Voice Memos  │
+│ • MFA / TOTP Vault  │ • Model Canary Test  │ • Density Modes    │ • Quick Voice Memos  │
+│ • FP Virtualization │ • OpenAI / Anthropic │ • Project Coloring │ • GitHub Workspace   │
 ├─────────────────────┼──────────────────────┼────────────────────┼──────────────────────┤
 │ 5. Token Monitor    │ 6. Utilities & ACP   │ 7. Automations     │ 8. Archived Projects │
 │ • k/M & USD Switch  │ • Chat Migration     │ • Cron Automations │ • Storage Inspector  │
@@ -67,7 +67,7 @@ Unlike brittle proxy-based MITM solutions, Antigravity Swiss Knife runs **100% n
 - **Visual Project Styling**: Assign distinct Google Material pastel accents and badges to each active workspace.
 - **Smart Dynamic Tab Limits**: Automatically manage open chat tabs with fixed or age-based auto-archiving.
 
-### 4. 🧩 Feature Plugins (Exclusive to Antigravity 2.0 Desktop)
+### 4. 🧩 Extensions (Exclusive to Antigravity 2.0 Desktop)
 
 - **Auxiliary App & Browser Live Preview**:
   - Embedded browser preview with real-time navigation controls.
@@ -94,6 +94,12 @@ Unlike brittle proxy-based MITM solutions, Antigravity Swiss Knife runs **100% n
     - Open with system default application.
     - Open in Antigravity's auxiliary viewer/editor for inline annotation (Markdown, PDF, code).
     - Drag directly into agent chat input to attach or inject absolute file paths.
+- **GitHub Workspace Extension**:
+  - Live local repository detection via Git & GitHub CLI integration.
+  - Interactive GitHub Projects Kanban board view with 4 configurable status columns (Todo, In Progress, Review, Done).
+  - Drag-and-drop cards between columns with optimistic UI updates and live GitHub API synchronization.
+  - Issue & Pull Request tracker with state filtering, instant search, and inline comment/editing.
+  - Multi-agent task tracker linking active and idle conversations to GitHub tickets.
 - **Mobile Simulator**:
   - Mobile viewport presets (iPhone 16 Pro, Google Pixel 9 Pro, iPad Air).
   - Orientation toggling (Portrait / Landscape) and hardware device bezel toggle.

@@ -496,6 +496,7 @@ func runSwitch(args []string) {
 		}
 		profStore, _ := fingerprint.NewStore("")
 		_ = keyring.SyncAllSurfaces(acc, allEmails, profStore)
+		_, _ = gui.NewInjector(0).RefreshUserStatus()
 	}
 	fmt.Printf("[OK] Successfully switched active account to: %s (direct)\n", email)
 }

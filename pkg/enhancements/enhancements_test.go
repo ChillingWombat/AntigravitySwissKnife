@@ -2,6 +2,7 @@ package enhancements
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -216,6 +217,22 @@ func TestOverviewPanel_AuxTabsFormat(t *testing.T) {
 	}
 	if store.GetConfig().OverviewPanel.AuxTabsFormat != "icon" {
 		t.Errorf("expected AuxTabsFormat fallback to 'icon', got %s", store.GetConfig().OverviewPanel.AuxTabsFormat)
+	}
+}
+
+func TestGenerateEnhancementsScript_Syntax(t *testing.T) {
+	js := GenerateEnhancementsScript(nil)
+	if js == "" {
+		t.Fatalf("expected non-empty JS script")
+	}
+
+	if _, err := exec.LookPath("node"); err == nil {
+		cmd := exec.Command("node", "--check")
+		cmd.Stdin = strings.NewReader(js)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("node syntax error in GenerateEnhancementsScript: %v\n%s", err, string(out))
+		}
 	}
 }
 

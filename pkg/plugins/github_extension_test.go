@@ -24,6 +24,8 @@ func TestGenerateGitHubExtensionCSS(t *testing.T) {
 		"#swiss-main-stage-container",
 		".swiss-main-stage-tab",
 		"#swiss-main-stage-body",
+		".swiss-gh-context-menu",
+		".swiss-gh-menu-item",
 	}
 
 	for _, sel := range requiredSelectors {
@@ -47,6 +49,8 @@ func TestGenerateGitHubExtensionScript(t *testing.T) {
 		"renderStageKanbanBoardHTML",
 		"bindKanbanDragEvents",
 		"moveKanbanCard",
+		"showGitHubContextMenu",
+		"getItemCurrentColumn",
 		"openMainStage",
 		"closeMainStage",
 		"renderMainStageUI",
@@ -57,6 +61,13 @@ func TestGenerateGitHubExtensionScript(t *testing.T) {
 		if !strings.Contains(js, id) {
 			t.Errorf("expected script to contain identifier %q", id)
 		}
+	}
+
+	// Verify Board is leftmost tab before Issues in the tabs row
+	boardIdx := strings.Index(js, `data-tab="board">Board</button>`)
+	issuesIdx := strings.Index(js, `data-tab="issues">Issues`)
+	if boardIdx == -1 || issuesIdx == -1 || boardIdx > issuesIdx {
+		t.Errorf("expected Board tab (idx %d) to appear before Issues tab (idx %d)", boardIdx, issuesIdx)
 	}
 
 	if nodePath, err := exec.LookPath("node"); err == nil {

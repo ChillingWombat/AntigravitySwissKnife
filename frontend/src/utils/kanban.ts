@@ -154,3 +154,23 @@ export function getEffectiveKanbanColumns(
 
   return filterColumnsByQuery(baseColumns, searchQuery)
 }
+
+export function findItemColumn(
+  columns: KanbanColumn[],
+  number: number,
+  type?: string
+): string {
+  if (!columns || !Array.isArray(columns)) return 'todo'
+  const targetType = type ? type.toLowerCase() : ''
+  for (const col of columns) {
+    if (!col || !col.cards) continue
+    for (const card of col.cards) {
+      if (card.number === number) {
+        if (!targetType) return col.id
+        const cardType = (card.type || (card.id?.startsWith('pr-') ? 'pr' : 'issue')).toLowerCase()
+        if (cardType === targetType) return col.id
+      }
+    }
+  }
+  return 'todo'
+}

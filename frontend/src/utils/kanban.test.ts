@@ -8,6 +8,7 @@ import {
   synthesizeKanbanBoard,
   filterColumnsByQuery,
   getEffectiveKanbanColumns,
+  findItemColumn,
 } from './kanban.ts'
 import type { KanbanBoard, KanbanColumn } from '../types.ts'
 
@@ -317,6 +318,32 @@ describe('kanban utility', () => {
     })
   })
 
+  describe('findItemColumn', () => {
+    const mockColumns = [
+      { id: 'todo', title: 'Todo', cards: [{ id: 'issue-10', number: 10, type: 'issue' }] },
+      { id: 'in_progress', title: 'In Progress', cards: [{ id: 'issue-20', number: 20, type: 'issue' }] },
+      { id: 'review', title: 'Review', cards: [{ id: 'pr-30', number: 30, type: 'pr' }] },
+      { id: 'done', title: 'Done', cards: [{ id: 'issue-40', number: 40, type: 'issue' }] },
+    ] as any
+
+    it('locates column by number and type', () => {
+      assert.equal(findItemColumn(mockColumns, 10, 'issue'), 'todo')
+      assert.equal(findItemColumn(mockColumns, 20, 'issue'), 'in_progress')
+      assert.equal(findItemColumn(mockColumns, 30, 'pr'), 'review')
+      assert.equal(findItemColumn(mockColumns, 40, 'issue'), 'done')
+    })
+
+    it('falls back to todo if card number is not found', () => {
+      assert.equal(findItemColumn(mockColumns, 999, 'issue'), 'todo')
+    })
+
+    it('handles null, undefined, or empty column lists safely', () => {
+      assert.equal(findItemColumn(null as any, 10), 'todo')
+      assert.equal(findItemColumn(undefined as any, 10), 'todo')
+      assert.equal(findItemColumn([], 10), 'todo')
+    })
+  })
+
   describe('Null, undefined, and malformed edge cases', () => {
     it('handles null and undefined issues and PRs in categorization safely', () => {
       assert.equal(categorizeIssue(null), 'todo')
@@ -339,4 +366,5 @@ describe('kanban utility', () => {
     })
   })
 })
+
 

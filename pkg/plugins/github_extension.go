@@ -856,5 +856,86 @@ func GenerateGitHubExtensionCSS() string {
   background: #1e1f20;
   color: #f8fafc;
 }
+
+/* GitHub Context Menu */
+.swiss-gh-context-menu {
+  position: fixed;
+  z-index: 100000;
+  min-width: 180px;
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+  font-family: inherit;
+}
+:is(.dark, [data-theme="dark"]) .swiss-gh-context-menu {
+  background: #1e1f22;
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.swiss-gh-menu-header {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted, #64748b);
+  padding: 6px 12px 4px;
+}
+:is(.dark, [data-theme="dark"]) .swiss-gh-menu-header {
+  color: #94a3b8;
+}
+
+.swiss-gh-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text, #1e293b);
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+:is(.dark, [data-theme="dark"]) .swiss-gh-menu-item {
+  color: #f1f5f9;
+}
+.swiss-gh-menu-item:hover {
+  background: rgba(26, 115, 232, 0.08);
+  color: #1a73e8;
+}
+:is(.dark, [data-theme="dark"]) .swiss-gh-menu-item:hover {
+  background: rgba(138, 180, 248, 0.12);
+  color: #8ab4f8;
+}
+.swiss-gh-menu-item.active {
+  font-weight: 600;
+}
+.swiss-gh-menu-check {
+  font-size: 11px;
+  color: #1a73e8;
+}
+:is(.dark, [data-theme="dark"]) .swiss-gh-menu-check {
+  color: #8ab4f8;
+}
+
+.swiss-gh-menu-divider {
+  height: 1px;
+  background: var(--border, #e2e8f0);
+  margin: 4px 0;
+  opacity: 0.6;
+}
+:is(.dark, [data-theme="dark"]) .swiss-gh-menu-divider {
+  background: rgba(255, 255, 255, 0.08);
+}
 `
 }

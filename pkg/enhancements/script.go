@@ -331,6 +331,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             .swiss-see-triangle-btn:hover {
               background-color: rgba(11, 87, 208, 0.15) !important;
             }
+          ` + "`" + `;
         }
       }
 
