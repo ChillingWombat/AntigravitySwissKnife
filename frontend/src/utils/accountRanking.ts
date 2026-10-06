@@ -237,6 +237,13 @@ export function extractAccountMetrics(acc: AccountState, mode: SwitchMode): Acco
     sec7d = parseHorizonTextSeconds(acc.reset_horizon_weekly_text)
   }
 
+  // Cap effective 5h available quota by weekly quota if weekly is depleted and not resetting within 5h window
+  const hasCredits = Boolean(acc.enable_credit_overages && (acc.credits ?? 0) > 0)
+  const weeklyResetsIn5h = sec7d > 0 && sec7d <= FIVE_HOUR_WINDOW_SECONDS
+  if (!hasCredits && !weeklyResetsIn5h && q7d <= 0.05) {
+    q5hAvail = Math.min(q5hAvail, q7d)
+  }
+
   let r7dSoonness = 0.35
   if (sec7d > 0 && sec7d <= WEEKLY_WINDOW_SECONDS) {
     r7dSoonness = clamp01(1.0 - sec7d / WEEKLY_WINDOW_SECONDS)
@@ -632,29 +639,37 @@ export function sortAccounts(
   // Tier 0: Active healthy account (Row 1 pinned)
   // Tier 1: Healthy Paid Standby successors above threshold (ordered by switch mode)
   // Tier 2: Healthy Free Standby successors (Free ranked last among eligible standbys)
-  // Tier 3: Cooling down / below threshold accounts
-  // Tier 4: Error accounts
-  // Tier 5: Banned accounts
+  // Tier 3: 5h Cooldown with healthy weekly quota (recovering in <= 5h)
+  // Tier 4: Weekly Depleted / Exhausted accounts (locked out for weekly cycle)
+  // Tier 5: Error accounts
+  // Tier 6: Banned accounts
   const normActive = activeEmail.toLowerCase().trim()
 
   const getTier = (a: AccountState): number => {
+    const isAct = normActive !== '' ? a.email.toLowerCase().trim() === normActive : Boolean(a.is_active)
+    if (isAct) return 0
+
     const st = (a.status || '').toUpperCase()
-    if (st === 'BANNED') return 5
-    if (st === 'ERROR') return 4
-    if (st === 'COOLDOWN') return 3
+    if (st === 'BANNED') return 6
+    if (st === 'ERROR') return 5
 
     const cur5h = a.quota_5h_current ?? a.quota_5h_available ?? 0
     const weekly = a.quota_weekly ?? 0
     const hasWeekly = weekly > thresholdWeekly || Boolean(a.enable_credit_overages && (a.credits ?? 0) > 0)
-    const isBelow = cur5h <= threshold || !hasWeekly
+    const is5hBelow = cur5h <= threshold || st === 'COOLDOWN'
 
-    if (!isBelow) {
+    if (!is5hBelow && hasWeekly) {
       if (isFreePlanTier(a.email, a.plan_tier)) {
-        return 2
+        return 2 // Healthy Free Standby
       }
-      return 1
+      return 1 // Healthy Paid Standby
     }
-    return 3
+
+    if (hasWeekly) {
+      return 3 // 5h Cooldown with healthy weekly quota
+    }
+
+    return 4 // Weekly Depleted / Exhausted
   }
 
   return copy.sort((a, b) => {
@@ -670,23 +685,39 @@ export function sortAccounts(
       return tA - tB
     }
 
-    // Within Tier 1 or Tier 2: compare by switch mode
-    if (tA === 1 || tA === 2) {
+    // Within Tier 1, Tier 2, or Tier 3: compare using mode-aware standby ranking!
+    if (tA === 1 || tA === 2 || tA === 3) {
       return compareStandbyCandidates(a, b, threshold, swMode)
     }
 
-    // Within Tier 3 (cooling down): prioritize paid over free, then highest available recovery
-    if (tA === 3) {
+    // Within Tier 4 (Weekly Depleted):
+    if (tA === 4) {
       const freeA = isFreePlanTier(a.email, a.plan_tier)
       const freeB = isFreePlanTier(b.email, b.plan_tier)
       if (freeA !== freeB) {
         return freeA ? 1 : -1
       }
+      const pa = priorityRank(a.priority)
+      const pb = priorityRank(b.priority)
+      if (pa !== pb) return pa - pb
+
+      // Higher remaining weekly quota first (e.g. 4% > 1% > 0%)
+      const diffWeekly = (b.quota_weekly ?? 0) - (a.quota_weekly ?? 0)
+      if (Math.abs(diffWeekly) > 0.001) {
+        return diffWeekly
+      }
+      // Sooner weekly reset first if available
+      const sec7dA = a.reset_seconds_weekly ?? parseHorizonTextSeconds(a.reset_horizon_weekly_text)
+      const sec7dB = b.reset_seconds_weekly ?? parseHorizonTextSeconds(b.reset_horizon_weekly_text)
+      if (sec7dA > 0 && sec7dB > 0 && Math.abs(sec7dA - sec7dB) > 60) {
+        return sec7dA - sec7dB
+      }
+      // Highest 5h available recovery
       const diff5h = (b.quota_5h_available ?? 0) - (a.quota_5h_available ?? 0)
       if (Math.abs(diff5h) > 0.001) {
         return diff5h
       }
-      return (b.quota_weekly ?? 0) - (a.quota_weekly ?? 0)
+      return (a.label || a.email).localeCompare(b.label || b.email)
     }
 
     return (a.label || a.email).localeCompare(b.label || b.email)

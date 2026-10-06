@@ -71,9 +71,16 @@ class AccountQuotaState:
             # Resets within 5 hours! Quota refreshes back to 100% (1.0).
             # Replenished capacity is available for (5.0 - h) / 5.0 of the window.
             replenished_boost = (1.0 - cur) * ((5.0 - h) / 5.0)
-            return max(0.0, min(1.0, cur + replenished_boost))
+            avail = max(0.0, min(1.0, cur + replenished_boost))
         else:
-            return cur
+            avail = cur
+
+        # Cap by weekly quota if weekly is depleted and not resetting within 5h
+        qwk = max(0.0, min(1.0, float(self.quota_weekly)))
+        sec_weekly = float(self.reset_seconds_weekly)
+        if qwk <= 0.05 and (sec_weekly <= 0 or sec_weekly > 18000.0):
+            avail = min(avail, qwk)
+        return avail
 
 
 def compute_fleet_quota_summary(
@@ -325,29 +332,31 @@ def sort_account_quota_states(
         q5h_cur = max(0.0, min(1.0, float(a.quota_5h_current)))
         q5h_avail = a.quota_5h_available
         qwk = max(0.0, min(1.0, float(a.quota_weekly)))
-        is_below = q5h_cur <= threshold or qwk <= 0.05
+        has_weekly = qwk > 0.05
+        is_5h_below = q5h_cur <= threshold or st == "COOLDOWN"
         is_free = is_free_plan_tier(a.email, a.plan_tier)
         tier_mult = plan_tier_capacity_multiplier(a.plan_tier)
 
-        # 6 Structural Tiers:
+        # 7 Structural Tiers:
         # Tier 0: Active account (Row 1 pinned)
         # Tier 1: Healthy Paid Standby successors
         # Tier 2: Healthy Free Standby successors (Free ranked strictly after paid)
-        # Tier 3: Cooling down / Below threshold accounts
-        # Tier 4: Error accounts
-        # Tier 5: Banned accounts
+        # Tier 3: 5h Cooldown with healthy weekly quota (recovering in <= 5h)
+        # Tier 4: Weekly Depleted / Exhausted accounts
+        # Tier 5: Error accounts
+        # Tier 6: Banned accounts
         if is_act:
             tier = 0
         elif is_ban:
-            tier = 5
+            tier = 6
         elif is_err:
-            tier = 4
-        elif st == "COOLDOWN":
-            tier = 3
-        elif not is_below:
+            tier = 5
+        elif not is_5h_below and has_weekly:
             tier = 2 if is_free else 1
-        else:
+        elif has_weekly:
             tier = 3
+        else:
+            tier = 4
 
         prio_map = {"HIGH": 0, "MID": 1, "LOW": 2}
         prio_rank = prio_map.get((a.priority or "High").upper(), 0)
@@ -363,6 +372,10 @@ def sort_account_quota_states(
         else:
             # balanced
             score = tier_mult * (0.42 * q5h_cur + 0.12 * q5h_avail + 0.32 * qwk)
+
+        if tier == 4:
+            # Weekly depleted accounts: rank by remaining weekly quota, then 5h available
+            return (tier, prio_rank, -round(qwk, 4), -round(q5h_avail, 4), (a.label or a.email).lower())
 
         return (tier, prio_rank, -round(score, 4), -round(q5h_cur, 4), (a.label or a.email).lower())
 

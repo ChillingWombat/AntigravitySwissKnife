@@ -514,6 +514,22 @@ func TestLiveInjection(t *testing.T) {
 	t.Logf("Live injection succeeded: %+v", res)
 }
 
+func TestLiveRefreshUserStatus(t *testing.T) {
+	inj := NewInjector(0)
+	_, err := inj.FindDevToolsPort()
+	if err != nil {
+		t.Skip("Antigravity DevTools not running, skipping live refresh user status test")
+	}
+	res, err := inj.RefreshUserStatus()
+	if err != nil {
+		t.Skipf("Live Antigravity instance not responding to DevTools: %v", err)
+	}
+	if !res.Success {
+		t.Errorf("RefreshUserStatus returned non-success: %+v", res)
+	}
+	t.Logf("Live RefreshUserStatus succeeded: %+v", res)
+}
+
 func TestFormatRelativeTime(t *testing.T) {
 	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
 

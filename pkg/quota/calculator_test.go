@@ -676,4 +676,120 @@ func TestWeeklyThreshold_EvaluationAndExclusion(t *testing.T) {
 	}
 }
 
+func TestSortAccountQuotaStates_CooldownVsWeeklyDepleted(t *testing.T) {
+	active := AccountQuotaState{
+		Email:            "jose@example.com",
+		IsActive:         true,
+		PlanTier:         "Pro",
+		Status:           "COOLDOWN",
+		Quota5hCurrent:   0.64,
+		Quota5hAvailable: 0.64,
+		QuotaWeekly:      0.0,
+	}
+	albert := AccountQuotaState{
+		Email:                  "alberto@example.com",
+		IsActive:               false,
+		PlanTier:               "Pro",
+		Status:                 "COOLDOWN",
+		Quota5hCurrent:         0.0,
+		Quota5hAvailable:       0.86,
+		QuotaWeekly:            0.01, // 1% weekly - exhausted!
+		ResetSeconds:           2400, // 40m
+		ResetSecondsWeekly:     300000,
+		ResetHorizonText:       "Resets in 40m",
+		ResetHorizonWeeklyText: "Resets in 3d",
+	}
+	satya := AccountQuotaState{
+		Email:                  "satya@example.com",
+		IsActive:               false,
+		PlanTier:               "Pro",
+		Status:                 "COOLDOWN",
+		Quota5hCurrent:         0.0,
+		Quota5hAvailable:       0.46,
+		QuotaWeekly:            0.33, // 33% weekly - healthy!
+		ResetSeconds:           9720, // 2h 42m
+		ResetSecondsWeekly:     400000,
+		ResetHorizonText:       "Resets in 2h 42m",
+		ResetHorizonWeeklyText: "Resets in 4d",
+	}
+	prwh := AccountQuotaState{
+		Email:                  "prwh@example.com",
+		IsActive:               false,
+		PlanTier:               "Pro",
+		Status:                 "STANDBY",
+		Quota5hCurrent:         0.0,
+		Quota5hAvailable:       0.34,
+		QuotaWeekly:            0.83, // 83% weekly - tons of quota!
+		ResetSeconds:           12000, // 3h 20m
+		ResetSecondsWeekly:     500000,
+		ResetHorizonText:       "Resets in 3h 20m",
+		ResetHorizonWeeklyText: "Resets in 5d",
+	}
+
+	// In Balanced mode: PRWH (83% weekly) ranks ahead of Satya (33%), and both rank ahead of Albert (1%)
+	sortedBal := SortAccountQuotaStatesWithThresholds(
+		[]AccountQuotaState{albert, satya, prwh, active},
+		active.Email,
+		0.05,
+		0.05,
+		"auto",
+		SwitchModeBalanced,
+	)
+	if len(sortedBal) != 4 {
+		t.Fatalf("expected 4 sorted accounts, got %d", len(sortedBal))
+	}
+	if sortedBal[0].Email != "jose@example.com" {
+		t.Errorf("expected active account in row 0, got %s", sortedBal[0].Email)
+	}
+	if sortedBal[1].Email != "prwh@example.com" {
+		t.Errorf("expected prwh in row 1 (highest weekly in balanced), got %s", sortedBal[1].Email)
+	}
+	if sortedBal[2].Email != "satya@example.com" {
+		t.Errorf("expected satya in row 2 (recovers 5h soon with 33%% weekly), got %s", sortedBal[2].Email)
+	}
+	if sortedBal[3].Email != "alberto@example.com" {
+		t.Errorf("expected albert in row 3 (weekly depleted), got %s", sortedBal[3].Email)
+	}
+
+	// In MaxContinuous mode: Satya (sooner 5h recovery, 46% projected) ranks ahead of PRWH (34%), Albert remains last
+	sortedCont := SortAccountQuotaStatesWithThresholds(
+		[]AccountQuotaState{albert, satya, prwh, active},
+		active.Email,
+		0.05,
+		0.05,
+		"auto",
+		SwitchModeMaxContinuous,
+	)
+	if sortedCont[0].Email != "jose@example.com" {
+		t.Errorf("expected active account in row 0, got %s", sortedCont[0].Email)
+	}
+	if sortedCont[1].Email != "satya@example.com" {
+		t.Errorf("expected satya in row 1 (sooner 5h recovery in continuous mode), got %s", sortedCont[1].Email)
+	}
+	if sortedCont[2].Email != "prwh@example.com" {
+		t.Errorf("expected prwh in row 2, got %s", sortedCont[2].Email)
+	}
+	if sortedCont[3].Email != "alberto@example.com" {
+		t.Errorf("expected albert in row 3, got %s", sortedCont[3].Email)
+	}
+}
+
+func TestExtractAccountMetrics_WeeklyDepletionCap(t *testing.T) {
+	albert := AccountQuotaState{
+		Email:                  "alberto@example.com",
+		Quota5hCurrent:         0.0,
+		Quota5hAvailable:       0.86,
+		QuotaWeekly:            0.01,
+		ResetSeconds:           2400,
+		ResetHorizonText:       "Resets in 40m",
+		ResetSecondsWeekly:     300000,
+		ResetHorizonWeeklyText: "Resets in 3d",
+	}
+	metrics := ExtractAccountMetrics(albert, SwitchModeBalanced)
+	if metrics.Q5hAvail > 0.01 {
+		t.Errorf("expected Q5hAvail to be capped by weekly quota (0.01), got %f", metrics.Q5hAvail)
+	}
+}
+
+
 

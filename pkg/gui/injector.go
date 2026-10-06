@@ -42,7 +42,22 @@ type DevToolsTarget struct {
 	WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
 }
 
-// FindDevToolsPort reads the active remote debugging port of Antigravity.
+func (inj *Injector) isPortLive(port int) bool {
+	client := &http.Client{Timeout: 600 * time.Millisecond}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/json/version", port))
+	if err == nil {
+		_ = resp.Body.Close()
+		return resp.StatusCode == http.StatusOK
+	}
+	resp2, err2 := client.Get(fmt.Sprintf("http://127.0.0.1:%d/json", port))
+	if err2 == nil {
+		_ = resp2.Body.Close()
+		return resp2.StatusCode == http.StatusOK
+	}
+	return false
+}
+
+// FindDevToolsPort reads the active remote debugging port of Antigravity and verifies it is responsive.
 func (inj *Injector) FindDevToolsPort() (int, error) {
 	if inj.customPort > 0 {
 		return inj.customPort, nil
@@ -51,23 +66,27 @@ func (inj *Injector) FindDevToolsPort() (int, error) {
 	// 1. Check DevToolsActivePort in Antigravity host config dir
 	activePortPath := filepath.Join(core.GetAntigravityHostConfigDir(), "DevToolsActivePort")
 	if data, err := os.ReadFile(activePortPath); err == nil {
-			lines := strings.Split(string(data), "\n")
-			if len(lines) > 0 {
-				portStr := strings.TrimSpace(lines[0])
-				if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
+		lines := strings.Split(string(data), "\n")
+		if len(lines) > 0 {
+			portStr := strings.TrimSpace(lines[0])
+			if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
+				if inj.isPortLive(p) {
 					return p, nil
 				}
+			}
 		}
 	}
 
 	// 2. Check override from env
 	if pStr := os.Getenv("ANTIGRAVITY_CDP_PORT"); pStr != "" {
 		if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
-			return p, nil
+			if inj.isPortLive(p) {
+				return p, nil
+			}
 		}
 	}
 
-	return 0, fmt.Errorf("DevToolsActivePort file not found or empty (Antigravity may not be running)")
+	return 0, fmt.Errorf("DevToolsActivePort file not found, empty, or port not responding (Antigravity may not be running)")
 }
 
 // GetPageTargets fetches the active page targets from the DevTools endpoint.
@@ -240,6 +259,135 @@ func (inj *Injector) ApplyConfig(cfg *Config) (*ApplyResult, error) {
 		Success: true,
 		Message: fmt.Sprintf("Successfully injected project styling into %d Antigravity window(s)", appliedCount),
 		Port:    port,
+	}, nil
+}
+
+// RefreshUserStatusResult captures metrics from in-app React Fiber user status refresh.
+type RefreshUserStatusResult struct {
+	Success      bool   `json:"success"`
+	Message      string `json:"message"`
+	Port         int    `json:"port"`
+	WindowsCount int    `json:"windows_count"`
+	Email        string `json:"email,omitempty"`
+}
+
+// RefreshUserStatusScript is evaluated in Antigravity's Electron renderer via Chrome DevTools Protocol.
+// It traverses the React Fiber tree from document.getElementById("root"), locates userStatusProvider
+// and modelCtx, calls usp.lsClient.getUserStatus() to push fresh userStatus into state, and triggers
+// modelCtx.refreshModels(). If React Fiber traversal fails or USP cannot be resolved, it falls back
+// cleanly to window.location.reload().
+const RefreshUserStatusScript = `(async () => {
+	try {
+		const root = document.getElementById("root");
+		if (!root) {
+			window.location.reload();
+			return { reloaded: true, reason: "no_root" };
+		}
+		const key = Object.keys(root).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactContainer"));
+		if (!key) {
+			window.location.reload();
+			return { reloaded: true, reason: "no_fiber_key" };
+		}
+		let curr = root[key];
+		const queue = [curr];
+		const visited = new Set();
+		let usp = null, modelCtx = null;
+		let count = 0;
+		while (queue.length > 0 && count < 6000) {
+			const node = queue.shift();
+			count++;
+			if (!node || visited.has(node)) continue;
+			visited.add(node);
+			if (!usp && node.memoizedProps?.value?.userStatusProvider) {
+				usp = node.memoizedProps.value.userStatusProvider;
+			}
+			if (!modelCtx && node.memoizedProps?.value?.refreshModels) {
+				modelCtx = node.memoizedProps.value;
+			}
+			if (usp && modelCtx) break;
+			if (node.child) queue.push(node.child);
+			if (node.sibling) queue.push(node.sibling);
+		}
+		if (!usp) {
+			window.location.reload();
+			return { reloaded: true, reason: "no_usp" };
+		}
+		let email = "";
+		if (usp.lsClient && typeof usp.lsClient.getUserStatus === "function") {
+			const resp = await usp.lsClient.getUserStatus({ metadata: usp.metadata });
+			if (resp && resp.userStatus) {
+				usp.pushUpdate(resp.userStatus);
+				email = String(resp.userStatus.email || "");
+			}
+		}
+		if (modelCtx && typeof modelCtx.refreshModels === "function") {
+			try { await modelCtx.refreshModels(); } catch(_) {}
+		}
+		return {
+			success: true,
+			fiber_refreshed: true,
+			email: email,
+			nodes_visited: count
+		};
+	} catch(err) {
+		try { window.location.reload(); } catch(_) {}
+		return { reloaded: true, error: String(err && err.message ? err.message : err) };
+	}
+})()`
+
+// RefreshUserStatus performs live zero-flicker in-app React Fiber state refresh for userStatus and quota
+// across all running Antigravity window instances via Chrome DevTools Protocol.
+// If Fiber traversal fails, it automatically falls back to CDP window.location.reload().
+func (inj *Injector) RefreshUserStatus() (*RefreshUserStatusResult, error) {
+	port, err := inj.FindDevToolsPort()
+	if err != nil {
+		return &RefreshUserStatusResult{
+			Success: false,
+			Message: fmt.Sprintf("Antigravity DevTools port not detected or inactive: %v", err),
+		}, err
+	}
+
+	pages, err := inj.GetPageTargets(port)
+	if err != nil || len(pages) == 0 {
+		return &RefreshUserStatusResult{
+			Success: false,
+			Port:    port,
+			Message: fmt.Sprintf("No active Antigravity page windows found on port %d", port),
+		}, err
+	}
+
+	var lastErr error
+	var lastEmail string
+	refreshedCount := 0
+
+	for _, page := range pages {
+		res, err := inj.ExecuteScript(page.WebSocketDebuggerURL, RefreshUserStatusScript)
+		if err != nil {
+			lastErr = err
+			// Fallback: Attempt CDP Page reload
+			_, _ = inj.ExecuteScript(page.WebSocketDebuggerURL, "window.location.reload()")
+		} else {
+			refreshedCount++
+			if em, ok := res["email"].(string); ok && em != "" {
+				lastEmail = em
+			}
+		}
+	}
+
+	if refreshedCount == 0 && lastErr != nil {
+		return &RefreshUserStatusResult{
+			Success: false,
+			Port:    port,
+			Message: fmt.Sprintf("Failed to refresh Antigravity user status: %v", lastErr),
+		}, lastErr
+	}
+
+	return &RefreshUserStatusResult{
+		Success:      true,
+		Port:         port,
+		WindowsCount: refreshedCount,
+		Email:        lastEmail,
+		Message:      fmt.Sprintf("Successfully refreshed user status in %d Antigravity window(s)", refreshedCount),
 	}, nil
 }
 

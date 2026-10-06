@@ -393,6 +393,11 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 		}
 
 		avail5h := ComputeEffective5hAvailable(cur5h, curSec)
+		hasCreditOverages := acc.EnableCreditOverages && credits > 0
+		weeklyResetsIn5h := curSecWeekly > 0 && curSecWeekly <= FiveHourWindowSeconds
+		if !hasCreditOverages && !weeklyResetsIn5h && curWeekly <= thresholdWeekly {
+			avail5h = math.Min(avail5h, curWeekly)
+		}
 		if resText == "Not Polled" && curSec > 0 {
 			resText = FormatHorizonSec(curSec)
 		} else if resText == "Not Polled" && cur5h > 0 {
@@ -733,6 +738,13 @@ func ExtractAccountMetrics(acc AccountQuotaState, mode string) AccountMetrics {
 	sec7d := acc.ResetSecondsWeekly
 	if sec7d <= 0.0 && acc.ResetHorizonWeeklyText != "" {
 		sec7d = ParseHorizonTextSeconds(acc.ResetHorizonWeeklyText)
+	}
+
+	// Cap effective 5h available quota by weekly quota if weekly is depleted and not resetting within 5h window
+	hasCreditOverages := acc.EnableCreditOverages && acc.Credits > 0
+	weeklyResetsIn5h := sec7d > 0.0 && sec7d <= FiveHourWindowSeconds
+	if !hasCreditOverages && !weeklyResetsIn5h && q7d <= 0.05 {
+		q5hAvail = math.Min(q5hAvail, q7d)
 	}
 
 	var r7dSoonness float64
@@ -1125,9 +1137,10 @@ func SortAccountQuotaStatesWithThresholds(accounts []AccountQuotaState, activeEm
 	// Tier 0: Active healthy account (Row 1 pinned)
 	// Tier 1: Healthy Paid Standby successors above threshold (ordered by switch mode)
 	// Tier 2: Healthy Free Standby successors (Free ranked last among eligible standbys)
-	// Tier 3: Cooling down / below threshold accounts
-	// Tier 4: Error accounts
-	// Tier 5: Banned accounts
+	// Tier 3: 5h Cooldown with healthy weekly quota (recovering in <= 5h)
+	// Tier 4: Weekly Depleted / Exhausted (locked out for weekly cycle)
+	// Tier 5: Error accounts
+	// Tier 6: Banned accounts
 	getTier := func(a AccountQuotaState) int {
 		isAct := a.IsActive || a.Email == activeEmail
 		if isAct {
@@ -1135,22 +1148,29 @@ func SortAccountQuotaStatesWithThresholds(accounts []AccountQuotaState, activeEm
 		}
 		st := strings.ToUpper(a.Status)
 		if st == "BANNED" {
-			return 5
+			return 6
 		}
 		if st == "ERROR" {
-			return 4
+			return 5
 		}
-		if st == "COOLDOWN" {
-			return 3
-		}
-		isBelow := a.Quota5hCurrent <= threshold5h || (a.QuotaWeekly <= thresholdWeekly && !(a.EnableCreditOverages && a.Credits > 0))
-		if !isBelow {
+
+		cur5h := a.Quota5hCurrent
+		weekly := a.QuotaWeekly
+		hasWeekly := weekly > thresholdWeekly || (a.EnableCreditOverages && a.Credits > 0)
+		is5hBelow := cur5h <= threshold5h || st == "COOLDOWN"
+
+		if !is5hBelow && hasWeekly {
 			if IsFreePlanTier(a.Email, a.PlanTier) {
 				return 2
 			}
 			return 1
 		}
-		return 3
+
+		if hasWeekly {
+			return 3 // 5h Cooldown with healthy weekly quota
+		}
+
+		return 4 // Weekly Depleted
 	}
 
 	sort.Slice(items, func(i, j int) bool {
@@ -1160,22 +1180,51 @@ func SortAccountQuotaStatesWithThresholds(accounts []AccountQuotaState, activeEm
 			return tA < tB
 		}
 
-		// Within Tier 1 or Tier 2: compare by switch mode
-		if tA == 1 || tA == 2 {
+		// Within Tier 1, Tier 2, or Tier 3: compare by switch mode
+		if tA == 1 || tA == 2 || tA == 3 {
 			return CompareStandbyCandidates(items[i], items[j], threshold5h, swMode)
 		}
 
-		// Within Tier 3 (cooling down): prioritize paid over free, then highest available recovery
-		if tA == 3 {
+		// Within Tier 4 (Weekly Depleted):
+		if tA == 4 {
 			freeI := IsFreePlanTier(items[i].Email, items[i].PlanTier)
 			freeJ := IsFreePlanTier(items[j].Email, items[j].PlanTier)
 			if freeI != freeJ {
 				return !freeI
 			}
-			if math.Abs(items[i].Quota5hAvailable-items[j].Quota5hAvailable) > 0.001 {
-				return items[i].Quota5hAvailable > items[j].Quota5hAvailable
+			pa := PriorityRank(items[i].Priority)
+			pb := PriorityRank(items[j].Priority)
+			if pa != pb {
+				return pa < pb
 			}
-			return items[i].QuotaWeekly > items[j].QuotaWeekly
+			diffWeekly := items[i].QuotaWeekly - items[j].QuotaWeekly
+			if math.Abs(diffWeekly) > 0.001 {
+				return diffWeekly > 0
+			}
+			sec7dI := items[i].ResetSecondsWeekly
+			if sec7dI <= 0 && items[i].ResetHorizonWeeklyText != "" {
+				sec7dI = ParseHorizonTextSeconds(items[i].ResetHorizonWeeklyText)
+			}
+			sec7dJ := items[j].ResetSecondsWeekly
+			if sec7dJ <= 0 && items[j].ResetHorizonWeeklyText != "" {
+				sec7dJ = ParseHorizonTextSeconds(items[j].ResetHorizonWeeklyText)
+			}
+			if sec7dI > 0 && sec7dJ > 0 && math.Abs(sec7dI-sec7dJ) > 60 {
+				return sec7dI < sec7dJ
+			}
+			diff5h := items[i].Quota5hAvailable - items[j].Quota5hAvailable
+			if math.Abs(diff5h) > 0.001 {
+				return diff5h > 0
+			}
+			nameI := strings.ToLower(items[i].Label)
+			if nameI == "" {
+				nameI = strings.ToLower(items[i].Email)
+			}
+			nameJ := strings.ToLower(items[j].Label)
+			if nameJ == "" {
+				nameJ = strings.ToLower(items[j].Email)
+			}
+			return nameI < nameJ
 		}
 		return items[i].Email < items[j].Email
 	})

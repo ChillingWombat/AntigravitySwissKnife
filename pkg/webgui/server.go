@@ -665,6 +665,7 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 		}
 		if acc, _ := store.GetAccount(p.Email); acc != nil {
 			_ = keyring.SyncAllSurfaces(acc, allEmails, nil)
+			_, _ = gui.NewInjector(0).RefreshUserStatus()
 		}
 		res = map[string]interface{}{"switched": true, "account": p.Email}
 	}
@@ -984,7 +985,7 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 	if err := s.client.Call("swiss.getRuleConfig", nil, &cfg); err != nil {
 		c, _ := core.LoadConfig()
 		geminiReasoning := "high"
-		defaultGemini := "gemini-3.8-flash"
+		defaultGemini := "gemini-3.8-flash-high"
 		defaultNonGemini := "claude-opus-4-6"
 		if c != nil {
 			if c.DefaultGeminiReasoningLevel != "" {
@@ -1049,7 +1050,7 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if gm, ok := cfg["default_gemini_model"].(string); !ok || gm == "" {
-			cfg["default_gemini_model"] = "gemini-3.8-flash"
+			cfg["default_gemini_model"] = "gemini-3.8-flash-high"
 		}
 		if ngm, ok := cfg["default_non_gemini_model"].(string); !ok || ngm == "" {
 			cfg["default_non_gemini_model"] = "claude-opus-4-6"

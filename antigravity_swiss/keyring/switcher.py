@@ -56,6 +56,11 @@ def get_default_antigravity_storage_file() -> Path:
         return Path(os.environ["ANTIGRAVITY_STORAGE_FILE"]).expanduser().resolve()
     if os.environ.get("ANTIGRAVITY_CONFIG_DIR"):
         return Path(os.environ["ANTIGRAVITY_CONFIG_DIR"]).expanduser().resolve() / "app_storage.json"
+    if os.environ.get("ANTIGRAVITY_SWISS_TESTING") == "1" or os.environ.get("ANTIGRAVITY_TEST_MODE") == "1":
+        if os.environ.get("XDG_CONFIG_HOME"):
+            return (Path(os.environ["XDG_CONFIG_HOME"]) / "Antigravity" / "app_storage.json").resolve()
+        if os.environ.get("HOME"):
+            return (Path(os.environ["HOME"]) / ".config" / "Antigravity" / "app_storage.json").resolve()
     return (Path.home() / ".config" / "Antigravity" / "app_storage.json").resolve()
 
 
@@ -643,7 +648,13 @@ class AccountStore:
 
 
 def get_default_keyring_backend() -> KeyringBackendProtocol:
-    """Detects available keyring backend, preferring secret-tool then D-Bus."""
+    """Detects available keyring backend, preferring mock during testing, then secret-tool, then D-Bus."""
+    if os.environ.get("ANTIGRAVITY_SWISS_TESTING") == "1" or os.environ.get("ANTIGRAVITY_TEST_MODE") == "1":
+        try:
+            from tests.fixtures.mock_keyring import MockKeyringBackend
+            return MockKeyringBackend()
+        except ImportError:
+            pass
     if SecretToolBackend.is_available():
         return SecretToolBackend()
     if DBusKeyring.is_available():

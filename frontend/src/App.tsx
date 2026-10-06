@@ -12,21 +12,20 @@ import { CustomModelsPage } from './pages/CustomModelsPage'
 import { AppEnhancementsPage } from './pages/AppEnhancementsPage'
 import { ScheduledTemplatesPage } from './pages/ScheduledTemplatesPage'
 import { ArchivedProjectsPage } from './pages/ArchivedProjectsPage'
-import { FeaturePluginsPage } from './pages/FeaturePluginsPage'
+import { ExtensionsPage } from './pages/ExtensionsPage'
 import { TokenMonitorPage } from './pages/TokenMonitorPage'
 import { UtilitiesPage } from './pages/UtilitiesPage'
-import { GitHubWorkspacePage } from './pages/GitHubWorkspacePage'
 import { AppLockScreen } from './components/AppLockScreen'
 import type { FleetQuotaSummary, RuleConfig, SystemStatus } from './types'
 import { api } from './api'
 
 export const App: React.FC = () => {
-  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 1: Marketplace, 2: Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived, 7: Plugins, 8: Token Monitor, 9: Utilities, 10: GitHub Workspace
+  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 1: Marketplace, 2: Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived, 7: Extensions, 8: Token Monitor, 9: Utilities
   const [currentTab, setCurrentTab] = useState<number>(0) // 0: Dashboard, 1: MFA, 2: FP, 3: Cache, 4: Rules
   const [systemSettingsTab, setSystemSettingsTab] = useState<number>(0) // 0: General, 1: Path & Storage, 2: Error & Privacy, 3: About
   const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Overview Panel, 3: Chat History
   const [automationTab, setAutomationTab] = useState<'catalog' | 'created'>('catalog')
-  const [featurePluginTab, setFeaturePluginTab] = useState<number>(0) // 0: Preview, 1: File Explorer, 2: Memos, 3: Mobile, 4: Computer Use
+  const [extensionTab, setExtensionTab] = useState<number>(0) // 0: Preview, 1: File Explorer, 2: Memos, 3: GitHub Workspace, 4: Mobile, 5: Computer Use
   const [utilitiesTab, setUtilitiesTab] = useState<number>(0) // 0: Importer, 1: ACP Inspector
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [fleet, setFleet] = useState<FleetQuotaSummary | null>(null)
@@ -71,7 +70,12 @@ export const App: React.FC = () => {
     if (electronAPI?.onNavigate) {
       electronAPI.onNavigate((toolIdx: number) => {
         if (typeof toolIdx === 'number') {
-          setCurrentTool(toolIdx)
+          if (toolIdx === 10) {
+            setCurrentTool(7)
+            setExtensionTab(3)
+          } else {
+            setCurrentTool(toolIdx)
+          }
         }
       })
     }
@@ -201,8 +205,8 @@ export const App: React.FC = () => {
                 </div>
               )}
 
-              {currentTool === 7 && (
-                /* Feature Plugins Segmented Tabs */
+              {(currentTool === 7 || currentTool === 10) && (
+                /* Extensions Segmented Tabs */
                 <div
                   style={{
                     display: 'flex',
@@ -216,14 +220,19 @@ export const App: React.FC = () => {
                     'Browser & App Preview',
                     'Auxiliary File Explorer',
                     'Quick Memos',
+                    'GitHub Workspace',
                     'Mobile Simulator',
                     'Computer Use Enhancer',
                   ].map((tab, idx) => {
-                    const isActive = featurePluginTab === idx
+                    const effectiveActiveTab = currentTool === 10 ? 3 : extensionTab
+                    const isActive = effectiveActiveTab === idx
                     return (
                       <button
                         key={tab}
-                        onClick={() => setFeaturePluginTab(idx)}
+                        onClick={() => {
+                          if (currentTool === 10) setCurrentTool(7)
+                          setExtensionTab(idx)
+                        }}
                         style={{
                           borderRadius: '16px',
                           padding: '6px 14px',
@@ -327,15 +336,13 @@ export const App: React.FC = () => {
                     ? 'Archived Projects'
                     : currentTool === 8
                     ? 'Token & Cost Monitor'
-                    : currentTool === 10
-                    ? 'GitHub Workspace'
                     : ''}
                 </h1>
               )}
             </div>
 
             <div id="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              {currentTool === 7 && (
+              {(currentTool === 7 || currentTool === 10) && (
                 <span
                   style={{
                     fontSize: '11.5px',
@@ -411,15 +418,17 @@ export const App: React.FC = () => {
           {currentTool === 4 && <AppEnhancementsPage activeCategoryTab={enhancementTab} />}
           {currentTool === 5 && <ScheduledTemplatesPage activeTab={automationTab} onTabChange={setAutomationTab} />}
           {currentTool === 6 && <ArchivedProjectsPage />}
-          {currentTool === 7 && (
-            <FeaturePluginsPage
-              activeTab={featurePluginTab}
-              onTabChange={setFeaturePluginTab}
+          {(currentTool === 7 || currentTool === 10) && (
+            <ExtensionsPage
+              activeTab={currentTool === 10 ? 3 : extensionTab}
+              onTabChange={(t) => {
+                if (currentTool === 10) setCurrentTool(7)
+                setExtensionTab(t)
+              }}
             />
           )}
           {currentTool === 8 && <TokenMonitorPage />}
           {currentTool === 9 && <UtilitiesPage initialTab={utilitiesTab} />}
-          {currentTool === 10 && <GitHubWorkspacePage />}
         </main>
       </div>
     </div>

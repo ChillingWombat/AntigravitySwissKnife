@@ -2,6 +2,7 @@ package keyring
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -11,7 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/fingerprint"
+	_ "modernc.org/sqlite"
 )
 
 // AntigravitySecretPayload models the exact JSON schema expected by Antigravity in Linux Secret Service and standalone token files.
@@ -269,6 +272,141 @@ func SyncOAuthCredsJSON(acc *Account) error {
 	return os.WriteFile(targetPath, data, 0600)
 }
 
+// writeVarint writes an unsigned varint into a bytes.Buffer according to Protobuf specification.
+func writeVarint(buf *bytes.Buffer, v uint64) {
+	for v >= 0x80 {
+		buf.WriteByte(byte(v&0x7f | 0x80))
+		v >>= 7
+	}
+	buf.WriteByte(byte(v))
+}
+
+// buildUserStatusSentinel constructs the exact nested protobuf structure expected by
+// Antigravity for antigravityUnifiedStateSync.userStatus in state.vscdb.
+func buildUserStatusSentinel(email string) string {
+	if email == "" {
+		return ""
+	}
+	emailBytes := []byte(email)
+	// inner protobuf:
+	// field 3: string (tag = 0x1a = 3<<3 | 2)
+	// field 7: string (tag = 0x3a = 7<<3 | 2)
+	var inner bytes.Buffer
+	inner.WriteByte(0x1a)
+	writeVarint(&inner, uint64(len(emailBytes)))
+	inner.Write(emailBytes)
+	inner.WriteByte(0x3a)
+	writeVarint(&inner, uint64(len(emailBytes)))
+	inner.Write(emailBytes)
+
+	innerB64 := base64.StdEncoding.EncodeToString(inner.Bytes())
+
+	// outer protobuf field 2: message (tag = 0x12) containing field 1: string innerB64 (tag = 0x0a)
+	var field2 bytes.Buffer
+	field2.WriteByte(0x0a)
+	writeVarint(&field2, uint64(len(innerB64)))
+	field2.WriteString(innerB64)
+
+	// outer message:
+	// field 1: string "userStatusSentinelKey" (tag = 0x0a)
+	// field 2: field2
+	const sentinelKey = "userStatusSentinelKey"
+	var outer bytes.Buffer
+	outer.WriteByte(0x0a)
+	writeVarint(&outer, uint64(len(sentinelKey)))
+	outer.WriteString(sentinelKey)
+	outer.WriteByte(0x12)
+	writeVarint(&outer, uint64(field2.Len()))
+	outer.Write(field2.Bytes())
+
+	// top level message:
+	// field 1: outer
+	var top bytes.Buffer
+	top.WriteByte(0x0a)
+	writeVarint(&top, uint64(outer.Len()))
+	top.Write(outer.Bytes())
+
+	return base64.StdEncoding.EncodeToString(top.Bytes())
+}
+
+// extractPictureFromIDToken extracts the Google profile avatar URL from an unverified JWT ID token.
+func extractPictureFromIDToken(idToken string) string {
+	if idToken == "" {
+		return ""
+	}
+	parts := strings.Split(idToken, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		payloadBytes, err = base64.URLEncoding.DecodeString(parts[1])
+		if err != nil {
+			return ""
+		}
+	}
+	var claims map[string]interface{}
+	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
+		return ""
+	}
+	if pic, ok := claims["picture"].(string); ok && pic != "" {
+		return strings.TrimSpace(pic)
+	}
+	return ""
+}
+
+// SyncStateVscdb updates profileUrl and userStatus in Antigravity's state.vscdb SQLite storage if present.
+func SyncStateVscdb(acc *Account) error {
+	if acc == nil {
+		return nil
+	}
+
+	vscdbPath := filepath.Join(core.GetAntigravityHostConfigDir(), "User", "globalStorage", "state.vscdb")
+	if _, err := os.Stat(vscdbPath); err != nil {
+		return nil // state.vscdb not present on host
+	}
+
+	db, err := sql.Open("sqlite", vscdbPath)
+	if err != nil {
+		return fmt.Errorf("failed to open state.vscdb: %w", err)
+	}
+	defer db.Close()
+
+	var tableCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ItemTable'").Scan(&tableCount)
+	if err != nil || tableCount == 0 {
+		return nil
+	}
+
+	// 1. Update userStatus if email is set
+	if acc.Email != "" {
+		sentinel := buildUserStatusSentinel(acc.Email)
+		if sentinel != "" {
+			var hasKey int
+			_ = db.QueryRow("SELECT COUNT(*) FROM ItemTable WHERE key='antigravityUnifiedStateSync.userStatus'").Scan(&hasKey)
+			if hasKey > 0 {
+				_, _ = db.Exec("UPDATE ItemTable SET value=? WHERE key='antigravityUnifiedStateSync.userStatus'", sentinel)
+			} else {
+				_, _ = db.Exec("INSERT OR REPLACE INTO ItemTable(key, value) VALUES('antigravityUnifiedStateSync.userStatus', ?)", sentinel)
+			}
+		}
+	}
+
+	// 2. Update profileUrl if present
+	picture := extractPictureFromIDToken(acc.IDToken)
+	if picture != "" {
+		var hasKey int
+		_ = db.QueryRow("SELECT COUNT(*) FROM ItemTable WHERE key='antigravity.profileUrl'").Scan(&hasKey)
+		if hasKey > 0 {
+			_, _ = db.Exec("UPDATE ItemTable SET value=? WHERE key='antigravity.profileUrl'", picture)
+		} else {
+			_, _ = db.Exec("INSERT OR REPLACE INTO ItemTable(key, value) VALUES('antigravity.profileUrl', ?)", picture)
+		}
+	}
+
+	return nil
+}
+
 // SyncAllSurfaces atomically syncs the active account across Antigravity 2.0 Desktop,
 // Antigravity CLI (agy), and Antigravity VS Code Extension.
 func SyncAllSurfaces(acc *Account, allEmails []string, profileMgr *fingerprint.Store) error {
@@ -283,6 +421,7 @@ func SyncAllSurfaces(acc *Account, allEmails []string, profileMgr *fingerprint.S
 	_ = SyncDesktopStandaloneToken(acc)
 	_ = SyncAppStorageLoginUser(acc.Email)
 	_ = SyncHardwareProfile(acc.Email, profileMgr)
+	_ = SyncStateVscdb(acc)
 
 	// 3. Antigravity CLI (agy)
 	_ = SyncCLIOAuthToken(acc)

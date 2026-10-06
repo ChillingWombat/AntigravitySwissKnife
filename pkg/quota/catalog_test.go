@@ -17,8 +17,8 @@ func TestGetAvailableModelCatalog_Defaults(t *testing.T) {
 	if !cat.Success {
 		t.Errorf("expected success true")
 	}
-	if cat.DefaultGemini != "gemini-3.8-flash" {
-		t.Errorf("expected default gemini 'gemini-3.8-flash', got '%s'", cat.DefaultGemini)
+	if cat.DefaultGemini != "gemini-3.8-flash-high" {
+		t.Errorf("expected default gemini 'gemini-3.8-flash-high', got '%s'", cat.DefaultGemini)
 	}
 	if cat.DefaultNonGemini != "claude-opus-4-6" {
 		t.Errorf("expected default non-gemini 'claude-opus-4-6', got '%s'", cat.DefaultNonGemini)
@@ -30,9 +30,9 @@ func TestGetAvailableModelCatalog_Defaults(t *testing.T) {
 		t.Errorf("expected non-empty NonGeminiModels")
 	}
 
-	// Verify first item of Gemini models is gemini-3.8-flash
-	if cat.GeminiModels[0].ID != "gemini-3.8-flash" {
-		t.Errorf("expected first Gemini model to be 'gemini-3.8-flash', got '%s'", cat.GeminiModels[0].ID)
+	// Verify first item of Gemini models is gemini-3.8-flash-high
+	if cat.GeminiModels[0].ID != "gemini-3.8-flash-high" {
+		t.Errorf("expected first Gemini model to be 'gemini-3.8-flash-high', got '%s'", cat.GeminiModels[0].ID)
 	}
 
 	// Verify first item of NonGemini models is claude-opus-4-6
@@ -165,8 +165,8 @@ func TestGetAvailableModelCatalog_NetworkFailureFallback(t *testing.T) {
 		t.Fatalf("expected fallback catalog with success=true")
 	}
 
-	if cat.DefaultGemini != "gemini-3.8-flash" {
-		t.Errorf("expected fallback default gemini 'gemini-3.8-flash', got '%s'", cat.DefaultGemini)
+	if cat.DefaultGemini != "gemini-3.8-flash-high" {
+		t.Errorf("expected fallback default gemini 'gemini-3.8-flash-high', got '%s'", cat.DefaultGemini)
 	}
 	if cat.DefaultNonGemini != "claude-opus-4-6" {
 		t.Errorf("expected fallback default non-gemini 'claude-opus-4-6', got '%s'", cat.DefaultNonGemini)

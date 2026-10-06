@@ -45,16 +45,16 @@ var (
 func DefaultBaseGeminiModels() []ModelOption {
 	return []ModelOption{
 		{
-			ID:               "gemini-3.8-flash",
-			DisplayName:      "Gemini 3.8 Flash",
+			ID:               "gemini-3.8-flash-high",
+			DisplayName:      "Gemini 3.8 Flash (High)",
 			SupportsThinking: true,
 			ThinkingLevels:   []string{"off", "low", "medium", "high"},
 			Recommended:      true,
 			Provider:         "Google",
 		},
 		{
-			ID:               "gemini-3.8-flash-high",
-			DisplayName:      "Gemini 3.8 Flash (High)",
+			ID:               "gemini-3.8-flash",
+			DisplayName:      "Gemini 3.8 Flash",
 			SupportsThinking: true,
 			ThinkingLevels:   []string{"off", "low", "medium", "high"},
 			Recommended:      true,
@@ -91,13 +91,6 @@ func DefaultBaseGeminiModels() []ModelOption {
 		{
 			ID:               "gemini-3.1-pro-low",
 			DisplayName:      "Gemini 3.1 Pro (Low)",
-			SupportsThinking: true,
-			ThinkingLevels:   []string{"off", "low", "medium", "high"},
-			Provider:         "Google",
-		},
-		{
-			ID:               "gemini-3.8-pro",
-			DisplayName:      "Gemini 3.8 Pro",
 			SupportsThinking: true,
 			ThinkingLevels:   []string{"off", "low", "medium", "high"},
 			Provider:         "Google",
@@ -217,7 +210,7 @@ func GetAvailableModelCatalog(acc *keyring.Account, force bool) *AvailableModels
 		Success:          true,
 		GeminiModels:     DefaultBaseGeminiModels(),
 		NonGeminiModels:  DefaultBaseNonGeminiModels(),
-		DefaultGemini:    "gemini-3.8-flash",
+		DefaultGemini:    "gemini-3.8-flash-high",
 		DefaultNonGemini: "claude-opus-4-6",
 		Timestamp:        time.Now(),
 	}

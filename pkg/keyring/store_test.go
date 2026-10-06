@@ -1,6 +1,7 @@
 package keyring
 
 import (
+	"database/sql"
 	"encoding/base64"
 	"os"
 	"path/filepath"
@@ -531,6 +532,71 @@ func TestCooldownAccountSwitching(t *testing.T) {
 	reloadedCold, _ := reloadedStore.GetAccount("new_cold@example.com")
 	if reloadedCold.Status != "COOLDOWN" || reloadedCold.IsActive {
 		t.Fatalf("expected reloaded status COOLDOWN, got status=%s, is_active=%v", reloadedCold.Status, reloadedCold.IsActive)
+	}
+}
+
+func TestSyncStateVscdb(t *testing.T) {
+	// 1. Test buildUserStatusSentinel exact protobuf wire format
+	expectedSentinel := "ClMKFXVzZXJTdGF0dXNTZW50aW5lbEtleRI6CjhHaEp3Y25kb0xtUndiRUJuYldGcGJDNWpiMjA2RW5CeWQyZ3VaSEJzUUdkdFlXbHNMbU52YlE9PQ=="
+	actualSentinel := buildUserStatusSentinel("prwh.dpl@gmail.com")
+	if actualSentinel != expectedSentinel {
+		t.Fatalf("buildUserStatusSentinel mismatch:\nexpected: %s\ngot:      %s", expectedSentinel, actualSentinel)
+	}
+
+	// 2. Test SyncStateVscdb against an isolated SQLite state.vscdb
+	tmpDir, err := os.MkdirTemp("", "swiss_test_vscdb_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	origEnv := os.Getenv("ANTIGRAVITY_HOST_CONFIG_DIR")
+	defer os.Setenv("ANTIGRAVITY_HOST_CONFIG_DIR", origEnv)
+	os.Setenv("ANTIGRAVITY_HOST_CONFIG_DIR", tmpDir)
+
+	vscdbDir := filepath.Join(tmpDir, "User", "globalStorage")
+	if err := os.MkdirAll(vscdbDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(vscdbDir, "state.vscdb")
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);
+		INSERT INTO ItemTable(key, value) VALUES('antigravityUnifiedStateSync.userStatus', 'old_status');
+		INSERT INTO ItemTable(key, value) VALUES('antigravity.profileUrl', 'https://old.example.com/avatar.png');
+	`)
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testAcc := &Account{
+		Email: "switched_user@gmail.com",
+		IDToken: mintMinimalIDToken("switched_user@gmail.com"),
+	}
+
+	if err := SyncStateVscdb(testAcc); err != nil {
+		t.Fatalf("SyncStateVscdb failed: %v", err)
+	}
+
+	// Verify ItemTable was updated
+	checkDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer checkDB.Close()
+
+	var valStatus string
+	err = checkDB.QueryRow("SELECT value FROM ItemTable WHERE key='antigravityUnifiedStateSync.userStatus'").Scan(&valStatus)
+	if err != nil {
+		t.Fatalf("failed to query updated userStatus: %v", err)
+	}
+	expectedUpdated := buildUserStatusSentinel("switched_user@gmail.com")
+	if valStatus != expectedUpdated {
+		t.Errorf("userStatus not updated correctly:\nexpected: %s\ngot:      %s", expectedUpdated, valStatus)
 	}
 }
 

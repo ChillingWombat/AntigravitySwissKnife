@@ -305,6 +305,7 @@ func (d *Daemon) registerRPCHandlers() {
 		// Synchronize across Antigravity 2.0 Desktop, Antigravity CLI (agy), and VS Code extension
 		if acc, _ := d.Keyring.GetAccount(p.Email); acc != nil {
 			_ = keyring.SyncAllSurfaces(acc, allEmails, d.Profiles)
+			_, _ = gui.NewInjector(0).RefreshUserStatus()
 		}
 
 		return map[string]interface{}{
@@ -473,7 +474,7 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 		defaultGemini := d.Config.DefaultGeminiModel
 		if defaultGemini == "" {
-			defaultGemini = "gemini-3.8-flash"
+			defaultGemini = "gemini-3.8-flash-high"
 		}
 		defaultNonGemini := d.Config.DefaultNonGeminiModel
 		if defaultNonGemini == "" {
@@ -862,6 +863,7 @@ func (d *Daemon) schedulerLoop() {
 								}
 								if cAcc, _ := d.Keyring.GetAccount(successor.Email); cAcc != nil {
 									_ = keyring.SyncAllSurfaces(cAcc, allEmails, d.Profiles)
+									_, _ = gui.NewInjector(0).RefreshUserStatus()
 								}
 							}
 						}

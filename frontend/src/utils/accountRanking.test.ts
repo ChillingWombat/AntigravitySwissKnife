@@ -555,5 +555,102 @@ describe('accountRanking utility', () => {
       assert.strictEqual(sorted[1].email, 'healthy@gmail.com')
       assert.strictEqual(sorted[2].email, 'lowweekly@gmail.com')
     })
+
+    it('ranks 5h-cooling accounts with healthy weekly quota (Satya, PRWH) strictly above weekly-depleted accounts (Albert)', () => {
+      const active: AccountState = {
+        email: 'jose@gmail.com',
+        is_active: true,
+        plan_tier: 'Pro',
+        status: 'COOLDOWN',
+        quota_5h_current: 0.64,
+        quota_5h_available: 0.64,
+        quota_weekly: 0.0,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const albert: AccountState = {
+        email: 'alberto.carey8718@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'COOLDOWN',
+        quota_5h_current: 0.0,
+        quota_5h_available: 0.86,
+        quota_weekly: 0.01, // 1% weekly - exhausted!
+        reset_seconds: 2400, // resets in 40m
+        reset_horizon_text: 'Resets in 40m',
+        has_mfa: false,
+      }
+      const satya: AccountState = {
+        email: 'satyaprakash78447@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'COOLDOWN',
+        quota_5h_current: 0.0,
+        quota_5h_available: 0.46,
+        quota_weekly: 0.33, // 33% weekly - healthy!
+        reset_seconds: 9720, // resets in 2h 42m
+        reset_horizon_text: 'Resets in 2h 42m',
+        has_mfa: false,
+      }
+      const prwh: AccountState = {
+        email: 'prwh.dpl@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'STANDBY',
+        quota_5h_current: 0.0,
+        quota_5h_available: 0.34,
+        quota_weekly: 0.83, // 83% weekly - tons of quota!
+        reset_seconds: 12000, // resets in 3h 20m
+        reset_horizon_text: 'Resets in 3h 20m',
+        has_mfa: false,
+      }
+
+      // In balanced mode: PRWH (83% weekly) ranks top among cooling, Satya second, Albert last
+      const sortedBal = sortAccounts(
+        [albert, satya, prwh, active],
+        active.email,
+        0.05,
+        'auto',
+        'balanced',
+        0.05
+      )
+      assert.strictEqual(sortedBal[0].email, 'jose@gmail.com', 'Active account pinned to row 0')
+      assert.strictEqual(sortedBal[1].email, 'prwh.dpl@gmail.com', 'PRWH with 83% weekly quota ranks ahead')
+      assert.strictEqual(sortedBal[2].email, 'satyaprakash78447@gmail.com', 'Satya with 33% weekly quota ranks ahead of Albert')
+      assert.strictEqual(sortedBal[3].email, 'alberto.carey8718@gmail.com', 'Albert with 1% weekly quota demoted to weekly-depleted tier')
+
+      // In max_continuous mode: Satya (sooner 5h recovery, 46% projected) ranks ahead of PRWH (34%), Albert still last
+      const sortedCont = sortAccounts(
+        [albert, satya, prwh, active],
+        active.email,
+        0.05,
+        'auto',
+        'max_continuous',
+        0.05
+      )
+      assert.strictEqual(sortedCont[0].email, 'jose@gmail.com')
+      assert.strictEqual(sortedCont[1].email, 'satyaprakash78447@gmail.com', 'Satya recovers 5h capacity earlier in continuous window')
+      assert.strictEqual(sortedCont[2].email, 'prwh.dpl@gmail.com', 'PRWH recovers after Satya')
+      assert.strictEqual(sortedCont[3].email, 'alberto.carey8718@gmail.com', 'Albert cannot provide continuous quota with 1% weekly limit')
+    })
+
+    it('extractAccountMetrics caps 5h available quota by weekly quota when weekly is depleted', () => {
+      const albert: AccountState = {
+        email: 'alberto.carey8718@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'COOLDOWN',
+        quota_5h_current: 0.0,
+        quota_5h_available: 0.86,
+        quota_weekly: 0.01,
+        reset_seconds: 2400,
+        reset_horizon_text: 'Resets in 40m',
+        reset_seconds_weekly: 300000, // 3.5 days away
+        has_mfa: false,
+      }
+      const metrics = extractAccountMetrics(albert, 'balanced')
+      assert.strictEqual(metrics.q7d, 0.01)
+      assert.ok(metrics.q5hAvail <= 0.01, `Expected effective 5h available to be capped at weekly quota 0.01, got ${metrics.q5hAvail}`)
+    })
   })
 })

@@ -89,23 +89,28 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       ? initialRules.model_source_hierarchy
       : ['gemini', 'custom_model', 'non_gemini', 'ai_credits']
   )
-  const [defaultGemini, setDefaultGemini] = useState<string>(initialRules?.default_gemini_model || 'gemini-3.8-flash')
+  const [defaultGemini, setDefaultGemini] = useState<string>(initialRules?.default_gemini_model || 'gemini-3.8-flash-high')
   const [defaultCustom, setDefaultCustom] = useState<string>(initialRules?.default_custom_model || '')
   const [defaultNonGemini, setDefaultNonGemini] = useState<string>(initialRules?.default_non_gemini_model || 'claude-opus-4-6')
   const [geminiReasoningLevel, setGeminiReasoningLevel] = useState<string>(initialRules?.default_gemini_reasoning_level || 'high')
 
   // Dynamic available model lists
   const [geminiModelOptions, setGeminiModelOptions] = useState<AvailableModelItem[]>([
+    { id: 'gemini-3.8-flash-high', display_name: 'Gemini 3.8 Flash (High)' },
     { id: 'gemini-3.8-flash', display_name: 'Gemini 3.8 Flash' },
-    { id: 'gemini-3.8-pro', display_name: 'Gemini 3.8 Pro' },
-    { id: 'gemini-3.5-flash-lite', display_name: 'Gemini 3.5 Flash Lite' },
-    { id: 'gemini-3.1-pro', display_name: 'Gemini 3.1 Pro' },
+    { id: 'gemini-3.7-flash-medium', display_name: 'Gemini 3.7 Flash (Medium)' },
+    { id: 'gemini-3.6-flash-medium', display_name: 'Gemini 3.6 Flash (Medium)' },
+    { id: 'gemini-3.1-pro-low', display_name: 'Gemini 3.1 Pro (Low)' },
+    { id: 'gemini-pro-agent', display_name: 'Gemini 3.1 Pro (High)' },
     { id: 'gemini-2.5-pro', display_name: 'Gemini 2.5 Pro' },
     { id: 'gemini-2.5-flash', display_name: 'Gemini 2.5 Flash' },
     { id: 'gemini-2.0-flash', display_name: 'Gemini 2.0 Flash' },
   ])
   const [nonGeminiModelOptions, setNonGeminiModelOptions] = useState<AvailableModelItem[]>([
+    { id: 'claude-opus-4-6-thinking', display_name: 'Claude Opus 4.6 (Thinking)' },
     { id: 'claude-opus-4-6', display_name: 'Claude Opus 4.6' },
+    { id: 'claude-sonnet-4-6', display_name: 'Claude Sonnet 4.6 (Thinking)' },
+    { id: 'gpt-oss-120b-medium', display_name: 'GPT-OSS 120B (Medium)' },
     { id: 'claude-3-7-sonnet', display_name: 'Claude 3.7 Sonnet' },
     { id: 'claude-3-5-sonnet', display_name: 'Claude 3.5 Sonnet' },
     { id: 'claude-3-5-haiku', display_name: 'Claude 3.5 Haiku' },
@@ -1012,7 +1017,17 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             </div>
             <select
               value={defaultGemini}
-              onChange={(e) => setDefaultGemini(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value
+                setDefaultGemini(val)
+                if (val.endsWith('-high') || val.includes('high')) {
+                  setGeminiReasoningLevel('high')
+                } else if (val.endsWith('-medium') || val.includes('medium')) {
+                  setGeminiReasoningLevel('medium')
+                } else if (val.endsWith('-low') || val.includes('low')) {
+                  setGeminiReasoningLevel('low')
+                }
+              }}
               style={{ width: '240px' }}
               aria-label="Default Gemini Model"
             >
