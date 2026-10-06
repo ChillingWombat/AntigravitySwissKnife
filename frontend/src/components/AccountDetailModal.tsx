@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react'
-import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail, Sparkles } from 'lucide-react'
+import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail } from 'lucide-react'
 import type { AccountState } from '../types'
-import { CANONICAL_PLAN_TIERS, normalizePlanTier } from '../types'
 import { renderPlanTierBadge } from '../pages/QuotaDashboardPage'
 import { HorizontalQuotaBar } from './HorizontalQuotaBar'
 import { ToggleSwitch } from './ToggleSwitch'
 import { api } from '../api'
 import { generateTOTP } from '../utils/totp'
+import {
+  getAccountHeaderDisplay,
+  resolveDefaultAlias,
+  normalizeMfaSecret,
+  ACCOUNT_SETUP_TEXTS,
+} from '../utils/accountPresentation'
 
 interface AccountDetailModalProps {
   account: AccountState
@@ -19,9 +24,15 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   onClose,
   onSaved,
 }) => {
+  const isNewAccount = !account.email?.trim()
   const [email, setEmail] = useState(account.email || '')
   const [label, setLabel] = useState(account.label || '')
+  const [aliasAutoFilled, setAliasAutoFilled] = useState(false)
   const [priority, setPriority] = useState<string>(account.priority || 'High')
+  const [allowClaudeGpt, setAllowClaudeGpt] = useState<boolean>(account.allow_claude_gpt ?? false)
+  const [enableCreditOverages, setEnableCreditOverages] = useState<boolean>(
+    account.enable_credit_overages ?? false
+  )
   const [password, setPassword] = useState(account.password || '')
   const [showPassword, setShowPassword] = useState(false)
   const [totpSecret, setTotpSecret] = useState(account.totp_secret || '')
@@ -31,16 +42,25 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [isExtractingOAuth, setIsExtractingOAuth] = useState(false)
   const [oauthSuccessMsg, setOauthSuccessMsg] = useState<string | null>(null)
   const status = account.status || (account.is_active ? 'ACTIVE' : 'STANDBY')
-  const [planTier, setPlanTier] = useState<string>(normalizePlanTier(account.plan_tier || 'Pro'))
-  const credits =
-    account.credits !== undefined && account.credits !== null
-      ? account.credits
-      : 0
-  const [enableCreditOverages, setEnableCreditOverages] = useState<boolean>(account.enable_credit_overages ?? false)
   const [notes, setNotes] = useState(account.notes || '')
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
+  const RIGHT_ACTION_WIDTH = '172px'
+  const CONTROL_HEIGHT = '36px'
+
+  const isQuotaConnected = Boolean(
+    (!isNewAccount &&
+      (account.is_active ||
+        account.status === 'ACTIVE' ||
+        Boolean(account.refresh_token?.trim()) ||
+        (Boolean(account.reset_horizon_text?.trim()) &&
+          account.reset_horizon_text !== 'Not Polled'))) ||
+      Boolean(oauthSuccessMsg)
+  )
+
+  const headerDisplay = getAccountHeaderDisplay(isNewAccount, label, email)
 
   // Real-time derived 6-number verification code
   const [derivedCode, setDerivedCode] = useState<string | null>(null)
@@ -88,7 +108,14 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       const res = await api.startGoogleOAuth()
       if (res.success && res.refresh_token) {
         setRefreshToken(res.refresh_token)
-        setOauthSuccessMsg(`Extracted token successfully for ${res.email || account.email}`)
+        if (res.email && !email.trim()) {
+          setEmail(res.email)
+          if (!label.trim() || aliasAutoFilled) {
+            setLabel(res.email)
+            setAliasAutoFilled(true)
+          }
+        }
+        setOauthSuccessMsg(`Extracted token successfully for ${res.email || email || account.email}`)
       } else {
         setError(res.error || 'Failed to extract OAuth token from Google')
       }
@@ -99,22 +126,33 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     }
   }
 
+  const handleEmailBlur = () => {
+    const cleanEmail = email.trim()
+    if (cleanEmail && (!label.trim() || aliasAutoFilled)) {
+      setLabel(cleanEmail)
+      setAliasAutoFilled(true)
+    }
+  }
+
   const handleSave = async () => {
     setIsSaving(true)
     setError(null)
     try {
+      const finalEmail = email.trim() || account.email
+      const finalLabel = resolveDefaultAlias(label, email)
       await api.updateAccount({
-        email: email.trim() || account.email,
-        label: label.trim(),
-        plan_tier: planTier,
-        status: status,
+        email: finalEmail,
+        label: finalLabel,
+        plan_tier: account.plan_tier || '',
+        status: account.status || status,
         priority: priority,
         password: password,
         notes: notes.trim(),
-        totp_secret: totpSecret.trim().toUpperCase(),
+        totp_secret: normalizeMfaSecret(totpSecret).toUpperCase(),
         refresh_token: refreshToken.trim(),
-        credits: Number(credits) || 0,
+        credits: account.credits !== undefined && account.credits !== null ? account.credits : 0,
         enable_credit_overages: enableCreditOverages,
+        allow_claude_gpt: allowClaudeGpt,
       })
       onSaved()
       onClose()
@@ -178,25 +216,42 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text)' }}>
-                {label || account.email}
-              </h2>
-              <span
-                className={`badge-chip ${
-                  st === 'BANNED'
-                    ? 'badge-red'
-                    : st === 'ERROR'
-                    ? 'badge-yellow'
-                    : account.is_active
-                    ? 'badge-green'
-                    : 'badge-neutral'
-                }`}
+              <h2
+                style={{
+                  fontSize: '18px',
+                  fontWeight: 700,
+                  color: headerDisplay.isPlaceholder ? 'var(--text-muted)' : 'var(--text)',
+                }}
               >
-                {st}
-              </span>
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-              {account.email} • Priority: <span style={{ fontWeight: 600 }}>{priority}</span>
+                {headerDisplay.text}
+              </h2>
+              {headerDisplay.showStatusBadge && (
+                <>
+                  <span
+                    className={`badge-chip ${
+                      st === 'BANNED'
+                        ? 'badge-red'
+                        : st === 'ERROR'
+                        ? 'badge-yellow'
+                        : account.is_active
+                        ? 'badge-green'
+                        : 'badge-neutral'
+                    }`}
+                  >
+                    {st}
+                  </span>
+                  {renderPlanTierBadge(account.plan_tier)}
+                  {account.credits !== undefined && account.credits !== null && account.credits > 0 && (
+                    <span
+                      className="badge-chip badge-neutral"
+                      style={{ fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                      title={`${account.credits} Available AI Credits`}
+                    >
+                      {account.credits} Credits
+                    </span>
+                  )}
+                </>
+              )}
             </div>
           </div>
           <button
@@ -282,7 +337,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           </div>
         )}
 
-        {/* Live Quota Metrics Section */}
+        {/* Gemini Quota Section */}
         <div
           style={{
             backgroundColor: 'var(--canvas)',
@@ -290,34 +345,52 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             borderRadius: '12px',
             padding: '16px 20px',
             marginBottom: '24px',
+            opacity: isQuotaConnected ? 1 : 0.48,
+            filter: isQuotaConnected ? 'none' : 'grayscale(1)',
+            pointerEvents: isQuotaConnected ? 'auto' : 'none',
+            userSelect: isQuotaConnected ? 'auto' : 'none',
+            transition: 'opacity 0.2s ease, filter 0.2s ease',
           }}
         >
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', marginBottom: '12px', textTransform: 'uppercase' }}>
-            Live Quota Metrics
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+              Gemini Quota
+            </div>
+            {!isQuotaConnected && (
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                Pending connection
+              </span>
+            )}
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px' }}>
                 <span style={{ fontWeight: 500, color: 'var(--text)' }}>5H Quota:</span>
-                <span style={{ color: 'var(--text-muted)' }}>{account.reset_horizon_text}</span>
+                <span style={{ color: 'var(--text-muted)' }}>
+                  {isQuotaConnected ? (account.reset_horizon_text || 'Ready') : 'Not connected'}
+                </span>
               </div>
               <HorizontalQuotaBar
-                fraction={account.quota_5h_available}
+                fraction={isQuotaConnected ? (account.quota_5h_available ?? account.quota_5h_current ?? 0) : 0}
+                disabled={!isQuotaConnected}
                 maxWidth="100%"
-                title={account.reset_horizon_text || 'Resets in 5h cycle'}
+                title={isQuotaConnected ? (account.reset_horizon_text || 'Resets in 5h cycle') : 'Pending login and connection'}
               />
             </div>
 
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px' }}>
                 <span style={{ fontWeight: 500, color: 'var(--text)' }}>Weekly Quota:</span>
-                <span style={{ color: 'var(--text-muted)' }}>7-day allowance</span>
+                <span style={{ color: 'var(--text-muted)' }}>
+                  {isQuotaConnected ? (account.reset_horizon_weekly_text || account.reset_horizon_text || 'Ready') : 'Not connected'}
+                </span>
               </div>
               <HorizontalQuotaBar
-                fraction={account.quota_weekly}
+                fraction={isQuotaConnected ? (account.quota_weekly ?? 0) : 0}
+                disabled={!isQuotaConnected}
                 maxWidth="100%"
-                title="Resets on 7-day rolling cycle"
+                title={isQuotaConnected ? (account.reset_horizon_weekly_text || 'Resets on 7-day rolling cycle') : 'Pending login and connection'}
               />
             </div>
           </div>
@@ -335,13 +408,14 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               placeholder="e.g. user@gmail.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              style={{ width: '100%' }}
+              onBlur={handleEmailBlur}
+              style={{ width: '100%', height: CONTROL_HEIGHT, boxSizing: 'border-box' }}
             />
           </div>
 
-          {/* Account Alias and Account Priority on the same row/level */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '16px' }}>
-            <div>
+          {/* Account Alias and Account Priority on the same row/level with aligned right-column width */}
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
                 <Tag size={14} /> Account Alias:
               </label>
@@ -349,12 +423,15 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 type="text"
                 placeholder="e.g. Account 1, Primary, Backup"
                 value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                style={{ width: '100%' }}
+                onChange={(e) => {
+                  setLabel(e.target.value)
+                  setAliasAutoFilled(false)
+                }}
+                style={{ width: '100%', height: CONTROL_HEIGHT, boxSizing: 'border-box' }}
               />
             </div>
 
-            <div>
+            <div style={{ width: RIGHT_ACTION_WIDTH, flexShrink: 0 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
                 Account Priority:
               </label>
@@ -363,10 +440,12 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 onChange={(e) => setPriority(e.target.value)}
                 style={{
                   width: '100%',
+                  height: CONTROL_HEIGHT,
+                  boxSizing: 'border-box',
                   backgroundColor: 'var(--canvas)',
                   border: '1px solid var(--border)',
                   borderRadius: '8px',
-                  padding: '8px 12px',
+                  padding: '0 12px',
                   fontSize: '13px',
                   color: 'var(--text)',
                   cursor: 'pointer',
@@ -379,18 +458,18 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             </div>
           </div>
 
-          {/* Optional Password / Vault field (hidden by default with eye toggle) */}
+          {/* Optional Password field (hidden by default with eye toggle) */}
           <div>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
-              <Lock size={14} /> Password (Optional / Vault):
+              <Lock size={14} /> {ACCOUNT_SETUP_TEXTS.PASSWORD_LABEL}
             </label>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <input
                 type={showPassword ? 'text' : 'password'}
-                placeholder="Optional login password or vault credential"
+                placeholder={ACCOUNT_SETUP_TEXTS.PASSWORD_PLACEHOLDER}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                style={{ width: '100%', paddingRight: '40px' }}
+                style={{ width: '100%', height: CONTROL_HEIGHT, boxSizing: 'border-box', paddingRight: '40px' }}
               />
               <button
                 type="button"
@@ -416,16 +495,16 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           {/* OAuth Refresh Token with eye toggle & Google extraction button */}
           <div>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
-              <RefreshCw size={14} /> OAuth Refresh Token:
+              <RefreshCw size={14} /> {ACCOUNT_SETUP_TEXTS.OAUTH_REFRESH_LABEL}
             </label>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1, minWidth: 0, display: 'flex', alignItems: 'center' }}>
                 <input
                   type={showOAuth ? 'text' : 'password'}
-                  placeholder="1//... (Leave unchanged or extract via Google)"
+                  placeholder={ACCOUNT_SETUP_TEXTS.OAUTH_REFRESH_PLACEHOLDER}
                   value={refreshToken}
                   onChange={(e) => setRefreshToken(e.target.value)}
-                  style={{ width: '100%', fontFamily: 'monospace', paddingRight: '40px' }}
+                  style={{ width: '100%', height: CONTROL_HEIGHT, boxSizing: 'border-box', fontFamily: 'monospace', paddingRight: '40px' }}
                 />
                 <button
                   type="button"
@@ -452,11 +531,16 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 disabled={isExtractingOAuth}
                 className="btn-pill-outlined"
                 style={{
-                  display: 'flex',
+                  width: RIGHT_ACTION_WIDTH,
+                  flexShrink: 0,
+                  height: CONTROL_HEIGHT,
+                  boxSizing: 'border-box',
+                  display: 'inline-flex',
                   alignItems: 'center',
+                  justifyContent: 'center',
                   gap: '6px',
                   whiteSpace: 'nowrap',
-                  padding: '7px 12px',
+                  padding: '0 12px',
                   fontSize: '12px',
                   fontWeight: 600,
                   backgroundColor: 'var(--primary-light)',
@@ -471,39 +555,70 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             </div>
           </div>
 
-          {/* MFA / TOTP Secret Key with header-level verification code and copy button */}
+          {/* MFA / TOTP Secret Key with input-level verification code timer, shower and copier gadget */}
           <div>
-            <div
+            <label
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
+                gap: '6px',
+                fontSize: '12px',
+                fontWeight: 600,
+                color: 'var(--text-muted)',
                 marginBottom: '8px',
               }}
             >
-              <label
+              <KeyRound size={14} /> MFA Secret Key:
+            </label>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1, minWidth: 0, display: 'flex', alignItems: 'center' }}>
+                <input
+                  type={showTotp ? 'text' : 'password'}
+                  placeholder="e.g. JBSWY3DPEHPK3PXP"
+                  value={totpSecret}
+                  onChange={(e) => setTotpSecret(e.target.value)}
+                  style={{ width: '100%', height: CONTROL_HEIGHT, boxSizing: 'border-box', fontFamily: 'monospace', paddingRight: '40px' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowTotp(!showTotp)}
+                  style={{
+                    position: 'absolute',
+                    right: '8px',
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '4px',
+                  }}
+                  title={showTotp ? 'Hide MFA secret' : 'Show MFA secret'}
+                >
+                  {showTotp ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+
+              {/* Right end: MFA Code Timer, Shower and Copier button set aligned with Google button & Priority */}
+              <div
                 style={{
+                  width: RIGHT_ACTION_WIDTH,
+                  flexShrink: 0,
+                  height: CONTROL_HEIGHT,
+                  boxSizing: 'border-box',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: 'var(--text-muted)',
+                  gap: '8px',
                 }}
               >
-                <KeyRound size={14} /> MFA Secret Key:
-              </label>
-
-              {/* Right end: Countdown progress ring & connected 6-digit code widget */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {/* Blue circular countdown progress ring */}
                 <div
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    width: '24px',
-                    height: '24px',
+                    width: '28px',
+                    height: '28px',
                     position: 'relative',
                     flexShrink: 0,
                   }}
@@ -513,36 +628,36 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                       : 'No MFA secret configured'
                   }
                 >
-                  <svg width="24" height="24" viewBox="0 0 24 24" style={{ overflow: 'visible' }}>
+                  <svg width="28" height="28" viewBox="0 0 28 28" style={{ overflow: 'visible' }}>
                     <circle
-                      cx="12"
-                      cy="12"
-                      r="9"
+                      cx="14"
+                      cy="14"
+                      r="11"
                       fill="none"
                       stroke={derivedCode ? 'rgba(26, 115, 232, 0.16)' : 'var(--border)'}
-                      strokeWidth="2.2"
+                      strokeWidth="2.4"
                     />
                     {derivedCode && (
                       <circle
-                        cx="12"
-                        cy="12"
-                        r="9"
+                        cx="14"
+                        cy="14"
+                        r="11"
                         fill="none"
                         stroke="#1a73e8"
-                        strokeWidth="2.2"
+                        strokeWidth="2.4"
                         strokeLinecap="round"
-                        strokeDasharray={56.55}
-                        strokeDashoffset={56.55 * (1 - remainingSeconds / 30)}
-                        transform="rotate(-90 12 12)"
+                        strokeDasharray={69.12}
+                        strokeDashoffset={69.12 * (1 - remainingSeconds / 30)}
+                        transform="rotate(-90 14 14)"
                         style={{ transition: 'stroke-dashoffset 0.8s linear' }}
                       />
                     )}
                     <text
-                      x="12"
-                      y="12"
+                      x="14"
+                      y="14"
                       textAnchor="middle"
                       dominantBaseline="central"
-                      fontSize="9"
+                      fontSize="9.5"
                       fontWeight="700"
                       fill={derivedCode ? '#1a73e8' : 'var(--text-muted)'}
                       style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}
@@ -555,25 +670,29 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 {/* Connected 6-digit verification code & icon-only copy button */}
                 <div
                   style={{
+                    flex: 1,
                     display: 'inline-flex',
                     alignItems: 'center',
+                    justifyContent: 'space-between',
                     border: '1px solid var(--border)',
-                    borderRadius: '6px',
+                    borderRadius: '8px',
                     overflow: 'hidden',
                     backgroundColor: derivedCode ? 'var(--green-bg, rgba(52, 168, 83, 0.08))' : 'var(--hover)',
-                    height: '24px',
+                    height: CONTROL_HEIGHT,
+                    boxSizing: 'border-box',
                     boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
                   }}
                 >
                   <span
                     style={{
+                      flex: 1,
+                      textAlign: 'center',
                       fontFamily: 'monospace',
                       fontSize: '12px',
                       fontWeight: derivedCode ? 700 : 500,
                       letterSpacing: '1px',
                       color: derivedCode ? 'var(--green, #34a853)' : 'var(--text-muted)',
-                      padding: '0 8px',
-                      lineHeight: '22px',
+                      padding: '0 6px',
                       userSelect: 'all',
                       borderRight: '1px solid var(--border)',
                     }}
@@ -594,7 +713,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      width: '26px',
+                      width: '32px',
                       height: '100%',
                       padding: 0,
                       backgroundColor: copiedTotp ? 'var(--green-bg, rgba(52,168,83,0.22))' : 'transparent',
@@ -606,164 +725,67 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                     }}
                     title={derivedCode ? (copiedTotp ? 'Copied to clipboard!' : 'Copy verification code') : 'No code to copy'}
                   >
-                    {copiedTotp ? <Check size={13} /> : <Copy size={13} />}
+                    {copiedTotp ? <Check size={14} /> : <Copy size={14} />}
                   </button>
                 </div>
               </div>
             </div>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <input
-                type={showTotp ? 'text' : 'password'}
-                placeholder="e.g. JBSWY3DPEHPK3PXP"
-                value={totpSecret}
-                onChange={(e) => setTotpSecret(e.target.value)}
-                style={{ width: '100%', fontFamily: 'monospace', paddingRight: '40px' }}
+          </div>
+
+          {/* Claude & GPT Models and AI Credits Toggles (no header, toggle right of text, vertical divider between) */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '16px',
+              padding: '4px 0',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flex: 1,
+                gap: '12px',
+              }}
+            >
+              <span style={{ fontSize: '13px', color: 'var(--text)', fontWeight: 500 }}>
+                Allow Claude &amp; GPT models
+              </span>
+              <ToggleSwitch
+                checked={allowClaudeGpt}
+                onChange={(val) => setAllowClaudeGpt(val)}
               />
-              <button
-                type="button"
-                onClick={() => setShowTotp(!showTotp)}
-                style={{
-                  position: 'absolute',
-                  right: '8px',
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--text-muted)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  padding: '4px',
-                }}
-                title={showTotp ? 'Hide MFA secret' : 'Show MFA secret'}
-              >
-                {showTotp ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-          </div>
-
-          {/* Status & Plan Tier (Auto-ingested) */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
-                  Account Status:
-                </label>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                  Auto-detected
-                </span>
-              </div>
-              <div
-                style={{
-                  width: '100%',
-                  backgroundColor: 'var(--canvas)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '8px',
-                  padding: '9px 12px',
-                  fontSize: '13px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  boxSizing: 'border-box',
-                }}
-              >
-                <span
-                  style={{
-                    display: 'inline-block',
-                    width: '8px',
-                    height: '8px',
-                    borderRadius: '50%',
-                    backgroundColor: status === 'ACTIVE' ? '#137333' : status === 'ERROR' || status === 'BANNED' ? '#b3261e' : '#b06000',
-                  }}
-                />
-                <span style={{ fontWeight: 700, color: 'var(--text)' }}>
-                  {status || 'STANDBY'}
-                </span>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: 'auto' }}>
-                  Runtime State
-                </span>
-              </div>
             </div>
 
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
-                  Plan Tier / Membership:
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                  {renderPlanTierBadge(planTier)}
-                </div>
-              </div>
-              <select
-                value={normalizePlanTier(planTier)}
-                onChange={(e) => setPlanTier(e.target.value)}
-                style={{
-                  width: '100%',
-                  backgroundColor: 'var(--canvas)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '8px',
-                  padding: '9px 12px',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  color: 'var(--text)',
-                  cursor: 'pointer',
-                  boxSizing: 'border-box',
-                }}
-              >
-                {CANONICAL_PLAN_TIERS.map((tier) => (
-                  <option key={tier} value={tier}>
-                    {tier}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+            <div
+              aria-hidden="true"
+              style={{
+                width: '1px',
+                height: '24px',
+                backgroundColor: 'var(--border)',
+                flexShrink: 0,
+              }}
+            />
 
-          {/* AI Credits (Auto-ingested, no dollar sign) & Overage Setting */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', alignItems: 'center' }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
-                  <Sparkles size={14} color="#f59e0b" /> Available AI Credits:
-                </label>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                  Auto-ingested
-                </span>
-              </div>
-              <div
-                style={{
-                  width: '100%',
-                  backgroundColor: 'var(--canvas)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '8px',
-                  padding: '9px 12px',
-                  fontSize: '13px',
-                  fontWeight: 700,
-                  color: 'var(--text)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  boxSizing: 'border-box',
-                }}
-              >
-                <span>{credits !== undefined && credits !== null ? `${credits} Credits` : '0 Credits'}</span>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 500 }}>
-                  Credit Pool
-                </span>
-              </div>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
-                Credit Overages:
-              </label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', height: '38px' }}>
-                <ToggleSwitch
-                  checked={enableCreditOverages}
-                  onChange={(val) => setEnableCreditOverages(val)}
-                />
-                <span style={{ fontSize: '13px', color: 'var(--text)', fontWeight: 500 }}>
-                  Enable AI Credit Overages
-                </span>
-              </div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flex: 1,
+                gap: '12px',
+              }}
+            >
+              <span style={{ fontSize: '13px', color: 'var(--text)', fontWeight: 500 }}>
+                Allow using AI credits
+              </span>
+              <ToggleSwitch
+                checked={enableCreditOverages}
+                onChange={(val) => setEnableCreditOverages(val)}
+              />
             </div>
           </div>
 
@@ -795,13 +817,17 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
         {/* Footer Actions */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '20px' }}>
-          <button
-            onClick={handleDelete}
-            disabled={isSaving}
-            className="btn-pill-danger"
-          >
-            <Trash2 size={15} /> Delete Account
-          </button>
+          {!isNewAccount ? (
+            <button
+              onClick={handleDelete}
+              disabled={isSaving}
+              className="btn-pill-danger"
+            >
+              <Trash2 size={15} /> Delete Account
+            </button>
+          ) : (
+            <div />
+          )}
 
           <div style={{ display: 'flex', gap: '10px' }}>
             <button

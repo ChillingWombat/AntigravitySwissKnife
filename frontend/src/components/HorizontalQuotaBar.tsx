@@ -6,6 +6,7 @@ interface HorizontalQuotaBarProps {
   height?: number
   maxWidth?: number | string
   title?: string
+  disabled?: boolean
 }
 
 export const HorizontalQuotaBar: React.FC<HorizontalQuotaBarProps> = ({
@@ -13,11 +14,14 @@ export const HorizontalQuotaBar: React.FC<HorizontalQuotaBarProps> = ({
   height = COMPONENT_TOKENS.QUOTA_BAR_HEIGHT,
   maxWidth = 160,
   title,
+  disabled = false,
 }) => {
-  const pct = Math.max(0, Math.min(100, Math.round(fraction * 100)))
+  const pct = disabled ? 0 : Math.max(0, Math.min(100, Math.round(fraction * 100)))
 
   let barColor = '#137333' // Google green
-  if (pct < 20) {
+  if (disabled) {
+    barColor = '#9aa0a6'
+  } else if (pct < 20) {
     barColor = '#b3261e' // Exhausted red
   } else if (pct < 50) {
     barColor = '#b06000' // Warning yellow
@@ -57,11 +61,11 @@ export const HorizontalQuotaBar: React.FC<HorizontalQuotaBarProps> = ({
         style={{
           fontSize: '11px',
           fontWeight: 700,
-          color: 'var(--text)',
+          color: disabled ? 'var(--text-muted)' : 'var(--text)',
           whiteSpace: 'nowrap',
         }}
       >
-        {pct}%
+        {disabled ? '--%' : `${pct}%`}
       </span>
     </div>
   )

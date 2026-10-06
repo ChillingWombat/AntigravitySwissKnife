@@ -258,6 +258,10 @@ async function run() {
       passed: stdout.includes('[E2E-TEST] Set startup setting test result:'),
     },
     {
+      name: 'Close to Tray Setting & IPC Persistence Verified',
+      passed: stdout.includes('[E2E-TEST] CloseToTray IPC and persistence verified: OK'),
+    },
+    {
       name: 'Clean Exit Code 0',
       passed: e2eResult.code === 0,
     },

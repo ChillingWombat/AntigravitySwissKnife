@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   filterModels,
   computeModelFilterStats,
+  resolveEffectiveCustomModel,
 } from './modelFilter.ts'
 import type { CustomModel } from '../types.ts'
 
@@ -119,4 +120,39 @@ describe('modelFilter utility', () => {
       })
     })
   })
+
+  describe('resolveEffectiveCustomModel', () => {
+    it('returns blank string when available custom models list is empty', () => {
+      assert.equal(resolveEffectiveCustomModel([]), '')
+      assert.equal(resolveEffectiveCustomModel([], 'm1'), '')
+      assert.equal(resolveEffectiveCustomModel(undefined as any), '')
+    })
+
+    it('defaults to the first model in the list when no default is set or invalid', () => {
+      const models = [{ id: 'custom-gpt4' }, { id: 'custom-claude' }]
+      assert.equal(resolveEffectiveCustomModel(models), 'custom-gpt4')
+      assert.equal(resolveEffectiveCustomModel(models, ''), 'custom-gpt4')
+      assert.equal(resolveEffectiveCustomModel(models, 'non-existent-id'), 'custom-gpt4')
+    })
+
+    it('preserves the manually chosen model if it exists in the available list', () => {
+      const models = [{ id: 'custom-gpt4' }, { id: 'custom-claude' }, { id: 'custom-gemini' }]
+      assert.equal(resolveEffectiveCustomModel(models, 'custom-claude'), 'custom-claude')
+      assert.equal(resolveEffectiveCustomModel(models, 'custom-gemini'), 'custom-gemini')
+    })
+
+    it('handles whitespace trimming and invalid/null array elements safely', () => {
+      const models = [
+        null as any,
+        { id: '' },
+        { id: '   ' },
+        { id: 'custom-claude' },
+        { id: 'custom-gemini' },
+      ]
+      assert.equal(resolveEffectiveCustomModel(models), 'custom-claude')
+      assert.equal(resolveEffectiveCustomModel(models, '  custom-gemini  '), 'custom-gemini')
+      assert.equal(resolveEffectiveCustomModel([null as any, { id: ' ' }]), '')
+    })
+  })
 })
+

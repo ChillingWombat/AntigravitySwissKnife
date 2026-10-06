@@ -19,19 +19,23 @@ const (
 
 // DiscoveredCloudAccount represents a decrypted account from cloud_accounts.db.
 type DiscoveredCloudAccount struct {
-	Email                string  `json:"email"`
-	Name                 string  `json:"name"`
-	IsActive             bool    `json:"is_active"`
-	AccessToken          string  `json:"access_token"`
-	RefreshToken         string  `json:"refresh_token"`
-	IDToken              string  `json:"id_token"`
-	PlanTier             string  `json:"plan_tier"`
-	Credits              float64 `json:"credits"`
-	Quota5h              float64 `json:"quota_5h"`
-	QuotaWeekly          float64 `json:"quota_weekly"`
-	Quota5hClaudeGPT     float64 `json:"quota_5h_claude_gpt"`
-	QuotaWeeklyClaudeGPT float64 `json:"quota_weekly_claude_gpt"`
-	ResetTime5h          string  `json:"reset_time_5h"`
+	Email                    string  `json:"email"`
+	Name                     string  `json:"name"`
+	IsActive                 bool    `json:"is_active"`
+	Status                   string  `json:"status"`
+	AccessToken              string  `json:"access_token"`
+	RefreshToken             string  `json:"refresh_token"`
+	IDToken                  string  `json:"id_token"`
+	PlanTier                 string  `json:"plan_tier"`
+	Credits                  float64 `json:"credits"`
+	Quota5h                  float64 `json:"quota_5h"`
+	QuotaWeekly              float64 `json:"quota_weekly"`
+	Quota5hClaudeGPT         float64 `json:"quota_5h_claude_gpt"`
+	QuotaWeeklyClaudeGPT     float64 `json:"quota_weekly_claude_gpt"`
+	ResetTime5h              string  `json:"reset_time_5h"`
+	ResetTimeWeekly          string  `json:"reset_time_weekly"`
+	ResetTime5hClaudeGPT     string  `json:"reset_time_5h_claude_gpt"`
+	ResetTimeWeeklyClaudeGPT string  `json:"reset_time_weekly_claude_gpt"`
 }
 
 // DecryptAGM decrypts an agm_enc_v1:<iv>:<tag>:<ct> AES-256-GCM string.
@@ -105,7 +109,7 @@ func ReadCloudAccountsDB(homeDir string) ([]DiscoveredCloudAccount, error) {
 try:
     con = sqlite3.connect(%q)
     cur = con.cursor()
-    rows = cur.execute("SELECT email, name, is_active, token_json, quota_json FROM accounts").fetchall()
+    rows = cur.execute("SELECT email, name, is_active, token_json, quota_json, status FROM accounts").fetchall()
     print(json.dumps([list(r) for r in rows]))
 except Exception as e:
     print(json.dumps({"error": str(e)}))
@@ -143,6 +147,19 @@ except Exception as e:
 		isActive := isActiveNum == 1
 		tokenEnc, _ := row[3].(string)
 		quotaEnc, _ := row[4].(string)
+		rawStatus := ""
+		if len(row) >= 6 {
+			rawStatus, _ = row[5].(string)
+		}
+		upperStatus := strings.ToUpper(strings.TrimSpace(rawStatus))
+		status := "STANDBY"
+		if upperStatus == "BANNED" || upperStatus == "SUSPENDED" || upperStatus == "DISABLED" {
+			status = "BANNED"
+		} else if upperStatus == "ERROR" || upperStatus == "INVALID" || upperStatus == "EXPIRED" {
+			status = "ERROR"
+		} else if isActive {
+			status = "ACTIVE"
+		}
 
 		if email == "" {
 			continue
@@ -152,6 +169,7 @@ except Exception as e:
 			Email:    email,
 			Name:     name,
 			IsActive: isActive,
+			Status:   status,
 			PlanTier: "Pro", // default for subscribed accounts
 		}
 
@@ -209,12 +227,15 @@ except Exception as e:
 									acc.ResetTime5h = b.ResetTime
 								} else if w == "weekly" || strings.Contains(bid, "weekly") {
 									acc.QuotaWeekly = b.RemainingFraction
+									acc.ResetTimeWeekly = b.ResetTime
 								}
 							} else if strings.Contains(gName, "claude") || strings.Contains(gName, "gpt") || strings.Contains(bid, "3p") {
 								if w == "5h" || strings.Contains(bid, "5h") {
 									acc.Quota5hClaudeGPT = b.RemainingFraction
+									acc.ResetTime5hClaudeGPT = b.ResetTime
 								} else if w == "weekly" || strings.Contains(bid, "weekly") {
 									acc.QuotaWeeklyClaudeGPT = b.RemainingFraction
+									acc.ResetTimeWeeklyClaudeGPT = b.ResetTime
 								}
 							}
 						}
@@ -260,12 +281,32 @@ func SyncStoreFromCloudAccountsDB(s *Store, homeDir string) error {
 					acc.IDToken = ca.IDToken
 					modified = true
 				}
-				if ca.PlanTier != "" && (acc.PlanTier == "" || acc.PlanTier == "Free") {
-					acc.PlanTier = ca.PlanTier
-					modified = true
+				if ca.PlanTier != "" {
+					pTier := normalizeCloudTier(ca.PlanTier)
+					if acc.PlanTier == "" || acc.PlanTier == "Free" {
+						acc.PlanTier = pTier
+						modified = true
+					}
 				}
 				if ca.Credits > 0 && acc.Credits == 0 {
 					acc.Credits = ca.Credits
+					modified = true
+				}
+				caSt := strings.ToUpper(strings.TrimSpace(ca.Status))
+				if caSt == "BANNED" || caSt == "ERROR" {
+					if acc.Status != caSt {
+						acc.Status = caSt
+						modified = true
+					}
+				} else if !strings.EqualFold(acc.Email, s.activeEmail) && acc.Status == "ACTIVE" {
+					acc.Status = "STANDBY"
+					modified = true
+				} else if acc.Status == "" {
+					if strings.EqualFold(acc.Email, s.activeEmail) {
+						acc.Status = "ACTIVE"
+					} else {
+						acc.Status = "STANDBY"
+					}
 					modified = true
 				}
 				break
@@ -274,12 +315,75 @@ func SyncStoreFromCloudAccountsDB(s *Store, homeDir string) error {
 	}
 
 	if modified {
-		// unlock temporarily to save
-		s.mu.Unlock()
-		saveErr := s.save()
-		s.mu.Lock()
-		return saveErr
+		return s.save()
 	}
 
 	return nil
+}
+
+// SyncCloudAccountsAutoSwitch synchronizes the auto_switch_enabled setting in ~/.antigravity-agent/cloud_accounts.db
+// so background agent services do not auto-rotate accounts when Auto-Switch is disabled in Swiss Knife.
+func SyncCloudAccountsAutoSwitch(homeDir string, enabled bool) error {
+	if homeDir == "" {
+		homeDir, _ = os.UserHomeDir()
+	}
+	dbPath := filepath.Join(homeDir, ".antigravity-agent", "cloud_accounts.db")
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		return nil
+	}
+	valStr := "false"
+	if enabled {
+		valStr = "true"
+	}
+	pyScript := fmt.Sprintf(`import sqlite3
+try:
+    con = sqlite3.connect(%q, timeout=5.0)
+    con.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('auto_switch_enabled', ?)", (%q,))
+    con.commit()
+    con.close()
+except Exception:
+    pass
+`, dbPath, valStr)
+	cmd := exec.Command("python3", "-c", pyScript)
+	_ = cmd.Run()
+	return nil
+}
+
+func normalizeCloudTier(raw string) string {
+	t := strings.TrimSpace(raw)
+	if t == "" {
+		return "Pro"
+	}
+	low := strings.ToLower(t)
+	if low == "free" || low == "free-tier" || low == "tier_free" {
+		return "Free"
+	}
+	if strings.Contains(low, "trial") {
+		return "Pro - Trial"
+	}
+	if strings.Contains(low, "20x") || strings.Contains(low, "ultra_20x") || strings.Contains(low, "ultra 20x") {
+		return "Ultra 20X"
+	}
+	if strings.Contains(low, "10x") || strings.Contains(low, "ultra_10x") || strings.Contains(low, "ultra 10x") {
+		return "Ultra 10X"
+	}
+	if strings.Contains(low, "5x") || strings.Contains(low, "ultra_5x") || strings.Contains(low, "ultra 5x") {
+		return "Ultra 5X"
+	}
+	if strings.Contains(low, "ultra") {
+		return "Ultra 20X"
+	}
+	if strings.Contains(low, "edu") || strings.Contains(low, "education") || strings.Contains(low, "student") || strings.Contains(low, "academic") {
+		return "Edu"
+	}
+	if strings.Contains(low, "enterprise") || strings.Contains(low, "teams_tier_enterprise") {
+		return "Enterprise"
+	}
+	if strings.Contains(low, "plus") {
+		return "Plus"
+	}
+	if strings.Contains(low, "pro") || strings.Contains(low, "standard") || strings.Contains(low, "code assist") || strings.Contains(low, "ai premium") || strings.Contains(low, "g1_ai") || strings.Contains(low, "team") {
+		return "Pro"
+	}
+	return t
 }

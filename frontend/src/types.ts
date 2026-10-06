@@ -32,6 +32,7 @@ export const CANONICAL_PLAN_TIERS = [
   'Ultra 5X',
   'Ultra 10X',
   'Ultra 20X',
+  'Enterprise',
 ] as const
 
 export type PlanTier = typeof CANONICAL_PLAN_TIERS[number]
@@ -40,17 +41,20 @@ export function normalizePlanTier(raw?: string): string {
   if (!raw) return 'Free'
   const trimmed = raw.trim()
   const lower = trimmed.toLowerCase()
-  if (lower === 'free') return 'Free'
+  if (lower === 'free' || lower === 'free-tier' || lower === 'tier_free') return 'Free'
   if (lower.includes('trial')) return 'Pro - Trial'
-  if (lower.includes('20x')) return 'Ultra 20X'
-  if (lower.includes('10x')) return 'Ultra 10X'
-  if (lower.includes('5x')) return 'Ultra 5X'
+  if (lower.includes('20x') || lower.includes('ultra_20x') || lower.includes('ultra 20x')) return 'Ultra 20X'
+  if (lower.includes('10x') || lower.includes('ultra_10x') || lower.includes('ultra 10x')) return 'Ultra 10X'
+  if (lower.includes('5x') || lower.includes('ultra_5x') || lower.includes('ultra 5x')) return 'Ultra 5X'
   if (lower.includes('ultra')) return 'Ultra 20X'
-  if (lower.includes('edu') || lower.includes('education')) return 'Edu'
+  if (lower.includes('edu') || lower.includes('education') || lower.includes('student') || lower.includes('academic')) return 'Edu'
+  if (lower.includes('enterprise') || lower.includes('teams_tier_enterprise')) return 'Enterprise'
   if (lower.includes('plus')) return 'Plus'
-  if (lower.includes('pro')) return 'Pro'
+  if (lower.includes('pro') || lower.includes('standard') || lower.includes('code assist') || lower.includes('ai premium') || lower.includes('g1_ai') || lower.includes('team')) return 'Pro'
   return trimmed
 }
+
+export type SwitchMode = 'balanced' | 'max_tokens' | 'max_continuous'
 
 export interface AccountState {
   email: string
@@ -61,16 +65,21 @@ export interface AccountState {
   password?: string
   is_active: boolean
   status: 'ACTIVE' | 'STANDBY' | 'ERROR' | 'BANNED' | string
+  quota_5h_current?: number
   quota_5h_available: number
+  reset_seconds?: number
   quota_weekly: number
+  reset_seconds_weekly?: number
   quota_5h_claude_gpt?: number
   quota_weekly_claude_gpt?: number
   reset_horizon_text: string
+  reset_horizon_weekly_text?: string
   has_mfa: boolean
   totp_secret?: string
   refresh_token?: string
   credits?: number
   enable_credit_overages?: boolean
+  allow_claude_gpt?: boolean
   error_message?: string
   status_reason?: string
 }
@@ -90,6 +99,7 @@ export interface FleetQuotaSummary {
 export interface RuleConfig {
   auto_switch_enabled: boolean
   auto_switch_threshold: number
+  switch_mode?: SwitchMode
   polling_interval_seconds: number
   active_polling_interval_seconds?: number
   standby_polling_interval_seconds?: number
@@ -577,6 +587,77 @@ export interface AcpHandshakeLog {
   action: string
   payload_summary: string
   status: 'success' | 'warning' | 'error'
+}
+
+export interface StoragePaths {
+  config_dir: string
+  credentials_path: string
+  temp_dir: string
+  socket_path: string
+}
+
+export interface AppZoneDetail {
+  app_type: 'desktop' | 'agy' | 'vscode' | string
+  display_name: string
+  detected_path: string
+  custom_path: string
+  active_path: string
+  installed: boolean
+  version: string
+  account_overrides: Record<string, string>
+}
+
+export interface AppZonesInfo {
+  desktop: AppZoneDetail
+  agy: AppZoneDetail
+  vscode: AppZoneDetail
+}
+
+export interface ClearCacheResult {
+  success: boolean
+  app_type: string
+  freed_bytes: number
+  deleted_files: number
+  message: string
+  error?: string
+}
+
+export interface FactoryResetResult {
+  success: boolean
+  message: string
+  error?: string
+}
+
+export interface StorageInfo {
+  storage_mode: 'system_default' | 'app_portable'
+  current_paths: StoragePaths
+  system_default_paths: StoragePaths
+  app_portable_paths: StoragePaths
+  app_execution_type: string
+  app_execution_detail: string
+  can_migrate: boolean
+  app_zones?: AppZonesInfo
+}
+
+export interface PrivacySettings {
+  anonymous_error_reports: boolean
+  anonymous_telemetry: boolean
+  github_repo: string
+}
+
+export interface DiagnosticResult {
+  success: boolean
+  agent_selected: string
+  agent_priority_chain: string[]
+  account_or_model_used: string
+  resolution_source: string
+  sanitized_report: string
+  issue_title: string
+  issue_url: string
+  github_repo: string
+  sensitive_data_redacted: boolean
+  redacted_token_count: number
+  error?: string
 }
 
 

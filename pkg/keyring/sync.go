@@ -2,6 +2,7 @@ package keyring
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -26,6 +27,23 @@ type AntigravitySecretPayload struct {
 	AuthMethod string `json:"auth_method"`
 }
 
+// mintMinimalIDToken creates a valid unverified JWT carrying the email claim if no real IDToken is present.
+func mintMinimalIDToken(email string) string {
+	if email == "" {
+		return ""
+	}
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	claimsJSON, err := json.Marshal(map[string]interface{}{
+		"email":          strings.TrimSpace(email),
+		"email_verified": true,
+	})
+	if err != nil {
+		return ""
+	}
+	payload := base64.RawURLEncoding.EncodeToString(claimsJSON)
+	return header + "." + payload + "."
+}
+
 // buildSecretPayload constructs the standardized Antigravity JSON auth token payload.
 func buildSecretPayload(acc *Account) ([]byte, error) {
 	if acc == nil {
@@ -39,7 +57,11 @@ func buildSecretPayload(acc *Account) ([]byte, error) {
 	payload.Token.TokenType = "Bearer"
 	payload.Token.RefreshToken = acc.RefreshToken
 	payload.Token.ProjectID = "aicode-consumers"
-	payload.Token.IDToken = acc.IDToken
+	idToken := acc.IDToken
+	if idToken == "" && acc.Email != "" {
+		idToken = mintMinimalIDToken(acc.Email)
+	}
+	payload.Token.IDToken = idToken
 	if !acc.TokenExpiry.IsZero() {
 		payload.Token.Expiry = acc.TokenExpiry.UTC().Format("2006-01-02T15:04:05.000000Z")
 	} else {
@@ -51,7 +73,7 @@ func buildSecretPayload(acc *Account) ([]byte, error) {
 
 // WriteSecretServiceToken stores account credentials into Linux Secret Service (service=gemini, username=antigravity).
 func WriteSecretServiceToken(acc *Account) error {
-	if os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" {
+	if os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" || acc == nil || (acc.AccessToken == "" && acc.RefreshToken == "") {
 		return nil
 	}
 	payloadBytes, err := buildSecretPayload(acc)
@@ -147,6 +169,9 @@ func SyncHardwareProfile(email string, profileMgr *fingerprint.Store) error {
 
 // SyncDesktopStandaloneToken writes ~/.gemini/jetski-standalone-oauth-token for Antigravity 2.0.
 func SyncDesktopStandaloneToken(acc *Account) error {
+	if acc == nil || (acc.AccessToken == "" && acc.RefreshToken == "") {
+		return nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -161,6 +186,9 @@ func SyncDesktopStandaloneToken(acc *Account) error {
 
 // SyncCLIOAuthToken writes ~/.gemini/antigravity-cli/antigravity-oauth-token for Antigravity CLI (agy).
 func SyncCLIOAuthToken(acc *Account) error {
+	if acc == nil || (acc.AccessToken == "" && acc.RefreshToken == "") {
+		return nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -207,6 +235,9 @@ func SyncGoogleAccountsJSON(activeEmail string, allEmails []string) error {
 
 // SyncOAuthCredsJSON writes ~/.gemini/oauth_creds.json used across CLI and extensions.
 func SyncOAuthCredsJSON(acc *Account) error {
+	if acc == nil || (acc.AccessToken == "" && acc.RefreshToken == "") {
+		return nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -218,12 +249,17 @@ func SyncOAuthCredsJSON(acc *Account) error {
 		expiryMs = acc.TokenExpiry.UnixMilli()
 	}
 
+	idToken := acc.IDToken
+	if idToken == "" && acc.Email != "" {
+		idToken = mintMinimalIDToken(acc.Email)
+	}
+
 	payload := map[string]interface{}{
 		"access_token":  acc.AccessToken,
 		"refresh_token": acc.RefreshToken,
 		"token_type":    "Bearer",
 		"expiry_date":   expiryMs,
-		"id_token":      acc.IDToken,
+		"id_token":      idToken,
 		"scope":         "openid https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs https://www.googleapis.com/auth/aicode",
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")

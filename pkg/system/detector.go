@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -16,6 +17,7 @@ import (
 
 const (
 	LatestDesktopVersion   = "2.19.1"
+	LatestAgyVersion       = "1.2.14"
 	LatestExtensionVersion = "1.6.0"
 )
 
@@ -23,6 +25,7 @@ const (
 type InstallationInfo struct {
 	Installed     bool   `json:"installed"`
 	Path          string `json:"path"`
+	CustomPath    string `json:"custom_path,omitempty"`
 	Version       string `json:"version"`
 	UpToDate      bool   `json:"up_to_date"`
 	LatestVersion string `json:"latest_version"`
@@ -30,9 +33,10 @@ type InstallationInfo struct {
 	TargetType    string `json:"target_type"`
 }
 
-// SystemInstallations aggregates installation status for both the desktop app and VS Code extension.
+// SystemInstallations aggregates installation status for the desktop app, agy CLI, and VS Code extension.
 type SystemInstallations struct {
 	DesktopApp      InstallationInfo `json:"desktop_app"`
+	AgyCLI          InstallationInfo `json:"agy_cli"`
 	VSCodeExtension InstallationInfo `json:"vscode_extension"`
 	Platform        string           `json:"platform"`
 	Arch            string           `json:"arch"`
@@ -52,16 +56,18 @@ func NewDetector() *Detector {
 	}
 }
 
-// DetectAll scans the host system for Antigravity Desktop App and VS Code Extension.
+// DetectAll scans the host system for Antigravity Desktop App, agy CLI, and VS Code Extension.
 func (d *Detector) DetectAll() *SystemInstallations {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	desktop := d.detectDesktopApp()
+	agy := d.detectAgyCLI()
 	extension := d.detectVSCodeExtension()
 
 	res := &SystemInstallations{
 		DesktopApp:      desktop,
+		AgyCLI:          agy,
 		VSCodeExtension: extension,
 		Platform:        runtime.GOOS,
 		Arch:            runtime.GOARCH,
@@ -88,6 +94,17 @@ func (d *Detector) detectDesktopApp() InstallationInfo {
 		LatestVersion: LatestDesktopVersion,
 		TargetType:    "desktop_app",
 		ProcessState:  "Stopped",
+	}
+
+	if cfg, _ := core.LoadConfig(); cfg != nil && cfg.DesktopAppPath != "" {
+		info.CustomPath = cfg.DesktopAppPath
+		if pathExists(cfg.DesktopAppPath) {
+			info.Installed = true
+			info.Path = cfg.DesktopAppPath
+			info.Version = LatestDesktopVersion
+			info.UpToDate = true
+			return info
+		}
 	}
 
 	// 1. Check if executable / bundle or resources dir exists
@@ -142,6 +159,64 @@ func (d *Detector) detectDesktopApp() InstallationInfo {
 	return info
 }
 
+func (d *Detector) detectAgyCLI() InstallationInfo {
+	info := InstallationInfo{
+		Installed:     false,
+		Path:          "",
+		Version:       "",
+		UpToDate:      false,
+		LatestVersion: LatestAgyVersion,
+		TargetType:    "agy_cli",
+		ProcessState:  "Ready",
+	}
+
+	if cfg, _ := core.LoadConfig(); cfg != nil && cfg.AgyCLIPath != "" {
+		info.CustomPath = cfg.AgyCLIPath
+		if pathExists(cfg.AgyCLIPath) {
+			info.Installed = true
+			info.Path = cfg.AgyCLIPath
+		}
+	}
+
+	if !info.Installed {
+		if p, err := exec.LookPath("agy"); err == nil && p != "" {
+			info.Installed = true
+			info.Path = p
+		} else {
+			home, _ := os.UserHomeDir()
+			candidates := []string{
+				filepath.Join(home, ".local", "bin", "agy"),
+				filepath.Join(home, ".cargo", "bin", "agy"),
+				"/usr/local/bin/agy",
+				"/usr/bin/agy",
+			}
+			for _, cand := range candidates {
+				if pathExists(cand) {
+					info.Installed = true
+					info.Path = cand
+					break
+				}
+			}
+		}
+	}
+
+	if info.Installed {
+		cmd := exec.Command(info.Path, "--version")
+		if out, err := cmd.Output(); err == nil {
+			v := strings.TrimSpace(string(out))
+			if v != "" {
+				info.Version = v
+			}
+		}
+		if info.Version == "" {
+			info.Version = LatestAgyVersion
+		}
+		info.UpToDate = compareVersions(info.Version, "1.2.0") >= 0
+	}
+
+	return info
+}
+
 func (d *Detector) detectVSCodeExtension() InstallationInfo {
 	info := InstallationInfo{
 		Installed:     false,
@@ -150,6 +225,17 @@ func (d *Detector) detectVSCodeExtension() InstallationInfo {
 		UpToDate:      false,
 		LatestVersion: LatestExtensionVersion,
 		TargetType:    "vscode_extension",
+	}
+
+	if cfg, _ := core.LoadConfig(); cfg != nil && cfg.VSCodeExtensionPath != "" {
+		info.CustomPath = cfg.VSCodeExtensionPath
+		if pathExists(cfg.VSCodeExtensionPath) {
+			info.Installed = true
+			info.Path = cfg.VSCodeExtensionPath
+			info.Version = LatestExtensionVersion
+			info.UpToDate = true
+			return info
+		}
 	}
 
 	candidateDirs := core.GetVSCodeExtensionsDirs()

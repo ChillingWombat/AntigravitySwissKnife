@@ -5,6 +5,9 @@ import { base32Decode, generateTOTP, sanitizeTotpSecret } from './totp.ts'
 describe('TOTP Utility', () => {
   it('sanitizes base32 and otpauth URI secrets', () => {
     assert.equal(sanitizeTotpSecret('  jbsw y3dp ehpk 3pxp  '), 'JBSWY3DPEHPK3PXP')
+    assert.equal(sanitizeTotpSecret('JBSW Y3DP EHPK 3PXP'), 'JBSWY3DPEHPK3PXP')
+    assert.equal(sanitizeTotpSecret('JBSWY3DPEHPK3PXP'), 'JBSWY3DPEHPK3PXP')
+    assert.equal(sanitizeTotpSecret('HXDM J3VF 9G4W 2ZQA'), 'HXDMJ3VF9G4W2ZQA')
     assert.equal(
       sanitizeTotpSecret('otpauth://totp/Google:user@gmail.com?secret=JBSWY3DPEHPK3PXP&issuer=Google'),
       'JBSWY3DPEHPK3PXP'

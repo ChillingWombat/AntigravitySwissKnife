@@ -561,11 +561,29 @@ func generateBaseScript(cfg *Config) string {
             }
           }
 
-          // Project show-more button handling: preserve native button text and event handlers
-          if (item.type === "show-more") {
+          // Project show-more button handling: sleek divider with centered solid triangle
+          if (item.type === "show-more" || (el.querySelector("button") && (el.querySelector("button").textContent.includes("See all") || el.querySelector("button").textContent.includes("See less") || el.querySelector("button").getAttribute("data-swiss-divider") === "true"))) {
             const btn = el.querySelector("button");
-            if (btn && btn.getAttribute("data-swiss-divider") === "true") {
-              btn.removeAttribute("data-swiss-divider");
+            if (btn) {
+              if (replaceSeeAllTriangle) {
+                const rawLabel = item.label || btn.getAttribute("data-swiss-orig-label") || btn.textContent.trim();
+                const isSeeAll = rawLabel.toLowerCase().includes("see all");
+                const symbol = isSeeAll ? "▾" : "▴";
+                btn.setAttribute("data-swiss-divider", "true");
+                btn.setAttribute("data-swiss-orig-label", rawLabel);
+                btn.setAttribute("title", rawLabel);
+                const curTriangle = btn.querySelector(".swiss-convo-tabs-triangle");
+                if (!curTriangle || curTriangle.textContent !== symbol) {
+                  btn.innerHTML = '<div class="swiss-convo-tabs-divider">' +
+                    '<div class="swiss-convo-tabs-pill"><span class="swiss-convo-tabs-triangle">' + symbol + '</span></div>' +
+                    '<div class="swiss-convo-tabs-line"></div>' +
+                  '</div>';
+                }
+              } else if (btn.getAttribute("data-swiss-divider") === "true") {
+                btn.removeAttribute("data-swiss-divider");
+                const orig = btn.getAttribute("data-swiss-orig-label") || item.label || btn.getAttribute("title") || "See all";
+                btn.textContent = orig;
+              }
             }
           }
 
@@ -758,16 +776,31 @@ func generateBaseScript(cfg *Config) string {
         const effSelectedOpacity = Math.min(1.0, (baseOpacity + 0.16) * lightMult).toFixed(2);
 
         cssRules.push(
+          '/* Dynamic Project Label Card */' +
+          '[data-swiss-project="' + safeP + '"][data-project-card="true"],' +
+          '[data-swiss-project="' + safeP + '"] [data-project-card="true"],' +
+          '[data-swiss-project="' + safeP + '"][data-project-card],' +
           '[data-swiss-project="' + safeP + '"] [data-project-card],' +
-          '[data-project-card][data-swiss-project="' + safeP + '"],' +
-          'div[data-swiss-project="' + safeP + '"][class*="group/header"] {' +
-          '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;' +
-          '  border-radius: 6px !important;' +
+          '[data-project-card][data-swiss-project="' + safeP + '"] {' +
+          '  background-color: ' + hex + ' !important;' +
+          '  color: #ffffff !important;' +
+          '  border-radius: 8px !important;' +
+          '  border: none !important;' +
           '}' +
-          '[data-swiss-project="' + safeP + '"] [data-project-card]:hover,' +
-          '[data-project-card][data-swiss-project="' + safeP + '"]:hover {' +
-          '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effHoverOpacity + ') !important;' +
+          '[data-swiss-project="' + safeP + '"][data-project-card="true"] *,' +
+          '[data-swiss-project="' + safeP + '"] [data-project-card="true"] *,' +
+          '[data-swiss-project="' + safeP + '"][data-project-card] *,' +
+          '[data-swiss-project="' + safeP + '"] [data-project-card] *,' +
+          '[data-project-card][data-swiss-project="' + safeP + '"] * {' +
+          '  color: #ffffff !important;' +
           '}' +
+          '[data-swiss-project="' + safeP + '"] [class*="group/header"] button,' +
+          '[data-swiss-project="' + safeP + '"] button[aria-label="Project options"] svg,' +
+          '[data-swiss-project="' + safeP + '"] button[aria-label*="conversation"] svg {' +
+          '  color: #ffffff !important;' +
+          '  fill: #ffffff !important;' +
+          '}' +
+          '/* Conversation rows light tint */' +
           '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"],' +
           '[data-index][data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"],' +
           '[data-index][data-swiss-project="' + safeP + '"] {' +
@@ -809,28 +842,60 @@ func generateBaseScript(cfg *Config) string {
     } catch (_) {}
   }
 
-  // Track the most recently clicked project options button
+  // Track the most recently clicked project options button or right-clicked project
   if (!window.__swissProjectOptionsTrackerBound) {
     window.__swissProjectOptionsTrackerBound = true;
-    document.addEventListener("pointerdown", (e) => {
-      const btn = e.target.closest('button[aria-label="Project options"]');
-      if (btn) {
-        const header = btn.closest('[data-swiss-project], [class*="group/header"], [data-project-id], [data-project-label]');
-        let pName = header?.getAttribute("data-swiss-project") ||
-                    header?.getAttribute("data-project-label") ||
-                    header?.querySelector("[data-project-card]")?.getAttribute("data-swiss-project");
+
+    const trackProjectTarget = (target) => {
+      if (!target) return;
+      const header = target.closest('[data-swiss-project], [data-project-label], [data-project-card], [class*="group/header"], [data-project-id], [data-testid="lifted-context-menu-trigger"]');
+      if (header) {
+        let pName = header.getAttribute("data-swiss-project") ||
+                    header.getAttribute("data-project-label");
         if (!pName) {
-          const card = header?.querySelector("[data-project-card]") || header;
+          const card = header.matches("[data-project-card]") ? header : header.querySelector("[data-project-card]");
+          if (card) {
+            pName = card.getAttribute("data-swiss-project") || card.getAttribute("data-project-label");
+            if (!pName) {
+              const span = card.querySelector("span.truncate, span");
+              pName = span ? span.textContent.trim() : card.textContent.trim();
+            }
+          }
+        }
+        if (!pName) {
+          const card = header.querySelector("[data-project-card]") || header;
           pName = card ? card.textContent.trim() : "";
         }
-        window.__swissLastClickedProject = { name: pName, time: Date.now() };
-        if (typeof window.__swissEnhanceProjectOptionsMenu === "function") {
-          requestAnimationFrame(window.__swissEnhanceProjectOptionsMenu);
-          setTimeout(window.__swissEnhanceProjectOptionsMenu, 50);
-          setTimeout(window.__swissEnhanceProjectOptionsMenu, 150);
+        if (pName) {
+          window.__swissLastClickedProject = { name: pName, time: Date.now() };
         }
       }
-    }, { capture: false, passive: true });
+    };
+
+    document.addEventListener("contextmenu", (e) => {
+      trackProjectTarget(e.target);
+      if (typeof window.__swissEnhanceProjectOptionsMenu === "function") {
+        requestAnimationFrame(window.__swissEnhanceProjectOptionsMenu);
+        setTimeout(window.__swissEnhanceProjectOptionsMenu, 50);
+        setTimeout(window.__swissEnhanceProjectOptionsMenu, 150);
+      }
+    }, { capture: true, passive: true });
+
+    document.addEventListener("pointerdown", (e) => {
+      if (e.button === 2) {
+        trackProjectTarget(e.target);
+      } else {
+        const btn = e.target.closest('button[aria-label="Project options"]');
+        if (btn) {
+          trackProjectTarget(btn);
+        }
+      }
+      if (typeof window.__swissEnhanceProjectOptionsMenu === "function") {
+        requestAnimationFrame(window.__swissEnhanceProjectOptionsMenu);
+        setTimeout(window.__swissEnhanceProjectOptionsMenu, 50);
+        setTimeout(window.__swissEnhanceProjectOptionsMenu, 150);
+      }
+    }, { capture: true, passive: true });
   }
 
   function enhanceProjectOptionsMenu() {
@@ -857,7 +922,7 @@ func generateBaseScript(cfg *Config) string {
           projectName = card ? card.textContent.trim() : "";
         }
       }
-      if (!projectName && window.__swissLastClickedProject && (Date.now() - window.__swissLastClickedProject.time < 3000)) {
+      if (!projectName && window.__swissLastClickedProject && (Date.now() - window.__swissLastClickedProject.time < 15000)) {
         projectName = window.__swissLastClickedProject.name;
       }
       if (!projectName) return;

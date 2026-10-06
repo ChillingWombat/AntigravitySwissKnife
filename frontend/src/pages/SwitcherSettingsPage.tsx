@@ -12,10 +12,23 @@ import {
   GripVertical,
   Laptop,
   RefreshCw,
+  Download,
+  Upload,
+  Copy,
+  Check,
+  FileText,
+  AlertCircle,
+  CheckCircle2,
+  X,
+  Code,
+  SlidersHorizontal,
+  Zap,
+  Timer,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
-import type { RuleConfig, SurfacesResponse, AvailableModelItem } from '../types'
+import type { RuleConfig, SurfacesResponse, AvailableModelItem, SwitchMode } from '../types'
 import { api } from '../api'
+import { resolveEffectiveCustomModel } from '../utils/modelFilter'
 
 interface SwitcherSettingsPageProps {
   initialRules: RuleConfig | null
@@ -58,6 +71,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   onSaved,
 }) => {
   const [threshold, setThreshold] = useState<number>(initialRules?.auto_switch_threshold ?? 0.05)
+  const [switchMode, setSwitchMode] = useState<SwitchMode>(initialRules?.switch_mode || 'balanced')
   const [pollingInterval, setPollingInterval] = useState<number>(initialRules?.polling_interval_seconds ?? 60)
   const [activePollingInterval, setActivePollingInterval] = useState<number>(initialRules?.active_polling_interval_seconds ?? 120)
   const [standbyPollingInterval, setStandbyPollingInterval] = useState<number>(initialRules?.standby_polling_interval_seconds ?? 900)
@@ -108,9 +122,152 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   const [isSaving, setIsSaving] = useState<boolean>(false)
   const [feedback, setFeedback] = useState<string | null>(null)
 
+  // Account Export & Import States
+  const [isExporting, setIsExporting] = useState<boolean>(false)
+  const [copiedExport, setCopiedExport] = useState<boolean>(false)
+  const [showExportPreview, setShowExportPreview] = useState<boolean>(false)
+  const [exportPreviewText, setExportPreviewText] = useState<string>('')
+  const [isImporting, setIsImporting] = useState<boolean>(false)
+  const [importStatus, setImportStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [showPasteModal, setShowPasteModal] = useState<boolean>(false)
+  const [pasteText, setPasteText] = useState<string>('')
+
+  const handleExportDownload = async () => {
+    setIsExporting(true)
+    setImportStatus(null)
+    try {
+      const data = await api.exportAccounts()
+      const jsonStr = JSON.stringify(data, null, 2)
+      setExportPreviewText(jsonStr)
+      const blob = new Blob([jsonStr], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const dateStr = new Date().toISOString().slice(0, 10)
+      a.download = `antigravity_accounts_${dateStr}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      setImportStatus({
+        type: 'success',
+        message: `Successfully exported ${data.length} accounts to JSON file.`,
+      })
+    } catch (err: any) {
+      setImportStatus({
+        type: 'error',
+        message: `Export failed: ${err.message}`,
+      })
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  const handleExportCopy = async () => {
+    setIsExporting(true)
+    setImportStatus(null)
+    try {
+      const data = await api.exportAccounts()
+      const jsonStr = JSON.stringify(data, null, 2)
+      setExportPreviewText(jsonStr)
+      await navigator.clipboard.writeText(jsonStr)
+      setCopiedExport(true)
+      setTimeout(() => setCopiedExport(false), 2000)
+      setImportStatus({
+        type: 'success',
+        message: `Copied ${data.length} accounts JSON to clipboard.`,
+      })
+    } catch (err: any) {
+      setImportStatus({
+        type: 'error',
+        message: `Copy failed: ${err.message}`,
+      })
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  const handleTogglePreview = async () => {
+    if (!showExportPreview && !exportPreviewText) {
+      setIsExporting(true)
+      try {
+        const data = await api.exportAccounts()
+        setExportPreviewText(JSON.stringify(data, null, 2))
+      } catch (err: any) {
+        setImportStatus({ type: 'error', message: `Failed to load preview: ${err.message}` })
+      } finally {
+        setIsExporting(false)
+      }
+    }
+    setShowExportPreview(!showExportPreview)
+  }
+
+  const processImportJson = async (jsonText: string) => {
+    if (!jsonText.trim()) {
+      setImportStatus({ type: 'error', message: 'JSON content is empty.' })
+      return
+    }
+    setIsImporting(true)
+    setImportStatus(null)
+    try {
+      let parsed: any
+      try {
+        parsed = JSON.parse(jsonText)
+      } catch (parseErr: any) {
+        throw new Error(`Invalid JSON syntax: ${parseErr.message}`)
+      }
+      const res = await api.batchImportAccounts(parsed)
+      setImportStatus({
+        type: 'success',
+        message: res.message || `Successfully imported ${res.imported} accounts.`,
+      })
+      setShowPasteModal(false)
+      setPasteText('')
+      onSaved()
+    } catch (err: any) {
+      setImportStatus({
+        type: 'error',
+        message: err.message || 'Import failed.',
+      })
+    } finally {
+      setIsImporting(false)
+    }
+  }
+
+  const handleImportFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = async (evt) => {
+      try {
+        const content = evt.target?.result as string
+        await processImportJson(content)
+      } catch (err: any) {
+        setImportStatus({ type: 'error', message: `File read error: ${err.message}` })
+      }
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
+
+  const sampleJson = `[
+  {
+    "id": "work.engineer@gmail.com",
+    "password": "AccountPassword123!",
+    "mfa": "JBSWY3DPEHPK3PXP",
+    "oath_token": "1//06xyzSampleOAuthRefreshToken...",
+    "label": "Work Account",
+    "plan_tier": "Google AI Pro",
+    "priority": "High"
+  }
+]`
+
   useEffect(() => {
     if (initialRules) {
       setThreshold(initialRules.auto_switch_threshold)
+      if (initialRules.switch_mode) {
+        setSwitchMode(initialRules.switch_mode)
+      }
       setPollingInterval(initialRules.polling_interval_seconds)
       if (initialRules.active_polling_interval_seconds) {
         setActivePollingInterval(initialRules.active_polling_interval_seconds)
@@ -138,7 +295,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       if (initialRules.default_gemini_model) {
         setDefaultGemini(initialRules.default_gemini_model)
       }
-      if (initialRules.default_custom_model !== undefined) {
+      if (initialRules.default_custom_model) {
         setDefaultCustom(initialRules.default_custom_model)
       }
       if (initialRules.default_non_gemini_model) {
@@ -161,15 +318,25 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
         if (res.gemini_models && res.gemini_models.length > 0) {
           setGeminiModelOptions(res.gemini_models)
           setDefaultGemini((prev) => {
-            if (res.gemini_models.some((m) => m.id === prev)) return prev
-            return res.default_gemini || res.gemini_models[0].id
+            if (prev && res.gemini_models.some((opt) => opt.id === prev)) {
+              return prev
+            }
+            if (res.default_gemini && res.gemini_models.some((opt) => opt.id === res.default_gemini)) {
+              return res.default_gemini
+            }
+            return res.gemini_models[0].id
           })
         }
         if (res.non_gemini_models && res.non_gemini_models.length > 0) {
           setNonGeminiModelOptions(res.non_gemini_models)
           setDefaultNonGemini((prev) => {
-            if (res.non_gemini_models.some((m) => m.id === prev)) return prev
-            return res.default_non_gemini || res.non_gemini_models[0].id
+            if (prev && res.non_gemini_models.some((opt) => opt.id === prev)) {
+              return prev
+            }
+            if (res.default_non_gemini && res.non_gemini_models.some((opt) => opt.id === res.default_non_gemini)) {
+              return res.default_non_gemini
+            }
+            return res.non_gemini_models[0].id
           })
         }
       }
@@ -177,6 +344,27 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       // Keep baseline models active
     } finally {
       setIsFetchingModels(false)
+    }
+
+    try {
+      const cmRes = await api.getCustomModels()
+      if (cmRes && cmRes.models) {
+        const enabled = cmRes.models.filter((m) => m.enabled)
+        setCustomModelOptions(enabled.map((m) => ({ id: m.id, name: m.display_name || m.name || m.id })))
+        if (enabled.length > 0) {
+          setDefaultCustom((prev) => {
+            const exists = enabled.some((m) => m.id === prev)
+            return exists && prev !== '' ? prev : enabled[0].id
+          })
+        } else {
+          setDefaultCustom('')
+        }
+      } else {
+        setCustomModelOptions([])
+        setDefaultCustom('')
+      }
+    } catch (_) {
+      // Keep existing custom models
     }
   }
 
@@ -221,6 +409,8 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       })
   }, [])
 
+  const effectiveCustomModel = resolveEffectiveCustomModel(customModelOptions, defaultCustom)
+
   const moveHierarchyItem = (index: number, direction: 'up' | 'down') => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1
     if (targetIndex < 0 || targetIndex >= hierarchy.length) return
@@ -236,6 +426,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     try {
       await api.saveRules({
         auto_switch_threshold: threshold,
+        switch_mode: switchMode,
         polling_interval_seconds: pollingInterval,
         active_polling_interval_seconds: activePollingInterval,
         standby_polling_interval_seconds: standbyPollingInterval,
@@ -247,7 +438,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
         allow_non_gemini_native_models: allowNonGemini,
         model_source_hierarchy: hierarchy,
         default_gemini_model: defaultGemini,
-        default_custom_model: defaultCustom,
+        default_custom_model: effectiveCustomModel,
         default_non_gemini_model: defaultNonGemini,
         default_gemini_reasoning_level: geminiReasoningLevel,
         auto_import_active_account: autoImportActive,
@@ -304,6 +495,150 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Switch Mode Strategy Selector */}
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+              Account Switch Mode:
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '12px' }}>
+              Configure how the rotation engine prioritizes candidate accounts and evaluates switch triggers.
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                gap: '12px',
+              }}
+            >
+              {/* Option 1: Balanced (Default) */}
+              <div
+                onClick={() => setSwitchMode('balanced')}
+                style={{
+                  border: switchMode === 'balanced' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                  backgroundColor: switchMode === 'balanced' ? 'var(--primary-light, rgba(11, 87, 208, 0.04))' : 'var(--surface)',
+                  borderRadius: '8px',
+                  padding: '14px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <SlidersHorizontal size={15} color={switchMode === 'balanced' ? 'var(--primary)' : 'var(--text-muted)'} />
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                      Balanced
+                    </span>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      backgroundColor: switchMode === 'balanced' ? 'var(--primary)' : 'var(--border)',
+                      color: switchMode === 'balanced' ? '#ffffff' : 'var(--text-muted)',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Default
+                  </span>
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+                  Rotates only when active quota drops to exhaustion threshold. Standby accounts ranked by balanced composite score across 5h and weekly quota.
+                </div>
+              </div>
+
+              {/* Option 2: Max Total Tokens */}
+              <div
+                onClick={() => setSwitchMode('max_tokens')}
+                style={{
+                  border: switchMode === 'max_tokens' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                  backgroundColor: switchMode === 'max_tokens' ? 'var(--primary-light, rgba(11, 87, 208, 0.04))' : 'var(--surface)',
+                  borderRadius: '8px',
+                  padding: '14px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Zap size={15} color={switchMode === 'max_tokens' ? 'var(--primary)' : 'var(--text-muted)'} />
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                      Max Total Tokens
+                    </span>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      backgroundColor: switchMode === 'max_tokens' ? 'var(--primary)' : 'var(--border)',
+                      color: switchMode === 'max_tokens' ? '#ffffff' : 'var(--text-muted)',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Throughput
+                  </span>
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+                  Maximizes aggregate tokens across staggered windows. Switches at threshold or proactively after ≥10m of use if an idle 100% reset clock can be ignited.
+                </div>
+              </div>
+
+              {/* Option 3: Max Continuous Usage */}
+              <div
+                onClick={() => setSwitchMode('max_continuous')}
+                style={{
+                  border: switchMode === 'max_continuous' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                  backgroundColor: switchMode === 'max_continuous' ? 'var(--primary-light, rgba(11, 87, 208, 0.04))' : 'var(--surface)',
+                  borderRadius: '8px',
+                  padding: '14px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Timer size={15} color={switchMode === 'max_continuous' ? 'var(--primary)' : 'var(--text-muted)'} />
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                      Max Continuous Usage
+                    </span>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      backgroundColor: switchMode === 'max_continuous' ? 'var(--primary)' : 'var(--border)',
+                      color: switchMode === 'max_continuous' ? '#ffffff' : 'var(--text-muted)',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Duration
+                  </span>
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+                  Maximizes continuous working time without switching. Prioritizes highest available 5h quota (Ultra 20X before Pro). Tie-breaks with reset countdowns.
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Threshold Slider */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
@@ -646,6 +981,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               value={defaultGemini}
               onChange={(e) => setDefaultGemini(e.target.value)}
               style={{ width: '240px' }}
+              aria-label="Default Gemini Model"
             >
               {geminiModelOptions.map((opt) => (
                 <option key={opt.id} value={opt.id}>
@@ -666,16 +1002,28 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               </div>
             </div>
             <select
-              value={defaultCustom}
+              value={effectiveCustomModel}
               onChange={(e) => setDefaultCustom(e.target.value)}
-              style={{ width: '240px' }}
+              disabled={customModelOptions.length === 0}
+              style={{
+                width: '240px',
+                cursor: customModelOptions.length === 0 ? 'not-allowed' : 'pointer',
+                opacity: customModelOptions.length === 0 ? 0.6 : 1,
+                backgroundColor: customModelOptions.length === 0 ? 'var(--canvas)' : undefined,
+                color: customModelOptions.length === 0 ? 'var(--text-muted)' : undefined,
+                borderColor: customModelOptions.length === 0 ? 'var(--border)' : undefined,
+              }}
+              aria-label="Default Custom Model"
             >
-              <option value="">None (Auto / First Available)</option>
-              {customModelOptions.map((cm) => (
-                <option key={cm.id} value={cm.id}>
-                  {cm.name || cm.id}
-                </option>
-              ))}
+              {customModelOptions.length === 0 ? (
+                <option value=""></option>
+              ) : (
+                customModelOptions.map((cm) => (
+                  <option key={cm.id} value={cm.id}>
+                    {cm.name || cm.id}
+                  </option>
+                ))
+              )}
             </select>
           </div>
 
@@ -693,6 +1041,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               value={defaultNonGemini}
               onChange={(e) => setDefaultNonGemini(e.target.value)}
               style={{ width: '240px' }}
+              aria-label="Default Non-Gemini Native Model"
             >
               {nonGeminiModelOptions.map((opt) => (
                 <option key={opt.id} value={opt.id}>
@@ -924,6 +1273,392 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
           </label>
         </div>
       </div>
+
+      {/* 6. Account Data Export & Import (JSON) */}
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
+          Account Data Export &amp; Import (JSON)
+        </div>
+
+        <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: 1.5 }}>
+          Export or import account fleet credentials in JSON format. Includes account ID/email, password, MFA secret, and OAuth refresh token.
+        </div>
+
+        {/* Status notification banner */}
+        {importStatus && (
+          <div
+            style={{
+              padding: '10px 14px',
+              borderRadius: '8px',
+              backgroundColor: importStatus.type === 'success' ? '#e6f4ea' : '#fce8e6',
+              border: `1px solid ${importStatus.type === 'success' ? '#ceead6' : '#fad2cf'}`,
+              color: importStatus.type === 'success' ? '#137333' : '#c5221f',
+              fontSize: '12px',
+              fontWeight: 500,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px',
+              marginBottom: '16px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {importStatus.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+              <span>{importStatus.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setImportStatus(null)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: 'inherit' }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
+        {/* Two-card layout: Left = Export, Right = Import */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+          {/* Export Card */}
+          <div
+            style={{
+              padding: '16px',
+              borderRadius: '12px',
+              backgroundColor: 'var(--canvas)',
+              border: '1px solid var(--border)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
+                  Export Accounts
+                </span>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--primary)', backgroundColor: 'rgba(26, 115, 232, 0.1)', padding: '2px 8px', borderRadius: '10px' }}>
+                  JSON Format
+                </span>
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '12px', lineHeight: 1.4 }}>
+                Download all saved accounts or copy JSON directly. Includes ID, password, MFA, and OAuth tokens.
+              </div>
+
+              {/* Badges indicating included credentials */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '16px' }}>
+                <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text)', backgroundColor: 'var(--card)', border: '1px solid var(--border)', padding: '2px 6px', borderRadius: '4px' }}>
+                  id / email
+                </span>
+                <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text)', backgroundColor: 'var(--card)', border: '1px solid var(--border)', padding: '2px 6px', borderRadius: '4px' }}>
+                  password
+                </span>
+                <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text)', backgroundColor: 'var(--card)', border: '1px solid var(--border)', padding: '2px 6px', borderRadius: '4px' }}>
+                  mfa
+                </span>
+                <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text)', backgroundColor: 'var(--card)', border: '1px solid var(--border)', padding: '2px 6px', borderRadius: '4px' }}>
+                  oath token
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={handleExportDownload}
+                disabled={isExporting}
+                className="btn-pill-primary"
+                style={{
+                  padding: '7px 14px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Download size={14} />
+                {isExporting ? 'Exporting...' : 'Export JSON File'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportCopy}
+                disabled={isExporting}
+                className="btn-pill-outlined"
+                style={{
+                  padding: '7px 14px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                {copiedExport ? <Check size={14} color="#137333" /> : <Copy size={14} />}
+                {copiedExport ? 'Copied' : 'Copy JSON'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleTogglePreview}
+                disabled={isExporting}
+                className="btn-pill-tonal"
+                style={{
+                  padding: '7px 10px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                <FileText size={13} />
+                {showExportPreview ? 'Hide Preview' : 'Preview'}
+              </button>
+            </div>
+          </div>
+
+          {/* Import Card */}
+          <div
+            style={{
+              padding: '16px',
+              borderRadius: '12px',
+              backgroundColor: 'var(--canvas)',
+              border: '1px solid var(--border)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
+                  Import Accounts
+                </span>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: '#137333', backgroundColor: '#e6f4ea', padding: '2px 8px', borderRadius: '10px' }}>
+                  JSON Importer
+                </span>
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '12px', lineHeight: 1.4 }}>
+                Upload a JSON file or paste JSON text. Existing accounts are updated; new accounts are safely registered.
+              </div>
+
+              {/* Supported format badges */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '16px' }}>
+                <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text)', backgroundColor: 'var(--card)', border: '1px solid var(--border)', padding: '2px 6px', borderRadius: '4px' }}>
+                  Array [ &#123; ... &#125; ]
+                </span>
+                <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text)', backgroundColor: 'var(--card)', border: '1px solid var(--border)', padding: '2px 6px', borderRadius: '4px' }}>
+                  Object &#123; accounts: [...] &#125;
+                </span>
+                <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text)', backgroundColor: 'var(--card)', border: '1px solid var(--border)', padding: '2px 6px', borderRadius: '4px' }}>
+                  Single Account
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <label
+                className="btn-pill-primary"
+                style={{
+                  padding: '7px 14px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: isImporting ? 'not-allowed' : 'pointer',
+                  opacity: isImporting ? 0.7 : 1,
+                }}
+              >
+                <Upload size={14} />
+                {isImporting ? 'Importing...' : 'Upload JSON File'}
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  onChange={handleImportFileUpload}
+                  disabled={isImporting}
+                  style={{ display: 'none' }}
+                />
+              </label>
+
+              <button
+                type="button"
+                onClick={() => setShowPasteModal(true)}
+                disabled={isImporting}
+                className="btn-pill-outlined"
+                style={{
+                  padding: '7px 14px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <FileText size={14} />
+                Paste JSON Text
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Collapsible Export Preview */}
+        {showExportPreview && (
+          <div
+            style={{
+              marginTop: '16px',
+              padding: '12px 16px',
+              borderRadius: '8px',
+              backgroundColor: 'var(--canvas)',
+              border: '1px solid var(--border)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Export JSON Preview
+              </span>
+              <button
+                type="button"
+                onClick={handleExportCopy}
+                className="btn-pill-tonal"
+                style={{ padding: '3px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+              >
+                {copiedExport ? <Check size={12} color="#137333" /> : <Copy size={12} />}
+                {copiedExport ? 'Copied' : 'Copy Preview'}
+              </button>
+            </div>
+            <pre
+              style={{
+                margin: 0,
+                maxHeight: '260px',
+                overflowY: 'auto',
+                fontSize: '11px',
+                fontFamily: 'monospace',
+                color: 'var(--text)',
+                backgroundColor: 'var(--card)',
+                padding: '10px',
+                borderRadius: '6px',
+                border: '1px solid var(--border)',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all',
+              }}
+            >
+              {exportPreviewText || 'Loading export preview...'}
+            </pre>
+          </div>
+        )}
+      </div>
+
+      {/* Paste JSON Import Modal */}
+      {showPasteModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.45)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100,
+          }}
+          onClick={() => setShowPasteModal(false)}
+        >
+          <div
+            className="google-card"
+            style={{
+              width: '640px',
+              maxWidth: '92vw',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              padding: '24px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+              backgroundColor: '#ffffff',
+              boxShadow: 'var(--shadow-lg)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+                  Import Accounts (JSON)
+                </h3>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  Paste account credentials in JSON format. Supported attributes: <code>id</code> / <code>email</code>, <code>password</code>, <code>mfa</code> / <code>totp_secret</code>, and <code>oath_token</code> / <code>refresh_token</code>.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPasteModal(false)}
+                className="btn-pill-tonal"
+                style={{ padding: '6px' }}
+                title="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                JSON Payload
+              </span>
+              <button
+                type="button"
+                onClick={() => setPasteText(sampleJson)}
+                className="btn-pill-tonal"
+                style={{ padding: '4px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+              >
+                <Code size={12} />
+                Insert Sample Template
+              </button>
+            </div>
+
+            <textarea
+              value={pasteText}
+              onChange={(e) => setPasteText(e.target.value)}
+              placeholder={`[\n  {\n    "id": "user@gmail.com",\n    "password": "Password123!",\n    "mfa": "JBSWY3DPEHPK3PXP",\n    "oath_token": "1//06xyz..."\n  }\n]`}
+              style={{
+                width: '100%',
+                height: '240px',
+                padding: '12px',
+                fontFamily: 'monospace',
+                fontSize: '12px',
+                lineHeight: 1.5,
+                borderRadius: '8px',
+                border: '1px solid var(--border)',
+                backgroundColor: 'var(--canvas)',
+                color: 'var(--text)',
+                resize: 'vertical',
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+              <button
+                type="button"
+                onClick={() => setShowPasteModal(false)}
+                className="btn-pill-outlined"
+                style={{ padding: '7px 16px', fontSize: '12px', fontWeight: 600 }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => processImportJson(pasteText)}
+                disabled={isImporting || !pasteText.trim()}
+                className="btn-pill-primary"
+                style={{ padding: '7px 18px', fontSize: '12px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Upload size={14} />
+                {isImporting ? 'Importing...' : 'Import Accounts'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

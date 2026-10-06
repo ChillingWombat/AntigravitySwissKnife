@@ -712,9 +712,12 @@ func TestWebGUIAvailableModelsAndRules(t *testing.T) {
 		t.Errorf("expected default_gemini_reasoning_level 'high', got '%v'", rules["default_gemini_reasoning_level"])
 	}
 
-	// 3. POST /api/rules to update reasoning level
+	// 3. POST /api/rules to update reasoning level and default models
 	postData := map[string]interface{}{
 		"default_gemini_reasoning_level": "medium",
+		"default_custom_model":          "custom-first-model",
+		"default_gemini_model":          "gemini-3.8-pro",
+		"default_non_gemini_model":      "claude-3-7-sonnet",
 	}
 	pBytes, _ := json.Marshal(postData)
 	resp, err = http.Post(baseURL+"/api/rules", "application/json", bytes.NewReader(pBytes))
@@ -723,7 +726,7 @@ func TestWebGUIAvailableModelsAndRules(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// 4. Verify updated reasoning level
+	// 4. Verify updated reasoning level and model fields
 	resp, err = http.Get(baseURL + "/api/rules")
 	if err != nil || resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /api/rules failed: err=%v, code=%d", err, resp.StatusCode)
@@ -734,6 +737,15 @@ func TestWebGUIAvailableModelsAndRules(t *testing.T) {
 
 	if lvl, ok := updatedRules["default_gemini_reasoning_level"].(string); !ok || lvl != "medium" {
 		t.Errorf("expected default_gemini_reasoning_level 'medium', got '%v'", updatedRules["default_gemini_reasoning_level"])
+	}
+	if cm, ok := updatedRules["default_custom_model"].(string); !ok || cm != "custom-first-model" {
+		t.Errorf("expected default_custom_model 'custom-first-model', got '%v'", updatedRules["default_custom_model"])
+	}
+	if gm, ok := updatedRules["default_gemini_model"].(string); !ok || gm != "gemini-3.8-pro" {
+		t.Errorf("expected default_gemini_model 'gemini-3.8-pro', got '%v'", updatedRules["default_gemini_model"])
+	}
+	if ngm, ok := updatedRules["default_non_gemini_model"].(string); !ok || ngm != "claude-3-7-sonnet" {
+		t.Errorf("expected default_non_gemini_model 'claude-3-7-sonnet', got '%v'", updatedRules["default_non_gemini_model"])
 	}
 }
 
@@ -853,6 +865,119 @@ func TestWebGUICORSMiddlewareAndColorEndpoints(t *testing.T) {
 	}
 	if len(afterBetaCfg.ProjectOrder) != 2 {
 		t.Errorf("expected ProjectOrder to remain intact, got %v", afterBetaCfg.ProjectOrder)
+	}
+}
+
+func TestWebGUISettingsStorageAndPrivacy(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", filepath.Join(tmpDir, "config"))
+	t.Setenv("ANTIGRAVITY_SWISS_PORTABLE_DIR", filepath.Join(tmpDir, "portable_data"))
+
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// 1. GET /api/settings/storage
+	resp, err := http.Get(baseURL + "/api/settings/storage")
+	if err != nil {
+		t.Fatalf("GET /api/settings/storage failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var storageInfo map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&storageInfo); err != nil {
+		t.Fatalf("decode storageInfo error: %v", err)
+	}
+	resp.Body.Close()
+
+	if storageInfo["storage_mode"] != "system_default" {
+		t.Errorf("expected storage_mode to be system_default, got %v", storageInfo["storage_mode"])
+	}
+
+	// 2. POST /api/settings/storage to switch to app_portable
+	switchBody, _ := json.Marshal(map[string]interface{}{
+		"storage_mode": "app_portable",
+		"migrate_data": true,
+	})
+	resp, err = http.Post(baseURL+"/api/settings/storage", "application/json", bytes.NewReader(switchBody))
+	if err != nil {
+		t.Fatalf("POST /api/settings/storage failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var switchResp map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&switchResp)
+	resp.Body.Close()
+	if switchResp["success"] != true {
+		t.Errorf("expected switch success true, got %v", switchResp)
+	}
+
+	// 3. GET /api/settings/privacy
+	resp, err = http.Get(baseURL + "/api/settings/privacy")
+	if err != nil {
+		t.Fatalf("GET /api/settings/privacy failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var privInfo map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&privInfo)
+	resp.Body.Close()
+	if privInfo["github_repo"] != "ChillingWombat/antigravity-swiss-knife" {
+		t.Errorf("expected github_repo, got %v", privInfo["github_repo"])
+	}
+
+	// 4. POST /api/settings/privacy
+	privBody, _ := json.Marshal(map[string]interface{}{
+		"anonymous_error_reports": false,
+		"anonymous_telemetry":     true,
+	})
+	resp, err = http.Post(baseURL+"/api/settings/privacy", "application/json", bytes.NewReader(privBody))
+	if err != nil {
+		t.Fatalf("POST /api/settings/privacy failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var updatePrivResp map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&updatePrivResp)
+	resp.Body.Close()
+	if updatePrivResp["anonymous_error_reports"] != false || updatePrivResp["anonymous_telemetry"] != true {
+		t.Errorf("unexpected updated privacy response: %v", updatePrivResp)
+	}
+
+	// 5. POST /api/settings/diagnose-issue
+	diagBody, _ := json.Marshal(map[string]interface{}{
+		"description":         "Daemon IPC socket test error with email dev@company.com and secret sk-1234567890abcdef1234567890",
+		"include_system_info": true,
+		"include_logs":        true,
+	})
+	resp, err = http.Post(baseURL+"/api/settings/diagnose-issue", "application/json", bytes.NewReader(diagBody))
+	if err != nil {
+		t.Fatalf("POST /api/settings/diagnose-issue failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var diagResult map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&diagResult)
+	resp.Body.Close()
+
+	if diagResult["success"] != true {
+		t.Errorf("expected diagResult.success true, got %v", diagResult)
+	}
+	if diagResult["sensitive_data_redacted"] != true {
+		t.Errorf("expected sensitive_data_redacted true, got %v", diagResult)
+	}
+	reportStr, _ := diagResult["sanitized_report"].(string)
+	if strings.Contains(reportStr, "dev@company.com") || strings.Contains(reportStr, "sk-1234567890abcdef1234567890") {
+		t.Errorf("sanitized report contains unredacted credentials: %s", reportStr)
 	}
 }
 

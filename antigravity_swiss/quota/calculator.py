@@ -34,6 +34,7 @@ class AccountQuotaState:
     priority: str = "High"
     notes: str = ""
     password: str = ""
+    reset_seconds_weekly: float = 0.0
 
     @property
     def hours_until_reset(self) -> float:
@@ -114,7 +115,9 @@ def build_account_quota_states(
 
     if active_quota_summary and isinstance(active_quota_summary, dict):
         groups = active_quota_summary.get("groups", [])
-        for g in groups:
+        gemini_groups = [g for g in groups if "gemini" in str(g.get("displayName", "")).lower()]
+        target_groups = gemini_groups if gemini_groups else [g for g in groups if not any(x in str(g.get("displayName", "")).lower() for x in ("claude", "gpt", "3p"))]
+        for g in target_groups:
             for b in g.get("buckets", []):
                 bid = b.get("bucketId", "")
                 w = b.get("window", "")
@@ -213,18 +216,90 @@ def classify_error_status(status_code: int = 0, error_code: str = "", error_msg:
     return "ERROR"
 
 
+def normalize_plan_tier(tier: str) -> str:
+    """Normalizes raw plan tier strings to canonical representations."""
+    if not tier:
+        return "Free"
+    t = tier.strip().lower()
+    if t in ("free", "free-tier", "tier_free"):
+        return "Free"
+    if "trial" in t:
+        return "Pro - Trial"
+    if "20x" in t or "ultra_20x" in t or "ultra 20x" in t:
+        return "Ultra 20X"
+    if "10x" in t or "ultra_10x" in t or "ultra 10x" in t:
+        return "Ultra 10X"
+    if "5x" in t or "ultra_5x" in t or "ultra 5x" in t:
+        return "Ultra 5X"
+    if "ultra" in t:
+        return "Ultra 20X"
+    if any(k in t for k in ("edu", "education", "student", "academic")):
+        return "Edu"
+    if any(k in t for k in ("enterprise", "teams_tier_enterprise")):
+        return "Enterprise"
+    if "plus" in t:
+        return "Plus"
+    if any(k in t for k in ("pro", "standard", "code assist", "ai premium", "g1_ai", "team")):
+        return "Pro"
+    return tier.strip()
+
+
+def plan_tier_rank(tier: str) -> int:
+    """Numeric ordering of plan tiers (Enterprise=8 down to Free=0)."""
+    norm = normalize_plan_tier(tier)
+    ranks = {
+        "Enterprise": 8,
+        "Ultra 20X": 7,
+        "Ultra 10X": 6,
+        "Ultra 5X": 5,
+        "Pro": 4,
+        "Edu": 3,
+        "Pro - Trial": 2,
+        "Plus": 1,
+        "Free": 0,
+    }
+    return ranks.get(norm, 0)
+
+
+def plan_tier_capacity_multiplier(tier: str) -> float:
+    """Capacity multiplier relative to Pro (1.0). Free is heavily penalized to 0.25."""
+    norm = normalize_plan_tier(tier)
+    mults = {
+        "Enterprise": 1.45,
+        "Ultra 20X": 1.40,
+        "Ultra 10X": 1.30,
+        "Ultra 5X": 1.20,
+        "Pro": 1.00,
+        "Edu": 0.98,
+        "Pro - Trial": 0.92,
+        "Plus": 0.80,
+        "Free": 0.25,
+    }
+    return mults.get(norm, 1.0)
+
+
+def is_free_plan_tier(email: str, tier: str) -> bool:
+    """Determines whether an account belongs to the Free tier."""
+    norm = normalize_plan_tier(tier)
+    if tier and tier.strip():
+        return norm == "Free"
+    lower = email.lower()
+    if any(k in lower for k in ("ultra", ".edu", "student", "trial", "pro", "dev", "plus")):
+        return False
+    return True
+
+
 def sort_account_quota_states(
     accounts: List[AccountQuotaState],
     active_email: str = "",
     threshold: float = 0.10,
     mode: str = "auto",
+    switch_mode: str = "balanced",
 ) -> List[AccountQuotaState]:
     """
     Sorts a list of AccountQuotaState objects according to the specified mode:
-    - 'auto': Active healthy account in Row 1. Row 2+ ordered by Priority (High > Mid > Low),
-      then blended 5H & weekly quota (0.6*5H + 0.4*Weekly) to maximize continuous usage and spread usage.
-      Accounts below threshold or switched off after depletion are placed near the end.
-      ERROR and BANNED accounts placed at the very bottom.
+    - 'auto': Active account in Row 1. Healthy Paid Standby accounts in Row 2+ ordered by switch_mode,
+      followed by Healthy Free Standby accounts, cooling down accounts, error accounts, and banned accounts.
     - 'identity': Alphabetical by friendly label or email.
     - 'quota_5h': Highest 5H quota available first.
     - 'quota_weekly': Highest weekly quota available first.
@@ -242,39 +317,54 @@ def sort_account_quota_states(
 
     # mode == "auto" (Default)
     def _auto_sort_key(a: AccountQuotaState) -> Tuple[int, int, float, float, str]:
-        is_act = a.is_active or (a.email == active_email)
+        is_act = a.is_active or (active_email and a.email.lower() == active_email.lower())
         st = (a.status or "").upper()
         is_ban = st == "BANNED"
         is_err = st == "ERROR"
-        is_broken = is_ban or is_err
 
-        q5h = a.quota_5h_available
-        qwk = a.quota_weekly
-        is_below = q5h <= threshold or qwk <= 0.05
+        q5h_cur = max(0.0, min(1.0, float(a.quota_5h_current)))
+        q5h_avail = a.quota_5h_available
+        qwk = max(0.0, min(1.0, float(a.quota_weekly)))
+        is_below = q5h_cur <= threshold or qwk <= 0.05
+        is_free = is_free_plan_tier(a.email, a.plan_tier)
+        tier_mult = plan_tier_capacity_multiplier(a.plan_tier)
 
-        # Priority Tiers:
-        # Tier 0: Healthy Active account (Row 1)
-        # Tier 1: Healthy Standby successors above threshold (Row 2, 3...)
-        # Tier 2: Cooling down / Below threshold accounts (including switched-off exhausted)
-        # Tier 3: Error accounts
-        # Tier 4: Banned accounts
-        if is_ban:
-            tier = 4
-        elif is_err:
-            tier = 3
-        elif is_act and not is_below and not is_broken:
+        # 6 Structural Tiers:
+        # Tier 0: Active account (Row 1 pinned)
+        # Tier 1: Healthy Paid Standby successors
+        # Tier 2: Healthy Free Standby successors (Free ranked strictly after paid)
+        # Tier 3: Cooling down / Below threshold accounts
+        # Tier 4: Error accounts
+        # Tier 5: Banned accounts
+        if is_act:
             tier = 0
-        elif not is_act and not is_below and not is_broken:
-            tier = 1
+        elif is_ban:
+            tier = 5
+        elif is_err:
+            tier = 4
+        elif not is_below:
+            tier = 2 if is_free else 1
         else:
-            tier = 2
+            tier = 3
 
         prio_map = {"HIGH": 0, "MID": 1, "LOW": 2}
         prio_rank = prio_map.get((a.priority or "High").upper(), 0)
 
-        score = (q5h * 0.6) + (qwk * 0.4)
-        return (tier, prio_rank, -round(score, 4), -round(q5h, 4), (a.label or a.email).lower())
+        sm = (switch_mode or "balanced").lower()
+        if sm == "max_continuous":
+            score = 0.75 * (tier_mult * q5h_avail) + 0.10 * qwk
+        elif sm == "max_tokens":
+            sec5h = float(a.reset_seconds or 0)
+            soonness = max(0.0, min(1.0, 1.0 - (sec5h / 18000.0))) if 0 < sec5h <= 18000.0 else (0.85 if sec5h <= 0 and q5h_cur >= 0.98 else 0.5)
+            urgency = q5h_cur * (0.45 + 0.55 * soonness)
+            score = tier_mult * (0.45 * urgency + 0.25 * qwk + 0.15 * q5h_avail)
+        else:
+            # balanced
+            score = tier_mult * (0.42 * q5h_cur + 0.12 * q5h_avail + 0.32 * qwk)
+
+        return (tier, prio_rank, -round(score, 4), -round(q5h_cur, 4), (a.label or a.email).lower())
 
     return sorted(items, key=_auto_sort_key)
+
 
 

@@ -19,6 +19,14 @@ const (
 	DefaultSocketTimeout                = 5 * time.Second
 	DefaultShutdownGracePeriod          = 3 * time.Second
 
+	// Account Switcher Modes
+	SwitchModeBalanced           = "balanced"
+	SwitchModeMaxTokens          = "max_tokens"
+	SwitchModeMaxContinuous      = "max_continuous"
+	DefaultSwitchMode            = SwitchModeBalanced
+	DefaultMinSwitchDwellSeconds = 600
+
+
 	// Quota Health Statuses
 	StatusHealthy   = "HEALTHY"
 	StatusWarning   = "WARNING"

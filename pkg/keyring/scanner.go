@@ -127,38 +127,47 @@ func DetectAllSurfaces(homeDir, configDir string) map[string]*DetectedSurfaceAcc
 	results := make(map[string]*DetectedSurfaceAccount)
 
 	// 1. Antigravity 2.0 Desktop:
-	// Priority 1a: Standalone OAuth Token (~/.gemini/jetski-standalone-oauth-token)
+	// Priority 1a: Antigravity app_storage.json (the definitive session configured in Desktop UI)
+	appStoragePath := filepath.Join(configDir, "app_storage.json")
+	if data, err := os.ReadFile(appStoragePath); err == nil {
+		var rawMap map[string]interface{}
+		if err := json.Unmarshal(data, &rawMap); err == nil {
+			if loginUser, ok := rawMap["jetski.onboarding.lastLoginUsername"].(string); ok {
+				loginUser = strings.TrimSpace(loginUser)
+				if loginUser != "" && !isTestMockEmail(loginUser) {
+					results[SurfaceDesktop] = &DetectedSurfaceAccount{
+						Email:       normalizeEmail(loginUser),
+						Surface:     SurfaceDesktop,
+						SurfaceName: SurfaceDesktopName,
+					}
+				}
+			}
+		}
+	}
+
+	// Priority 1b: Standalone OAuth Token (~/.gemini/jetski-standalone-oauth-token)
 	jetskiTokenPath := filepath.Join(homeDir, ".gemini", "jetski-standalone-oauth-token")
 	if data, err := os.ReadFile(jetskiTokenPath); err == nil {
 		var payload secretServicePayload
 		if err := json.Unmarshal(data, &payload); err == nil {
 			email := parseIDTokenEmail(payload.Token.IDToken)
 			if email != "" && !isTestMockEmail(email) {
-				results[SurfaceDesktop] = &DetectedSurfaceAccount{
-					Email:        normalizeEmail(email),
-					Surface:      SurfaceDesktop,
-					SurfaceName:  SurfaceDesktopName,
-					AccessToken:  payload.Token.AccessToken,
-					RefreshToken: payload.Token.RefreshToken,
-					IDToken:      payload.Token.IDToken,
-				}
-			}
-		}
-	}
-	// Priority 1b: Antigravity app_storage.json (if standalone token did not provide an email)
-	if results[SurfaceDesktop] == nil {
-		appStoragePath := filepath.Join(configDir, "app_storage.json")
-		if data, err := os.ReadFile(appStoragePath); err == nil {
-			var rawMap map[string]interface{}
-			if err := json.Unmarshal(data, &rawMap); err == nil {
-				if loginUser, ok := rawMap["jetski.onboarding.lastLoginUsername"].(string); ok {
-					loginUser = strings.TrimSpace(loginUser)
-					if loginUser != "" && !isTestMockEmail(loginUser) {
-						results[SurfaceDesktop] = &DetectedSurfaceAccount{
-							Email:       normalizeEmail(loginUser),
-							Surface:     SurfaceDesktop,
-							SurfaceName: SurfaceDesktopName,
-						}
+				normEmail := normalizeEmail(email)
+				if results[SurfaceDesktop] != nil {
+					// If app_storage already identified the desktop user, attach tokens if matching
+					if strings.EqualFold(results[SurfaceDesktop].Email, normEmail) {
+						results[SurfaceDesktop].AccessToken = payload.Token.AccessToken
+						results[SurfaceDesktop].RefreshToken = payload.Token.RefreshToken
+						results[SurfaceDesktop].IDToken = payload.Token.IDToken
+					}
+				} else {
+					results[SurfaceDesktop] = &DetectedSurfaceAccount{
+						Email:        normEmail,
+						Surface:      SurfaceDesktop,
+						SurfaceName:  SurfaceDesktopName,
+						AccessToken:  payload.Token.AccessToken,
+						RefreshToken: payload.Token.RefreshToken,
+						IDToken:      payload.Token.IDToken,
 					}
 				}
 			}

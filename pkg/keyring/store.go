@@ -60,13 +60,16 @@ type rawAccountItem struct {
 	TOTPSecret           string  `json:"totp_secret"`
 	Credits              float64 `json:"credits,omitempty"`
 	EnableCreditOverages bool    `json:"enable_credit_overages"`
+	AllowClaudeGPT       bool    `json:"allow_claude_gpt"`
 	Credential *struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
+		IDToken      string `json:"id_token,omitempty"`
 		Expiry       string `json:"expiry"`
 	} `json:"credential,omitempty"`
 	AccessToken  string `json:"access_token,omitempty"`
 	RefreshToken string `json:"refresh_token,omitempty"`
+	IDToken      string `json:"id_token,omitempty"`
 }
 
 func (s *Store) load() error {
@@ -101,15 +104,20 @@ func (s *Store) load() error {
 				if em == "" {
 					em = email
 				}
+				isActive := s.activeEmail != "" && strings.EqualFold(em, s.activeEmail)
 				status := strings.ToUpper(strings.TrimSpace(item.Status))
 				if status == "" {
 					if item.IsHealthy != nil && !*item.IsHealthy {
 						status = "ERROR"
-					} else if em == s.activeEmail {
+					} else if isActive {
 						status = "ACTIVE"
 					} else {
 						status = "STANDBY"
 					}
+				} else if !isActive && status == "ACTIVE" {
+					status = "STANDBY"
+				} else if isActive && status == "STANDBY" {
+					status = "ACTIVE"
 				}
 				priority := strings.TrimSpace(item.Priority)
 				if priority == "" {
@@ -119,6 +127,7 @@ func (s *Store) load() error {
 				totpSecret := core.DecryptCredential(item.TOTPSecret)
 				accessToken := core.DecryptCredential(item.AccessToken)
 				refreshToken := core.DecryptCredential(item.RefreshToken)
+				idToken := core.DecryptCredential(item.IDToken)
 				if item.Credential != nil {
 					if accessToken == "" && item.Credential.AccessToken != "" {
 						accessToken = core.DecryptCredential(item.Credential.AccessToken)
@@ -126,23 +135,28 @@ func (s *Store) load() error {
 					if refreshToken == "" && item.Credential.RefreshToken != "" {
 						refreshToken = core.DecryptCredential(item.Credential.RefreshToken)
 					}
+					if idToken == "" && item.Credential.IDToken != "" {
+						idToken = core.DecryptCredential(item.Credential.IDToken)
+					}
 				}
 
 				acc := &Account{
-					Email:        em,
-					Label:        item.Label,
-					PlanTier:     item.PlanTier,
-					Status:       status,
-					Priority:     priority,
-					Notes:        item.Notes,
-					Password:     password,
-					TOTPSecret:   totpSecret,
-					HasTOTP:      totpSecret != "",
-					IsActive:     (s.activeEmail != "" && em == s.activeEmail),
+					Email:                em,
+					Label:                item.Label,
+					PlanTier:             item.PlanTier,
+					Status:               status,
+					Priority:             priority,
+					Notes:                item.Notes,
+					Password:             password,
+					TOTPSecret:           totpSecret,
+					HasTOTP:              totpSecret != "",
+					IsActive:             isActive,
 					AccessToken:          accessToken,
 					RefreshToken:         refreshToken,
+					IDToken:              idToken,
 					Credits:              item.Credits,
 					EnableCreditOverages: item.EnableCreditOverages,
+					AllowClaudeGPT:       item.AllowClaudeGPT,
 				}
 				s.accounts[em] = acc
 			}
@@ -154,15 +168,20 @@ func (s *Store) load() error {
 	var accList []rawAccountItem
 	if err := json.Unmarshal(ff.Accounts, &accList); err == nil {
 		for _, item := range accList {
+			isActive := s.activeEmail != "" && strings.EqualFold(item.Email, s.activeEmail)
 			status := strings.ToUpper(strings.TrimSpace(item.Status))
 			if status == "" {
 				if item.IsHealthy != nil && !*item.IsHealthy {
 					status = "ERROR"
-				} else if item.Email == s.activeEmail {
+				} else if isActive {
 					status = "ACTIVE"
 				} else {
 					status = "STANDBY"
 				}
+			} else if !isActive && status == "ACTIVE" {
+				status = "STANDBY"
+			} else if isActive && status == "STANDBY" {
+				status = "ACTIVE"
 			}
 			priority := strings.TrimSpace(item.Priority)
 			if priority == "" {
@@ -172,6 +191,7 @@ func (s *Store) load() error {
 			totpSecret := core.DecryptCredential(item.TOTPSecret)
 			accessToken := core.DecryptCredential(item.AccessToken)
 			refreshToken := core.DecryptCredential(item.RefreshToken)
+			idToken := core.DecryptCredential(item.IDToken)
 			if item.Credential != nil {
 				if accessToken == "" && item.Credential.AccessToken != "" {
 					accessToken = core.DecryptCredential(item.Credential.AccessToken)
@@ -179,23 +199,28 @@ func (s *Store) load() error {
 				if refreshToken == "" && item.Credential.RefreshToken != "" {
 					refreshToken = core.DecryptCredential(item.Credential.RefreshToken)
 				}
+				if idToken == "" && item.Credential.IDToken != "" {
+					idToken = core.DecryptCredential(item.Credential.IDToken)
+				}
 			}
 
 			acc := &Account{
-				Email:        item.Email,
-				Label:        item.Label,
-				PlanTier:     item.PlanTier,
-				Status:       status,
-				Priority:     priority,
-				Notes:        item.Notes,
+				Email:                item.Email,
+				Label:                item.Label,
+				PlanTier:             item.PlanTier,
+				Status:               status,
+				Priority:             priority,
+				Notes:                item.Notes,
 				Password:             password,
 				TOTPSecret:           totpSecret,
 				HasTOTP:              totpSecret != "",
-				IsActive:             (s.activeEmail != "" && item.Email == s.activeEmail),
+				IsActive:             isActive,
 				AccessToken:          accessToken,
 				RefreshToken:         refreshToken,
+				IDToken:              idToken,
 				Credits:              item.Credits,
 				EnableCreditOverages: item.EnableCreditOverages,
+				AllowClaudeGPT:       item.AllowClaudeGPT,
 			}
 			s.accounts[item.Email] = acc
 		}
@@ -224,10 +249,12 @@ func (s *Store) save() error {
 		TOTPSecret           string  `json:"totp_secret"`
 		Credits              float64 `json:"credits,omitempty"`
 		EnableCreditOverages bool    `json:"enable_credit_overages"`
+		AllowClaudeGPT       bool    `json:"allow_claude_gpt"`
 		IsHealthy            bool    `json:"is_healthy"`
 		Credential struct {
 			AccessToken  string `json:"access_token"`
 			RefreshToken string `json:"refresh_token"`
+			IDToken      string `json:"id_token,omitempty"`
 			AuthMethod   string `json:"auth_method"`
 			TokenType    string `json:"token_type"`
 		} `json:"credential"`
@@ -235,22 +262,28 @@ func (s *Store) save() error {
 
 	accMap := make(map[string]exportedAccount)
 	for _, acc := range s.accounts {
-		acc.IsActive = (acc.Email == s.activeEmail)
+		acc.IsActive = (s.activeEmail != "" && strings.EqualFold(acc.Email, s.activeEmail))
 		acc.HasTOTP = (acc.TOTPSecret != "")
 
-		st := acc.Status
+		st := strings.ToUpper(strings.TrimSpace(acc.Status))
 		if st == "" {
-			if acc.Email == s.activeEmail {
+			if acc.IsActive {
 				st = "ACTIVE"
 			} else {
 				st = "STANDBY"
 			}
+		} else if !acc.IsActive && st == "ACTIVE" {
+			st = "STANDBY"
+		} else if acc.IsActive && st == "STANDBY" {
+			st = "ACTIVE"
 		}
+		acc.Status = st
 
 		encPassword := core.EncryptCredential(acc.Password)
 		encTOTP := core.EncryptCredential(acc.TOTPSecret)
 		encAccess := core.EncryptCredential(acc.AccessToken)
 		encRefresh := core.EncryptCredential(acc.RefreshToken)
+		encIDToken := core.EncryptCredential(acc.IDToken)
 
 		priority := acc.Priority
 		if priority == "" {
@@ -268,10 +301,12 @@ func (s *Store) save() error {
 			TOTPSecret:           encTOTP,
 			Credits:              acc.Credits,
 			EnableCreditOverages: acc.EnableCreditOverages,
+			AllowClaudeGPT:       acc.AllowClaudeGPT,
 			IsHealthy:            st != "ERROR" && st != "BANNED",
 		}
 		ea.Credential.AccessToken = encAccess
 		ea.Credential.RefreshToken = encRefresh
+		ea.Credential.IDToken = encIDToken
 		ea.Credential.AuthMethod = "consumer"
 		ea.Credential.TokenType = "Bearer"
 		accMap[acc.Email] = ea
@@ -306,6 +341,230 @@ func (s *Store) ListAccounts() []*Account {
 		list = append(list, &copyAcc)
 	}
 	return list
+}
+
+// AccountExport represents exported account data including credentials in JSON.
+type AccountExport struct {
+	ID                   string  `json:"id"`
+	Email                string  `json:"email"`
+	Label                string  `json:"label"`
+	PlanTier             string  `json:"plan_tier,omitempty"`
+	Status               string  `json:"status,omitempty"`
+	Priority             string  `json:"priority,omitempty"`
+	Notes                string  `json:"notes,omitempty"`
+	Password             string  `json:"password,omitempty"`
+	MFA                  string  `json:"mfa,omitempty"`
+	TOTPSecret           string  `json:"totp_secret,omitempty"`
+	HasTOTP              bool    `json:"has_totp"`
+	IsActive             bool    `json:"is_active"`
+	OathToken            string  `json:"oath_token,omitempty"`
+	OAuthToken           string  `json:"oauth_token,omitempty"`
+	RefreshToken         string  `json:"refresh_token,omitempty"`
+	AccessToken          string  `json:"access_token,omitempty"`
+	Credits              float64 `json:"credits,omitempty"`
+	EnableCreditOverages bool    `json:"enable_credit_overages"`
+	AllowClaudeGPT       bool    `json:"allow_claude_gpt"`
+}
+
+// ExportAccounts returns all accounts formatted for external JSON export.
+func (s *Store) ExportAccounts() []AccountExport {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]AccountExport, 0, len(s.accounts))
+	for _, acc := range s.accounts {
+		ea := AccountExport{
+			ID:                   acc.Email,
+			Email:                acc.Email,
+			Label:                acc.Label,
+			PlanTier:             acc.PlanTier,
+			Status:               acc.Status,
+			Priority:             acc.Priority,
+			Notes:                acc.Notes,
+			Password:             acc.Password,
+			MFA:                  acc.TOTPSecret,
+			TOTPSecret:           acc.TOTPSecret,
+			HasTOTP:              acc.HasTOTP || (acc.TOTPSecret != ""),
+			IsActive:             acc.IsActive || (acc.Email == s.activeEmail),
+			OathToken:            acc.RefreshToken,
+			OAuthToken:           acc.RefreshToken,
+			RefreshToken:         acc.RefreshToken,
+			AccessToken:          acc.AccessToken,
+			Credits:              acc.Credits,
+			EnableCreditOverages: acc.EnableCreditOverages,
+			AllowClaudeGPT:       acc.AllowClaudeGPT,
+		}
+		result = append(result, ea)
+	}
+	return result
+}
+
+// BatchImportItem represents an incoming account entry during batch JSON import.
+type BatchImportItem struct {
+	ID                   string   `json:"id"`
+	Email                string   `json:"email"`
+	Username             string   `json:"username"`
+	Label                string   `json:"label"`
+	Name                 string   `json:"name"`
+	PlanTier             string   `json:"plan_tier"`
+	Plan                 string   `json:"plan"`
+	Status               string   `json:"status"`
+	Priority             string   `json:"priority"`
+	Notes                string   `json:"notes"`
+	Password             string   `json:"password"`
+	Pass                 string   `json:"pass"`
+	MFA                  string   `json:"mfa"`
+	MFAToken             string   `json:"mfa_token"`
+	TOTP                 string   `json:"totp"`
+	TOTPSecret           string   `json:"totp_secret"`
+	Secret               string   `json:"secret"`
+	OathToken            string   `json:"oath_token"`
+	OAuthToken           string   `json:"oauth_token"`
+	RefreshToken         string   `json:"refresh_token"`
+	Token                string   `json:"token"`
+	AccessToken          string   `json:"access_token"`
+	Credits              *float64 `json:"credits"`
+	EnableCreditOverages *bool    `json:"enable_credit_overages"`
+	AllowClaudeGPT       *bool    `json:"allow_claude_gpt"`
+	SetActive            *bool    `json:"set_active"`
+}
+
+// BatchImportAccounts updates or creates multiple accounts from imported JSON items.
+func (s *Store) BatchImportAccounts(items []BatchImportItem) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	importedCount := 0
+	for _, item := range items {
+		email := strings.TrimSpace(item.Email)
+		if email == "" {
+			email = strings.TrimSpace(item.ID)
+		}
+		if email == "" {
+			email = strings.TrimSpace(item.Username)
+		}
+		if email == "" {
+			continue
+		}
+
+		acc, exists := s.accounts[email]
+		if !exists {
+			acc = &Account{
+				Email:  email,
+				Status: "STANDBY",
+			}
+			s.accounts[email] = acc
+		}
+
+		label := item.Label
+		if label == "" {
+			label = item.Name
+		}
+		if label != "" {
+			acc.Label = label
+		} else if acc.Label == "" {
+			acc.Label = "Imported Account"
+		}
+
+		plan := item.PlanTier
+		if plan == "" {
+			plan = item.Plan
+		}
+		if plan != "" {
+			acc.PlanTier = plan
+		}
+
+		if item.Status != "" {
+			acc.Status = strings.ToUpper(strings.TrimSpace(item.Status))
+		}
+
+		if item.Priority != "" {
+			p := strings.Title(strings.ToLower(strings.TrimSpace(item.Priority)))
+			if p == "High" || p == "Mid" || p == "Low" {
+				acc.Priority = p
+			}
+		}
+
+		if item.Notes != "" {
+			acc.Notes = item.Notes
+		}
+
+		pwd := item.Password
+		if pwd == "" {
+			pwd = item.Pass
+		}
+		if pwd != "" {
+			acc.Password = pwd
+		}
+
+		totpSec := item.TOTPSecret
+		if totpSec == "" {
+			totpSec = item.MFA
+		}
+		if totpSec == "" {
+			totpSec = item.MFAToken
+		}
+		if totpSec == "" {
+			totpSec = item.TOTP
+		}
+		if totpSec == "" {
+			totpSec = item.Secret
+		}
+		if totpSec != "" {
+			acc.TOTPSecret = strings.TrimSpace(totpSec)
+			acc.HasTOTP = true
+		}
+
+		rToken := item.RefreshToken
+		if rToken == "" {
+			rToken = item.OAuthToken
+		}
+		if rToken == "" {
+			rToken = item.OathToken
+		}
+		if rToken == "" {
+			rToken = item.Token
+		}
+		if rToken != "" {
+			acc.RefreshToken = strings.TrimSpace(rToken)
+		}
+
+		if item.AccessToken != "" {
+			acc.AccessToken = strings.TrimSpace(item.AccessToken)
+		}
+
+		if item.Credits != nil {
+			acc.Credits = *item.Credits
+		}
+		if item.EnableCreditOverages != nil {
+			acc.EnableCreditOverages = *item.EnableCreditOverages
+		}
+		if item.AllowClaudeGPT != nil {
+			acc.AllowClaudeGPT = *item.AllowClaudeGPT
+		}
+
+		if (item.SetActive != nil && *item.SetActive) || acc.Status == "ACTIVE" {
+			s.activeEmail = email
+		}
+		importedCount++
+	}
+
+	if s.activeEmail == "" && len(s.accounts) > 0 {
+		for email := range s.accounts {
+			s.activeEmail = email
+			break
+		}
+	}
+
+	for e, a := range s.accounts {
+		a.IsActive = (e == s.activeEmail)
+		a.HasTOTP = (a.TOTPSecret != "")
+	}
+
+	if err := s.save(); err != nil {
+		return importedCount, err
+	}
+	return importedCount, nil
 }
 
 // GetAccount retrieves a specific account by email.
@@ -405,13 +664,30 @@ func (s *Store) SetActiveAccount(email string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, exists := s.accounts[email]; !exists {
+	var target *Account
+	for e, a := range s.accounts {
+		if strings.EqualFold(e, email) {
+			target = a
+			break
+		}
+	}
+	if target == nil {
 		return fmt.Errorf("%w: %s", core.ErrAccountNotFound, email)
 	}
 
-	s.activeEmail = email
-	for e, a := range s.accounts {
-		a.IsActive = (e == email)
+	s.activeEmail = target.Email
+	for _, a := range s.accounts {
+		if strings.EqualFold(a.Email, target.Email) {
+			a.IsActive = true
+			if a.Status != "BANNED" && a.Status != "ERROR" {
+				a.Status = "ACTIVE"
+			}
+		} else {
+			a.IsActive = false
+			if a.Status == "ACTIVE" {
+				a.Status = "STANDBY"
+			}
+		}
 	}
 	return s.save()
 }
@@ -422,29 +698,47 @@ func (s *Store) UpdateAccountDetails(email, label, planTier, status, priority, n
 	acc, exists := s.accounts[email]
 	credits := 0.0
 	enableOverages := false
+	allowClaudeGPT := false
 	if exists {
 		credits = acc.Credits
 		enableOverages = acc.EnableCreditOverages
+		allowClaudeGPT = acc.AllowClaudeGPT
 	}
 	s.mu.RUnlock()
-	return s.UpdateAccountFull(email, label, planTier, status, priority, notes, password, totpSecret, refreshToken, credits, enableOverages, setActive)
+	return s.UpdateAccountFull(email, label, planTier, status, priority, notes, password, totpSecret, refreshToken, credits, enableOverages, allowClaudeGPT, setActive)
 }
 
 // UpdateAccountFull updates all account details including credits and credit overages toggle.
-func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, notes, password, totpSecret, refreshToken string, credits float64, enableCreditOverages, setActive bool) error {
+func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, notes, password, totpSecret, refreshToken string, credits float64, enableCreditOverages, allowClaudeGPT, setActive bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	acc, exists := s.accounts[email]
 	if !exists {
-		return fmt.Errorf("%w: %s", core.ErrAccountNotFound, email)
+		acc = &Account{
+			Email:  email,
+			Status: "STANDBY",
+		}
+		if s.activeEmail == "" {
+			s.activeEmail = email
+			acc.IsActive = true
+		}
+		s.accounts[email] = acc
 	}
 
 	if label != "" {
 		acc.Label = label
+	} else if acc.Label == "" {
+		acc.Label = email
 	}
-	if planTier != "" {
+	if planTier != "" && planTier != "Free" {
 		acc.PlanTier = planTier
+	} else if acc.PlanTier == "" {
+		if planTier != "" {
+			acc.PlanTier = planTier
+		} else {
+			acc.PlanTier = "Free"
+		}
 	}
 	if status != "" {
 		acc.Status = strings.ToUpper(status)
@@ -464,19 +758,73 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 	if refreshToken != "" {
 		acc.RefreshToken = refreshToken
 	}
-	acc.Credits = credits
+	// Anti-downgrade safeguard: only update credits if positive, or if existing credits are already zero.
+	// This prevents overwriting auto-detected positive balances with empty form defaults.
+	if credits > 0 {
+		acc.Credits = credits
+	} else if acc.Credits == 0 {
+		acc.Credits = credits
+	}
 	acc.EnableCreditOverages = enableCreditOverages
+	acc.AllowClaudeGPT = allowClaudeGPT
 
-	if setActive || acc.Status == "ACTIVE" {
+	if setActive {
 		s.activeEmail = email
 		for e, a := range s.accounts {
-			a.IsActive = (e == email)
+			if strings.EqualFold(e, email) {
+				a.IsActive = true
+				if a.Status != "BANNED" && a.Status != "ERROR" {
+					a.Status = "ACTIVE"
+				}
+			} else {
+				a.IsActive = false
+				if a.Status == "ACTIVE" {
+					a.Status = "STANDBY"
+				}
+			}
 		}
 	} else {
-		acc.IsActive = (email == s.activeEmail)
+		acc.IsActive = (s.activeEmail != "" && strings.EqualFold(email, s.activeEmail))
+		if !acc.IsActive && acc.Status == "ACTIVE" {
+			acc.Status = "STANDBY"
+		} else if acc.IsActive && acc.Status == "STANDBY" {
+			acc.Status = "ACTIVE"
+		}
 	}
 
 	return s.save()
+}
+
+// UpdateAccountQuotaMetadata safely updates PlanTier and Credits without affecting active state, status, or tokens.
+func (s *Store) UpdateAccountQuotaMetadata(email, planTier string, credits float64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var target *Account
+	for e, a := range s.accounts {
+		if strings.EqualFold(e, email) {
+			target = a
+			break
+		}
+	}
+	if target == nil {
+		return nil
+	}
+
+	modified := false
+	if planTier != "" && planTier != "Free" && target.PlanTier != planTier {
+		target.PlanTier = planTier
+		modified = true
+	}
+	if credits > 0 && target.Credits != credits {
+		target.Credits = credits
+		modified = true
+	}
+
+	if modified {
+		return s.save()
+	}
+	return nil
 }
 
 // UpdateAccountWithStatus updates label, planTier, status, totpSecret, refreshToken, and optionally sets active status.
@@ -578,9 +926,12 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 			targetAcc.IDToken = detected.IDToken
 		}
 
+		prevActive := s.activeEmail
+		isSameActive := strings.EqualFold(prevActive, targetAcc.Email)
+
 		s.activeEmail = targetAcc.Email
 		for em, a := range s.accounts {
-			if em == targetAcc.Email {
+			if strings.EqualFold(em, targetAcc.Email) {
 				a.IsActive = true
 				if a.Status != "BANNED" && a.Status != "ERROR" {
 					a.Status = "ACTIVE"
@@ -594,8 +945,11 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 		}
 		_ = s.save()
 
-		// Always ensure all 3 surfaces are synced to the winning active account
-		_ = SyncAllSurfaces(targetAcc, allEmails, profileMgr)
+		// Only synchronize surfaces if the active account actually changed or had no previous active,
+		// AND target account has non-empty credentials so we don't clobber host files with empty data.
+		if (!isSameActive || prevActive == "") && (targetAcc.RefreshToken != "" || targetAcc.AccessToken != "") {
+			_ = SyncAllSurfaces(targetAcc, allEmails, profileMgr)
+		}
 		copyAcc := *targetAcc
 		return &copyAcc, nil
 	}
@@ -631,7 +985,7 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 	s.activeEmail = detectedEmail
 
 	for em, a := range s.accounts {
-		if em != detectedEmail {
+		if !strings.EqualFold(em, detectedEmail) {
 			a.IsActive = false
 			if a.Status == "ACTIVE" {
 				a.Status = "STANDBY"
@@ -640,9 +994,10 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 	}
 	_ = s.save()
 
-	// Sync all 3 surfaces to this active account
-	allWithNew := append(allEmails, detectedEmail)
-	_ = SyncAllSurfaces(acc, allWithNew, profileMgr)
+	if acc.RefreshToken != "" || acc.AccessToken != "" {
+		allWithNew := append(allEmails, detectedEmail)
+		_ = SyncAllSurfaces(acc, allWithNew, profileMgr)
+	}
 	copyAcc := *acc
 	return &copyAcc, nil
 }

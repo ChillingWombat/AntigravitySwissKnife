@@ -22,6 +22,7 @@ import { api } from './api'
 export const App: React.FC = () => {
   const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 1: Marketplace, 2: Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived, 7: Plugins, 8: Token Monitor, 9: Utilities
   const [currentTab, setCurrentTab] = useState<number>(0) // 0: Dashboard, 1: MFA, 2: FP, 3: Cache, 4: Rules
+  const [systemSettingsTab, setSystemSettingsTab] = useState<number>(0) // 0: General, 1: Path & Storage, 2: Error & Privacy, 3: About
   const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Overview Panel, 3: Chat History
   const [automationTab, setAutomationTab] = useState<'catalog' | 'created'>('catalog')
   const [featurePluginTab, setFeaturePluginTab] = useState<number>(0) // 0: Preview, 1: File Explorer, 2: Memos, 3: Mobile, 4: Computer Use
@@ -279,12 +280,48 @@ export const App: React.FC = () => {
                 </div>
               )}
 
-              {currentTool !== 3 && currentTool !== 4 && currentTool !== 5 && currentTool !== 7 && currentTool !== 9 && (
+              {currentTool === 2 && (
+                /* System Settings Category Tabs */
+                <div
+                  style={{
+                    display: 'flex',
+                    backgroundColor: 'var(--tonal)',
+                    borderRadius: '20px',
+                    padding: '3px',
+                    gap: '2px',
+                  }}
+                >
+                  {['General', 'Path & Storage', 'Error & Privacy', 'About'].map((tab, idx) => {
+                    const isActive = systemSettingsTab === idx
+                    return (
+                      <button
+                        key={tab}
+                        onClick={() => setSystemSettingsTab(idx)}
+                        style={{
+                          borderRadius: '16px',
+                          padding: '6px 16px',
+                          fontSize: '12px',
+                          fontWeight: isActive ? 600 : 500,
+                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+                          backgroundColor: isActive ? '#ffffff' : 'transparent',
+                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {tab}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {currentTool !== 2 && currentTool !== 3 && currentTool !== 4 && currentTool !== 5 && currentTool !== 7 && currentTool !== 9 && (
                 <h1 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', margin: 0 }}>
                   {currentTool === 1
                     ? 'Tools Marketplace'
-                    : currentTool === 2
-                    ? 'System Settings'
                     : currentTool === 6
                     ? 'Archived Projects'
                     : currentTool === 8
@@ -360,7 +397,12 @@ export const App: React.FC = () => {
 
           {currentTool === 1 && <ToolsMarketplacePage onSelectTool={setCurrentTool} />}
           {currentTool === 2 && (
-            <SystemSettingsPage status={status} onRefresh={loadAllData} />
+            <SystemSettingsPage
+              status={status}
+              onRefresh={loadAllData}
+              activeTab={systemSettingsTab}
+              onTabChange={setSystemSettingsTab}
+            />
           )}
           {currentTool === 3 && <CustomModelsPage />}
           {currentTool === 4 && <AppEnhancementsPage activeCategoryTab={enhancementTab} />}

@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -119,6 +120,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/accounts/import", s.handleAccountsImport)
 	mux.HandleFunc("/api/accounts/update", s.handleAccountUpdate)
 	mux.HandleFunc("/api/accounts/delete", s.handleAccountDelete)
+	mux.HandleFunc("/api/accounts/export", s.handleAccountsExport)
+	mux.HandleFunc("/api/accounts/batch-import", s.handleAccountsBatchImport)
 	mux.HandleFunc("/api/switch", s.handleSwitch)
 	mux.HandleFunc("/api/totp", s.handleTOTP)
 	mux.HandleFunc("/api/fingerprint", s.handleFingerprint)
@@ -188,6 +191,13 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/auth/status", s.handleAuthStatus)
 	mux.HandleFunc("/api/auth/unlock", s.handleAuthUnlock)
 	mux.HandleFunc("/api/settings/password", s.handleSettingsPassword)
+	mux.HandleFunc("/api/settings/storage", s.handleSettingsStorage)
+	mux.HandleFunc("/api/settings/app_path", s.handleSettingsAppPath)
+	mux.HandleFunc("/api/settings/account_override", s.handleSettingsAccountOverride)
+	mux.HandleFunc("/api/settings/cache_clear", s.handleSettingsCacheClear)
+	mux.HandleFunc("/api/settings/privacy", s.handleSettingsPrivacy)
+	mux.HandleFunc("/api/settings/diagnose-issue", s.handleSettingsDiagnoseIssue)
+	mux.HandleFunc("/api/system/factory_reset", s.handleSystemFactoryReset)
 
 	// Token & Cost Monitor
 	mux.HandleFunc("/api/tokens/summary", s.handleTokensSummary)
@@ -258,6 +268,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 			}
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Origin, Accept")
+			w.Header().Set("Access-Control-Allow-Private-Network", "true")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 		}
 
@@ -272,10 +283,21 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 
 func isAllowedLoopbackOrigin(origin string) bool {
 	origin = strings.TrimSpace(origin)
-	if origin == "" || origin == "null" {
+	if origin == "" || origin == "null" || origin == "*" {
 		return true
 	}
-	if strings.HasPrefix(origin, "vscode-file://") || strings.HasPrefix(origin, "file://") {
+	lower := strings.ToLower(origin)
+	if strings.HasPrefix(lower, "vscode-") ||
+		strings.HasPrefix(lower, "vscode:") ||
+		strings.HasPrefix(lower, "antigravity") ||
+		strings.HasPrefix(lower, "file://") ||
+		strings.HasPrefix(lower, "electron://") ||
+		strings.HasPrefix(lower, "plugin://") ||
+		strings.HasPrefix(lower, "app://") ||
+		strings.HasPrefix(lower, "devtools://") ||
+		strings.HasPrefix(lower, "chrome-extension://") ||
+		strings.Contains(lower, "127.0.0.1") ||
+		strings.Contains(lower, "localhost") {
 		return true
 	}
 	if u, err := url.Parse(origin); err == nil {
@@ -283,10 +305,6 @@ func isAllowedLoopbackOrigin(origin string) bool {
 		if h == "127.0.0.1" || h == "localhost" || h == "::1" || h == "0.0.0.0" {
 			return true
 		}
-	}
-	lower := strings.ToLower(origin)
-	if strings.Contains(lower, "127.0.0.1") || strings.Contains(lower, "localhost") {
-		return true
 	}
 	return false
 }
@@ -417,6 +435,7 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 		RefreshToken         string  `json:"refresh_token"`
 		Credits              float64 `json:"credits"`
 		EnableCreditOverages bool    `json:"enable_credit_overages"`
+		AllowClaudeGPT       bool    `json:"allow_claude_gpt"`
 		SetActive            bool    `json:"set_active"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil || p.Email == "" {
@@ -430,7 +449,7 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, storeErr.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := store.UpdateAccountFull(p.Email, p.Label, p.PlanTier, p.Status, p.Priority, p.Notes, p.Password, p.TOTPSecret, p.RefreshToken, p.Credits, p.EnableCreditOverages, p.SetActive); err != nil {
+		if err := store.UpdateAccountFull(p.Email, p.Label, p.PlanTier, p.Status, p.Priority, p.Notes, p.Password, p.TOTPSecret, p.RefreshToken, p.Credits, p.EnableCreditOverages, p.AllowClaudeGPT, p.SetActive); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -463,6 +482,89 @@ func (s *Server) handleAccountDelete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		res = map[string]interface{}{"success": true, "removed": p.Email}
+	}
+	writeJSON(w, res)
+}
+
+func (s *Server) handleAccountsExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	var exported []keyring.AccountExport
+	if err := s.client.Call("swiss.exportAccounts", nil, &exported); err != nil {
+		store, storeErr := keyring.NewStore("")
+		if storeErr != nil {
+			http.Error(w, storeErr.Error(), http.StatusInternalServerError)
+			return
+		}
+		exported = store.ExportAccounts()
+	}
+	if r.URL.Query().Get("download") == "1" {
+		w.Header().Set("Content-Disposition", "attachment; filename=\"antigravity_accounts.json\"")
+	}
+	writeJSON(w, exported)
+}
+
+func (s *Server) handleAccountsBatchImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil || len(body) == 0 {
+		http.Error(w, "empty request body", http.StatusBadRequest)
+		return
+	}
+
+	var items []keyring.BatchImportItem
+	if err := json.Unmarshal(body, &items); err != nil {
+		var wrapper struct {
+			Accounts json.RawMessage `json:"accounts"`
+		}
+		if err2 := json.Unmarshal(body, &wrapper); err2 == nil && len(wrapper.Accounts) > 0 {
+			if err3 := json.Unmarshal(wrapper.Accounts, &items); err3 != nil {
+				var accMap map[string]keyring.BatchImportItem
+				if err4 := json.Unmarshal(wrapper.Accounts, &accMap); err4 == nil {
+					for em, it := range accMap {
+						if it.Email == "" && it.ID == "" {
+							it.Email = em
+						}
+						items = append(items, it)
+					}
+				}
+			}
+		} else {
+			var single keyring.BatchImportItem
+			if err5 := json.Unmarshal(body, &single); err5 == nil && (single.Email != "" || single.ID != "") {
+				items = []keyring.BatchImportItem{single}
+			}
+		}
+	}
+
+	if len(items) == 0 {
+		http.Error(w, "no valid account entries found in JSON", http.StatusBadRequest)
+		return
+	}
+
+	var res map[string]interface{}
+	if err := s.client.Call("swiss.batchImportAccounts", items, &res); err != nil {
+		store, storeErr := keyring.NewStore("")
+		if storeErr != nil {
+			http.Error(w, storeErr.Error(), http.StatusInternalServerError)
+			return
+		}
+		count, errImport := store.BatchImportAccounts(items)
+		if errImport != nil {
+			http.Error(w, errImport.Error(), http.StatusInternalServerError)
+			return
+		}
+		res = map[string]interface{}{"success": true, "imported": count, "message": fmt.Sprintf("Successfully imported %d accounts", count)}
 	}
 	writeJSON(w, res)
 }
@@ -729,9 +831,13 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			}
 			if val, ok := p["auto_switch_enabled"].(bool); ok {
 				c.AutoSwitchEnabled = val
+				_ = keyring.SyncCloudAccountsAutoSwitch("", val)
 			}
 			if val, ok := p["auto_switch_threshold"].(float64); ok {
 				c.AutoSwitchThreshold = val
+			}
+			if val, ok := p["switch_mode"].(string); ok {
+				c.SwitchMode = quota.NormalizeSwitchMode(val)
 			}
 			if val, ok := p["polling_interval_seconds"].(float64); ok {
 				c.PollingIntervalSec = int(val)
@@ -797,13 +903,28 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 	var cfg map[string]interface{}
 	if err := s.client.Call("swiss.getRuleConfig", nil, &cfg); err != nil {
 		c, _ := core.LoadConfig()
-		geminiReasoning := c.DefaultGeminiReasoningLevel
-		if geminiReasoning == "" {
-			geminiReasoning = "high"
+		geminiReasoning := "high"
+		defaultGemini := "gemini-3.8-flash"
+		defaultNonGemini := "claude-opus-4-6"
+		if c != nil {
+			if c.DefaultGeminiReasoningLevel != "" {
+				geminiReasoning = c.DefaultGeminiReasoningLevel
+			}
+			if c.DefaultGeminiModel != "" {
+				defaultGemini = c.DefaultGeminiModel
+			}
+			if c.DefaultNonGeminiModel != "" {
+				defaultNonGemini = c.DefaultNonGeminiModel
+			}
+		}
+		switchMode := core.DefaultSwitchMode
+		if c != nil && c.SwitchMode != "" {
+			switchMode = quota.NormalizeSwitchMode(c.SwitchMode)
 		}
 		cfg = map[string]interface{}{
 			"auto_switch_enabled":              c.AutoSwitchEnabled,
 			"auto_switch_threshold":            c.AutoSwitchThreshold,
+			"switch_mode":                      switchMode,
 			"polling_interval_seconds":         c.PollingIntervalSec,
 			"active_polling_interval_seconds":  c.ActivePollingIntervalSec,
 			"standby_polling_interval_seconds": c.StandbyPollingIntervalSec,
@@ -814,13 +935,18 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			"allow_ai_credits_usage":           c.AllowAICreditsUsage,
 			"allow_non_gemini_native_models":   c.AllowNonGeminiNativeModels,
 			"model_source_hierarchy":           c.ModelSourceHierarchy,
-			"default_gemini_model":             c.DefaultGeminiModel,
+			"default_gemini_model":             defaultGemini,
 			"default_custom_model":             c.DefaultCustomModel,
-			"default_non_gemini_model":         c.DefaultNonGeminiModel,
+			"default_non_gemini_model":         defaultNonGemini,
 			"default_gemini_reasoning_level":   geminiReasoning,
 			"auto_import_active_account":       c.AutoImportActiveAccount,
 		}
 	} else if cfg != nil {
+		if sm, ok := cfg["switch_mode"].(string); !ok || sm == "" {
+			cfg["switch_mode"] = core.DefaultSwitchMode
+		} else {
+			cfg["switch_mode"] = quota.NormalizeSwitchMode(sm)
+		}
 		if _, ok := cfg["default_gemini_reasoning_level"]; !ok {
 			c, _ := core.LoadConfig()
 			if c != nil && c.DefaultGeminiReasoningLevel != "" {
@@ -828,6 +954,12 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			} else {
 				cfg["default_gemini_reasoning_level"] = "high"
 			}
+		}
+		if gm, ok := cfg["default_gemini_model"].(string); !ok || gm == "" {
+			cfg["default_gemini_model"] = "gemini-3.8-flash"
+		}
+		if ngm, ok := cfg["default_non_gemini_model"].(string); !ok || ngm == "" {
+			cfg["default_non_gemini_model"] = "claude-opus-4-6"
 		}
 	}
 	writeJSON(w, cfg)
@@ -898,6 +1030,7 @@ func (s *Server) handleAutoSwitch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		c.AutoSwitchEnabled = p.Enabled
+		_ = keyring.SyncCloudAccountsAutoSwitch("", p.Enabled)
 		if err := c.Save(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -1870,6 +2003,231 @@ func (s *Server) handleSettingsPassword(w http.ResponseWriter, r *http.Request) 
 	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 }
 
+func (s *Server) handleSettingsStorage(w http.ResponseWriter, r *http.Request) {
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		info := system.GetStorageInfo(cfg)
+		writeJSON(w, info)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		var req struct {
+			StorageMode string `json:"storage_mode"`
+			MigrateData bool   `json:"migrate_data"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+
+		info, err := system.SwitchStorageMode(req.StorageMode, req.MigrateData, cfg)
+		if err != nil {
+			writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+
+		writeJSON(w, map[string]interface{}{
+			"success": true,
+			"storage": info,
+		})
+		return
+	}
+
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+}
+
+func (s *Server) handleSettingsAppPath(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var req struct {
+		AppType string `json:"app_type"`
+		Path    string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	info, err := system.SaveAppPath(req.AppType, req.Path, cfg)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"storage": info,
+	})
+}
+
+func (s *Server) handleSettingsAccountOverride(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var req struct {
+		AppType string `json:"app_type"`
+		Email   string `json:"email"`
+		Path    string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	info, err := system.SaveAccountOverride(req.AppType, req.Email, req.Path, cfg)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"storage": info,
+	})
+}
+
+func (s *Server) handleSettingsCacheClear(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		AppType string `json:"app_type"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	res, err := system.ClearAppCache(req.AppType)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, res)
+}
+
+func (s *Server) handleSystemFactoryReset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var guiMsg string
+	if s.guiStore != nil {
+		res, err := s.guiStore.RestoreFactoryDefaults()
+		if err == nil && res != nil {
+			guiMsg = res.Message
+		}
+	} else if s.client != nil {
+		var res gui.ApplyResult
+		if err := s.client.Call("swiss.restoreFactoryDefaults", nil, &res); err == nil {
+			guiMsg = res.Message
+		}
+	}
+
+	cfg, _ := core.LoadConfig()
+	if cfg != nil {
+		cfg.DesktopAppPath = ""
+		cfg.AgyCLIPath = ""
+		cfg.VSCodeExtensionPath = ""
+		cfg.AppAccountOverrides = make(map[string]map[string]string)
+		_ = cfg.Save()
+	}
+
+	msg := "All Antigravity apps restored to an unmodified status by turning off all features and restoring backed-up files/code."
+	if guiMsg != "" {
+		msg += " (" + guiMsg + ")"
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"message": msg,
+	})
+}
+
+func (s *Server) handleSettingsPrivacy(w http.ResponseWriter, r *http.Request) {
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		writeJSON(w, map[string]interface{}{
+			"anonymous_error_reports": cfg.AnonymousErrorReports,
+			"anonymous_telemetry":     cfg.AnonymousTelemetry,
+			"github_repo":             system.PublicGitHubRepo,
+		})
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		var req struct {
+			AnonymousErrorReports bool `json:"anonymous_error_reports"`
+			AnonymousTelemetry    bool `json:"anonymous_telemetry"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+
+		cfg.AnonymousErrorReports = req.AnonymousErrorReports
+		cfg.AnonymousTelemetry = req.AnonymousTelemetry
+		if err := cfg.Save(); err != nil {
+			writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+
+		writeJSON(w, map[string]interface{}{
+			"success":                 true,
+			"anonymous_error_reports": cfg.AnonymousErrorReports,
+			"anonymous_telemetry":     cfg.AnonymousTelemetry,
+		})
+		return
+	}
+
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+}
+
+func (s *Server) handleSettingsDiagnoseIssue(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req system.DiagnosticRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	cfg, _ := core.LoadConfig()
+	keyringStore, _ := keyring.NewStore("")
+
+	result, err := system.RunIssueDiagnosis(req, cfg, keyringStore, s.customModelsStore)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	writeJSON(w, result)
+}
+
 func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -2179,11 +2537,39 @@ func getMemosPath() string {
 	return filepath.Join(home, ".config", "antigravity-swiss", "memos.json")
 }
 
+func cleanUserPath(raw string) string {
+	p := strings.TrimSpace(raw)
+	p = strings.Trim(p, "\"'")
+	if strings.HasPrefix(p, "file://") {
+		p = strings.TrimPrefix(p, "file://")
+	}
+	if strings.Contains(p, "%") {
+		if unescaped, err := url.PathUnescape(p); err == nil {
+			p = unescaped
+		} else if unescaped, err := url.QueryUnescape(p); err == nil {
+			p = unescaped
+		}
+	}
+	if p == "" {
+		return ""
+	}
+	return filepath.Clean(p)
+}
+
 func (s *Server) handleMemos(w http.ResponseWriter, r *http.Request) {
 	p := getMemosPath()
 	var memos []MemoItem
 	if data, err := os.ReadFile(p); err == nil {
-		_ = json.Unmarshal(data, &memos)
+		str := strings.TrimSpace(string(data))
+		if str == "" || str == "null" {
+			memos = []MemoItem{}
+			_ = os.WriteFile(p, []byte("[]"), 0644)
+		} else {
+			_ = json.Unmarshal(data, &memos)
+		}
+	} else if os.IsNotExist(err) {
+		_ = os.MkdirAll(filepath.Dir(p), 0755)
+		_ = os.WriteFile(p, []byte("[]"), 0644)
 	}
 	if memos == nil {
 		memos = []MemoItem{}
@@ -2211,7 +2597,13 @@ func (s *Server) handleMemosSave(w http.ResponseWriter, r *http.Request) {
 	_ = os.MkdirAll(filepath.Dir(p), 0755)
 	var memos []MemoItem
 	if data, err := os.ReadFile(p); err == nil {
-		_ = json.Unmarshal(data, &memos)
+		str := strings.TrimSpace(string(data))
+		if str != "" && str != "null" {
+			_ = json.Unmarshal(data, &memos)
+		}
+	}
+	if memos == nil {
+		memos = []MemoItem{}
 	}
 	found := false
 	for i, m := range memos {
@@ -2245,9 +2637,15 @@ func (s *Server) handleMemosDelete(w http.ResponseWriter, r *http.Request) {
 	p := getMemosPath()
 	var memos []MemoItem
 	if data, err := os.ReadFile(p); err == nil {
-		_ = json.Unmarshal(data, &memos)
+		str := strings.TrimSpace(string(data))
+		if str != "" && str != "null" {
+			_ = json.Unmarshal(data, &memos)
+		}
 	}
-	var filtered []MemoItem
+	if memos == nil {
+		memos = []MemoItem{}
+	}
+	var filtered []MemoItem = []MemoItem{}
 	for _, m := range memos {
 		if m.ID != id {
 			filtered = append(filtered, m)
@@ -2269,18 +2667,18 @@ type FileItem struct {
 }
 
 func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
-	dirPath := r.URL.Query().Get("path")
+	dirPath := cleanUserPath(r.URL.Query().Get("path"))
 	if dirPath == "" {
 		dirPath = "/mnt/Data/Projects/Antigravity Swiss Knife"
 	}
 
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
-		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error(), "files": []interface{}{}})
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error(), "files": []FileItem{}})
 		return
 	}
 
-	var files []FileItem
+	files := []FileItem{}
 	for _, entry := range entries {
 		info, err := entry.Info()
 		if err != nil {
@@ -2328,7 +2726,7 @@ func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFilesRead(w http.ResponseWriter, r *http.Request) {
-	filePath := r.URL.Query().Get("path")
+	filePath := cleanUserPath(r.URL.Query().Get("path"))
 	if filePath == "" {
 		http.Error(w, "missing path parameter", http.StatusBadRequest)
 		return
@@ -2368,6 +2766,7 @@ func (s *Server) handleFilesWrite(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing path parameter", http.StatusBadRequest)
 		return
 	}
+	p.Path = cleanUserPath(p.Path)
 	_ = os.MkdirAll(filepath.Dir(p.Path), 0755)
 	if err := os.WriteFile(p.Path, []byte(p.Content), 0644); err != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
@@ -2389,6 +2788,8 @@ func (s *Server) handleFilesRename(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing old_path or new_path", http.StatusBadRequest)
 		return
 	}
+	p.OldPath = cleanUserPath(p.OldPath)
+	p.NewPath = cleanUserPath(p.NewPath)
 	if err := os.Rename(p.OldPath, p.NewPath); err != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -2408,6 +2809,7 @@ func (s *Server) handleFilesDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing path", http.StatusBadRequest)
 		return
 	}
+	p.Path = cleanUserPath(p.Path)
 	if err := os.RemoveAll(p.Path); err != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -2428,6 +2830,7 @@ func (s *Server) handleFilesCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing path", http.StatusBadRequest)
 		return
 	}
+	p.Path = cleanUserPath(p.Path)
 	var err error
 	if p.IsDir {
 		err = os.MkdirAll(p.Path, 0755)
@@ -2455,6 +2858,8 @@ func (s *Server) handleFilesCopy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing src or dst", http.StatusBadRequest)
 		return
 	}
+	p.Src = cleanUserPath(p.Src)
+	p.Dst = cleanUserPath(p.Dst)
 	data, err := os.ReadFile(p.Src)
 	if err != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
@@ -2481,6 +2886,8 @@ func (s *Server) handleFilesMove(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing src or dst", http.StatusBadRequest)
 		return
 	}
+	p.Src = cleanUserPath(p.Src)
+	p.Dst = cleanUserPath(p.Dst)
 	_ = os.MkdirAll(filepath.Dir(p.Dst), 0755)
 	if err := os.Rename(p.Src, p.Dst); err != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
@@ -2498,7 +2905,7 @@ func (s *Server) handleFilesReveal(w http.ResponseWriter, r *http.Request) {
 		Path string `json:"path"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&p)
-	target := p.Path
+	target := cleanUserPath(p.Path)
 	if target == "" {
 		target = "."
 	}
@@ -2518,7 +2925,7 @@ func (s *Server) handleFilesTerminal(w http.ResponseWriter, r *http.Request) {
 		Path string `json:"path"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&p)
-	dir := p.Path
+	dir := cleanUserPath(p.Path)
 	if dir == "" {
 		dir = "."
 	}

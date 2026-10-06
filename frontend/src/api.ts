@@ -22,6 +22,9 @@ import type {
   AutoArchiveResult,
   QuotaResult,
   AvailableModelsResponse,
+  StorageInfo,
+  PrivacySettings,
+  DiagnosticResult,
 } from './types'
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
@@ -58,6 +61,15 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  exportAccounts: () => request<any[]>('/api/accounts/export'),
+
+  batchImportAccounts: (accounts: any) =>
+    request<{ success: boolean; imported: number; message: string }>('/api/accounts/batch-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(accounts),
+    }),
+
   switchAccount: (email: string) =>
     request<{ success: boolean; active_account: string }>('/api/switch', {
       method: 'POST',
@@ -77,6 +89,7 @@ export const api = {
     refresh_token?: string
     credits?: number
     enable_credit_overages?: boolean
+    allow_claude_gpt?: boolean
     set_active?: boolean
   }) =>
     request<{ success: boolean; email: string }>('/api/accounts/update', {
@@ -104,6 +117,60 @@ export const api = {
 
   setPasswordSettings: (data: { password?: string; current_password?: string; remove?: boolean }) =>
     request<{ success: boolean; enabled?: boolean; error?: string }>('/api/settings/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  getStorageSettings: () => request<StorageInfo>('/api/settings/storage'),
+
+  setStorageSettings: (data: { storage_mode: string; migrate_data: boolean }) =>
+    request<{ success: boolean; storage: StorageInfo; error?: string }>('/api/settings/storage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  saveAppPath: (appType: string, path: string) =>
+    request<{ success: boolean; storage: StorageInfo; error?: string }>('/api/settings/app_path', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app_type: appType, path }),
+    }),
+
+  saveAccountOverride: (appType: string, email: string, path: string) =>
+    request<{ success: boolean; storage: StorageInfo; error?: string }>('/api/settings/account_override', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app_type: appType, email, path }),
+    }),
+
+  clearAppCache: (appType: string) =>
+    request<import('./types').ClearCacheResult>('/api/settings/cache_clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app_type: appType }),
+    }),
+
+  factoryReset: () =>
+    request<import('./types').FactoryResetResult>('/api/system/factory_reset', {
+      method: 'POST',
+    }),
+
+  getPrivacySettings: () => request<PrivacySettings>('/api/settings/privacy'),
+
+  setPrivacySettings: (data: { anonymous_error_reports: boolean; anonymous_telemetry: boolean }) =>
+    request<{ success: boolean; anonymous_error_reports: boolean; anonymous_telemetry: boolean; error?: string }>(
+      '/api/settings/privacy',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      }
+    ),
+
+  runIssueDiagnosis: (data: { description: string; include_system_info?: boolean; include_logs?: boolean }) =>
+    request<DiagnosticResult>('/api/settings/diagnose-issue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),

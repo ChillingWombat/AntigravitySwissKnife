@@ -358,13 +358,15 @@ func TestGenerateCustomModelsScript_CategoryHeaders(t *testing.T) {
 	}
 }
 
-func TestGenerateCustomModelsScript_GeminiReasoningSelector(t *testing.T) {
+func TestGenerateCustomModelsScript_NoRedundantGeminiReasoningSelector(t *testing.T) {
 	script := GenerateCustomModelsScript(nil)
-	if !containsSubstring(script, "gemini-reasoning-level-selector") {
-		t.Errorf("expected script to contain 'gemini-reasoning-level-selector'")
+	// Verify it cleans up stale selector if present
+	if !containsSubstring(script, "staleGeminiSelector") {
+		t.Errorf("expected script to clean up staleGeminiSelector")
 	}
-	if !containsSubstring(script, `"Reasoning: "`) {
-		t.Errorf("expected script to contain 'Reasoning: '")
+	// Verify it does not inject a redundant Reasoning: dropdown
+	if containsSubstring(script, `"Reasoning: "`) {
+		t.Errorf("expected script NOT to contain redundant 'Reasoning: ' dropdown")
 	}
 }
 

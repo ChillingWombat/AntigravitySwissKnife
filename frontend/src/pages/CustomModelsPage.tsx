@@ -12,10 +12,10 @@ import {
   Eye,
   EyeOff,
   Zap,
+  Loader2,
   Info,
   Shield,
   ShieldCheck,
-  Loader2,
 } from 'lucide-react'
 import type {
   CustomModel,
@@ -327,14 +327,14 @@ export const CustomModelsPage: React.FC = () => {
       setModalTestResult(res)
     } catch (err: any) {
       const message = err.message || 'Request failed'
-      setModalError(`Test request failed: ${message}`)
       setModalTestResult({
         success: false,
         status_code: 0,
         latency_ms: 0,
         message,
-        endpoint: baseUrl.trim(),
+        endpoint: draftModel.base_url,
       })
+      setModalError(`Test request failed: ${message}`)
     } finally {
       setModalTesting(false)
     }
@@ -609,7 +609,6 @@ export const CustomModelsPage: React.FC = () => {
       {/* 2. Models Grid */}
       {models.length === 0 && !loading ? (
         <div
-          className="google-card"
           style={{
             padding: '48px 24px',
             textAlign: 'center',
@@ -629,7 +628,6 @@ export const CustomModelsPage: React.FC = () => {
         </div>
       ) : filteredModels.length === 0 && !loading ? (
         <div
-          className="google-card"
           style={{
             padding: '48px 24px',
             textAlign: 'center',
@@ -1021,7 +1019,7 @@ export const CustomModelsPage: React.FC = () => {
                   <div style={{ position: 'relative' }} ref={modelContainerRef}>
                     <input
                       type="text"
-                      placeholder="e.g. gemini-2.5-pro or gpt-4o"
+                      placeholder="e.g. gemini-4-argon"
                       value={modelName}
                       onChange={(e) => {
                         const val = e.target.value
@@ -1161,7 +1159,7 @@ export const CustomModelsPage: React.FC = () => {
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. https://api.openai.com/v1/chat/completions or https://generativelanguage.googleapis.com/v1beta/models"
+                  placeholder="e.g. https://generativelanguage.googleapis.com/v1beta/models"
                   value={baseUrl}
                   onChange={(e) => {
                     setBaseUrl(e.target.value)
@@ -1207,7 +1205,7 @@ export const CustomModelsPage: React.FC = () => {
                         ? thinkingLevels
                         : detectThinkingLevels(modelName).length > 0
                           ? detectThinkingLevels(modelName)
-                          : ['off', 'low', 'medium', 'high']
+                          : ['low', 'medium', 'high']
                       return presets.length > 0 ? (
                         <div
                           style={{

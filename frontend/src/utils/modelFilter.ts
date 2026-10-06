@@ -47,3 +47,33 @@ export function filterModels(
   }
   return models
 }
+
+/**
+ * Resolves the effective custom model ID according to the selection rules:
+ * - If no models are enabled/available, returns empty string ("").
+ * - If a selected default model exists in the available options, retains it.
+ * - Otherwise, defaults to the first model in the list without any 'auto' option.
+ */
+export function resolveEffectiveCustomModel(
+  availableModels: Array<{ id: string }>,
+  selectedDefault?: string
+): string {
+  if (!availableModels || availableModels.length === 0) {
+    return ''
+  }
+  const valid = availableModels.filter(
+    (m) => m && typeof m.id === 'string' && m.id.trim() !== ''
+  )
+  if (valid.length === 0) {
+    return ''
+  }
+  const trimmedSelected = (selectedDefault || '').trim()
+  if (trimmedSelected) {
+    const match = valid.find((m) => m.id.trim() === trimmedSelected)
+    if (match) {
+      return match.id.trim()
+    }
+  }
+  return valid[0].id.trim()
+}
+

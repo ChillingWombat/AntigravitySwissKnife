@@ -148,6 +148,15 @@ func TestMultiSurfaceResolutionAndAutoImport(t *testing.T) {
 		t.Fatalf("expected desktop_user@google.com to win over CLI, got %v", detected)
 	}
 
+	// 2b. Setup app_storage.json with active desktop login user: true_desktop@google.com
+	// app_storage.json must take precedence over external jetski-standalone-oauth-token
+	_ = os.WriteFile(filepath.Join(configDir, "app_storage.json"), []byte(`{"jetski.onboarding.lastLoginUsername":"true_desktop@google.com"}`), 0600)
+	detected = ResolveRunningAntigravityAccount(tmpDir, configDir)
+	if detected == nil || detected.Email != "true_desktop@google.com" {
+		t.Fatalf("expected true_desktop@google.com from app_storage.json to take precedence, got %v", detected)
+	}
+	_ = os.Remove(filepath.Join(configDir, "app_storage.json"))
+
 	// 3. Test Store Reconcile with unimported account and autoImport=false
 	accPath := filepath.Join(tmpDir, "accounts.json")
 	store, err := NewStore(accPath)
@@ -204,6 +213,193 @@ func TestMultiSurfaceResolutionAndAutoImport(t *testing.T) {
 	}
 	if store.ActiveAccount() != "desktop_user@google.com" {
 		t.Errorf("expected active account to align with running session")
+	}
+}
+
+func TestUpdateAccountFull_AllowClaudeGPTAndNewAccount(t *testing.T) {
+	tmpDir := t.TempDir()
+	accPath := filepath.Join(tmpDir, "accounts.json")
+	store, err := NewStore(accPath)
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	// 1. Create a brand new account via UpdateAccountFull
+	err = store.UpdateAccountFull("new_user@google.com", "New User Alias", "Pro", "ACTIVE", "High", "Notes here", "pass123", "", "", 100, true, true, true)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull error creating new account: %v", err)
+	}
+
+	acc, err := store.GetAccount("new_user@google.com")
+	if err != nil {
+		t.Fatalf("GetAccount error: %v", err)
+	}
+	if acc.Label != "New User Alias" {
+		t.Errorf("expected label 'New User Alias', got %s", acc.Label)
+	}
+	if !acc.AllowClaudeGPT {
+		t.Errorf("expected AllowClaudeGPT to be true")
+	}
+	if !acc.EnableCreditOverages {
+		t.Errorf("expected EnableCreditOverages to be true")
+	}
+
+	// 2. Reload store from disk to ensure AllowClaudeGPT persisted
+	storeReloaded, err := NewStore(accPath)
+	if err != nil {
+		t.Fatalf("NewStore reload error: %v", err)
+	}
+	accReloaded, err := storeReloaded.GetAccount("new_user@google.com")
+	if err != nil {
+		t.Fatalf("GetAccount after reload error: %v", err)
+	}
+	if !accReloaded.AllowClaudeGPT {
+		t.Errorf("expected AllowClaudeGPT to persist as true after reload")
+	}
+
+	// 3. Toggle AllowClaudeGPT to false
+	err = storeReloaded.UpdateAccountFull("new_user@google.com", "New User Alias", "Pro", "ACTIVE", "High", "Notes here", "pass123", "", "", 100, true, false, false)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull error toggling AllowClaudeGPT: %v", err)
+	}
+	accToggled, _ := storeReloaded.GetAccount("new_user@google.com")
+	if accToggled.AllowClaudeGPT {
+		t.Errorf("expected AllowClaudeGPT to be false after toggle")
+	}
+
+	// 4. Update with empty planTier and 0 credits: should preserve Pro tier and 100 credits
+	err = storeReloaded.UpdateAccountFull("new_user@google.com", "Updated Alias", "", "ACTIVE", "High", "Notes", "pass123", "", "", 0, true, false, false)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull error: %v", err)
+	}
+	accPreserved, _ := storeReloaded.GetAccount("new_user@google.com")
+	if accPreserved.PlanTier != "Pro" {
+		t.Errorf("expected PlanTier to remain 'Pro', got %s", accPreserved.PlanTier)
+	}
+	if accPreserved.Credits != 100 {
+		t.Errorf("expected Credits to remain 100, got %f", accPreserved.Credits)
+	}
+
+	// 5. Update with "Free" planTier and 0 credits: should STILL preserve Pro tier and 100 credits
+	err = storeReloaded.UpdateAccountFull("new_user@google.com", "Updated Alias", "Free", "ACTIVE", "High", "Notes", "pass123", "", "", 0, true, false, false)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull error: %v", err)
+	}
+	accPreservedFree, _ := storeReloaded.GetAccount("new_user@google.com")
+	if accPreservedFree.PlanTier != "Pro" {
+		t.Errorf("expected PlanTier to remain 'Pro' when passing Free, got %s", accPreservedFree.PlanTier)
+	}
+	if accPreservedFree.Credits != 100 {
+		t.Errorf("expected Credits to remain 100 when passing 0, got %f", accPreservedFree.Credits)
+	}
+
+	// 6. Explicit upgrade to Enterprise with new credits should update both
+	err = storeReloaded.UpdateAccountFull("new_user@google.com", "Updated Alias", "Enterprise", "ACTIVE", "High", "Notes", "pass123", "", "", 250, true, false, false)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull error: %v", err)
+	}
+	accEnterprise, _ := storeReloaded.GetAccount("new_user@google.com")
+	if accEnterprise.PlanTier != "Enterprise" {
+		t.Errorf("expected PlanTier to update to Enterprise, got %s", accEnterprise.PlanTier)
+	}
+	if accEnterprise.Credits != 250 {
+		t.Errorf("expected Credits to update to 250, got %f", accEnterprise.Credits)
+	}
+
+	// 7. Creating an account with empty label defaults label to email
+	err = storeReloaded.UpdateAccountFull("no_alias@google.com", "", "Pro", "ACTIVE", "High", "", "", "", "", 0, false, false, false)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull error creating account with empty label: %v", err)
+	}
+	accNoAlias, err := storeReloaded.GetAccount("no_alias@google.com")
+	if err != nil {
+		t.Fatalf("GetAccount for no_alias failed: %v", err)
+	}
+	if accNoAlias.Label != "no_alias@google.com" {
+		t.Errorf("expected Label to default to email 'no_alias@google.com', got '%s'", accNoAlias.Label)
+	}
+}
+
+func TestBatchImportAndExportAccounts(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
+	tmpDir := t.TempDir()
+	accountsPath := filepath.Join(tmpDir, "accounts.json")
+
+	store, err := NewStore(accountsPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	items := []BatchImportItem{
+		{
+			ID:         "alice@work.com",
+			Password:   "AlicePass2026!",
+			MFA:        "JBSWY3DPEHPK3PXP",
+			OathToken:  "1//oauth_refresh_alice",
+			Label:      "Alice Work",
+			PlanTier:   "Pro",
+			Priority:   "High",
+		},
+		{
+			Email:        "bob@personal.com",
+			Password:     "BobPass2026!",
+			TOTPSecret:   "HXDMVJECJJWSRB3HWIZR4IFUGFTMXBOZ",
+			RefreshToken: "1//oauth_refresh_bob",
+			Label:        "Bob Personal",
+			PlanTier:     "Free",
+		},
+	}
+
+	count, err := store.BatchImportAccounts(items)
+	if err != nil {
+		t.Fatalf("BatchImportAccounts error: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 imported accounts, got %d", count)
+	}
+
+	exported := store.ExportAccounts()
+	if len(exported) != 2 {
+		t.Fatalf("expected 2 exported accounts, got %d", len(exported))
+	}
+
+	var alice *AccountExport
+	for i := range exported {
+		if exported[i].ID == "alice@work.com" {
+			alice = &exported[i]
+			break
+		}
+	}
+	if alice == nil {
+		t.Fatalf("expected to find alice in exported accounts")
+	}
+	if alice.Password != "AlicePass2026!" {
+		t.Errorf("expected password to match, got %s", alice.Password)
+	}
+	if alice.MFA != "JBSWY3DPEHPK3PXP" || alice.TOTPSecret != "JBSWY3DPEHPK3PXP" {
+		t.Errorf("expected MFA/TOTP to match, got %s", alice.MFA)
+	}
+	if alice.OathToken != "1//oauth_refresh_alice" || alice.RefreshToken != "1//oauth_refresh_alice" {
+		t.Errorf("expected OathToken/RefreshToken to match, got %s", alice.OathToken)
+	}
+
+	// Verify reload from disk
+	reloadedStore, err := NewStore(accountsPath)
+	if err != nil {
+		t.Fatalf("failed to reload store: %v", err)
+	}
+	bob, err := reloadedStore.GetAccount("bob@personal.com")
+	if err != nil {
+		t.Fatalf("failed to get bob: %v", err)
+	}
+	if bob.Password != "BobPass2026!" {
+		t.Errorf("expected reloaded bob password to match, got %s", bob.Password)
+	}
+	if bob.TOTPSecret != "HXDMVJECJJWSRB3HWIZR4IFUGFTMXBOZ" {
+		t.Errorf("expected reloaded bob TOTPSecret to match, got %s", bob.TOTPSecret)
+	}
+	if bob.RefreshToken != "1//oauth_refresh_bob" {
+		t.Errorf("expected reloaded bob RefreshToken to match, got %s", bob.RefreshToken)
 	}
 }
 

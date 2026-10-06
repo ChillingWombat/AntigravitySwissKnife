@@ -208,3 +208,195 @@ def test_sort_account_quota_states():
     sorted_wk = sort_account_quota_states(accounts, mode="quota_weekly")
     assert sorted_wk[0].quota_weekly >= sorted_wk[1].quota_weekly
     assert sorted_wk[-1].email == "depleted@example.com"
+
+
+def test_build_account_quota_states_gemini_group_isolation():
+    """Verify that Claude/GPT 3P groups do not overwrite Gemini 5h/weekly quotas."""
+    active_summary = {
+        "groups": [
+            {
+                "displayName": "Gemini 2.5 Pro & Flash",
+                "buckets": [
+                    {"bucketId": "gemini-5h", "window": "5h", "remainingFraction": 0.85},
+                    {"bucketId": "gemini-weekly", "window": "weekly", "remainingFraction": 0.92},
+                ],
+            },
+            {
+                "displayName": "Claude 3.7 & GPT-4o (3P)",
+                "buckets": [
+                    {"bucketId": "claude-5h", "window": "5h", "remainingFraction": 0.10},
+                    {"bucketId": "claude-weekly", "window": "weekly", "remainingFraction": 0.20},
+                ],
+            },
+        ]
+    }
+
+    accounts = [{"email": "user@google.com", "label": "User", "is_active": True}]
+    states = build_account_quota_states(accounts, active_quota_summary=active_summary)
+
+    assert len(states) == 1
+    # Gemini values should be preserved, NOT overwritten by Claude 3P buckets
+    assert pytest.approx(states[0].quota_5h_current, 0.01) == 0.85
+    assert pytest.approx(states[0].quota_weekly, 0.01) == 0.92
+
+
+def test_sort_account_quota_states_exhausted_current_demoted():
+    """Verify that an account with 0% current 5h quota (even if resetting soon) is demoted below healthy standbys."""
+    acc_active = AccountQuotaState(
+        email="active@example.com",
+        label="Active",
+        is_active=True,
+        status="ACTIVE",
+        has_totp=True,
+        totp_secret="",
+        refresh_token="",
+        quota_5h_current=0.75,
+        reset_seconds=7200.0,
+        quota_weekly=0.80,
+    )
+    # 0% current, but resets in 1 hour -> quota_5h_available is 0.80!
+    acc_exhausted_current = AccountQuotaState(
+        email="exhausted@example.com",
+        label="Exhausted Now",
+        is_active=False,
+        status="STANDBY",
+        has_totp=True,
+        totp_secret="",
+        refresh_token="",
+        quota_5h_current=0.00,
+        reset_seconds=3600.0,
+        quota_weekly=0.90,
+    )
+    acc_healthy_standby = AccountQuotaState(
+        email="healthy@example.com",
+        label="Healthy Standby",
+        is_active=False,
+        status="STANDBY",
+        has_totp=True,
+        totp_secret="",
+        refresh_token="",
+        quota_5h_current=0.60,
+        reset_seconds=14000.0,
+        quota_weekly=0.70,
+    )
+
+    sorted_accounts = sort_account_quota_states(
+        [acc_exhausted_current, acc_healthy_standby, acc_active],
+        active_email="active@example.com",
+        threshold=0.10,
+        mode="auto",
+    )
+
+    # Row 1: active, Row 2: healthy standby (NOT exhausted now!), Row 3: exhausted now (Tier 2 cooling down)
+    assert sorted_accounts[0].email == "active@example.com"
+    assert sorted_accounts[1].email == "healthy@example.com"
+    assert sorted_accounts[2].email == "exhausted@example.com"
+
+
+def test_sort_account_quota_states_depleted_active_remains_row_1():
+    """Verify that an active account below threshold is pinned to Row 1 even when quota is depleted."""
+    acc_active_depleted = AccountQuotaState(
+        email="active_depleted@example.com",
+        label="Depleted Active",
+        is_active=True,
+        status="ACTIVE",
+        has_totp=True,
+        totp_secret="",
+        refresh_token="",
+        quota_5h_current=0.00,
+        reset_seconds=0.0,
+        quota_weekly=0.04,
+    )
+    acc_healthy_standby = AccountQuotaState(
+        email="healthy@example.com",
+        label="Healthy Standby",
+        is_active=False,
+        status="STANDBY",
+        has_totp=True,
+        totp_secret="",
+        refresh_token="",
+        quota_5h_current=0.90,
+        reset_seconds=0.0,
+        quota_weekly=0.80,
+    )
+
+    sorted_accounts = sort_account_quota_states(
+        [acc_healthy_standby, acc_active_depleted],
+        active_email="active_depleted@example.com",
+        threshold=0.05,
+        mode="auto",
+    )
+
+    assert sorted_accounts[0].email == "active_depleted@example.com"
+    assert sorted_accounts[1].email == "healthy@example.com"
+
+
+def test_sort_account_quota_states_switch_modes_and_tiers():
+    """Verify that Free tier is demoted behind paid standbys and Ultra is prioritized in max_continuous."""
+    acc_free = AccountQuotaState(
+        email="free@example.com",
+        label="Free User",
+        is_active=False,
+        status="STANDBY",
+        has_totp=False,
+        totp_secret="",
+        refresh_token="",
+        quota_5h_current=1.0,
+        reset_seconds=0.0,
+        quota_weekly=1.0,
+        plan_tier="Free",
+    )
+    acc_pro = AccountQuotaState(
+        email="pro@example.com",
+        label="Pro User",
+        is_active=False,
+        status="STANDBY",
+        has_totp=False,
+        totp_secret="",
+        refresh_token="",
+        quota_5h_current=0.6,
+        reset_seconds=0.0,
+        quota_weekly=0.7,
+        plan_tier="Pro",
+    )
+    acc_ultra = AccountQuotaState(
+        email="ultra@example.com",
+        label="Ultra User",
+        is_active=False,
+        status="STANDBY",
+        has_totp=False,
+        totp_secret="",
+        refresh_token="",
+        quota_5h_current=0.9,
+        reset_seconds=0.0,
+        quota_weekly=0.9,
+        plan_tier="Ultra 20X",
+    )
+    acc_active = AccountQuotaState(
+        email="active@example.com",
+        label="Active User",
+        is_active=True,
+        status="ACTIVE",
+        has_totp=False,
+        totp_secret="",
+        refresh_token="",
+        quota_5h_current=0.8,
+        reset_seconds=0.0,
+        quota_weekly=0.8,
+        plan_tier="Pro",
+    )
+
+    # 1. Balanced: Free (100%) must be placed in Tier 2, behind Pro (60%) in Tier 1
+    sorted_bal = sort_account_quota_states([acc_free, acc_pro, acc_active], active_email="active@example.com", threshold=0.05, mode="auto", switch_mode="balanced")
+    assert sorted_bal[0].email == "active@example.com"
+    assert sorted_bal[1].email == "pro@example.com"
+    assert sorted_bal[2].email == "free@example.com"
+
+    # 2. Max Continuous: Ultra 20X ranked ahead of Pro
+    sorted_cont = sort_account_quota_states([acc_free, acc_pro, acc_ultra, acc_active], active_email="active@example.com", threshold=0.05, mode="auto", switch_mode="max_continuous")
+    assert sorted_cont[0].email == "active@example.com"
+    assert sorted_cont[1].email == "ultra@example.com"
+    assert sorted_cont[2].email == "pro@example.com"
+    assert sorted_cont[3].email == "free@example.com"
+
+

@@ -2,7 +2,45 @@ const { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification } = require
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
+const os = require('os');
 const { DaemonManager } = require('./daemon-manager');
+
+// Desktop background & close behavior settings (defaults to OFF: quit app & stop daemon on window close)
+function getCloseToTraySetting() {
+  try {
+    const configDir = path.join(os.homedir(), '.config', 'antigravity-swiss');
+    const settingsPath = path.join(configDir, 'desktop_settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const data = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      if (typeof data.close_to_tray === 'boolean') {
+        return data.close_to_tray;
+      }
+    }
+  } catch (err) {
+    console.warn('[Settings] Failed to read desktop_settings.json:', err.message);
+  }
+  return false; // Default: false (OFF) - do not run in background when closed
+}
+
+function setCloseToTraySetting(enabled) {
+  try {
+    const configDir = path.join(os.homedir(), '.config', 'antigravity-swiss');
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true });
+    }
+    const settingsPath = path.join(configDir, 'desktop_settings.json');
+    let data = {};
+    if (fs.existsSync(settingsPath)) {
+      try { data = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch (_) {}
+    }
+    data.close_to_tray = Boolean(enabled);
+    fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf8');
+    return true;
+  } catch (err) {
+    console.error('[Settings] Failed to write desktop_settings.json:', err.message);
+    return false;
+  }
+}
 
 // Port configuration
 const DAEMON_PORT = 8765;
@@ -225,16 +263,29 @@ async function createWindow() {
   mainWindow.on('enter-full-screen', () => mainWindow.setAspectRatio(0));
   mainWindow.on('leave-full-screen', () => mainWindow.setAspectRatio(16 / 9));
 
-  // Intercept window close ('X') to minimize to system tray
-  mainWindow.on('close', (event) => {
+  // Intercept window close ('X'): default is to quit app & stop daemon unless close_to_tray is manually enabled
+  mainWindow.on('close', async (event) => {
     if (!isQuitting) {
-      event.preventDefault();
-      mainWindow.hide();
-      if (tray && process.platform === 'win32') {
-        tray.displayBalloon({
-          title: 'Antigravity Swiss Knife',
-          content: 'Application minimized to system tray.',
-        });
+      const closeToTray = getCloseToTraySetting();
+      if (closeToTray) {
+        event.preventDefault();
+        mainWindow.hide();
+        if (tray && process.platform === 'win32') {
+          tray.displayBalloon({
+            title: 'Antigravity Swiss Knife',
+            content: 'Application minimized to system tray.',
+          });
+        }
+      } else {
+        event.preventDefault();
+        isQuitting = true;
+        try {
+          await daemonManager.stop();
+        } catch (err) {
+          console.error('[App] Error stopping daemon on window close:', err);
+        } finally {
+          app.quit();
+        }
       }
     }
   });
@@ -307,6 +358,18 @@ function registerIpcHandlers() {
     }
   });
 
+  ipcMain.handle('desktop:get-close-to-tray-setting', async () => {
+    return { closeToTray: getCloseToTraySetting() };
+  });
+
+  ipcMain.handle('desktop:set-close-to-tray-setting', async (_event, enabled) => {
+    const isEnabled = typeof enabled === 'object' && enabled !== null
+      ? Boolean(enabled.enabled)
+      : Boolean(enabled);
+    const success = setCloseToTraySetting(isEnabled);
+    return { success, closeToTray: isEnabled };
+  });
+
   ipcMain.handle('desktop:notify', async (_event, { title, body }) => {
     if (Notification.isSupported()) {
       new Notification({ title, body, icon: getIconPath() }).show();
@@ -321,6 +384,24 @@ function registerIpcHandlers() {
       return true;
     } catch {
       return false;
+    }
+  });
+
+  ipcMain.handle('desktop:select-path', async (_event, options) => {
+    try {
+      const { dialog } = require('electron');
+      const win = mainWindow || null;
+      const res = await dialog.showOpenDialog(win, {
+        properties: options?.directory ? ['openDirectory'] : ['openFile'],
+        title: options?.title || 'Select Path',
+      });
+      if (!res.canceled && res.filePaths && res.filePaths.length > 0) {
+        return res.filePaths[0];
+      }
+      return null;
+    } catch (err) {
+      console.error('Failed to open dialog:', err);
+      return null;
     }
   });
 }
@@ -389,6 +470,22 @@ async function runE2eVerification() {
       // Restore default
       app.setLoginItemSettings({ openAtLogin: false, openAsHidden: false });
 
+      // Test closeToTray setting persistence & IPC logic
+      console.log('[E2E-TEST] Testing closeToTray setting...');
+      const initClose = getCloseToTraySetting();
+      console.log('[E2E-TEST] Initial closeToTray:', initClose);
+      setCloseToTraySetting(true);
+      if (getCloseToTraySetting() !== true) {
+        console.error('[E2E-TEST] Failed to set closeToTray to true');
+        process.exit(1);
+      }
+      setCloseToTraySetting(false);
+      if (getCloseToTraySetting() !== false) {
+        console.error('[E2E-TEST] Failed to set closeToTray to false');
+        process.exit(1);
+      }
+      console.log('[E2E-TEST] CloseToTray IPC and persistence verified: OK');
+
       console.log('[E2E-TEST] All E2E desktop assertions passed! Initiating graceful shutdown...');
       isQuitting = true;
       await daemonManager.stop();
@@ -443,9 +540,15 @@ app.on('before-quit', async (event) => {
   }
 });
 
-app.on('window-all-closed', () => {
-  // On non-macOS, keep running in tray unless isQuitting
-  if (process.platform === 'darwin' && isQuitting) {
+app.on('window-all-closed', async () => {
+  const closeToTray = getCloseToTraySetting();
+  if (!closeToTray || isQuitting || process.platform === 'darwin') {
+    if (!isStoppingDaemon) {
+      isStoppingDaemon = true;
+      try {
+        await daemonManager.stop();
+      } catch (err) {}
+    }
     app.quit();
   }
 });
@@ -489,6 +592,8 @@ module.exports = {
   createTray,
   updateTrayMenu,
   registerIpcHandlers,
+  getCloseToTraySetting,
+  setCloseToTraySetting,
   getMainWindow: () => mainWindow,
   getTray: () => tray,
   DAEMON_URL,

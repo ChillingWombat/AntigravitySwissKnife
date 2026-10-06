@@ -36,25 +36,32 @@ func FormatResetHorizon(resetTime time.Time, now time.Time) string {
 		return fmt.Sprintf("Resets in %ds", int(diff.Seconds()))
 	} else if diff < time.Hour {
 		return fmt.Sprintf("Resets in %dm", int(diff.Minutes()))
+	} else if diff < 24*time.Hour {
+		hours := int(diff.Hours())
+		mins := int(diff.Minutes()) % 60
+		return fmt.Sprintf("Resets in %dh %dm", hours, mins)
 	}
-	hours := int(diff.Hours())
-	mins := int(diff.Minutes()) % 60
-	return fmt.Sprintf("Resets in %dh %dm", hours, mins)
+	days := int(diff.Hours()) / 24
+	hours := int(diff.Hours()) % 24
+	return fmt.Sprintf("Resets in %dd %dh", days, hours)
 }
 
 // QuotaSummary consolidates per-model quotas for an account.
 type QuotaSummary struct {
-	AccountEmail          string       `json:"account_email"`
-	PlanTier              string       `json:"plan_tier,omitempty"`
-	Credits               float64      `json:"credits"`
-	Quota5hFraction       float64      `json:"quota_5h_fraction,omitempty"`
-	QuotaWeeklyFraction   float64      `json:"quota_weekly_fraction,omitempty"`
-	Quota5hClaudeGPT      float64      `json:"quota_5h_claude_gpt,omitempty"`
-	QuotaWeeklyClaudeGPT  float64      `json:"quota_weekly_claude_gpt,omitempty"`
-	ResetSeconds5h        float64      `json:"reset_seconds_5h,omitempty"`
-	ResetHorizonText      string       `json:"reset_horizon_text,omitempty"`
-	Models                []ModelQuota `json:"models"`
-	MinFraction           float64      `json:"min_fraction"`
-	OverallHealth         string       `json:"overall_health"`
-	LastPolled            time.Time    `json:"last_polled"`
+	AccountEmail           string       `json:"account_email"`
+	PlanTier               string       `json:"plan_tier,omitempty"`
+	Credits                float64      `json:"credits"`
+	Quota5hFraction        float64      `json:"quota_5h_fraction,omitempty"`
+	QuotaWeeklyFraction    float64      `json:"quota_weekly_fraction,omitempty"`
+	Quota5hClaudeGPT       float64      `json:"quota_5h_claude_gpt,omitempty"`
+	QuotaWeeklyClaudeGPT   float64      `json:"quota_weekly_claude_gpt,omitempty"`
+	ResetSeconds5h         float64      `json:"reset_seconds_5h,omitempty"`
+	ResetHorizonText       string       `json:"reset_horizon_text,omitempty"`
+	ResetSecondsWeekly     float64      `json:"reset_seconds_weekly,omitempty"`
+	ResetHorizonWeeklyText string       `json:"reset_horizon_weekly_text,omitempty"`
+	ResetTimeWeekly        time.Time    `json:"reset_time_weekly,omitempty"`
+	Models                 []ModelQuota `json:"models"`
+	MinFraction            float64      `json:"min_fraction"`
+	OverallHealth          string       `json:"overall_health"`
+	LastPolled             time.Time    `json:"last_polled"`
 }

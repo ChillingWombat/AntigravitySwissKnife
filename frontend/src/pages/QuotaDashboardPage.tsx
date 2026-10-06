@@ -15,139 +15,16 @@ import {
 import type { AccountState, FleetQuotaSummary, RuleConfig, DiscoveredAccount } from '../types'
 import { normalizePlanTier } from '../types'
 import { TABLE_MIN_WIDTH } from '../utils/layoutTokens'
+import { getAccountTableDisplay } from '../utils/accountPresentation'
 import { CircularGauge } from '../components/CircularGauge'
 import { HorizontalQuotaBar } from '../components/HorizontalQuotaBar'
 import { AccountDetailModal } from '../components/AccountDetailModal'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 
-export type SortMode = 'auto' | 'identity' | 'priority' | 'quota_5h' | 'quota_weekly' | 'credits'
+import { sortAccounts, type SortMode } from '../utils/accountSorting'
 
-export function sortAccounts(
-  accounts: AccountState[],
-  activeEmail: string,
-  threshold: number,
-  mode: SortMode
-): AccountState[] {
-  const copy = [...accounts]
-
-  if (mode === 'identity') {
-    return copy.sort((a, b) => {
-      const nameA = (a.label || a.email).toLowerCase()
-      const nameB = (b.label || b.email).toLowerCase()
-      if (nameA !== nameB) {
-        return nameA.localeCompare(nameB)
-      }
-      return a.email.localeCompare(b.email)
-    })
-  }
-
-  if (mode === 'priority') {
-    const order: Record<string, number> = { High: 0, Mid: 1, Low: 2 }
-    return copy.sort((a, b) => {
-      const pa = order[a.priority || 'High'] ?? 1
-      const pb = order[b.priority || 'High'] ?? 1
-      if (pa !== pb) return pa - pb
-      const diff = (b.quota_5h_available ?? 0) - (a.quota_5h_available ?? 0)
-      if (Math.abs(diff) > 0.0001) return diff
-      return (b.quota_weekly ?? 0) - (a.quota_weekly ?? 0)
-    })
-  }
-
-  if (mode === 'credits') {
-    return copy.sort((a, b) => {
-      const credA = (a.credits !== undefined && a.credits !== null) ? Number(a.credits) : 0
-      const credB = (b.credits !== undefined && b.credits !== null) ? Number(b.credits) : 0
-      return credB - credA
-    })
-  }
-
-  if (mode === 'quota_5h') {
-    return copy.sort((a, b) => {
-      const diff = (b.quota_5h_available ?? 0) - (a.quota_5h_available ?? 0)
-      if (Math.abs(diff) > 0.0001) return diff
-      return (b.quota_weekly ?? 0) - (a.quota_weekly ?? 0)
-    })
-  }
-
-  if (mode === 'quota_weekly') {
-    return copy.sort((a, b) => {
-      const diff = (b.quota_weekly ?? 0) - (a.quota_weekly ?? 0)
-      if (Math.abs(diff) > 0.0001) return diff
-      return (b.quota_5h_available ?? 0) - (a.quota_5h_available ?? 0)
-    })
-  }
-
-  // mode === 'auto' (Default)
-  // 1. Row 1: Active account (unconditionally at top)
-  // 2. Row 2+: Next standby accounts to rotate into, arranged by 5H & weekly capacity
-  // 3. Last rows: Switched-off or cooling-down accounts below threshold
-  // 4. End: Broken (ERROR/BANNED) accounts
-  return copy.sort((a, b) => {
-    const isActA = a.is_active || a.email === activeEmail
-    const isActB = b.is_active || b.email === activeEmail
-
-    // Unconditionally pin the active account to Row 1 (index 0)
-    if (isActA && !isActB) return -1
-    if (!isActA && isActB) return 1
-
-    const stA = (a.status || '').toUpperCase()
-    const stB = (b.status || '').toUpperCase()
-    const isBannedA = stA === 'BANNED'
-    const isBannedB = stB === 'BANNED'
-    const isErrorA = stA === 'ERROR'
-    const isErrorB = stB === 'ERROR'
-    const isBrokenA = isBannedA || isErrorA
-    const isBrokenB = isBannedB || isErrorB
-
-    const q5hA = a.quota_5h_available ?? 0
-    const q5hB = b.quota_5h_available ?? 0
-    const qWkA = a.quota_weekly ?? 0
-    const qWkB = b.quota_weekly ?? 0
-
-    const isBelowA = q5hA <= threshold || qWkA <= 0.05
-    const isBelowB = q5hB <= threshold || qWkB <= 0.05
-
-    const getTier = (isBroken: boolean, isErr: boolean, isBan: boolean, isBelow: boolean) => {
-      if (isBan) return 4
-      if (isErr) return 3
-      if (!isBelow && !isBroken) return 1
-      return 2
-    }
-
-    const tierA = getTier(isBrokenA, isErrorA, isBannedA, isBelowA)
-    const tierB = getTier(isBrokenB, isErrorB, isBannedB, isBelowB)
-
-    if (tierA !== tierB) {
-      return tierA - tierB
-    }
-
-    // Within Tier 1 (Healthy Standby): Rank by continuous usage score (60% 5h + 40% weekly)
-    if (tierA === 1) {
-      const scoreA = q5hA * 0.6 + qWkA * 0.4
-      const scoreB = q5hB * 0.6 + qWkB * 0.4
-      if (Math.abs(scoreB - scoreA) > 0.001) {
-        return scoreB - scoreA
-      }
-      if (Math.abs(q5hB - q5hA) > 0.001) {
-        return q5hB - q5hA
-      }
-      return qWkB - qWkA
-    }
-
-    // Within Tier 2 (Below threshold / cooling down): Rank by remaining capacity
-    if (tierA === 2) {
-      if (Math.abs(q5hB - q5hA) > 0.001) {
-        return q5hB - q5hA
-      }
-      return qWkB - qWkA
-    }
-
-    const labelA = (a.label || a.email).toLowerCase()
-    const labelB = (b.label || b.email).toLowerCase()
-    return labelA.localeCompare(labelB)
-  })
-}
+export { sortAccounts, type SortMode }
 
 
 interface QuotaDashboardPageProps {
@@ -230,6 +107,9 @@ export const renderPlanTierBadge = (tier?: string) => {
         fontWeight: 700,
       }
       break
+    case 'Enterprise':
+      style = { ...style, backgroundColor: '#e0f2fe', color: '#0369a1', fontWeight: 700 }
+      break
     case 'Free':
     default:
       style = { ...style, backgroundColor: 'var(--tonal)', color: 'var(--text-muted)' }
@@ -280,7 +160,14 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const autoSwitchOn = rules?.auto_switch_enabled ?? false
   const threshold = rules?.auto_switch_threshold ?? 0.10
 
-  const sortedAccounts = sortAccounts(accounts, activeAccount, threshold, sortMode)
+  const sortedAccounts = sortAccounts(accounts, activeAccount, threshold, sortMode, rules?.switch_mode)
+
+  const errorAccountsCount = accounts.filter((a) =>
+    a.status?.toUpperCase().includes('ERROR')
+  ).length
+  const bannedAccountsCount = accounts.filter((a) =>
+    a.status?.toUpperCase().includes('BANNED')
+  ).length
 
   const handleToggleAutoSwitch = async () => {
     setIsTogglingRules(true)
@@ -368,12 +255,14 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
       email: '',
       label: '',
       priority: 'High',
-      plan_tier: 'Free',
+      plan_tier: '',
       is_active: false,
       status: 'STANDBY',
-      quota_5h_available: 1.0,
-      quota_weekly: 1.0,
+      quota_5h_current: 0,
+      quota_5h_available: 0,
+      quota_weekly: 0,
       reset_horizon_text: '',
+      reset_horizon_weekly_text: '',
       has_mfa: false,
     })
   }
@@ -400,21 +289,66 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
 
               {/* Auto-Switch Toggle Button */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)' }}>
                   Auto-Switch
                 </span>
                 <ToggleSwitch
                   checked={autoSwitchOn}
                   onChange={handleToggleAutoSwitch}
                   disabled={isTogglingRules}
-                  size="md"
+                  size="sm"
                 />
               </div>
             </div>
 
-            <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginBottom: '8px' }}>
+            <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginBottom: (errorAccountsCount > 0 || bannedAccountsCount > 0) ? '6px' : '8px' }}>
               {fleet?.total_accounts || accounts.length} Accounts Managed
             </div>
+
+            {(errorAccountsCount > 0 || bannedAccountsCount > 0) && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                {errorAccountsCount > 0 && (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: '#b06000',
+                      backgroundColor: '#fef7e0',
+                      border: '1px solid #feefc3',
+                      borderRadius: '12px',
+                      padding: '2px 8px',
+                    }}
+                    title={`${errorAccountsCount} account${errorAccountsCount > 1 ? 's' : ''} with error`}
+                  >
+                    <AlertCircle size={12} />
+                    {errorAccountsCount} {errorAccountsCount > 1 ? 'Errors' : 'Error'}
+                  </span>
+                )}
+                {bannedAccountsCount > 0 && (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: '#c5221f',
+                      backgroundColor: '#fce8e6',
+                      border: '1px solid #fad2cf',
+                      borderRadius: '12px',
+                      padding: '2px 8px',
+                    }}
+                    title={`${bannedAccountsCount} account${bannedAccountsCount > 1 ? 's' : ''} banned or suspended`}
+                  >
+                    <AlertTriangle size={12} />
+                    {bannedAccountsCount} Banned
+                  </span>
+                )}
+              </div>
+            )}
 
             {switchFeedback && (
               <div style={{ fontSize: '12px', color: 'var(--primary)', marginTop: '6px', fontWeight: 500 }}>
@@ -534,7 +468,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1, justifyContent: 'center' }}>
               {/* Row 1: Gemini Models */}
               <div>
-                <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
                   Gemini Models
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: '12px' }}>
@@ -558,7 +492,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
 
               {/* Row 2: Claude & GPT Models */}
               <div>
-                <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
                   Claude &amp; GPT Models
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: '12px' }}>
@@ -795,8 +729,10 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           </thead>
           <tbody>
             {sortedAccounts.map((acc, index) => {
-              const isActive = acc.is_active || acc.email === activeAccount
-              const isNextSwitch = sortMode === 'auto' && !isActive && !acc.status?.toUpperCase().includes('BANNED') && !acc.status?.toUpperCase().includes('ERROR') && index === 1
+              const isActive = activeAccount ? acc.email.toLowerCase() === activeAccount.toLowerCase() : Boolean(acc.is_active)
+              const current5h = acc.quota_5h_current ?? acc.quota_5h_available ?? 0
+              const isHealthy = current5h > (rules?.auto_switch_threshold ?? 0.10) && (acc.quota_weekly ?? 0) > 0.05
+              const isNextSwitch = autoSwitchOn && sortMode === 'auto' && !isActive && !acc.status?.toUpperCase().includes('BANNED') && !acc.status?.toUpperCase().includes('ERROR') && index === 1 && isHealthy
               return (
                 <tr
                   key={acc.email}
@@ -815,33 +751,40 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
                   <td style={{ padding: '12px 16px', overflow: 'hidden' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ fontWeight: 600, color: 'var(--text)', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {acc.label ? acc.label : acc.email}
-                      </span>
-                      {isNextSwitch && (
-                        <span
-                          style={{
-                            fontSize: '10px',
-                            fontWeight: 700,
-                            color: '#137333',
-                            backgroundColor: '#e6f4ea',
-                            border: '1px solid #ceead6',
-                            padding: '1px 6px',
-                            borderRadius: '10px',
-                            flexShrink: 0,
-                          }}
-                          title="Next account in continuous rotation queue"
-                        >
-                          Next
-                        </span>
-                      )}
-                    </div>
-                    {acc.label ? (
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {acc.email}
-                      </div>
-                    ) : null}
+                    {(() => {
+                      const display = getAccountTableDisplay(acc.label, acc.email)
+                      return (
+                        <>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontWeight: 600, color: 'var(--text)', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {display.primaryText}
+                            </span>
+                            {isNextSwitch && (
+                              <span
+                                style={{
+                                  fontSize: '10px',
+                                  fontWeight: 700,
+                                  color: '#137333',
+                                  backgroundColor: '#e6f4ea',
+                                  border: '1px solid #ceead6',
+                                  padding: '1px 6px',
+                                  borderRadius: '10px',
+                                  flexShrink: 0,
+                                }}
+                                title="Next account in continuous rotation queue"
+                              >
+                                Next
+                              </span>
+                            )}
+                          </div>
+                          {display.secondaryText && (
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {display.secondaryText}
+                            </div>
+                          )}
+                        </>
+                      )
+                    })()}
                   </td>
 
                   <td style={{ padding: '12px 8px', textAlign: 'center' }}>
@@ -849,35 +792,49 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   </td>
 
                   <td style={{ padding: '12px', verticalAlign: 'middle' }}>
-                    {rules?.allow_non_gemini_native_models ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
-                            <span>Gemini</span>
-                            <span>{Math.round((acc.quota_5h_available ?? 0) * 100)}%</span>
+                    {(() => {
+                      const avail5h = acc.quota_5h_available ?? current5h
+                      const hasDiff = Math.abs(avail5h - current5h) > 0.001
+                      const tooltip5h = hasDiff
+                        ? `${acc.reset_horizon_text || 'Resets in 5h cycle'} (Projected next 5h: ${Math.round(avail5h * 100)}%)`
+                        : (acc.reset_horizon_text || 'Resets in 5h cycle')
+                      const tooltip5hGemini = hasDiff
+                        ? `${acc.reset_horizon_text || 'Gemini 5h cycle'} (Projected next 5h: ${Math.round(avail5h * 100)}%)`
+                        : (acc.reset_horizon_text || 'Gemini 5h cycle')
+
+                      if (rules?.allow_non_gemini_native_models) {
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                                <span>Gemini</span>
+                                <span style={{ color: current5h <= 0.10 ? 'var(--red)' : 'inherit' }}>{Math.round(current5h * 100)}%</span>
+                              </div>
+                              <HorizontalQuotaBar
+                                fraction={current5h}
+                                title={tooltip5hGemini}
+                              />
+                            </div>
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                                <span>Claude &amp; GPT</span>
+                                <span>{acc.quota_5h_claude_gpt !== undefined && acc.quota_5h_claude_gpt !== null ? `${Math.round(acc.quota_5h_claude_gpt * 100)}%` : '0%'}</span>
+                              </div>
+                              <HorizontalQuotaBar
+                                fraction={acc.quota_5h_claude_gpt ?? 0}
+                                title="Claude/GPT 5h cycle"
+                              />
+                            </div>
                           </div>
-                          <HorizontalQuotaBar
-                            fraction={acc.quota_5h_available ?? 0}
-                            title={acc.reset_horizon_text || 'Gemini 5h cycle'}
-                          />
-                        </div>
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
-                            <span>Claude &amp; GPT</span>
-                            <span>{acc.quota_5h_claude_gpt !== undefined && acc.quota_5h_claude_gpt !== null ? `${Math.round(acc.quota_5h_claude_gpt * 100)}%` : '0%'}</span>
-                          </div>
-                          <HorizontalQuotaBar
-                            fraction={acc.quota_5h_claude_gpt ?? 0}
-                            title="Claude/GPT 5h cycle"
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <HorizontalQuotaBar
-                        fraction={acc.quota_5h_available ?? 0}
-                        title={acc.reset_horizon_text || 'Resets in 5h cycle'}
-                      />
-                    )}
+                        )
+                      }
+                      return (
+                        <HorizontalQuotaBar
+                          fraction={current5h}
+                          title={tooltip5h}
+                        />
+                      )
+                    })()}
                   </td>
 
                   <td style={{ padding: '12px', verticalAlign: 'middle' }}>
@@ -890,7 +847,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                           </div>
                           <HorizontalQuotaBar
                             fraction={acc.quota_weekly ?? 0}
-                            title="Gemini 7-day rolling cycle"
+                            title={acc.reset_horizon_weekly_text || 'Gemini 7-day rolling cycle'}
                           />
                         </div>
                         <div>
@@ -907,7 +864,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     ) : (
                       <HorizontalQuotaBar
                         fraction={acc.quota_weekly ?? 0}
-                        title="Resets on 7-day rolling cycle"
+                        title={acc.reset_horizon_weekly_text || '7-day rolling cycle'}
                       />
                     )}
                   </td>

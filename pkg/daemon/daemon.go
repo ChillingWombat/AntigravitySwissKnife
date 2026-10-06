@@ -33,10 +33,11 @@ type Daemon struct {
 	TOTP      *totp.Engine
 	Server    *ipc.Server
 
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
-	mu        sync.RWMutex
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
+	lastSwitchTime time.Time
+	mu             sync.RWMutex
 }
 
 // NewDaemon initializes all subsystem stores and sets up JSON-RPC method handlers.
@@ -76,17 +77,18 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	d := &Daemon{
-		Config:    cfg,
-		Keyring:   keyringStore,
-		Profiles:  fpStore,
-		GUIStore:  guiStore,
-		Shield:    shield,
-		Inspector: inspector,
-		Pruner:    pruner,
-		TOTP:      totpEngine,
-		Server:    server,
-		ctx:       ctx,
-		cancel:    cancel,
+		Config:         cfg,
+		Keyring:        keyringStore,
+		Profiles:       fpStore,
+		GUIStore:       guiStore,
+		Shield:         shield,
+		Inspector:      inspector,
+		Pruner:         pruner,
+		TOTP:           totpEngine,
+		Server:         server,
+		ctx:            ctx,
+		cancel:         cancel,
+		lastSwitchTime: time.Now(),
 	}
 
 	d.registerRPCHandlers()
@@ -97,6 +99,7 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 		initialEmails = append(initialEmails, a.Email)
 	}
 	_, _ = d.Keyring.ReconcileActiveAccount(d.Config.AutoImportActiveAccount, initialEmails, d.Profiles)
+	_ = keyring.SyncCloudAccountsAutoSwitch("", d.Config.AutoSwitchEnabled)
 
 	return d, nil
 }
@@ -176,12 +179,19 @@ func (d *Daemon) registerRPCHandlers() {
 	// 2d. Update Account Info
 	updateHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		var p struct {
-			Email        string `json:"email"`
-			Label        string `json:"label"`
-			PlanTier     string `json:"plan_tier"`
-			TOTPSecret   string `json:"totp_secret"`
-			RefreshToken string `json:"refresh_token"`
-			SetActive    bool   `json:"set_active"`
+			Email                string  `json:"email"`
+			Label                string  `json:"label"`
+			PlanTier             string  `json:"plan_tier"`
+			Status               string  `json:"status"`
+			Priority             string  `json:"priority"`
+			Notes                string  `json:"notes"`
+			Password             string  `json:"password"`
+			TOTPSecret           string  `json:"totp_secret"`
+			RefreshToken         string  `json:"refresh_token"`
+			Credits              float64 `json:"credits"`
+			EnableCreditOverages bool    `json:"enable_credit_overages"`
+			AllowClaudeGPT       bool    `json:"allow_claude_gpt"`
+			SetActive            bool    `json:"set_active"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil || p.Email == "" {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: "missing required 'email'"}
@@ -189,7 +199,7 @@ func (d *Daemon) registerRPCHandlers() {
 		if p.TOTPSecret != "" && !totp.ValidateSecret(p.TOTPSecret) {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: core.ErrInvalidSecret.Error()}
 		}
-		if err := d.Keyring.UpdateAccountWithTier(p.Email, p.Label, p.PlanTier, p.TOTPSecret, p.RefreshToken, p.SetActive); err != nil {
+		if err := d.Keyring.UpdateAccountFull(p.Email, p.Label, p.PlanTier, p.Status, p.Priority, p.Notes, p.Password, p.TOTPSecret, p.RefreshToken, p.Credits, p.EnableCreditOverages, p.AllowClaudeGPT, p.SetActive); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
 		return map[string]interface{}{"success": true, "email": p.Email}, nil
@@ -213,6 +223,62 @@ func (d *Daemon) registerRPCHandlers() {
 	d.Server.Register("swiss.removeAccount", removeHandler)
 	d.Server.Register("accounts.remove", removeHandler)
 
+	// 2f. Batch Import Accounts (JSON format)
+	batchImportHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+		var items []keyring.BatchImportItem
+		if err := json.Unmarshal(params, &items); err != nil {
+			var wrapper struct {
+				Accounts json.RawMessage `json:"accounts"`
+			}
+			if err2 := json.Unmarshal(params, &wrapper); err2 == nil && len(wrapper.Accounts) > 0 {
+				if err3 := json.Unmarshal(wrapper.Accounts, &items); err3 != nil {
+					var accMap map[string]keyring.BatchImportItem
+					if err4 := json.Unmarshal(wrapper.Accounts, &accMap); err4 == nil {
+						for em, it := range accMap {
+							if it.Email == "" && it.ID == "" {
+								it.Email = em
+							}
+							items = append(items, it)
+						}
+					}
+				}
+			} else {
+				var single keyring.BatchImportItem
+				if err5 := json.Unmarshal(params, &single); err5 == nil && (single.Email != "" || single.ID != "") {
+					items = []keyring.BatchImportItem{single}
+				} else {
+					return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: "invalid accounts payload: " + err.Error()}
+				}
+			}
+		}
+		if len(items) == 0 {
+			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: "no valid account entries found in JSON"}
+		}
+		count, err := d.Keyring.BatchImportAccounts(items)
+		if err != nil {
+			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
+		}
+		for _, item := range items {
+			em := item.Email
+			if em == "" {
+				em = item.ID
+			}
+			if em != "" {
+				_, _ = d.Profiles.GetOrCreateProfile(em)
+			}
+		}
+		return map[string]interface{}{"success": true, "imported": count, "message": fmt.Sprintf("Successfully imported %d accounts", count)}, nil
+	}
+	d.Server.Register("swiss.batchImportAccounts", batchImportHandler)
+	d.Server.Register("accounts.batchImport", batchImportHandler)
+
+	// 2g. Export Accounts (JSON format)
+	exportHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+		return d.Keyring.ExportAccounts(), nil
+	}
+	d.Server.Register("swiss.exportAccounts", exportHandler)
+	d.Server.Register("accounts.export", exportHandler)
+
 	// 3. Switch Account
 	switchHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		var p struct {
@@ -225,6 +291,10 @@ func (d *Daemon) registerRPCHandlers() {
 		if err := d.Keyring.SetActiveAccount(p.Email); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
+
+		d.mu.Lock()
+		d.lastSwitchTime = time.Now()
+		d.mu.Unlock()
 
 		// Collect all account emails for old/active tracking
 		var allEmails []string
@@ -401,9 +471,24 @@ func (d *Daemon) registerRPCHandlers() {
 		if geminiReasoning == "" {
 			geminiReasoning = "high"
 		}
+		defaultGemini := d.Config.DefaultGeminiModel
+		if defaultGemini == "" {
+			defaultGemini = "gemini-3.8-flash"
+		}
+		defaultNonGemini := d.Config.DefaultNonGeminiModel
+		if defaultNonGemini == "" {
+			defaultNonGemini = "claude-opus-4-6"
+		}
+		switchMode := d.Config.SwitchMode
+		if switchMode == "" {
+			switchMode = core.DefaultSwitchMode
+		} else {
+			switchMode = quota.NormalizeSwitchMode(switchMode)
+		}
 		return map[string]interface{}{
 			"auto_switch_enabled":              d.Config.AutoSwitchEnabled,
 			"auto_switch_threshold":            d.Config.AutoSwitchThreshold,
+			"switch_mode":                      switchMode,
 			"polling_interval_seconds":         d.Config.PollingIntervalSec,
 			"active_polling_interval_seconds":  activePoll,
 			"standby_polling_interval_seconds": standbyPoll,
@@ -414,9 +499,9 @@ func (d *Daemon) registerRPCHandlers() {
 			"allow_ai_credits_usage":           d.Config.AllowAICreditsUsage,
 			"allow_non_gemini_native_models":   d.Config.AllowNonGeminiNativeModels,
 			"model_source_hierarchy":           d.Config.ModelSourceHierarchy,
-			"default_gemini_model":             d.Config.DefaultGeminiModel,
+			"default_gemini_model":             defaultGemini,
 			"default_custom_model":             d.Config.DefaultCustomModel,
-			"default_non_gemini_model":         d.Config.DefaultNonGeminiModel,
+			"default_non_gemini_model":         defaultNonGemini,
 			"default_gemini_reasoning_level":   geminiReasoning,
 			"auto_import_active_account":       d.Config.AutoImportActiveAccount,
 		}, nil
@@ -429,6 +514,7 @@ func (d *Daemon) registerRPCHandlers() {
 		var p struct {
 			AutoSwitchEnabled           *bool     `json:"auto_switch_enabled"`
 			AutoSwitchThreshold         *float64  `json:"auto_switch_threshold"`
+			SwitchMode                  *string   `json:"switch_mode"`
 			PollingIntervalSec          *int      `json:"polling_interval_seconds"`
 			ActivePollingIntervalSec    *int      `json:"active_polling_interval_seconds"`
 			StandbyPollingIntervalSec   *int      `json:"standby_polling_interval_seconds"`
@@ -452,9 +538,13 @@ func (d *Daemon) registerRPCHandlers() {
 		d.mu.Lock()
 		if p.AutoSwitchEnabled != nil {
 			d.Config.AutoSwitchEnabled = *p.AutoSwitchEnabled
+			_ = keyring.SyncCloudAccountsAutoSwitch("", *p.AutoSwitchEnabled)
 		}
 		if p.AutoSwitchThreshold != nil {
 			d.Config.AutoSwitchThreshold = *p.AutoSwitchThreshold
+		}
+		if p.SwitchMode != nil {
+			d.Config.SwitchMode = quota.NormalizeSwitchMode(*p.SwitchMode)
 		}
 		if p.PollingIntervalSec != nil {
 			d.Config.PollingIntervalSec = *p.PollingIntervalSec
@@ -723,24 +813,29 @@ func (d *Daemon) schedulerLoop() {
 						d.mu.RLock()
 						autoSwitch := d.Config.AutoSwitchEnabled
 						thresh := d.Config.AutoSwitchThreshold
+						switchMode := d.Config.SwitchMode
+						lastSw := d.lastSwitchTime
 						d.mu.RUnlock()
 
-						if autoSwitch && sum.MinFraction <= thresh {
-							// Proactively rotate to next standby account with highest quota
+						if autoSwitch {
 							accounts := d.Keyring.ListAccounts()
 							states := quota.BuildAccountQuotaStates(accounts, sum)
-							fleet := quota.ComputeFleetSummary(states, active)
-							for _, candidate := range fleet.Accounts {
-								if candidate.Email != active && candidate.Quota5hAvailable > thresh && candidate.Status != "ERROR" && candidate.Status != "BANNED" {
-									_ = d.Keyring.SetActiveAccount(candidate.Email)
-									var allEmails []string
-									for _, a := range accounts {
-										allEmails = append(allEmails, a.Email)
-									}
-									if cAcc, _ := d.Keyring.GetAccount(candidate.Email); cAcc != nil {
-										_ = keyring.SyncAllSurfaces(cAcc, allEmails, d.Profiles)
-									}
-									break
+							var activeDwellSec float64
+							if !lastSw.IsZero() {
+								activeDwellSec = time.Since(lastSw).Seconds()
+							}
+							shouldSwitch, successor, _ := quota.EvaluateAutoSwitch(states, active, thresh, switchMode, activeDwellSec)
+							if shouldSwitch && successor != nil && successor.Email != active {
+								_ = d.Keyring.SetActiveAccount(successor.Email)
+								d.mu.Lock()
+								d.lastSwitchTime = time.Now()
+								d.mu.Unlock()
+								var allEmails []string
+								for _, a := range accounts {
+									allEmails = append(allEmails, a.Email)
+								}
+								if cAcc, _ := d.Keyring.GetAccount(successor.Email); cAcc != nil {
+									_ = keyring.SyncAllSurfaces(cAcc, allEmails, d.Profiles)
 								}
 							}
 						}

@@ -23,14 +23,15 @@ const (
 
 // Canonical plan tiers supported across Antigravity
 const (
-	PlanTierFree     = "Free"
-	PlanTierPlus     = "Plus"
-	PlanTierPro      = "Pro"
-	PlanTierProTrial = "Pro - Trial"
-	PlanTierEdu      = "Edu"
-	PlanTierUltra5X  = "Ultra 5X"
-	PlanTierUltra10X = "Ultra 10X"
-	PlanTierUltra20X = "Ultra 20X"
+	PlanTierFree       = "Free"
+	PlanTierPlus       = "Plus"
+	PlanTierPro        = "Pro"
+	PlanTierProTrial   = "Pro - Trial"
+	PlanTierEdu        = "Edu"
+	PlanTierUltra5X    = "Ultra 5X"
+	PlanTierUltra10X   = "Ultra 10X"
+	PlanTierUltra20X   = "Ultra 20X"
+	PlanTierEnterprise = "Enterprise"
 )
 
 // NormalizePlanTier maps any API response or legacy label into canonical tier representation.
@@ -40,52 +41,64 @@ func NormalizePlanTier(raw string) string {
 		return PlanTierFree
 	}
 	lower := strings.ToLower(trimmed)
-	if lower == "free" {
+	if lower == "free" || lower == "free-tier" || lower == "tier_free" {
 		return PlanTierFree
 	}
 	if strings.Contains(lower, "trial") {
 		return PlanTierProTrial
 	}
-	if strings.Contains(lower, "20x") {
+	if strings.Contains(lower, "20x") || strings.Contains(lower, "ultra_20x") || strings.Contains(lower, "ultra 20x") {
 		return PlanTierUltra20X
 	}
-	if strings.Contains(lower, "10x") {
+	if strings.Contains(lower, "10x") || strings.Contains(lower, "ultra_10x") || strings.Contains(lower, "ultra 10x") {
 		return PlanTierUltra10X
 	}
-	if strings.Contains(lower, "5x") {
+	if strings.Contains(lower, "5x") || strings.Contains(lower, "ultra_5x") || strings.Contains(lower, "ultra 5x") {
 		return PlanTierUltra5X
 	}
 	if strings.Contains(lower, "ultra") {
 		return PlanTierUltra20X
 	}
-	if strings.Contains(lower, "edu") || strings.Contains(lower, "education") {
+	if strings.Contains(lower, "edu") || strings.Contains(lower, "education") || strings.Contains(lower, "student") || strings.Contains(lower, "academic") {
 		return PlanTierEdu
+	}
+	if strings.Contains(lower, "enterprise") || strings.Contains(lower, "teams_tier_enterprise") {
+		return PlanTierEnterprise
 	}
 	if strings.Contains(lower, "plus") {
 		return PlanTierPlus
 	}
-	if strings.Contains(lower, "pro") {
+	if strings.Contains(lower, "pro") || strings.Contains(lower, "standard") || strings.Contains(lower, "code assist") || strings.Contains(lower, "ai premium") || strings.Contains(lower, "g1_ai") || strings.Contains(lower, "team") {
 		return PlanTierPro
 	}
 	return trimmed
 }
 
-
 var (
 	CloudCodeLoadProjectURLs = []string{
-		"https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
 		"https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+		"https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+		"https://cloudcodeassist-pa.googleapis.com/v1internal:loadCodeAssist",
+		"https://cloudaicompanion.googleapis.com/v1internal:loadCodeAssist",
 		"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:loadCodeAssist",
 	}
 	CloudCodeRetrieveQuotaURLs = []string{
-		"https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
-		"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary",
 		"https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+		"https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+		"https://cloudcodeassist-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+		"https://cloudaicompanion.googleapis.com/v1internal:retrieveUserQuotaSummary",
+		"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary",
 	}
 	CloudCodeModelsURLs = []string{
-		"https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
-		"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels",
 		"https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+		"https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+		"https://cloudcodeassist-pa.googleapis.com/v1internal:fetchAvailableModels",
+		"https://cloudaicompanion.googleapis.com/v1internal:fetchAvailableModels",
+		"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels",
+	}
+	GoogleUserInfoURLs = []string{
+		"https://www.googleapis.com/oauth2/v3/userinfo",
+		"https://openidconnect.googleapis.com/v1/userinfo",
 	}
 )
 
@@ -173,53 +186,192 @@ func FetchProjectAndTier(accessToken string) (*ProjectContextResult, error) {
 			continue
 		}
 
+		type rawTierItem struct {
+			ID               string      `json:"id"`
+			TierID           string      `json:"tierId"`
+			TierIDSnake      string      `json:"tier_id"`
+			Tier             string      `json:"tier"`
+			TierType         string      `json:"tierType"`
+			TierTypeSnake    string      `json:"tier_type"`
+			Name             string      `json:"name"`
+			TierName         string      `json:"tierName"`
+			TierNameSnake    string      `json:"tier_name"`
+			DisplayName      string      `json:"displayName"`
+			DisplayNameSnake string      `json:"display_name"`
+			Description      string      `json:"description"`
+			IsTrial          bool        `json:"isTrial"`
+			IsTrialSnake     bool        `json:"is_trial"`
+			TrialStatus      string      `json:"trialStatus"`
+			TrialStatusSnake string      `json:"trial_status"`
+			AvailableCredits []struct {
+				CreditType                  string      `json:"creditType"`
+				CreditAmount                interface{} `json:"creditAmount"`
+				MinimumCreditAmountForUsage interface{} `json:"minimumCreditAmountForUsage"`
+			} `json:"availableCredits"`
+			AvailableCreditsSnake []struct {
+				CreditType                  string      `json:"credit_type"`
+				CreditAmount                interface{} `json:"credit_amount"`
+				MinimumCreditAmountForUsage interface{} `json:"minimum_credit_amount_for_usage"`
+			} `json:"available_credits"`
+		}
+
 		var res struct {
-			CloudaicompanionProject string `json:"cloudaicompanionProject"`
-			CurrentTier             *struct {
-				ID               string `json:"id"`
-				Name             string `json:"name"`
-				AvailableCredits []struct {
-					CreditType                  string      `json:"creditType"`
-					CreditAmount                interface{} `json:"creditAmount"`
-					MinimumCreditAmountForUsage interface{} `json:"minimumCreditAmountForUsage"`
-				} `json:"availableCredits"`
-			} `json:"currentTier"`
-			PaidTier *struct {
-				ID               string `json:"id"`
-				Name             string `json:"name"`
-				AvailableCredits []struct {
-					CreditType                  string      `json:"creditType"`
-					CreditAmount                interface{} `json:"creditAmount"`
-					MinimumCreditAmountForUsage interface{} `json:"minimumCreditAmountForUsage"`
-				} `json:"availableCredits"`
-			} `json:"paidTier"`
-			AllowedTiers []struct {
-				ID        string `json:"id"`
-				Name      string `json:"name"`
-				IsDefault bool   `json:"isDefault"`
-			} `json:"allowedTiers"`
+			CloudaicompanionProject      string        `json:"cloudaicompanionProject"`
+			CloudaicompanionProjectSnake string        `json:"cloudaicompanion_project"`
+			CurrentTier                  *rawTierItem  `json:"currentTier"`
+			CurrentTierSnake             *rawTierItem  `json:"current_tier"`
+			PaidTier                     *rawTierItem  `json:"paidTier"`
+			PaidTierSnake                *rawTierItem  `json:"paid_tier"`
+			UserTier                     *rawTierItem  `json:"userTier"`
+			UserTierSnake                *rawTierItem  `json:"user_tier"`
+			SubscriptionTier             string        `json:"subscriptionTier"`
+			SubscriptionTierSnake        string        `json:"subscription_tier"`
+			PlanTier                     string        `json:"planTier"`
+			PlanTierSnake                string        `json:"plan_tier"`
+			PlanName                     string        `json:"planName"`
+			PlanNameSnake                string        `json:"plan_name"`
+			Tier                         string        `json:"tier"`
+			TierType                     string        `json:"tierType"`
+			TierTypeSnake                string        `json:"tier_type"`
+			IsTrial                      bool          `json:"isTrial"`
+			IsTrialSnake                 bool          `json:"is_trial"`
+			TrialStatus                  string        `json:"trialStatus"`
+			TrialStatusSnake             string        `json:"trial_status"`
+			AllowedTiers                 []rawTierItem `json:"allowedTiers"`
+			AllowedTiersSnake            []rawTierItem `json:"allowed_tiers"`
+			IneligibleTiers              []rawTierItem `json:"ineligibleTiers"`
+			IneligibleTiersSnake         []rawTierItem `json:"ineligible_tiers"`
 		}
 
 		if err := json.Unmarshal(body, &res); err == nil {
-			result := &ProjectContextResult{
-				ProjectID: res.CloudaicompanionProject,
+			projectID := res.CloudaicompanionProject
+			if projectID == "" {
+				projectID = res.CloudaicompanionProjectSnake
 			}
-			if result.ProjectID == "" {
-				result.ProjectID = "aicode-consumers"
+			if projectID == "" {
+				projectID = "aicode-consumers"
+			}
+			result := &ProjectContextResult{
+				ProjectID: projectID,
 			}
 
-			// Determine tier
+			// Helper to extract tier name or ID from raw item
+			getItemTier := func(item *rawTierItem) string {
+				if item == nil {
+					return ""
+				}
+				if item.IsTrial || item.IsTrialSnake || strings.EqualFold(item.TrialStatus, "active") || strings.EqualFold(item.TrialStatusSnake, "active") {
+					return PlanTierProTrial
+				}
+				if item.Tier != "" {
+					return item.Tier
+				}
+				if item.TierType != "" {
+					return item.TierType
+				}
+				if item.TierTypeSnake != "" {
+					return item.TierTypeSnake
+				}
+				if item.Name != "" {
+					return item.Name
+				}
+				if item.TierName != "" {
+					return item.TierName
+				}
+				if item.TierNameSnake != "" {
+					return item.TierNameSnake
+				}
+				if item.DisplayName != "" {
+					return item.DisplayName
+				}
+				if item.DisplayNameSnake != "" {
+					return item.DisplayNameSnake
+				}
+				if item.ID != "" {
+					return item.ID
+				}
+				if item.TierID != "" {
+					return item.TierID
+				}
+				if item.TierIDSnake != "" {
+					return item.TierIDSnake
+				}
+				return ""
+			}
+
+			// 1. Direct explicit paid / current / user / subscription tier
 			var rawTier string
-			if res.PaidTier != nil && res.PaidTier.Name != "" {
-				rawTier = res.PaidTier.Name
-			} else if res.PaidTier != nil && res.PaidTier.ID != "" {
-				rawTier = res.PaidTier.ID
-			} else if res.CurrentTier != nil && res.CurrentTier.Name != "" {
-				rawTier = res.CurrentTier.Name
-			} else if res.CurrentTier != nil && res.CurrentTier.ID != "" {
-				rawTier = res.CurrentTier.ID
-			} else if len(res.AllowedTiers) > 0 {
-				rawTier = res.AllowedTiers[0].Name
+			if res.IsTrial || res.IsTrialSnake || strings.EqualFold(res.TrialStatus, "active") || strings.EqualFold(res.TrialStatusSnake, "active") {
+				rawTier = PlanTierProTrial
+			} else if t := getItemTier(res.PaidTier); t != "" {
+				rawTier = t
+			} else if t := getItemTier(res.PaidTierSnake); t != "" {
+				rawTier = t
+			} else if t := getItemTier(res.CurrentTier); t != "" {
+				rawTier = t
+			} else if t := getItemTier(res.CurrentTierSnake); t != "" {
+				rawTier = t
+			} else if t := getItemTier(res.UserTier); t != "" {
+				rawTier = t
+			} else if t := getItemTier(res.UserTierSnake); t != "" {
+				rawTier = t
+			} else if res.Tier != "" {
+				rawTier = res.Tier
+			} else if res.TierType != "" {
+				rawTier = res.TierType
+			} else if res.TierTypeSnake != "" {
+				rawTier = res.TierTypeSnake
+			} else if res.SubscriptionTier != "" {
+				rawTier = res.SubscriptionTier
+			} else if res.SubscriptionTierSnake != "" {
+				rawTier = res.SubscriptionTierSnake
+			} else if res.PlanTier != "" {
+				rawTier = res.PlanTier
+			} else if res.PlanTierSnake != "" {
+				rawTier = res.PlanTierSnake
+			} else if res.PlanName != "" {
+				rawTier = res.PlanName
+			} else if res.PlanNameSnake != "" {
+				rawTier = res.PlanNameSnake
+			}
+
+			// 2. Allowed tiers inspection
+			allAllowed := append(res.AllowedTiers, res.AllowedTiersSnake...)
+			if rawTier == "" && len(allAllowed) > 0 {
+				bestTier := ""
+				for _, at := range allAllowed {
+					tStr := getItemTier(&at)
+					norm := NormalizePlanTier(tStr)
+					if norm == PlanTierUltra20X || norm == PlanTierUltra10X || norm == PlanTierUltra5X {
+						bestTier = norm
+						break
+					}
+					if norm == PlanTierEnterprise {
+						bestTier = PlanTierEnterprise
+					} else if norm == PlanTierEdu && bestTier != PlanTierEnterprise {
+						bestTier = PlanTierEdu
+					} else if (norm == PlanTierPro || norm == PlanTierProTrial) && bestTier == "" {
+						bestTier = norm
+					} else if norm == PlanTierPlus && bestTier == "" {
+						bestTier = PlanTierPlus
+					} else if bestTier == "" {
+						bestTier = norm
+					}
+				}
+				rawTier = bestTier
+			}
+
+			// 3. Ineligible tiers check (if free-tier is marked ineligible because user is on standard/paid client)
+			allIneligible := append(res.IneligibleTiers, res.IneligibleTiersSnake...)
+			if rawTier == "" || rawTier == PlanTierFree {
+				for _, it := range allIneligible {
+					tStr := strings.ToLower(getItemTier(&it))
+					if strings.Contains(tStr, "free") {
+						// Free tier is unsupported/ineligible, account has Code Assist / Pro access
+						rawTier = PlanTierPro
+						break
+					}
+				}
 			}
 
 			if rawTier != "" {
@@ -244,14 +396,32 @@ func FetchProjectAndTier(accessToken string) (*ProjectContextResult, error) {
 				return 0
 			}
 
-			var credAmount float64
-			if res.PaidTier != nil && len(res.PaidTier.AvailableCredits) > 0 {
-				cItem := res.PaidTier.AvailableCredits[0]
-				credAmount = parseCreditVal(cItem.CreditAmount)
+			extractCredits := func(item *rawTierItem) float64 {
+				if item == nil {
+					return 0
+				}
+				for _, c := range item.AvailableCredits {
+					if val := parseCreditVal(c.CreditAmount); val > 0 {
+						return val
+					}
+				}
+				for _, c := range item.AvailableCreditsSnake {
+					if val := parseCreditVal(c.CreditAmount); val > 0 {
+						return val
+					}
+				}
+				return 0
 			}
-			if credAmount == 0 && res.CurrentTier != nil && len(res.CurrentTier.AvailableCredits) > 0 {
-				cItem := res.CurrentTier.AvailableCredits[0]
-				credAmount = parseCreditVal(cItem.CreditAmount)
+
+			var credAmount float64
+			if c := extractCredits(res.PaidTier); c > 0 {
+				credAmount = c
+			} else if c := extractCredits(res.PaidTierSnake); c > 0 {
+				credAmount = c
+			} else if c := extractCredits(res.CurrentTier); c > 0 {
+				credAmount = c
+			} else if c := extractCredits(res.CurrentTierSnake); c > 0 {
+				credAmount = c
 			}
 			result.Credits = credAmount
 			return result, nil
@@ -262,15 +432,20 @@ func FetchProjectAndTier(accessToken string) (*ProjectContextResult, error) {
 }
 
 type LiveQuotaBreakdown struct {
-	Quota5hGemini        float64
-	QuotaWeeklyGemini    float64
-	Quota5hClaudeGPT     float64
-	QuotaWeeklyClaudeGPT float64
-	ResetTime5h          time.Time
-	ResetTimeWeekly      time.Time
-	ResetHorizonText     string
-	ResetSeconds5h       float64
-	Models               []ModelQuota
+	Quota5hGemini          float64
+	QuotaWeeklyGemini      float64
+	Quota5hClaudeGPT       float64
+	QuotaWeeklyClaudeGPT   float64
+	SubscriptionTier       string
+	Credits                float64
+	HasClaudeGPTRights     bool
+	ResetTime5h            time.Time
+	ResetTimeWeekly        time.Time
+	ResetHorizonText       string
+	ResetSeconds5h         float64
+	ResetHorizonWeeklyText string
+	ResetSecondsWeekly     float64
+	Models                 []ModelQuota
 }
 
 // FetchLiveQuota queries Google CloudCode API for real account quota metrics.
@@ -325,6 +500,18 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 			}
 
 			var res struct {
+				SubscriptionTier      string `json:"subscriptionTier"`
+				SubscriptionTierSnake string `json:"subscription_tier"`
+				UserTier              string `json:"userTier"`
+				UserTierSnake         string `json:"user_tier"`
+				PlanTier              string `json:"planTier"`
+				PlanTierSnake         string `json:"plan_tier"`
+				AICredits             *struct {
+					Credits interface{} `json:"credits"`
+				} `json:"aiCredits"`
+				AICreditsSnake *struct {
+					Credits interface{} `json:"credits"`
+				} `json:"ai_credits"`
 				Groups []struct {
 					DisplayName string `json:"displayName"`
 					Description string `json:"description"`
@@ -347,12 +534,53 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 				continue
 			}
 
+			subTier := res.SubscriptionTier
+			if subTier == "" {
+				subTier = res.SubscriptionTierSnake
+			}
+			if subTier == "" {
+				subTier = res.UserTier
+			}
+			if subTier == "" {
+				subTier = res.UserTierSnake
+			}
+			if subTier == "" {
+				subTier = res.PlanTier
+			}
+			if subTier == "" {
+				subTier = res.PlanTierSnake
+			}
+
+			var credAmount float64
+			parseCredit := func(v interface{}) float64 {
+				if v == nil {
+					return 0
+				}
+				if f, ok := v.(float64); ok {
+					return f
+				}
+				if s, ok := v.(string); ok {
+					if pf, err := strconv.ParseFloat(strings.TrimSpace(s), 64); err == nil {
+						return pf
+					}
+				}
+				return 0
+			}
+			if res.AICredits != nil {
+				credAmount = parseCredit(res.AICredits.Credits)
+			} else if res.AICreditsSnake != nil {
+				credAmount = parseCredit(res.AICreditsSnake.Credits)
+			}
+
 			breakdown := &LiveQuotaBreakdown{
-				Quota5hGemini:        1.0,
-				QuotaWeeklyGemini:    1.0,
-				Quota5hClaudeGPT:     1.0,
-				QuotaWeeklyClaudeGPT: 1.0,
-				ResetHorizonText:     "Ready",
+				Quota5hGemini:          1.0,
+				QuotaWeeklyGemini:      1.0,
+				Quota5hClaudeGPT:       1.0,
+				QuotaWeeklyClaudeGPT:   1.0,
+				ResetHorizonText:       "Ready",
+				ResetHorizonWeeklyText: "Ready",
+				SubscriptionTier:       NormalizePlanTier(subTier),
+				Credits:                credAmount,
 			}
 
 			if len(res.Groups) > 0 {
@@ -389,8 +617,13 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 							} else if w == "weekly" || strings.Contains(bid, "weekly") {
 								breakdown.QuotaWeeklyGemini = b.RemainingFraction
 								breakdown.ResetTimeWeekly = rTime
+								if !rTime.IsZero() && rTime.After(now) {
+									breakdown.ResetSecondsWeekly = rTime.Sub(now).Seconds()
+									breakdown.ResetHorizonWeeklyText = FormatResetHorizon(rTime, now)
+								}
 							}
 						} else if strings.Contains(gName, "claude") || strings.Contains(gName, "gpt") || strings.Contains(bid, "3p") {
+							breakdown.HasClaudeGPTRights = true
 							if w == "5h" || strings.Contains(bid, "5h") {
 								breakdown.Quota5hClaudeGPT = b.RemainingFraction
 							} else if w == "weekly" || strings.Contains(bid, "weekly") {
@@ -419,8 +652,14 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 					name := strings.ToLower(b.ModelID)
 					if strings.Contains(name, "weekly") {
 						breakdown.QuotaWeeklyGemini = b.RemainingFraction
+						breakdown.ResetTimeWeekly = rTime
+						if !rTime.IsZero() && rTime.After(now) {
+							breakdown.ResetSecondsWeekly = rTime.Sub(now).Seconds()
+							breakdown.ResetHorizonWeeklyText = FormatResetHorizon(rTime, now)
+						}
 					} else {
 						breakdown.Quota5hGemini = b.RemainingFraction
+						breakdown.ResetTime5h = rTime
 						if !rTime.IsZero() && rTime.After(now) {
 							breakdown.ResetSeconds5h = rTime.Sub(now).Seconds()
 							breakdown.ResetHorizonText = FormatResetHorizon(rTime, now)
@@ -435,6 +674,139 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 	return nil, fmt.Errorf("upstream quota check failed across all endpoints")
 }
 
+// DetectTierFromAvailableModels checks model permissions to infer account tier class.
+func DetectTierFromAvailableModels(accessToken string) (string, error) {
+	if accessToken == "" {
+		return "", fmt.Errorf("empty access token")
+	}
+	client := &http.Client{Timeout: 6 * time.Second}
+	payload := []byte(`{"project":""}`)
+
+	for _, endpoint := range CloudCodeModelsURLs {
+		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", "antigravity/2.19.1 linux/amd64")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+
+		var data struct {
+			TieredModelIDs struct {
+				FlashLite  []string `json:"flashLite"`
+				Flash      []string `json:"flash"`
+				Pro        []string `json:"pro"`
+				Ultra      []string `json:"ultra"`
+				Enterprise []string `json:"enterprise"`
+			} `json:"tieredModelIds"`
+			TieredModelIDsSnake struct {
+				FlashLite  []string `json:"flash_lite"`
+				Flash      []string `json:"flash"`
+				Pro        []string `json:"pro"`
+				Ultra      []string `json:"ultra"`
+				Enterprise []string `json:"enterprise"`
+			} `json:"tiered_model_ids"`
+			Models map[string]struct {
+				DisplayName string `json:"displayName"`
+			} `json:"models"`
+		}
+		if err := json.Unmarshal(body, &data); err == nil {
+			ultraModels := append(data.TieredModelIDs.Ultra, data.TieredModelIDsSnake.Ultra...)
+			proModels := append(data.TieredModelIDs.Pro, data.TieredModelIDsSnake.Pro...)
+			entModels := append(data.TieredModelIDs.Enterprise, data.TieredModelIDsSnake.Enterprise...)
+
+			hasUltra := len(ultraModels) > 0
+			hasEnterprise := len(entModels) > 0
+			hasPro := len(proModels) > 0
+
+			for mID, mMeta := range data.Models {
+				low := strings.ToLower(mID + " " + mMeta.DisplayName)
+				if strings.Contains(low, "ultra") {
+					hasUltra = true
+				}
+				if strings.Contains(low, "enterprise") {
+					hasEnterprise = true
+				}
+				if strings.Contains(low, "claude") || strings.Contains(low, "gpt") || strings.Contains(low, "-pro") {
+					hasPro = true
+				}
+			}
+
+			if hasUltra {
+				return PlanTierUltra20X, nil
+			}
+			if hasEnterprise {
+				return PlanTierEnterprise, nil
+			}
+			if hasPro {
+				return PlanTierPro, nil
+			}
+			if len(data.TieredModelIDs.Flash) > 0 || len(data.TieredModelIDs.FlashLite) > 0 {
+				return PlanTierFree, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("could not detect tier from models")
+}
+
+// DetectTierFromGoogleUserInfo queries Google OAuth userinfo to identify institutional or educational accounts.
+func DetectTierFromGoogleUserInfo(accessToken, email string) (string, error) {
+	if accessToken == "" {
+		return "", fmt.Errorf("empty access token")
+	}
+	client := &http.Client{Timeout: 6 * time.Second}
+
+	for _, endpoint := range GoogleUserInfoURLs {
+		req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("User-Agent", "antigravity/2.19.1 linux/amd64")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+
+		var info struct {
+			Email string `json:"email"`
+			HD    string `json:"hd"`
+		}
+		if err := json.Unmarshal(body, &info); err == nil {
+			hd := strings.ToLower(info.HD)
+			em := strings.ToLower(info.Email)
+			if em == "" {
+				em = strings.ToLower(email)
+			}
+			if strings.HasSuffix(hd, ".edu") || strings.Contains(hd, "edu.") || strings.HasSuffix(em, ".edu") {
+				return PlanTierEdu, nil
+			}
+			if hd != "" && !strings.Contains(hd, "gmail") && !strings.Contains(hd, "googlemail") {
+				return PlanTierEnterprise, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("could not detect tier from userinfo")
+}
+
 // PollAccountLiveQuota queries Google CloudCode for real quota, tier, and credits, refreshing tokens if needed.
 func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	if acc == nil {
@@ -445,7 +817,7 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	accessToken := acc.AccessToken
 	project := "aicode-consumers"
 
-	// Step 1: Discover Project Context & Membership Tier & Credits
+	// Step 1: Discover Project Context & Membership Tier & Credits from loadCodeAssist
 	pCtx, err := FetchProjectAndTier(accessToken)
 	if (err != nil || accessToken == "") && acc.RefreshToken != "" {
 		// Attempt token refresh
@@ -457,24 +829,18 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 		}
 	}
 
-	tier := acc.PlanTier
-	if tier == "" {
-		tier = PlanTierPro
-	}
-	tier = NormalizePlanTier(tier)
+	tier := ""
 	credits := acc.Credits
 	if pCtx != nil {
 		if pCtx.ProjectID != "" {
 			project = pCtx.ProjectID
 		}
-		if pCtx.TierName != "" {
+		if pCtx.TierName != "" && pCtx.TierName != PlanTierFree {
 			tier = NormalizePlanTier(pCtx.TierName)
-			acc.PlanTier = tier
-		} else {
-			acc.PlanTier = tier
 		}
-		credits = pCtx.Credits
-		acc.Credits = credits
+		if pCtx.Credits > 0 {
+			credits = pCtx.Credits
+		}
 	}
 
 	// Step 2: Query Live Quota Summary
@@ -490,25 +856,97 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	}
 
 	if breakdown != nil {
+		if breakdown.SubscriptionTier != "" && breakdown.SubscriptionTier != PlanTierFree {
+			tier = breakdown.SubscriptionTier
+		}
+		if breakdown.Credits > 0 {
+			credits = breakdown.Credits
+		}
+		if breakdown.HasClaudeGPTRights || breakdown.Quota5hClaudeGPT > 0 || breakdown.QuotaWeeklyClaudeGPT > 0 {
+			if tier == "" || tier == PlanTierFree {
+				tier = PlanTierPro
+			}
+		}
+	}
+
+	// Step 3: Check model permissions if tier is still unconfirmed or Free
+	if tier == "" || tier == PlanTierFree {
+		if modelTier, mErr := DetectTierFromAvailableModels(accessToken); mErr == nil && modelTier != "" && modelTier != PlanTierFree {
+			tier = modelTier
+		}
+	}
+
+	// Step 4: Check Google UserInfo (educational or enterprise domain)
+	if tier == "" || tier == PlanTierFree {
+		if uTier, uErr := DetectTierFromGoogleUserInfo(accessToken, acc.Email); uErr == nil && uTier != "" && uTier != PlanTierFree {
+			tier = uTier
+		}
+	}
+
+	// Step 5: Check cached cloud_accounts.db metrics
+	if cachedAccs, cErr := keyring.ReadCloudAccountsDB(""); cErr == nil {
+		for _, ca := range cachedAccs {
+			if strings.EqualFold(ca.Email, acc.Email) {
+				if ca.PlanTier != "" {
+					pTier := NormalizePlanTier(ca.PlanTier)
+					if (tier == "" || tier == PlanTierFree) && pTier != PlanTierFree {
+						tier = pTier
+					}
+				}
+				if ca.Credits > 0 && credits == 0 {
+					credits = ca.Credits
+				}
+				break
+			}
+		}
+	}
+
+	// Step 6: Fallback to email domain heuristics if still unconfirmed
+	if tier == "" || tier == PlanTierFree {
+		if heuristic := DetermineDefaultPlanTier(acc.Email, ""); heuristic != PlanTierFree {
+			tier = heuristic
+		}
+	}
+
+	// Step 7: Anti-Downgrade Safeguard: preserve existing non-free tier if upstream returned Free or transient error
+	if (tier == "" || tier == PlanTierFree) && acc.PlanTier != "" && acc.PlanTier != PlanTierFree {
+		tier = acc.PlanTier
+	}
+
+	if tier == "" {
+		tier = PlanTierPro
+	}
+	tier = NormalizePlanTier(tier)
+
+	// Persist detected tier & credits back to account struct
+	acc.PlanTier = tier
+	if credits > 0 {
+		acc.Credits = credits
+	}
+
+	if breakdown != nil {
 		minFrac := breakdown.Quota5hGemini
 		if breakdown.QuotaWeeklyGemini < minFrac {
 			minFrac = breakdown.QuotaWeeklyGemini
 		}
 
 		summary := &QuotaSummary{
-			AccountEmail:         acc.Email,
-			PlanTier:             tier,
-			Credits:              credits,
-			Quota5hFraction:      breakdown.Quota5hGemini,
-			QuotaWeeklyFraction:  breakdown.QuotaWeeklyGemini,
-			Quota5hClaudeGPT:     breakdown.Quota5hClaudeGPT,
-			QuotaWeeklyClaudeGPT: breakdown.QuotaWeeklyClaudeGPT,
-			ResetSeconds5h:       breakdown.ResetSeconds5h,
-			ResetHorizonText:     breakdown.ResetHorizonText,
-			Models:               breakdown.Models,
-			MinFraction:          minFrac,
-			OverallHealth:        ComputeHealth(minFrac),
-			LastPolled:           now,
+			AccountEmail:           acc.Email,
+			PlanTier:               tier,
+			Credits:                credits,
+			Quota5hFraction:        breakdown.Quota5hGemini,
+			QuotaWeeklyFraction:    breakdown.QuotaWeeklyGemini,
+			Quota5hClaudeGPT:       breakdown.Quota5hClaudeGPT,
+			QuotaWeeklyClaudeGPT:   breakdown.QuotaWeeklyClaudeGPT,
+			ResetSeconds5h:         breakdown.ResetSeconds5h,
+			ResetHorizonText:       breakdown.ResetHorizonText,
+			ResetSecondsWeekly:     breakdown.ResetSecondsWeekly,
+			ResetHorizonWeeklyText: breakdown.ResetHorizonWeeklyText,
+			ResetTimeWeekly:        breakdown.ResetTimeWeekly,
+			Models:                 breakdown.Models,
+			MinFraction:            minFrac,
+			OverallHealth:          ComputeHealth(minFrac),
+			LastPolled:             now,
 		}
 		return summary, nil
 	}
@@ -525,17 +963,21 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 						resetText = FormatResetHorizon(rt, now)
 					}
 				}
-				pTier := ca.PlanTier
-				if pTier == "" {
-					pTier = acc.PlanTier
+				resetWeeklyText := "Ready"
+				var resetWeeklySec float64
+				var resetWeeklyTime time.Time
+				if ca.ResetTimeWeekly != "" {
+					if rt, parseErr := time.Parse(time.RFC3339, ca.ResetTimeWeekly); parseErr == nil && rt.After(now) {
+						resetWeeklyTime = rt
+						resetWeeklySec = rt.Sub(now).Seconds()
+						resetWeeklyText = FormatResetHorizon(rt, now)
+					}
 				}
-				if pTier == "" {
-					pTier = PlanTierPro
+				pTier := tier
+				cAmount := credits
+				if cAmount == 0 && ca.Credits > 0 {
+					cAmount = ca.Credits
 				}
-				pTier = NormalizePlanTier(pTier)
-				acc.PlanTier = pTier
-				cAmount := ca.Credits
-				acc.Credits = cAmount
 
 				minFrac := ca.Quota5h
 				if ca.QuotaWeekly < minFrac {
@@ -543,19 +985,22 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 				}
 
 				return &QuotaSummary{
-					AccountEmail:         acc.Email,
-					PlanTier:             pTier,
-					Credits:              cAmount,
-					Quota5hFraction:      ca.Quota5h,
-					QuotaWeeklyFraction:  ca.QuotaWeekly,
-					Quota5hClaudeGPT:     ca.Quota5hClaudeGPT,
-					QuotaWeeklyClaudeGPT: ca.QuotaWeeklyClaudeGPT,
-					ResetSeconds5h:       resetSec,
-					ResetHorizonText:     resetText,
-					Models:               []ModelQuota{},
-					MinFraction:          minFrac,
-					OverallHealth:        ComputeHealth(minFrac),
-					LastPolled:           now,
+					AccountEmail:           acc.Email,
+					PlanTier:               pTier,
+					Credits:                cAmount,
+					Quota5hFraction:        ca.Quota5h,
+					QuotaWeeklyFraction:    ca.QuotaWeekly,
+					Quota5hClaudeGPT:       ca.Quota5hClaudeGPT,
+					QuotaWeeklyClaudeGPT:   ca.QuotaWeeklyClaudeGPT,
+					ResetSeconds5h:         resetSec,
+					ResetHorizonText:       resetText,
+					ResetSecondsWeekly:     resetWeeklySec,
+					ResetHorizonWeeklyText: resetWeeklyText,
+					ResetTimeWeekly:        resetWeeklyTime,
+					Models:                 []ModelQuota{},
+					MinFraction:            minFrac,
+					OverallHealth:          ComputeHealth(minFrac),
+					LastPolled:             now,
 				}, nil
 			}
 		}
@@ -563,12 +1008,13 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 
 	// Baseline fallback
 	return &QuotaSummary{
-		AccountEmail:     acc.Email,
-		PlanTier:         tier,
-		Credits:          credits,
-		MinFraction:      0.0,
-		OverallHealth:    core.StatusExhausted,
-		ResetHorizonText: "Not Polled",
-		LastPolled:       now,
+		AccountEmail:           acc.Email,
+		PlanTier:               tier,
+		Credits:                credits,
+		MinFraction:            0.0,
+		OverallHealth:          core.StatusExhausted,
+		ResetHorizonText:       "Not Polled",
+		ResetHorizonWeeklyText: "Not Polled",
+		LastPolled:             now,
 	}, qErr
 }

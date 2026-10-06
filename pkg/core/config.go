@@ -12,6 +12,7 @@ import (
 type Config struct {
 	AutoSwitchEnabled          bool     `json:"auto_switch_enabled"`
 	AutoSwitchThreshold        float64  `json:"auto_switch_threshold"`
+	SwitchMode                 string   `json:"switch_mode,omitempty"`
 	PollingIntervalSec         int      `json:"polling_interval_seconds"`
 	ActivePollingIntervalSec   int      `json:"active_polling_interval_seconds"`
 	StandbyPollingIntervalSec  int      `json:"standby_polling_interval_seconds"`
@@ -31,6 +32,13 @@ type Config struct {
 	AutoImportActiveAccount    bool     `json:"auto_import_active_account"`
 	AppPasswordEnabled         bool     `json:"app_password_enabled"`
 	AppPasswordHash            string   `json:"app_password_hash,omitempty"`
+	StorageMode                string   `json:"storage_mode,omitempty"`
+	AnonymousErrorReports      bool                         `json:"anonymous_error_reports"`
+	AnonymousTelemetry         bool                         `json:"anonymous_telemetry"`
+	DesktopAppPath             string                       `json:"desktop_app_path,omitempty"`
+	AgyCLIPath                 string                       `json:"agy_cli_path,omitempty"`
+	VSCodeExtensionPath        string                       `json:"vscode_extension_path,omitempty"`
+	AppAccountOverrides        map[string]map[string]string `json:"app_account_overrides,omitempty"`
 
 	mu sync.RWMutex `json:"-"`
 }
@@ -40,6 +48,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		AutoSwitchEnabled:          true,
 		AutoSwitchThreshold:        DefaultAutoSwitchThresholdFraction,
+		SwitchMode:                 DefaultSwitchMode,
 		AutoImportActiveAccount:    false,
 		PollingIntervalSec:         DefaultPollingIntervalSeconds,
 		ActivePollingIntervalSec:   120, // 2 minutes
@@ -55,6 +64,9 @@ func DefaultConfig() *Config {
 		DefaultCustomModel:         "",
 		DefaultNonGeminiModel:      "claude-opus-4-6",
 		DefaultGeminiReasoningLevel: "high",
+		StorageMode:                "system_default",
+		AnonymousErrorReports:      true,
+		AnonymousTelemetry:         false,
 	}
 }
 
@@ -125,4 +137,67 @@ func (c *Config) VerifyAppPassword(password string) bool {
 	}
 	return VerifyAppPassword(password, c.AppPasswordHash)
 }
+
+// GetAppPath returns custom configured path for the specified app type.
+func (c *Config) GetAppPath(appType string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	switch appType {
+	case "desktop":
+		return c.DesktopAppPath
+	case "agy":
+		return c.AgyCLIPath
+	case "vscode":
+		return c.VSCodeExtensionPath
+	default:
+		return ""
+	}
+}
+
+// SetAppPath updates the custom configured path for the specified app type.
+func (c *Config) SetAppPath(appType, path string) error {
+	c.mu.Lock()
+	switch appType {
+	case "desktop":
+		c.DesktopAppPath = path
+	case "agy":
+		c.AgyCLIPath = path
+	case "vscode":
+		c.VSCodeExtensionPath = path
+	default:
+		c.mu.Unlock()
+		return fmt.Errorf("unknown app type %q: must be 'desktop', 'agy', or 'vscode'", appType)
+	}
+	c.mu.Unlock()
+	return c.Save()
+}
+
+// SetAccountOverride sets or clears a custom executable override for a specific account.
+func (c *Config) SetAccountOverride(appType, email, path string) error {
+	c.mu.Lock()
+	if c.AppAccountOverrides == nil {
+		c.AppAccountOverrides = make(map[string]map[string]string)
+	}
+	if c.AppAccountOverrides[appType] == nil {
+		c.AppAccountOverrides[appType] = make(map[string]string)
+	}
+	if path == "" {
+		delete(c.AppAccountOverrides[appType], email)
+	} else {
+		c.AppAccountOverrides[appType][email] = path
+	}
+	c.mu.Unlock()
+	return c.Save()
+}
+
+// GetAccountOverride retrieves the custom executable path override for an account.
+func (c *Config) GetAccountOverride(appType, email string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.AppAccountOverrides == nil || c.AppAccountOverrides[appType] == nil {
+		return ""
+	}
+	return c.AppAccountOverrides[appType][email]
+}
+
 
