@@ -185,8 +185,17 @@ func GenerateGitHubExtensionScript() string {
         }
       });
 
-      // Bind factory tab click listener once to close stage if user returns to chat
-      if (!navContainer.__swissFactoryClickBound) {
+      // Bind sidebar / project panel click listener to close stage when user clicks a chat or project item
+      const sidebar = navContainer.closest(".bg-sidebar");
+      if (sidebar && !sidebar.__swissSidebarClickBound) {
+        sidebar.__swissSidebarClickBound = true;
+        sidebar.addEventListener("click", (e) => {
+          const target = e.target.closest('a, button, [data-testid="conversation-row-sidebar"]');
+          if (target && !target.classList.contains('swiss-left-nav-tab')) {
+            closeMainStage();
+          }
+        });
+      } else if (!navContainer.__swissFactoryClickBound) {
         navContainer.__swissFactoryClickBound = true;
         navContainer.addEventListener("click", (e) => {
           const target = e.target.closest('a, button');
@@ -196,6 +205,26 @@ func GenerateGitHubExtensionScript() string {
         });
       }
     } catch (_) {}
+  }
+
+  // Global listener: clicking any conversation row, chat tab, or /c/ navigation returns to chat
+  if (!window.__swissChatNavBound) {
+    window.__swissChatNavBound = true;
+    document.addEventListener("click", (e) => {
+      const convTrigger = e.target.closest('[data-testid="conversation-row-sidebar"], [data-testid="new-conversation-button"], [data-testid="history-button"], a[href*="/c/"]');
+      if (convTrigger && activeMainStageExt) {
+        closeMainStage();
+      }
+    }, true);
+  }
+
+  if (!window.__swissPopstateBound) {
+    window.__swissPopstateBound = true;
+    window.addEventListener("popstate", () => {
+      if (activeMainStageExt) {
+        closeMainStage();
+      }
+    });
   }
 
   // 4. Render GitHub Workspace in Right Panel Auxiliary Container
@@ -744,39 +773,6 @@ func GenerateGitHubExtensionScript() string {
     }
   }
 
-  async function triggerNativeSplit(direction = "Right") {
-    try {
-      const stageContainer = document.getElementById("swiss-main-stage-container");
-      const pane = stageContainer ? stageContainer.closest("[data-pane-id]") : null;
-      const moreBtn = pane ? pane.querySelector('[data-testid="titlebar-more-actions"]') : document.querySelector('[data-testid="titlebar-more-actions"]');
-      if (moreBtn) {
-        moreBtn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-        moreBtn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-        moreBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-
-        await new Promise(r => setTimeout(r, 60));
-        const splitMenu = Array.from(document.querySelectorAll('[role="menuitem"]')).find(m => m.innerText.trim().startsWith("Split"));
-        if (splitMenu) {
-          splitMenu.dispatchEvent(new PointerEvent("pointerenter", { bubbles: true }));
-          splitMenu.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
-          splitMenu.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
-          await new Promise(r => setTimeout(r, 80));
-
-          const targetText = "Split " + direction;
-          const subItem = Array.from(document.querySelectorAll('[role="menuitem"]')).find(m => m.innerText.trim() === targetText || m.innerText.trim().startsWith(targetText));
-          if (subItem) {
-            subItem.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-            subItem.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-            subItem.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-            showToast("Native split (" + direction + ")");
-            return;
-          }
-        }
-        document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      }
-    } catch (_) {}
-  }
-
   function renderMainStageUI() {
     const container = document.getElementById("swiss-main-stage-container");
     if (!container) return;
@@ -810,22 +806,6 @@ func GenerateGitHubExtensionScript() string {
             Quick Memos
           </button>
         </div>
-        <div class="swiss-main-stage-controls">
-          <button class="swiss-stage-native-split-btn" id="swiss-stage-native-split-btn" title="Split Pane Right (Antigravity Native Window Management)">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="18" height="18" rx="2"></rect>
-              <line x1="12" y1="3" x2="12" y2="21"></line>
-            </svg>
-            Split Right
-          </button>
-          <button class="swiss-stage-close-btn" id="swiss-stage-return-chat" title="Return to Chat">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-            Return to Chat
-          </button>
-        </div>
       </div>
       <div id="swiss-main-stage-body"></div>
     ` + "`" + `;
@@ -838,12 +818,6 @@ func GenerateGitHubExtensionScript() string {
         setupLeftNavTabs();
       });
     });
-
-    container.querySelector("#swiss-stage-native-split-btn")?.addEventListener("click", () => {
-      triggerNativeSplit("Right");
-    });
-
-    container.querySelector("#swiss-stage-return-chat")?.addEventListener("click", closeMainStage);
 
     renderMainStageContent();
   }

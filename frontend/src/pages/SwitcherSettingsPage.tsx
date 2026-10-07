@@ -995,34 +995,59 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                 The preferred Google Gemini model assigned for new conversations and default execution.
               </div>
             </div>
-            <select
-              value={defaultGemini}
-              onChange={(e) => {
-                const val = e.target.value
-                setDefaultGemini(val)
-                if (val.endsWith('-high') || val.includes('high')) {
-                  setGeminiReasoningLevel('high')
-                } else if (val.endsWith('-medium') || val.includes('medium')) {
-                  setGeminiReasoningLevel('medium')
-                } else if (val.endsWith('-low') || val.includes('low')) {
-                  setGeminiReasoningLevel('low')
-                }
-              }}
-              style={{ width: '240px' }}
-              aria-label="Default Gemini Model"
-            >
-              {geminiModelOptions.length === 0 ? (
-                <option value={defaultGemini}>
-                  {isFetchingModels ? 'Fetching live models...' : (defaultGemini || 'No Gemini models found')}
-                </option>
-              ) : (
-                geminiModelOptions.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.display_name}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <select
+                value={defaultGemini}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setDefaultGemini(val)
+                  if (val.endsWith('-high') || val.includes('high')) {
+                    setGeminiReasoningLevel('high')
+                  } else if (val.endsWith('-medium') || val.includes('medium')) {
+                    setGeminiReasoningLevel('medium')
+                  } else if (val.endsWith('-low') || val.includes('low')) {
+                    setGeminiReasoningLevel('low')
+                  } else if (val.endsWith('-off') || val.includes('off')) {
+                    setGeminiReasoningLevel('off')
+                  }
+                }}
+                style={{ width: '220px' }}
+                aria-label="Default Gemini Model"
+              >
+                {geminiModelOptions.length === 0 ? (
+                  <option value={defaultGemini}>
+                    {isFetchingModels ? 'Fetching live models...' : (defaultGemini || 'No Gemini models found')}
                   </option>
-                ))
-              )}
-            </select>
+                ) : (
+                  geminiModelOptions.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.display_name}
+                    </option>
+                  ))
+                )}
+              </select>
+
+              <select
+                value={geminiReasoningLevel}
+                onChange={(e) => {
+                  const lvl = e.target.value
+                  setGeminiReasoningLevel(lvl)
+                  const baseModel = defaultGemini.replace(/-(high|medium|low|off)$/, '')
+                  const candidate = `${baseModel}-${lvl}`
+                  if (geminiModelOptions.some((opt) => opt.id === candidate)) {
+                    setDefaultGemini(candidate)
+                  }
+                }}
+                style={{ width: '100px' }}
+                aria-label="Default Gemini Reasoning Level"
+                title="Reasoning Level for Gemini models"
+              >
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+                <option value="off">Off</option>
+              </select>
+            </div>
           </div>
 
           {/* Default Custom Model */}

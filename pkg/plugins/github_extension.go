@@ -442,63 +442,6 @@ func GenerateGitHubExtensionCSS() string {
   color: #101010;
 }
 
-.swiss-main-stage-controls {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.swiss-stage-native-split-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 9px;
-  font-size: 11px;
-  font-weight: 500;
-  border-radius: 5px;
-  border: 1px solid var(--border, #e2e8f0);
-  background: transparent;
-  color: var(--text-muted, #64748b);
-  cursor: pointer;
-  transition: all 0.12s ease;
-}
-:is(.dark, [data-theme="dark"]) .swiss-stage-native-split-btn {
-  border-color: rgba(255, 255, 255, 0.1);
-  color: #94a3b8;
-}
-.swiss-stage-native-split-btn:hover {
-  background: rgba(0, 0, 0, 0.04);
-  color: var(--text, #0f172a);
-  border-color: var(--text-muted, #94a3b8);
-}
-:is(.dark, [data-theme="dark"]) .swiss-stage-native-split-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f8fafc;
-  border-color: rgba(255, 255, 255, 0.2);
-}
-
-.swiss-stage-close-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: 5px;
-  border: none;
-  background: rgba(239, 68, 68, 0.1);
-  color: #dc2626;
-  cursor: pointer;
-}
-:is(.dark, [data-theme="dark"]) .swiss-stage-close-btn {
-  background: rgba(239, 68, 68, 0.18);
-  color: #f87171;
-}
-.swiss-stage-close-btn:hover {
-  background: #dc2626;
-  color: #ffffff;
-}
-
 #swiss-main-stage-body {
   display: flex;
   flex: 1;
