@@ -26,6 +26,7 @@ func TestGenerateGitHubExtensionCSS(t *testing.T) {
 		"#swiss-main-stage-body",
 		".swiss-gh-context-menu",
 		".swiss-gh-menu-item",
+		".swiss-stage-native-split-btn",
 	}
 
 	for _, sel := range requiredSelectors {
@@ -55,6 +56,7 @@ func TestGenerateGitHubExtensionScript(t *testing.T) {
 		"closeMainStage",
 		"renderMainStageUI",
 		"renderMainStageContent",
+		"triggerNativeSplit",
 	}
 
 	for _, id := range requiredIdentifiers {

@@ -94,29 +94,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   const [defaultNonGemini, setDefaultNonGemini] = useState<string>(initialRules?.default_non_gemini_model || 'claude-opus-4-6')
   const [geminiReasoningLevel, setGeminiReasoningLevel] = useState<string>(initialRules?.default_gemini_reasoning_level || 'high')
 
-  // Dynamic available model lists
-  const [geminiModelOptions, setGeminiModelOptions] = useState<AvailableModelItem[]>([
-    { id: 'gemini-3.8-flash-high', display_name: 'Gemini 3.8 Flash (High)' },
-    { id: 'gemini-3.8-flash', display_name: 'Gemini 3.8 Flash' },
-    { id: 'gemini-3.7-flash-medium', display_name: 'Gemini 3.7 Flash (Medium)' },
-    { id: 'gemini-3.6-flash-medium', display_name: 'Gemini 3.6 Flash (Medium)' },
-    { id: 'gemini-3.1-pro-low', display_name: 'Gemini 3.1 Pro (Low)' },
-    { id: 'gemini-pro-agent', display_name: 'Gemini 3.1 Pro (High)' },
-    { id: 'gemini-2.5-pro', display_name: 'Gemini 2.5 Pro' },
-    { id: 'gemini-2.5-flash', display_name: 'Gemini 2.5 Flash' },
-    { id: 'gemini-2.0-flash', display_name: 'Gemini 2.0 Flash' },
-  ])
-  const [nonGeminiModelOptions, setNonGeminiModelOptions] = useState<AvailableModelItem[]>([
-    { id: 'claude-opus-4-6-thinking', display_name: 'Claude Opus 4.6 (Thinking)' },
-    { id: 'claude-opus-4-6', display_name: 'Claude Opus 4.6' },
-    { id: 'claude-sonnet-4-6', display_name: 'Claude Sonnet 4.6 (Thinking)' },
-    { id: 'gpt-oss-120b-medium', display_name: 'GPT-OSS 120B (Medium)' },
-    { id: 'claude-3-7-sonnet', display_name: 'Claude 3.7 Sonnet' },
-    { id: 'claude-3-5-sonnet', display_name: 'Claude 3.5 Sonnet' },
-    { id: 'claude-3-5-haiku', display_name: 'Claude 3.5 Haiku' },
-    { id: 'gpt-4o', display_name: 'OpenAI GPT-4o' },
-    { id: 'o3-mini', display_name: 'OpenAI o3-mini' },
-  ])
+  // Dynamic available model lists (fetched automatically from running IDE / CloudCode)
+  const [geminiModelOptions, setGeminiModelOptions] = useState<AvailableModelItem[]>([])
+  const [nonGeminiModelOptions, setNonGeminiModelOptions] = useState<AvailableModelItem[]>([])
   const [isFetchingModels, setIsFetchingModels] = useState<boolean>(false)
   const [autoImportActive, setAutoImportActive] = useState<boolean>(initialRules?.auto_import_active_account ?? false)
   const [surfacesData, setSurfacesData] = useState<SurfacesResponse | null>(null)
@@ -1031,11 +1011,17 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               style={{ width: '240px' }}
               aria-label="Default Gemini Model"
             >
-              {geminiModelOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.display_name}
+              {geminiModelOptions.length === 0 ? (
+                <option value={defaultGemini}>
+                  {isFetchingModels ? 'Fetching live models...' : (defaultGemini || 'No Gemini models found')}
                 </option>
-              ))}
+              ) : (
+                geminiModelOptions.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.display_name}
+                  </option>
+                ))
+              )}
             </select>
           </div>
 
@@ -1091,11 +1077,17 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               style={{ width: '240px' }}
               aria-label="Default Non-Gemini Native Model"
             >
-              {nonGeminiModelOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.display_name}
+              {nonGeminiModelOptions.length === 0 ? (
+                <option value={defaultNonGemini}>
+                  {isFetchingModels ? 'Fetching live models...' : (defaultNonGemini || 'No Non-Gemini models found')}
                 </option>
-              ))}
+              ) : (
+                nonGeminiModelOptions.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.display_name}
+                  </option>
+                ))
+              )}
             </select>
           </div>
         </div>

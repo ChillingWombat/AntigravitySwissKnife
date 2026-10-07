@@ -20,7 +20,6 @@ func GenerateGitHubExtensionScript() string {
   let activeSearch = "";
   let isLeftPanelOpen = true;
   let activeMainStageExt = null; // null | "github" | "browser" | "files" | "memos"
-  let mainStageMode = "full"; // "full" | "split"
   let stageViewMode = "kanban"; // "kanban" | "list"
   let selectedItem = null;
   let draggedKanbanCard = null;
@@ -157,9 +156,23 @@ func GenerateGitHubExtensionScript() string {
           group.appendChild(btn);
         });
 
+        const sepBottom = document.createElement("div");
+        sepBottom.className = "swiss-left-tabs-separator";
+        group.appendChild(sepBottom);
+
         navContainer.appendChild(group);
       } else if (group.parentElement !== navContainer) {
         navContainer.appendChild(group);
+      }
+
+      // Ensure bottom separator exists below button section above projects panel
+      if (group && group.children.length > 0) {
+        const lastChild = group.lastElementChild;
+        if (lastChild && !lastChild.classList.contains("swiss-left-tabs-separator")) {
+          const sepBottom = document.createElement("div");
+          sepBottom.className = "swiss-left-tabs-separator";
+          group.appendChild(sepBottom);
+        }
       }
 
       // Sync active state on tabs
@@ -719,32 +732,49 @@ func GenerateGitHubExtensionScript() string {
 
     const parent = convoView.parentElement;
     stageContainer.style.display = "flex";
+    stageContainer.style.flex = "1 1 100%";
+    stageContainer.style.width = "100%";
+    stageContainer.style.height = "100%";
+    stageContainer.style.borderLeft = "none";
 
-    if (mainStageMode === "full") {
-      convoView.style.display = "none";
-      stageContainer.style.flex = "1 1 100%";
-      stageContainer.style.width = "100%";
-      stageContainer.style.borderLeft = "none";
-      if (parent) {
-        parent.style.display = "flex";
-        parent.style.flexDirection = "column";
-      }
-    } else {
-      // Split view (50 / 50)
-      if (parent) {
-        parent.style.display = "flex";
-        parent.style.flexDirection = "row";
-      }
-      convoView.style.display = "flex";
-      convoView.style.flex = "1 1 50%";
-      convoView.style.width = "50%";
-      convoView.style.minWidth = "320px";
-
-      stageContainer.style.flex = "1 1 50%";
-      stageContainer.style.width = "50%";
-      stageContainer.style.minWidth = "320px";
-      stageContainer.style.borderLeft = "1px solid var(--border, #e2e8f0)";
+    convoView.style.display = "none";
+    if (parent) {
+      parent.style.display = "flex";
+      parent.style.flexDirection = "column";
     }
+  }
+
+  async function triggerNativeSplit(direction = "Right") {
+    try {
+      const stageContainer = document.getElementById("swiss-main-stage-container");
+      const pane = stageContainer ? stageContainer.closest("[data-pane-id]") : null;
+      const moreBtn = pane ? pane.querySelector('[data-testid="titlebar-more-actions"]') : document.querySelector('[data-testid="titlebar-more-actions"]');
+      if (moreBtn) {
+        moreBtn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        moreBtn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        moreBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+        await new Promise(r => setTimeout(r, 60));
+        const splitMenu = Array.from(document.querySelectorAll('[role="menuitem"]')).find(m => m.innerText.trim().startsWith("Split"));
+        if (splitMenu) {
+          splitMenu.dispatchEvent(new PointerEvent("pointerenter", { bubbles: true }));
+          splitMenu.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+          splitMenu.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+          await new Promise(r => setTimeout(r, 80));
+
+          const targetText = "Split " + direction;
+          const subItem = Array.from(document.querySelectorAll('[role="menuitem"]')).find(m => m.innerText.trim() === targetText || m.innerText.trim().startsWith(targetText));
+          if (subItem) {
+            subItem.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+            subItem.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+            subItem.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+            showToast("Native split (" + direction + ")");
+            return;
+          }
+        }
+        document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      }
+    } catch (_) {}
   }
 
   function renderMainStageUI() {
@@ -781,18 +811,12 @@ func GenerateGitHubExtensionScript() string {
           </button>
         </div>
         <div class="swiss-main-stage-controls">
-          <button class="swiss-stage-mode-btn ${mainStageMode === "full" ? "active" : ""}" id="swiss-stage-full-btn" title="Full Stage (100% canvas)">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="18" height="18" rx="2"></rect>
-            </svg>
-            Full
-          </button>
-          <button class="swiss-stage-mode-btn ${mainStageMode === "split" ? "active" : ""}" id="swiss-stage-split-btn" title="Split Screen (50/50 with Chat)">
+          <button class="swiss-stage-native-split-btn" id="swiss-stage-native-split-btn" title="Split Pane Right (Antigravity Native Window Management)">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="3" y="3" width="18" height="18" rx="2"></rect>
               <line x1="12" y1="3" x2="12" y2="21"></line>
             </svg>
-            Split
+            Split Right
           </button>
           <button class="swiss-stage-close-btn" id="swiss-stage-return-chat" title="Return to Chat">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -815,16 +839,8 @@ func GenerateGitHubExtensionScript() string {
       });
     });
 
-    container.querySelector("#swiss-stage-full-btn")?.addEventListener("click", () => {
-      mainStageMode = "full";
-      applyMainStageLayout();
-      renderMainStageUI();
-    });
-
-    container.querySelector("#swiss-stage-split-btn")?.addEventListener("click", () => {
-      mainStageMode = "split";
-      applyMainStageLayout();
-      renderMainStageUI();
+    container.querySelector("#swiss-stage-native-split-btn")?.addEventListener("click", () => {
+      triggerNativeSplit("Right");
     });
 
     container.querySelector("#swiss-stage-return-chat")?.addEventListener("click", closeMainStage);

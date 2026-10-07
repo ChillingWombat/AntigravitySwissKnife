@@ -9,6 +9,10 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 )
 
+func init() {
+	DisableLiveCDPDiscovery = true
+}
+
 func TestGetAvailableModelCatalog_Defaults(t *testing.T) {
 	cat := GetAvailableModelCatalog(nil, true)
 	if cat == nil {
@@ -345,6 +349,24 @@ func TestGetAvailableModelCatalog_ExcludeInternalSubsystemsAndCategorize(t *test
 	}
 	if !foundGPTOss {
 		t.Errorf("expected gpt-oss-120b-medium in NonGeminiModels")
+	}
+}
+
+func TestFetchModelsFromLiveAntigravity(t *testing.T) {
+	gemini, nonGemini, defaultAgent, err := FetchModelsFromLiveAntigravity()
+	if err != nil {
+		t.Skipf("skipping live Antigravity IDE discovery: %v", err)
+	}
+	if len(gemini) == 0 {
+		t.Errorf("expected at least 1 live gemini model")
+	}
+	t.Logf("Discovered live gemini models (%d): default=%s", len(gemini), defaultAgent)
+	for _, m := range gemini {
+		t.Logf("  [Gemini] ID=%s Name=%q Thinking=%v", m.ID, m.DisplayName, m.SupportsThinking)
+	}
+	t.Logf("Discovered live non-gemini models (%d):", len(nonGemini))
+	for _, m := range nonGemini {
+		t.Logf("  [Non-Gemini] ID=%s Name=%q Thinking=%v Provider=%s", m.ID, m.DisplayName, m.SupportsThinking, m.Provider)
 	}
 }
 

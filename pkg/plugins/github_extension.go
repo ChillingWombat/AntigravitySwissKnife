@@ -14,9 +14,13 @@ func GenerateGitHubExtensionCSS() string {
 
 .swiss-left-tabs-separator {
   height: 1px;
-  background-color: var(--border, #e2e8f0);
-  opacity: 0.4;
-  margin: 4px 6px;
+  background-color: var(--sidebar-border, var(--border, #e2e8f0));
+  opacity: 0.5;
+  margin: 6px 4px;
+}
+:is(.dark, [data-theme="dark"]) .swiss-left-tabs-separator {
+  background-color: rgba(255, 255, 255, 0.08);
+  opacity: 1;
 }
 
 .swiss-left-nav-tab {
@@ -444,40 +448,33 @@ func GenerateGitHubExtensionCSS() string {
   gap: 6px;
 }
 
-.swiss-stage-mode-btn {
+.swiss-stage-native-split-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
+  gap: 5px;
+  padding: 4px 9px;
   font-size: 11px;
+  font-weight: 500;
   border-radius: 5px;
   border: 1px solid var(--border, #e2e8f0);
   background: transparent;
   color: var(--text-muted, #64748b);
   cursor: pointer;
+  transition: all 0.12s ease;
 }
-:is(.dark, [data-theme="dark"]) .swiss-stage-mode-btn {
+:is(.dark, [data-theme="dark"]) .swiss-stage-native-split-btn {
   border-color: rgba(255, 255, 255, 0.1);
   color: #94a3b8;
 }
-.swiss-stage-mode-btn:hover {
+.swiss-stage-native-split-btn:hover {
   background: rgba(0, 0, 0, 0.04);
   color: var(--text, #0f172a);
+  border-color: var(--text-muted, #94a3b8);
 }
-:is(.dark, [data-theme="dark"]) .swiss-stage-mode-btn:hover {
+:is(.dark, [data-theme="dark"]) .swiss-stage-native-split-btn:hover {
   background: rgba(255, 255, 255, 0.08);
   color: #f8fafc;
-}
-.swiss-stage-mode-btn.active {
-  background: rgba(26, 115, 232, 0.1);
-  color: #1a73e8;
-  border-color: #1a73e8;
-  font-weight: 600;
-}
-:is(.dark, [data-theme="dark"]) .swiss-stage-mode-btn.active {
-  background: rgba(138, 180, 248, 0.15);
-  color: #8ab4f8;
-  border-color: #8ab4f8;
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .swiss-stage-close-btn {

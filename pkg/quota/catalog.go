@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 )
 
@@ -35,10 +36,11 @@ type AvailableModelsCatalog struct {
 }
 
 var (
-	catalogMu         sync.RWMutex
-	cachedCatalog     *AvailableModelsCatalog
-	cachedAt          time.Time
-	cachedWithAccount bool
+	catalogMu               sync.RWMutex
+	cachedCatalog           *AvailableModelsCatalog
+	cachedAt                time.Time
+	cachedWithAccount       bool
+	DisableLiveCDPDiscovery bool
 )
 
 // DefaultBaseGeminiModels returns the base up-to-date Gemini models list.
@@ -216,7 +218,22 @@ func GetAvailableModelCatalog(acc *keyring.Account, force bool) *AvailableModels
 	}
 
 	liveSuccess := false
-	if hasAcc {
+
+	// 1. Prioritize live host Antigravity IDE discovery via CDP
+	if !DisableLiveCDPDiscovery {
+		if liveGemini, liveNonGemini, defaultAgent, cdpErr := FetchModelsFromLiveAntigravity(); cdpErr == nil && len(liveGemini) > 0 {
+			cat.GeminiModels = liveGemini
+			if len(liveNonGemini) > 0 {
+				cat.NonGeminiModels = liveNonGemini
+			}
+			if defaultAgent != "" {
+				cat.DefaultGemini = defaultAgent
+			}
+			liveSuccess = true
+		}
+	}
+	if !liveSuccess && hasAcc {
+		// 2. Fall back to CloudCode internal fetchAvailableModels
 		liveModels, defaultAgentID, err := fetchLiveAvailableModels(acc)
 		if err == nil && len(liveModels) > 0 {
 			mergeLiveModels(cat, liveModels)
@@ -231,6 +248,147 @@ func GetAvailableModelCatalog(acc *keyring.Account, force bool) *AvailableModels
 	cachedAt = time.Now()
 	cachedWithAccount = liveSuccess
 	return cat
+}
+
+// FetchModelsFromLiveAntigravity discovers live models directly from the running host Antigravity IDE via CDP.
+func FetchModelsFromLiveAntigravity() (gemini []ModelOption, nonGemini []ModelOption, defaultAgent string, err error) {
+	inj := gui.NewInjector(0)
+	port, err := inj.FindDevToolsPort()
+	if err != nil {
+		return nil, nil, "", err
+	}
+	pages, err := inj.GetPageTargets(port)
+	if err != nil || len(pages) == 0 {
+		return nil, nil, "", fmt.Errorf("no page targets found on port %d", port)
+	}
+	ws := pages[0].WebSocketDebuggerURL
+
+	// 1. Click model trigger to open menu if not already open
+	_, _ = inj.ExecuteScript(ws, `(() => {
+		document.dispatchEvent(new KeyboardEvent('keydown', {'key': 'Escape'}));
+		setTimeout(() => {
+			const trigger = document.querySelector('[data-testid="model-selector-trigger"]');
+			if (trigger) trigger.click();
+		}, 60);
+	})()`)
+
+	time.Sleep(250 * time.Millisecond)
+
+	// 2. Query open menu
+	queryScript := `(() => {
+		const allMenus = Array.from(document.querySelectorAll('[role="menu"], [data-radix-menu-content]'));
+		const modelMenu = allMenus.find(m => m.textContent && (m.textContent.includes("Gemini") || m.textContent.includes("Model")));
+		if (!modelMenu) return { active: "", items: [] };
+
+		const trigger = document.querySelector('[data-testid="model-selector-trigger"]');
+		const active = trigger && trigger.innerText ? trigger.innerText.trim() : "";
+
+		const items = Array.from(modelMenu.querySelectorAll('[role="menuitem"], [data-testid="model-selector-item"], div[tabindex]'));
+		const list = [];
+		for (const el of items) {
+			const text = (el.innerText ? el.innerText.trim() : el.textContent.trim());
+			if (!text || text === "View Usage" || text === "Model") continue;
+			if (!text.includes("Gemini") && !text.includes("Claude") && !text.includes("GPT") && !el.hasAttribute('data-model-label')) continue;
+			const modelLabel = el.getAttribute('data-model-label') || "";
+			list.push({ text, modelLabel });
+		}
+		document.dispatchEvent(new KeyboardEvent('keydown', {'key': 'Escape'}));
+		return { active, items: list };
+	})()`
+
+	res, err := inj.ExecuteScript(ws, queryScript)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	data, _ := json.Marshal(res)
+	var out struct {
+		Active string `json:"active"`
+		Items  []struct {
+			Text       string `json:"text"`
+			ModelLabel string `json:"modelLabel"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, nil, "", err
+	}
+	if len(out.Items) == 0 {
+		return nil, nil, "", fmt.Errorf("no model items discovered in host IDE")
+	}
+
+	for _, it := range out.Items {
+		lines := strings.Split(it.Text, "\n")
+		baseName := strings.TrimSpace(lines[0])
+		sub := ""
+		if len(lines) > 1 {
+			sub = strings.TrimSpace(lines[1])
+		}
+
+		isThinkingLevel := sub == "High" || sub == "Medium" || sub == "Low" || sub == "Off"
+		displayName := baseName
+		cleanID := ""
+
+		if isThinkingLevel {
+			displayName = fmt.Sprintf("%s (%s)", baseName, sub)
+			cleanID = strings.ToLower(strings.ReplaceAll(baseName, " ", "-")) + "-" + strings.ToLower(sub)
+		} else if it.ModelLabel != "" {
+			displayName = it.ModelLabel
+			cleanID = strings.ToLower(strings.ReplaceAll(it.ModelLabel, " ", "-"))
+		} else {
+			cleanID = strings.ToLower(strings.ReplaceAll(baseName, " ", "-"))
+		}
+
+		cleanID = strings.ReplaceAll(cleanID, "(thinking)", "")
+		cleanID = strings.ReplaceAll(cleanID, "(", "")
+		cleanID = strings.ReplaceAll(cleanID, ")", "")
+		if strings.Contains(cleanID, "claude") {
+			cleanID = strings.ReplaceAll(cleanID, ".", "-")
+		}
+		for strings.Contains(cleanID, "--") {
+			cleanID = strings.ReplaceAll(cleanID, "--", "-")
+		}
+		cleanID = strings.Trim(cleanID, "-")
+
+		lowerName := strings.ToLower(displayName)
+		isGemini := strings.Contains(lowerName, "gemini")
+
+		opt := ModelOption{
+			ID:               cleanID,
+			DisplayName:      displayName,
+			SupportsThinking: isThinkingLevel || strings.Contains(lowerName, "thinking"),
+			Recommended:      strings.Contains(displayName, "3.8 Flash"),
+		}
+
+		if isGemini {
+			opt.Provider = "Google"
+			if opt.SupportsThinking {
+				opt.ThinkingLevels = []string{"off", "low", "medium", "high"}
+			}
+			gemini = append(gemini, opt)
+		} else {
+			if strings.Contains(lowerName, "claude") {
+				opt.Provider = "Anthropic"
+			} else {
+				opt.Provider = "OpenAI"
+			}
+			nonGemini = append(nonGemini, opt)
+		}
+	}
+
+	// Ensure Claude Opus is first in nonGemini if present
+	for i, m := range nonGemini {
+		if strings.Contains(strings.ToLower(m.ID), "claude-opus") {
+			if i > 0 {
+				nonGemini[0], nonGemini[i] = nonGemini[i], nonGemini[0]
+			}
+			break
+		}
+	}
+
+	if len(gemini) > 0 {
+		defaultAgent = gemini[0].ID
+	}
+	return gemini, nonGemini, defaultAgent, nil
 }
 
 // isInternalModelID identifies internal utility, autocomplete, or quota-bucket models.
