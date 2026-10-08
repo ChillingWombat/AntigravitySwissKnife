@@ -10,13 +10,15 @@ func GenerateAuxiliaryPluginsCSS() string {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 4px;
+  width: 24px;
   min-width: 24px;
+  max-width: 24px;
   height: 24px;
-  padding: 0 6px;
+  padding: 0;
   font-size: 11px;
   font-weight: 500;
-  border-radius: 4px;
+  border-radius: 8px;
   border: none;
   background: transparent;
   color: var(--text-muted, #71717a);
@@ -25,12 +27,16 @@ func GenerateAuxiliaryPluginsCSS() string {
   user-select: none;
   box-sizing: border-box;
   line-height: 1;
+  flex-shrink: 0;
 }
 .swiss-aux-tab-btn.icon-only {
   width: 24px;
   height: 24px;
   min-width: 24px;
+  max-width: 24px;
   padding: 0;
+  border-radius: 8px;
+  flex-shrink: 0;
 }
 .swiss-aux-tab-btn:hover {
   background: rgba(148, 163, 184, 0.15);
@@ -53,7 +59,9 @@ func GenerateAuxiliaryPluginsCSS() string {
 [data-swiss-aux-active] button[data-tab-id]:not([data-tab-id^="swiss-"]),
 [data-swiss-aux-active] button:not(.swiss-aux-tab-btn):not([data-tab-id^="swiss-"]) {
   background-color: transparent !important;
+  border-color: transparent !important;
   color: var(--secondary-foreground, #71717a) !important;
+  box-shadow: none !important;
 }
 [data-swiss-aux-active] button[data-tab-id]:not([data-tab-id^="swiss-"]):hover,
 [data-swiss-aux-active] button:not(.swiss-aux-tab-btn):not([data-tab-id^="swiss-"]):hover {
@@ -66,8 +74,8 @@ func GenerateAuxiliaryPluginsCSS() string {
   color: #f1f5f9 !important;
 }
 .swiss-aux-tab-svg {
-  width: 14px;
-  height: 14px;
+  width: 13.5px;
+  height: 13.5px;
   display: inline-block;
   vertical-align: middle;
   flex-shrink: 0;
@@ -77,18 +85,92 @@ func GenerateAuxiliaryPluginsCSS() string {
   font-size: 11px;
   line-height: 1;
   pointer-events: none;
+  white-space: nowrap;
 }
 .swiss-aux-tabs-divider {
   height: 16px;
   width: 1px;
-  background-color: var(--border, #e2e8f0);
-  margin: 0 4px;
-  opacity: 0.7;
+  min-width: 1px;
+  max-width: 1px;
+  background-color: var(--border, rgba(0, 0, 0, 0.18)) !important;
+  margin: 0 2px;
+  opacity: 1 !important;
+  flex-shrink: 0 !important;
+  display: block !important;
+  box-sizing: border-box !important;
+}
+:is(.dark, [data-theme="dark"]) .swiss-aux-tabs-divider {
+  background-color: var(--border, rgba(255, 255, 255, 0.22)) !important;
+  opacity: 1 !important;
 }
 .swiss-aux-btn-group {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  flex-shrink: 0;
+}
+div:has(> .shrink-0.flex.items-center.border-b),
+[data-swiss-aux-panel],
+[data-testid="auxiliary-panel"],
+.part.auxiliarybar {
+  container-type: inline-size;
+}
+.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group),
+[data-swiss-aux-header],
+[data-testid="auxiliary-panel"] .shrink-0.flex.items-center.border-b,
+.part.auxiliarybar .shrink-0.flex.items-center.border-b {
+  padding-right: 70px !important;
+}
+
+/* 1. Fixed Left Factory Buttons (Overview, Review, Terminal) */
+.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > div:first-child {
+  flex-shrink: 0 !important;
+}
+.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > div:first-child button,
+.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > div:first-child [role="tab"] {
+  width: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+  height: 24px !important;
+  padding: 0 !important;
+  flex-shrink: 0 !important;
+  justify-content: center !important;
+}
+
+/* 2. Flexible Middle Section: File Tabs & Plus Button */
+.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > div:nth-child(2) {
+  flex: 1 1 0% !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > button[aria-label="Add"],
+.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > [data-testid="aux-panel-plus-dropdown-trigger"],
+.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > button:not(.swiss-aux-tab-btn) {
+  width: 24px !important;
+  min-width: 0 !important;
+  max-width: 24px !important;
+  height: 24px !important;
+  flex-shrink: 1 !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  justify-content: center !important;
+}
+
+/* 3. Fixed Right End: Swiss Tab Buttons & Dividers Never Change Size */
+@container (max-width: 520px) {
+  .swiss-aux-tab-btn .swiss-aux-tab-label {
+    display: none !important;
+  }
+}
+@container (max-width: 285px) {
+  .shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > button[aria-label="Add"],
+  .shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > [data-testid="aux-panel-plus-dropdown-trigger"],
+  .shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > button:not(.swiss-aux-tab-btn) {
+    display: none !important;
+  }
+  .shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > .swiss-aux-tabs-divider-left {
+    display: none !important;
+  }
 }
 
 /* Auxiliary Content Wrapper */
@@ -645,9 +727,6 @@ func GenerateAuxiliaryPluginsCSS() string {
   padding: 8px 10px;
   background: var(--canvas-subtle, #f8fafc);
   border-bottom: 1px solid var(--border, #e2e8f0);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 }
 .swiss-files-address-bar {
   display: flex;
@@ -661,6 +740,7 @@ func GenerateAuxiliaryPluginsCSS() string {
 }
 .swiss-files-path-input {
   flex: 1;
+  min-width: 0;
   padding: 4px 8px;
   font-size: 11px;
   border-radius: 4px;
@@ -805,9 +885,9 @@ func GenerateAuxiliaryPluginsCSS() string {
   z-index: 99999;
   background: var(--canvas, #ffffff);
   border: 1px solid var(--border, #cbd5e1);
-  border-radius: 6px;
+  border-radius: 10px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.18);
-  padding: 4px 0;
+  padding: 4px;
   min-width: 175px;
   font-size: 12px;
   user-select: none;
@@ -817,7 +897,8 @@ func GenerateAuxiliaryPluginsCSS() string {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 14px;
+  padding: 6px 10px;
+  border-radius: 6px;
   cursor: pointer;
   color: var(--text, #1e293b);
   user-select: none;
@@ -1094,7 +1175,21 @@ func GenerateAuxiliaryPluginsCSS() string {
 func GenerateAuxiliaryPluginsScript() string {
 	return `(() => {
   try {
-    if (window.__swissAuxiliaryInitialized) return;
+    if (window.__swissAuxiliaryInitialized) {
+      if (window.__swissAuxIntervalId) {
+        clearInterval(window.__swissAuxIntervalId);
+        window.__swissAuxIntervalId = null;
+      }
+      if (window.__swissAuxObserverInstance) {
+        try { window.__swissAuxObserverInstance.disconnect(); } catch (_) {}
+        window.__swissAuxObserverInstance = null;
+      }
+      document.querySelectorAll(".swiss-aux-btn-group, .swiss-aux-tabs-divider, .swiss-aux-tabs-divider-left, .swiss-aux-tabs-divider-right").forEach(el => el.remove());
+      const existingAuxContainer = document.getElementById("swiss-aux-container");
+      if (existingAuxContainer && existingAuxContainer.dataset) {
+        delete existingAuxContainer.dataset.renderedTab;
+      }
+    }
     window.__swissAuxiliaryInitialized = true;
 
     const API_BASE = "http://127.0.0.1:8765";
@@ -1102,6 +1197,12 @@ func GenerateAuxiliaryPluginsScript() string {
     let currentBrowserUrl = "http://localhost:5173";
     let currentFilePath = ".";
     let fileHistory = [];
+    let stageFilePath = ".";
+    let stageFileHistory = [];
+    let lastStageScope = null;
+    let auxFilePath = ".";
+    let auxFileHistory = [];
+    let lastAuxProject = null;
     let swissClipboard = { action: "copy", items: [] };
     let activeDevice = "responsive";
     let isDrawing = false;
@@ -1275,31 +1376,36 @@ func GenerateAuxiliaryPluginsScript() string {
                         document.querySelector('.shrink-0.flex.items-center.border-b');
       if (!tabHeader) return;
 
+      if (tabHeader.parentElement) {
+        tabHeader.parentElement.setAttribute('data-swiss-aux-panel', 'true');
+      }
+      tabHeader.setAttribute('data-swiss-aux-header', 'true');
+
       // Define Swiss tabs with Antigravity-matching monochrome SVG stroke icons
       const tabs = [
         {
           id: "browser",
           tabId: "swiss-browser",
-          label: "Browser",
-          svg: '<svg class="swiss-aux-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'
+          label: "Preview Browser",
+          svg: '<svg class="swiss-aux-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'
         },
         {
           id: "files",
           tabId: "swiss-files",
           label: "Files",
-          svg: '<svg class="swiss-aux-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>'
+          svg: '<svg class="swiss-aux-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>'
         },
         {
           id: "memos",
           tabId: "swiss-memos",
           label: "Memos",
-          svg: '<svg class="swiss-aux-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><polyline points="15 3 15 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>'
+          svg: '<svg class="swiss-aux-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><polyline points="15 3 15 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>'
         },
         {
           id: "github",
           tabId: "swiss-github",
           label: "GitHub",
-          svg: '<svg class="swiss-aux-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>'
+          svg: '<svg class="swiss-aux-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>'
         },
       ];
 
@@ -1327,21 +1433,64 @@ func GenerateAuxiliaryPluginsScript() string {
         existingBtns.forEach(btn => {
           const tid = btn.dataset.swissTab;
           const t = tabs.find(x => x.id === tid);
-          if (t) updateTabButtonMarkup(btn, t, curFmt);
+          if (t) {
+            updateTabButtonMarkup(btn, t, curFmt);
+            btn.onclick = (e) => {
+              e.stopPropagation();
+              switchAuxTab(t.tabId);
+            };
+          }
         });
 
-        // Ensure right divider exists even if buttons already present
-        let dividerRight = tabHeader.querySelector('.swiss-aux-tabs-divider-right');
+        // Ensure left and right dividers exist even if buttons already present
         const curBtnGroup = tabHeader.querySelector('.swiss-aux-btn-group');
-        if (!dividerRight && curBtnGroup) {
-          dividerRight = document.createElement("div");
-          dividerRight.className = "swiss-aux-tabs-divider swiss-aux-tabs-divider-right";
-          dividerRight.style.height = "16px";
-          dividerRight.style.width = "1px";
-          dividerRight.style.backgroundColor = "var(--border, #e2e8f0)";
-          dividerRight.style.margin = "0 4px";
-          dividerRight.style.opacity = "0.7";
-          curBtnGroup.after(dividerRight);
+        if (curBtnGroup) {
+          let dividerLeft = tabHeader.querySelector('.swiss-aux-tabs-divider-left') ||
+                            tabHeader.querySelector('.swiss-aux-tabs-divider:not(.swiss-aux-tabs-divider-right)');
+          if (!dividerLeft) {
+            dividerLeft = document.createElement("div");
+            dividerLeft.className = "swiss-aux-tabs-divider swiss-aux-tabs-divider-left";
+            dividerLeft.style.height = "16px";
+            dividerLeft.style.width = "1px";
+            dividerLeft.style.minWidth = "1px";
+            dividerLeft.style.maxWidth = "1px";
+            dividerLeft.style.flexShrink = "0";
+            dividerLeft.style.backgroundColor = "var(--border, rgba(0, 0, 0, 0.18))";
+            dividerLeft.style.margin = "0 2px";
+            dividerLeft.style.opacity = "1";
+            curBtnGroup.before(dividerLeft);
+          } else {
+            dividerLeft.style.height = "16px";
+            dividerLeft.style.backgroundColor = "var(--border, rgba(0, 0, 0, 0.18))";
+            dividerLeft.style.margin = "0 2px";
+            dividerLeft.style.opacity = "1";
+            if (dividerLeft.nextElementSibling !== curBtnGroup) {
+              curBtnGroup.before(dividerLeft);
+            }
+          }
+
+          let dividerRight = tabHeader.querySelector('.swiss-aux-tabs-divider-right');
+          if (!dividerRight) {
+            dividerRight = document.createElement("div");
+            dividerRight.className = "swiss-aux-tabs-divider swiss-aux-tabs-divider-right";
+            dividerRight.style.height = "16px";
+            dividerRight.style.width = "1px";
+            dividerRight.style.minWidth = "1px";
+            dividerRight.style.maxWidth = "1px";
+            dividerRight.style.flexShrink = "0";
+            dividerRight.style.backgroundColor = "var(--border, rgba(0, 0, 0, 0.18))";
+            dividerRight.style.margin = "0 2px";
+            dividerRight.style.opacity = "1";
+            curBtnGroup.after(dividerRight);
+          } else {
+            dividerRight.style.height = "16px";
+            dividerRight.style.backgroundColor = "var(--border, rgba(0, 0, 0, 0.18))";
+            dividerRight.style.margin = "0 2px";
+            dividerRight.style.opacity = "1";
+            if (curBtnGroup.nextElementSibling !== dividerRight) {
+              curBtnGroup.after(dividerRight);
+            }
+          }
         }
 
         if (activeAuxTab) {
@@ -1355,16 +1504,25 @@ func GenerateAuxiliaryPluginsScript() string {
         return;
       }
 
-      let divider = tabHeader.querySelector('.swiss-aux-tabs-divider');
-      if (!divider) {
-        divider = document.createElement("div");
-        divider.className = "swiss-aux-tabs-divider";
-        divider.style.height = "16px";
-        divider.style.width = "1px";
-        divider.style.backgroundColor = "var(--border, #e2e8f0)";
-        divider.style.margin = "0 4px";
-        divider.style.opacity = "0.7";
-        tabHeader.appendChild(divider);
+      let dividerLeft = tabHeader.querySelector('.swiss-aux-tabs-divider-left') ||
+                        tabHeader.querySelector('.swiss-aux-tabs-divider:not(.swiss-aux-tabs-divider-right)');
+      if (!dividerLeft) {
+        dividerLeft = document.createElement("div");
+        dividerLeft.className = "swiss-aux-tabs-divider swiss-aux-tabs-divider-left";
+        dividerLeft.style.height = "16px";
+        dividerLeft.style.width = "1px";
+        dividerLeft.style.minWidth = "1px";
+        dividerLeft.style.maxWidth = "1px";
+        dividerLeft.style.flexShrink = "0";
+        dividerLeft.style.backgroundColor = "var(--border, rgba(0, 0, 0, 0.18))";
+        dividerLeft.style.margin = "0 2px";
+        dividerLeft.style.opacity = "1";
+        tabHeader.appendChild(dividerLeft);
+      } else {
+        dividerLeft.style.height = "16px";
+        dividerLeft.style.backgroundColor = "var(--border, rgba(0, 0, 0, 0.18))";
+        dividerLeft.style.margin = "0 2px";
+        dividerLeft.style.opacity = "1";
       }
 
       let btnGroup = tabHeader.querySelector('.swiss-aux-btn-group');
@@ -1374,6 +1532,7 @@ func GenerateAuxiliaryPluginsScript() string {
         btnGroup.style.display = "inline-flex";
         btnGroup.style.alignItems = "center";
         btnGroup.style.gap = "2px";
+        btnGroup.style.flexShrink = "0";
         tabHeader.appendChild(btnGroup);
       }
 
@@ -1383,10 +1542,18 @@ func GenerateAuxiliaryPluginsScript() string {
         dividerRight.className = "swiss-aux-tabs-divider swiss-aux-tabs-divider-right";
         dividerRight.style.height = "16px";
         dividerRight.style.width = "1px";
-        dividerRight.style.backgroundColor = "var(--border, #e2e8f0)";
-        dividerRight.style.margin = "0 4px";
-        dividerRight.style.opacity = "0.7";
+        dividerRight.style.minWidth = "1px";
+        dividerRight.style.maxWidth = "1px";
+        dividerRight.style.flexShrink = "0";
+        dividerRight.style.backgroundColor = "var(--border, rgba(0, 0, 0, 0.18))";
+        dividerRight.style.margin = "0 2px";
+        dividerRight.style.opacity = "1";
         btnGroup.after(dividerRight);
+      } else {
+        dividerRight.style.height = "16px";
+        dividerRight.style.backgroundColor = "var(--border, rgba(0, 0, 0, 0.18))";
+        dividerRight.style.margin = "0 2px";
+        dividerRight.style.opacity = "1";
       }
 
       const curFmt = getAuxTabFormat();
@@ -1412,32 +1579,40 @@ func GenerateAuxiliaryPluginsScript() string {
         btnGroup.appendChild(btn);
       });
 
-      // Bind dynamic format update listeners once
-      if (!window.__swissAuxFormatListenerBound) {
-        window.__swissAuxFormatListenerBound = true;
-        window.addEventListener("swiss-aux-tab-format-updated", () => {
-          setupAuxiliaryTabs();
-        });
-        window.addEventListener("storage", (e) => {
-          if (e.key === "antigravity_swiss_aux_tab_format") {
-            setupAuxiliaryTabs();
-          }
-        });
+      // Bind dynamic format update listeners
+      if (window.__swissAuxFormatHandler) {
+        window.removeEventListener("swiss-aux-tab-format-updated", window.__swissAuxFormatHandler);
       }
+      if (window.__swissAuxStorageHandler) {
+        window.removeEventListener("storage", window.__swissAuxStorageHandler);
+      }
+      window.__swissAuxFormatListenerBound = true;
+      window.__swissAuxFormatHandler = () => {
+        setupAuxiliaryTabs();
+      };
+      window.__swissAuxStorageHandler = (e) => {
+        if (e.key === "antigravity_swiss_aux_tab_format") {
+          setupAuxiliaryTabs();
+        }
+      };
+      window.addEventListener("swiss-aux-tab-format-updated", window.__swissAuxFormatHandler);
+      window.addEventListener("storage", window.__swissAuxStorageHandler);
 
       // Two-way state sync: Listen for clicks on native factory tabs (overview, review, terminal)
-      if (!tabHeader.__swissHeaderBound) {
-        tabHeader.__swissHeaderBound = true;
-        tabHeader.addEventListener("click", (e) => {
-          const targetBtn = e.target.closest("button");
-          if (!targetBtn) return;
-          const targetId = targetBtn.getAttribute("data-tab-id") || "";
-          if (targetId.startsWith("swiss-")) {
-            return;
-          }
-          switchAuxTab(null);
-        });
+      if (tabHeader.__swissHeaderHandler) {
+        tabHeader.removeEventListener("click", tabHeader.__swissHeaderHandler);
       }
+      tabHeader.__swissHeaderBound = true;
+      tabHeader.__swissHeaderHandler = (e) => {
+        const targetBtn = e.target.closest("button");
+        if (!targetBtn) return;
+        const targetId = targetBtn.getAttribute("data-tab-id") || "";
+        if (targetId.startsWith("swiss-")) {
+          return;
+        }
+        switchAuxTab(null);
+      };
+      tabHeader.addEventListener("click", tabHeader.__swissHeaderHandler);
 
       // Restore saved tab state from localStorage
       const savedTab = localStorage.getItem("antigravity_active_aux_tab");
@@ -1537,6 +1712,7 @@ func GenerateAuxiliaryPluginsScript() string {
         localStorage.setItem("antigravity_active_aux_tab", "factory");
       }
     }
+    window.switchAuxTab = switchAuxTab;
 
     function renderSwissTabContent(container, tabId) {
       container.dataset.renderedTab = tabId;
@@ -2561,7 +2737,7 @@ func GenerateAuxiliaryPluginsScript() string {
             } catch (_) {}
           }
 
-          let promptText = "[Browser Preview Annotation @ " + currentBrowserUrl + "]\n";
+          let promptText = "[Preview Browser Annotation @ " + currentBrowserUrl + "]\n";
           if (lastSelectedElement && lastSelectedElement.selector) {
             promptText += "Selected Element: " + lastSelectedElement.selector + "\n";
           }
@@ -2636,15 +2812,15 @@ func GenerateAuxiliaryPluginsScript() string {
           <button class="swiss-browser-btn" id="swiss-f-home" title="Home Folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></button>
           <button class="swiss-browser-btn" id="swiss-f-refresh" title="Refresh"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button>
           <input type="text" class="swiss-files-path-input" id="swiss-f-path" value="${currentFilePath}" />
+          <button class="swiss-browser-btn" id="swiss-f-reveal" title="Open in System File Manager"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/></svg></button>
           <button class="swiss-browser-btn" id="swiss-f-new-file" title="New File"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><polyline points="14 2 14 8 20 8"/><line x1="12" x2="12" y1="18" y2="12"/><line x1="9" x2="15" y1="15" y2="15"/></svg></button>
           <button class="swiss-browser-btn" id="swiss-f-new-dir" title="New Folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></button>
         </div>
         <div class="swiss-files-actions-bar" style="display:flex; align-items:center; gap:6px;">
           <button class="swiss-browser-btn" id="swiss-f-back" title="Back" disabled><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
           <button class="swiss-browser-btn" id="swiss-f-up" title="Up Directory"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg></button>
-          <input type="text" placeholder="Filter files..." id="swiss-f-search" style="flex:1; padding:3px 8px; font-size:11px; border-radius:4px; border:1px solid var(--border,#cbd5e1); background:var(--canvas,#fff);" />
+          <input type="text" placeholder="Filter files..." id="swiss-f-search" style="flex:1; min-width:0; padding:3px 8px; font-size:11px; border-radius:4px; border:1px solid var(--border,#cbd5e1); background:var(--canvas,#fff);" />
           <button class="swiss-browser-btn" id="swiss-f-hidden" title="Toggle Hidden Files"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>
-          <button class="swiss-browser-btn" id="swiss-f-reveal" title="Open in System File Manager"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/></svg></button>
           <button class="swiss-browser-btn" id="swiss-f-term" title="Open in Terminal"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg></button>
           <button class="swiss-browser-btn" id="swiss-f-ide" title="Open in VS Code"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></button>
         </div>
@@ -2772,6 +2948,11 @@ func GenerateAuxiliaryPluginsScript() string {
             }
           }
           currentFilePath = loadedPath;
+          if (container && container.id === "swiss-main-stage-body") {
+            stageFilePath = loadedPath;
+          } else {
+            auxFilePath = loadedPath;
+          }
           if (pathInput) pathInput.value = loadedPath;
           updateNavButtons();
 
@@ -2803,7 +2984,7 @@ func GenerateAuxiliaryPluginsScript() string {
               : item.type === "code"
               ? '<svg class="swiss-file-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>'
               : item.type === "markdown"
-              ? '<svg class="swiss-file-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y2="9"/></svg>'
+              ? '<svg class="swiss-file-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y1="9"/></svg>'
               : item.type === "pdf"
               ? '<svg class="swiss-file-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="M10 12a1 1 0 0 0-1-1H8v6h1a1 1 0 0 0 1-1v-4z"/></svg>'
               : '<svg class="swiss-file-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>';
@@ -3008,7 +3189,29 @@ func GenerateAuxiliaryPluginsScript() string {
         loadFiles(currentFilePath, false);
       };
 
-      loadFiles(currentFilePath, false);
+      let initialTargetPath = ".";
+      if (container && container.id === "swiss-main-stage-body") {
+        const stScope = (typeof window.__swissGetMainStageScope === "function" && window.__swissGetMainStageScope()) || "GLOBAL";
+        if (lastStageScope !== stScope) {
+          lastStageScope = stScope;
+          stageFileHistory = [];
+          stageFilePath = (stScope && stScope !== "GLOBAL") ? stScope : ".";
+        }
+        initialTargetPath = stageFilePath || ((stScope && stScope !== "GLOBAL") ? stScope : ".");
+        currentFilePath = initialTargetPath;
+        fileHistory = stageFileHistory;
+      } else {
+        const activeProj = (typeof window.__swissGetActiveProject === "function" && window.__swissGetActiveProject()) || ".";
+        if (lastAuxProject !== activeProj) {
+          lastAuxProject = activeProj;
+          auxFileHistory = [];
+          auxFilePath = (activeProj && activeProj !== ".") ? activeProj : ".";
+        }
+        initialTargetPath = auxFilePath || ((activeProj && activeProj !== ".") ? activeProj : ".");
+        currentFilePath = initialTargetPath;
+        fileHistory = auxFileHistory;
+      }
+      loadFiles(initialTargetPath, false);
     }
 
     // In-Place Editor / Annotator for Code & Markdown
@@ -3504,12 +3707,25 @@ func GenerateAuxiliaryPluginsScript() string {
         renderCards(filtered);
       };
 
+      const getMemoQueryInfo = () => {
+        if (container && container.id === "swiss-main-stage-body") {
+          const stScope = (typeof window.__swissGetMainStageScope === "function" && window.__swissGetMainStageScope()) || "GLOBAL";
+          if (!stScope || stScope === "GLOBAL") {
+            return { qs: "?scope=all", wsPath: "" };
+          }
+          return { qs: "?scope=current&workspace_path=" + encodeURIComponent(stScope), wsPath: stScope };
+        }
+        const activeProj = (typeof window.__swissGetActiveProject === "function" && window.__swissGetActiveProject()) || ".";
+        return { qs: "?scope=current&workspace_path=" + encodeURIComponent(activeProj), wsPath: activeProj };
+      };
+
       const loadMemos = async (silent = false) => {
         if (!silent && memoList.children.length === 0) {
           memoList.innerHTML = "<div style='font-size:11px; color:#94a3b8;'>Loading memos...</div>";
         }
         try {
-          const res = await fetch(` + "`" + `${API_BASE}/api/memos` + "`" + `);
+          const mq = getMemoQueryInfo();
+          const res = await fetch(` + "`" + `${API_BASE}/api/memos${mq.qs}` + "`" + `);
           if (!res.ok) throw new Error("HTTP " + res.status);
           const data = await res.json();
           let memos = null;
@@ -3567,6 +3783,7 @@ func GenerateAuxiliaryPluginsScript() string {
         applyFilterAndRender();
 
         try {
+          const mq = getMemoQueryInfo();
           await fetch(` + "`" + `${API_BASE}/api/memos/save` + "`" + `, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -3576,7 +3793,8 @@ func GenerateAuxiliaryPluginsScript() string {
               content: trimmed,
               type: memoType || "text",
               tags: tags || ["quick"],
-              created_at: newMemo.created_at
+              created_at: newMemo.created_at,
+              workspace_path: mq.wsPath || undefined
             })
           });
         } catch (_) {}
@@ -3709,6 +3927,7 @@ func GenerateAuxiliaryPluginsScript() string {
                   titleStr = userTitle;
                 }
                 const contentStr = finalTranscript || userTitle;
+                const mq = getMemoQueryInfo();
                 const newMemo = {
                   id: "memo-" + Date.now(),
                   title: titleStr,
@@ -3718,6 +3937,7 @@ func GenerateAuxiliaryPluginsScript() string {
                   duration: formattedDuration,
                   type: "audio",
                   tags: ["voice"],
+                  workspace_path: mq.wsPath || undefined,
                   created_at: new Date().toLocaleString()
                 };
                 allMemos.unshift(newMemo);
@@ -3737,6 +3957,7 @@ func GenerateAuxiliaryPluginsScript() string {
                       duration: formattedDuration,
                       type: "audio",
                       tags: ["voice"],
+                      workspace_path: mq.wsPath || undefined,
                       created_at: newMemo.created_at
                     })
                   });

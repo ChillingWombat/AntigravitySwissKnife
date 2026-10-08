@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -30,15 +29,23 @@ func NewService(tracker *AgentTracker, store *Store) *Service {
 
 // DetectRepository detects the GitHub repository and branch for the given workspace directory.
 func (s *Service) DetectRepository(workspacePath string) (*RepoInfo, error) {
-	dir := workspacePath
-	if dir == "" {
-		dir = "."
-	}
-	dir = filepath.Clean(dir)
+	dir := ResolveProjectPath(workspacePath)
 
 	// 1. Get git remote URL
 	cmdRemote := exec.Command("git", "-C", dir, "remote", "get-url", "origin")
 	outRemote, err := cmdRemote.Output()
+	if err != nil {
+		trimmed := strings.TrimSpace(workspacePath)
+		if trimmed == "" || trimmed == "." || strings.EqualFold(trimmed, "global") {
+			if latest := latestWorkspaceFromDB(); latest != "" && latest != dir {
+				if out2, err2 := exec.Command("git", "-C", latest, "remote", "get-url", "origin").Output(); err2 == nil {
+					dir = latest
+					outRemote = out2
+					err = nil
+				}
+			}
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("git remote get-url origin failed in %s: %w", dir, err)
 	}

@@ -184,12 +184,17 @@ def build_account_quota_states(
 
         # Extract plan tier or default based on account metadata/label
         explicit_tier = str(acc.get("plan_tier", "")).strip()
+        notes = str(acc.get("notes", "") or "")
         if not explicit_tier:
             if "ultra" in label.lower() or "ultra" in email.lower():
                 explicit_tier = "Ultra 20X"
             elif "edu" in label.lower() or "edu" in email.lower():
                 explicit_tier = "Edu"
-            elif "trial" in label.lower():
+            elif (
+                any(k in label.lower() or k in email.lower() for k in ("trial", "promo", "jio", "partner", "bundle"))
+                or is_trial_warning_text(label)
+                or is_trial_warning_text(notes)
+            ):
                 explicit_tier = "Pro - Trial"
             elif "pro" in label.lower() or "dev" in email.lower() or "lead" in label.lower():
                 explicit_tier = "Pro"
@@ -197,6 +202,19 @@ def build_account_quota_states(
                 explicit_tier = "Plus"
             else:
                 explicit_tier = "Pro" if is_active else "Free"
+        else:
+            norm = normalize_plan_tier(explicit_tier)
+            t_status = str(acc.get("trial_status", "")).lower()
+            if (norm == "Pro" or not norm) and (
+                is_trial_warning_text(notes)
+                or is_trial_warning_text(label)
+                or bool(acc.get("is_trial", False))
+                or "trial" in t_status
+                or "promo" in t_status
+            ):
+                explicit_tier = "Pro - Trial"
+            else:
+                explicit_tier = norm
 
         prio = str(acc.get("priority", "High") or "High").strip().capitalize()
         if prio not in ("High", "Mid", "Low"):
@@ -236,14 +254,42 @@ def classify_error_status(status_code: int = 0, error_code: str = "", error_msg:
     return "ERROR"
 
 
+def is_trial_warning_text(text: str) -> bool:
+    """Checks if any warning or tooltip text matches known trial restriction notices."""
+    if not text:
+        return False
+    low = text.lower()
+    return (
+        "third-party model access will no longer be available on your current plan" in low
+        or "sonnet 5.5 is now available on paid pro and ultra plans" in low
+        or "paid pro and ultra plans" in low
+        or "will no longer be available on your current plan" in low
+        or ("third-party model access" in low and ("current plan" in low or "november 2" in low))
+        or "current plan starting on november 2, 2026" in low
+        or "starter quota" in low
+        or "trial" in low
+        or "promo" in low
+        or "partner offer" in low
+        or "jio" in low
+    )
+
+
 def normalize_plan_tier(tier: str) -> str:
     """Normalizes raw plan tier strings to canonical representations."""
     if not tier:
         return "Free"
     t = tier.strip().lower()
-    if t in ("free", "free-tier", "tier_free"):
+    if t in ("free", "free-tier", "tier_free", "starter", "starter-tier", "starter quota"):
         return "Free"
-    if "trial" in t:
+    if (
+        "trial" in t
+        or "promo" in t
+        or "starter pro" in t
+        or "jio" in t
+        or "partner" in t
+        or "bundle" in t
+        or is_trial_warning_text(t)
+    ):
         return "Pro - Trial"
     if "20x" in t or "ultra_20x" in t or "ultra 20x" in t:
         return "Ultra 20X"

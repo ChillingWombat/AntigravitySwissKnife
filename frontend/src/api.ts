@@ -87,6 +87,7 @@ export const api = {
     password?: string
     totp_secret?: string
     refresh_token?: string
+    access_token?: string
     credits?: number
     enable_credit_overages?: boolean
     allow_claude_gpt?: boolean

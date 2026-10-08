@@ -18,7 +18,7 @@ func (s *Server) resolveWorkspace(r *http.Request) string {
 	if ws == "" {
 		ws = "."
 	}
-	return ws
+	return cleanUserPath(ws)
 }
 
 func (s *Server) handleGitHubRepo(w http.ResponseWriter, r *http.Request) {

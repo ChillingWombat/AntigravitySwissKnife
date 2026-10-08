@@ -37,12 +37,38 @@ export const CANONICAL_PLAN_TIERS = [
 
 export type PlanTier = typeof CANONICAL_PLAN_TIERS[number]
 
+export function isTrialWarningText(text?: string): boolean {
+  if (!text) return false
+  const low = text.toLowerCase()
+  return (
+    low.includes('third-party model access will no longer be available on your current plan') ||
+    low.includes('sonnet 5.5 is now available on paid pro and ultra plans') ||
+    low.includes('paid pro and ultra plans') ||
+    low.includes('will no longer be available on your current plan') ||
+    (low.includes('third-party model access') && (low.includes('current plan') || low.includes('november 2'))) ||
+    low.includes('current plan starting on november 2, 2026') ||
+    low.includes('starter quota') ||
+    low.includes('trial') ||
+    low.includes('promo') ||
+    low.includes('partner offer') ||
+    low.includes('jio')
+  )
+}
+
 export function normalizePlanTier(raw?: string): string {
   if (!raw) return 'Free'
   const trimmed = raw.trim()
   const lower = trimmed.toLowerCase()
-  if (lower === 'free' || lower === 'free-tier' || lower === 'tier_free') return 'Free'
-  if (lower.includes('trial')) return 'Pro - Trial'
+  if (lower === 'free' || lower === 'free-tier' || lower === 'tier_free' || lower === 'starter' || lower === 'starter-tier' || lower === 'starter quota') return 'Free'
+  if (
+    lower.includes('trial') ||
+    lower.includes('promo') ||
+    lower.includes('starter pro') ||
+    lower.includes('jio') ||
+    lower.includes('partner') ||
+    lower.includes('bundle') ||
+    isTrialWarningText(trimmed)
+  ) return 'Pro - Trial'
   if (lower.includes('20x') || lower.includes('ultra_20x') || lower.includes('ultra 20x')) return 'Ultra 20X'
   if (lower.includes('10x') || lower.includes('ultra_10x') || lower.includes('ultra 10x')) return 'Ultra 10X'
   if (lower.includes('5x') || lower.includes('ultra_5x') || lower.includes('ultra 5x')) return 'Ultra 5X'
@@ -346,6 +372,9 @@ export interface EnhancementsConfig {
   overview_panel?: OverviewPanelConfig
   tool_density_mode: 'normal' | 'muted' | 'hidden'
   breaker_line_enabled: boolean
+  left_panel_extensions_enabled?: boolean
+  left_panel_extensions_mode?: 'single' | 'individual'
+  main_section_extensions_enabled?: boolean
   scroll_to_bottom: boolean
   turn_counter: boolean
   default_new_project?: string
@@ -670,6 +699,10 @@ export interface AgentTaskSummary {
   agent_label: string
   status: string
   not_fully_idle: boolean
+  parent_conversation_id?: string
+  root_parent_conversation_id?: string
+  nesting_depth?: number
+  is_pruned?: boolean
   bound_issue_number?: number
   bound_pr_number?: number
   last_modified?: string

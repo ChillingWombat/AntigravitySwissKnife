@@ -73,7 +73,13 @@ export function resolveAccountPlanTier(email: string, tier?: string): string {
   const lowerEmail = email.toLowerCase()
   if (lowerEmail.includes('ultra')) return 'Ultra 20X'
   if (lowerEmail.includes('.edu') || lowerEmail.includes('student') || lowerEmail.includes('univ')) return 'Edu'
-  if (lowerEmail.includes('trial')) return 'Pro - Trial'
+  if (
+    lowerEmail.includes('trial') ||
+    lowerEmail.includes('promo') ||
+    lowerEmail.includes('jio') ||
+    lowerEmail.includes('partner') ||
+    lowerEmail.includes('bundle')
+  ) return 'Pro - Trial'
   if (lowerEmail.includes('dev') || lowerEmail.includes('pro')) return 'Pro'
   if (lowerEmail.includes('plus')) return 'Plus'
   return 'Free'

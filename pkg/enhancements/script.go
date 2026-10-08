@@ -29,6 +29,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       if (enhConfig.overview_panel && enhConfig.overview_panel.aux_tabs_format) {
         localStorage.setItem("antigravity_swiss_aux_tab_format", enhConfig.overview_panel.aux_tabs_format);
       }
+      localStorage.setItem("antigravity_swiss_left_panel_enabled", String(enhConfig.left_panel_extensions_enabled !== false));
+      localStorage.setItem("antigravity_swiss_left_panel_mode", enhConfig.left_panel_extensions_mode || "single");
+      localStorage.setItem("antigravity_swiss_main_section_enabled", String(enhConfig.main_section_extensions_enabled !== false));
     }
 
     let projectColors = {};
@@ -48,6 +51,21 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
                   localStorage.setItem("antigravity_swiss_aux_tab_format", loaded.overview_panel.aux_tabs_format);
                   window.dispatchEvent(new CustomEvent("swiss-aux-tab-format-updated"));
                 }
+              }
+              const prevLeftEnabled = localStorage.getItem("antigravity_swiss_left_panel_enabled");
+              const prevLeftMode = localStorage.getItem("antigravity_swiss_left_panel_mode");
+              const prevMainSection = localStorage.getItem("antigravity_swiss_main_section_enabled");
+              const newLeftEnabled = String(loaded.left_panel_extensions_enabled !== false);
+              const newLeftMode = loaded.left_panel_extensions_mode || "single";
+              const newMainSection = String(loaded.main_section_extensions_enabled !== false);
+              if (prevLeftEnabled !== newLeftEnabled || prevLeftMode !== newLeftMode || prevMainSection !== newMainSection) {
+                localStorage.setItem("antigravity_swiss_left_panel_enabled", newLeftEnabled);
+                localStorage.setItem("antigravity_swiss_left_panel_mode", newLeftMode);
+                localStorage.setItem("antigravity_swiss_main_section_enabled", newMainSection);
+                window.dispatchEvent(new CustomEvent("swiss-left-nav-config-updated", {
+                  detail: { enabled: loaded.left_panel_extensions_enabled !== false, mode: newLeftMode, main_section_enabled: loaded.main_section_extensions_enabled !== false }
+                }));
+                if (typeof window.setupLeftNavTabs === "function") window.setupLeftNavTabs();
               }
               applyEnhancementsStyles();
               renderPromptJumpBar();
@@ -96,27 +114,41 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const mode = enhConfig.prompt_jump_bar?.color_mode || "default";
       const slateGrey = dark ? "#94a3b8" : "#475569"; // Calm slate grey
 
-      if (mode === "default") {
-        return slateGrey;
-      }
-
+      let chosen = slateGrey;
       if (mode === "project") {
         const pName = detectActiveProject();
         if (pName && projectColors && projectColors[pName]) {
-          return projectColors[pName];
+          chosen = projectColors[pName];
         }
-        return slateGrey; // Default to grey if project has no set color
-      }
-
-      if (mode === "custom") {
+      } else if (mode === "custom") {
         const c = enhConfig.prompt_jump_bar?.custom_color;
         if (c && c !== "#ec4899" && c.trim() !== "") {
-          return c;
+          chosen = c;
         }
-        return slateGrey; // Default to grey if custom color is not set
       }
 
-      return slateGrey;
+      if (chosen && chosen.startsWith("#")) {
+        let hex = chosen.slice(1);
+        if (hex.length === 3) {
+          hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+        }
+        if (hex.length >= 6) {
+          const r = parseInt(hex.slice(0, 2), 16);
+          const g = parseInt(hex.slice(2, 4), 16);
+          const b = parseInt(hex.slice(4, 6), 16);
+          if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
+            const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0;
+            if (dark && lum < 0.15) {
+              return "#e2e8f0";
+            }
+            if (!dark && lum > 0.85) {
+              return "#334155";
+            }
+          }
+        }
+      }
+
+      return chosen;
     }
 
     function applyEnhancementsStyles() {
@@ -138,7 +170,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const breakerEnabled = enhConfig.breaker_line_enabled !== false;
 
       if (densityMode === "muted") {
-        css += ` + "`" + `
+        css += `+"`"+`
           [data-testid="worked-for-collapsible"],
           [data-testid="thinking-collapsible-trigger"],
           [data-testid="tool-group-collapsible"],
@@ -158,9 +190,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             opacity: 0.95 !important;
             filter: none !important;
           }
-        ` + "`" + `;
+        `+"`"+`;
       } else if (densityMode === "hidden") {
-        css += ` + "`" + `
+        css += `+"`"+`
           [data-testid="worked-for-collapsible"],
           [data-testid="thinking-collapsible-trigger"],
           [data-testid="tool-group-collapsible"],
@@ -169,27 +201,27 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           .thinking-collapsible {
             display: none !important;
           }
-        ` + "`" + `;
+        `+"`"+`;
       }
 
       if (breakerEnabled) {
-        css += ` + "`" + `
+        css += `+"`"+`
           [data-testid="user-input-step"]:not(:first-child) {
             border-top: 1px solid var(--border, rgba(0, 0, 0, 0.075)) !important;
             margin-top: 24px !important;
             padding-top: 20px !important;
           }
-        ` + "`" + `;
+        `+"`"+`;
       }
 
-      css += ` + "`" + `
+      css += `+"`"+`
         .swiss-prompt-dash {
           transition: width 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease !important;
         }
         .swiss-prompt-dash:hover {
           width: 22px !important;
         }
-      ` + "`" + `;
+      `+"`"+`;
 
       // Overview Panel Styling
       const op = enhConfig.overview_panel;
@@ -197,26 +229,39 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         if (op.division_style === "divider_line") {
           const thickness = op.line_thickness || 1;
           const widthPct = op.line_width_percent || 100;
-          const lineCol = op.line_color || (dark ? "rgba(255, 255, 255, 0.12)" : "#e2e8f0");
-          const lineMargin = op.line_margin || 12;
+          let lineCol = op.line_color;
+          if (!lineCol || lineCol === "#e2e8f0") {
+            lineCol = dark ? "rgba(255, 255, 255, 0.12)" : "#e2e8f0";
+          }
+          const extraMargin = op.line_margin || 0;
           const lineStyle = op.line_style || "solid";
-          css += ` + "`" + `
+          css += `+"`"+`
             .swiss-overview-divider {
               height: 0px !important;
-              width: ${widthPct}%% !important;
+              min-height: 0px !important;
+              max-height: 0px !important;
+              padding: 0 !important;
+              overflow: hidden !important;
+              font-size: 0px !important;
+              line-height: 0 !important;
+              width: calc(${widthPct}%% - 12px) !important;
               border: none !important;
               border-top: ${thickness}px ${lineStyle} ${lineCol} !important;
-              margin: ${lineMargin}px auto !important;
+              margin-top: calc(-12px - 7px + ${extraMargin}px) !important;
+              margin-bottom: calc(-12px - 7px + ${extraMargin}px) !important;
+              margin-left: 6px !important;
+              margin-right: 6px !important;
               display: block !important;
+              box-sizing: border-box !important;
             }
-          ` + "`" + `;
+          `+"`"+`;
         } else if (op.division_style === "border_zone") {
           const radius = op.zone_border_radius || 8;
           const zoneBorder = op.zone_border_color || (dark ? "rgba(255, 255, 255, 0.12)" : "#e2e8f0");
           const padding = op.zone_padding || 10;
           const gap = op.zone_gap || 10;
           const bgCol = dark ? "#212124" : (op.zone_background_contrast === "whiter" ? "#ffffff" : "#f8fafc");
-          css += ` + "`" + `
+          css += `+"`"+`
             .swiss-overview-zone {
               background-color: ${bgCol} !important;
               border: 1px solid ${zoneBorder} !important;
@@ -229,16 +274,19 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             .swiss-overview-zone:hover {
               border-color: ${dark ? "rgba(255, 255, 255, 0.22)" : "#cbd5e1"} !important;
             }
-          ` + "`" + `;
+          `+"`"+`;
         }
 
         if (op.replace_see_all_triangle) {
-          css += ` + "`" + `
-            [data-swiss-divider="true"] {
-              display: block !important;
+          css += `+"`"+`
+            [data-swiss-overview-divider="true"] {
+              display: flex !important;
+              align-items: center !important;
+              justify-content: center !important;
               width: 100%% !important;
-              height: 28px !important;
-              min-height: 28px !important;
+              height: 14px !important;
+              min-height: 14px !important;
+              max-height: 14px !important;
               padding: 0 !important;
               margin: 0 !important;
               background: transparent !important;
@@ -246,6 +294,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               box-shadow: none !important;
               cursor: pointer !important;
               outline: none !important;
+              line-height: 1 !important;
             }
             .swiss-overview-tabs-divider {
               position: relative !important;
@@ -253,65 +302,45 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               align-items: center !important;
               justify-content: center !important;
               width: 100%% !important;
-              height: 28px !important;
+              height: 14px !important;
+              min-height: 14px !important;
+              max-height: 14px !important;
               padding: 0 !important;
+              margin: 0 auto !important;
               box-sizing: border-box !important;
               cursor: pointer !important;
               user-select: none !important;
-            }
-            .swiss-overview-tabs-line {
-              position: absolute !important;
-              top: 50%% !important;
-              left: 0 !important;
-              right: 0 !important;
-              width: 100%% !important;
-              height: 1px !important;
-              transform: translateY(-50%%) !important;
-              background: rgba(148, 163, 184, 0.35) !important;
-              transition: background-color 0.18s ease !important;
-              z-index: 1 !important;
+              line-height: 1 !important;
             }
             .swiss-overview-tabs-pill {
-              position: absolute !important;
-              bottom: 50%% !important;
-              left: 50%% !important;
-              transform: translateX(-50%%) !important;
-              margin-bottom: 1px !important;
-              z-index: 2 !important;
               display: inline-flex !important;
               align-items: center !important;
               justify-content: center !important;
-              width: 16px !important;
-              height: 11px !important;
+              width: 14px !important;
+              height: 10px !important;
               color: #64748b !important;
               font-size: 8px !important;
+              background: transparent !important;
               transition: all 0.18s ease !important;
             }
             .swiss-overview-tabs-triangle {
               display: inline-block !important;
               font-size: 8px !important;
               line-height: 1 !important;
+              text-align: center !important;
               transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
-            }
-            [data-theme="dark"] .swiss-overview-tabs-line,
-            .dark .swiss-overview-tabs-line {
-              background: rgba(148, 163, 184, 0.22) !important;
             }
             [data-theme="dark"] .swiss-overview-tabs-pill,
             .dark .swiss-overview-tabs-pill {
               color: #94a3b8 !important;
             }
-            [data-swiss-divider="true"]:hover .swiss-overview-tabs-line,
-            .swiss-overview-tabs-divider:hover .swiss-overview-tabs-line {
-              background: rgba(148, 163, 184, 0.65) !important;
-            }
-            [data-swiss-divider="true"]:hover .swiss-overview-tabs-pill,
+            [data-swiss-overview-divider="true"]:hover .swiss-overview-tabs-pill,
             .swiss-overview-tabs-divider:hover .swiss-overview-tabs-pill {
               color: #1e293b !important;
-              transform: translateX(-50%%) scale(1.18) !important;
+              transform: scale(1.18) !important;
             }
-            [data-theme="dark"] [data-swiss-divider="true"]:hover .swiss-overview-tabs-pill,
-            .dark [data-swiss-divider="true"]:hover .swiss-overview-tabs-pill {
+            [data-theme="dark"] [data-swiss-overview-divider="true"]:hover .swiss-overview-tabs-pill,
+            .dark [data-swiss-overview-divider="true"]:hover .swiss-overview-tabs-pill {
               color: #f1f5f9 !important;
             }
             .swiss-see-triangle-btn {
@@ -331,7 +360,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             .swiss-see-triangle-btn:hover {
               background-color: rgba(11, 87, 208, 0.15) !important;
             }
-          ` + "`" + `;
+          `+"`"+`;
         }
       }
 
@@ -623,11 +652,50 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
                 }
                 e.preventDefault();
                 e.stopPropagation();
-                window.location.href = dest;
+                if (typeof window.closeMainStage === "function") {
+                  try { window.closeMainStage(); } catch (_) {}
+                }
+                try {
+                  window.history.pushState({}, "", dest);
+                  window.dispatchEvent(new PopStateEvent("popstate"));
+                } catch (_) {}
+                if (window.location.search !== "?section=" + sid) {
+                  window.location.href = dest;
+                }
               }
             }
           }, true);
         }
+      }
+
+      // Also support titlebar new conversation button
+      const appIconBtn = document.querySelector('[data-testid="app-icon-new-conversation-button"]');
+      if (appIconBtn && !appIconBtn.__swissDefaultBound) {
+        appIconBtn.__swissDefaultBound = true;
+        appIconBtn.addEventListener("click", (e) => {
+          const defP = enhConfig.default_new_project;
+          if (defP && defP !== "auto") {
+            const sid = getSectionIdForProject(defP);
+            if (sid) {
+              const dest = "/?section=" + sid;
+              if (window.location.pathname === "/" && window.location.search === "?section=" + sid) {
+                return;
+              }
+              e.preventDefault();
+              e.stopPropagation();
+              if (typeof window.closeMainStage === "function") {
+                try { window.closeMainStage(); } catch (_) {}
+              }
+              try {
+                window.history.pushState({}, "", dest);
+                window.dispatchEvent(new PopStateEvent("popstate"));
+              } catch (_) {}
+              if (window.location.search !== "?section=" + sid) {
+                window.location.href = dest;
+              }
+            }
+          }
+        }, true);
       }
 
       // 2. Draft screen checks (when landing on "/" without section)
@@ -666,15 +734,52 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     }
 
     function applyOverviewPanelEnhancements() {
+      // Ensure terminal scope selector and terminal container remain strictly in factory style
+      document.querySelectorAll(".swiss-overview-zone").forEach(el => {
+        const text = (el.textContent || "");
+        if (text.includes('Terminals') ||
+            el.closest('[data-tab-id="terminal"]') ||
+            el.querySelector('[data-testid*="scope"], [aria-label*="scope" i], [aria-label*="terminal" i]') ||
+            Array.from(el.querySelectorAll('h3, h4, [role="heading"], span, div')).some(h => (h.textContent || '').trim() === 'Terminals')) {
+          el.classList.remove("swiss-overview-zone");
+        }
+      });
+      document.querySelectorAll(".swiss-overview-divider").forEach(el => {
+        if (el.nextElementSibling && (
+            (el.nextElementSibling.textContent || '').includes('Terminals') ||
+            el.nextElementSibling.closest('[data-tab-id="terminal"]') ||
+            el.nextElementSibling.querySelector('[data-testid*="scope"], [aria-label*="scope" i]')
+        )) {
+          el.remove();
+        }
+      });
+
       const op = enhConfig.overview_panel;
       if (!op || !op.enabled) {
+        document.querySelectorAll(".swiss-overview-zone").forEach(el => el.classList.remove("swiss-overview-zone"));
+        document.querySelectorAll(".swiss-overview-divider").forEach(el => el.remove());
         document.querySelectorAll(".swiss-overview-bottom-spacer").forEach(el => el.remove());
-        document.querySelectorAll('[data-swiss-divider="true"]').forEach(btn => {
-          btn.removeAttribute("data-swiss-divider");
+        document.querySelectorAll('[data-swiss-overview-divider="true"]').forEach(btn => {
+          btn.removeAttribute("data-swiss-overview-divider");
           const orig = btn.getAttribute("data-orig-see-text") || "See all";
           btn.textContent = orig;
         });
+        document.querySelectorAll(".swiss-overview-parent").forEach(el => {
+          el.classList.remove("swiss-overview-parent");
+          el.style.removeProperty("gap");
+        });
         return;
+      }
+
+      // Cleanup unused division styles:
+      // Strip any residual card styling if border_zone is not selected
+      if (op.division_style !== "border_zone") {
+        document.querySelectorAll(".swiss-overview-zone").forEach(el => el.classList.remove("swiss-overview-zone"));
+        document.querySelectorAll(".swiss-overview-parent").forEach(el => el.style.removeProperty("gap"));
+      }
+      // Strip any divider lines if divider_line is not selected
+      if (op.division_style !== "divider_line") {
+        document.querySelectorAll(".swiss-overview-divider").forEach(el => el.remove());
       }
 
       const titles = [
@@ -683,23 +788,35 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         "Artifacts",
         "Uploads",
         "Background Tasks",
-        "Terminals",
         "Goals",
         "Goal",
         "Skills Used"
       ];
 
-      const searchRoot = document.querySelector('[data-testid*="overview"], [data-testid="auxiliary-panel"], .part.auxiliarybar, aside') || document;
-      const allCandidates = Array.from(searchRoot.querySelectorAll("h3, h4, [role='heading'], span, button"));
+      const searchRoot = document.querySelector('[data-testid*="overview"]') ||
+                         document.querySelector('[data-testid="auxiliary-panel"], .part.auxiliarybar, aside') ||
+                         document;
+      const allCandidates = Array.from(searchRoot.querySelectorAll("h3, h4, [role='heading'], span, button, div"));
       const sectionHeaders = allCandidates.filter(el => {
         if (!el || el.children.length > 2) return false;
-        const text = (el.textContent || "").trim();
-        return titles.some(t => text === t || text.startsWith(t + " ") || text.startsWith(t + "("));
+        // Never style terminal scope selector or terminal containers: preserve factory style
+        const elText = (el.textContent || "").trim();
+        if (elText.toLowerCase().includes("terminal") ||
+            el.closest('[data-tab-id="terminal"]') ||
+            el.closest('.terminal-view') ||
+            el.querySelector('[data-testid*="scope"], [aria-label*="scope" i]') ||
+            el.parentElement?.querySelector('button[aria-haspopup="menu"]')) {
+          return false;
+        }
+        return titles.some(t => elText === t || elText.startsWith(t + " ") || elText.startsWith(t + "(") || (elText.startsWith(t) && /^\d+$/.test(elText.slice(t.length))));
       });
 
       const sectionContainers = [];
 
-      sectionHeaders.forEach((hdr, idx) => {
+      sectionHeaders.forEach((hdr) => {
+        if (hdr.closest('[data-tab-id="terminal"]') || (hdr.textContent || '').includes('Terminals')) {
+          return;
+        }
         let container = hdr.closest('.gap-6 > div') ||
                         hdr.closest('.w-full.flex.flex-col.gap-2') ||
                         hdr.closest('[class*="flex-col"][class*="gap-2"]') ||
@@ -708,53 +825,128 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
                         (hdr.parentElement && hdr.parentElement !== document.body ? hdr.parentElement : null);
         if (!container) return;
 
+        // Skip hidden containers
+        if (container.offsetParent === null && container.offsetHeight === 0 && (!container.classList || !container.classList.contains("gap-6"))) {
+          const cs = window.getComputedStyle(container);
+          if (cs.display === "none") return;
+        }
+
         if (!sectionContainers.includes(container)) {
           sectionContainers.push(container);
         }
+      });
 
+      // Clean up orphaned or misplaced divider lines (before first section, after last section, or next to non-sections)
+      document.querySelectorAll(".swiss-overview-divider").forEach(div => {
+        const next = div.nextElementSibling;
+        if (!next || !sectionContainers.includes(next) || sectionContainers.indexOf(next) === 0) {
+          div.remove();
+        }
+      });
+
+      sectionContainers.forEach((container, idx) => {
+        const parent = container.parentElement;
+        if (parent && !parent.classList.contains("swiss-overview-parent")) {
+          parent.classList.add("swiss-overview-parent");
+        }
         if (op.division_style === "border_zone") {
           if (!container.classList.contains("swiss-overview-zone")) {
             container.classList.add("swiss-overview-zone");
           }
+          if (parent) {
+            parent.style.setProperty("gap", "0px", "important");
+          }
         } else if (op.division_style === "divider_line") {
-          if (idx > 0 && container.previousElementSibling && !container.previousElementSibling.classList.contains("swiss-overview-divider")) {
-            const divider = document.createElement("div");
-            divider.className = "swiss-overview-divider";
-            container.parentElement?.insertBefore(divider, container);
+          if (idx > 0) {
+            let divider = container.previousElementSibling;
+            if (!divider || !divider.classList.contains("swiss-overview-divider")) {
+              divider = document.createElement("div");
+              divider.className = "swiss-overview-divider";
+              container.parentElement?.insertBefore(divider, container);
+            }
+            const parent = container.parentElement;
+            if (parent) {
+              const cs = window.getComputedStyle(parent);
+              let rowGap = parseFloat(cs.rowGap || cs.gap);
+              if (isNaN(rowGap) || rowGap <= 0) {
+                if (parent.classList && (parent.classList.contains("gap-6") || parent.className.includes("gap-6"))) {
+                  rowGap = 24;
+                } else if (parent.classList && (parent.classList.contains("gap-4") || parent.className.includes("gap-4"))) {
+                  rowGap = 16;
+                } else if (parent.classList && (parent.classList.contains("gap-2") || parent.className.includes("gap-2"))) {
+                  rowGap = 8;
+                } else {
+                  rowGap = 24;
+                }
+              }
+              const desiredHalfGap = 5 + Math.max(0, op.line_margin || 0);
+              const netMargin = (rowGap > 0) ? (desiredHalfGap - rowGap) : desiredHalfGap;
+              divider.style.setProperty("margin-top", netMargin + "px", "important");
+              divider.style.setProperty("margin-bottom", netMargin + "px", "important");
+              const wPct = op.line_width_percent || 100;
+              if (wPct >= 100) {
+                divider.style.setProperty("margin-left", "6px", "important");
+                divider.style.setProperty("margin-right", "6px", "important");
+              } else {
+                divider.style.setProperty("margin-left", "auto", "important");
+                divider.style.setProperty("margin-right", "auto", "important");
+              }
+              divider.style.setProperty("width", "calc(" + wPct + "%% - 12px)", "important");
+            }
           }
         }
       });
 
-      const seeButtons = Array.from(searchRoot.querySelectorAll("button, a, span")).filter(el => {
-        if (!el) return false;
-        if (el.getAttribute("data-swiss-divider") === "true") return true;
-        const t = (el.textContent || "").trim();
-        return (t.startsWith("See all") || t === "See less" || t.startsWith("See less"));
+      const seeButtons = [];
+      sectionContainers.forEach(container => {
+        Array.from(container.querySelectorAll("button, a, span, div[role='button']")).forEach(el => {
+          if (!el || el.closest('[data-index]') || el.closest('[data-testid*="sidebar"]') || el.getAttribute("data-swiss-divider") === "true") return;
+          const t = (el.textContent || "").trim();
+          const isMore = /^(see|show)\s+(all|more)/i.test(t);
+          const isLess = /^(see|show)\s+(less|fewer)/i.test(t);
+          if (el.getAttribute("data-swiss-overview-divider") === "true" || isMore || isLess) {
+            if (!seeButtons.includes(el)) seeButtons.push(el);
+          }
+        });
       });
 
       if (op.replace_see_all_triangle) {
         seeButtons.forEach(btn => {
-          const rawText = btn.getAttribute("data-orig-see-text") || (btn.textContent || "").trim();
-          const isSeeAll = rawText.toLowerCase().includes("see all");
-          const symbol = isSeeAll ? "▾" : "▴";
-          btn.setAttribute("data-swiss-divider", "true");
+          let rawText = (btn.textContent || "").trim();
+          if (rawText === "▾" || rawText === "▴" || rawText === "▼" || rawText === "▲" || !rawText) {
+            rawText = btn.getAttribute("data-orig-see-text") || "See all";
+          }
+          const lower = rawText.toLowerCase();
+          const isExpandMore = lower.includes("see all") || lower.includes("show more") || lower.includes("see more") || lower.includes("show all");
+          const symbol = isExpandMore ? "▾" : "▴";
+          const titleText = isExpandMore ? rawText : (lower.includes("less") || lower.includes("fewer") ? rawText : "Show fewer");
+          btn.setAttribute("data-swiss-overview-divider", "true");
           btn.setAttribute("data-orig-see-text", rawText);
-          btn.setAttribute("title", rawText);
+          btn.setAttribute("title", titleText);
+          if (!btn.__swissOverviewClickBound) {
+            btn.__swissOverviewClickBound = true;
+            btn.addEventListener("click", () => {
+              const curOrig = btn.getAttribute("data-orig-see-text") || "See all";
+              const curLower = curOrig.toLowerCase();
+              const wasMore = curLower.includes("see all") || curLower.includes("show more") || curLower.includes("see more") || curLower.includes("show all");
+              const nextOrig = wasMore
+                ? (curLower.includes("show") ? "Show less" : "See less")
+                : (curLower.includes("show") ? "Show more" : "See all");
+              btn.setAttribute("data-orig-see-text", nextOrig);
+            });
+          }
           const curTriangle = btn.querySelector(".swiss-overview-tabs-triangle");
           if (!curTriangle || curTriangle.textContent !== symbol) {
             btn.innerHTML = '<div class="swiss-overview-tabs-divider">' +
               '<div class="swiss-overview-tabs-pill"><span class="swiss-overview-tabs-triangle">' + symbol + '</span></div>' +
-              '<div class="swiss-overview-tabs-line"></div>' +
             '</div>';
           }
         });
       } else {
-        seeButtons.forEach(btn => {
-          if (btn.getAttribute("data-swiss-divider") === "true") {
-            btn.removeAttribute("data-swiss-divider");
-            const orig = btn.getAttribute("data-orig-see-text") || "See all";
-            btn.textContent = orig;
-          }
+        document.querySelectorAll('[data-swiss-overview-divider="true"]').forEach(btn => {
+          btn.removeAttribute("data-swiss-overview-divider");
+          const orig = btn.getAttribute("data-orig-see-text") || "See all";
+          btn.textContent = orig;
         });
       }
 
@@ -846,6 +1038,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           if (target && target.nodeType === 1) {
             const el = target;
             if (el.id && el.id.startsWith("swiss-")) return false;
+            if (el.hasAttribute && el.hasAttribute("data-swiss-overview-divider")) return false;
             if (el.classList && (
               el.classList.contains("swiss-overview-zone") ||
               el.classList.contains("swiss-overview-divider") ||

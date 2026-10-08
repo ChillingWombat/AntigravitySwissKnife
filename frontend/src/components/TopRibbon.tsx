@@ -39,7 +39,7 @@ export const TopRibbon: React.FC<TopRibbonProps> = ({
         style={{
           display: 'flex',
           backgroundColor: 'var(--tonal)',
-          borderRadius: '20px',
+          borderRadius: '8px',
           padding: '3px',
           gap: '2px',
         }}
@@ -51,7 +51,7 @@ export const TopRibbon: React.FC<TopRibbonProps> = ({
               key={tab}
               onClick={() => onSelectTab(idx)}
               style={{
-                borderRadius: '16px',
+                borderRadius: '6px',
                 padding: '6px 16px',
                 fontSize: '12px',
                 fontWeight: isActive ? 600 : 500,
@@ -79,7 +79,7 @@ export const TopRibbon: React.FC<TopRibbonProps> = ({
             color: 'var(--primary)',
             backgroundColor: 'rgba(26, 115, 232, 0.08)',
             padding: '6px 14px',
-            borderRadius: '16px',
+            borderRadius: '6px',
             border: '1px solid rgba(26, 115, 232, 0.22)',
             maxWidth: '320px',
           }}

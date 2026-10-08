@@ -2493,7 +2493,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               <div
                 style={{
                   backgroundColor: 'var(--surface)',
-                  borderRadius: '16px',
+                  borderRadius: '10px',
                   padding: '24px',
                   maxWidth: '480px',
                   width: '90%',

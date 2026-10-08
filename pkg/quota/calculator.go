@@ -402,6 +402,9 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 		} else {
 			tier = NormalizePlanTier(tier)
 		}
+		if (tier == PlanTierPro || tier == "") && (IsTrialWarningText(acc.Notes) || IsTrialWarningText(acc.Label) || IsTrialWarningText(acc.PlanTier)) {
+			tier = PlanTierProTrial
+		}
 
 		avail5h := ComputeEffective5hAvailable(cur5h, curSec)
 		hasCreditOverages := acc.EnableCreditOverages && credits > 0
@@ -496,7 +499,12 @@ func DetermineDefaultPlanTier(email string, explicitTier string) string {
 	if strings.Contains(lower, "ultra") {
 		return PlanTierUltra20X
 	}
-	if strings.Contains(lower, "trial") {
+	if strings.Contains(lower, "trial") ||
+		strings.Contains(lower, "promo") ||
+		strings.Contains(lower, "jio") ||
+		strings.Contains(lower, "partner") ||
+		strings.Contains(lower, "bundle") ||
+		IsTrialWarningText(lower) {
 		return PlanTierProTrial
 	}
 	if strings.Contains(lower, "plus") {

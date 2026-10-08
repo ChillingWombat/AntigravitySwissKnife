@@ -566,7 +566,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 onChange={(e) => setSortMode(e.target.value as SortMode)}
                 style={{
                   padding: '5px 28px 5px 12px',
-                  borderRadius: '16px',
+                  borderRadius: '8px',
                   border: '1px solid var(--border)',
                   backgroundColor: 'var(--canvas)',
                   color: 'var(--text)',
@@ -1072,7 +1072,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           <div
             style={{
               backgroundColor: '#ffffff',
-              borderRadius: '16px',
+              borderRadius: '10px',
               width: '460px',
               maxWidth: '90vw',
               padding: '24px',
@@ -1323,7 +1323,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           <div
             style={{
               backgroundColor: '#ffffff',
-              borderRadius: '16px',
+              borderRadius: '10px',
               width: '540px',
               maxWidth: '92vw',
               maxHeight: '85vh',

@@ -38,6 +38,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [totpSecret, setTotpSecret] = useState(account.totp_secret || '')
   const [showTotp, setShowTotp] = useState(false)
   const [refreshToken, setRefreshToken] = useState(account.refresh_token || '')
+  const [extractedAccessToken, setExtractedAccessToken] = useState<string>('')
   const [showOAuth, setShowOAuth] = useState(false)
   const [isExtractingOAuth, setIsExtractingOAuth] = useState(false)
   const [oauthAuthUrl, setOauthAuthUrl] = useState<string | null>(null)
@@ -192,6 +193,9 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       const res = await api.startGoogleOAuth(controller.signal)
       if (res.success && res.refresh_token) {
         setRefreshToken(res.refresh_token)
+        if (res.access_token) {
+          setExtractedAccessToken(res.access_token)
+        }
         if (res.email && !email.trim()) {
           setEmail(res.email)
           if (!label.trim() || aliasAutoFilled) {
@@ -199,9 +203,9 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             setAliasAutoFilled(true)
           }
         }
-        setOauthSuccessMsg(`Extracted token successfully for ${res.email || email || account.email}`)
+        setOauthSuccessMsg(`Extracted refresh token successfully for ${res.email || email || account.email}`)
       } else if (!controller.signal.aborted) {
-        setError(res.error || 'Failed to extract OAuth token from Google')
+        setError(res.error || 'Failed to extract OAuth refresh token from Google')
       }
     } catch (err: any) {
       if (controller.signal.aborted || err.name === 'AbortError') {
@@ -241,6 +245,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         notes: notes.trim(),
         totp_secret: normalizeMfaSecret(totpSecret).toUpperCase(),
         refresh_token: refreshToken.trim(),
+        access_token: extractedAccessToken.trim() || undefined,
         credits: account.credits !== undefined && account.credits !== null ? account.credits : 0,
         enable_credit_overages: enableCreditOverages,
         allow_claude_gpt: allowClaudeGpt,
@@ -299,7 +304,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           overflowY: 'auto',
           padding: '28px',
           backgroundColor: '#ffffff',
-          borderRadius: '16px',
+          borderRadius: '10px',
           boxShadow: 'var(--shadow-md)',
         }}
         onClick={(e) => e.stopPropagation()}
@@ -614,7 +619,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                     alignItems: 'center',
                     padding: '4px',
                   }}
-                  title={showOAuth ? 'Hide OAuth token' : 'Show OAuth token'}
+                  title={showOAuth ? 'Hide OAuth refresh token' : 'Show OAuth refresh token'}
                 >
                   {showOAuth ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -695,13 +700,25 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                     borderColor: 'var(--primary)',
                     cursor: 'pointer',
                   }}
-                  title="Open browser to login with Google and extract token"
+                  title="Open browser to login with Google and extract long-term refresh token"
                 >
                   <LogIn size={14} />
                   Sign in with Google
                 </button>
               )}
             </div>
+            {refreshToken.trim().startsWith('ya29.') && (
+              <div
+                style={{
+                  marginTop: '6px',
+                  fontSize: '11px',
+                  color: 'var(--yellow, #b06000)',
+                  lineHeight: 1.4,
+                }}
+              >
+                Notice: Token starts with &apos;ya29&apos; (short-lived 1-hour Access Token). For background quota polling and autonomous rotation, enter a long-term Refresh Token (starts with &apos;1//&apos;) or click &apos;Sign in with Google&apos;.
+              </div>
+            )}
             {isExtractingOAuth && (
               <div
                 style={{
@@ -904,7 +921,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              gap: '16px',
+              gap: '8px',
               padding: '4px 0',
             }}
           >

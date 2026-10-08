@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 580" width="1200" height="580" style="background:#090d16; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <defs>
+    <linearGradient id="bgGlowMod" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="50%" stop-color="#090d16"/>
+      <stop offset="100%" stop-color="#06090f"/>
+    </linearGradient>
+    <linearGradient id="cardGradMod" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#141c2e"/>
+      <stop offset="100%" stop-color="#0e1526"/>
+    </linearGradient>
+    <filter id="shadowMod" x="-5%" y="-5%" width="110%" height="115%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="580" fill="url(#bgGlowMod)"/>
+
+  <!-- Header -->
+  <g transform="translate(60, 42)">
+    <text x="0" y="0" font-size="20" font-weight="700" fill="#f8fafc" letter-spacing="-0.02em">Antigravity Swiss Knife — Functional Modules</text>
+    <text x="0" y="24" font-size="12" fill="#94a3b8">Eight unified subsystems engineered for local-first execution, security, and developer productivity</text>
+  </g>
+
+  <!-- 4 x 2 Grid of Module Cards -->
+  <!-- ROW 1 (y = 100) -->
+
+  <!-- Card 1: Account Switcher -->
+  <g transform="translate(60, 100)" filter="url(#shadowMod)">
+    <rect width="255" height="195" rx="8" fill="url(#cardGradMod)" stroke="#1e293b" stroke-width="1.2"/>
+    <rect width="255" height="3" rx="1.5" fill="#38bdf8"/>
+    <text x="18" y="28" font-size="11" font-weight="700" fill="#38bdf8" letter-spacing="0.05em">01. FLEET MANAGEMENT</text>
+    <text x="18" y="50" font-size="15" font-weight="700" fill="#f1f5f9">Account Switcher</text>
+    <text x="18" y="72" font-size="11" fill="#94a3b8">• Multi-account quota tracking</text>
+    <text x="18" y="94" font-size="11" fill="#94a3b8">• RFC 6238 TOTP 2FA vault</text>
+    <text x="18" y="116" font-size="11" fill="#94a3b8">• Hardware profile virtualization</text>
+    <text x="18" y="138" font-size="11" fill="#94a3b8">• Reset horizon keep-alive warmup</text>
+    <text x="18" y="160" font-size="11" fill="#94a3b8">• Zero-loss session preservation</text>
+  </g>
+
+  <!-- Card 2: Custom Models & Audit -->
+  <g transform="translate(335, 100)" filter="url(#shadowMod)">
+    <rect width="255" height="195" rx="8" fill="url(#cardGradMod)" stroke="#1e293b" stroke-width="1.2"/>
+    <rect width="255" height="3" rx="1.5" fill="#a78bfa"/>
+    <text x="18" y="28" font-size="11" font-weight="700" fill="#a78bfa" letter-spacing="0.05em">02. MODEL ROUTING</text>
+    <text x="18" y="50" font-size="15" font-weight="700" fill="#f1f5f9">Custom Models &amp; Audit</text>
+    <text x="18" y="72" font-size="11" fill="#94a3b8">• OpenAI, Claude, DeepSeek gateways</text>
+    <text x="18" y="94" font-size="11" fill="#94a3b8">• 6-probe security relay auditor</text>
+    <text x="18" y="116" font-size="11" fill="#94a3b8">• Model substitution canary checks</text>
+    <text x="18" y="138" font-size="11" fill="#94a3b8">• Prompt injection &amp; leakage defense</text>
+    <text x="18" y="160" font-size="11" fill="#94a3b8">• Upstream latency &amp; TLS evaluation</text>
+  </g>
+
+  <!-- Card 3: UI Enhancements -->
+  <g transform="translate(610, 100)" filter="url(#shadowMod)">
+    <rect width="255" height="195" rx="8" fill="url(#cardGradMod)" stroke="#1e293b" stroke-width="1.2"/>
+    <rect width="255" height="3" rx="1.5" fill="#34d399"/>
+    <text x="18" y="28" font-size="11" font-weight="700" fill="#34d399" letter-spacing="0.05em">03. WORKSPACE TOOLS</text>
+    <text x="18" y="50" font-size="15" font-weight="700" fill="#f1f5f9">Chat Navigation &amp; View</text>
+    <text x="18" y="72" font-size="11" fill="#94a3b8">• Fast turn jump navigation</text>
+    <text x="18" y="94" font-size="11" fill="#94a3b8">• Tool output density controls</text>
+    <text x="18" y="116" font-size="11" fill="#94a3b8">• Workspace project grouping</text>
+    <text x="18" y="138" font-size="11" fill="#94a3b8">• Turn execution separation</text>
+    <text x="18" y="160" font-size="11" fill="#94a3b8">• Inactivity-based tab auto-archive</text>
+  </g>
+
+  <!-- Card 4: Extensions Workspace -->
+  <g transform="translate(885, 100)" filter="url(#shadowMod)">
+    <rect width="255" height="195" rx="8" fill="url(#cardGradMod)" stroke="#1e293b" stroke-width="1.2"/>
+    <rect width="255" height="3" rx="1.5" fill="#f59e0b"/>
+    <text x="18" y="28" font-size="11" font-weight="700" fill="#f59e0b" letter-spacing="0.05em">04. EXTENSIONS</text>
+    <text x="18" y="50" font-size="15" font-weight="700" fill="#f1f5f9">Extensions Workspace</text>
+    <text x="18" y="72" font-size="11" fill="#94a3b8">• In-app browser preview &amp; inspector</text>
+    <text x="18" y="94" font-size="11" fill="#94a3b8">• Visual canvas annotation for agents</text>
+    <text x="18" y="116" font-size="11" fill="#94a3b8">• Lightweight project file explorer</text>
+    <text x="18" y="138" font-size="11" fill="#94a3b8">• Quick text &amp; transcribed audio memos</text>
+    <text x="18" y="160" font-size="11" fill="#94a3b8">• GitHub Projects Kanban board</text>
+  </g>
+
+  <!-- ROW 2 (y = 320) -->
+
+  <!-- Card 5: Token & Telemetry -->
+  <g transform="translate(60, 320)" filter="url(#shadowMod)">
+    <rect width="255" height="195" rx="8" fill="url(#cardGradMod)" stroke="#1e293b" stroke-width="1.2"/>
+    <rect width="255" height="3" rx="1.5" fill="#38bdf8"/>
+    <text x="18" y="28" font-size="11" font-weight="700" fill="#38bdf8" letter-spacing="0.05em">05. TELEMETRY &amp; METRICS</text>
+    <text x="18" y="50" font-size="15" font-weight="700" fill="#f1f5f9">Token &amp; Cost Monitor</text>
+    <text x="18" y="72" font-size="11" fill="#94a3b8">• Real-time prompt, cached &amp; output counts</text>
+    <text x="18" y="94" font-size="11" fill="#94a3b8">• In-chat response badges with live TPS</text>
+    <text x="18" y="116" font-size="11" fill="#94a3b8">• Multi-agent subagent aggregation</text>
+    <text x="18" y="138" font-size="11" fill="#94a3b8">• Dynamic token pricing ($/M rate index)</text>
+    <text x="18" y="160" font-size="11" fill="#94a3b8">• CSV telemetry export by project &amp; account</text>
+  </g>
+
+  <!-- Card 6: Utilities & Interoperability -->
+  <g transform="translate(335, 320)" filter="url(#shadowMod)">
+    <rect width="255" height="195" rx="8" fill="url(#cardGradMod)" stroke="#1e293b" stroke-width="1.2"/>
+    <rect width="255" height="3" rx="1.5" fill="#a78bfa"/>
+    <text x="18" y="28" font-size="11" font-weight="700" fill="#a78bfa" letter-spacing="0.05em">06. INTEROPERABILITY</text>
+    <text x="18" y="50" font-size="15" font-weight="700" fill="#f1f5f9">Chat Migration &amp; ACP</text>
+    <text x="18" y="72" font-size="11" fill="#94a3b8">• Claude Code, Cursor &amp; Windsurf import</text>
+    <text x="18" y="94" font-size="11" fill="#94a3b8">• Automatic workspace path matching</text>
+    <text x="18" y="116" font-size="11" fill="#94a3b8">• Agent Client Protocol (ACP) scanner</text>
+    <text x="18" y="138" font-size="11" fill="#94a3b8">• Live filesystem watch sync (inotify)</text>
+    <text x="18" y="160" font-size="11" fill="#94a3b8">• Session history schema normalizer</text>
+  </g>
+
+  <!-- Card 7: Automations -->
+  <g transform="translate(610, 320)" filter="url(#shadowMod)">
+    <rect width="255" height="195" rx="8" fill="url(#cardGradMod)" stroke="#1e293b" stroke-width="1.2"/>
+    <rect width="255" height="3" rx="1.5" fill="#34d399"/>
+    <text x="18" y="28" font-size="11" font-weight="700" fill="#34d399" letter-spacing="0.05em">07. AUTOMATION</text>
+    <text x="18" y="50" font-size="15" font-weight="700" fill="#f1f5f9">Background Automations</text>
+    <text x="18" y="72" font-size="11" fill="#94a3b8">• Recurring scheduled cron tasks</text>
+    <text x="18" y="94" font-size="11" fill="#94a3b8">• Headless background execution engine</text>
+    <text x="18" y="116" font-size="11" fill="#94a3b8">• Project sidecars &amp; health checks</text>
+    <text x="18" y="138" font-size="11" fill="#94a3b8">• Custom task templates &amp; schedules</text>
+    <text x="18" y="160" font-size="11" fill="#94a3b8">• Systemd user service integration</text>
+  </g>
+
+  <!-- Card 8: Storage & Reversibility -->
+  <g transform="translate(885, 320)" filter="url(#shadowMod)">
+    <rect width="255" height="195" rx="8" fill="url(#cardGradMod)" stroke="#1e293b" stroke-width="1.2"/>
+    <rect width="255" height="3" rx="1.5" fill="#f59e0b"/>
+    <text x="18" y="28" font-size="11" font-weight="700" fill="#f59e0b" letter-spacing="0.05em">08. SAFETY &amp; STORAGE</text>
+    <text x="18" y="50" font-size="15" font-weight="700" fill="#f1f5f9">Storage &amp; Reversibility</text>
+    <text x="18" y="72" font-size="11" fill="#94a3b8">• Pure-Go SQLite embedded store</text>
+    <text x="18" y="94" font-size="11" fill="#94a3b8">• Atomic *.swiss.bak safety snapshots</text>
+    <text x="18" y="116" font-size="11" fill="#94a3b8">• 1-click uninject &amp; factory restore</text>
+    <text x="18" y="138" font-size="11" fill="#94a3b8">• Brain &amp; conversation cache pruning</text>
+    <text x="18" y="160" font-size="11" fill="#94a3b8">• Disk usage analysis &amp; reclamation</text>
+  </g>
+</svg>

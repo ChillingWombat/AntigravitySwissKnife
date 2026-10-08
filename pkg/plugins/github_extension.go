@@ -9,29 +9,261 @@ func GenerateGitHubExtensionCSS() string {
 .swiss-left-nav-group {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
 }
 
 .swiss-left-tabs-separator {
   height: 1px;
-  background-color: var(--sidebar-border, var(--border, #e2e8f0));
-  opacity: 0.5;
-  margin: 6px 4px;
+  background-color: var(--border);
+  opacity: 0.6;
+  margin: 0 4px;
 }
 :is(.dark, [data-theme="dark"]) .swiss-left-tabs-separator {
-  background-color: rgba(255, 255, 255, 0.08);
-  opacity: 1;
+  background-color: var(--border);
+  opacity: 0.6;
 }
 
 .swiss-left-nav-tab {
   user-select: none;
   font-family: inherit;
-  font-size: 13px;
-  transition: all 0.15s ease;
+  font-weight: 400 !important;
+  font-size: 14px !important;
+  line-height: 20px !important;
+  height: 32px !important;
+  padding: 4px 8px !important;
+  border-radius: 8px !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background-color: transparent !important;
+  color: var(--secondary-foreground) !important;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.swiss-left-nav-tab:hover {
+  background-color: var(--sidebar-muted) !important;
+  color: var(--foreground) !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
 .swiss-left-nav-tab.active {
-  font-weight: 500;
+  font-weight: 500 !important;
+  background-color: var(--sidebar-secondary) !important;
+  color: var(--foreground) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.swiss-left-nav-tab.active:hover {
+  background-color: var(--sidebar-secondary) !important;
+  color: var(--foreground) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+:is(.dark, [data-theme="dark"]) .swiss-left-nav-tab {
+  color: var(--secondary-foreground) !important;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+:is(.dark, [data-theme="dark"]) .swiss-left-nav-tab:hover {
+  background-color: var(--sidebar-muted) !important;
+  color: var(--foreground) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+:is(.dark, [data-theme="dark"]) .swiss-left-nav-tab.active {
+  background-color: var(--sidebar-secondary) !important;
+  color: var(--foreground) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+:is(.dark, [data-theme="dark"]) .swiss-left-nav-tab.active:hover {
+  background-color: var(--sidebar-secondary) !important;
+  color: var(--foreground) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Sidebar Active State Isolation: When Swiss Main Stage is active, suppress native factory tab and row highlights without altering project cards */
+[data-swiss-stage-active] [data-testid="automations-button"],
+[data-swiss-stage-active] [data-testid="history-button"],
+[data-swiss-stage-active] [data-testid="new-conversation-button"],
+[data-swiss-stage-active] .bg-sidebar button:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+[data-swiss-stage-active].bg-sidebar button:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+[data-swiss-stage-active] .bg-sidebar a:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+[data-swiss-stage-active].bg-sidebar a:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+[data-swiss-stage-active] .bg-sidebar [role="button"]:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+[data-swiss-stage-active] .bg-sidebar [role="treeitem"]:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+[data-swiss-stage-active] .bg-sidebar [data-sidebar="menu-button"]:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+[data-swiss-stage-active] .bg-sidebar [data-sidebar="menu-sub-button"]:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+[data-swiss-stage-active] [data-testid="conversation-row-sidebar"],
+[data-swiss-stage-active] [data-testid="conversation-row-sidebar"][data-selected="true"],
+[data-swiss-stage-active] [data-testid="conversation-row-sidebar"][aria-selected="true"],
+[data-swiss-stage-active] [data-testid="conversation-row-sidebar"][data-state="active"],
+[data-swiss-stage-active] [data-testid="conversation-row-sidebar"].bg-accent,
+[data-swiss-stage-active] [data-testid="conversation-row-sidebar"].bg-sidebar-accent,
+[data-swiss-stage-active] [data-testid="conversation-row-sidebar"].active,
+[data-swiss-stage-active] .bg-sidebar [data-active="true"]:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+[data-swiss-stage-active] .bg-sidebar [data-selected="true"]:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+[data-swiss-stage-active] .bg-sidebar [aria-selected="true"]:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+[data-swiss-stage-active] .bg-sidebar [data-state="active"]:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+[data-swiss-stage-active] .bg-sidebar .active:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+[data-swiss-stage-active] .bg-sidebar .bg-accent:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+[data-swiss-stage-active] .bg-sidebar .bg-sidebar-accent:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+[data-swiss-stage-active] .bg-sidebar .bg-sidebar-secondary:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+[data-swiss-stage-active] .bg-sidebar .bg-primary:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+[data-swiss-stage-active] .bg-sidebar .bg-sidebar-primary:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]) {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  color: var(--secondary-foreground, #71717a) !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+[data-swiss-stage-active] [data-testid="automations-button"]:hover,
+[data-swiss-stage-active] [data-testid="history-button"]:hover,
+[data-swiss-stage-active] [data-testid="new-conversation-button"]:hover,
+[data-swiss-stage-active] [data-testid="app-icon-new-conversation-button"]:hover,
+[data-swiss-stage-active] [data-testid="sidebar-add-project-button"]:hover,
+[data-swiss-stage-active] a[aria-label="New Conversation in Project"]:hover,
+[data-swiss-stage-active] .bg-sidebar button:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]):hover,
+[data-swiss-stage-active].bg-sidebar button:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]):hover,
+[data-swiss-stage-active] .bg-sidebar a:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]):hover,
+[data-swiss-stage-active].bg-sidebar a:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]):hover,
+[data-swiss-stage-active] [data-testid="conversation-row-sidebar"]:hover {
+  background-color: var(--sidebar-muted, rgba(148, 163, 184, 0.15)) !important;
+  color: var(--foreground, #1e293b) !important;
+}
+
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="automations-button"],
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="history-button"],
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] .bg-sidebar button:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active].bg-sidebar button:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] .bg-sidebar a:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active].bg-sidebar a:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] .bg-sidebar [role="button"]:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] .bg-sidebar [role="treeitem"]:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] .bg-sidebar [data-sidebar="menu-button"]:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] .bg-sidebar [data-sidebar="menu-sub-button"]:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="conversation-row-sidebar"],
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="conversation-row-sidebar"][data-selected="true"],
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="conversation-row-sidebar"][aria-selected="true"],
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="conversation-row-sidebar"][data-state="active"],
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="conversation-row-sidebar"].bg-accent,
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="conversation-row-sidebar"].bg-sidebar-accent,
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="conversation-row-sidebar"].active,
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] .bg-sidebar [data-active="true"]:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] .bg-sidebar [data-selected="true"]:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] .bg-sidebar [aria-selected="true"]:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] .bg-sidebar [data-state="active"]:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] .bg-sidebar .active:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] .bg-sidebar .bg-accent:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] .bg-sidebar .bg-sidebar-accent:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] .bg-sidebar .bg-sidebar-secondary:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] .bg-sidebar .bg-primary:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]),
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] .bg-sidebar .bg-sidebar-primary:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]) {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  color: var(--secondary-foreground, #94a3b8) !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="automations-button"]:hover,
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="history-button"]:hover,
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="app-icon-new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="sidebar-add-project-button"]:hover,
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] a[aria-label="New Conversation in Project"]:hover,
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] .bg-sidebar button:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]):hover,
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active].bg-sidebar button:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]):hover,
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] .bg-sidebar a:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]):hover,
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active].bg-sidebar a:not(.swiss-left-nav-tab):not([data-project-card]):not([data-swiss-project]):hover,
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="conversation-row-sidebar"]:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #f1f5f9 !important;
+}
+
+/* Unselected + New Conversation Button: normalize to clean transparent sidebar style */
+body:has([data-testid="conversation-view"]) [data-testid="new-conversation-button"],
+body:has([data-testid="conversation-row-sidebar"][data-selected="true"]) [data-testid="new-conversation-button"],
+body:has([data-testid="history-button"].active) [data-testid="new-conversation-button"],
+body:has([data-testid="history-button"][data-selected="true"]) [data-testid="new-conversation-button"],
+body:has([data-testid="history-button"][aria-selected="true"]) [data-testid="new-conversation-button"],
+body:has([data-testid="automations-button"].active) [data-testid="new-conversation-button"],
+body:has([data-testid="automations-button"][data-selected="true"]) [data-testid="new-conversation-button"],
+body:has([data-testid="automations-button"][aria-selected="true"]) [data-testid="new-conversation-button"],
+[data-swiss-stage-active] [data-testid="new-conversation-button"],
+body:has([data-swiss-stage-active]) [data-testid="new-conversation-button"],
+body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"],
+[data-testid="new-conversation-button"][data-selected="false"],
+[data-testid="new-conversation-button"].unselected {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  border: none !important;
+  color: var(--secondary-foreground, #71717a) !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+:is(.dark, [data-theme="dark"]) body:has([data-testid="conversation-view"]) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) body:has([data-testid="conversation-row-sidebar"][data-selected="true"]) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) body:has([data-testid="history-button"].active) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) body:has([data-testid="history-button"][data-selected="true"]) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) body:has([data-testid="history-button"][aria-selected="true"]) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) body:has([data-testid="automations-button"].active) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) body:has([data-testid="automations-button"][data-selected="true"]) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) body:has([data-testid="automations-button"][aria-selected="true"]) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) body:has([data-swiss-stage-active]) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) [data-testid="new-conversation-button"][data-selected="false"],
+:is(.dark, [data-theme="dark"]) [data-testid="new-conversation-button"].unselected {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  border: none !important;
+  color: var(--secondary-foreground, #94a3b8) !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+body:has([data-testid="conversation-view"]) [data-testid="new-conversation-button"]:hover,
+body:has([data-testid="conversation-row-sidebar"][data-selected="true"]) [data-testid="new-conversation-button"]:hover,
+body:has([data-testid="history-button"].active) [data-testid="new-conversation-button"]:hover,
+body:has([data-testid="history-button"][data-selected="true"]) [data-testid="new-conversation-button"]:hover,
+body:has([data-testid="automations-button"].active) [data-testid="new-conversation-button"]:hover,
+body:has([data-testid="automations-button"][data-selected="true"]) [data-testid="new-conversation-button"]:hover,
+[data-swiss-stage-active] [data-testid="new-conversation-button"]:hover,
+body:has([data-swiss-stage-active]) [data-testid="new-conversation-button"]:hover,
+body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hover,
+[data-testid="new-conversation-button"][data-selected="false"]:hover,
+[data-testid="new-conversation-button"].unselected:hover {
+  background-color: var(--sidebar-muted, rgba(148, 163, 184, 0.15)) !important;
+  color: var(--foreground, #1e293b) !important;
+}
+
+:is(.dark, [data-theme="dark"]) body:has([data-testid="conversation-view"]) [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) body:has([data-testid="conversation-row-sidebar"][data-selected="true"]) [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) body:has([data-testid="history-button"].active) [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) body:has([data-testid="history-button"][data-selected="true"]) [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) body:has([data-testid="automations-button"].active) [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) body:has([data-testid="automations-button"][data-selected="true"]) [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) body:has([data-swiss-stage-active]) [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) [data-testid="new-conversation-button"][data-selected="false"]:hover,
+:is(.dark, [data-theme="dark"]) [data-testid="new-conversation-button"].unselected:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #f1f5f9 !important;
 }
 
 /* Right Panel Auxiliary GitHub Workspace View */
@@ -373,73 +605,186 @@ func GenerateGitHubExtensionCSS() string {
   flex-direction: column;
   width: 100%;
   height: 100%;
-  background: var(--canvas, #ffffff);
-  color: var(--text, #1e293b);
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans, inherit);
   box-sizing: border-box;
   overflow: hidden;
   z-index: 20;
-}
-:is(.dark, [data-theme="dark"]) #swiss-main-stage-container {
-  background: #131314;
-  color: #f1f5f9;
 }
 
 #swiss-main-stage-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 42px;
-  min-height: 42px;
+  height: 40px;
+  min-height: 40px;
   padding: 0 12px;
-  background: var(--card, #f8fafc);
-  border-bottom: 1px solid var(--border, #e2e8f0);
+  padding-left: max(12px, calc(var(--static-cluster-width, 150px) - var(--sidebar-width, 256px)));
+  padding-right: max(12px, calc(44px - var(--aux-pane-width, 0px)));
+  background: var(--background);
+  border-bottom: 1px solid var(--border);
+  color: var(--foreground);
+  font-family: var(--font-sans, inherit);
   box-sizing: border-box;
   user-select: none;
 }
-:is(.dark, [data-theme="dark"]) #swiss-main-stage-header {
-  background: #1e1f20;
-  border-color: rgba(255, 255, 255, 0.08);
+
+.swiss-main-stage-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Extension Scope Selector Dropdown */
+.swiss-scope-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.swiss-scope-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  height: 28px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  background: var(--card, var(--background));
+  color: var(--foreground);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  user-select: none;
+  box-sizing: border-box;
+}
+.swiss-scope-btn:hover {
+  background: var(--secondary);
+  border-color: var(--border);
+}
+
+.swiss-scope-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  color: var(--foreground);
+}
+.swiss-scope-label {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.swiss-scope-value {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.swiss-scope-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  min-width: 210px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--popover, var(--card, var(--background)));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  z-index: 10000;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: inherit;
+}
+
+.swiss-scope-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--foreground);
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+  user-select: none;
+}
+.swiss-scope-item:hover {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+.swiss-scope-item.selected {
+  font-weight: 600;
+  background: var(--secondary);
+  color: var(--foreground);
+}
+
+.swiss-main-stage-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.swiss-main-stage-close-btn:hover {
+  background: var(--secondary);
+  color: var(--foreground);
 }
 
 .swiss-main-stage-tabs {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  padding: 2px;
+  height: 28px;
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  gap: 2px;
+  box-sizing: border-box;
+  font-family: inherit;
 }
 
 .swiss-main-stage-tab {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
+  gap: 5px;
+  padding: 0 8px;
+  height: 22px;
   font-size: 12px;
   font-weight: 500;
-  border-radius: 6px;
+  border-radius: 4px;
   border: none;
   background: transparent;
-  color: var(--text-muted, #64748b);
+  color: var(--muted-foreground);
   cursor: pointer;
-  transition: all 0.12s ease;
-}
-:is(.dark, [data-theme="dark"]) .swiss-main-stage-tab {
-  color: #94a3b8;
+  transition: background-color 0.12s ease, color 0.12s ease;
+  white-space: nowrap;
+  user-select: none;
+  box-sizing: border-box;
 }
 .swiss-main-stage-tab:hover {
-  background: rgba(0, 0, 0, 0.05);
-  color: var(--text, #0f172a);
-}
-:is(.dark, [data-theme="dark"]) .swiss-main-stage-tab:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f8fafc;
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  color: var(--foreground);
 }
 .swiss-main-stage-tab.active {
-  background: #1a73e8;
-  color: #ffffff;
-  font-weight: 600;
+  background: var(--card, var(--background));
+  color: var(--foreground);
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
-:is(.dark, [data-theme="dark"]) .swiss-main-stage-tab.active {
-  background: #8ab4f8;
-  color: #101010;
+.swiss-main-stage-tab.active:hover {
+  background: var(--card, var(--background));
+  color: var(--foreground);
 }
 
 #swiss-main-stage-body {
@@ -804,9 +1149,9 @@ func GenerateGitHubExtensionCSS() string {
   min-width: 180px;
   background: var(--surface, #ffffff);
   border: 1px solid var(--border, #e2e8f0);
-  border-radius: 8px;
+  border-radius: 10px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
-  padding: 4px 0;
+  padding: 4px;
   display: flex;
   flex-direction: column;
   user-select: none;
@@ -835,8 +1180,9 @@ func GenerateGitHubExtensionCSS() string {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 12px;
-  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12.5px;
   color: var(--text, #1e293b);
   background: transparent;
   border: none;

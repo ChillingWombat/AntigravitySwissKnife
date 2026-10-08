@@ -335,13 +335,13 @@ func TestBatchImportAndExportAccounts(t *testing.T) {
 
 	items := []BatchImportItem{
 		{
-			ID:         "alice@work.com",
-			Password:   "AlicePass2026!",
-			MFA:        "JBSWY3DPEHPK3PXP",
-			OathToken:  "1//oauth_refresh_alice",
-			Label:      "Alice Work",
-			PlanTier:   "Pro",
-			Priority:   "High",
+			ID:        "alice@work.com",
+			Password:  "AlicePass2026!",
+			MFA:       "JBSWY3DPEHPK3PXP",
+			OathToken: "1//oauth_refresh_alice",
+			Label:     "Alice Work",
+			PlanTier:  "Pro",
+			Priority:  "High",
 		},
 		{
 			Email:        "bob@personal.com",
@@ -614,4 +614,96 @@ func TestSyncStateVscdb(t *testing.T) {
 	}
 }
 
+func TestUpdateAccountFull_RefreshTokenInvalidatesStaleAccessToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	accPath := filepath.Join(tmpDir, "accounts.json")
+	store, err := NewStore(accPath)
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
 
+	// 1. Import account with both an access token and refresh token
+	acc, err := store.ImportAccount("test_token_invalidation@google.com", "1//initial_rt", "ya29.initial_at", "Test Token User", "")
+	if err != nil {
+		t.Fatalf("ImportAccount error: %v", err)
+	}
+	if acc.AccessToken != "ya29.initial_at" || acc.RefreshToken != "1//initial_rt" {
+		t.Fatalf("expected initial tokens, got AT=%s RT=%s", acc.AccessToken, acc.RefreshToken)
+	}
+
+	// 2. Updating with the same refresh token keeps the cached access token
+	err = store.UpdateAccountFull("test_token_invalidation@google.com", "Updated Alias", "Pro", "ACTIVE", "High", "Notes", "", "", "1//initial_rt", 0, false, false, false)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull error: %v", err)
+	}
+	accUpdated, err := store.GetAccount("test_token_invalidation@google.com")
+	if err != nil {
+		t.Fatalf("GetAccount error: %v", err)
+	}
+	if accUpdated.AccessToken != "ya29.initial_at" {
+		t.Errorf("expected cached AccessToken to remain untouched when RefreshToken is identical, got: %s", accUpdated.AccessToken)
+	}
+
+	// 3. Updating with a new refresh token invalidates the stale access token
+	err = store.UpdateAccountFull("test_token_invalidation@google.com", "Updated Alias", "Pro", "ACTIVE", "High", "Notes", "", "", "1//new_rotated_rt", 0, false, false, false)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull error: %v", err)
+	}
+	accRotated, err := store.GetAccount("test_token_invalidation@google.com")
+	if err != nil {
+		t.Fatalf("GetAccount error: %v", err)
+	}
+	if accRotated.RefreshToken != "1//new_rotated_rt" {
+		t.Errorf("expected new RefreshToken, got: %s", accRotated.RefreshToken)
+	}
+	if accRotated.AccessToken != "" {
+		t.Errorf("expected cached AccessToken to be invalidated to empty string on new RefreshToken, got: %s", accRotated.AccessToken)
+	}
+}
+
+func TestUpdateAccountFull_Ya29AccessTokenPreservesRefreshToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	accPath := filepath.Join(tmpDir, "accounts.json")
+	store, err := NewStore(accPath)
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	// 1. Create account with an existing long-term refresh token
+	acc, err := store.ImportAccount("test_ya29@google.com", "1//persistent_rt", "", "User", "")
+	if err != nil {
+		t.Fatalf("ImportAccount error: %v", err)
+	}
+	if acc.RefreshToken != "1//persistent_rt" {
+		t.Fatalf("expected RT=1//persistent_rt, got %s", acc.RefreshToken)
+	}
+
+	// 2. Updating with a ya29 token populates AccessToken and does NOT overwrite persistent RefreshToken
+	err = store.UpdateAccountFull("test_ya29@google.com", "User", "Pro", "ACTIVE", "High", "", "", "", "ya29.ephemeral_at", 0, false, false, false)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull error: %v", err)
+	}
+	accUpdated, err := store.GetAccount("test_ya29@google.com")
+	if err != nil {
+		t.Fatalf("GetAccount error: %v", err)
+	}
+	if accUpdated.AccessToken != "ya29.ephemeral_at" {
+		t.Errorf("expected AccessToken to be updated to ya29.ephemeral_at, got: %s", accUpdated.AccessToken)
+	}
+	if accUpdated.RefreshToken != "1//persistent_rt" {
+		t.Errorf("expected RefreshToken to remain intact as 1//persistent_rt, got: %s", accUpdated.RefreshToken)
+	}
+
+	// 3. SetAccessToken direct method works
+	err = store.SetAccessToken("test_ya29@google.com", "ya29.direct_set_at")
+	if err != nil {
+		t.Fatalf("SetAccessToken error: %v", err)
+	}
+	accDirect, err := store.GetAccount("test_ya29@google.com")
+	if err != nil {
+		t.Fatalf("GetAccount error: %v", err)
+	}
+	if accDirect.AccessToken != "ya29.direct_set_at" {
+		t.Errorf("expected AccessToken to be ya29.direct_set_at, got: %s", accDirect.AccessToken)
+	}
+}

@@ -87,7 +87,7 @@ type KanbanCard struct {
 	Number        int               `json:"number"`
 	Title         string            `json:"title"`
 	Body          string            `json:"body"`
-	State         string            `json:"state"` // "open", "closed", "merged"
+	State         string            `json:"state"`     // "open", "closed", "merged"
 	ColumnID      string            `json:"column_id"` // "todo", "in_progress", "review", "done"
 	Labels        []string          `json:"labels"`
 	Assignees     []string          `json:"assignees"`
@@ -126,22 +126,23 @@ type MoveKanbanCardRequest struct {
 	ProjectItemID string `json:"project_item_id,omitempty"`
 }
 
-
 // AgentTaskSummary links an Antigravity conversation and agent to a task.
 type AgentTaskSummary struct {
-	ConversationID    string    `json:"conversation_id"`
-	ConversationTitle string    `json:"conversation_title"`
-	AgentName         string    `json:"agent_name"`
-	AgentLabel        string    `json:"agent_label"` // User-assigned persona/label (e.g. "Lead Orchestrator")
-	Status               string    `json:"status"`      // "working", "idle", "completed"
-	NotFullyIdle         bool      `json:"not_fully_idle"`
-	ParentConversationID string    `json:"parent_conversation_id,omitempty"`
-	NestingDepth         int       `json:"nesting_depth,omitempty"`
-	BoundIssueNumber     int       `json:"bound_issue_number,omitempty"`
-	BoundPRNumber        int       `json:"bound_pr_number,omitempty"`
-	LastModified         time.Time `json:"last_modified"`
-	WorkspaceURI         string    `json:"workspace_uri"`
-	StepCount            int       `json:"step_count"`
+	ConversationID           string    `json:"conversation_id"`
+	ConversationTitle        string    `json:"conversation_title"`
+	AgentName                string    `json:"agent_name"`
+	AgentLabel               string    `json:"agent_label"` // User-assigned persona/label (e.g. "Lead Orchestrator")
+	Status                   string    `json:"status"`      // "working", "idle", "completed"
+	NotFullyIdle             bool      `json:"not_fully_idle"`
+	ParentConversationID     string    `json:"parent_conversation_id,omitempty"`
+	RootParentConversationID string    `json:"root_parent_conversation_id,omitempty"`
+	NestingDepth             int       `json:"nesting_depth,omitempty"`
+	IsPruned                 bool      `json:"is_pruned,omitempty"`
+	BoundIssueNumber         int       `json:"bound_issue_number,omitempty"`
+	BoundPRNumber            int       `json:"bound_pr_number,omitempty"`
+	LastModified             time.Time `json:"last_modified"`
+	WorkspaceURI             string    `json:"workspace_uri"`
+	StepCount                int       `json:"step_count"`
 }
 
 // UpdateIssueRequest parameters for modifying an existing issue.

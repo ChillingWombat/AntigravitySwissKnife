@@ -24,14 +24,14 @@ type OverviewPanelConfig struct {
 	LineWidthPercent       int    `json:"line_width_percent"`       // Divider line width percentage (80-100, default: 100)
 	LineColor              string `json:"line_color"`               // Divider line color (hex or empty for auto-theme border)
 	LineStyle              string `json:"line_style"`               // "solid", "dashed", "dotted" (default: "solid")
-	LineMargin             int    `json:"line_margin"`              // Spacing/margin between section and divider in px (default: 12)
+	LineMargin             int    `json:"line_margin"`              // Extra spacing before/after divider in px (default: 0 to preserve factory section distance)
 	ZoneBorderRadius       int    `json:"zone_border_radius"`       // Border radius of each section zone card in px (default: 8)
 	ZoneBorderColor        string `json:"zone_border_color"`        // Border color for each section zone card (default: "#e2e8f0")
 	ZoneBackgroundContrast string `json:"zone_background_contrast"` // "whiter" (whiter background like chat input box), "subtle", "card" (default: "whiter")
 	ZonePadding            int    `json:"zone_padding"`             // Internal padding for section zone in px (default: 10)
 	ZoneGap                int    `json:"zone_gap"`                 // Vertical gap between section zones in px (default: 10)
-	ReplaceSeeAllTriangle bool   `json:"replace_see_all_triangle"` // Replace "See all (N)" and "See less" with a compact refined triangle divider (default: true)
-	AuxTabsFormat         string `json:"aux_tabs_format"`          // "icon" (default: compact icon-only matching native) or "icon_and_name"
+	ReplaceSeeAllTriangle  bool   `json:"replace_see_all_triangle"` // Replace "See all (N)" and "See less" with a compact refined triangle divider (default: true)
+	AuxTabsFormat          string `json:"aux_tabs_format"`          // "icon" (default: compact icon-only matching native) or "icon_and_name"
 }
 
 // EnhancementsConfig holds configuration for usability improvements and add-on features.
@@ -41,11 +41,14 @@ type EnhancementsConfig struct {
 	PromptJumpBar      PromptJumpBarConfig `json:"prompt_jump_bar"`
 	OverviewPanel      OverviewPanelConfig `json:"overview_panel"`       // Section division and compact controls for Overview Panel
 	ToolDensityMode    string              `json:"tool_density_mode"`    // "normal", "muted", "hidden"
-	BreakerLineEnabled bool                `json:"breaker_line_enabled"` // Breaker line between previous answer and new prompt
-	DefaultNewProject  string              `json:"default_new_project"`  // "auto" (default: latest active) or predefined project name
-	ScrollToBottom     bool                `json:"scroll_to_bottom"`
-	TurnCounter        bool                `json:"turn_counter"`
-	UpdatedAt          time.Time           `json:"updated_at"`
+	BreakerLineEnabled         bool                `json:"breaker_line_enabled"`          // Breaker line between previous answer and new prompt
+	LeftPanelExtensionsEnabled bool                `json:"left_panel_extensions_enabled"` // Toggle button for extension in left sidebar (default: true)
+	LeftPanelExtensionsMode    string              `json:"left_panel_extensions_mode"`    // "single" (single Swiss Knife button) or "individual" (default: "single")
+	MainSectionExtensionsEnabled bool              `json:"main_section_extensions_enabled"` // Toggle to use extension in main section vs auxiliary panel (default: true)
+	DefaultNewProject          string              `json:"default_new_project"`           // "auto" (default: latest active) or predefined project name
+	ScrollToBottom             bool                `json:"scroll_to_bottom"`
+	TurnCounter                bool                `json:"turn_counter"`
+	UpdatedAt                  time.Time           `json:"updated_at"`
 }
 
 // DefaultConfig returns the recommended default enhancements configuration.
@@ -65,25 +68,28 @@ func DefaultConfig() *EnhancementsConfig {
 		},
 		OverviewPanel: OverviewPanelConfig{
 			Enabled:                true,
-			DivisionStyle:          "border_zone", // Option 2: border zone with whiter background
+			DivisionStyle:          "divider_line", // Divider line between sections
 			LineThickness:          1,
 			LineWidthPercent:       100,
 			LineColor:              "#e2e8f0",
 			LineStyle:              "solid",
-			LineMargin:             12,
+			LineMargin:             0,
 			ZoneBorderRadius:       8,
 			ZoneBorderColor:        "#e2e8f0",
 			ZoneBackgroundContrast: "whiter",
 			ZonePadding:            10,
 			ZoneGap:                10,
-			ReplaceSeeAllTriangle: true,
-			AuxTabsFormat:         "icon",
+			ReplaceSeeAllTriangle:  true,
+			AuxTabsFormat:          "icon",
 		},
-		ToolDensityMode:    "muted",
-		BreakerLineEnabled: true,
-		DefaultNewProject:  "auto",
-		ScrollToBottom:     true,
-		TurnCounter:        true,
-		UpdatedAt:          time.Now().UTC(),
+		ToolDensityMode:            "muted",
+		BreakerLineEnabled:         true,
+		LeftPanelExtensionsEnabled: true,
+		LeftPanelExtensionsMode:    "single",
+		MainSectionExtensionsEnabled: true,
+		DefaultNewProject:          "auto",
+		ScrollToBottom:             true,
+		TurnCounter:                true,
+		UpdatedAt:                  time.Now().UTC(),
 	}
 }

@@ -217,7 +217,7 @@ export const ScheduledTemplatesPage: React.FC<ScheduledTemplatesPageProps> = ({
                   onClick={() => setSelectedCategory(cat)}
                   style={{
                     padding: '6px 14px',
-                    borderRadius: '20px',
+                    borderRadius: '6px',
                     fontSize: '12px',
                     fontWeight: 600,
                     cursor: 'pointer',
@@ -262,7 +262,7 @@ export const ScheduledTemplatesPage: React.FC<ScheduledTemplatesPageProps> = ({
                 onClick={() => openDeployModal(t)}
                 style={{
                   background: '#ffffff',
-                  borderRadius: '12px',
+                  borderRadius: '10px',
                   border: '1px solid #e2e8f0',
                   padding: '20px',
                   cursor: 'pointer',
@@ -493,7 +493,7 @@ export const ScheduledTemplatesPage: React.FC<ScheduledTemplatesPageProps> = ({
           <div
             style={{
               background: '#ffffff',
-              borderRadius: '16px',
+              borderRadius: '10px',
               maxWidth: '680px',
               width: '100%',
               maxHeight: '90vh',

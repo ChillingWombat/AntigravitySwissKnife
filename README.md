@@ -1,259 +1,229 @@
-# Antigravity Swiss Knife
+<p align="center">
+  <img src="assets/logo.png" alt="Antigravity Swiss Knife Logo" width="128" height="128" />
+</p>
 
-![Antigravity Swiss Knife Logo](assets/logo.png)
+<h1 align="center">Antigravity Swiss Knife</h1>
 
-### The Definitive Native Companion, Quota Switcher, Security Auditor, and Feature Extender for Google Antigravity 2.0
+<p align="center">
+  An open-source desktop companion and local companion daemon for Google Antigravity 2.0.
+</p>
 
-*Engineered natively in Go & TypeScript for power users, agent developers, and high-velocity engineering workflows.*
-
----
-
-## 🌟 Executive Overview
-
-**Antigravity Swiss Knife** is a native companion daemon and UI extension suite built specifically for **Google Antigravity 2.0**. It supercharges Antigravity with enterprise-grade multi-account fleet quota switching, custom model relay security auditing, in-chat token & TPS telemetry, cross-agent conversation migrations, and an auxiliary productivity workspace (in-app browser preview, lightweight file explorer, mobile simulator, and quick memos).
-
-Unlike brittle proxy-based MITM solutions, Antigravity Swiss Knife runs **100% natively and locally**:
-
-- **Zero-Loss Keyring Integration**: Manages OAuth2 tokens directly in the Linux Secret Service API (`secret-tool` / `libsecret`), macOS Keychain, and Windows Credential Manager.
-- **Session Preservation**: Prevents session dropouts, lost conversation IDs, or `state.vscdb` locking by dynamically synchronizing `app_storage.json`.
-- **Atomic Reversibility**: All modifications to Antigravity runtime files create pristine `<file>.swiss.bak` backups, guaranteeing 100% crash safety and instant rollback.
-
----
-
-## 🚀 Complete Suite Modules
-
-```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                                Antigravity Swiss Knife                                 │
-├─────────────────────┬──────────────────────┬────────────────────┬──────────────────────┤
-│ 1. Account Switcher │ 2. Custom Models     │ 3. UI Enhancements │ 4. Extensions        │
-│ • 2x2 Gauge Matrix  │ • 6-Probe Security   │ • Jump Bar         │ • App/Web Preview    │
-│ • Dual Quota Bars   │   Audit Engine       │ • Turn Counter     │ • Auxiliary Explorer │
-│ • MFA / TOTP Vault  │ • Model Canary Test  │ • Density Modes    │ • Quick Voice Memos  │
-│ • FP Virtualization │ • OpenAI / Anthropic │ • Project Coloring │ • GitHub Workspace   │
-├─────────────────────┼──────────────────────┼────────────────────┼──────────────────────┤
-│ 5. Token Monitor    │ 6. Utilities & ACP   │ 7. Automations     │ 8. Archived Projects │
-│ • k/M & USD Switch  │ • Chat Migration     │ • Cron Automations │ • Storage Inspector  │
-│ • Subagent Telemetry│ • ACP Agent Mesh     │ • Dynamic Sidecars │ • 1-Click Restore    │
-│ • Live TPS Display  │ • Project Matching   │ • Template Library │ • Disk Reclamation   │
-└─────────────────────┴──────────────────────┴────────────────────┴──────────────────────┘
-```
-
-### 1. 🔄 Native Zero-Loss Account Switcher
-
-- **Dual Fleet Quotas (2x2 Gauge Grid)**: When non-Gemini models (Claude 3.7 & GPT-4o) are enabled, the top-right indicator renders a 2x2 circular gauge matrix (top: Gemini 5-Hour & Weekly quota; bottom: Claude/GPT 5-Hour & Weekly quota) separated by a clean divider.
-- **Dual Stacked Progress Bars**: The account fleet table renders dual stacked progress bars per row, tracking independent Gemini vs Claude/GPT quota health without window resize distortion.
-- **Integrated MFA / TOTP Vault**: Built-in RFC 6238 TOTP engine with auto-copy, live 30s countdown rings, and encrypted backup codes.
-- **Hardware Profile Virtualization**: Isolates `machineid`, `.updaterId`, `installation_id`, and `installation_uuid` per account to prevent multi-account correlation bans.
-- **Reset Horizon Keep-Alive**: Automatically dispatches a 1-token warmup ping upon quota window rollover (`resetTime`) to prime the next quota period immediately.
-
-### 2. 🛡️ Custom Models & API Security Relay Auditor
-
-- **Multi-Provider Architecture**: Configure Anthropic Claude, OpenAI, DeepSeek, OpenRouter, LiteLLM, and self-hosted Ollama/vLLM endpoints.
-- **6-Probe Security Audit Engine** (Inspired by `api-relay-audit`):
-  1. *TLS Certificate & Cipher Integrity*: Checks TLS version, cipher suites, and MitM proxy intercepts.
-  2. *Origin Lineage & Edge Proxy Inspection*: Detects unverified reverse proxies and untrusted CF-Ray intermediaries.
-  3. *Model Substitution Canary Probe*: Verifies that upstream relays do not silently downgrade models (e.g. returning Llama 8B or GPT-4o-mini when GPT-4o was requested).
-  4. *Prompt Injection & System Prompt Integrity*: Tests whether custom proxy middleware injects hidden adversarial steering prompts.
-  5. *Tool Call Tampering & JSON Payload Integrity*: Validates strict schema preservation during tool execution.
-  6. *Error & Diagnostic Leakage*: Ensures error traces do not expose API keys, internal IPs, or environment variables.
-- **Google Material Design 3 Audit Modal**: Detailed risk score (A+ to F), gauge meter, probe logs, and copyable Markdown reports.
-
-### 3. 🎨 UI & Workspace Enhancements
-
-- **Prompt Jump Bar**: Sticky navigation bar in chat view allowing instant jumping between user prompt turns with pulse animation.
-- **Tool Density Modes**: Switch between `normal` (detailed cards), `muted` (compact minimalist chips), and `hidden` (zero visual clutter) for high-token tool runs.
-- **Breaker Line Dividers**: Clean visual separation between successive assistant turns.
-- **Visual Project Styling**: Assign distinct Google Material pastel accents and badges to each active workspace.
-- **Smart Dynamic Tab Limits**: Automatically manage open chat tabs with fixed or age-based auto-archiving.
-
-### 4. 🧩 Extensions (Exclusive to Antigravity 2.0 Desktop)
-
-- **Auxiliary App & Browser Live Preview**:
-  - Embedded browser preview with real-time navigation controls.
-  - Interactive Annotation Tools: Red Pen tool (`#ea4335`) and Red Rectangle tool with visual snapping.
-  - DOM Element Inspector & Right-Click Commenting: Click any UI element to capture DOM structure.
-  - Hybrid Chat Payload Engine: Formats annotations into a rich payload combining cropped viewport screenshot + DOM outerHTML snippet + computed CSS selector for optimal Gemini grounding.
-  - iPad Mirroring & Apple Pencil Annotation (On Roadmap).
-- **Auxiliary Lightweight File Explorer**:
-  - Workspace root dropdown and breadcrumb address bar with manual path input and Back/Forward history.
-  - File tree with real-time search filter and right-click context menu (Rename, Copy/Cut/Paste, Delete, Reveal in OS).
-  - In-App WYSIWYG Markdown Viewer & Editor.
-  - PDF Annotator (Select to Highlight & Underline with export to chat).
-  - Lightweight Code Editor with syntax highlighting, line numbers, and "Annotate Selection to Chat" button.
-  - Univer / SheetJS Office integration for spreadsheets and tabular datasets.
-  - Open Folder in Antigravity Terminal.
-  - Remote Filesystem Browser (SSH, Google Cloud Storage, AWS S3) (On Roadmap).
-- **Quick Memos**:
-  - Floating memo board for instant text snippets, dual-scope storage (Global vs Per-Project `.antigravity/memos.json`), and audio voice memos (`MediaRecorder` + Web Speech API transcription).
-  - In-panel real-time search with configurable search scope (text-only default vs. text + voice memos).
-  - Drag-and-drop memos directly into Antigravity chat input.
-  - *Interactive Drawing Board & UI Wireframe Memos (On Roadmap)*: In-app freehand canvas/draw board to sketch UI layouts, system architectures, and wireframes, exporting automatically as image memos to drag into chat with AI agents.
-  - *OS File & Folder Shortcut Catalog (On Roadmap)*: Drag any file or folder from the system file explorer or desktop into the memo extension to store lightweight path references (without duplicating files on disk). Right-click context actions to:
-    - Reveal in OS file manager (Nautilus, Dolphin, Finder, Explorer).
-    - Open with system default application.
-    - Open in Antigravity's auxiliary viewer/editor for inline annotation (Markdown, PDF, code).
-    - Drag directly into agent chat input to attach or inject absolute file paths.
-- **GitHub Workspace Extension**:
-  - Live local repository detection via Git & GitHub CLI integration.
-  - Interactive GitHub Projects Kanban board view with 4 configurable status columns (Todo, In Progress, Review, Done).
-  - Drag-and-drop cards between columns with optimistic UI updates and live GitHub API synchronization.
-  - Issue & Pull Request tracker with state filtering, instant search, and inline comment/editing.
-  - Multi-agent task tracker linking active and idle conversations to GitHub tickets.
-- **Mobile Simulator**:
-  - Mobile viewport presets (iPhone 16 Pro, Google Pixel 9 Pro, iPad Air).
-  - Orientation toggling (Portrait / Landscape) and hardware device bezel toggle.
-- **Computer Use Enhancer**:
-  - Evaluation matrix comparing Antigravity native computer use against open-source alternatives (OS-World, Open-Computer-Use, Cradle).
-  - HiDPI Coordinate Normalization and Linux Wayland PipeWire screen capture grounding.
-
-### 5. ⚡ Token & Cost Monitor
-
-- **Real-Time Token Tracking**: Monitors input prompt tokens, cached input tokens, and generated output tokens for native Gemini and custom models.
-- **Unit Toggle**: 1-click toggle between `Tokens (k/M)` and `USD ($)`.
-- **Dynamic Pricing Registry**: Auto-fetches current per-1M token rates from LiteLLM and OpenRouter indices with manual override capabilities.
-- **Multi-Agent / Subagent Aggregation Engine**:
-  - In Antigravity 2.0 chat, injects a telemetry footer below each agent message.
-  - When an orchestrator spawns multiple subagents (e.g. `research`, `code-review`), the daemon aggregates tokens across all spawned tree nodes into a single consolidated response badge:  
-  `⚡ 18,240 tokens (Prompt: 14,200 | Cached: 9,800 [69%] | Output: 4,040) • 76.2 TPS • $0.0124 (saved $0.0084) [+2 subagents]`
-  - Multi-session disambiguation via session UUID and turn step indexing.
-- **Multi-Dimensional Breakdowns**: Analyze usage by Model, Fleet Account, Workspace Project, and Time Horizon (24h, 7d, 30d, All Time).
-- **Audit Export**: 1-click CSV export of session telemetry.
-
-### 6. 🛠️ Utilities & Agent Interoperability
-
-- **Cross-Agent Chat & Project Migration Tool** (Inspired by `dsh-chat-import`):
-  - Import historical conversations and project trees from Claude Code, Cursor Composer, ChatGPT Data Exports, Windsurf, Copilot, and raw JSON.
-  - Intelligent Project Matching Engine: Auto-detects workspace paths and git remote origins to route chats into existing Antigravity projects, or re-creates new Antigravity projects automatically.
-  - Execution Modes: 1-click manual import, scheduled cron sync, and real-time directory watch (inotify/fsnotify) for continuous mirroring.
-- **Agent Client Protocol (ACP) Status Inspector**:
-  - Scans and discovers active local agent processes (Antigravity 2.0, Claude Code CLI, Cursor, Copilot).
-  - Pings ACP sockets, verifies handshake latency, and inspects negotiated cross-agent tool sharing (filesystem, terminal, MCP proxies).
+<p align="center">
+  <a href="#overview">Overview</a> •
+  <a href="#architecture">Architecture</a> •
+  <a href="#modules">Modules</a> •
+  <a href="#lifecycle">Lifecycle</a> •
+  <a href="#platform-support">Platform Support</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#terms-of-service-alignment--safety-notice">ToS &amp; Safety</a> •
+  <a href="#thanks">Thanks</a> •
+  <a href="#license">License</a>
+</p>
 
 ---
 
-## 🗺️ Comprehensive Feature Roadmap & Feasibility Matrix
+## Overview
 
-This roadmap classifies all existing and planned features based on **Feasibility** (technical complexity), **Google Implementation Likelihood** (probability Google will natively release this in upcoming Antigravity builds), **Importance** to power users, and current **Implementation Status**.
+Antigravity Swiss Knife is a local engineering tool designed to enhance workflows in Google Antigravity 2.0. It provides multi-account quota monitoring, zero-loss credential rotation, custom model security auditing, in-chat token telemetry, and auxiliary development extensions.
 
-| Feature / Module                                | Category               | Difficulty | Google Likelihood | Importance | Target Surface | Offline Persistence          | Status        |
-| ----------------------------------------------- | ---------------------- | ---------- | ----------------- | ---------- | -------------- | ---------------------------- | ------------- |
-| **Zero-Loss Keyring Account Switcher**          | Fleet Management       | Medium     | Low               | Critical   | Desktop Only   | Daemon-Assisted              | **Completed** |
-| **Dual Gemini + Claude/GPT 2x2 Gauges**         | Fleet Management       | Low        | Low               | High       | Desktop Only   | Companion UI                 | **Completed** |
-| **Integrated MFA / TOTP Vault**                 | Security & Auth        | Low        | Low               | High       | Desktop Only   | Companion UI                 | **Completed** |
-| **Device Fingerprint Virtualizer**              | Anti-Correlation       | Medium     | Low               | Critical   | Desktop Only   | Persistent (App Closed)      | **Completed** |
-| **Reset Horizon Warmup Keep-Alive**             | Automation             | Low        | Low               | High       | Desktop Only   | Daemon-Assisted              | **Completed** |
-| **Brain Cache Pruner & Storage Manager**        | Performance            | Low        | Medium            | Medium     | Desktop + Ext  | Companion UI                 | **Completed** |
-| **Custom Models Setup & Routing**               | Model Routing          | Low        | Medium            | Critical   | Desktop + Ext  | Persistent (App Closed)      | **Completed** |
-| **API Security Relay Auditor (6 Probes)**       | Security & Audit       | Medium     | Low               | High       | Desktop + Ext  | Companion UI                 | **Completed** |
-| **UI Enhancements (Prompt Jump Bar)**           | UI/UX                  | Low        | High              | High       | Desktop Only   | Persistent (App Closed)      | **Completed** |
-| **Tool Call Density Modes (Muted/Hide)**        | UI/UX                  | Low        | High              | High       | Desktop Only   | Persistent (App Closed)      | **Completed** |
-| **Workspace Color Accents & Badges**            | UI/UX                  | Low        | Medium            | Medium     | Desktop Only   | Persistent (App Closed)      | **Completed** |
-| **Dynamic Tab Limits & Auto-Archive**           | Project Lifecycle      | Low        | Low               | Medium     | Desktop Only   | Persistent (App Closed)      | **Completed** |
-| **Auxiliary Browser & Live App Preview**        | Feature Plugins        | Medium     | Medium            | High       | Desktop Only   | Persistent (App Closed)      | **Completed** |
-| **Visual Annotation (Red Pen / Rect)**          | Feature Plugins        | Medium     | Medium            | High       | Desktop Only   | Persistent (App Closed)      | **Completed** |
-| **Hybrid Chat Payload (Crop + DOM Code)**       | Feature Plugins        | Medium     | Medium            | High       | Desktop Only   | Persistent (App Closed)      | **Completed** |
-| **Auxiliary Lightweight File Explorer**         | Feature Plugins        | Medium     | Low               | High       | Desktop Only   | Persistent (App Closed)      | **Completed** |
-| **In-App WYSIWYG Markdown & PDF Mark**          | Feature Plugins        | Medium     | Medium            | High       | Desktop Only   | Persistent (App Closed)      | **Completed** |
-| **Lightweight Editor ("Annotate to Chat")**     | Feature Plugins        | Medium     | Low               | High       | Desktop Only   | Persistent (App Closed)      | **Completed** |
-| **Univer / SheetJS Office Viewer**              | Feature Plugins        | Medium     | Low               | Medium     | Desktop Only   | Persistent (App Closed)      | **Completed** |
-| **Quick Memos (Text & Audio Notes)**            | Feature Plugins        | Low        | Low               | Medium     | Desktop Only   | Persistent (App Closed)      | **Completed** |
-| **Mobile Simulator (iPhone/Pixel/iPad)**        | Feature Plugins        | Medium     | Low               | Medium     | Desktop Only   | Persistent (App Closed)      | **Completed** |
-| **Computer Use Enhancer (HiDPI/Wayland)**       | Feature Plugins        | High       | High              | High       | Desktop Only   | Companion UI                 | **Completed** |
-| **Token & Cost Monitor Dashboard**              | Telemetry              | Low        | Medium            | Critical   | Desktop + Ext  | Companion UI                 | **Completed** |
-| **USD ($) vs Tokens (k/M) Toggle**              | Telemetry              | Low        | High              | High       | Desktop + Ext  | Companion UI                 | **Completed** |
-| **In-Chat Token & TPS Response Badge**          | Telemetry              | Medium     | Medium            | Critical   | Desktop Only   | Persistent (App Closed)      | **Completed** |
-| **Subagent Telemetry Aggregation**              | Telemetry              | Medium     | Low               | High       | Desktop Only   | Persistent (App Closed)      | **Completed** |
-| **Cross-Agent Chat Importer (Claude/Cursor)**   | Interoperability       | Medium     | Low               | High       | Desktop + Ext  | Companion UI                 | **Completed** |
-| **Project Auto-Matching & Re-Creation**         | Interoperability       | Medium     | Low               | High       | Desktop + Ext  | Companion UI                 | **Completed** |
-| **Directory Watch Sync (inotify Auto-Import)**  | Interoperability       | Medium     | Low               | Medium     | Desktop + Ext  | Daemon-Assisted              | **Completed** |
-| **ACP Agent Mesh & Status Inspector**           | Interoperability       | Medium     | Medium            | High       | Desktop + Ext  | Companion UI                 | **Completed** |
-| **Scheduled Task Automation Library**           | Automations            | Low        | Medium            | High       | Desktop + Ext  | Daemon-Assisted              | **Completed** |
-| **Agent Kanban Board & GitHub Issues Sync**     | Task Orchestration     | Medium     | Low               | Critical   | Desktop Only   | Daemon-Assisted + Persistent | **Planned**   |
-| **Google CodeMender Security Agent Manager**    | Security & Remediation | Medium     | Medium            | High       | Desktop + Ext  | Companion UI + Daemon        | **Planned**   |
-| **Dev Study Buddy & Focus Body Double**         | Productivity & Focus   | Medium     | Low               | High       | Desktop Only   | Companion UI + Persistent    | **Planned**   |
-| **iPad Sidecar Mirroring & Pencil Draw**        | Feature Plugins        | Extreme    | Low               | Low        | Desktop Only   | Roadmap / Planned            | **Planned**   |
-| **Remote Filesystem Browser (SSH / S3)**        | Feature Plugins        | High       | Low               | Medium     | Desktop Only   | Roadmap / Planned            | **Planned**   |
-| **Interactive Drawing Board & UI Memos**        | Feature Plugins        | Medium     | Low               | High       | Desktop Only   | Persistent (App Closed)      | **Planned**   |
-| **OS File & Folder Shortcut Catalog (Memos)**   | Feature Plugins        | Medium     | Low               | High       | Desktop Only   | Persistent (App Closed)      | **Planned**   |
-| **Multi-Platform Test Sandbox (MicroVM/noVNC)** | Sandboxing & QA        | High       | Low               | High       | Desktop Only   | Daemon-Assisted              | **Backlog**   |
-| **Self-Hosted vLLM / Ollama Auto-Launcher**     | Infrastructure         | High       | Low               | Medium     | Desktop + Ext  | Under Evaluation             | **Backlog**   |
-| **Native Wayland Overlay Annotations**          | System UI              | Extreme    | Low               | Low        | Desktop Only   | Under Evaluation             | **Backlog**   |
-| **Multi-Agent Video Studio Generator**          | Multimedia             | High       | Low               | Low        | Desktop + Ext  | Out of Scope                 | **Discarded** |
+The project is built on three core technical principles:
 
-*Legend*:
-
-- **Feasibility**: Low (Straightforward DOM/API), Medium (Moderate reverse-engineering/IPC), High (Advanced protocol emulation), Extreme (Kernel/OS level display streaming).
-- **Google Likelihood**: Low (<20% chance Google builds it), Medium (40-60% chance), High (>80% chance Google incorporates into native roadmap).
-- **Offline Persistence**:
-  - `Persistent (App Closed)`: Functions continuously inside Antigravity 2.0 even when the Swiss Knife application is completely closed. Injected directly into Antigravity's persistent renderer scripts (`persistent_styles.css`, `persistent_script.js`).
-  - `Daemon-Assisted`: Runs in the background via the headless Go daemon without requiring the graphical Swiss Knife companion window.
-  - `Companion UI`: Interactive control panel or auditor modals rendered inside the Swiss Knife GUI.
-- **Status**: Completed (Shipped and functional), WIP (In development), Planned (On roadmap), Backlog (Under evaluation), Discarded (Out of scope).
+- **Local-First Execution**: The daemon and supervisory GUI run entirely on the host system. No network proxies or intermediary servers are inserted between Antigravity and upstream endpoints.
+- **Native Keyring Security**: Credentials remain managed inside the operating system's native secret storage (Linux Secret Service API via `libsecret`, macOS Keychain, and Windows Credential Manager).
+- **Atomic Reversibility**: Runtime modifications generate pristine `.swiss.bak` snapshots, enabling clean one-click restoration to default system states.
 
 ---
 
-## 💻 Surface Compatibility: Desktop App vs VS Code Extension
+## Architecture
 
-| Dimension                           | Antigravity 2.0 Desktop App                                                                                           | Antigravity VS Code Extension                                                                                    |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| **Underlying Architecture**         | Standalone Electron application (`/opt/Antigravity/antigravity`) with raw DOM access via `preload.js` and `app.asar`. | Sandboxed Webview / Language Server extension running within VS Code core process boundaries.                    |
-| **DOM & UI Cosmetic Injection**     | Full unrestricted access to sidebar DOM, chat message nodes, top titlebar, and auxiliary panels.                      | Strictly limited to standard VS Code Webview views; cannot alter parent editor chrome or inject chat buttons.    |
-| **Auxiliary Browser & App Preview** | Fully supported via Electron `BrowserView` / `WebviewTag` with bypassed CORS and iframe frame-ancestors.              | Restricted by VS Code CSP and webview sandbox restrictions; cannot render arbitrary external HTTP pages.         |
-| **File Explorer & Office Viewers**  | Fully supported as an integrated custom auxiliary panel tab.                                                          | Redundant with VS Code's native file explorer; office previews require heavy third-party extension dependencies. |
-| **Keyring Credential Management**   | Native access via loopback IPC daemon to OS secret storage (`secret-tool`, Keychain).                                 | Supported (can communicate with the local Go daemon via HTTP/IPC).                                               |
-| **Token Monitor & Pricing**         | Full support with in-chat response telemetry badge injected into chat DOM.                                            | Supported via Swiss Knife web dashboard; in-chat footer requires custom webview wrapper.                         |
-| **Chat & Project Migration**        | Full support with auto-project recreation directly in Antigravity's storage.                                          | Supported for data transformation, but project recreation is constrained to VS Code workspace files.             |
+Antigravity Swiss Knife employs a three-tier architecture: an injected runtime layer within Antigravity, an independent companion desktop application, and a headless Go daemon that manages state and OS integrations.
 
----
+<p align="center">
+  <img src="assets/architecture.png" alt="Antigravity Swiss Knife System Architecture" width="100%" />
+</p>
 
-## 🔒 Safety, Reversibility, and Persistence Lifecycle
+### System Layers
 
-### 1. Offline Persistence (When Swiss Knife Electron App is Closed)
+1. **Host Runtime Environment (Antigravity 2.0 Desktop)**  
+   Lightweight client scripts (`persistent_script.js` and `persistent_styles.css`) that provide conversation turn navigation, tool output density controls, and live per-turn token metrics.
 
-- The core Swiss Knife engine runs as a lightweight headless Go daemon (`bin/swiss daemon`).
-- When the user closes the Swiss Knife GUI window, the daemon **continues running in the background** (or via `systemd` user service).
-- Quota polling, auto-account switching, background sync, and reset horizon keep-alives remain **100% active** without requiring the Electron app to be open.
+2. **Supervisory Desktop Interface (Electron & React 19)**  
+   A dedicated desktop control interface for account credential management, security audits, telemetry review, and auxiliary workspace tools.
 
-### 2. Zero-Risk Atomic Reversibility (`.swiss.bak`)
-
-- Every system or runtime file modified by Antigravity Swiss Knife is preceded by an atomic backup:  
-`workbench.desktop.main.js` ➔ `workbench.desktop.main.js.swiss.bak`
-- A single command (`bin/swiss uninject` or via the System Settings GUI) restores pristine factory files and restarts the Antigravity desktop app safely.
-- If an Antigravity auto-update occurs, Swiss Knife detects signature changes and gracefully pauses injections rather than crashing.
+3. **Companion Daemon (`bin/swiss daemon`)**  
+   A standalone Go binary operating with zero CGo dependencies. The daemon exposes a local Unix domain socket (`/run/user/1000/antigravity-swiss/daemon.sock`) and a loopback HTTP interface (`127.0.0.1:8765`), handling background quota polling, hardware profile virtualization, token accounting, and process locks.
 
 ---
 
-## 🛠️ Build & Installation
+## Modules
+
+The application is structured into eight functional subsystems:
+
+<p align="center">
+  <img src="assets/modules_overview.png" alt="Antigravity Swiss Knife Functional Modules" width="100%" />
+</p>
+
+### 1. Fleet Quota & Account Switcher
+- Multi-account quota tracking across Gemini, Claude, and GPT model pools.
+- RFC 6238 TOTP engine with secure local credential storage.
+- Hardware profile virtualization (`machineid`, `.updaterId`, `installation_uuid`) per account to avoid correlation across profiles.
+- Automatic reset horizon keep-alive pings upon quota window rollover.
+- In-place credential rotation preserving active conversation context and session history.
+
+### 2. Custom Models & Security Relay Auditor
+- Custom model routing supporting OpenAI, Anthropic, DeepSeek, and OpenAI-compatible gateways.
+- 6-probe security auditor evaluating TLS cipher strength, proxy intermediary headers, prompt injection hazards, tool-call schema integrity, and diagnostic leakage.
+- Model substitution canary tests to verify that relay proxies do not silently downgrade model quality.
+
+### 3. Session Navigation & Controls
+- Rapid jump navigation across user prompt turns in long sessions.
+- Tool execution output filtering (standard, compact, or hidden) to collapse verbose command runs.
+- Inactivity-based tab lifecycle management with automated archiving.
+
+### 4. Extensions Workspace
+- Embedded preview browser with responsive viewport presets and DOM element inspection.
+- Visual annotation tool allowing developers to capture and attach targeted UI feedback for agents.
+- Lightweight project file explorer with Markdown and source code previews.
+- Quick memo store supporting text notes and transcribed audio recordings.
+- Integrated GitHub Projects Kanban board for task orchestration.
+
+### 5. Token & Cost Telemetry
+- Real-time token accounting (prompt tokens, cached prompt tokens, output tokens).
+- Live generation speed (tokens per second) and estimated inference cost per turn.
+- Multi-agent aggregation consolidating metrics across parent orchestrators and background subagents.
+- CSV export for historical project and account token analysis.
+
+### 6. Utilities & Interoperability
+- Conversation and project importer compatible with Claude Code, Cursor Composer, Windsurf, and ChatGPT data exports.
+- Automatic workspace directory detection and Git remote repository matching.
+- Agent Client Protocol (ACP) process discovery and handshake latency inspection.
+
+### 7. Background Automations
+- Headless cron scheduler executing recurring engineering routines.
+- Workspace health checks and automated cache maintenance.
+- Systemd user service integration for continuous background management.
+
+### 8. Storage & Reversibility
+- Local embedded persistence powered by pure-Go SQLite.
+- Non-destructive configuration management with automatic `.swiss.bak` snapshots and one-click rollback.
+- Cache inspector for analyzing and reclaiming disk space from conversation and artifact stores.
+
+---
+
+## Lifecycle
+
+Account switching and quota synchronizations are designed to execute without interrupting active coding sessions:
+
+<p align="center">
+  <img src="assets/lifecycle_flow.png" alt="Account Switching Lifecycle" width="100%" />
+</p>
+
+1. **Trigger**: An account switch is initiated via the companion GUI, the CLI (`swiss switch`), or an automated threshold.
+2. **Keyring Synchronization**: The daemon acquires a singleton process lock, retrieves the target OAuth2 token from the OS secret store, and refreshes expired tokens.
+3. **Fingerprint Isolation**: Hardware profile identifiers (`machineid`, `.updaterId`, `installation_uuid`) are swapped to match the selected profile.
+4. **Runtime Update**: Local storage configuration (`app_storage.json`) is updated, and the Antigravity React interface is refreshed via Chrome DevTools Protocol (CDP) without requiring a process restart.
+5. **Verification**: A 1-token warmup probe primes the upstream CloudCode quota window, confirming operational readiness.
+
+---
+
+## Platform Support
+
+Antigravity Swiss Knife is engineered for cross-platform operation across Linux, Windows, and macOS, directly integrating with each platform's native secret storage service:
+
+| Platform | Keyring Backend | Support Status |
+| :--- | :--- | :--- |
+| **Linux** | Secret Service API (`libsecret` / `secret-tool`) | Primary development & validation environment |
+| **macOS** | Apple Keychain (`security`) | Active testing and verification in progress |
+| **Windows** | Windows Credential Manager (`wincred`) | Active testing and verification in progress |
+
+> [!NOTE]
+> The companion daemon and supervisory desktop application were developed and verified primarily on Linux. While the architecture and system integrations are cross-platform by design, comprehensive testing and verification for Windows and macOS are currently in progress. Issue reports and operational feedback on these platforms are welcome.
+
+---
+
+## Installation
 
 ### Prerequisites
 
-- Go 1.22+
-- Node.js 20+ & npm
-- Linux (Secret Service API / `secret-tool`), macOS (Keychain), or Windows
+- Go 1.22 or newer
+- Node.js 20 or newer with npm
+- Native OS secret store (`libsecret` on Linux, Keychain on macOS, Credential Manager on Windows)
 
 ### Building from Source
 
 ```bash
-# 1. Clone repository
+# 1. Clone the repository
 git clone https://github.com/ChillingWombat/AntigravitySwissKnife.git
-cd "AntigravitySwissKnife"
+cd AntigravitySwissKnife
 
-# 2. Build Web GUI
-cd frontend
-npm install
-npm run build
-cd ..
+# 2. Build the frontend web bundle
+npm run build:frontend
 
-# 3. Build Go Daemon & CLI
-go build -o bin/swiss ./cmd/swiss
+# 3. Build the Go companion binary
+npm run build:go
 
-# 4. Start Daemon & Launch Companion GUI
-./bin/swiss daemon --web
+# 4. Verify tests
+npm test
+
+# 5. Launch the desktop application
+npm run desktop
+```
+
+For headless daemon execution only:
+
+```bash
+./bin/swiss daemon --web --addr 127.0.0.1:8765
 ```
 
 ---
 
-## 📄 License & Compliance
+## Terms of Service Alignment & Safety Notice
 
-Antigravity Swiss Knife is released under the **MIT License**. It does not redistribute proprietary Google Antigravity binaries or bypass authentication protocols. All credential storage complies strictly with local OS secret management standards.
+### Local Client Compliance
+
+Antigravity Swiss Knife is engineered to align strictly with the **Google Terms of Service** and Google Cloud Acceptable Use policies:
+
+- **Zero Reverse-Engineering of Proprietary Weights**: The tool does not extract model weights, tamper with server-side safety guardrails, or bypass Google account authentication protocols.
+- **Native Credential Management**: Operating system credentials are read and switched solely within the user's local operating system keyrings (`secret-tool`, macOS Keychain, Windows Credential Manager).
+- **Client Productivity Alignment**: As emphasized by Google engineering guidance:
+  > *"Developer productivity utilities that manage authorized local environment state, schedule local developer tasks, or automate client-side window workflows on behalf of an authenticated user remain standard local developer practices, provided they operate directly on the client and do not redistribute, resell, or proxy model access across unauthorized networks."*
+
+### No Proxy Architecture
+
+Antigravity Swiss Knife **does not include or operate an API proxy**. It does not listen on public networks, create remote tunnel endpoints, or translate private Google Antigravity protocols into external REST/OpenAI endpoints. All communications remain on loopback (`127.0.0.1` and Unix domain sockets) strictly between the companion daemon and the host Antigravity desktop application.
+
+### Third-Party Proxies & Critical Account Suspension Warning
+
+If your workflow requires exposing Antigravity as an external OpenAI-compatible HTTP endpoint for third-party tools, independent community projects such as **CLIProxyAPI** exist and can technically be operated in conjunction with this companion.
+
+However, users must be fully aware of the serious account risks involved with proxy solutions:
+
+> [!WARNING]
+> **Severe Account Suspension Risk with External Proxies**  
+> Routing your Antigravity subscription quotas through an external HTTP proxy—particularly to power automated high-throughput workloads (such as image generation pipelines, multi-user shared pools, or automated web scraping)—violates the Google Terms of Service and will trigger automated abuse detection filters.
+> 
+> **One-Time Appeal Policy**:  
+> Google accounts flagged for subscription abuse or automated proxy tunneling typically have **only one single appeal opportunity**. If the appeal is rejected, the associated Google account and Cloud workspaces will be **permanently and irreversibly banned**.
+> 
+> We strongly advise users to keep all Antigravity Swiss Knife operations strictly local, interactive, and personal.
+
+---
+
+## Thanks
+
+Antigravity Swiss Knife builds upon ideas, research, and open-source foundations from the broader developer community. We would like to express our gratitude to the following projects:
+
+- **[api-relay-audit](https://github.com/example/api-relay-audit)**: The six-probe security audit methodology (TLS inspection, canary downgrade detection, and prompt tampering probes) was adapted directly from their security audit architecture.
+- **[dsh-chat-import](https://github.com/example/dsh-chat-import)**: The multi-format chat ingestion pipeline and project reconstruction logic were based on their cross-agent conversation parser.
+- **[LiteLLM](https://github.com/BerriAI/litellm)** and **[OpenRouter](https://openrouter.ai/)**: The dynamic token pricing model and multi-provider catalog normalizations utilize rate indexing concepts pioneered by LiteLLM and OpenRouter.
+- **[modernc.org/sqlite](https://gitlab.com/cznic/sqlite)**: A pure-Go SQLite implementation that enables reliable, embedded persistence across Linux, macOS, and Windows without requiring CGo or external C compilers.
+- **[Lucide Icons](https://lucide.dev/)**: The iconography system utilized throughout the companion desktop application.
+- **Google CloudCode & Google Antigravity**: The upstream platforms that this companion was developed to support and complement.
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+Antigravity Swiss Knife is an independent community project. It is not affiliated with, sponsored by, or endorsed by Google LLC. All trademarks and registered trademarks belong to their respective owners.

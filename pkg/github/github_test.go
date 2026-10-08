@@ -95,8 +95,32 @@ func TestWorkspacePathMatching(t *testing.T) {
 		t.Errorf("expected matchesWorkspace to return true for %s", target)
 	}
 
+	if !matchesWorkspace(uris, normalizePath("Antigravity Swiss Knife")) {
+		t.Errorf("expected matchesWorkspace to return true for bare project name")
+	}
+
+	if !matchesWorkspace(uris, normalizePath("GLOBAL")) {
+		t.Errorf("expected matchesWorkspace to return true for GLOBAL scope")
+	}
+
+	if !matchesWorkspace(uris, normalizePath(".")) {
+		t.Errorf("expected matchesWorkspace to return true for '.'")
+	}
+
 	if matchesWorkspace(uris, normalizePath("/mnt/Data/Other/Project")) {
 		t.Errorf("expected matchesWorkspace to return false for unrelated project")
+	}
+
+	wantDefault := ResolveProjectPath(".")
+	if got := ResolveProjectPath("GLOBAL"); got != wantDefault {
+		t.Errorf("expected ResolveProjectPath(\"GLOBAL\") == %q, got %q", wantDefault, got)
+	}
+	if got := ResolveProjectPath(""); got != wantDefault {
+		t.Errorf("expected ResolveProjectPath(\"\") == %q, got %q", wantDefault, got)
+	}
+	resolved := ResolveProjectPath("Antigravity Swiss Knife")
+	if resolved == "" || filepath.Base(resolved) != "Antigravity Swiss Knife" {
+		t.Errorf("expected ResolveProjectPath(\"Antigravity Swiss Knife\") to resolve to project dir, got %q", resolved)
 	}
 }
 

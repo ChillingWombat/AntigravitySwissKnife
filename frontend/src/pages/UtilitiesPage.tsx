@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import {
-  Wrench,
   DownloadCloud,
   Network,
   Clock,
@@ -9,6 +9,7 @@ import {
   ArrowRight,
   Eye,
   Activity,
+  X,
 } from 'lucide-react'
 import type {
   ChatImportSource,
@@ -22,10 +23,23 @@ import { api } from '../api'
 
 interface UtilitiesPageProps {
   initialTab?: number
+  activeTab?: number
+  onTabChange?: (tab: number) => void
 }
 
-export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) => {
-  const [activeTab, setActiveTab] = useState<number>(initialTab) // 0: Chat & Project Import, 1: ACP Protocol Inspector
+export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
+  initialTab = 0,
+  activeTab: controlledActiveTab,
+  onTabChange: _onTabChange,
+}) => {
+  const [internalActiveTab] = useState<number>(initialTab)
+  const activeTab = controlledActiveTab !== undefined ? controlledActiveTab : internalActiveTab
+
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
+
+  useEffect(() => {
+    setPortalTarget(document.getElementById('top-bar-right'))
+  }, [])
 
   // --- 1. Chat Import State ---
   const [selectedSource, setSelectedSource] = useState<ChatImportSource>('opencode')
@@ -159,88 +173,57 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Top Section Header */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '12px',
-        }}
-      >
-        <div>
-          <h2
+      {/* Top Bar Right Contextual Actions via Portal */}
+      {portalTarget && activeTab === 0 &&
+        createPortal(
+          <button
+            onClick={() => loadCandidates(selectedSource)}
+            disabled={isScanning}
             style={{
-              fontSize: '20px',
-              fontWeight: 700,
+              backgroundColor: '#ffffff',
+              border: '1px solid var(--border)',
+              borderRadius: '6px',
+              padding: '6px 14px',
+              fontSize: '12px',
+              fontWeight: 600,
               color: 'var(--text)',
-              margin: '0 0 4px 0',
-              display: 'flex',
+              cursor: isScanning ? 'not-allowed' : 'pointer',
+              display: 'inline-flex',
               alignItems: 'center',
-              gap: '10px',
+              gap: '6px',
             }}
           >
-            <Wrench size={22} color="var(--primary)" />
-            Agent Utilities & Interoperability
-          </h2>
-          <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>
-            Cross-agent conversation migration, project auto-recreation, and Agent Client Protocol (ACP) live mesh status.
-          </p>
-        </div>
+            <RefreshCw size={13} className={isScanning ? 'animate-spin' : ''} />
+            <span>{isScanning ? 'Scanning...' : 'Rescan Sources'}</span>
+          </button>,
+          portalTarget
+        )}
 
-        {/* Tab Switcher */}
-        <div
-          style={{
-            display: 'flex',
-            backgroundColor: 'var(--tonal)',
-            borderRadius: '20px',
-            padding: '3px',
-            gap: '2px',
-          }}
-        >
+      {portalTarget && activeTab === 1 &&
+        createPortal(
           <button
-            onClick={() => setActiveTab(0)}
+            onClick={handlePingAllAcp}
+            disabled={isPingingAll}
             style={{
-              borderRadius: '16px',
-              padding: '6px 16px',
-              fontSize: '12px',
-              fontWeight: activeTab === 0 ? 600 : 500,
-              color: activeTab === 0 ? 'var(--primary)' : 'var(--text-muted)',
-              backgroundColor: activeTab === 0 ? '#ffffff' : 'transparent',
-              boxShadow: activeTab === 0 ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+              backgroundColor: 'var(--primary)',
+              color: '#ffffff',
               border: 'none',
-              cursor: 'pointer',
-              display: 'flex',
+              borderRadius: '6px',
+              padding: '6px 14px',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: isPingingAll ? 'not-allowed' : 'pointer',
+              display: 'inline-flex',
               alignItems: 'center',
               gap: '6px',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
             }}
           >
-            <DownloadCloud size={14} />
-            Chat & Project Importer
-          </button>
-          <button
-            onClick={() => setActiveTab(1)}
-            style={{
-              borderRadius: '16px',
-              padding: '6px 16px',
-              fontSize: '12px',
-              fontWeight: activeTab === 1 ? 600 : 500,
-              color: activeTab === 1 ? 'var(--primary)' : 'var(--text-muted)',
-              backgroundColor: activeTab === 1 ? '#ffffff' : 'transparent',
-              boxShadow: activeTab === 1 ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-              border: 'none',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-            }}
-          >
-            <Network size={14} />
-            ACP Agent Mesh Inspector
-          </button>
-        </div>
-      </div>
+            <Activity size={13} className={isPingingAll ? 'animate-spin' : ''} />
+            <span>{isPingingAll ? 'Pinging Nodes...' : 'Ping All ACP Nodes'}</span>
+          </button>,
+          portalTarget
+        )}
 
       {/* ============================================================ */}
       {/* TAB 0: AGENT CHAT & PROJECT IMPORTER */}
@@ -271,7 +254,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) 
             style={{
               backgroundColor: '#ffffff',
               border: '1px solid var(--border)',
-              borderRadius: '16px',
+              borderRadius: '10px',
               padding: '20px',
             }}
           >
@@ -417,7 +400,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) 
                     style={{
                       backgroundColor: 'transparent',
                       border: '1px solid var(--border)',
-                      borderRadius: '14px',
+                      borderRadius: '6px',
                       padding: '4px 12px',
                       fontSize: '11.5px',
                       color: 'var(--text)',
@@ -435,7 +418,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) 
                     style={{
                       backgroundColor: 'transparent',
                       border: '1px solid var(--border)',
-                      borderRadius: '14px',
+                      borderRadius: '6px',
                       padding: '4px 12px',
                       fontSize: '11.5px',
                       color: 'var(--text)',
@@ -534,7 +517,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) 
                             }}
                           >
                             {cand.match_status === 'exact'
-                              ? '✓ Exact Workspace Match'
+                              ? 'Exact Workspace Match'
                               : cand.match_status === 'new'
                               ? '+ Auto-Create Project'
                               : 'Standalone Chat'}
@@ -587,7 +570,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) 
                     backgroundColor: 'var(--primary)',
                     color: '#ffffff',
                     border: 'none',
-                    borderRadius: '20px',
+                    borderRadius: '6px',
                     padding: '8px 20px',
                     fontSize: '13px',
                     fontWeight: 600,
@@ -610,7 +593,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) 
             style={{
               backgroundColor: '#ffffff',
               border: '1px solid var(--border)',
-              borderRadius: '16px',
+              borderRadius: '10px',
               padding: '20px',
             }}
           >
@@ -656,7 +639,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) 
                               fontWeight: 600,
                             }}
                           >
-                            ✓ Completed
+                            Completed
                           </span>
                         </td>
                       </tr>
@@ -686,7 +669,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) 
               <div
                 style={{
                   backgroundColor: '#ffffff',
-                  borderRadius: '20px',
+                  borderRadius: '10px',
                   padding: '24px',
                   width: '540px',
                   maxHeight: '80vh',
@@ -700,9 +683,22 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) 
                   </h3>
                   <button
                     onClick={() => setPreviewCandidate(null)}
-                    style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: 'var(--text-muted)' }}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: 'var(--text-muted)',
+                      width: '26px',
+                      height: '26px',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 0,
+                    }}
+                    title="Close"
                   >
-                    ✕
+                    <X size={16} />
                   </button>
                 </div>
 
@@ -752,7 +748,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) 
                     style={{
                       backgroundColor: 'var(--primary)',
                       border: 'none',
-                      borderRadius: '16px',
+                      borderRadius: '6px',
                       padding: '7px 18px',
                       fontSize: '12.5px',
                       fontWeight: 600,
@@ -798,7 +794,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) 
             style={{
               backgroundColor: '#ffffff',
               border: '1px solid var(--border)',
-              borderRadius: '16px',
+              borderRadius: '10px',
               padding: '20px',
             }}
           >
@@ -819,7 +815,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) 
                   backgroundColor: 'var(--primary)',
                   color: '#ffffff',
                   border: 'none',
-                  borderRadius: '20px',
+                  borderRadius: '6px',
                   padding: '8px 18px',
                   fontSize: '12.5px',
                   fontWeight: 600,
@@ -850,7 +846,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) 
                   gridColumn: '1 / -1',
                   backgroundColor: '#ffffff',
                   border: '1px solid var(--border)',
-                  borderRadius: '16px',
+                  borderRadius: '10px',
                   padding: '32px',
                   textAlign: 'center',
                   color: 'var(--text-muted)',
@@ -866,7 +862,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) 
                   style={{
                     backgroundColor: '#ffffff',
                     border: '1px solid var(--border)',
-                    borderRadius: '16px',
+                    borderRadius: '10px',
                     padding: '18px',
                     boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
                   }}
@@ -884,7 +880,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) 
                     <span
                       style={{
                         padding: '3px 8px',
-                        borderRadius: '12px',
+                        borderRadius: '6px',
                         fontSize: '11px',
                         fontWeight: 600,
                         backgroundColor:
@@ -970,7 +966,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({ initialTab = 0 }) 
             style={{
               backgroundColor: '#ffffff',
               border: '1px solid var(--border)',
-              borderRadius: '16px',
+              borderRadius: '10px',
               padding: '20px',
             }}
           >

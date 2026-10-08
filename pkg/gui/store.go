@@ -181,8 +181,9 @@ func (s *Store) GetConfig() Config {
 		ColorStylingEnabled:         s.config.ColorStylingEnabled,
 		SolidLeftEdge:               s.config.SolidLeftEdge,
 		DragRearrangeEnabled:        s.config.DragRearrangeEnabled,
-		ActiveConversationIndicator: s.config.ActiveConversationIndicator,
-		ActiveConversationBold:      s.config.ActiveConversationBold,
+		ActiveConversationIndicator:   s.config.ActiveConversationIndicator,
+		ActiveConversationBorderWidth: s.config.ActiveConversationBorderWidth,
+		ActiveConversationBold:        s.config.ActiveConversationBold,
 		ProjectColors:               colorsCopy,
 		ProjectOrder:                orderCopy,
 		ArchivedProjects:            archivedCopy,
@@ -360,7 +361,18 @@ func (s *Store) ReorderProject(source, target string) error {
 	}
 
 	if s.config.AutoInject {
+		colorsCopy := make(map[string]string, len(s.config.ProjectColors))
+		for k, v := range s.config.ProjectColors {
+			colorsCopy[k] = v
+		}
+		orderCopy := make([]string, len(s.config.ProjectOrder))
+		copy(orderCopy, s.config.ProjectOrder)
+		archivedCopy := make([]string, len(s.config.ArchivedProjects))
+		copy(archivedCopy, s.config.ArchivedProjects)
 		cfg := *s.config
+		cfg.ProjectColors = colorsCopy
+		cfg.ProjectOrder = orderCopy
+		cfg.ArchivedProjects = archivedCopy
 		go func() {
 			_, _ = s.injector.ApplyConfig(&cfg)
 		}()

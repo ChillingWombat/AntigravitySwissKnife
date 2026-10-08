@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	_ "modernc.org/sqlite"
 )
 
@@ -19,21 +20,26 @@ var issueRegex = regexp.MustCompile(`(?i)(?:#|issue\s+|issue#)(\d+)`)
 
 // AgentTracker queries conversation summaries to extract agent task activity.
 type AgentTracker struct {
-	sqlitePath string
-	store      *Store
+	sqlitePath       string
+	conversationsDir string
+	store            *Store
 }
 
 // NewAgentTracker creates a new AgentTracker.
 func NewAgentTracker(sqlitePath string, store *Store) *AgentTracker {
 	path := sqlitePath
 	if path == "" {
-		home, _ := os.UserHomeDir()
-		path = filepath.Join(home, ".gemini", "antigravity", "conversation_summaries.db")
+		path = filepath.Join(core.GetAntigravityDir(), "conversation_summaries.db")
 	}
 	return &AgentTracker{
 		sqlitePath: path,
 		store:      store,
 	}
+}
+
+// SetConversationsDir sets the conversations directory (useful for testing).
+func (at *AgentTracker) SetConversationsDir(dir string) {
+	at.conversationsDir = dir
 }
 
 // ListWorkspaceTasks returns active and recent conversations belonging to the workspace.
@@ -65,6 +71,21 @@ func (at *AgentTracker) ListWorkspaceTasks(workspacePath string) ([]AgentTaskSum
 
 	var tasks []AgentTaskSummary
 	normTarget := normalizePath(workspacePath)
+
+	convsDir := at.conversationsDir
+	if convsDir == "" {
+		if at.sqlitePath != "" {
+			parentDir := filepath.Dir(at.sqlitePath)
+			candidate := filepath.Join(parentDir, "conversations")
+			if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
+				convsDir = candidate
+			}
+		}
+		if convsDir == "" {
+			convsDir = core.GetConversationsDir()
+		}
+	}
+	parentCache := make(map[string]string)
 
 	for rows.Next() {
 		var (
@@ -122,23 +143,212 @@ func (at *AgentTracker) ListWorkspaceTasks(workspacePath string) ([]AgentTaskSum
 			status = "working"
 		}
 
+		// Determine root parent conversation ID for subagents
+		rootParentID := ""
+		if parentConvID != "" {
+			if cached, ok := parentCache[parentConvID]; ok {
+				rootParentID = cached
+			} else {
+				rootParentID = resolveRootParentID(db, parentConvID)
+				parentCache[parentConvID] = rootParentID
+			}
+		}
+
+		// Check if physical SQLite db file exists (either for this conversation or its root parent)
+		isPruned := false
+		if convsDir != "" {
+			dbFile := filepath.Join(convsDir, convID+".db")
+			if _, err := os.Stat(dbFile); os.IsNotExist(err) {
+				isPruned = true
+			} else if rootParentID != "" {
+				rootFile := filepath.Join(convsDir, rootParentID+".db")
+				if _, err := os.Stat(rootFile); os.IsNotExist(err) {
+					isPruned = true
+				}
+			}
+		}
+
 		tasks = append(tasks, AgentTaskSummary{
-			ConversationID:       convID,
-			ConversationTitle:    title,
-			AgentName:            agentName,
-			AgentLabel:           agentLabel,
-			Status:               status,
-			NotFullyIdle:         notFullyIdle,
-			ParentConversationID: parentConvID,
-			NestingDepth:         nestingDepth,
-			BoundIssueNumber:     boundIssue,
-			LastModified:         lastMod,
-			WorkspaceURI:         urisJSON,
-			StepCount:            stepCount,
+			ConversationID:           convID,
+			ConversationTitle:        title,
+			AgentName:                agentName,
+			AgentLabel:               agentLabel,
+			Status:                   status,
+			NotFullyIdle:             notFullyIdle,
+			ParentConversationID:     parentConvID,
+			RootParentConversationID: rootParentID,
+			NestingDepth:             nestingDepth,
+			IsPruned:                 isPruned,
+			BoundIssueNumber:         boundIssue,
+			LastModified:             lastMod,
+			WorkspaceURI:             urisJSON,
+			StepCount:                stepCount,
 		})
 	}
 
 	return tasks, nil
+}
+
+// resolveRootParentID resolves the root parent conversation ID by walking up the ancestor chain.
+func resolveRootParentID(db *sql.DB, parentID string) string {
+	curr := parentID
+	visited := make(map[string]bool)
+	for i := 0; i < 50 && curr != ""; i++ {
+		if visited[curr] {
+			break
+		}
+		visited[curr] = true
+		var nextParent string
+		var depth int
+		err := db.QueryRow(`SELECT COALESCE(parent_conversation_id, ''), COALESCE(nesting_depth, 0) FROM conversation_summaries WHERE conversation_id = ?`, curr).Scan(&nextParent, &depth)
+		if err != nil || nextParent == "" {
+			return curr
+		}
+		curr = nextParent
+	}
+	return curr
+}
+
+// ResolveProjectPath resolves a workspace path or bare project name to an absolute directory path when possible.
+func ResolveProjectPath(nameOrPath string) string {
+	p := strings.TrimSpace(nameOrPath)
+	p = strings.Trim(p, "\"'`")
+	if p == "" || p == "." || strings.EqualFold(p, "global") {
+		if wd, err := os.Getwd(); err == nil && wd != "" {
+			return filepath.Clean(wd)
+		}
+		return "."
+	}
+	if strings.HasPrefix(p, "file://") {
+		p = strings.TrimPrefix(p, "file://")
+		if unescaped, err := url.PathUnescape(p); err == nil {
+			p = unescaped
+		}
+	}
+	if filepath.IsAbs(p) {
+		return filepath.Clean(p)
+	}
+	if wd, err := os.Getwd(); err == nil && wd != "" {
+		candidate := filepath.Join(wd, p)
+		if _, err := os.Stat(candidate); err == nil {
+			return filepath.Clean(candidate)
+		}
+		firstSeg := p
+		rest := ""
+		if idx := strings.IndexAny(p, `/\`); idx >= 0 {
+			firstSeg = p[:idx]
+			rest = p[idx+1:]
+		}
+		curr := wd
+		for i := 0; i < 15 && curr != "" && curr != "/" && curr != "."; i++ {
+			if strings.EqualFold(filepath.Base(curr), firstSeg) {
+				target := curr
+				if rest != "" {
+					target = filepath.Join(curr, rest)
+				}
+				if _, err := os.Stat(target); err == nil {
+					return filepath.Clean(target)
+				}
+				if _, err := os.Stat(filepath.Dir(target)); err == nil {
+					return filepath.Clean(target)
+				}
+			}
+			sibling := filepath.Join(curr, firstSeg)
+			if fi, err := os.Stat(sibling); err == nil && fi.IsDir() {
+				target := sibling
+				if rest != "" {
+					target = filepath.Join(sibling, rest)
+				}
+				if _, err := os.Stat(target); err == nil {
+					return filepath.Clean(target)
+				}
+				if _, err := os.Stat(filepath.Dir(target)); err == nil {
+					return filepath.Clean(target)
+				}
+			}
+			parent := filepath.Dir(curr)
+			if parent == curr {
+				break
+			}
+			curr = parent
+		}
+	}
+	dbPath := filepath.Join(core.GetAntigravityDir(), "conversation_summaries.db")
+	if _, err := os.Stat(dbPath); err == nil {
+		if db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=ro", dbPath)); err == nil {
+			defer db.Close()
+			rows, err := db.Query(`SELECT workspace_uris FROM conversation_summaries WHERE workspace_uris IS NOT NULL AND workspace_uris != '' GROUP BY workspace_uris ORDER BY MAX(last_modified_time) DESC`)
+			if err == nil {
+				defer rows.Close()
+				firstSeg := p
+				rest := ""
+				if idx := strings.IndexAny(p, `/\`); idx >= 0 {
+					firstSeg = p[:idx]
+					rest = p[idx+1:]
+				}
+				for rows.Next() {
+					var urisJSON string
+					if err := rows.Scan(&urisJSON); err == nil {
+						var uris []string
+						if json.Unmarshal([]byte(urisJSON), &uris) == nil {
+							for _, u := range uris {
+								uPath := strings.TrimPrefix(u, "file://")
+								if unescaped, err := url.PathUnescape(uPath); err == nil {
+									uPath = unescaped
+								}
+								uPath = filepath.Clean(uPath)
+								if strings.EqualFold(filepath.Base(uPath), firstSeg) {
+									if rest != "" {
+										return filepath.Join(uPath, rest)
+									}
+									return uPath
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return filepath.Clean(p)
+}
+
+func latestWorkspaceFromDB() string {
+	dbPath := filepath.Join(core.GetAntigravityDir(), "conversation_summaries.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		return ""
+	}
+	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=ro", dbPath))
+	if err != nil {
+		return ""
+	}
+	defer db.Close()
+	rows, err := db.Query(`SELECT workspace_uris FROM conversation_summaries WHERE workspace_uris IS NOT NULL AND workspace_uris != '' ORDER BY last_modified_time DESC LIMIT 20`)
+	if err != nil {
+		return ""
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var urisJSON string
+		if err := rows.Scan(&urisJSON); err != nil {
+			continue
+		}
+		var uris []string
+		if json.Unmarshal([]byte(urisJSON), &uris) != nil {
+			continue
+		}
+		for _, u := range uris {
+			uPath := strings.TrimPrefix(u, "file://")
+			if unescaped, err := url.PathUnescape(uPath); err == nil {
+				uPath = unescaped
+			}
+			uPath = filepath.Clean(uPath)
+			if fi, err := os.Stat(uPath); err == nil && fi.IsDir() {
+				return uPath
+			}
+		}
+	}
+	return ""
 }
 
 func normalizePath(p string) string {
@@ -153,7 +363,7 @@ func normalizePath(p string) string {
 }
 
 func matchesWorkspace(urisJSON string, normTarget string) bool {
-	if normTarget == "" {
+	if normTarget == "" || normTarget == "." || normTarget == "global" {
 		return true // Return all if no target specified
 	}
 	var uris []string
@@ -161,7 +371,8 @@ func matchesWorkspace(urisJSON string, normTarget string) bool {
 		return strings.Contains(strings.ToLower(urisJSON), normTarget)
 	}
 	for _, u := range uris {
-		if normalizePath(u) == normTarget || strings.Contains(normalizePath(u), normTarget) {
+		nu := normalizePath(u)
+		if nu == normTarget || filepath.Base(nu) == normTarget || strings.Contains(nu, normTarget) || (len(nu) > 1 && strings.Contains(normTarget, nu)) {
 			return true
 		}
 	}

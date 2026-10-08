@@ -13,14 +13,20 @@ import {
   Save,
   Sparkles,
   Kanban,
-  List,
   GripVertical,
+  Check,
+  CornerDownRight,
 } from 'lucide-react'
 import { api } from '../api'
 import type { KanbanBoard, KanbanCard, KanbanColumn } from '../types'
 import { getEffectiveKanbanColumns, findItemColumn } from '../utils/kanban'
 
-export const GitHubWorkspacePage: React.FC = () => {
+export interface GitHubWorkspacePageProps {
+  scope?: string
+  fallbackProject?: string
+}
+
+export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope, fallbackProject }) => {
   const [repo, setRepo] = useState<any>(null)
   const [issues, setIssues] = useState<any[]>([])
   const [prs, setPRs] = useState<any[]>([])
@@ -68,14 +74,117 @@ export const GitHubWorkspacePage: React.FC = () => {
     setTimeout(() => setToastMsg(null), 3000)
   }
 
+  const navigateToConversation = (convId: string, rootParentId?: string, isPruned?: boolean) => {
+    const targetId = rootParentId || convId
+    if (isPruned || (targetId && ((window as any).__swissPrunedConversations?.has?.(targetId) || (window.parent as any)?.__swissPrunedConversations?.has?.(targetId)))) {
+      showToast('Conversation database was pruned or archived (local file not found)')
+      return
+    }
+    if (!targetId) return
+
+    // 1. If running inside Antigravity / Electron with main stage, close stage
+    if (typeof (window as any).closeMainStage === 'function') {
+      ;(window as any).closeMainStage()
+    }
+    const stageContainer = document.getElementById('swiss-main-stage-container')
+    if (stageContainer) {
+      stageContainer.style.display = 'none'
+    }
+
+    try {
+      if (window.parent && window.parent !== window) {
+        if (typeof (window.parent as any).closeMainStage === 'function') {
+          ;(window.parent as any).closeMainStage()
+        }
+        const parentStage = window.parent.document.getElementById('swiss-main-stage-container')
+        if (parentStage) {
+          parentStage.style.display = 'none'
+        }
+      }
+    } catch (_) {}
+
+    // 2. Try clicking matching sidebar conversation element in DOM
+    const targetSelector = `a[href*="/c/${targetId}"], [data-testid="conversation-row-sidebar"][data-id="${targetId}"], [data-conversation-id="${targetId}"]`
+    let sidebarLink = document.querySelector(targetSelector) as HTMLElement | null
+    if (!sidebarLink) {
+      try {
+        if (window.parent && window.parent !== window) {
+          sidebarLink = window.parent.document.querySelector(targetSelector) as HTMLElement | null
+        }
+      } catch (_) {}
+    }
+    if (sidebarLink) {
+      sidebarLink.click()
+      return
+    }
+
+    const allLinks = document.querySelectorAll('a[href*="/c/"]')
+    for (let i = 0; i < allLinks.length; i++) {
+      const a = allLinks[i] as HTMLAnchorElement
+      if (a.getAttribute('href')?.includes(targetId)) {
+        a.click()
+        return
+      }
+    }
+
+    try {
+      if (window.parent && window.parent !== window) {
+        const parentLinks = window.parent.document.querySelectorAll('a[href*="/c/"]')
+        for (let i = 0; i < parentLinks.length; i++) {
+          const a = parentLinks[i] as HTMLAnchorElement
+          if (a.getAttribute('href')?.includes(targetId)) {
+            a.click()
+            return
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 3. In-memory navigation via pushState preserving ?section= to prevent 404s in Web GUI and cold reloads in Electron
+    try {
+      const curUrl = new URL(window.location.href)
+      const section = curUrl.searchParams.get('section')
+      const query = section ? `?section=${encodeURIComponent(section)}` : ''
+      window.history.pushState({}, '', `/c/${targetId}${query}`)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+      if (window.parent && window.parent !== window) {
+        window.parent.history.pushState({}, '', `/c/${targetId}${query}`)
+        window.parent.dispatchEvent(new PopStateEvent('popstate'))
+      }
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  const jumpToConversation = navigateToConversation
+  ;(window as any).navigateToConversation = navigateToConversation
+  ;(window as any).jumpToConversation = jumpToConversation
+
+  const getEffectiveWorkspacePath = () => {
+    if (scope && scope !== 'GLOBAL') {
+      return scope
+    }
+    const lastActive = localStorage.getItem('antigravity_last_active_project')
+    if (lastActive && lastActive !== 'GLOBAL') {
+      return lastActive
+    }
+    if (fallbackProject && fallbackProject !== 'GLOBAL') {
+      return fallbackProject
+    }
+    return scope === 'GLOBAL' ? 'GLOBAL' : '.'
+  }
+
   const loadData = async () => {
     setLoading(true)
+    const wsPath = getEffectiveWorkspacePath()
     try {
-      const repoRes = await api.getGitHubRepo()
+      const repoRes = await api.getGitHubRepo(wsPath)
       if (repoRes.success && repoRes.repo) {
         setRepo(repoRes.repo)
+      } else {
+        setRepo(null)
       }
-      const issuesRes = await api.getGitHubIssues(undefined, stateFilter)
+      const issuesRes = await api.getGitHubIssues(wsPath, stateFilter)
       if (issuesRes.success && issuesRes.issues) {
         setIssues(issuesRes.issues)
         if (!selectedItem && issuesRes.issues.length > 0) {
@@ -83,21 +192,31 @@ export const GitHubWorkspacePage: React.FC = () => {
           setEditTitle(issuesRes.issues[0].title)
           setEditBody(issuesRes.issues[0].body || '')
         }
+      } else {
+        setIssues([])
       }
-      const prsRes = await api.getGitHubPRs()
+      const prsRes = await api.getGitHubPRs(wsPath)
       if (prsRes.success && prsRes.prs) {
         setPRs(prsRes.prs)
+      } else {
+        setPRs([])
       }
-      const tasksRes = await api.getGitHubAgentTasks()
+      const tasksRes = await api.getGitHubAgentTasks(wsPath)
       if (tasksRes.success && tasksRes.tasks) {
         setAgentTasks(tasksRes.tasks)
+      } else {
+        setAgentTasks([])
       }
       try {
-        const kbRes = await api.getGitHubKanbanBoard()
+        const kbRes = await api.getGitHubKanbanBoard(wsPath)
         if (kbRes.success && kbRes.board) {
           setKanbanBoard(kbRes.board)
+        } else {
+          setKanbanBoard(null)
         }
-      } catch (_) {}
+      } catch (_) {
+        setKanbanBoard(null)
+      }
     } catch (err: any) {
       showToast('Error loading GitHub data: ' + err.message)
     } finally {
@@ -137,6 +256,7 @@ export const GitHubWorkspacePage: React.FC = () => {
 
     try {
       const res = await api.moveGitHubKanbanCard({
+        workspace_path: getEffectiveWorkspacePath(),
         number: cardNum,
         card_id: draggedCard.id || `${cardType}-${cardNum}`,
         card_type: cardType,
@@ -188,6 +308,7 @@ export const GitHubWorkspacePage: React.FC = () => {
 
     try {
       const res = await api.moveGitHubKanbanCard({
+        workspace_path: getEffectiveWorkspacePath(),
         number: cardNum,
         card_id: cardId,
         card_type: cardType,
@@ -211,7 +332,7 @@ export const GitHubWorkspacePage: React.FC = () => {
 
   useEffect(() => {
     loadData()
-  }, [stateFilter])
+  }, [stateFilter, scope, fallbackProject])
 
   const selectItemForEditing = (item: any) => {
     setSelectedItem(item)
@@ -223,6 +344,7 @@ export const GitHubWorkspacePage: React.FC = () => {
     if (!selectedItem) return
     try {
       const res = await api.updateGitHubIssue({
+        workspace_path: getEffectiveWorkspacePath(),
         number: selectedItem.number,
         title: editTitle,
         body: editBody,
@@ -242,6 +364,7 @@ export const GitHubWorkspacePage: React.FC = () => {
     const nextState = isOpen ? 'closed' : 'open'
     try {
       const res = await api.updateGitHubIssue({
+        workspace_path: getEffectiveWorkspacePath(),
         number: selectedItem.number,
         state: nextState,
       })
@@ -258,13 +381,14 @@ export const GitHubWorkspacePage: React.FC = () => {
     if (!selectedItem || !commentText.trim()) return
     try {
       const res = await api.addGitHubComment({
+        workspace_path: getEffectiveWorkspacePath(),
         number: selectedItem.number,
         comment: commentText.trim(),
       })
       if (res.success) {
         showToast('Comment posted')
         setCommentText('')
-        const detail = await api.getGitHubIssueDetail(selectedItem.number)
+        const detail = await api.getGitHubIssueDetail(selectedItem.number, getEffectiveWorkspacePath())
         if (detail.success) {
           setSelectedItem(detail.issue)
         }
@@ -278,6 +402,7 @@ export const GitHubWorkspacePage: React.FC = () => {
     if (!newTitle.trim()) return
     try {
       const res = await api.createGitHubIssue({
+        workspace_path: getEffectiveWorkspacePath(),
         title: newTitle.trim(),
         body: newBody.trim(),
       })
@@ -297,7 +422,7 @@ export const GitHubWorkspacePage: React.FC = () => {
     if (!selectedItem) return
     try {
       const type = activeTab === 'prs' ? 'pr' : 'issue'
-      const res = await api.getGitHubContext(selectedItem.number, type)
+      const res = await api.getGitHubContext(selectedItem.number, type, getEffectiveWorkspacePath())
       if (res.success && res.context) {
         await navigator.clipboard.writeText(res.context)
         showToast('Copied issue context to clipboard (ready to paste to agent)!')
@@ -371,37 +496,162 @@ export const GitHubWorkspacePage: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '12px 24px',
+          padding: '8px 24px',
           borderBottom: '1px solid var(--border)',
           backgroundColor: 'var(--surface)',
+          flexShrink: 0,
+          gap: '12px',
+          flexWrap: 'wrap',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text)' }}>
-              {repo ? repo.full_name : 'GitHub Workspace'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {repo && (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: 500,
+                backgroundColor: 'rgba(0,0,0,0.05)',
+                color: 'var(--text-muted)',
+              }}
+            >
+              <GitBranch size={13} />
+              {repo.current_branch}
             </span>
-            {repo && (
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  padding: '2px 8px',
-                  borderRadius: '12px',
-                  fontSize: '11px',
-                  backgroundColor: 'rgba(0,0,0,0.05)',
-                  color: 'var(--text-muted)',
-                }}
-              >
-                <GitBranch size={12} />
-                {repo.current_branch}
-              </span>
-            )}
+          )}
+
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '2px',
+              borderRadius: '6px',
+              backgroundColor: 'var(--surface-variant)',
+              border: '1px solid var(--border)',
+              gap: '2px',
+            }}
+          >
+            <button
+              onClick={() => setViewMode('kanban')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '5px 10px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                fontWeight: viewMode === 'kanban' ? 600 : 500,
+                backgroundColor: viewMode === 'kanban' ? 'var(--surface)' : 'transparent',
+                color: viewMode === 'kanban' ? '#1a73e8' : 'var(--text-muted)',
+                border: 'none',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                boxShadow: viewMode === 'kanban' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+              }}
+            >
+              <Kanban size={13} /> Board
+            </button>
+            <button
+              onClick={() => {
+                setViewMode('list')
+                setActiveTab('issues')
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '5px 10px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                fontWeight: viewMode === 'list' && activeTab === 'issues' ? 600 : 500,
+                backgroundColor: viewMode === 'list' && activeTab === 'issues' ? 'var(--surface)' : 'transparent',
+                color: viewMode === 'list' && activeTab === 'issues' ? '#1a73e8' : 'var(--text-muted)',
+                border: 'none',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                boxShadow: viewMode === 'list' && activeTab === 'issues' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+              }}
+            >
+              Issues ({issues.length})
+            </button>
+            <button
+              onClick={() => {
+                setViewMode('list')
+                setActiveTab('prs')
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '5px 10px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                fontWeight: viewMode === 'list' && activeTab === 'prs' ? 600 : 500,
+                backgroundColor: viewMode === 'list' && activeTab === 'prs' ? 'var(--surface)' : 'transparent',
+                color: viewMode === 'list' && activeTab === 'prs' ? '#1a73e8' : 'var(--text-muted)',
+                border: 'none',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                boxShadow: viewMode === 'list' && activeTab === 'prs' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+              }}
+            >
+              Pull Requests ({prs.length})
+            </button>
+            <button
+              onClick={() => {
+                setViewMode('list')
+                setActiveTab('tasks')
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '5px 10px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                fontWeight: viewMode === 'list' && activeTab === 'tasks' ? 600 : 500,
+                backgroundColor: viewMode === 'list' && activeTab === 'tasks' ? 'var(--surface)' : 'transparent',
+                color: viewMode === 'list' && activeTab === 'tasks' ? '#1a73e8' : 'var(--text-muted)',
+                border: 'none',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                boxShadow: viewMode === 'list' && activeTab === 'tasks' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+              }}
+            >
+              Agent Tasks ({agentTasks.length})
+            </button>
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {viewMode === 'list' && activeTab !== 'tasks' && (
+            <div style={{ display: 'flex', gap: '6px' }}>
+              {(['all', 'open', 'closed'] as const).map((filter) => (
+                <button
+                  key={filter}
+                  onClick={() => setStateFilter(filter)}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontWeight: stateFilter === filter ? 600 : 500,
+                    backgroundColor: stateFilter === filter ? '#1a73e8' : 'transparent',
+                    color: stateFilter === filter ? '#fff' : 'var(--text-muted)',
+                    border: '1px solid var(--border)',
+                    cursor: 'pointer',
+                    textTransform: 'capitalize',
+                  }}
+                >
+                  {filter}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div style={{ position: 'relative' }}>
             <Search
               size={14}
@@ -425,59 +675,6 @@ export const GitHubWorkspacePage: React.FC = () => {
             />
           </div>
 
-          {/* View Mode Toggle: Kanban Board | List */}
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              padding: '2px',
-              borderRadius: '6px',
-              backgroundColor: 'var(--surface-variant)',
-              border: '1px solid var(--border)',
-            }}
-          >
-            <button
-              onClick={() => setViewMode('kanban')}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                padding: '4px 10px',
-                borderRadius: '4px',
-                fontSize: '12px',
-                fontWeight: viewMode === 'kanban' ? 600 : 500,
-                backgroundColor: viewMode === 'kanban' ? 'var(--surface)' : 'transparent',
-                color: viewMode === 'kanban' ? 'var(--text)' : 'var(--text-muted)',
-                border: 'none',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                boxShadow: viewMode === 'kanban' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
-              }}
-            >
-              <Kanban size={13} /> Board
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                padding: '4px 10px',
-                borderRadius: '4px',
-                fontSize: '12px',
-                fontWeight: viewMode === 'list' ? 600 : 500,
-                backgroundColor: viewMode === 'list' ? 'var(--surface)' : 'transparent',
-                color: viewMode === 'list' ? 'var(--text)' : 'var(--text-muted)',
-                border: 'none',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                boxShadow: viewMode === 'list' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
-              }}
-            >
-              <List size={13} /> List
-            </button>
-          </div>
-
           <button
             onClick={() => setIsCreatingIssue(true)}
             style={{
@@ -497,7 +694,6 @@ export const GitHubWorkspacePage: React.FC = () => {
             <Plus size={14} /> New Issue
           </button>
 
-
           <button
             onClick={loadData}
             style={{
@@ -513,126 +709,6 @@ export const GitHubWorkspacePage: React.FC = () => {
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
-      </div>
-
-      {/* Primary Navigation Tabs */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0 24px',
-          borderBottom: '1px solid var(--border)',
-          backgroundColor: 'var(--surface)',
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            onClick={() => setViewMode('kanban')}
-            style={{
-              padding: '10px 14px',
-              fontSize: '13px',
-              fontWeight: viewMode === 'kanban' ? 600 : 500,
-              color: viewMode === 'kanban' ? '#1a73e8' : 'var(--text-muted)',
-              borderBottom: viewMode === 'kanban' ? '2px solid #1a73e8' : '2px solid transparent',
-              background: 'transparent',
-              borderLeft: 'none',
-              borderRight: 'none',
-              borderTop: 'none',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-            }}
-          >
-            <Kanban size={14} /> Board
-          </button>
-          <button
-            onClick={() => {
-              setViewMode('list')
-              setActiveTab('issues')
-            }}
-            style={{
-              padding: '10px 14px',
-              fontSize: '13px',
-              fontWeight: viewMode === 'list' && activeTab === 'issues' ? 600 : 500,
-              color: viewMode === 'list' && activeTab === 'issues' ? '#1a73e8' : 'var(--text-muted)',
-              borderBottom: viewMode === 'list' && activeTab === 'issues' ? '2px solid #1a73e8' : '2px solid transparent',
-              background: 'transparent',
-              borderLeft: 'none',
-              borderRight: 'none',
-              borderTop: 'none',
-              cursor: 'pointer',
-            }}
-          >
-            Issues ({issues.length})
-          </button>
-          <button
-            onClick={() => {
-              setViewMode('list')
-              setActiveTab('prs')
-            }}
-            style={{
-              padding: '10px 14px',
-              fontSize: '13px',
-              fontWeight: viewMode === 'list' && activeTab === 'prs' ? 600 : 500,
-              color: viewMode === 'list' && activeTab === 'prs' ? '#1a73e8' : 'var(--text-muted)',
-              borderBottom: viewMode === 'list' && activeTab === 'prs' ? '2px solid #1a73e8' : '2px solid transparent',
-              background: 'transparent',
-              borderLeft: 'none',
-              borderRight: 'none',
-              borderTop: 'none',
-              cursor: 'pointer',
-            }}
-          >
-            Pull Requests ({prs.length})
-          </button>
-          <button
-            onClick={() => {
-              setViewMode('list')
-              setActiveTab('tasks')
-            }}
-            style={{
-              padding: '10px 14px',
-              fontSize: '13px',
-              fontWeight: viewMode === 'list' && activeTab === 'tasks' ? 600 : 500,
-              color: viewMode === 'list' && activeTab === 'tasks' ? '#1a73e8' : 'var(--text-muted)',
-              borderBottom: viewMode === 'list' && activeTab === 'tasks' ? '2px solid #1a73e8' : '2px solid transparent',
-              background: 'transparent',
-              borderLeft: 'none',
-              borderRight: 'none',
-              borderTop: 'none',
-              cursor: 'pointer',
-            }}
-          >
-            Agent Tasks ({agentTasks.length})
-          </button>
-        </div>
-
-        {viewMode === 'list' && activeTab !== 'tasks' && (
-          <div style={{ display: 'flex', gap: '6px' }}>
-            {(['all', 'open', 'closed'] as const).map((filter) => (
-              <button
-                key={filter}
-                onClick={() => setStateFilter(filter)}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: '12px',
-                  fontSize: '11px',
-                  fontWeight: stateFilter === filter ? 600 : 500,
-                  backgroundColor: stateFilter === filter ? '#1a73e8' : 'transparent',
-                  color: stateFilter === filter ? '#fff' : 'var(--text-muted)',
-                  border: '1px solid var(--border)',
-                  cursor: 'pointer',
-                  textTransform: 'capitalize',
-                }}
-              >
-                {filter}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       {viewMode === 'kanban' ? (
@@ -838,7 +914,7 @@ export const GitHubWorkspacePage: React.FC = () => {
                                 onClick={(e) => {
                                   if (assigned.conversation_id) {
                                     e.stopPropagation()
-                                    window.location.href = `/c/${assigned.conversation_id}`
+                                    navigateToConversation(assigned.conversation_id, assigned.root_parent_conversation_id, assigned.is_pruned)
                                   }
                                 }}
                                 style={{
@@ -849,14 +925,17 @@ export const GitHubWorkspacePage: React.FC = () => {
                                   borderRadius: '10px',
                                   fontSize: '10px',
                                   fontWeight: 600,
-                                  cursor: assigned.conversation_id ? 'pointer' : 'default',
-                                  backgroundColor: assigned.not_fully_idle ? 'rgba(34, 197, 94, 0.12)' : 'rgba(100, 116, 139, 0.12)',
-                                  color: assigned.not_fully_idle ? '#15803d' : '#64748b',
-                                  border: assigned.not_fully_idle ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid transparent',
+                                  cursor: assigned.conversation_id && !assigned.is_pruned ? 'pointer' : 'default',
+                                  backgroundColor: assigned.is_pruned ? 'rgba(148, 163, 184, 0.15)' : assigned.not_fully_idle ? 'rgba(34, 197, 94, 0.12)' : 'rgba(100, 116, 139, 0.12)',
+                                  color: assigned.is_pruned ? '#94a3b8' : assigned.not_fully_idle ? '#15803d' : '#64748b',
+                                  border: assigned.is_pruned ? '1px dashed #94a3b8' : assigned.not_fully_idle ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid transparent',
+                                  opacity: assigned.is_pruned ? 0.75 : 1,
                                 }}
-                                title={`Agent: ${assigned.agent_label || assigned.agent_name || 'Agent'} (${assigned.conversation_id ? assigned.conversation_id.slice(0, 8) : ''})${assigned.parent_conversation_id ? ` · Subagent of ${assigned.parent_conversation_id.slice(0, 8)}` : ''}\nClick to jump to conversation`}
+                                title={assigned.is_pruned
+                                  ? `Agent: ${assigned.agent_label || assigned.agent_name || 'Agent'} [Archived / Pruned]\nConversation database file is missing`
+                                  : `Agent: ${assigned.agent_label || assigned.agent_name || 'Agent'} (${assigned.conversation_id ? assigned.conversation_id.slice(0, 8) : ''})${assigned.parent_conversation_id ? ` · Subagent of ${assigned.parent_conversation_id.slice(0, 8)}` : ''}\nClick to jump to conversation`}
                               >
-                                {assigned.not_fully_idle && (
+                                {assigned.not_fully_idle && !assigned.is_pruned && (
                                   <span
                                     style={{
                                       width: '6px',
@@ -867,7 +946,7 @@ export const GitHubWorkspacePage: React.FC = () => {
                                     }}
                                   />
                                 )}
-                                {assigned.not_fully_idle ? 'Working' : 'Idle'}: {assigned.agent_label || 'Agent'}
+                                {assigned.is_pruned ? 'Archived' : assigned.not_fully_idle ? 'Working' : 'Idle'}: {assigned.agent_label || 'Agent'}
                                 {assigned.conversation_id && (
                                   <span style={{ opacity: 0.75, fontFamily: 'monospace', fontSize: '9px' }}>
                                     [#{assigned.conversation_id.slice(0, 6)}]
@@ -1017,7 +1096,7 @@ export const GitHubWorkspacePage: React.FC = () => {
                         alignItems: 'center',
                         gap: '6px',
                         padding: '2px 8px',
-                        borderRadius: '12px',
+                        borderRadius: '6px',
                         fontSize: '11px',
                         fontWeight: 600,
                         backgroundColor: isWorking ? 'rgba(34, 197, 94, 0.15)' : 'rgba(148, 163, 184, 0.15)',
@@ -1108,7 +1187,7 @@ export const GitHubWorkspacePage: React.FC = () => {
                       onClick={(e) => {
                         if (assigned.conversation_id) {
                           e.stopPropagation()
-                          window.location.href = `/c/${assigned.conversation_id}`
+                          navigateToConversation(assigned.conversation_id, assigned.root_parent_conversation_id, assigned.is_pruned)
                         }
                       }}
                       style={{
@@ -1119,14 +1198,18 @@ export const GitHubWorkspacePage: React.FC = () => {
                         borderRadius: '10px',
                         fontSize: '10px',
                         fontWeight: 600,
-                        cursor: assigned.conversation_id ? 'pointer' : 'default',
-                        backgroundColor: assigned.not_fully_idle ? 'rgba(34, 197, 94, 0.15)' : 'rgba(148, 163, 184, 0.15)',
-                        color: assigned.not_fully_idle ? '#15803d' : '#64748b',
+                        cursor: assigned.conversation_id && !assigned.is_pruned ? 'pointer' : 'default',
+                        backgroundColor: assigned.is_pruned ? 'rgba(148, 163, 184, 0.15)' : assigned.not_fully_idle ? 'rgba(34, 197, 94, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+                        color: assigned.is_pruned ? '#94a3b8' : assigned.not_fully_idle ? '#15803d' : '#64748b',
+                        border: assigned.is_pruned ? '1px dashed #94a3b8' : 'none',
+                        opacity: assigned.is_pruned ? 0.75 : 1,
                       }}
-                      title={`Agent: ${assigned.agent_label || assigned.agent_name || 'Agent'} (${assigned.conversation_id ? assigned.conversation_id.slice(0, 8) : ''})${assigned.parent_conversation_id ? ` · Subagent of ${assigned.parent_conversation_id.slice(0, 8)}` : ''}\nClick to jump to conversation`}
+                      title={assigned.is_pruned
+                        ? `Agent: ${assigned.agent_label || assigned.agent_name || 'Agent'} [Archived / Pruned]\nConversation database file is missing`
+                        : `Agent: ${assigned.agent_label || assigned.agent_name || 'Agent'} (${assigned.conversation_id ? assigned.conversation_id.slice(0, 8) : ''})${assigned.parent_conversation_id ? ` · Subagent of ${assigned.parent_conversation_id.slice(0, 8)}` : ''}\nClick to jump to conversation`}
                     >
                       <Bot size={10} />
-                      {assigned.agent_label || 'Agent'}
+                      {assigned.is_pruned ? `${assigned.agent_label || 'Agent'} [Archived]` : (assigned.agent_label || 'Agent')}
                       {assigned.conversation_id && (
                         <span style={{ opacity: 0.75, fontFamily: 'monospace', fontSize: '9px' }}>
                           [#{assigned.conversation_id.slice(0, 6)}]
@@ -1181,7 +1264,7 @@ export const GitHubWorkspacePage: React.FC = () => {
                   <span
                     style={{
                       padding: '4px 10px',
-                      borderRadius: '12px',
+                      borderRadius: '6px',
                       fontSize: '12px',
                       fontWeight: 700,
                       backgroundColor:
@@ -1423,7 +1506,7 @@ export const GitHubWorkspacePage: React.FC = () => {
                         alignItems: 'center',
                         gap: '6px',
                         padding: '2px 8px',
-                        borderRadius: '12px',
+                        borderRadius: '6px',
                         fontSize: '11px',
                         fontWeight: 600,
                         backgroundColor: isWorking ? 'rgba(34, 197, 94, 0.15)' : 'rgba(148, 163, 184, 0.15)',
@@ -1457,25 +1540,31 @@ export const GitHubWorkspacePage: React.FC = () => {
                       ID: #{t.conversation_id.slice(0, 8)}
                     </span>
                     {t.parent_conversation_id && (
-                      <span style={{ fontSize: '10px', color: '#1a73e8' }} title={`Subagent of ${t.parent_conversation_id}`}>
-                        ↳ Subagent
+                      <span style={{ fontSize: '10px', color: '#1a73e8', display: 'flex', alignItems: 'center', gap: '2px' }} title={`Subagent of ${t.parent_conversation_id}`}>
+                        <CornerDownRight size={10} />
+                        <span>Subagent</span>
+                      </span>
+                    )}
+                    {t.is_pruned && (
+                      <span style={{ fontSize: '9.5px', color: '#94a3b8', background: 'rgba(148, 163, 184, 0.2)', padding: '1px 4px', borderRadius: '3px' }} title="Database file missing">
+                        Archived
                       </span>
                     )}
                     <button
-                      onClick={() => { window.location.href = `/c/${t.conversation_id}` }}
+                      onClick={() => { navigateToConversation(t.conversation_id, t.root_parent_conversation_id, t.is_pruned) }}
                       style={{
                         border: 'none',
                         background: 'transparent',
-                        color: '#1a73e8',
+                        color: t.is_pruned ? '#94a3b8' : '#1a73e8',
                         cursor: 'pointer',
                         fontSize: '10px',
                         fontWeight: 600,
                         padding: '0 2px',
                         marginLeft: 'auto',
                       }}
-                      title="Focus conversation"
+                      title={t.is_pruned ? "Conversation database was pruned or archived" : "Focus conversation"}
                     >
-                      Focus →
+                      {t.is_pruned ? 'Archived' : 'Focus'}
                     </button>
                   </div>
 
@@ -1623,9 +1712,9 @@ export const GitHubWorkspacePage: React.FC = () => {
             minWidth: '180px',
             backgroundColor: 'var(--surface)',
             border: '1px solid var(--border)',
-            borderRadius: '8px',
+            borderRadius: '10px',
             boxShadow: '0 4px 16px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.08)',
-            padding: '4px 0',
+            padding: '4px',
             userSelect: 'none',
           }}
           onClick={(e) => e.stopPropagation()}
@@ -1637,7 +1726,7 @@ export const GitHubWorkspacePage: React.FC = () => {
               textTransform: 'uppercase',
               letterSpacing: '0.5px',
               color: 'var(--text-muted)',
-              padding: '6px 12px 4px',
+              padding: '6px 10px 4px',
             }}
           >
             Move to Board
@@ -1665,7 +1754,8 @@ export const GitHubWorkspacePage: React.FC = () => {
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   width: '100%',
-                  padding: '6px 12px',
+                  padding: '6px 10px',
+                  borderRadius: '6px',
                   fontSize: '12px',
                   color: isCurrent ? '#1a73e8' : 'var(--text)',
                   fontWeight: isCurrent ? 600 : 400,
@@ -1673,12 +1763,13 @@ export const GitHubWorkspacePage: React.FC = () => {
                   border: 'none',
                   cursor: 'pointer',
                   textAlign: 'left',
+                  boxSizing: 'border-box',
                 }}
                 onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(26,115,232,0.08)')}
                 onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               >
                 <span>{col.label}</span>
-                {isCurrent && <span style={{ color: '#1a73e8', fontWeight: 600 }}>✓</span>}
+                {isCurrent && <Check size={13} color="#1a73e8" />}
               </button>
             )
           })}
@@ -1688,7 +1779,11 @@ export const GitHubWorkspacePage: React.FC = () => {
               const card = contextMenu.item
               setContextMenu(null)
               if (card.assigned_agent && card.assigned_agent.conversation_id) {
-                window.location.href = `/c/${card.assigned_agent.conversation_id}`
+                navigateToConversation(
+                  card.assigned_agent.conversation_id,
+                  card.assigned_agent.root_parent_conversation_id,
+                  card.assigned_agent.is_pruned
+                )
               } else {
                 const isPR = contextMenu.itemType === 'pr'
                 const text = `### GitHub ${isPR ? 'Pull Request' : 'Issue'} #${card.number}: ${card.title}\n- **Repository:** ${repo ? repo.full_name : ''}\n- **State:** ${card.state || 'open'}\n\n${card.body || ''}`
@@ -1700,19 +1795,21 @@ export const GitHubWorkspacePage: React.FC = () => {
               display: 'flex',
               alignItems: 'center',
               width: '100%',
-              padding: '6px 12px',
+              padding: '6px 10px',
+              borderRadius: '6px',
               fontSize: '12px',
               color: 'var(--text)',
               background: 'transparent',
               border: 'none',
               cursor: 'pointer',
               textAlign: 'left',
+              boxSizing: 'border-box',
             }}
             onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(26,115,232,0.08)')}
             onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
             {contextMenu.item.assigned_agent && contextMenu.item.assigned_agent.conversation_id
-              ? `Jump to ${contextMenu.item.assigned_agent.agent_label || 'Agent'} [#{contextMenu.item.assigned_agent.conversation_id.slice(0, 6)}]`
+              ? `Jump to ${contextMenu.item.assigned_agent.agent_label || 'Agent'} [#{contextMenu.item.assigned_agent.conversation_id.slice(0, 6)}]${contextMenu.item.assigned_agent.is_pruned ? ' (Archived)' : ''}`
               : 'Chat with Agent'}
           </button>
           <button
@@ -1725,13 +1822,15 @@ export const GitHubWorkspacePage: React.FC = () => {
               display: 'flex',
               alignItems: 'center',
               width: '100%',
-              padding: '6px 12px',
+              padding: '6px 10px',
+              borderRadius: '6px',
               fontSize: '12px',
               color: 'var(--text)',
               background: 'transparent',
               border: 'none',
               cursor: 'pointer',
               textAlign: 'left',
+              boxSizing: 'border-box',
             }}
             onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(26,115,232,0.08)')}
             onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
@@ -1748,19 +1847,23 @@ export const GitHubWorkspacePage: React.FC = () => {
               style={{
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: 'space-between',
                 width: '100%',
-                padding: '6px 12px',
+                padding: '6px 10px',
+                borderRadius: '6px',
                 fontSize: '12px',
                 color: 'var(--text)',
                 background: 'transparent',
                 border: 'none',
                 cursor: 'pointer',
                 textAlign: 'left',
+                boxSizing: 'border-box',
               }}
               onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(26,115,232,0.08)')}
               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
             >
-              Open on GitHub ↗
+              <span>Open on GitHub</span>
+              <ExternalLink size={12} style={{ opacity: 0.7 }} />
             </button>
           )}
         </div>

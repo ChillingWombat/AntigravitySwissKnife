@@ -20,15 +20,15 @@ import (
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/cache"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/enhancements"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/fingerprint"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/github"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/importer"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/ipc"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/process"
-	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
-	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/enhancements"
-	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/github"
-	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/importer"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/system"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/templates"
@@ -178,6 +178,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/gui/projects/restore", s.handleGUIProjectsRestore)
 	mux.HandleFunc("/api/gui/projects/open_settings", s.handleGUIProjectsOpenSettings)
 	mux.HandleFunc("/api/gui/conversations/auto-archive", s.handleGUIConversationsAutoArchive)
+	mux.HandleFunc("/api/gui/conversations/pruned", s.handleGUIConversationsPruned)
 	mux.HandleFunc("/api/gui/color", s.handleGUIProjectColor)
 	mux.HandleFunc("/api/gui/color/delete", s.handleGUIProjectColorDelete)
 	mux.HandleFunc("/api/gui/projects/color/delete", s.handleGUIProjectColorDelete)
@@ -500,6 +501,7 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 		Password             string  `json:"password"`
 		TOTPSecret           string  `json:"totp_secret"`
 		RefreshToken         string  `json:"refresh_token"`
+		AccessToken          string  `json:"access_token"`
 		Credits              float64 `json:"credits"`
 		EnableCreditOverages bool    `json:"enable_credit_overages"`
 		AllowClaudeGPT       bool    `json:"allow_claude_gpt"`
@@ -519,6 +521,9 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 		if err := store.UpdateAccountFull(p.Email, p.Label, p.PlanTier, p.Status, p.Priority, p.Notes, p.Password, p.TOTPSecret, p.RefreshToken, p.Credits, p.EnableCreditOverages, p.AllowClaudeGPT, p.SetActive); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if p.AccessToken != "" {
+			_ = store.SetAccessToken(p.Email, p.AccessToken)
 		}
 		if p.SetActive {
 			var allEmails []string
@@ -1419,6 +1424,18 @@ func (s *Server) handleGUIConversationsAutoArchive(w http.ResponseWriter, r *htt
 		return
 	}
 	writeJSON(w, result)
+}
+
+func (s *Server) handleGUIConversationsPruned(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	pruned := gui.GetPrunedConversationIDs()
+	if pruned == nil {
+		pruned = []string{}
+	}
+	writeJSON(w, pruned)
 }
 
 func (s *Server) handleGUIProjectOrder(w http.ResponseWriter, r *http.Request) {
@@ -2901,12 +2918,17 @@ func cleanUserPath(raw string) string {
 			}
 		}
 	}
-	// If relative path, check if it exists relative to working directory
+	// If relative path, check if it exists relative to working directory or resolves to a known project
 	if !filepath.IsAbs(p) {
 		if wd, err := os.Getwd(); err == nil && wd != "" {
 			candidate := filepath.Join(wd, p)
 			if _, err := os.Stat(candidate); err == nil {
 				p = candidate
+			}
+		}
+		if !filepath.IsAbs(p) {
+			if resolved := github.ResolveProjectPath(p); filepath.IsAbs(resolved) {
+				p = resolved
 			}
 		}
 	}
@@ -3177,7 +3199,6 @@ func (s *Server) handleMemosConfig(w http.ResponseWriter, r *http.Request) {
 
 	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 }
-
 
 // FileItem represents a filesystem entry returned by /api/files/list
 type FileItem struct {

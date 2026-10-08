@@ -47,15 +47,21 @@ import { GitHubWorkspacePage } from './GitHubWorkspacePage'
 export interface ExtensionsPageProps {
   activeTab?: number
   onTabChange?: (tab: number) => void
+  scope?: string
+  onScopeChange?: (scope: string) => void
+  fallbackProject?: string
 }
 
 export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
   activeTab: propActiveTab,
   onTabChange: _onTabChange,
+  scope,
+  onScopeChange: _onScopeChange,
+  fallbackProject,
 }) => {
   const activeTab = propActiveTab !== undefined ? propActiveTab : 0
 
-  // --- 1. Browser & App Preview State ---
+  // --- 1. Preview Browser State ---
   const [previewUrl, setPreviewUrl] = useState('http://localhost:5173')
   const [activeAnnotateTool, setActiveAnnotateTool] = useState<'none' | 'pen' | 'rect' | 'inspect'>('none')
   const [annotationColor] = useState('#ea4335') // Google Red
@@ -226,6 +232,26 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
     } catch {}
     loadMemos(nextScope, addressBarPath, memoStorageLocation)
   }
+
+  // Sync top-bar scope selector with File Explorer and Quick Memos
+  useEffect(() => {
+    if (!scope) return
+    if (scope === 'GLOBAL') {
+      setMemoViewScope('all')
+      if (currentProjectFolder !== '.' && currentProjectFolder !== '~/.gemini/antigravity') {
+        setCurrentProjectFolder('.')
+        setAddressBarPath('.')
+        setHistoryStack(['.'])
+        setHistoryIndex(0)
+      }
+    } else {
+      setCurrentProjectFolder(scope)
+      setAddressBarPath(scope)
+      setHistoryStack([scope])
+      setHistoryIndex(0)
+      setMemoViewScope('current')
+    }
+  }, [scope])
 
   // Load real files from Go backend
   useEffect(() => {
@@ -476,7 +502,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
   const [waylandPipeWire, setWaylandPipeWire] = useState(true)
   const [accessibilityGrounding, setAccessibilityGrounding] = useState(true)
 
-  // Handlers for Browser Preview
+  // Handlers for Preview Browser
   const handleSendToChat = () => {
     let payload = ''
     if (payloadType === 'hybrid') {
@@ -731,19 +757,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Top Header Card with Extensions Segments */}
-      <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-              Antigravity 2.0 In-App Extensions & Auxiliary Workspace
-            </div>
-            <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)', marginTop: '2px' }}>
-              Dedicated extensions designed exclusively for Antigravity 2.0 Desktop auxiliary panel & workspace
-            </div>
-          </div>
-        </div>
-      </div>
+
 
       {sentFeedback && (
         <div
@@ -765,7 +779,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 0: Browser & Live App Previewer in Auxiliary Panel                    */}
+      {/* TAB 0: Preview Browser in Auxiliary Panel                                  */}
       {/* ========================================================================= */}
       {activeTab === 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -926,8 +940,9 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                 </div>
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   {activeAnnotateTool !== 'none' && (
-                    <span style={{ fontSize: '10px', fontWeight: 700, color: annotationColor, textTransform: 'uppercase' }}>
-                      ● Annotation Mode: {activeAnnotateTool}
+                    <span style={{ fontSize: '10px', fontWeight: 700, color: annotationColor, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: annotationColor, display: 'inline-block' }} />
+                      <span>Annotation Mode: {activeAnnotateTool}</span>
                     </span>
                   )}
                 </div>
@@ -1190,6 +1205,9 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                     backgroundColor: 'var(--canvas)',
                   }}
                 >
+                  {currentProjectFolder !== '.' && currentProjectFolder !== '~/.gemini/antigravity' && (
+                    <option value={currentProjectFolder}>{currentProjectFolder}</option>
+                  )}
                   <option value=".">Current Project Workspace</option>
                   <option value="~/.gemini/antigravity">Antigravity Runtime State (~/.gemini)</option>
                 </select>
@@ -1777,13 +1795,13 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
 
                   {activeFileViewer.type === 'code' && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <div style={{ display: 'flex', backgroundColor: 'var(--tonal)', borderRadius: '14px', padding: '2px' }}>
+                      <div style={{ display: 'flex', backgroundColor: 'var(--tonal)', borderRadius: '8px', padding: '2px' }}>
                         <button
                           onClick={() => setIsCodeEditingMode(false)}
                           style={{
                             border: 'none',
                             padding: '3px 10px',
-                            borderRadius: '12px',
+                            borderRadius: '6px',
                             fontSize: '11px',
                             fontWeight: !isCodeEditingMode ? 700 : 500,
                             backgroundColor: !isCodeEditingMode ? '#ffffff' : 'transparent',
@@ -1798,7 +1816,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                           style={{
                             border: 'none',
                             padding: '3px 10px',
-                            borderRadius: '12px',
+                            borderRadius: '6px',
                             fontSize: '11px',
                             fontWeight: isCodeEditingMode ? 700 : 500,
                             backgroundColor: isCodeEditingMode ? '#ffffff' : 'transparent',
@@ -1840,13 +1858,13 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
 
                   {activeFileViewer.type === 'markdown' && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <div style={{ display: 'flex', backgroundColor: 'var(--tonal)', borderRadius: '14px', padding: '2px' }}>
+                      <div style={{ display: 'flex', backgroundColor: 'var(--tonal)', borderRadius: '8px', padding: '2px' }}>
                         <button
                           onClick={() => setMarkdownViewMode('edit')}
                           style={{
                             border: 'none',
                             padding: '3px 10px',
-                            borderRadius: '12px',
+                            borderRadius: '6px',
                             fontSize: '11px',
                             fontWeight: markdownViewMode === 'edit' ? 700 : 500,
                             backgroundColor: markdownViewMode === 'edit' ? '#ffffff' : 'transparent',
@@ -1861,7 +1879,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                           style={{
                             border: 'none',
                             padding: '3px 10px',
-                            borderRadius: '12px',
+                            borderRadius: '6px',
                             fontSize: '11px',
                             fontWeight: markdownViewMode === 'preview' ? 700 : 500,
                             backgroundColor: markdownViewMode === 'preview' ? '#ffffff' : 'transparent',
@@ -2346,14 +2364,14 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
             display: 'flex',
             flexDirection: 'column',
             backgroundColor: 'var(--card, #ffffff)',
-            borderRadius: '12px',
+            borderRadius: '10px',
             border: '1px solid var(--border)',
             overflow: 'hidden',
             minHeight: '680px',
-            height: 'calc(100vh - 210px)',
+            height: 'calc(100vh - 130px)',
           }}
         >
-          <GitHubWorkspacePage />
+          <GitHubWorkspacePage scope={scope} fallbackProject={fallbackProject} />
         </div>
       )}
 
@@ -2586,7 +2604,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
               http://192.168.1.105:8765/ipad-preview
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: '16px' }}>
-              Pressure and tilt data from Apple Pencil are streamed over low-latency WebSockets into the Antigravity auxiliary browser preview.
+              Pressure and tilt data from Apple Pencil are streamed over low-latency WebSockets into the Antigravity auxiliary preview browser.
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={() => setShowIpadModal(false)} className="btn-pill-primary" style={{ padding: '6px 18px', fontSize: '12px' }}>

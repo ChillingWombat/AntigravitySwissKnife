@@ -132,6 +132,40 @@ func TestWebGUIEndpoints(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestWebGUIPrunedConversationsEndpoint(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+	resp, err := http.Get(baseURL + "/api/gui/conversations/pruned")
+	if err != nil {
+		t.Fatalf("GET /api/gui/conversations/pruned failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var list []string
+	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+		t.Fatalf("failed to decode pruned conversations list: %v", err)
+	}
+
+	// Verify method not allowed on POST
+	postResp, err := http.Post(baseURL+"/api/gui/conversations/pruned", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST /api/gui/conversations/pruned failed: %v", err)
+	}
+	postResp.Body.Close()
+	if postResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 Method Not Allowed on POST, got %d", postResp.StatusCode)
+	}
+}
+
 func TestWebGUISystemInstallationsEndpoints(t *testing.T) {
 	srv := NewServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
@@ -1132,7 +1166,6 @@ func TestWebGUIMemos_ConfigEndpoint(t *testing.T) {
 	}
 }
 
-
 func TestWebGUIUtilitiesImportEndpoints(t *testing.T) {
 	srv := NewServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
@@ -1148,9 +1181,9 @@ func TestWebGUIUtilitiesImportEndpoints(t *testing.T) {
 		t.Fatalf("GET /api/utilities/import/scan failed: err=%v, code=%d", err, resp.StatusCode)
 	}
 	var scanRes struct {
-		Success bool `json:"success"`
+		Success bool   `json:"success"`
 		Source  string `json:"source"`
-		Count   int `json:"count"`
+		Count   int    `json:"count"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&scanRes)
 	resp.Body.Close()
@@ -1161,8 +1194,8 @@ func TestWebGUIUtilitiesImportEndpoints(t *testing.T) {
 	// 2. POST /api/utilities/import with empty list
 	payload := map[string]interface{}{
 		"candidate_ids": []string{},
-		"source": "claude-code",
-		"mode": "auto",
+		"source":        "claude-code",
+		"mode":          "auto",
 	}
 	pData, _ := json.Marshal(payload)
 	resp, err = http.Post(baseURL+"/api/utilities/import", "application/json", bytes.NewReader(pData))
@@ -1228,9 +1261,9 @@ func TestWebGUIAvailableModelsAndRules(t *testing.T) {
 	// 3. POST /api/rules to update reasoning level and default models
 	postData := map[string]interface{}{
 		"default_gemini_reasoning_level": "medium",
-		"default_custom_model":          "custom-first-model",
-		"default_gemini_model":          "gemini-3.8-pro",
-		"default_non_gemini_model":      "claude-3-7-sonnet",
+		"default_custom_model":           "custom-first-model",
+		"default_gemini_model":           "gemini-3.8-pro",
+		"default_non_gemini_model":       "claude-3-7-sonnet",
 	}
 	pBytes, _ := json.Marshal(postData)
 	resp, err = http.Post(baseURL+"/api/rules", "application/json", bytes.NewReader(pBytes))
@@ -1959,6 +1992,3 @@ func TestWebGUIFilesOpenIDEEndpoint(t *testing.T) {
 		t.Errorf("expected status 405, got %d", resp.StatusCode)
 	}
 }
-
-
-

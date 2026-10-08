@@ -188,6 +188,7 @@ func (d *Daemon) registerRPCHandlers() {
 			Password             string  `json:"password"`
 			TOTPSecret           string  `json:"totp_secret"`
 			RefreshToken         string  `json:"refresh_token"`
+			AccessToken          string  `json:"access_token"`
 			Credits              float64 `json:"credits"`
 			EnableCreditOverages bool    `json:"enable_credit_overages"`
 			AllowClaudeGPT       bool    `json:"allow_claude_gpt"`
@@ -201,6 +202,9 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 		if err := d.Keyring.UpdateAccountFull(p.Email, p.Label, p.PlanTier, p.Status, p.Priority, p.Notes, p.Password, p.TOTPSecret, p.RefreshToken, p.Credits, p.EnableCreditOverages, p.AllowClaudeGPT, p.SetActive); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
+		}
+		if p.AccessToken != "" {
+			_ = d.Keyring.SetAccessToken(p.Email, p.AccessToken)
 		}
 		if p.SetActive {
 			var allEmails []string
@@ -370,10 +374,10 @@ func (d *Daemon) registerRPCHandlers() {
 
 		if acc.TOTPSecret == "" {
 			return map[string]interface{}{
-				"code":               "------",
-				"remaining_seconds":  0,
-				"progress_fraction":  0.0,
-				"has_totp":           false,
+				"code":              "------",
+				"remaining_seconds": 0,
+				"progress_fraction": 0.0,
+				"has_totp":          false,
 			}, nil
 		}
 
@@ -627,9 +631,9 @@ func (d *Daemon) registerRPCHandlers() {
 			configDir = custom
 		}
 		return map[string]interface{}{
-			"surfaces":                keyring.DetectAllSurfaces(home, configDir),
-			"active_surface_account":  keyring.ResolveRunningAntigravityAccount(home, configDir),
-			"priority_sequence":       []string{"Antigravity 2.0 Desktop", "Antigravity VS Code Extension", "Antigravity CLI"},
+			"surfaces":               keyring.DetectAllSurfaces(home, configDir),
+			"active_surface_account": keyring.ResolveRunningAntigravityAccount(home, configDir),
+			"priority_sequence":      []string{"Antigravity 2.0 Desktop", "Antigravity VS Code Extension", "Antigravity CLI"},
 		}, nil
 	})
 

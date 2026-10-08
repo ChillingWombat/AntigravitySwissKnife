@@ -530,9 +530,15 @@ func TestAuxiliaryFileExplorerNavigationToolbar(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 	css := GenerateAuxiliaryPluginsCSS()
 
-	// 1. Verify CSS disabled button rule exists
+	// 1. Verify CSS disabled button rule and path input min-width: 0 exist
 	if !strings.Contains(css, ".swiss-browser-btn:disabled") {
 		t.Errorf("expected CSS to define .swiss-browser-btn:disabled")
+	}
+	if !strings.Contains(css, ".swiss-files-path-input {\n  flex: 1;\n  min-width: 0;") {
+		t.Errorf("expected .swiss-files-path-input to define min-width: 0 so 5 icon buttons on Row 1 do not overflow narrow panels")
+	}
+	if !strings.Contains(js, `id="swiss-f-search" style="flex:1; min-width:0;`) {
+		t.Errorf("expected #swiss-f-search to include min-width:0 in inline style")
 	}
 
 	// 2. Verify all toolbar buttons and input exist in JS with expected hover titles
@@ -562,45 +568,67 @@ func TestAuxiliaryFileExplorerNavigationToolbar(t *testing.T) {
 	}
 
 	// 3. Verify two-row layout ordering:
-	// Row 1 (address bar): swiss-f-home < swiss-f-refresh < swiss-f-path < swiss-f-new-file < swiss-f-new-dir
-	// Row 2 (search/actions bar): swiss-f-back < swiss-f-up < swiss-f-search < swiss-f-hidden < swiss-f-reveal < swiss-f-term < swiss-f-ide
+	// Row 1 (address bar): swiss-f-home < swiss-f-refresh < swiss-f-path < swiss-f-reveal < swiss-f-new-file < swiss-f-new-dir
+	// Row 2 (search/actions bar): swiss-f-back < swiss-f-up < swiss-f-search < swiss-f-hidden < swiss-f-term < swiss-f-ide
+	idxAddrBar := strings.Index(js, `<div class="swiss-files-address-bar">`)
 	idxHome := strings.Index(js, `id="swiss-f-home"`)
 	idxRefresh := strings.Index(js, `id="swiss-f-refresh"`)
 	idxPath := strings.Index(js, `id="swiss-f-path"`)
+	idxReveal := strings.Index(js, `id="swiss-f-reveal"`)
 	idxNewFile := strings.Index(js, `id="swiss-f-new-file"`)
 	idxNewDir := strings.Index(js, `id="swiss-f-new-dir"`)
 
+	idxActionsBar := strings.Index(js, `<div class="swiss-files-actions-bar"`)
 	idxBack := strings.Index(js, `id="swiss-f-back"`)
 	idxUp := strings.Index(js, `id="swiss-f-up"`)
 	idxSearch := strings.Index(js, `id="swiss-f-search"`)
 	idxHidden := strings.Index(js, `id="swiss-f-hidden"`)
-	idxReveal := strings.Index(js, `id="swiss-f-reveal"`)
 	idxTerm := strings.Index(js, `id="swiss-f-term"`)
 	idxIDE := strings.Index(js, `id="swiss-f-ide"`)
 
-	if idxHome == -1 || idxRefresh == -1 || idxPath == -1 || idxNewFile == -1 || idxNewDir == -1 ||
-		idxBack == -1 || idxUp == -1 || idxSearch == -1 || idxHidden == -1 || idxReveal == -1 || idxTerm == -1 || idxIDE == -1 {
+	if idxAddrBar == -1 || idxHome == -1 || idxRefresh == -1 || idxPath == -1 || idxReveal == -1 || idxNewFile == -1 || idxNewDir == -1 ||
+		idxActionsBar == -1 || idxBack == -1 || idxUp == -1 || idxSearch == -1 || idxHidden == -1 || idxTerm == -1 || idxIDE == -1 {
 		t.Fatalf("one or more toolbar element IDs not found in JS")
 	}
 
-	// Row 1: Home < Refresh < Path < New File < New Folder
-	if !(idxHome < idxRefresh && idxRefresh < idxPath && idxPath < idxNewFile && idxNewFile < idxNewDir) {
-		t.Errorf("expected Row 1 order swiss-f-home < swiss-f-refresh < swiss-f-path < swiss-f-new-file < swiss-f-new-dir, got indices: home=%d, refresh=%d, path=%d, newFile=%d, newDir=%d",
-			idxHome, idxRefresh, idxPath, idxNewFile, idxNewDir)
+	if count := strings.Count(js, `id="swiss-f-reveal"`); count != 1 {
+		t.Errorf("expected exactly 1 instance of id=\"swiss-f-reveal\", got %d", count)
+	}
+
+	// Row 1: Home < Refresh < Path < Reveal < New File < New Folder
+	if !(idxAddrBar < idxHome && idxHome < idxRefresh && idxRefresh < idxPath && idxPath < idxReveal && idxReveal < idxNewFile && idxNewFile < idxNewDir) {
+		t.Errorf("expected Row 1 order swiss-f-home < swiss-f-refresh < swiss-f-path < swiss-f-reveal < swiss-f-new-file < swiss-f-new-dir, got indices: home=%d, refresh=%d, path=%d, reveal=%d, newFile=%d, newDir=%d",
+			idxHome, idxRefresh, idxPath, idxReveal, idxNewFile, idxNewDir)
 	}
 
 	// Row 1 address bar appears before Row 2 search/actions row
-	if !(idxNewDir < idxBack) {
-		t.Errorf("expected Row 1 (new-dir) to appear before Row 2 (back), got: newDir=%d, back=%d", idxNewDir, idxBack)
+	if !(idxNewDir < idxActionsBar && idxActionsBar < idxBack) {
+		t.Errorf("expected Row 1 (new-dir) to appear before Row 2 (actions-bar < back), got: newDir=%d, actionsBar=%d, back=%d", idxNewDir, idxActionsBar, idxBack)
 	}
 
-	// Row 2: Back < Up < Search < Hidden < Reveal < Term < IDE
-	if !(idxBack < idxUp && idxUp < idxSearch && idxSearch < idxHidden && idxHidden < idxReveal && idxReveal < idxTerm && idxTerm < idxIDE) {
-		t.Errorf("expected Row 2 order swiss-f-back < swiss-f-up < swiss-f-search < swiss-f-hidden < swiss-f-reveal < swiss-f-term < swiss-f-ide, got indices: back=%d, up=%d, search=%d, hidden=%d, reveal=%d, term=%d, ide=%d",
-			idxBack, idxUp, idxSearch, idxHidden, idxReveal, idxTerm, idxIDE)
+	// Row 2: Back < Up < Search < Hidden < Term < IDE
+	if !(idxBack < idxUp && idxUp < idxSearch && idxSearch < idxHidden && idxHidden < idxTerm && idxTerm < idxIDE) {
+		t.Errorf("expected Row 2 order swiss-f-back < swiss-f-up < swiss-f-search < swiss-f-hidden < swiss-f-term < swiss-f-ide, got indices: back=%d, up=%d, search=%d, hidden=%d, term=%d, ide=%d",
+			idxBack, idxUp, idxSearch, idxHidden, idxTerm, idxIDE)
 	}
 
-	// Verify icon-only attributes and dimensions for New File and New Folder
+	// Verify reveal button is inside .swiss-files-address-bar and not in .swiss-files-actions-bar
+	addrBarBlock := js[idxAddrBar:idxActionsBar]
+	if !strings.Contains(addrBarBlock, `id="swiss-f-reveal"`) {
+		t.Errorf("expected swiss-f-reveal to be inside .swiss-files-address-bar")
+	}
+	actionsBarEnd := strings.Index(js[idxActionsBar:], `</div>`)
+	if actionsBarEnd != -1 {
+		actionsBarBlock := js[idxActionsBar : idxActionsBar+actionsBarEnd]
+		if strings.Contains(actionsBarBlock, `id="swiss-f-reveal"`) {
+			t.Errorf("expected swiss-f-reveal to not be inside .swiss-files-actions-bar")
+		}
+	}
+
+	// Verify icon-only attributes and dimensions for Reveal, New File, and New Folder
+	if !strings.Contains(js, `id="swiss-f-reveal" title="Open in System File Manager"><svg viewBox="0 0 24 24" width="13" height="13"`) {
+		t.Errorf("expected swiss-f-reveal to be icon-only with width=13 height=13")
+	}
 	if !strings.Contains(js, `id="swiss-f-new-file" title="New File"><svg viewBox="0 0 24 24" width="13" height="13"`) {
 		t.Errorf("expected swiss-f-new-file to be icon-only with width=13 height=13")
 	}
@@ -622,7 +650,7 @@ func TestAuxiliaryFileExplorerNavigationToolbar(t *testing.T) {
 		t.Errorf("expected JS to include IDE action in row and blank context menus")
 	}
 
-	// 4. Verify history stack, home navigation, monotonic request ID and disabled initialization logic
+	// 4. Verify history stack, home navigation, reveal handler, monotonic request ID and disabled initialization logic
 	navTokens := []string{
 		`id="swiss-f-back" title="Back" disabled`,
 		"fileHistory",
@@ -632,6 +660,8 @@ func TestAuxiliaryFileExplorerNavigationToolbar(t *testing.T) {
 		`toolbar.querySelector("#swiss-f-home").onclick`,
 		`loadFiles("~")`,
 		`toolbar.querySelector("#swiss-f-refresh").onclick`,
+		`toolbar.querySelector("#swiss-f-reveal").onclick`,
+		`/api/files/reveal`,
 		"updateNavButtons",
 		"backBtn.disabled = fileHistory.length === 0",
 		"currentFetchId",
@@ -642,6 +672,54 @@ func TestAuxiliaryFileExplorerNavigationToolbar(t *testing.T) {
 	for _, token := range navTokens {
 		if !strings.Contains(js, token) {
 			t.Errorf("expected JS to contain navigation logic token %q", token)
+		}
+	}
+
+	// 5. Node.js runtime verification on the actual generated JS script
+	if nodePath, err := exec.LookPath("node"); err == nil {
+		nodeScript := `
+const assert = require("assert");
+const fs = require("fs");
+const js = fs.readFileSync(0, "utf8");
+
+const addrStart = js.indexOf('<div class="swiss-files-address-bar">');
+const actionsStart = js.indexOf('<div class="swiss-files-actions-bar"', addrStart);
+const actionsEnd = js.indexOf('</div>', actionsStart);
+assert(addrStart !== -1 && actionsStart !== -1 && actionsEnd !== -1, "toolbar row blocks not found");
+
+const row1Html = js.slice(addrStart, actionsStart);
+const row2Html = js.slice(actionsStart, actionsEnd + 6);
+
+const extractIds = (html) => Array.from(html.matchAll(/\bid="([^"]+)"/g), m => m[1]);
+assert.deepStrictEqual(
+  extractIds(row1Html),
+  ["swiss-f-home", "swiss-f-refresh", "swiss-f-path", "swiss-f-reveal", "swiss-f-new-file", "swiss-f-new-dir"]
+);
+assert.deepStrictEqual(
+  extractIds(row2Html),
+  ["swiss-f-back", "swiss-f-up", "swiss-f-search", "swiss-f-hidden", "swiss-f-term", "swiss-f-ide"]
+);
+
+const revealHandlerMatch = js.match(/toolbar\.querySelector\("#swiss-f-reveal"\)\.onclick\s*=\s*\(\)\s*=>\s*\{[\s\S]*?\};/);
+assert(revealHandlerMatch, "reveal onclick handler not found");
+let fetchedUrl = null;
+let fetchedOpts = null;
+const API_BASE = "http://127.0.0.1:19876";
+const currentFilePath = "/mnt/Data/Projects";
+const toolbar = { querySelector: (sel) => (sel === "#swiss-f-reveal" ? revealBtn : null) };
+const revealBtn = {};
+const fetch = (url, opts) => { fetchedUrl = url; fetchedOpts = opts; };
+eval(revealHandlerMatch[0]);
+revealBtn.onclick();
+assert.strictEqual(fetchedUrl, "http://127.0.0.1:19876/api/files/reveal");
+assert.strictEqual(fetchedOpts.method, "POST");
+assert.deepStrictEqual(JSON.parse(fetchedOpts.body), { path: "/mnt/Data/Projects" });
+`
+		cmd := exec.Command(nodePath, "-e", nodeScript)
+		cmd.Stdin = strings.NewReader(js)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("Node.js toolbar runtime verification failed: %v\n%s", err, string(out))
 		}
 	}
 }
@@ -1203,31 +1281,31 @@ func TestAuxiliaryFileExplorerHiddenFilesToggle(t *testing.T) {
 	}
 
 	// 3. Verify ordering:
-	// Row 1 (address bar): path < new-file < new-dir
-	// Row 2 (search & actions): search < hidden < reveal < term < ide
+	// Row 1 (address bar): path < reveal < new-file < new-dir
+	// Row 2 (search & actions): search < hidden < term < ide
 	idxPath := strings.Index(js, `id="swiss-f-path"`)
+	idxReveal := strings.Index(js, `id="swiss-f-reveal"`)
 	idxNewFile := strings.Index(js, `id="swiss-f-new-file"`)
 	idxNewDir := strings.Index(js, `id="swiss-f-new-dir"`)
 	idxSearch := strings.Index(js, `id="swiss-f-search"`)
 	idxHidden := strings.Index(js, `id="swiss-f-hidden"`)
-	idxReveal := strings.Index(js, `id="swiss-f-reveal"`)
 	idxTerm := strings.Index(js, `id="swiss-f-term"`)
 	idxIDE := strings.Index(js, `id="swiss-f-ide"`)
 
-	if idxPath == -1 || idxNewFile == -1 || idxNewDir == -1 ||
-		idxSearch == -1 || idxHidden == -1 || idxReveal == -1 || idxTerm == -1 || idxIDE == -1 {
-		t.Fatalf("one or more toolbar elements not found in JS: path=%d, newFile=%d, newDir=%d, search=%d, hidden=%d, reveal=%d, term=%d, ide=%d",
-			idxPath, idxNewFile, idxNewDir, idxSearch, idxHidden, idxReveal, idxTerm, idxIDE)
+	if idxPath == -1 || idxReveal == -1 || idxNewFile == -1 || idxNewDir == -1 ||
+		idxSearch == -1 || idxHidden == -1 || idxTerm == -1 || idxIDE == -1 {
+		t.Fatalf("one or more toolbar elements not found in JS: path=%d, reveal=%d, newFile=%d, newDir=%d, search=%d, hidden=%d, term=%d, ide=%d",
+			idxPath, idxReveal, idxNewFile, idxNewDir, idxSearch, idxHidden, idxTerm, idxIDE)
 	}
 
-	if !(idxPath < idxNewFile && idxNewFile < idxNewDir) {
-		t.Errorf("expected Row 1 order path < new-file < new-dir, got: path=%d, file=%d, dir=%d",
-			idxPath, idxNewFile, idxNewDir)
+	if !(idxPath < idxReveal && idxReveal < idxNewFile && idxNewFile < idxNewDir) {
+		t.Errorf("expected Row 1 order path < reveal < new-file < new-dir, got: path=%d, reveal=%d, file=%d, dir=%d",
+			idxPath, idxReveal, idxNewFile, idxNewDir)
 	}
 
-	if !(idxSearch < idxHidden && idxHidden < idxReveal && idxReveal < idxTerm && idxTerm < idxIDE) {
-		t.Errorf("expected Row 2 order search < hidden < reveal < term < ide, got: search=%d, hidden=%d, reveal=%d, term=%d, ide=%d",
-			idxSearch, idxHidden, idxReveal, idxTerm, idxIDE)
+	if !(idxSearch < idxHidden && idxHidden < idxTerm && idxTerm < idxIDE) {
+		t.Errorf("expected Row 2 order search < hidden < term < ide, got: search=%d, hidden=%d, term=%d, ide=%d",
+			idxSearch, idxHidden, idxTerm, idxIDE)
 	}
 
 	// 4. Verify Eye and EyeOff icons, localStorage persistence, and toggle logic
@@ -1534,4 +1612,75 @@ func TestGenerateAuxiliaryPluginsScript_VoiceTranscriptionAndAudioPayload(t *tes
 			t.Errorf("auxiliary script contains forbidden decorative emoji %q", emoji)
 		}
 	}
+
+	// 5. Verify isolated Main Stage vs Right Auxiliary Panel file path state & voice memo workspace_path
+	scopeTokens := []string{
+		"let stageFilePath =",
+		"let auxFilePath =",
+		`stageFilePath = (stScope && stScope !== "GLOBAL") ? stScope : ".";`,
+		"workspace_path: mq.wsPath || undefined",
+	}
+	for _, tok := range scopeTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected auxiliary script to contain scope isolation token %q", tok)
+		}
+	}
 }
+
+func TestAuxiliaryTabProportionsAndBreakerMargin(t *testing.T) {
+	css := GenerateAuxiliaryPluginsCSS()
+
+	// 1. Auxiliary tab button proportions: height 24px, width 24px, min-width 24px, border-radius 8px matching factory tab buttons
+	if !strings.Contains(css, "height: 24px;") {
+		t.Errorf("expected auxiliary tab CSS to specify 24px height matching factory tab buttons")
+	}
+	if !strings.Contains(css, "width: 24px;") {
+		t.Errorf("expected auxiliary tab CSS to specify 24px width matching factory tab buttons")
+	}
+	if !strings.Contains(css, "min-width: 24px;") {
+		t.Errorf("expected auxiliary tab CSS to specify 24px min-width matching factory tab buttons")
+	}
+	if !strings.Contains(css, "border-radius: 8px;") {
+		t.Errorf("expected auxiliary tab CSS to specify 8px border-radius matching factory rounded-lg")
+	}
+
+	// 2. Auxiliary tab SVG and label proportions: 13.5px icons matching factory button visual glyph size
+	if !strings.Contains(css, "width: 13.5px;") || !strings.Contains(css, "height: 13.5px;") {
+		t.Errorf("expected auxiliary tab SVG to be 13.5px x 13.5px matching factory buttons")
+	}
+	if !strings.Contains(css, "font-size: 11px;") {
+		t.Errorf("expected auxiliary tab label to be 11px")
+	}
+
+	// 3. Visible divider line rule: margin: 0 2px and opacity: 1 !important to guarantee visible rendering
+	if !strings.Contains(css, "margin: 0 2px;") {
+		t.Errorf("expected .swiss-aux-tabs-divider to use margin: 0 2px")
+	}
+	if !strings.Contains(css, "opacity: 1 !important;") {
+		t.Errorf("expected .swiss-aux-tabs-divider to use opacity: 1 !important")
+	}
+
+	// 4. Fixed-ends and flexible middle flexbox architecture
+	if !strings.Contains(css, "flex: 1 1 0% !important;") {
+		t.Errorf("expected CSS to specify flex: 1 1 0%%%% !important for middle file tabs")
+	}
+	if !strings.Contains(css, "@container (max-width: 285px)") {
+		t.Errorf("expected CSS to include @container (max-width: 285px)")
+	}
+
+	js := GenerateAuxiliaryPluginsScript()
+	if !strings.Contains(js, `dividerLeft.style.margin = "0 2px"`) && !strings.Contains(js, `dividerLeft.style.margin = '0 2px'`) {
+		t.Errorf("expected script JS to set dividerLeft margin to 0 2px")
+	}
+	if !strings.Contains(js, `dividerRight.style.margin = "0 2px"`) && !strings.Contains(js, `dividerRight.style.margin = '0 2px'`) {
+		t.Errorf("expected script JS to set dividerRight margin to 0 2px")
+	}
+	if !strings.Contains(js, `dividerLeft.style.opacity = "1"`) && !strings.Contains(js, `dividerLeft.style.opacity = '1'`) {
+		t.Errorf("expected script JS to set dividerLeft opacity to 1")
+	}
+	if !strings.Contains(js, `dividerRight.style.opacity = "1"`) && !strings.Contains(js, `dividerRight.style.opacity = '1'`) {
+		t.Errorf("expected script JS to set dividerRight opacity to 1")
+	}
+}
+
+
