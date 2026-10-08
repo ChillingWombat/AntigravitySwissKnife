@@ -53,3 +53,7 @@ tests/
 # Local documents
 README.local.md
 
+# Worktrees and desktop packaging
+.worktrees/
+dist-desktop/
+
