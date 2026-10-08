@@ -1,16 +1,9 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
-  Save,
   ArrowUp,
   ArrowDown,
   Layers,
-  Cpu,
-  Sparkles,
-  CreditCard,
-  Bot,
-  Settings2,
   GripVertical,
-  Laptop,
   RefreshCw,
   Download,
   Upload,
@@ -21,49 +14,23 @@ import {
   CheckCircle2,
   X,
   Code,
-  SlidersHorizontal,
-  Zap,
-  Timer,
+  Scale,
+  Sigma,
+  Infinity as InfinityIcon,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
-import type { RuleConfig, SurfacesResponse, AvailableModelItem, SwitchMode } from '../types'
+import type { RuleConfig, AvailableModelItem, SwitchMode } from '../types'
 import { api } from '../api'
 import { resolveEffectiveCustomModel } from '../utils/modelFilter'
+import {
+  MODEL_SOURCE_LABELS,
+  normalizeModelSourceHierarchy,
+  type ModelSourceKey,
+} from '../utils/modelSourceHierarchy'
 
 interface SwitcherSettingsPageProps {
   initialRules: RuleConfig | null
   onSaved: () => void
-}
-
-const HIERARCHY_META: Record<string, { label: string; desc: string; badge: string; color: string; icon: any }> = {
-  gemini: {
-    label: 'Gemini Native Models',
-    desc: 'Google Gemini Pro & Flash models via Antigravity upstream account quota.',
-    badge: 'Native Google',
-    color: '#0b57d0',
-    icon: Sparkles,
-  },
-  custom_model: {
-    label: 'Custom Models (BYOK)',
-    desc: 'Configured custom API models connected via OpenAI, Anthropic, or Ollama endpoints.',
-    badge: 'BYOK Provider',
-    color: '#7c3aed',
-    icon: Cpu,
-  },
-  non_gemini: {
-    label: 'Non-Gemini Native Models',
-    desc: 'Third-party native models included within Antigravity (Claude, GPT-4o).',
-    badge: 'Native 3rd-Party',
-    color: '#059669',
-    icon: Bot,
-  },
-  ai_credits: {
-    label: 'Antigravity AI Credits',
-    desc: 'Account AI Credit allowance for overages and premium model sessions.',
-    badge: 'Credits Pool',
-    color: '#d97706',
-    icon: CreditCard,
-  },
 }
 
 export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
@@ -71,7 +38,13 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   onSaved,
 }) => {
   const [threshold, setThreshold] = useState<number>(initialRules?.auto_switch_threshold ?? 0.05)
+  const [thresholdText, setThresholdText] = useState<string>(
+    String(Math.round((initialRules?.auto_switch_threshold ?? 0.05) * 100))
+  )
   const [weeklyThreshold, setWeeklyThreshold] = useState<number>(initialRules?.auto_switch_weekly_threshold ?? 0.05)
+  const [weeklyThresholdText, setWeeklyThresholdText] = useState<string>(
+    String(Math.round((initialRules?.auto_switch_weekly_threshold ?? 0.05) * 100))
+  )
   const [switchMode, setSwitchMode] = useState<SwitchMode>(initialRules?.switch_mode || 'balanced')
   const [pollingInterval, setPollingInterval] = useState<number>(initialRules?.polling_interval_seconds ?? 60)
   const [activePollingInterval, setActivePollingInterval] = useState<number>(initialRules?.active_polling_interval_seconds ?? 120)
@@ -79,15 +52,12 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   const [standbyRandomJitter, setStandbyRandomJitter] = useState<number>(initialRules?.standby_random_jitter_seconds ?? 30)
   const [warmupEnabled, setWarmupEnabled] = useState<boolean>(initialRules?.warmup_enabled ?? true)
   const [warmupLeadTime, setWarmupLeadTime] = useState<number>(initialRules?.warmup_lead_time_seconds ?? 2.0)
-  const [preferredNativeModel, setPreferredNativeModel] = useState<string>(initialRules?.preferred_native_model || 'gemini')
 
   // New Model Source Hierarchy & Model Defaults
   const [allowAICredits, setAllowAICredits] = useState<boolean>(initialRules?.allow_ai_credits_usage ?? false)
   const [allowNonGemini, setAllowNonGemini] = useState<boolean>(initialRules?.allow_non_gemini_native_models ?? false)
-  const [hierarchy, setHierarchy] = useState<string[]>(
-    initialRules?.model_source_hierarchy && initialRules.model_source_hierarchy.length > 0
-      ? initialRules.model_source_hierarchy
-      : ['gemini', 'custom_model', 'non_gemini', 'ai_credits']
+  const [hierarchy, setHierarchy] = useState<ModelSourceKey[]>(
+    normalizeModelSourceHierarchy(initialRules?.model_source_hierarchy)
   )
   const [defaultGemini, setDefaultGemini] = useState<string>(initialRules?.default_gemini_model || 'gemini-3.8-flash-high')
   const [defaultCustom, setDefaultCustom] = useState<string>(initialRules?.default_custom_model || '')
@@ -99,14 +69,13 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   const [nonGeminiModelOptions, setNonGeminiModelOptions] = useState<AvailableModelItem[]>([])
   const [isFetchingModels, setIsFetchingModels] = useState<boolean>(false)
   const [autoImportActive, setAutoImportActive] = useState<boolean>(initialRules?.auto_import_active_account ?? false)
-  const [surfacesData, setSurfacesData] = useState<SurfacesResponse | null>(null)
-  const [isRefreshingSurfaces, setIsRefreshingSurfaces] = useState<boolean>(false)
   const [customModelOptions, setCustomModelOptions] = useState<{ id: string; name: string }[]>([])
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null)
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
 
-  const [isSaving, setIsSaving] = useState<boolean>(false)
   const [feedback, setFeedback] = useState<string | null>(null)
+  const hydratedRef = useRef(false)
+  const lastPersistedPayloadRef = useRef<string | null>(null)
 
   // Account Export & Import States
   const [isExporting, setIsExporting] = useState<boolean>(false)
@@ -249,53 +218,50 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
 ]`
 
   useEffect(() => {
-    if (initialRules) {
-      setThreshold(initialRules.auto_switch_threshold)
-      if (initialRules.auto_switch_weekly_threshold !== undefined) {
-        setWeeklyThreshold(initialRules.auto_switch_weekly_threshold)
-      }
-      if (initialRules.switch_mode) {
-        setSwitchMode(initialRules.switch_mode)
-      }
-      setPollingInterval(initialRules.polling_interval_seconds)
-      if (initialRules.active_polling_interval_seconds) {
-        setActivePollingInterval(initialRules.active_polling_interval_seconds)
-      }
-      if (initialRules.standby_polling_interval_seconds) {
-        setStandbyPollingInterval(initialRules.standby_polling_interval_seconds)
-      }
-      if (initialRules.standby_random_jitter_seconds) {
-        setStandbyRandomJitter(initialRules.standby_random_jitter_seconds)
-      }
-      setWarmupEnabled(initialRules.warmup_enabled)
-      setWarmupLeadTime(initialRules.warmup_lead_time_seconds)
-      if (initialRules.preferred_native_model) {
-        setPreferredNativeModel(initialRules.preferred_native_model)
-      }
-      if (initialRules.allow_ai_credits_usage !== undefined) {
-        setAllowAICredits(initialRules.allow_ai_credits_usage)
-      }
-      if (initialRules.allow_non_gemini_native_models !== undefined) {
-        setAllowNonGemini(initialRules.allow_non_gemini_native_models)
-      }
-      if (initialRules.model_source_hierarchy && initialRules.model_source_hierarchy.length > 0) {
-        setHierarchy(initialRules.model_source_hierarchy)
-      }
-      if (initialRules.default_gemini_model) {
-        setDefaultGemini(initialRules.default_gemini_model)
-      }
-      if (initialRules.default_custom_model) {
-        setDefaultCustom(initialRules.default_custom_model)
-      }
-      if (initialRules.default_non_gemini_model) {
-        setDefaultNonGemini(initialRules.default_non_gemini_model)
-      }
-      if (initialRules.default_gemini_reasoning_level) {
-        setGeminiReasoningLevel(initialRules.default_gemini_reasoning_level)
-      }
-      if (initialRules.auto_import_active_account !== undefined) {
-        setAutoImportActive(initialRules.auto_import_active_account)
-      }
+    if (!initialRules || hydratedRef.current) return
+    hydratedRef.current = true
+    setThreshold(initialRules.auto_switch_threshold)
+    setThresholdText(String(Math.round(initialRules.auto_switch_threshold * 100)))
+    if (initialRules.auto_switch_weekly_threshold !== undefined) {
+      setWeeklyThreshold(initialRules.auto_switch_weekly_threshold)
+      setWeeklyThresholdText(String(Math.round(initialRules.auto_switch_weekly_threshold * 100)))
+    }
+    if (initialRules.switch_mode) {
+      setSwitchMode(initialRules.switch_mode)
+    }
+    setPollingInterval(initialRules.polling_interval_seconds)
+    if (initialRules.active_polling_interval_seconds) {
+      setActivePollingInterval(initialRules.active_polling_interval_seconds)
+    }
+    if (initialRules.standby_polling_interval_seconds) {
+      setStandbyPollingInterval(initialRules.standby_polling_interval_seconds)
+    }
+    if (initialRules.standby_random_jitter_seconds) {
+      setStandbyRandomJitter(initialRules.standby_random_jitter_seconds)
+    }
+    setWarmupEnabled(initialRules.warmup_enabled)
+    setWarmupLeadTime(initialRules.warmup_lead_time_seconds)
+    if (initialRules.allow_ai_credits_usage !== undefined) {
+      setAllowAICredits(initialRules.allow_ai_credits_usage)
+    }
+    if (initialRules.allow_non_gemini_native_models !== undefined) {
+      setAllowNonGemini(initialRules.allow_non_gemini_native_models)
+    }
+    setHierarchy(normalizeModelSourceHierarchy(initialRules.model_source_hierarchy))
+    if (initialRules.default_gemini_model) {
+      setDefaultGemini(initialRules.default_gemini_model)
+    }
+    if (initialRules.default_custom_model) {
+      setDefaultCustom(initialRules.default_custom_model)
+    }
+    if (initialRules.default_non_gemini_model) {
+      setDefaultNonGemini(initialRules.default_non_gemini_model)
+    }
+    if (initialRules.default_gemini_reasoning_level) {
+      setGeminiReasoningLevel(initialRules.default_gemini_reasoning_level)
+    }
+    if (initialRules.auto_import_active_account !== undefined) {
+      setAutoImportActive(initialRules.auto_import_active_account)
     }
   }, [initialRules])
 
@@ -361,18 +327,6 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     fetchAvailableModels()
   }, [])
 
-  const refreshSurfaces = () => {
-    setIsRefreshingSurfaces(true)
-    api.getSurfaces()
-      .then(setSurfacesData)
-      .catch(() => {})
-      .finally(() => setIsRefreshingSurfaces(false))
-  }
-
-  useEffect(() => {
-    refreshSurfaces()
-  }, [])
-
   useEffect(() => {
     api.getCustomModels()
       .then((res) => {
@@ -409,66 +363,100 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     setHierarchy(updated)
   }
 
-  const handleSave = async () => {
-    setIsSaving(true)
-    setFeedback(null)
-    try {
-      await api.saveRules({
-        auto_switch_threshold: threshold,
-        auto_switch_weekly_threshold: weeklyThreshold,
-        switch_mode: switchMode,
-        polling_interval_seconds: pollingInterval,
-        active_polling_interval_seconds: activePollingInterval,
-        standby_polling_interval_seconds: standbyPollingInterval,
-        standby_random_jitter_seconds: standbyRandomJitter,
-        warmup_enabled: warmupEnabled,
-        warmup_lead_time_seconds: warmupLeadTime,
-        preferred_native_model: preferredNativeModel,
-        allow_ai_credits_usage: allowAICredits,
-        allow_non_gemini_native_models: allowNonGemini,
-        model_source_hierarchy: hierarchy,
-        default_gemini_model: defaultGemini,
-        default_custom_model: effectiveCustomModel,
-        default_non_gemini_model: defaultNonGemini,
-        default_gemini_reasoning_level: geminiReasoningLevel,
-        auto_import_active_account: autoImportActive,
-      })
-      setFeedback('Configuration saved successfully.')
-      onSaved()
-      refreshSurfaces()
-    } catch (err: any) {
-      setFeedback(`Save error: ${err.message}`)
-    } finally {
-      setIsSaving(false)
+  useEffect(() => {
+    if (!hydratedRef.current) return
+    const payload = {
+      auto_switch_threshold: threshold,
+      auto_switch_weekly_threshold: weeklyThreshold,
+      switch_mode: switchMode,
+      polling_interval_seconds: pollingInterval,
+      active_polling_interval_seconds: activePollingInterval,
+      standby_polling_interval_seconds: standbyPollingInterval,
+      standby_random_jitter_seconds: standbyRandomJitter,
+      warmup_enabled: warmupEnabled,
+      warmup_lead_time_seconds: warmupLeadTime,
+      allow_ai_credits_usage: allowAICredits,
+      allow_non_gemini_native_models: allowNonGemini,
+      model_source_hierarchy: hierarchy,
+      default_gemini_model: defaultGemini,
+      default_custom_model: effectiveCustomModel,
+      default_non_gemini_model: defaultNonGemini,
+      default_gemini_reasoning_level: geminiReasoningLevel,
+      auto_import_active_account: autoImportActive,
+    }
+    const serialized = JSON.stringify(payload)
+    if (lastPersistedPayloadRef.current === null) {
+      lastPersistedPayloadRef.current = serialized
+      return
+    }
+    if (serialized === lastPersistedPayloadRef.current) return
+    const timer = setTimeout(() => {
+      api.saveRules(payload)
+        .then(() => {
+          lastPersistedPayloadRef.current = serialized
+          setFeedback(null)
+          onSaved()
+        })
+        .catch((err: any) => {
+          setFeedback(`Save error: ${err.message}`)
+        })
+    }, 600)
+    return () => clearTimeout(timer)
+  }, [
+    threshold,
+    weeklyThreshold,
+    switchMode,
+    pollingInterval,
+    activePollingInterval,
+    standbyPollingInterval,
+    standbyRandomJitter,
+    warmupEnabled,
+    warmupLeadTime,
+    allowAICredits,
+    allowNonGemini,
+    hierarchy,
+    defaultGemini,
+    effectiveCustomModel,
+    defaultNonGemini,
+    geminiReasoningLevel,
+    autoImportActive,
+    onSaved,
+  ])
+
+  const commitThresholdPercent = (
+    text: string,
+    currentFraction: number,
+    setFraction: (n: number) => void,
+    setText: (s: string) => void
+  ) => {
+    const trimmed = text.trim()
+    const parsed = trimmed === '' ? NaN : Number(trimmed)
+    const pct = Number.isFinite(parsed)
+      ? Math.min(50, Math.max(1, Math.round(parsed)))
+      : Math.round(currentFraction * 100)
+    setFraction(pct / 100)
+    setText(String(pct))
+  }
+
+  const handleThresholdTextChange = (
+    text: string,
+    setFraction: (n: number) => void,
+    setText: (s: string) => void
+  ) => {
+    setText(text)
+    const parsed = Number(text)
+    if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 50) {
+      setFraction(parsed / 100)
     }
   }
 
-  const thresholdPercent = Math.round(threshold * 100)
-  const weeklyThresholdPercent = Math.round(weeklyThreshold * 100)
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Header Info Card */}
-      <div className="google-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-            Account Switcher & Model Hierarchy Settings
-          </div>
-          <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
-            Configure auto-rotation thresholds, model source priority order, credit overages, and default models.
-          </div>
-        </div>
-
-        <button onClick={handleSave} disabled={isSaving} className="btn-pill-primary">
-          <Save size={15} /> {isSaving ? 'Saving...' : 'Save Configuration'}
-        </button>
-      </div>
-
       {feedback && (
         <div
           style={{
-            backgroundColor: 'var(--green-bg)',
-            color: 'var(--green)',
+            backgroundColor: 'var(--red-bg)',
+            color: 'var(--red)',
             padding: '12px 16px',
             borderRadius: '12px',
             fontSize: '13px',
@@ -519,25 +507,11 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <SlidersHorizontal size={15} color={switchMode === 'balanced' ? 'var(--primary)' : 'var(--text-muted)'} />
+                    <Scale size={15} color={switchMode === 'balanced' ? 'var(--primary)' : 'var(--text-muted)'} />
                     <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                       Balanced
                     </span>
                   </div>
-                  <span
-                    style={{
-                      fontSize: '10px',
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      backgroundColor: switchMode === 'balanced' ? 'var(--primary)' : 'var(--border)',
-                      color: switchMode === 'balanced' ? '#ffffff' : 'var(--text-muted)',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    Default
-                  </span>
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
                   Rotates only when active quota drops to exhaustion threshold. Standby accounts ranked by balanced composite score across 5h and weekly quota.
@@ -561,25 +535,11 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Zap size={15} color={switchMode === 'max_tokens' ? 'var(--primary)' : 'var(--text-muted)'} />
+                    <Sigma size={15} color={switchMode === 'max_tokens' ? 'var(--primary)' : 'var(--text-muted)'} />
                     <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                       Max Total Tokens
                     </span>
                   </div>
-                  <span
-                    style={{
-                      fontSize: '10px',
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      backgroundColor: switchMode === 'max_tokens' ? 'var(--primary)' : 'var(--border)',
-                      color: switchMode === 'max_tokens' ? '#ffffff' : 'var(--text-muted)',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    Throughput
-                  </span>
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
                   Maximizes aggregate tokens across staggered windows. Switches at threshold or proactively after ≥10m of use if an idle 100% reset clock can be ignited.
@@ -603,25 +563,11 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Timer size={15} color={switchMode === 'max_continuous' ? 'var(--primary)' : 'var(--text-muted)'} />
+                    <InfinityIcon size={15} color={switchMode === 'max_continuous' ? 'var(--primary)' : 'var(--text-muted)'} />
                     <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                       Max Continuous Usage
                     </span>
                   </div>
-                  <span
-                    style={{
-                      fontSize: '10px',
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      backgroundColor: switchMode === 'max_continuous' ? 'var(--primary)' : 'var(--border)',
-                      color: switchMode === 'max_continuous' ? '#ffffff' : 'var(--text-muted)',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    Duration
-                  </span>
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
                   Maximizes continuous working time without switching. Prioritizes highest available 5h quota (Ultra 20X before Pro). Tie-breaks with reset countdowns.
@@ -630,57 +576,55 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             </div>
           </div>
 
-          {/* 5-Hour Threshold Slider */}
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+          {/* 5-Hour Threshold */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
                 5-Hour Quota Threshold Trigger:
-              </span>
-              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--primary)' }}>
-                {thresholdPercent}% Quota Remaining
-              </span>
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                Triggers proactive rotation when the active account 5-hour quota drops to or below this threshold.
+              </div>
             </div>
-            <input
-              type="range"
-              min={1}
-              max={50}
-              value={thresholdPercent}
-              onChange={(e) => setThreshold(Number(e.target.value) / 100)}
-              style={{
-                width: '100%',
-                accentColor: 'var(--primary)',
-                cursor: 'pointer',
-              }}
-            />
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-              Triggers proactive rotation when the active account 5-hour quota drops to or below this threshold.
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+              <input
+                type="number"
+                min={1}
+                max={50}
+                step={1}
+                value={thresholdText}
+                onChange={(e) => handleThresholdTextChange(e.target.value, setThreshold, setThresholdText)}
+                onBlur={() => commitThresholdPercent(thresholdText, threshold, setThreshold, setThresholdText)}
+                style={{ width: '80px', textAlign: 'center' }}
+                aria-label="5-Hour Quota Threshold Percent"
+              />
+              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)' }}>%</span>
             </div>
           </div>
 
-          {/* 7-Day (Weekly) Quota Threshold Slider */}
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+          {/* 7-Day (Weekly) Quota Threshold */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
                 7-Day (Weekly) Quota Threshold Trigger:
-              </span>
-              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--primary)' }}>
-                {weeklyThresholdPercent}% Quota Remaining
-              </span>
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                Triggers auto-rotation when the active account 7-day rolling quota drops to or below this threshold, preventing lockouts when 5-hour quota remains high.
+              </div>
             </div>
-            <input
-              type="range"
-              min={1}
-              max={50}
-              value={weeklyThresholdPercent}
-              onChange={(e) => setWeeklyThreshold(Number(e.target.value) / 100)}
-              style={{
-                width: '100%',
-                accentColor: 'var(--primary)',
-                cursor: 'pointer',
-              }}
-            />
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-              Triggers auto-rotation when the active account 7-day rolling quota drops to or below this threshold, preventing lockouts when 5-hour quota remains high.
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+              <input
+                type="number"
+                min={1}
+                max={50}
+                step={1}
+                value={weeklyThresholdText}
+                onChange={(e) => handleThresholdTextChange(e.target.value, setWeeklyThreshold, setWeeklyThresholdText)}
+                onBlur={() => commitThresholdPercent(weeklyThresholdText, weeklyThreshold, setWeeklyThreshold, setWeeklyThresholdText)}
+                style={{ width: '80px', textAlign: 'center' }}
+                aria-label="7-Day Quota Threshold Percent"
+              />
+              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)' }}>%</span>
             </div>
           </div>
 
@@ -769,14 +713,6 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {hierarchy.map((sourceKey, idx) => {
-            const meta = HIERARCHY_META[sourceKey] || {
-              label: sourceKey,
-              desc: 'Custom provider or source.',
-              badge: 'Source',
-              color: '#64748b',
-              icon: Settings2,
-            }
-            const IconComp = meta.icon
             const isDragging = draggedIdx === idx
             const isOver = dragOverIdx === idx
 
@@ -838,8 +774,8 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                       width: '28px',
                       height: '28px',
                       borderRadius: '8px',
-                      background: `${meta.color}18`,
-                      color: meta.color,
+                      background: 'var(--tonal)',
+                      color: 'var(--text-muted)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -849,29 +785,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                   >
                     {idx + 1}
                   </div>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <IconComp size={14} style={{ color: meta.color }} />
-                      <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                        {meta.label}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: '10px',
-                          fontWeight: 700,
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          backgroundColor: `${meta.color}15`,
-                          color: meta.color,
-                        }}
-                      >
-                        {meta.badge}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                      {meta.desc}
-                    </div>
-                  </div>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                    {MODEL_SOURCE_LABELS[sourceKey]}
+                  </span>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={(e) => e.stopPropagation()}>
@@ -930,11 +846,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Allow AI Credits Usage */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: '14px', cursor: 'pointer' }}>
-            <ToggleSwitch
-              checked={allowAICredits}
-              onChange={(checked) => setAllowAICredits(checked)}
-            />
+          <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', cursor: 'pointer' }}>
             <div>
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
                 Allow AI Credits Usage
@@ -943,15 +855,16 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                 When standard quota limits are reached, permits the switcher to burn available AI account credits before switching accounts.
               </div>
             </div>
+            <ToggleSwitch
+              checked={allowAICredits}
+              onChange={(checked) => setAllowAICredits(checked)}
+              style={{ flexShrink: 0 }}
+            />
           </label>
 
           {/* Allow Non-Gemini Native Models */}
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '14px', cursor: 'pointer' }}>
-              <ToggleSwitch
-                checked={allowNonGemini}
-                onChange={(checked) => setAllowNonGemini(checked)}
-              />
+            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', cursor: 'pointer' }}>
               <div>
                 <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
                   Allow Non-Gemini Native Models
@@ -960,6 +873,11 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                   Permit Antigravity to route requests to supported non-Gemini models (e.g. Anthropic Claude, OpenAI GPT) when enabled.
                 </div>
               </div>
+              <ToggleSwitch
+                checked={allowNonGemini}
+                onChange={(checked) => setAllowNonGemini(checked)}
+                style={{ flexShrink: 0 }}
+              />
             </label>
           </div>
         </div>
@@ -1125,11 +1043,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}>
-            <ToggleSwitch
-              checked={warmupEnabled}
-              onChange={(checked) => setWarmupEnabled(checked)}
-            />
+          <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', cursor: 'pointer' }}>
             <div>
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
                 Enable Automatic Standby Keep-Alive Warmup
@@ -1138,6 +1052,11 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                 Dispatches a lightweight probe to newly-reset accounts so their quota pool is immediately warm.
               </div>
             </div>
+            <ToggleSwitch
+              checked={warmupEnabled}
+              onChange={(checked) => setWarmupEnabled(checked)}
+              style={{ flexShrink: 0 }}
+            />
           </label>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
@@ -1162,191 +1081,32 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
         </div>
       </div>
 
-      {/* Section 6: Antigravity Native Model Preference */}
+      {/* Auto-Import */}
       <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
-          Antigravity Native Model Family Preference
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', cursor: 'pointer' }}>
           <div>
             <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-              Preferred Native Model Family:
+              Auto Import &amp; Sync Antigravity Account
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Among Antigravity built-in models, prioritize using Google Gemini for sessions and task handoffs.
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px', lineHeight: 1.5 }}>
+              Imports the account signed in to Antigravity when Swiss Knife doesn't have it yet and makes it active. Antigravity 2.0 takes priority; the CLI and VS Code extension follow it.
             </div>
-          </div>
-          <select
-            value={preferredNativeModel}
-            onChange={(e) => setPreferredNativeModel(e.target.value)}
-            style={{ width: '220px' }}
-          >
-            <option value="gemini">Google Gemini (Use Gemini)</option>
-            <option value="claude">Anthropic Claude</option>
-            <option value="all">All Native Models</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Section 7: Running Antigravity Multi-Surface Synchronization & Auto-Import */}
-      <div className="google-card">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Laptop size={16} style={{ color: 'var(--primary)' }} />
-            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-              Multi-Surface Synchronization &amp; Auto-Import
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              When off, an account that isn't imported leaves Swiss Knife with no active account.
             </div>
           </div>
-          <button
-            onClick={refreshSurfaces}
-            disabled={isRefreshingSurfaces}
-            className="btn-pill-tonal"
-            style={{ padding: '4px 10px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-            title="Refresh running Antigravity sessions"
-          >
-            <RefreshCw size={12} className={isRefreshingSurfaces ? 'spin' : ''} />
-            {isRefreshingSurfaces ? 'Detecting...' : 'Scan Surfaces'}
-          </button>
-        </div>
-
-        <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-          Swiss Knife orchestrates accounts across Antigravity 2.0 Desktop, VS Code Extension, and Antigravity CLI (agy) simultaneously.
-          When accounts switch or auto-import occurs, all three apps are kept in lockstep.
-        </p>
-
-        {/* Priority Sequence Banner */}
-        <div
-          style={{
-            padding: '14px',
-            backgroundColor: 'var(--canvas)',
-            borderRadius: '12px',
-            border: '1px solid var(--border)',
-            marginBottom: '18px',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Multi-Surface Sequence Priority
-            </span>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-              Desktop &gt; VS Code Extension &gt; CLI
-            </span>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
-            {/* Surface 1: Desktop */}
-            <div
-              style={{
-                padding: '10px',
-                borderRadius: '8px',
-                backgroundColor: 'var(--card)',
-                border: surfacesData?.active_surface_account?.surface === 'desktop'
-                  ? '1.5px solid var(--primary)'
-                  : '1px solid var(--border)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text)' }}>
-                  #1 Desktop 2.0
-                </span>
-                {surfacesData?.active_surface_account?.surface === 'desktop' && (
-                  <span style={{ fontSize: '9px', fontWeight: 700, color: '#137333', backgroundColor: '#e6f4ea', padding: '1px 5px', borderRadius: '6px' }}>
-                    ACTIVE SESSION
-                  </span>
-                )}
-              </div>
-              <div style={{ fontSize: '12px', color: surfacesData?.surfaces?.desktop?.email ? 'var(--text)' : 'var(--text-muted)', fontWeight: surfacesData?.surfaces?.desktop?.email ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {surfacesData?.surfaces?.desktop?.email || 'No Session'}
-              </div>
-            </div>
-
-            {/* Surface 2: VS Code Extension */}
-            <div
-              style={{
-                padding: '10px',
-                borderRadius: '8px',
-                backgroundColor: 'var(--card)',
-                border: surfacesData?.active_surface_account?.surface === 'vscode'
-                  ? '1.5px solid var(--primary)'
-                  : '1px solid var(--border)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text)' }}>
-                  #2 VS Code Ext
-                </span>
-                {surfacesData?.active_surface_account?.surface === 'vscode' && (
-                  <span style={{ fontSize: '9px', fontWeight: 700, color: '#137333', backgroundColor: '#e6f4ea', padding: '1px 5px', borderRadius: '6px' }}>
-                    ACTIVE SESSION
-                  </span>
-                )}
-              </div>
-              <div style={{ fontSize: '12px', color: surfacesData?.surfaces?.vscode?.email ? 'var(--text)' : 'var(--text-muted)', fontWeight: surfacesData?.surfaces?.vscode?.email ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {surfacesData?.surfaces?.vscode?.email || 'No Session'}
-              </div>
-            </div>
-
-            {/* Surface 3: CLI */}
-            <div
-              style={{
-                padding: '10px',
-                borderRadius: '8px',
-                backgroundColor: 'var(--card)',
-                border: surfacesData?.active_surface_account?.surface === 'cli'
-                  ? '1.5px solid var(--primary)'
-                  : '1px solid var(--border)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text)' }}>
-                  #3 CLI (agy)
-                </span>
-                {surfacesData?.active_surface_account?.surface === 'cli' && (
-                  <span style={{ fontSize: '9px', fontWeight: 700, color: '#137333', backgroundColor: '#e6f4ea', padding: '1px 5px', borderRadius: '6px' }}>
-                    ACTIVE SESSION
-                  </span>
-                )}
-              </div>
-              <div style={{ fontSize: '12px', color: surfacesData?.surfaces?.cli?.email ? 'var(--text)' : 'var(--text-muted)', fontWeight: surfacesData?.surfaces?.cli?.email ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {surfacesData?.surfaces?.cli?.email || 'No Session'}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Auto-Import Toggle */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: 'pointer' }}>
-            <div style={{ marginTop: '2px' }}>
-              <ToggleSwitch
-                checked={autoImportActive}
-                onChange={(checked) => setAutoImportActive(checked)}
-              />
-            </div>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                Auto-Import Running Antigravity Account
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px', lineHeight: 1.5 }}>
-                When enabled, if Antigravity is running an account that has not yet been imported into Swiss Knife, the app automatically imports it with discovered credentials and selects it as active. If multiple apps run different unimported accounts, the winning account from Antigravity 2.0 Desktop is chosen as active, and CLI / VS Code extension accounts are automatically synchronized to it.
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                When disabled, unimported accounts running in Antigravity will result in <strong>no account</strong> treated as active in Swiss Knife.
-              </div>
-            </div>
-          </label>
-        </div>
+          <ToggleSwitch
+            checked={autoImportActive}
+            onChange={(checked) => setAutoImportActive(checked)}
+            style={{ flexShrink: 0 }}
+          />
+        </label>
       </div>
 
       {/* 6. Account Data Export & Import (JSON) */}
       <div className="google-card">
         <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
           Account Data Export &amp; Import (JSON)
-        </div>
-
-        <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: 1.5 }}>
-          Export or import account fleet credentials in JSON format. Includes account ID/email, password, MFA secret, and OAuth refresh token.
         </div>
 
         {/* Status notification banner */}
@@ -1400,28 +1160,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                 <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
                   Export Accounts
                 </span>
-                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--primary)', backgroundColor: 'rgba(26, 115, 232, 0.1)', padding: '2px 8px', borderRadius: '10px' }}>
-                  JSON Format
-                </span>
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '12px', lineHeight: 1.4 }}>
                 Download all saved accounts or copy JSON directly. Includes ID, password, MFA, and OAuth tokens.
-              </div>
-
-              {/* Badges indicating included credentials */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '16px' }}>
-                <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text)', backgroundColor: 'var(--card)', border: '1px solid var(--border)', padding: '2px 6px', borderRadius: '4px' }}>
-                  id / email
-                </span>
-                <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text)', backgroundColor: 'var(--card)', border: '1px solid var(--border)', padding: '2px 6px', borderRadius: '4px' }}>
-                  password
-                </span>
-                <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text)', backgroundColor: 'var(--card)', border: '1px solid var(--border)', padding: '2px 6px', borderRadius: '4px' }}>
-                  mfa
-                </span>
-                <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text)', backgroundColor: 'var(--card)', border: '1px solid var(--border)', padding: '2px 6px', borderRadius: '4px' }}>
-                  oath token
-                </span>
               </div>
             </div>
 
@@ -1466,17 +1207,17 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                 type="button"
                 onClick={handleTogglePreview}
                 disabled={isExporting}
-                className="btn-pill-tonal"
+                className="btn-pill-outlined"
                 style={{
-                  padding: '7px 10px',
-                  fontSize: '11px',
+                  padding: '7px 14px',
+                  fontSize: '12px',
                   fontWeight: 600,
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '4px',
+                  gap: '6px',
                 }}
               >
-                <FileText size={13} />
+                <FileText size={14} />
                 {showExportPreview ? 'Hide Preview' : 'Preview'}
               </button>
             </div>
@@ -1499,25 +1240,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                 <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
                   Import Accounts
                 </span>
-                <span style={{ fontSize: '11px', fontWeight: 600, color: '#137333', backgroundColor: '#e6f4ea', padding: '2px 8px', borderRadius: '10px' }}>
-                  JSON Importer
-                </span>
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '12px', lineHeight: 1.4 }}>
                 Upload a JSON file or paste JSON text. Existing accounts are updated; new accounts are safely registered.
-              </div>
-
-              {/* Supported format badges */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '16px' }}>
-                <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text)', backgroundColor: 'var(--card)', border: '1px solid var(--border)', padding: '2px 6px', borderRadius: '4px' }}>
-                  Array [ &#123; ... &#125; ]
-                </span>
-                <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text)', backgroundColor: 'var(--card)', border: '1px solid var(--border)', padding: '2px 6px', borderRadius: '4px' }}>
-                  Object &#123; accounts: [...] &#125;
-                </span>
-                <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text)', backgroundColor: 'var(--card)', border: '1px solid var(--border)', padding: '2px 6px', borderRadius: '4px' }}>
-                  Single Account
-                </span>
               </div>
             </div>
 
