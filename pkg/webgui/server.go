@@ -563,18 +563,24 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 		if p.AccessToken != "" {
 			_ = store.SetAccessToken(p.Email, p.AccessToken)
 		}
+		acc, _ := store.GetAccount(p.Email)
+		var summary *quota.QuotaSummary
+		if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
+			summary, _ = quota.PollAndCacheAccount(acc, store)
+		}
 		if p.SetActive {
 			var allEmails []string
 			for _, a := range store.ListAccounts() {
 				allEmails = append(allEmails, a.Email)
 			}
-			if acc, _ := store.GetAccount(p.Email); acc != nil {
+			if acc, _ = store.GetAccount(p.Email); acc != nil {
 				_ = keyring.SyncAllSurfaces(acc, allEmails, nil)
 				if acc.AccessToken != "" {
 					_ = store.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
 				}
-				switched := strings.ToLower(strings.TrimSpace(prevActive)) != strings.ToLower(strings.TrimSpace(p.Email))
+				switched := !strings.EqualFold(strings.TrimSpace(prevActive), strings.TrimSpace(p.Email))
 				if switched && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+					_ = gui.NewInjector(0).CaptureActiveConversationPath()
 					go func() {
 						time.Sleep(200 * time.Millisecond)
 						_ = process.NewShield(0).RelaunchHostIDE()
@@ -583,11 +589,6 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 					_, _ = gui.NewInjector(0).RefreshUserStatus()
 				}
 			}
-		}
-		acc, _ := store.GetAccount(p.Email)
-		var summary *quota.QuotaSummary
-		if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
-			summary, _ = quota.PollAndCacheAccount(acc, store)
 		}
 		res = map[string]interface{}{"success": true, "email": p.Email}
 		if acc != nil {
@@ -620,11 +621,32 @@ func (s *Server) handleAccountDelete(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, storeErr.Error(), http.StatusInternalServerError)
 			return
 		}
+		prevActive := store.ActiveAccount()
 		if err := store.RemoveAccount(p.Email); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		res = map[string]interface{}{"success": true, "removed": p.Email}
+		newActive := store.ActiveAccount()
+		if newActive != "" && !strings.EqualFold(prevActive, newActive) {
+			var allEmails []string
+			for _, a := range store.ListAccounts() {
+				allEmails = append(allEmails, a.Email)
+			}
+			if acc, _ := store.GetAccount(newActive); acc != nil {
+				_ = keyring.SyncAllSurfaces(acc, allEmails, nil)
+				if acc.AccessToken != "" {
+					_ = store.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
+				}
+				if os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+					_ = gui.NewInjector(0).CaptureActiveConversationPath()
+					go func() {
+						time.Sleep(200 * time.Millisecond)
+						_ = process.NewShield(0).RelaunchHostIDE()
+					}()
+				}
+			}
+		}
+		res = map[string]interface{}{"success": true, "removed": p.Email, "active_account": newActive}
 	}
 	writeJSON(w, res)
 }
@@ -758,6 +780,7 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if shouldRelaunch && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+			_ = gui.NewInjector(0).CaptureActiveConversationPath()
 			go func() {
 				time.Sleep(200 * time.Millisecond)
 				_ = process.NewShield(0).RelaunchHostIDE()

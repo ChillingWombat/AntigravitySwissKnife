@@ -1,12 +1,21 @@
 package gui
 
 import (
+	"bufio"
+	"bytes"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -1837,6 +1846,224 @@ func TestConversationPathPersistenceAndTopLevelQuery(t *testing.T) {
 	}
 }
 
+func writeUnmaskedWSFrame(w *bufio.Writer, payload []byte) error {
+	var buf bytes.Buffer
+	buf.WriteByte(0x81) // FIN + text frame
+	length := len(payload)
+	if length <= 125 {
+		buf.WriteByte(byte(length))
+	} else if length <= 65535 {
+		buf.WriteByte(126)
+		_ = binary.Write(&buf, binary.BigEndian, uint16(length))
+	} else {
+		buf.WriteByte(127)
+		_ = binary.Write(&buf, binary.BigEndian, uint64(length))
+	}
+	buf.Write(payload)
+	if _, err := w.Write(buf.Bytes()); err != nil {
+		return err
+	}
+	return w.Flush()
+}
 
+func TestRestoreConversationPath_RecoversFromOnboardingRace(t *testing.T) {
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed, skipping CDP JS simulation")
+	}
 
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("SWISS_DATA_DIR", filepath.Join(tmpHome, ".local", "share", "antigravity-swiss-knife"))
 
+	targetPath := "/c/060156e8-1ef3-4435-a836-3bc0c9838995?section=d2ad1fa1-cc5f-47c3-94a4-ffdf0ebdc450"
+
+	type browserSimState struct {
+		Pathname              string                 `json:"pathname"`
+		Search                string                 `json:"search"`
+		HistoryState          map[string]interface{} `json:"historyState"`
+		LastRestoreNudge      int64                  `json:"lastRestoreNudge"`
+		OnboardingInitialized bool                   `json:"onboardingInitialized"`
+		RouterPath            string                 `json:"routerPath"`
+		ReplaceCount          int                    `json:"replaceCount"`
+		WipedHistoryState     bool                   `json:"wipedHistoryState"`
+	}
+
+	var mu sync.Mutex
+	sim := browserSimState{
+		Pathname:              "/",
+		Search:                "",
+		HistoryState:          map[string]interface{}{"__TSR_index": 0, "__TSR_key": "init"},
+		OnboardingInitialized: false, // Simulates Fdc before onboardingProvider.initialized becomes true
+		RouterPath:            "/",
+	}
+	evalCalls := 0
+
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/json/version":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"Browser":"Chrome/132.0.0.0"}`))
+		case "/json":
+			mu.Lock()
+			curFull := sim.Pathname + sim.Search
+			mu.Unlock()
+			u, _ := url.Parse(srvURL)
+			targets := []DevToolsTarget{
+				{
+					ID:                   "page-1",
+					Title:                "Antigravity",
+					Type:                 "page",
+					URL:                  "http://127.0.0.1:" + u.Port() + curFull,
+					WebSocketDebuggerURL: "ws://" + u.Host + "/devtools/page/page-1",
+				},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(targets)
+		case "/devtools/page/page-1":
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				http.Error(w, "hijack not supported", http.StatusInternalServerError)
+				return
+			}
+			conn, rw, err := hj.Hijack()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			_, _ = rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+			_ = rw.Flush()
+
+			framePayload, err := readWebSocketFrame(rw.Reader)
+			if err != nil {
+				return
+			}
+			var rpcReq struct {
+				ID     int `json:"id"`
+				Params struct {
+					Expression string `json:"expression"`
+				} `json:"params"`
+			}
+			_ = json.Unmarshal(framePayload, &rpcReq)
+
+			mu.Lock()
+			evalCalls++
+			// After the first replaceState occurs during uninitialized onboarding (Fdc race),
+			// onboarding finishes and mounts the landing shell at RouterPath = "/".
+			if evalCalls >= 2 {
+				sim.OnboardingInitialized = true
+			}
+			stateBytes, _ := json.Marshal(sim)
+			mu.Unlock()
+
+			runnerJS := fmt.Sprintf(`
+const state = %s;
+const window = {
+  location: { pathname: state.pathname, search: state.search },
+  __swissLastRestoreNudge: state.lastRestoreNudge || 0,
+  history: {
+    state: state.historyState,
+    replaceState(newState, _unused, urlStr) {
+      state.replaceCount++;
+      if (newState === null || typeof newState !== "object" || newState.__TSR_key !== "init") {
+        state.wipedHistoryState = true;
+      }
+      state.historyState = newState;
+      const qIdx = urlStr.indexOf("?");
+      if (qIdx >= 0) {
+        state.pathname = urlStr.slice(0, qIdx) || "/";
+        state.search = urlStr.slice(qIdx);
+      } else {
+        state.pathname = urlStr || "/";
+        state.search = "";
+      }
+      this.location = window.location = { pathname: state.pathname, search: state.search };
+      if (state.onboardingInitialized) {
+        state.routerPath = state.pathname;
+      }
+    }
+  }
+};
+const document = {
+  getElementById(id) {
+    if (id === "root") return { childElementCount: 1 };
+    return null;
+  },
+  querySelector(sel) {
+    if (sel.includes("conversation-view")) {
+      return state.routerPath.startsWith("/c/") ? { dataset: {} } : null;
+    }
+    if (sel.includes("new-conversation-button") || sel.includes("conversation-list-sidebar")) {
+      return state.onboardingInitialized ? {} : null;
+    }
+    return null;
+  }
+};
+const res = %s;
+state.lastRestoreNudge = window.__swissLastRestoreNudge || 0;
+console.log(JSON.stringify({ state, res }));
+`, string(stateBytes), rpcReq.Params.Expression)
+
+			out, err := exec.Command(nodePath, "-e", runnerJS).CombinedOutput()
+			var evalOut struct {
+				State browserSimState        `json:"state"`
+				Res   map[string]interface{} `json:"res"`
+			}
+			if err == nil {
+				_ = json.Unmarshal(bytes.TrimSpace(out), &evalOut)
+				mu.Lock()
+				sim = evalOut.State
+				mu.Unlock()
+			}
+
+			respObj := map[string]interface{}{
+				"id": rpcReq.ID,
+				"result": map[string]interface{}{
+					"result": map[string]interface{}{
+						"type":  "object",
+						"value": evalOut.Res,
+					},
+				},
+			}
+			respBytes, _ := json.Marshal(respObj)
+			_ = writeUnmaskedWSFrame(rw.Writer, respBytes)
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	inj := NewInjector(port)
+	if !inj.RestoreConversationPath(targetPath, 8*time.Second) {
+		t.Fatalf("expected RestoreConversationPath to recover from Fdc onboarding race and return true")
+	}
+
+	mu.Lock()
+	finalSim := sim
+	mu.Unlock()
+
+	if finalSim.WipedHistoryState {
+		t.Errorf("RestoreConversationPath wiped window.history.state instead of preserving TanStack Router history state")
+	}
+	if finalSim.RouterPath != "/c/060156e8-1ef3-4435-a836-3bc0c9838995" {
+		t.Errorf("expected RouterPath to transition to /c/060156e8-1ef3-4435-a836-3bc0c9838995, got %q", finalSim.RouterPath)
+	}
+	if finalSim.Pathname+finalSim.Search != targetPath {
+		t.Errorf("expected final location %q, got %q", targetPath, finalSim.Pathname+finalSim.Search)
+	}
+
+	// Verify CaptureActiveConversationPath reads the live CDP target URL and persists it
+	captured := inj.CaptureActiveConversationPath()
+	if captured != targetPath {
+		t.Errorf("CaptureActiveConversationPath() = %q, want %q", captured, targetPath)
+	}
+}

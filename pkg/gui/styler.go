@@ -764,6 +764,83 @@ func generateBaseScript(cfg *Config) string {
     }, true);
   }
 
+  const isValidSwissConvoPath = (p) => {
+    if (!p || typeof p !== "string") return false;
+    const pathOnly = p.split("?")[0];
+    if (pathOnly.startsWith("/c/")) {
+      const id = pathOnly.slice(3);
+      return Boolean(id && id !== "_new" && !id.includes("/"));
+    }
+    if (pathOnly.startsWith("/battle/")) {
+      const id = pathOnly.slice(8);
+      return Boolean(id && !id.includes("/"));
+    }
+    return false;
+  };
+
+  if (!window.__swissConvoTrackerBound) {
+    window.__swissConvoTrackerBound = true;
+    const syncCurrentConvoPath = () => {
+      try {
+        const fullPath = (window.location.pathname || "/") + (window.location.search || "");
+        if (isValidSwissConvoPath(fullPath) && window.__swissLastSavedConvoPath !== fullPath) {
+          window.__swissLastSavedConvoPath = fullPath;
+          if (window.nativeStorage && typeof window.nativeStorage.updateItems === "function") {
+            window.nativeStorage.updateItems({ antigravity_swiss_last_conversation_path: fullPath });
+          }
+        }
+      } catch (e) {}
+    };
+    setInterval(syncCurrentConvoPath, 1000);
+    syncCurrentConvoPath();
+  }
+
+  if (!window.__swissStartupRestoreDone) {
+    window.__swissStartupRestoreDone = true;
+    const bootPath = window.location.pathname || "/";
+    if ((bootPath === "/" || bootPath === "/index.html") && window.nativeStorage && typeof window.nativeStorage.getItems === "function") {
+      window.nativeStorage.getItems().then((items) => {
+        const savedPath = items && items.antigravity_swiss_last_conversation_path;
+        if (!isValidSwissConvoPath(savedPath)) return;
+        const targetPathOnly = savedPath.split("?")[0];
+        let userAborted = false;
+        const onUserClick = (e) => {
+          if (e.target && e.target.closest && e.target.closest('[data-testid="new-conversation-button"], [data-testid="conversation-row-sidebar"]')) {
+            userAborted = true;
+          }
+        };
+        document.addEventListener("click", onUserClick, true);
+        const startMs = Date.now();
+        const attemptRestore = () => {
+          if (userAborted || (Date.now() - startMs) > 12000) {
+            document.removeEventListener("click", onUserClick, true);
+            clearInterval(timer);
+            return;
+          }
+          const curPath = window.location.pathname || "/";
+          const hasConvoView = Boolean(document.querySelector('[data-testid="conversation-view"]'));
+          if (curPath === targetPathOnly && (!targetPathOnly.startsWith("/c/") || hasConvoView)) {
+            document.removeEventListener("click", onUserClick, true);
+            clearInterval(timer);
+            return;
+          }
+          const now = Date.now();
+          const hasShell = Boolean(document.querySelector('[data-testid="new-conversation-button"], [data-testid="conversation-list-sidebar"]'));
+          if (curPath === "/" || curPath === "/index.html") {
+            window.__swissLastRestoreNudge = now;
+            window.history.replaceState(window.history.state, "", savedPath);
+          } else if (curPath === targetPathOnly && hasShell && !hasConvoView && (!window.__swissLastRestoreNudge || (now - window.__swissLastRestoreNudge) > 1200)) {
+            window.__swissLastRestoreNudge = now;
+            window.history.replaceState(window.history.state, "", "/");
+            window.history.replaceState(window.history.state, "", savedPath);
+          }
+        };
+        const timer = setInterval(attemptRestore, 250);
+        attemptRestore();
+      }).catch(() => {});
+    }
+  }
+
   // 1. Manage stylesheet
   let styleEl = document.getElementById("antigravity-swiss-styles");
   if (!isEnabled) {

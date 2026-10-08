@@ -988,13 +988,9 @@ func (s *Store) UpdateAccountTokensWithExpiry(email, accessToken, refreshToken s
 	modified := false
 	if accessToken != "" && target.AccessToken != accessToken {
 		target.AccessToken = accessToken
-		if !expiry.IsZero() {
-			target.TokenExpiry = expiry
-		} else {
-			target.TokenExpiry = time.Now().Add(55 * time.Minute)
-		}
+		target.TokenExpiry = expiry
 		modified = true
-	} else if !expiry.IsZero() && !target.TokenExpiry.Equal(expiry) {
+	} else if !target.TokenExpiry.Equal(expiry) {
 		target.TokenExpiry = expiry
 		modified = true
 	}
