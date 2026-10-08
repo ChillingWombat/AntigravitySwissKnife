@@ -555,6 +555,7 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, storeErr.Error(), http.StatusInternalServerError)
 			return
 		}
+		prevActive := store.ActiveAccount()
 		if err := store.UpdateAccountFull(p.Email, p.Label, p.PlanTier, p.Status, p.Priority, p.Notes, p.Password, p.TOTPSecret, p.RefreshToken, p.Credits, p.EnableCreditOverages, p.AllowClaudeGPT, p.SetActive); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -569,7 +570,18 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 			}
 			if acc, _ := store.GetAccount(p.Email); acc != nil {
 				_ = keyring.SyncAllSurfaces(acc, allEmails, nil)
-				_, _ = gui.NewInjector(0).RefreshUserStatus()
+				if acc.AccessToken != "" {
+					_ = store.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
+				}
+				switched := strings.ToLower(strings.TrimSpace(prevActive)) != strings.ToLower(strings.TrimSpace(p.Email))
+				if switched && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+					go func() {
+						time.Sleep(200 * time.Millisecond)
+						_ = process.NewShield(0).RelaunchHostIDE()
+					}()
+				} else {
+					_, _ = gui.NewInjector(0).RefreshUserStatus()
+				}
 			}
 		}
 		acc, _ := store.GetAccount(p.Email)
@@ -738,6 +750,9 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 		}
 		if acc, _ := store.GetAccount(p.Email); acc != nil {
 			_ = keyring.SyncAllSurfaces(acc, allEmails, nil)
+			if acc.AccessToken != "" {
+				_ = store.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
+			}
 			if !shouldRelaunch {
 				_, _ = gui.NewInjector(0).RefreshUserStatus()
 			}

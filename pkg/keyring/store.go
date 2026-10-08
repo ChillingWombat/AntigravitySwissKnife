@@ -68,11 +68,26 @@ type rawAccountItem struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
 		IDToken      string `json:"id_token,omitempty"`
-		Expiry       string `json:"expiry"`
+		Expiry       string `json:"expiry,omitempty"`
 	} `json:"credential,omitempty"`
 	AccessToken  string `json:"access_token,omitempty"`
 	RefreshToken string `json:"refresh_token,omitempty"`
 	IDToken      string `json:"id_token,omitempty"`
+	TokenExpiry  string `json:"token_expiry,omitempty"`
+}
+
+func parseTokenExpiry(raw string) time.Time {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return time.Time{}
+	}
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t
+	}
+	return time.Time{}
 }
 
 func (s *Store) load() error {
@@ -131,6 +146,7 @@ func (s *Store) load() error {
 				accessToken := core.DecryptCredential(item.AccessToken)
 				refreshToken := core.DecryptCredential(item.RefreshToken)
 				idToken := core.DecryptCredential(item.IDToken)
+				tokenExpiry := parseTokenExpiry(item.TokenExpiry)
 				if item.Credential != nil {
 					if accessToken == "" && item.Credential.AccessToken != "" {
 						accessToken = core.DecryptCredential(item.Credential.AccessToken)
@@ -140,6 +156,9 @@ func (s *Store) load() error {
 					}
 					if idToken == "" && item.Credential.IDToken != "" {
 						idToken = core.DecryptCredential(item.Credential.IDToken)
+					}
+					if tokenExpiry.IsZero() && item.Credential.Expiry != "" {
+						tokenExpiry = parseTokenExpiry(item.Credential.Expiry)
 					}
 				}
 
@@ -157,6 +176,7 @@ func (s *Store) load() error {
 					AccessToken:          accessToken,
 					RefreshToken:         refreshToken,
 					IDToken:              idToken,
+					TokenExpiry:          tokenExpiry,
 					Credits:              item.Credits,
 					EnableCreditOverages: item.EnableCreditOverages,
 					AllowClaudeGPT:       item.AllowClaudeGPT,
@@ -195,6 +215,7 @@ func (s *Store) load() error {
 			accessToken := core.DecryptCredential(item.AccessToken)
 			refreshToken := core.DecryptCredential(item.RefreshToken)
 			idToken := core.DecryptCredential(item.IDToken)
+			tokenExpiry := parseTokenExpiry(item.TokenExpiry)
 			if item.Credential != nil {
 				if accessToken == "" && item.Credential.AccessToken != "" {
 					accessToken = core.DecryptCredential(item.Credential.AccessToken)
@@ -204,6 +225,9 @@ func (s *Store) load() error {
 				}
 				if idToken == "" && item.Credential.IDToken != "" {
 					idToken = core.DecryptCredential(item.Credential.IDToken)
+				}
+				if tokenExpiry.IsZero() && item.Credential.Expiry != "" {
+					tokenExpiry = parseTokenExpiry(item.Credential.Expiry)
 				}
 			}
 
@@ -221,6 +245,7 @@ func (s *Store) load() error {
 				AccessToken:          accessToken,
 				RefreshToken:         refreshToken,
 				IDToken:              idToken,
+				TokenExpiry:          tokenExpiry,
 				Credits:              item.Credits,
 				EnableCreditOverages: item.EnableCreditOverages,
 				AllowClaudeGPT:       item.AllowClaudeGPT,
@@ -254,10 +279,12 @@ func (s *Store) save() error {
 		EnableCreditOverages bool    `json:"enable_credit_overages"`
 		AllowClaudeGPT       bool    `json:"allow_claude_gpt"`
 		IsHealthy            bool    `json:"is_healthy"`
+		TokenExpiry          string  `json:"token_expiry,omitempty"`
 		Credential           struct {
 			AccessToken  string `json:"access_token"`
 			RefreshToken string `json:"refresh_token"`
 			IDToken      string `json:"id_token,omitempty"`
+			Expiry       string `json:"expiry,omitempty"`
 			AuthMethod   string `json:"auth_method"`
 			TokenType    string `json:"token_type"`
 		} `json:"credential"`
@@ -293,6 +320,11 @@ func (s *Store) save() error {
 			priority = "High"
 		}
 
+		expiryStr := ""
+		if !acc.TokenExpiry.IsZero() {
+			expiryStr = acc.TokenExpiry.UTC().Format("2006-01-02T15:04:05.000000Z")
+		}
+
 		ea := exportedAccount{
 			Email:                acc.Email,
 			Label:                acc.Label,
@@ -306,10 +338,12 @@ func (s *Store) save() error {
 			EnableCreditOverages: acc.EnableCreditOverages,
 			AllowClaudeGPT:       acc.AllowClaudeGPT,
 			IsHealthy:            st != "ERROR" && st != "BANNED",
+			TokenExpiry:          expiryStr,
 		}
 		ea.Credential.AccessToken = encAccess
 		ea.Credential.RefreshToken = encRefresh
 		ea.Credential.IDToken = encIDToken
+		ea.Credential.Expiry = expiryStr
 		ea.Credential.AuthMethod = "consumer"
 		ea.Credential.TokenType = "Bearer"
 		accMap[acc.Email] = ea
@@ -538,6 +572,7 @@ func (s *Store) BatchImportAccounts(items []BatchImportItem) (int, error) {
 			} else {
 				if acc.RefreshToken != cleanToken && item.AccessToken == "" {
 					acc.AccessToken = ""
+					acc.TokenExpiry = time.Time{}
 				}
 				acc.RefreshToken = cleanToken
 			}
@@ -641,6 +676,7 @@ func (s *Store) ImportAccount(email, refreshToken, accessToken, label, totpSecre
 		} else {
 			if acc.RefreshToken != cleanToken && accessToken == "" {
 				acc.AccessToken = ""
+				acc.TokenExpiry = time.Time{}
 			}
 			acc.RefreshToken = cleanToken
 		}
@@ -817,6 +853,7 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 		} else {
 			if acc.RefreshToken != cleanToken {
 				acc.AccessToken = ""
+				acc.TokenExpiry = time.Time{}
 			}
 			acc.RefreshToken = cleanToken
 		}
@@ -833,6 +870,7 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 
 	if setActive {
 		s.activeEmail = email
+		s.lastManualSwitchTime = time.Now()
 		for e, a := range s.accounts {
 			if strings.EqualFold(e, email) {
 				a.IsActive = true
@@ -928,6 +966,11 @@ func (s *Store) UpdateAccountQuotaMetadata(email, planTier string, credits float
 
 // UpdateAccountTokens updates the access token (and optionally refresh token) without altering other fields.
 func (s *Store) UpdateAccountTokens(email, accessToken, refreshToken string) error {
+	return s.UpdateAccountTokensWithExpiry(email, accessToken, refreshToken, time.Time{})
+}
+
+// UpdateAccountTokensWithExpiry updates the access token, refresh token, and token expiry.
+func (s *Store) UpdateAccountTokensWithExpiry(email, accessToken, refreshToken string, expiry time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -945,6 +988,14 @@ func (s *Store) UpdateAccountTokens(email, accessToken, refreshToken string) err
 	modified := false
 	if accessToken != "" && target.AccessToken != accessToken {
 		target.AccessToken = accessToken
+		if !expiry.IsZero() {
+			target.TokenExpiry = expiry
+		} else {
+			target.TokenExpiry = time.Now().Add(55 * time.Minute)
+		}
+		modified = true
+	} else if !expiry.IsZero() && !target.TokenExpiry.Equal(expiry) {
+		target.TokenExpiry = expiry
 		modified = true
 	}
 	if refreshToken != "" && target.RefreshToken != refreshToken {
@@ -977,6 +1028,7 @@ func (s *Store) UpdateAccountTokensAndMetadata(email, accessToken, refreshToken,
 	modified := false
 	if accessToken != "" && target.AccessToken != accessToken {
 		target.AccessToken = accessToken
+		target.TokenExpiry = time.Now().Add(55 * time.Minute)
 		modified = true
 	}
 	if refreshToken != "" && target.RefreshToken != refreshToken {
@@ -1078,9 +1130,9 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 		return nil, nil
 	}
 
-	// In-flight manual switch latch: if an account switch occurred within the last 3 seconds,
+	// In-flight manual switch latch: if an account switch occurred within the last 12 seconds,
 	// protect s.activeEmail from being reverted by a stale in-memory session while the IDE respawns.
-	if !s.lastManualSwitchTime.IsZero() && time.Since(s.lastManualSwitchTime) < 3*time.Second {
+	if !s.lastManualSwitchTime.IsZero() && time.Since(s.lastManualSwitchTime) < 12*time.Second {
 		if s.activeEmail != "" && !strings.EqualFold(detectedEmail, s.activeEmail) {
 			if curAcc, ok := s.accounts[s.activeEmail]; ok {
 				return curAcc, nil
@@ -1132,6 +1184,7 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 		// AND target account has non-empty credentials so we don't clobber host files with empty data.
 		if (!isSameActive || prevActive == "") && (targetAcc.RefreshToken != "" || targetAcc.AccessToken != "") {
 			_ = SyncAllSurfaces(targetAcc, allEmails, profileMgr)
+			_ = s.save()
 		} else {
 			_ = SyncAppStorageLoginUser(targetAcc.Email)
 		}
@@ -1182,6 +1235,7 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 	if acc.RefreshToken != "" || acc.AccessToken != "" {
 		allWithNew := append(allEmails, detectedEmail)
 		_ = SyncAllSurfaces(acc, allWithNew, profileMgr)
+		_ = s.save()
 	}
 	copyAcc := *acc
 	return &copyAcc, nil

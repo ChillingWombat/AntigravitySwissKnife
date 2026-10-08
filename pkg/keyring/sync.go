@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +18,69 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/fingerprint"
 	_ "modernc.org/sqlite"
 )
+
+var tokenRefreshEndpoint = GoogleOAuthTokenURL
+
+// EnsureFreshAccessToken exchanges the account's refresh token for a fresh access token
+// when the access token is empty, has an unknown expiry, or expires within 15 minutes.
+func EnsureFreshAccessToken(acc *Account) bool {
+	if acc == nil {
+		return false
+	}
+	if tokenRefreshEndpoint == GoogleOAuthTokenURL {
+		if os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" || isTestMockEmail(acc.Email) {
+			return false
+		}
+	}
+	rt := strings.TrimSpace(acc.RefreshToken)
+	if rt == "" {
+		return false
+	}
+	if tokenRefreshEndpoint == GoogleOAuthTokenURL && !strings.HasPrefix(rt, "1//") {
+		return false
+	}
+	if acc.AccessToken != "" && !acc.TokenExpiry.IsZero() && time.Until(acc.TokenExpiry) > 15*time.Minute {
+		return false
+	}
+
+	form := url.Values{
+		"client_id":     {GoogleDefaultClientID},
+		"client_secret": {GoogleDefaultClientSecret},
+		"refresh_token": {rt},
+		"grant_type":    {"refresh_token"},
+	}
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.PostForm(tokenRefreshEndpoint, form)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	var data struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		IDToken      string `json:"id_token"`
+		ExpiresIn    int    `json:"expires_in"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil || strings.TrimSpace(data.AccessToken) == "" {
+		return false
+	}
+
+	acc.AccessToken = strings.TrimSpace(data.AccessToken)
+	if strings.TrimSpace(data.RefreshToken) != "" {
+		acc.RefreshToken = strings.TrimSpace(data.RefreshToken)
+	}
+	if strings.TrimSpace(data.IDToken) != "" {
+		acc.IDToken = strings.TrimSpace(data.IDToken)
+	}
+	if data.ExpiresIn > 120 {
+		acc.TokenExpiry = time.Now().Add(time.Duration(data.ExpiresIn-60) * time.Second)
+	} else {
+		acc.TokenExpiry = time.Now().Add(55 * time.Minute)
+	}
+	return true
+}
 
 // AntigravitySecretPayload models the exact JSON schema expected by Antigravity in Linux Secret Service and standalone token files.
 type AntigravitySecretPayload struct {
@@ -67,6 +132,8 @@ func buildSecretPayload(acc *Account) ([]byte, error) {
 	payload.Token.IDToken = idToken
 	if !acc.TokenExpiry.IsZero() {
 		payload.Token.Expiry = acc.TokenExpiry.UTC().Format("2006-01-02T15:04:05.000000Z")
+	} else if strings.TrimSpace(acc.RefreshToken) != "" {
+		payload.Token.Expiry = time.Now().Add(-1 * time.Minute).UTC().Format("2006-01-02T15:04:05.000000Z")
 	} else {
 		payload.Token.Expiry = time.Now().Add(1 * time.Hour).UTC().Format("2006-01-02T15:04:05.000000Z")
 	}
@@ -235,7 +302,9 @@ func SyncDesktopStandaloneToken(acc *Account) error {
 	if err != nil {
 		return err
 	}
-	targetPath := filepath.Join(home, ".gemini", "jetski-standalone-oauth-token")
+	geminiDir := filepath.Join(home, ".gemini")
+	_ = os.MkdirAll(geminiDir, 0755)
+	targetPath := filepath.Join(geminiDir, "jetski-standalone-oauth-token")
 	data, err := buildSecretPayload(acc)
 	if err != nil {
 		return err
@@ -268,7 +337,9 @@ func SyncGoogleAccountsJSON(activeEmail string, allEmails []string) error {
 	if err != nil {
 		return err
 	}
-	targetPath := filepath.Join(home, ".gemini", "google_accounts.json")
+	geminiDir := filepath.Join(home, ".gemini")
+	_ = os.MkdirAll(geminiDir, 0755)
+	targetPath := filepath.Join(geminiDir, "google_accounts.json")
 	var old []string
 	seen := make(map[string]bool)
 	seen[strings.ToLower(activeEmail)] = true
@@ -301,11 +372,15 @@ func SyncOAuthCredsJSON(acc *Account) error {
 	if err != nil {
 		return err
 	}
-	targetPath := filepath.Join(home, ".gemini", "oauth_creds.json")
+	geminiDir := filepath.Join(home, ".gemini")
+	_ = os.MkdirAll(geminiDir, 0755)
+	targetPath := filepath.Join(geminiDir, "oauth_creds.json")
 
 	expiryMs := time.Now().Add(1 * time.Hour).UnixMilli()
 	if !acc.TokenExpiry.IsZero() {
 		expiryMs = acc.TokenExpiry.UnixMilli()
+	} else if strings.TrimSpace(acc.RefreshToken) != "" {
+		expiryMs = time.Now().Add(-1 * time.Minute).UnixMilli()
 	}
 
 	idToken := acc.IDToken
@@ -469,6 +544,9 @@ func SyncAllSurfaces(acc *Account, allEmails []string, profileMgr *fingerprint.S
 	if acc == nil {
 		return fmt.Errorf("nil account")
 	}
+
+	// Ensure access token is fresh before writing across all Antigravity surfaces
+	_ = EnsureFreshAccessToken(acc)
 
 	// 1. Linux Secret Service (VS Code Extension & Electron Keytar)
 	_ = WriteSecretServiceToken(acc)

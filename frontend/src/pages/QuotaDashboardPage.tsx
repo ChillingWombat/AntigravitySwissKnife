@@ -136,7 +136,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const [isTogglingRules, setIsTogglingRules] = useState(false)
   const [isScanning, setIsScanning] = useState(false)
   const [switchFeedback, setSwitchFeedback] = useState<string | null>(null)
-  const [isRelaunching, setIsRelaunching] = useState(false)
   const [errorDetailAccount, setErrorDetailAccount] = useState<AccountState | null>(null)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; account: AccountState } | null>(null)
 
@@ -209,19 +208,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
       setSwitchFeedback(`Could not toggle auto-switch: ${err.message}`)
     } finally {
       setIsTogglingRules(false)
-    }
-  }
-
-  const handleRelaunchIDE = async () => {
-    setIsRelaunching(true)
-    try {
-      await api.relaunchHostIDE()
-      setSwitchFeedback('Host IDE relaunch initiated. The application will reboot fresh.')
-      setTimeout(() => setSwitchFeedback(null), 5000)
-    } catch (err: any) {
-      setSwitchFeedback('Relaunch error: ' + (err.message || 'unknown error'))
-    } finally {
-      setIsRelaunching(false)
     }
   }
 
@@ -395,34 +381,12 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
 
             {switchFeedback && (
               <div style={{ fontSize: '12px', color: 'var(--primary)', marginTop: '6px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                {switchFeedback.includes('Relaunch') && (
-                  <RotateCw size={12} className={isRelaunching || switchFeedback.includes('Relaunching') ? 'animate-spin' : ''} />
-                )}
                 <span>{switchFeedback}</span>
-                {switchFeedback.includes('Relaunch IDE Now') && (
-                  <button
-                    onClick={handleRelaunchIDE}
-                    disabled={isRelaunching}
-                    className="btn-pill-outlined"
-                    style={{
-                      padding: '2px 8px',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    <RotateCw size={11} className={isRelaunching ? 'animate-spin' : ''} />
-                    {isRelaunching ? 'Relaunching...' : 'Relaunch IDE Now'}
-                  </button>
-                )}
               </div>
             )}
           </div>
 
-          {/* Action Row: Scan Local Accounts, Add Account & Relaunch IDE */}
+          {/* Action Row: Scan Local Accounts & Add Account */}
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '16px', flexWrap: 'wrap' }}>
             <button
               onClick={handleScanLocalAccounts}
@@ -462,27 +426,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               title="Manually configure and add a new account"
             >
               <Plus size={14} /> Add Account
-            </button>
-
-            <button
-              onClick={handleRelaunchIDE}
-              disabled={isRelaunching}
-              className="btn-pill-tonal"
-              style={{
-                width: '172px',
-                padding: '7px 16px',
-                fontSize: '12px',
-                fontWeight: 600,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                whiteSpace: 'nowrap',
-              }}
-              title="Gracefully reboot Antigravity host IDE with current active account"
-            >
-              <RotateCw size={14} className={isRelaunching ? 'animate-spin' : ''} />
-              {isRelaunching ? 'Relaunching...' : 'Relaunch IDE'}
             </button>
           </div>
         </div>
@@ -1103,8 +1046,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                               e.stopPropagation()
                               try {
                                 await api.switchAccount(acc.email, true)
-                                setSwitchFeedback('Switched active account to ' + (acc.label || acc.email) + '. Relaunching Antigravity IDE...')
-                                setTimeout(() => setSwitchFeedback(null), 6000)
+                                setSwitchFeedback(null)
+                                onRefresh()
                                 setTimeout(onRefresh, 3000)
                               } catch (err: any) {
                                 setSwitchFeedback('Switch failed: ' + err.message)
@@ -1319,8 +1262,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 setContextMenu(null)
                 try {
                   await api.switchAccount(target, true)
-                  setSwitchFeedback('Switched active account to ' + (contextMenu.account.label || target) + '. Relaunching Antigravity IDE...')
-                  setTimeout(() => setSwitchFeedback(null), 6000)
+                  setSwitchFeedback(null)
+                  onRefresh()
                   setTimeout(onRefresh, 3000)
                 } catch (err: any) {
                   setSwitchFeedback('Switch failed: ' + err.message)

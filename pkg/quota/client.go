@@ -1015,6 +1015,7 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 			lastTokenRefreshErr = refErr
 		} else if newTok != "" {
 			acc.AccessToken = newTok
+			acc.TokenExpiry = time.Now().Add(55 * time.Minute)
 			accessToken = newTok
 			if newRefTok != "" {
 				acc.RefreshToken = newRefTok
@@ -1046,6 +1047,7 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 			lastTokenRefreshErr = refErr
 		} else if newTok != "" {
 			acc.AccessToken = newTok
+			acc.TokenExpiry = time.Now().Add(55 * time.Minute)
 			accessToken = newTok
 			if newRefTok != "" {
 				acc.RefreshToken = newRefTok

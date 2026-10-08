@@ -3,7 +3,10 @@ package keyring
 import (
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -806,4 +809,124 @@ migrate_convos_into_projects: MIGRATION_STATUS_COMPLETED
 		t.Errorf("expected state file to preserve other lines, got:\n%s", sContent)
 	}
 }
+
+func TestEnsureFreshAccessToken_RefreshesExpiredOrUnknownExpiry(t *testing.T) {
+	refreshCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		refreshCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"ya29.fresh_switched_token","expires_in":3600}`))
+	}))
+	defer srv.Close()
+
+	origEndpoint := tokenRefreshEndpoint
+	tokenRefreshEndpoint = srv.URL
+	defer func() { tokenRefreshEndpoint = origEndpoint }()
+
+	// 1. Account with stale access_token and zero TokenExpiry must refresh immediately
+	acc := &Account{
+		Email:        "switch_user@google.com",
+		AccessToken:  "ya29.stale_expired_token",
+		RefreshToken: "1//valid_refresh_token",
+	}
+	if !EnsureFreshAccessToken(acc) {
+		t.Fatalf("expected EnsureFreshAccessToken to refresh when TokenExpiry is zero")
+	}
+	if acc.AccessToken != "ya29.fresh_switched_token" {
+		t.Fatalf("expected AccessToken=ya29.fresh_switched_token, got %s", acc.AccessToken)
+	}
+	if time.Until(acc.TokenExpiry) < 50*time.Minute {
+		t.Fatalf("expected TokenExpiry >= 50m in future, got %v", time.Until(acc.TokenExpiry))
+	}
+	if refreshCalls != 1 {
+		t.Fatalf("expected 1 refresh call, got %d", refreshCalls)
+	}
+
+	// 2. Subsequent call while TokenExpiry is >5m in future must NOT refresh again
+	if EnsureFreshAccessToken(acc) {
+		t.Fatalf("expected EnsureFreshAccessToken to return false when token is still fresh")
+	}
+	if refreshCalls != 1 {
+		t.Fatalf("expected refreshCalls to remain 1, got %d", refreshCalls)
+	}
+
+	// 3. When TokenExpiry is zero (e.g., offline during switch) and RefreshToken is present,
+	// buildSecretPayload and SyncOAuthCredsJSON must mark expiry in the past so language_server
+	// refreshes immediately instead of trusting a stale access token for 1 hour.
+	offlineAcc := &Account{
+		Email:        "offline_user@google.com",
+		AccessToken:  "ya29.possibly_stale",
+		RefreshToken: "1//offline_refresh",
+	}
+	payload, err := buildSecretPayload(offlineAcc)
+	if err != nil {
+		t.Fatalf("buildSecretPayload error: %v", err)
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(payload), &parsed); err != nil {
+		t.Fatalf("failed to unmarshal secret payload: %v", err)
+	}
+	tokObj, _ := parsed["token"].(map[string]interface{})
+	expStr, _ := tokObj["expiry"].(string)
+	expTime, err := time.Parse(time.RFC3339, expStr)
+	if err != nil {
+		t.Fatalf("failed to parse token.expiry %q: %v", expStr, err)
+	}
+	if !expTime.Before(time.Now()) {
+		t.Errorf("expected unknown-expiry token with refresh_token to have past expiry so language_server refreshes immediately, got %v", expTime)
+	}
+
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	if err := SyncOAuthCredsJSON(offlineAcc); err != nil {
+		t.Fatalf("SyncOAuthCredsJSON error: %v", err)
+	}
+	credsRaw, err := os.ReadFile(filepath.Join(tmpHome, ".gemini", "oauth_creds.json"))
+	if err != nil {
+		t.Fatalf("failed to read oauth_creds.json: %v", err)
+	}
+	var credsMap map[string]interface{}
+	if err := json.Unmarshal(credsRaw, &credsMap); err != nil {
+		t.Fatalf("failed to unmarshal oauth_creds.json: %v", err)
+	}
+	expiryMs, _ := credsMap["expiry_date"].(float64)
+	if int64(expiryMs) >= time.Now().UnixMilli() {
+		t.Errorf("expected oauth_creds.json expiry_date to be in the past when TokenExpiry is unknown, got %v", int64(expiryMs))
+	}
+}
+
+func TestTokenExpiryPersistence(t *testing.T) {
+	tmpDir := t.TempDir()
+	accPath := filepath.Join(tmpDir, "accounts.json")
+	store, err := NewStore(accPath)
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	_, err = store.ImportAccount("expiry_test@google.com", "1//rt_persist", "ya29.initial", "Expiry Test", "")
+	if err != nil {
+		t.Fatalf("ImportAccount error: %v", err)
+	}
+
+	expectedExp := time.Now().Add(45 * time.Minute).UTC().Truncate(time.Second)
+	if err := store.UpdateAccountTokensWithExpiry("expiry_test@google.com", "ya29.refreshed", "1//rt_persist", expectedExp); err != nil {
+		t.Fatalf("UpdateAccountTokensWithExpiry error: %v", err)
+	}
+
+	reloaded, err := NewStore(accPath)
+	if err != nil {
+		t.Fatalf("NewStore reload error: %v", err)
+	}
+	acc, err := reloaded.GetAccount("expiry_test@google.com")
+	if err != nil {
+		t.Fatalf("GetAccount error: %v", err)
+	}
+	if acc.AccessToken != "ya29.refreshed" {
+		t.Errorf("expected AccessToken=ya29.refreshed, got %s", acc.AccessToken)
+	}
+	if !acc.TokenExpiry.UTC().Truncate(time.Second).Equal(expectedExp) {
+		t.Errorf("expected TokenExpiry=%v, got %v", expectedExp, acc.TokenExpiry)
+	}
+}
+
 

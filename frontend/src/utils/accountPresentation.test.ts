@@ -257,5 +257,20 @@ describe('accountPresentation utility', () => {
       assert.ok(!pageSrc.includes('<span>AI Credits</span>'), 'should not contain legacy AI Credits column header')
       assert.ok(pageSrc.includes("width: '76px'"), 'should use compact 76px column width for Credit')
     })
+
+    it('verifies QuotaDashboardPage removes manual Relaunch IDE button and relaunch status text while keeping automatic relaunch on switch', async () => {
+      const fs = await import('node:fs')
+      const path = await import('node:path')
+      const pageSrc = fs.readFileSync(
+        path.resolve(import.meta.dirname, '../pages/QuotaDashboardPage.tsx'),
+        'utf8'
+      )
+      assert.ok(!pageSrc.includes('Relaunch IDE'), 'should not contain manual Relaunch IDE button')
+      assert.ok(!pageSrc.includes('Relaunching Antigravity IDE'), 'should not contain Relaunching Antigravity IDE text')
+      assert.ok(!pageSrc.includes('Switched active account to'), 'should not contain Switched active account status text')
+      assert.ok(pageSrc.includes('api.switchAccount(acc.email, true)'), 'should trigger automatic relaunch on table switch')
+      assert.ok(pageSrc.includes('api.switchAccount(target, true)'), 'should trigger automatic relaunch on context menu switch')
+    })
   })
 })
+

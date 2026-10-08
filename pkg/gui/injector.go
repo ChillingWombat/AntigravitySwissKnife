@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	_ "modernc.org/sqlite"
 )
 
 // Injector manages CDP communication to inject CSS and scripts into running Antigravity.
@@ -456,6 +458,202 @@ func (inj *Injector) GetLiveEmail() string {
 		}
 	}
 	return ""
+}
+
+// IsValidConversationPath returns true if the relative path points to a real Antigravity conversation view.
+func IsValidConversationPath(p string) bool {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return false
+	}
+	pathOnly := p
+	if idx := strings.IndexAny(pathOnly, "?#"); idx != -1 {
+		pathOnly = pathOnly[:idx]
+	}
+	if strings.HasPrefix(pathOnly, "/c/") {
+		rest := strings.TrimPrefix(pathOnly, "/c/")
+		return rest != "" && rest != "_new" && !strings.Contains(rest, "/")
+	}
+	if strings.HasPrefix(pathOnly, "/battle/") {
+		rest := strings.TrimPrefix(pathOnly, "/battle/")
+		return rest != "" && !strings.Contains(rest, "/")
+	}
+	return false
+}
+
+// SaveLastConversationPath persists the last active conversation path in app_storage.json.
+func SaveLastConversationPath(convPath string) {
+	if !IsValidConversationPath(convPath) {
+		return
+	}
+	hostDir := core.GetAntigravityHostConfigDir()
+	storagePath := filepath.Join(hostDir, "app_storage.json")
+	rawMap := make(map[string]interface{})
+	if data, err := os.ReadFile(storagePath); err == nil {
+		_ = json.Unmarshal(data, &rawMap)
+	} else if !os.IsNotExist(err) {
+		return
+	}
+	if existing, _ := rawMap["antigravity_swiss_last_conversation_path"].(string); existing == convPath {
+		return
+	}
+	rawMap["antigravity_swiss_last_conversation_path"] = convPath
+	updated, err := json.MarshalIndent(rawMap, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.MkdirAll(hostDir, 0755)
+	tmpPath := storagePath + ".conv.tmp"
+	if err := os.WriteFile(tmpPath, updated, 0644); err == nil {
+		_ = os.Rename(tmpPath, storagePath)
+	}
+}
+
+// LoadLastConversationPath reads the last saved conversation path from app_storage.json.
+func LoadLastConversationPath() string {
+	storagePath := filepath.Join(core.GetAntigravityHostConfigDir(), "app_storage.json")
+	data, err := os.ReadFile(storagePath)
+	if err != nil {
+		return ""
+	}
+	var rawMap map[string]interface{}
+	if err := json.Unmarshal(data, &rawMap); err != nil {
+		return ""
+	}
+	if v, ok := rawMap["antigravity_swiss_last_conversation_path"].(string); ok && IsValidConversationPath(v) {
+		return strings.TrimSpace(v)
+	}
+	return ""
+}
+
+// QueryLatestTopLevelConversationPath queries ~/.gemini/antigravity/conversation_summaries.db
+// for the most recently modified top-level conversation.
+func QueryLatestTopLevelConversationPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	dbPath := filepath.Join(home, ".gemini", "antigravity", "conversation_summaries.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		return ""
+	}
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return ""
+	}
+	defer db.Close()
+	_, _ = db.Exec("PRAGMA busy_timeout = 2000;")
+
+	var convID string
+	err = db.QueryRow(`SELECT conversation_id FROM conversation_summaries WHERE parent_conversation_id = '' AND nesting_depth = 0 ORDER BY last_modified_time DESC LIMIT 1`).Scan(&convID)
+	convID = strings.TrimSpace(convID)
+	if err != nil || convID == "" {
+		return ""
+	}
+	candidate := "/c/" + convID
+	if saved := LoadLastConversationPath(); strings.HasPrefix(saved, candidate) {
+		return saved
+	}
+	return candidate
+}
+
+// CaptureActiveConversationPath inspects the live Antigravity renderer URL via CDP,
+// falling back to conversation_summaries.db and app_storage.json, and saves the result.
+func (inj *Injector) CaptureActiveConversationPath() string {
+	if port, err := inj.FindDevToolsPort(); err == nil && port > 0 {
+		if pages, err := inj.GetPageTargets(port); err == nil {
+			for _, page := range pages {
+				if u, err := url.Parse(page.URL); err == nil {
+					reqURI := u.RequestURI()
+					if IsValidConversationPath(reqURI) {
+						SaveLastConversationPath(reqURI)
+						return reqURI
+					}
+				}
+				if page.WebSocketDebuggerURL != "" {
+					res, err := inj.ExecuteScript(page.WebSocketDebuggerURL, `window.location.pathname + window.location.search`)
+					if err == nil && res != nil {
+						if v, ok := res["value"].(string); ok && IsValidConversationPath(v) {
+							SaveLastConversationPath(v)
+							return strings.TrimSpace(v)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if fromDB := QueryLatestTopLevelConversationPath(); IsValidConversationPath(fromDB) {
+		SaveLastConversationPath(fromDB)
+		return fromDB
+	}
+
+	return LoadLastConversationPath()
+}
+
+// RestoreConversationPath polls the newly launched Antigravity renderer via CDP
+// and navigates it from "/" back to targetPath (/c/<cascadeId>) so the previous conversation is resumed.
+func (inj *Injector) RestoreConversationPath(targetPath string, maxWait time.Duration) bool {
+	if !IsValidConversationPath(targetPath) {
+		return false
+	}
+	if maxWait <= 0 {
+		maxWait = 25 * time.Second
+	}
+
+	script := fmt.Sprintf(`(() => {
+		try {
+			const targetPath = %q;
+			const root = document.getElementById("root");
+			const ready = Boolean(root && root.childElementCount > 0);
+			const curPath = window.location.pathname || "/";
+			if ((!curPath.startsWith("/c/") && !curPath.startsWith("/battle/")) || curPath === "/c/_new") {
+				window.history.replaceState(null, "", targetPath);
+				window.dispatchEvent(new PopStateEvent("popstate"));
+			}
+			return {
+				ready: ready,
+				path: (window.location.pathname || "/") + (window.location.search || "")
+			};
+		} catch (e) {
+			return { ready: false, path: "" };
+		}
+	})()`, targetPath)
+
+	deadline := time.Now().Add(maxWait)
+	stableReadyCount := 0
+	for time.Now().Before(deadline) {
+		port, err := inj.FindDevToolsPort()
+		if err == nil && port > 0 {
+			pages, err := inj.GetPageTargets(port)
+			if err == nil && len(pages) > 0 {
+				restoredOnPage := false
+				for _, page := range pages {
+					if !strings.HasPrefix(page.URL, "https://127.0.0.1:") && !strings.HasPrefix(page.URL, "http://127.0.0.1:") && !strings.HasPrefix(page.URL, "https://localhost:") && !strings.HasPrefix(page.URL, "http://localhost:") {
+						continue
+					}
+					res, err := inj.ExecuteScript(page.WebSocketDebuggerURL, script)
+					if err == nil && res != nil {
+						ready, _ := res["ready"].(bool)
+						curPath, _ := res["path"].(string)
+						if ready && IsValidConversationPath(curPath) {
+							restoredOnPage = true
+						}
+					}
+				}
+				if restoredOnPage {
+					stableReadyCount++
+					if stableReadyCount >= 3 {
+						return true
+					}
+				} else {
+					stableReadyCount = 0
+				}
+			}
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return stableReadyCount > 0
 }
 
 // CaptureScreenshot captures a PNG screenshot of the page target via CDP.

@@ -1760,5 +1760,83 @@ func TestLiveNativeDragOrderAndColorPersistence(t *testing.T) {
 	}
 }
 
+func TestConversationPathPersistenceAndTopLevelQuery(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("SWISS_DATA_DIR", filepath.Join(tmpHome, ".local", "share", "antigravity-swiss-knife"))
+
+	// 1. Validate IsValidConversationPath
+	if !IsValidConversationPath("/c/060156e8-1ef3-4435-a836-3bc0c9838995") {
+		t.Errorf("expected valid UUID conversation path to return true")
+	}
+	for _, invalid := range []string{"", "/", "/c/", "/c/_new", "/settings", "/c/060156e8-1ef3-4435-a836-3bc0c9838995/extra"} {
+		if IsValidConversationPath(invalid) {
+			t.Errorf("expected %q to be invalid conversation path", invalid)
+		}
+	}
+
+	// 2. Validate SaveLastConversationPath and LoadLastConversationPath
+	wantPath := "/c/060156e8-1ef3-4435-a836-3bc0c9838995"
+	SaveLastConversationPath(wantPath)
+	if got := LoadLastConversationPath(); got != wantPath {
+		t.Fatalf("LoadLastConversationPath() = %q, want %q", got, wantPath)
+	}
+
+	// 3. Validate QueryLatestTopLevelConversationPath ignores subagent conversations
+	agDir := filepath.Join(tmpHome, ".gemini", "antigravity")
+	if err := os.MkdirAll(agDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(agDir, "conversation_summaries.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open error: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`CREATE TABLE conversation_summaries (
+		conversation_id TEXT PRIMARY KEY,
+		title TEXT,
+		created_time INTEGER,
+		last_modified_time INTEGER,
+		last_user_input_time INTEGER,
+		step_count INTEGER,
+		status TEXT,
+		workspaces TEXT,
+		summary_proto BLOB,
+		parent_conversation_id TEXT,
+		nesting_depth INTEGER
+	)`)
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	// Insert older top-level conversation
+	_, err = db.Exec(`INSERT INTO conversation_summaries (conversation_id, title, last_modified_time, parent_conversation_id, nesting_depth) VALUES (?, ?, ?, ?, ?)`,
+		"11111111-1111-4111-8111-111111111111", "Older Chat", 1000, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Insert active top-level conversation
+	_, err = db.Exec(`INSERT INTO conversation_summaries (conversation_id, title, last_modified_time, parent_conversation_id, nesting_depth) VALUES (?, ?, ?, ?, ?)`,
+		"060156e8-1ef3-4435-a836-3bc0c9838995", "Active User Chat", 2000, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Insert newer subagent conversation (must be ignored by top-level query)
+	_, err = db.Exec(`INSERT INTO conversation_summaries (conversation_id, title, last_modified_time, parent_conversation_id, nesting_depth) VALUES (?, ?, ?, ?, ?)`,
+		"99999999-9999-4999-8999-999999999999", "Subagent Worker", 3000, "060156e8-1ef3-4435-a836-3bc0c9838995", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	gotTopLevel := QueryLatestTopLevelConversationPath()
+	if gotTopLevel != "/c/060156e8-1ef3-4435-a836-3bc0c9838995" {
+		t.Fatalf("QueryLatestTopLevelConversationPath() = %q, want %q", gotTopLevel, "/c/060156e8-1ef3-4435-a836-3bc0c9838995")
+	}
+}
+
+
 
 

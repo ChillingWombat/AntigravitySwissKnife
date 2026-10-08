@@ -9,11 +9,15 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 )
+
+var relaunchMu sync.Mutex
 
 // ProcessInfo holds information about a detected system process.
 type ProcessInfo struct {
@@ -95,6 +99,9 @@ func (s *Shield) FindAntigravityProcesses() ([]ProcessInfo, error) {
 		if err != nil || pid <= 0 {
 			continue
 		}
+		if isZombieProcess(pid) {
+			continue
+		}
 
 		cmdlineBytes, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
 		if err != nil {
@@ -150,6 +157,9 @@ func (s *Shield) FindLanguageServerProcesses() ([]ProcessInfo, error) {
 		if err != nil || pid <= 0 {
 			continue
 		}
+		if isZombieProcess(pid) {
+			continue
+		}
 
 		cmdlineBytes, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
 		if err != nil {
@@ -192,52 +202,71 @@ func (s *Shield) RestartLanguageServer() error {
 	return nil
 }
 
-// RelaunchHostIDE gracefully terminates the running host Antigravity IDE (if alive)
-// and relaunches it as a detached background process so it reads fresh credentials from disk.
+// RelaunchHostIDE gracefully terminates the running host Antigravity IDE (if alive),
+// relaunches it as a detached background process so it reads fresh credentials from disk,
+// and restores the previously active conversation view.
 func (s *Shield) RelaunchHostIDE() error {
 	if os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" {
 		return nil
 	}
 
+	relaunchMu.Lock()
+	defer relaunchMu.Unlock()
+
+	inj := gui.NewInjector(0)
+	resumePath := inj.CaptureActiveConversationPath()
+
 	procs, err := s.FindAntigravityProcesses()
 	if err == nil {
-		var mainPID int
+		var mainPIDs []int
 		for _, p := range procs {
 			lower := strings.ToLower(p.Cmdline)
 			if (p.Name == "antigravity" || strings.HasSuffix(p.Name, "antigravity")) &&
 				!strings.Contains(lower, "--type=") &&
 				!strings.Contains(lower, "swiss") {
-				mainPID = p.PID
-				break
+				mainPIDs = append(mainPIDs, p.PID)
 			}
 		}
 
-		if mainPID > 0 {
-			proc, findErr := os.FindProcess(mainPID)
-			if findErr == nil {
-				_ = proc.Signal(syscall.SIGTERM)
-				// Poll for graceful exit up to 4 seconds
-				for i := 0; i < 40; i++ {
-					time.Sleep(100 * time.Millisecond)
-					if !isProcessAlive(mainPID) {
+		if len(mainPIDs) > 0 {
+			for _, pid := range mainPIDs {
+				if proc, findErr := os.FindProcess(pid); findErr == nil {
+					_ = proc.Signal(syscall.SIGTERM)
+				}
+			}
+			// Poll for graceful exit up to 4 seconds
+			for i := 0; i < 40; i++ {
+				time.Sleep(100 * time.Millisecond)
+				anyAlive := false
+				for _, pid := range mainPIDs {
+					if isProcessAlive(pid) {
+						anyAlive = true
 						break
 					}
 				}
-				// If still alive after grace period, force terminate
-				if isProcessAlive(mainPID) {
-					_ = proc.Kill()
-					time.Sleep(300 * time.Millisecond)
+				if !anyAlive {
+					break
 				}
 			}
+			// Force terminate any remaining main processes
+			for _, pid := range mainPIDs {
+				if isProcessAlive(pid) {
+					if proc, findErr := os.FindProcess(pid); findErr == nil {
+						_ = proc.Kill()
+					}
+				}
+			}
+			time.Sleep(300 * time.Millisecond)
 		}
 	}
 
-	// Settle file handles and clear any stale Chromium/Electron singleton locks
+	// Settle file handles and clear any stale Chromium/Electron singleton locks & DevTools port file
 	time.Sleep(500 * time.Millisecond)
 	hostConfigDir := core.GetAntigravityHostConfigDir()
 	_ = os.Remove(filepath.Join(hostConfigDir, "SingletonLock"))
 	_ = os.Remove(filepath.Join(hostConfigDir, "SingletonSocket"))
 	_ = os.Remove(filepath.Join(hostConfigDir, "SingletonCookie"))
+	_ = os.Remove(filepath.Join(hostConfigDir, "DevToolsActivePort"))
 
 	// Launch new detached process
 	binPath := core.GetAntigravityBinaryPath()
@@ -260,12 +289,34 @@ func (s *Shield) RelaunchHostIDE() error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to launch Antigravity (%s): %w", binPath, err)
 	}
-	if cmd.Process != nil {
-		_ = cmd.Process.Release()
+	go func() {
+		_ = cmd.Wait()
+	}()
+
+	if resumePath != "" {
+		go func(target string) {
+			_ = gui.NewInjector(0).RestoreConversationPath(target, 25*time.Second)
+		}(resumePath)
 	}
 	return nil
 }
 
+func isZombieProcess(pid int) bool {
+	if pid <= 0 || runtime.GOOS != "linux" {
+		return false
+	}
+	statusBytes, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(statusBytes), "\n") {
+		if strings.HasPrefix(line, "State:") {
+			stateVal := strings.TrimSpace(strings.TrimPrefix(line, "State:"))
+			return strings.HasPrefix(stateVal, "Z")
+		}
+	}
+	return false
+}
 
 func isProcessAlive(pid int) bool {
 	if pid <= 0 {
@@ -273,7 +324,7 @@ func isProcessAlive(pid int) bool {
 	}
 	if runtime.GOOS == "linux" {
 		_, err := os.Stat(fmt.Sprintf("/proc/%d", pid))
-		return err == nil
+		return err == nil && !isZombieProcess(pid)
 	}
 	proc, err := os.FindProcess(pid)
 	if err != nil {

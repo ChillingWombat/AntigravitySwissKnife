@@ -331,6 +331,7 @@ func (d *Daemon) registerRPCHandlers() {
 		if p.TOTPSecret != "" && !totp.ValidateSecret(p.TOTPSecret) {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: core.ErrInvalidSecret.Error()}
 		}
+		prevActive := d.Keyring.ActiveAccount()
 		if err := d.Keyring.UpdateAccountFull(p.Email, p.Label, p.PlanTier, p.Status, p.Priority, p.Notes, p.Password, p.TOTPSecret, p.RefreshToken, p.Credits, p.EnableCreditOverages, p.AllowClaudeGPT, p.SetActive); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
@@ -344,7 +345,16 @@ func (d *Daemon) registerRPCHandlers() {
 			}
 			if acc, _ := d.Keyring.GetAccount(p.Email); acc != nil {
 				_ = keyring.SyncAllSurfaces(acc, allEmails, d.Profiles)
-				_, _ = gui.NewInjector(0).RefreshUserStatus()
+				_ = d.Keyring.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
+				if !strings.EqualFold(prevActive, p.Email) && d.Shield != nil && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+					_ = gui.NewInjector(0).CaptureActiveConversationPath()
+					go func() {
+						time.Sleep(200 * time.Millisecond)
+						_ = d.Shield.RelaunchHostIDE()
+					}()
+				} else {
+					_, _ = gui.NewInjector(0).RefreshUserStatus()
+				}
 			}
 		}
 
@@ -386,10 +396,29 @@ func (d *Daemon) registerRPCHandlers() {
 		if err := json.Unmarshal(params, &p); err != nil || p.Email == "" {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: "missing required 'email'"}
 		}
+		prevActive := d.Keyring.ActiveAccount()
 		if err := d.Keyring.RemoveAccount(p.Email); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
 		d.removeQuotaSummary(p.Email)
+		newActive := d.Keyring.ActiveAccount()
+		if newActive != "" && !strings.EqualFold(prevActive, newActive) {
+			var allEmails []string
+			for _, a := range d.Keyring.ListAccounts() {
+				allEmails = append(allEmails, a.Email)
+			}
+			if acc, _ := d.Keyring.GetAccount(newActive); acc != nil {
+				_ = keyring.SyncAllSurfaces(acc, allEmails, d.Profiles)
+				_ = d.Keyring.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
+				if d.Shield != nil && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+					_ = gui.NewInjector(0).CaptureActiveConversationPath()
+					go func() {
+						time.Sleep(200 * time.Millisecond)
+						_ = d.Shield.RelaunchHostIDE()
+					}()
+				}
+			}
+		}
 		return map[string]interface{}{"success": true, "removed": p.Email}, nil
 	}
 	d.Server.Register("swiss.removeAccount", removeHandler)
@@ -483,12 +512,14 @@ func (d *Daemon) registerRPCHandlers() {
 		// Synchronize across Antigravity 2.0 Desktop, Antigravity CLI (agy), and VS Code extension
 		if acc, _ := d.Keyring.GetAccount(p.Email); acc != nil {
 			_ = keyring.SyncAllSurfaces(acc, allEmails, d.Profiles)
+			_ = d.Keyring.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
 			if !shouldRelaunch {
 				_, _ = gui.NewInjector(0).RefreshUserStatus()
 			}
 		}
 
 		if shouldRelaunch && d.Shield != nil && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+			_ = gui.NewInjector(0).CaptureActiveConversationPath()
 			go func() {
 				time.Sleep(200 * time.Millisecond)
 				_ = d.Shield.RelaunchHostIDE()
@@ -1160,6 +1191,7 @@ func (d *Daemon) schedulerLoop() {
 
 		case <-activeTicker.C:
 			// 1. Frequently refresh active account quota (e.g. every 2m)
+			_ = gui.NewInjector(0).CaptureActiveConversationPath()
 			var tickEmails []string
 			for _, a := range d.Keyring.ListAccounts() {
 				tickEmails = append(tickEmails, a.Email)
@@ -1174,7 +1206,7 @@ func (d *Daemon) schedulerLoop() {
 						d.setQuotaSummary(active, sum)
 						tokenChanged := (acc.AccessToken != "" && acc.AccessToken != oldTok)
 						if acc.AccessToken != "" {
-							_ = d.Keyring.UpdateAccountTokens(active, acc.AccessToken, acc.RefreshToken)
+							_ = d.Keyring.UpdateAccountTokensWithExpiry(active, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
 						}
 						if tokenChanged {
 							d.syncActiveAccountSurfaces(acc)
@@ -1213,7 +1245,15 @@ func (d *Daemon) schedulerLoop() {
 								}
 								if cAcc, _ := d.Keyring.GetAccount(successor.Email); cAcc != nil {
 									_ = keyring.SyncAllSurfaces(cAcc, allEmails, d.Profiles)
-									_, _ = gui.NewInjector(0).RefreshUserStatus()
+									if cAcc.AccessToken != "" {
+										_ = d.Keyring.UpdateAccountTokensWithExpiry(cAcc.Email, cAcc.AccessToken, cAcc.RefreshToken, cAcc.TokenExpiry)
+									}
+									if os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+										go func() {
+											time.Sleep(200 * time.Millisecond)
+											_ = process.NewShield(0).RelaunchHostIDE()
+										}()
+									}
 								}
 							}
 						}
@@ -1250,7 +1290,7 @@ func (d *Daemon) schedulerLoop() {
 					if sum != nil {
 						d.setQuotaSummary(acc.Email, sum)
 						if acc.AccessToken != "" {
-							_ = d.Keyring.UpdateAccountTokens(acc.Email, acc.AccessToken, acc.RefreshToken)
+							_ = d.Keyring.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
 						}
 					}
 

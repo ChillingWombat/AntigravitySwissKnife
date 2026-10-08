@@ -89,13 +89,22 @@ function buildLinux() {
   fs.copyFileSync(goBin, releaseGoBin);
   fs.chmodSync(releaseGoBin, 0o755);
 
-  // 2. Package Electron App
+  // 2. Package Electron App (unpacked dir + AppImage)
   log('Packaging Electron application for Linux...');
-  run(`npx electron-builder --linux --dir -c.directories.output="${linuxReleaseDir}"`, rootDir);
+  run(`npx electron-builder --linux AppImage dir -c.directories.output="${linuxReleaseDir}"`, rootDir);
 
   const unpackedDir = path.join(linuxReleaseDir, 'linux-unpacked');
   const appSymlink = path.join(linuxReleaseDir, 'app');
   createSymlinkOrCopy('linux-unpacked', appSymlink);
+  const pkgJson = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
+  const appImageFile = `Antigravity-Swiss-Knife-${pkgJson.version}-x86_64.AppImage`;
+  const appImageLink = path.join(linuxReleaseDir, 'Antigravity-Swiss-Knife.AppImage');
+  if (fs.existsSync(path.join(linuxReleaseDir, appImageFile))) {
+    try {
+      if (fs.existsSync(appImageLink)) fs.unlinkSync(appImageLink);
+      fs.symlinkSync(appImageFile, appImageLink);
+    } catch {}
+  }
 
   // Ensure packaged daemon binary is executable
   const packagedSwiss = path.join(unpackedDir, 'resources', 'bin', 'swiss');
