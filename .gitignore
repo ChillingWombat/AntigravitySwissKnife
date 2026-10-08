@@ -50,3 +50,6 @@ tests/stress_results.json
 # Test Scripts
 tests/
 
+# Local documents
+README.local.md
+

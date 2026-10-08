@@ -45,49 +45,27 @@ The project is built on three core technical principles:
   <img src="assets/key_features.png" alt="Antigravity Swiss Knife Key Features" width="100%" />
 </p>
 
-Antigravity Swiss Knife consolidates seven core engineering capabilities into a unified desktop and daemon companion:
+Antigravity Swiss Knife unifies seven developer workflows into a single host companion:
 
-1. **Account Switcher**  
-   Track quotas across multiple Google CloudCode accounts in real time. Automatically rotate credentials with zero session loss, hardware profile virtualization (`machineid`, `.updaterId`, `installation_uuid`), and an RFC 6238 TOTP 2FA vault.
-
-2. **Custom Model**  
-   Bridge custom model endpoints (OpenAI, Anthropic Claude, DeepSeek) into your workflow. Features an automated 6-probe security auditor that validates TLS transport, guards against prompt injection/tampering, and prevents covert model downgrade substitutions.
-
-3. **UI Enhancement**  
-   Enhance Antigravity 2.0 chat productivity through lightweight injected runtime scripts: rapid conversation turn jump navigation, collapsible tool execution output cards, real-time TPS counters, and per-turn token accounting.
-
-4. **Preview Browser**  
-   An embedded multi-port web previewer docked directly alongside your chat workspace. Quickly inspect local dev servers across active development ports with hot-reload docks and integrated Chrome DevTools.
-
-5. **File Explorer**  
-   Navigate project directories from the companion desktop interface. Includes fast recursive file filtering, fuzzy path search, code syntax previews with monospaced line viewing, and quick scratchpad editing.
-
-6. **GitHub Workspace**  
-   Track engineering tasks via an interactive Kanban board (Backlog, In Progress, In Review, Done). Jump directly from tracked issues into active subagent conversation threads, manage issue stages, and synchronize local project states with GitHub.
-
-7. **Quick Memo**  
-   Capture developer thoughts and meeting notes instantly with Markdown formatting and built-in audio voice memo recording. Automatically transcribe voice recordings, organize by color and tags, and search notes with instant full-text filtering.
+- **Account Switcher**: Real-time CloudCode quota tracking, zero-loss credential rotation, hardware profile isolation (`machineid`, `.updaterId`, `installation_uuid`), and RFC 6238 TOTP vault.
+- **Custom Model**: Direct routing for OpenAI, Claude, and DeepSeek with a 6-probe security auditor covering TLS ciphers, canary downgrade detection, and prompt defense.
+- **UI Enhancement**: Injected chat controls for prompt turn jumping, collapsible tool cards, live tokens-per-second calculation, and per-turn accounting.
+- **Preview Browser**: Docked multi-port web previewer with responsive viewport presets and Chrome DevTools integration for local dev servers.
+- **File Explorer**: Integrated filesystem browser with recursive path search, syntax-highlighted previews, and quick scratchpad editing.
+- **GitHub Workspace**: Kanban issue tracking (Backlog, In Progress, In Review, Done) linked directly to subagent conversation threads.
+- **Quick Memo**: Instant Markdown scratchpad with built-in audio recording, speech-to-text transcription, and tag-based search.
 
 ---
 
 ## Architecture
 
-Antigravity Swiss Knife employs a three-tier architecture: an injected runtime layer within Antigravity, an independent companion desktop application, and a headless Go daemon that manages state and OS integrations.
+The system operates across three decoupled tiers running exclusively on the host: an injected runtime layer inside Antigravity 2.0, a React 19 supervisory desktop interface, and a headless pure-Go daemon (`bin/swiss daemon`) communicating over local Unix domain sockets and loopback HTTP.
 
 <p align="center">
   <img src="assets/architecture.png" alt="Antigravity Swiss Knife System Architecture" width="100%" />
 </p>
 
-### System Layers
-
-1. **Host Runtime Environment (Antigravity 2.0 Desktop)**  
-   Lightweight client scripts (`persistent_script.js` and `persistent_styles.css`) that provide conversation turn navigation, tool output density controls, and live per-turn token metrics.
-
-2. **Supervisory Desktop Interface (Electron & React 19)**  
-   A dedicated desktop control interface for account credential management, security audits, telemetry review, and auxiliary workspace tools.
-
-3. **Companion Daemon (`bin/swiss daemon`)**  
-   A standalone Go binary operating with zero CGo dependencies. The daemon exposes a local Unix domain socket (`/run/user/1000/antigravity-swiss/daemon.sock`) and a loopback HTTP interface (`127.0.0.1:8765`), handling background quota polling, hardware profile virtualization, token accounting, and process locks.
+All inter-process communications remain local to the machine, coordinating configuration updates via Chrome DevTools Protocol (CDP) and delegating secret management to operating system keyrings.
 
 ---
 
@@ -99,66 +77,20 @@ The application is structured into eight functional subsystems:
   <img src="assets/modules_overview.png" alt="Antigravity Swiss Knife Functional Modules" width="100%" />
 </p>
 
-### 1. Fleet Quota & Account Switcher
-- Multi-account quota tracking across Gemini, Claude, and GPT model pools.
-- RFC 6238 TOTP engine with secure local credential storage.
-- Hardware profile virtualization (`machineid`, `.updaterId`, `installation_uuid`) per account to avoid correlation across profiles.
-- Automatic reset horizon keep-alive pings upon quota window rollover.
-- In-place credential rotation preserving active conversation context and session history.
-
-### 2. Custom Models & Security Relay Auditor
-- Custom model routing supporting OpenAI, Anthropic, DeepSeek, and OpenAI-compatible gateways.
-- 6-probe security auditor evaluating TLS cipher strength, proxy intermediary headers, prompt injection hazards, tool-call schema integrity, and diagnostic leakage.
-- Model substitution canary tests to verify that relay proxies do not silently downgrade model quality.
-
-### 3. Session Navigation & Controls
-- Rapid jump navigation across user prompt turns in long sessions.
-- Tool execution output filtering (standard, compact, or hidden) to collapse verbose command runs.
-- Inactivity-based tab lifecycle management with automated archiving.
-
-### 4. Extensions Workspace
-- Embedded preview browser with responsive viewport presets and DOM element inspection.
-- Visual annotation tool allowing developers to capture and attach targeted UI feedback for agents.
-- Lightweight project file explorer with Markdown and source code previews.
-- Quick memo store supporting text notes and transcribed audio recordings.
-- Integrated GitHub Projects Kanban board for task orchestration.
-
-### 5. Token & Cost Telemetry
-- Real-time token accounting (prompt tokens, cached prompt tokens, output tokens).
-- Live generation speed (tokens per second) and estimated inference cost per turn.
-- Multi-agent aggregation consolidating metrics across parent orchestrators and background subagents.
-- CSV export for historical project and account token analysis.
-
-### 6. Utilities & Interoperability
-- Conversation and project importer compatible with Claude Code, Cursor Composer, Windsurf, and ChatGPT data exports.
-- Automatic workspace directory detection and Git remote repository matching.
-- Agent Client Protocol (ACP) process discovery and handshake latency inspection.
-
-### 7. Background Automations
-- Headless cron scheduler executing recurring engineering routines.
-- Workspace health checks and automated cache maintenance.
-- Systemd user service integration for continuous background management.
-
-### 8. Storage & Reversibility
-- Local embedded persistence powered by pure-Go SQLite.
-- Non-destructive configuration management with automatic `.swiss.bak` snapshots and one-click rollback.
-- Cache inspector for analyzing and reclaiming disk space from conversation and artifact stores.
+Each subsystem operates as an independent module coordinated through the Go companion daemon and exposed via the supervisory GUI and CLI interfaces. Subsystems share state through the local SQLite store and communicate over the Unix domain socket interface.
 
 ---
 
 ## Lifecycle
 
-Account switching and quota synchronizations are designed to execute without interrupting active coding sessions:
+Credential rotation and quota synchronizations execute without interrupting active coding sessions or restarting the Antigravity process:
 
 <p align="center">
   <img src="assets/lifecycle_flow.png" alt="Account Switching Lifecycle" width="100%" />
 </p>
 
-1. **Trigger**: An account switch is initiated via the companion GUI, the CLI (`swiss switch`), or an automated threshold.
-2. **Keyring Synchronization**: The daemon acquires a singleton process lock, retrieves the target OAuth2 token from the OS secret store, and refreshes expired tokens.
-3. **Fingerprint Isolation**: Hardware profile identifiers (`machineid`, `.updaterId`, `installation_uuid`) are swapped to match the selected profile.
-4. **Runtime Update**: Local storage configuration (`app_storage.json`) is updated, and the Antigravity React interface is refreshed via Chrome DevTools Protocol (CDP) without requiring a process restart.
-5. **Verification**: A 1-token warmup probe primes the upstream CloudCode quota window, confirming operational readiness.
+The companion daemon acquires a process lock, retrieves the target credentials from the OS keyring, swaps hardware profile fingerprints (`machineid`, `.updaterId`, `installation_uuid`), and hot-reloads the Antigravity interface via Chrome DevTools Protocol (CDP). A 1-token probe verifies upstream quota readiness before returning control to the user.
+
 
 ---
 
