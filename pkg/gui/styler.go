@@ -371,6 +371,31 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
   color: %s !important;
   fill: %s !important;
 }
+
+/* Automate Tasks / Sidecar Workspace Overlay Icon Badge */
+[data-swiss-project="%s"] [data-testid*="sidecar-workspace-overlay"],
+[data-swiss-project="%s"] [data-project-card] [data-testid*="sidecar-workspace-overlay"],
+[data-swiss-project="%s"] .group\/headerbtn [data-testid*="sidecar-workspace-overlay"],
+[data-swiss-project="%s"] [data-project-card] span[class*="rounded-full"][class*="-bottom"],
+[data-project-card][data-swiss-project="%s"] [data-testid*="sidecar-workspace-overlay"],
+[data-project-card][data-swiss-project="%s"] span[class*="rounded-full"][class*="-bottom"] {
+  background-color: %s !important;
+  color: %s !important;
+}
+[data-swiss-project="%s"] [data-testid*="sidecar-workspace-overlay"]:hover,
+[data-swiss-project="%s"] [data-project-card]:hover [data-testid*="sidecar-workspace-overlay"],
+[data-swiss-project="%s"] .group\/headerbtn:hover [data-testid*="sidecar-workspace-overlay"] {
+  background-color: %s !important;
+}
+[data-swiss-project="%s"] [data-testid*="sidecar-workspace-overlay"] svg,
+[data-swiss-project="%s"] [data-project-card] [data-testid*="sidecar-workspace-overlay"] svg,
+[data-swiss-project="%s"] .group\/headerbtn [data-testid*="sidecar-workspace-overlay"] svg,
+[data-swiss-project="%s"] [data-project-card] span[class*="rounded-full"][class*="-bottom"] svg,
+[data-project-card][data-swiss-project="%s"] [data-testid*="sidecar-workspace-overlay"] svg,
+[data-project-card][data-swiss-project="%s"] span[class*="rounded-full"][class*="-bottom"] svg {
+  color: %s !important;
+  fill: %s !important;
+}
 %s
 /* Action Bar & Buttons on Hover: 100%% Seamless, no dark overlapping gradient strip */
 [data-swiss-project="%s"][data-testid="conversation-row-sidebar"] div[style*="linear-gradient"],
@@ -386,7 +411,11 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
   background-color: rgba(255, 255, 255, 0.45) !important;
   border-radius: 6px !important;
 }
-`, safeName, safeName, hex, textColor, safeName, safeName, textColor, safeName, safeName, safeName, safeName, safeName, textColor, textColor, rowCSS, safeName, safeName, safeName, safeName, safeName, safeName))
+`, safeName, safeName, hex, textColor, safeName, safeName, textColor, safeName, safeName, safeName, safeName, safeName, textColor, textColor,
+				safeName, safeName, safeName, safeName, safeName, safeName, hex, textColor,
+				safeName, safeName, safeName, hex,
+				safeName, safeName, safeName, safeName, safeName, safeName, textColor, textColor,
+				rowCSS, safeName, safeName, safeName, safeName, safeName, safeName))
 		}
 	}
 

@@ -1,148 +1,138 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 480" width="1200" height="480" style="background:#090d16; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 480" width="1200" height="480" style="background:#f8fafc; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
   <defs>
-    <linearGradient id="bgGlowFlow" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0f172a"/>
-      <stop offset="50%" stop-color="#090d16"/>
-      <stop offset="100%" stop-color="#06090f"/>
-    </linearGradient>
-    <linearGradient id="cardGradFlow" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#141c2e"/>
-      <stop offset="100%" stop-color="#0d1424"/>
-    </linearGradient>
-    <linearGradient id="flowStepGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#2563eb"/>
-      <stop offset="100%" stop-color="#38bdf8"/>
-    </linearGradient>
-    <marker id="flowArrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M 0 1 L 8 5 L 0 9 z" fill="#38bdf8"/>
-    </marker>
-    <filter id="flowShadow" x="-5%" y="-5%" width="110%" height="115%">
-      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.4"/>
+    <filter id="shadowFlowLight" x="-5%" y="-5%" width="110%" height="115%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.06"/>
     </filter>
+    <marker id="arrowFlow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#0284c7"/>
+    </marker>
   </defs>
 
-  <rect width="1200" height="480" fill="url(#bgGlowFlow)"/>
+  <rect width="1200" height="480" fill="#f8fafc"/>
+
+  <!-- Subtle grid lines -->
+  <g stroke="#e2e8f0" stroke-width="0.8" stroke-dasharray="2 4">
+    <line x1="60" y1="0" x2="60" y2="480"/>
+    <line x1="1140" y1="0" x2="1140" y2="480"/>
+    <line x1="0" y1="80" x2="1200" y2="80"/>
+  </g>
 
   <!-- Header -->
   <g transform="translate(60, 42)">
-    <text x="0" y="0" font-size="20" font-weight="700" fill="#f8fafc" letter-spacing="-0.02em">Antigravity Swiss Knife — Zero-Loss Account Switching Lifecycle</text>
-    <text x="0" y="24" font-size="12" fill="#94a3b8">End-to-end credential rotation, session preservation, and hardware profile virtualization</text>
+    <text x="0" y="0" font-size="20" font-weight="700" fill="#0f172a" letter-spacing="-0.02em">Antigravity Swiss Knife — Credential Rotation Lifecycle</text>
+    <text x="0" y="24" font-size="12" fill="#64748b">Zero-loss atomic account switching flow with Chrome DevTools Protocol state synchronization</text>
   </g>
 
-  <!-- Flowchart Steps: 5 Connected Stages -->
-  <!-- Step 1 (x = 60) -->
-  <g transform="translate(60, 110)" filter="url(#flowShadow)">
-    <rect width="195" height="240" rx="8" fill="url(#cardGradFlow)" stroke="#1e293b" stroke-width="1.2"/>
-    <rect width="195" height="3" rx="1.5" fill="#38bdf8"/>
-    <circle cx="32" cy="32" r="14" fill="#1e293b" stroke="#38bdf8" stroke-width="1.5"/>
-    <text x="32" y="37" font-size="12" font-weight="700" fill="#38bdf8" text-anchor="middle">1</text>
-    <text x="56" y="37" font-size="13" font-weight="700" fill="#f1f5f9">Trigger</text>
+  <!-- Horizontal Flow of 5 Steps -->
+  <!-- Step 1: Trigger -->
+  <g transform="translate(60, 110)" filter="url(#shadowFlowLight)">
+    <rect width="200" height="280" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+    <rect width="200" height="4" rx="2" fill="#0284c7"/>
+    <circle cx="36" cy="38" r="16" fill="#e0f2fe"/>
+    <text x="36" y="43" font-size="13" font-weight="800" fill="#0284c7" text-anchor="middle">1</text>
+    <text x="64" y="42" font-size="14" font-weight="700" fill="#0f172a">Trigger</text>
     
-    <text x="18" y="74" font-size="11" font-weight="600" fill="#cbd5e1">Activation Sources</text>
-    <text x="18" y="96" font-size="10" fill="#94a3b8">• User 1-click UI selection</text>
-    <text x="18" y="116" font-size="10" fill="#94a3b8">• CLI: swiss switch &lt;email&gt;</text>
-    <text x="18" y="136" font-size="10" fill="#94a3b8">• Quota exhaustion auto-shift</text>
-    <text x="18" y="156" font-size="10" fill="#94a3b8">• Horizon rollover timer</text>
-
-    <rect x="14" y="180" width="167" height="44" rx="4" fill="#0f172a" stroke="#1e293b"/>
-    <text x="22" y="198" font-size="9" font-weight="600" fill="#38bdf8">State Check</text>
-    <text x="22" y="212" font-size="9" fill="#64748b">Acquires Singleton Lock</text>
+    <text x="18" y="80" font-size="11" font-weight="600" fill="#0369a1">Invocation Source:</text>
+    <text x="18" y="100" font-size="11" fill="#334155">• Companion GUI modal</text>
+    <text x="18" y="120" font-size="11" fill="#334155">• CLI: swiss switch</text>
+    <text x="18" y="140" font-size="11" fill="#334155">• Exhaustion threshold</text>
+    
+    <rect x="18" y="170" width="164" height="88" rx="6" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
+    <text x="26" y="190" font-size="10" font-weight="600" fill="#64748b">Event Dispatch:</text>
+    <text x="26" y="208" font-size="10" fill="#475569">Daemon intercepts</text>
+    <text x="26" y="224" font-size="10" fill="#475569">switch event via IPC</text>
+    <text x="26" y="240" font-size="10" fill="#475569">socket or HTTP call</text>
   </g>
 
   <!-- Arrow 1 -> 2 -->
-  <line x1="255" y1="230" x2="280" y2="230" stroke="#38bdf8" stroke-width="2" marker-end="url(#flowArrow)"/>
+  <line x1="262" y1="240" x2="280" y2="240" stroke="#0284c7" stroke-width="2" marker-end="url(#arrowFlow)"/>
 
-  <!-- Step 2 (x = 285) -->
-  <g transform="translate(285, 110)" filter="url(#flowShadow)">
-    <rect width="195" height="240" rx="8" fill="url(#cardGradFlow)" stroke="#1e293b" stroke-width="1.2"/>
-    <rect width="195" height="3" rx="1.5" fill="#38bdf8"/>
-    <circle cx="32" cy="32" r="14" fill="#1e293b" stroke="#38bdf8" stroke-width="1.5"/>
-    <text x="32" y="37" font-size="12" font-weight="700" fill="#38bdf8" text-anchor="middle">2</text>
-    <text x="56" y="37" font-size="13" font-weight="700" fill="#f1f5f9">Keyring Sync</text>
+  <!-- Step 2: Keyring Synchronization -->
+  <g transform="translate(282, 110)" filter="url(#shadowFlowLight)">
+    <rect width="200" height="280" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+    <rect width="200" height="4" rx="2" fill="#7c3aed"/>
+    <circle cx="36" cy="38" r="16" fill="#f3e8ff"/>
+    <text x="36" y="43" font-size="13" font-weight="800" fill="#7c3aed" text-anchor="middle">2</text>
+    <text x="64" y="42" font-size="14" font-weight="700" fill="#0f172a">Keyring Sync</text>
     
-    <text x="18" y="74" font-size="11" font-weight="600" fill="#cbd5e1">OS Vault Access</text>
-    <text x="18" y="96" font-size="10" fill="#94a3b8">• Queries Linux Secret Service</text>
-    <text x="18" y="116" font-size="10" fill="#94a3b8">• macOS Keychain / WinVault</text>
-    <text x="18" y="136" font-size="10" fill="#94a3b8">• Validates OAuth2 token TTL</text>
-    <text x="18" y="156" font-size="10" fill="#94a3b8">• Auto-refreshes if expired</text>
-
-    <rect x="14" y="180" width="167" height="44" rx="4" fill="#0f172a" stroke="#1e293b"/>
-    <text x="22" y="198" font-size="9" font-weight="600" fill="#38bdf8">Security Standard</text>
-    <text x="22" y="212" font-size="9" fill="#64748b">Zero plaintext tokens</text>
+    <text x="18" y="80" font-size="11" font-weight="600" fill="#6b21a8">Credential Extraction:</text>
+    <text x="18" y="100" font-size="11" fill="#334155">• Acquire singleton lock</text>
+    <text x="18" y="120" font-size="11" fill="#334155">• Query OS secret store</text>
+    <text x="18" y="140" font-size="11" fill="#334155">• Refresh OAuth2 token</text>
+    
+    <rect x="18" y="170" width="164" height="88" rx="6" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
+    <text x="26" y="190" font-size="10" font-weight="600" fill="#64748b">Security Boundary:</text>
+    <text x="26" y="208" font-size="10" fill="#475569">Credentials stay in</text>
+    <text x="26" y="224" font-size="10" fill="#475569">system vault; zero</text>
+    <text x="26" y="240" font-size="10" fill="#475569">plaintext on disk</text>
   </g>
 
   <!-- Arrow 2 -> 3 -->
-  <line x1="480" y1="230" x2="505" y2="230" stroke="#38bdf8" stroke-width="2" marker-end="url(#flowArrow)"/>
+  <line x1="484" y1="240" x2="502" y2="240" stroke="#0284c7" stroke-width="2" marker-end="url(#arrowFlow)"/>
 
-  <!-- Step 3 (x = 510) -->
-  <g transform="translate(510, 110)" filter="url(#flowShadow)">
-    <rect width="195" height="240" rx="8" fill="url(#cardGradFlow)" stroke="#1e293b" stroke-width="1.2"/>
-    <rect width="195" height="3" rx="1.5" fill="#38bdf8"/>
-    <circle cx="32" cy="32" r="14" fill="#1e293b" stroke="#38bdf8" stroke-width="1.5"/>
-    <text x="32" y="37" font-size="12" font-weight="700" fill="#38bdf8" text-anchor="middle">3</text>
-    <text x="56" y="37" font-size="13" font-weight="700" fill="#f1f5f9">Fingerprint</text>
+  <!-- Step 3: Fingerprint Isolation -->
+  <g transform="translate(504, 110)" filter="url(#shadowFlowLight)">
+    <rect width="200" height="280" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+    <rect width="200" height="4" rx="2" fill="#d97706"/>
+    <circle cx="36" cy="38" r="16" fill="#fef3c7"/>
+    <text x="36" y="43" font-size="13" font-weight="800" fill="#d97706" text-anchor="middle">3</text>
+    <text x="64" y="42" font-size="14" font-weight="700" fill="#0f172a">Profile Swap</text>
     
-    <text x="18" y="74" font-size="11" font-weight="600" fill="#cbd5e1">Hardware Isolation</text>
-    <text x="18" y="96" font-size="10" fill="#94a3b8">• Isolates machineid</text>
-    <text x="18" y="116" font-size="10" fill="#94a3b8">• Isolates .updaterId</text>
-    <text x="18" y="136" font-size="10" fill="#94a3b8">• Isolates installation_uuid</text>
-    <text x="18" y="156" font-size="10" fill="#94a3b8">• Mitigates account correlation</text>
-
-    <rect x="14" y="180" width="167" height="44" rx="4" fill="#0f172a" stroke="#1e293b"/>
-    <text x="22" y="198" font-size="9" font-weight="600" fill="#38bdf8">Identity Profile</text>
-    <text x="22" y="212" font-size="9" fill="#64748b">Persistent account map</text>
+    <text x="18" y="80" font-size="11" font-weight="600" fill="#b45309">Hardware Identity:</text>
+    <text x="18" y="100" font-size="11" fill="#334155">• machineid spoofing</text>
+    <text x="18" y="120" font-size="11" fill="#334155">• .updaterId swap</text>
+    <text x="18" y="140" font-size="11" fill="#334155">• installation_uuid</text>
+    
+    <rect x="18" y="170" width="164" height="88" rx="6" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
+    <text x="26" y="190" font-size="10" font-weight="600" fill="#64748b">Fingerprint Isolation:</text>
+    <text x="26" y="208" font-size="10" fill="#475569">Each account retains</text>
+    <text x="26" y="224" font-size="10" fill="#475569">an independent,</text>
+    <text x="26" y="240" font-size="10" fill="#475569">stable hardware ID</text>
   </g>
 
   <!-- Arrow 3 -> 4 -->
-  <line x1="705" y1="230" x2="730" y2="230" stroke="#38bdf8" stroke-width="2" marker-end="url(#flowArrow)"/>
+  <line x1="706" y1="240" x2="724" y2="240" stroke="#0284c7" stroke-width="2" marker-end="url(#arrowFlow)"/>
 
-  <!-- Step 4 (x = 735) -->
-  <g transform="translate(735, 110)" filter="url(#flowShadow)">
-    <rect width="195" height="240" rx="8" fill="url(#cardGradFlow)" stroke="#1e293b" stroke-width="1.2"/>
-    <rect width="195" height="3" rx="1.5" fill="#38bdf8"/>
-    <circle cx="32" cy="32" r="14" fill="#1e293b" stroke="#38bdf8" stroke-width="1.5"/>
-    <text x="32" y="37" font-size="12" font-weight="700" fill="#38bdf8" text-anchor="middle">4</text>
-    <text x="56" y="37" font-size="13" font-weight="700" fill="#f1f5f9">Runtime Update</text>
+  <!-- Step 4: Runtime Update -->
+  <g transform="translate(726, 110)" filter="url(#shadowFlowLight)">
+    <rect width="200" height="280" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+    <rect width="200" height="4" rx="2" fill="#059669"/>
+    <circle cx="36" cy="38" r="16" fill="#d1fae5"/>
+    <text x="36" y="43" font-size="13" font-weight="800" fill="#059669" text-anchor="middle">4</text>
+    <text x="64" y="42" font-size="14" font-weight="700" fill="#0f172a">CDP Live Sync</text>
     
-    <text x="18" y="74" font-size="11" font-weight="600" fill="#cbd5e1">State Synchronization</text>
-    <text x="18" y="96" font-size="10" fill="#94a3b8">• Syncs app_storage.json</text>
-    <text x="18" y="116" font-size="10" fill="#94a3b8">• Injects updated credentials</text>
-    <text x="18" y="136" font-size="10" fill="#94a3b8">• Preserves active chat IDs</text>
-    <text x="18" y="156" font-size="10" fill="#94a3b8">• CDP React Fiber soft refresh</text>
-
-    <rect x="14" y="180" width="167" height="44" rx="4" fill="#0f172a" stroke="#1e293b"/>
-    <text x="22" y="198" font-size="9" font-weight="600" fill="#38bdf8">Zero Restart</text>
-    <text x="22" y="212" font-size="9" fill="#64748b">Seamless in-place switch</text>
+    <text x="18" y="80" font-size="11" font-weight="600" fill="#047857">In-Memory Patching:</text>
+    <text x="18" y="100" font-size="11" fill="#334155">• app_storage.json write</text>
+    <text x="18" y="120" font-size="11" fill="#334155">• CDP React Fiber pulse</text>
+    <text x="18" y="140" font-size="11" fill="#334155">• State tree re-render</text>
+    
+    <rect x="18" y="170" width="164" height="88" rx="6" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
+    <text x="26" y="190" font-size="10" font-weight="600" fill="#64748b">Zero-Restart UI:</text>
+    <text x="26" y="208" font-size="10" fill="#475569">Refreshes state in</text>
+    <text x="26" y="224" font-size="10" fill="#475569">real time without</text>
+    <text x="26" y="240" font-size="10" fill="#475569">closing active chats</text>
   </g>
 
   <!-- Arrow 4 -> 5 -->
-  <line x1="930" y1="230" x2="955" y2="230" stroke="#38bdf8" stroke-width="2" marker-end="url(#flowArrow)"/>
+  <line x1="928" y1="240" x2="946" y2="240" stroke="#0284c7" stroke-width="2" marker-end="url(#arrowFlow)"/>
 
-  <!-- Step 5 (x = 960) -->
-  <g transform="translate(960, 110)" filter="url(#flowShadow)">
-    <rect width="180" height="240" rx="8" fill="url(#cardGradFlow)" stroke="#1e293b" stroke-width="1.2"/>
-    <rect width="180" height="3" rx="1.5" fill="#10b981"/>
-    <circle cx="32" cy="32" r="14" fill="#1e293b" stroke="#10b981" stroke-width="1.5"/>
-    <text x="32" y="37" font-size="12" font-weight="700" fill="#10b981" text-anchor="middle">5</text>
-    <text x="56" y="37" font-size="13" font-weight="700" fill="#f1f5f9">Verification</text>
+  <!-- Step 5: Verification -->
+  <g transform="translate(948, 110)" filter="url(#shadowFlowLight)">
+    <rect width="192" height="280" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+    <rect width="192" height="4" rx="2" fill="#0284c7"/>
+    <circle cx="36" cy="38" r="16" fill="#e0f2fe"/>
+    <text x="36" y="43" font-size="13" font-weight="800" fill="#0284c7" text-anchor="middle">5</text>
+    <text x="64" y="42" font-size="14" font-weight="700" fill="#0f172a">Verification</text>
     
-    <text x="18" y="74" font-size="11" font-weight="600" fill="#cbd5e1">Upstream Readiness</text>
-    <text x="18" y="96" font-size="10" fill="#94a3b8">• Dispatches warmup ping</text>
-    <text x="18" y="116" font-size="10" fill="#94a3b8">• Verifies CloudCode quota</text>
-    <text x="18" y="136" font-size="10" fill="#94a3b8">• Emits status telemetry</text>
-    <text x="18" y="156" font-size="10" fill="#94a3b8">• Signals companion UI</text>
-
-    <rect x="14" y="180" width="152" height="44" rx="4" fill="#0f172a" stroke="#10b981" stroke-opacity="0.4"/>
-    <text x="22" y="198" font-size="9" font-weight="600" fill="#10b981">Operational</text>
-    <text x="22" y="212" font-size="9" fill="#94a3b8">Active on Antigravity</text>
-  </g>
-
-  <!-- Bottom Summary Bar -->
-  <g transform="translate(60, 390)">
-    <rect width="1080" height="42" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
-    <text x="24" y="26" font-size="11" font-weight="600" fill="#94a3b8">
-      Key Guarantee: <tspan fill="#f1f5f9">Zero session interruption</tspan> — conversation history and state remain completely intact during account transitions.
-    </text>
-    <text x="1056" y="26" font-size="11" font-weight="600" fill="#34d399" text-anchor="end">Sub-second execution</text>
+    <text x="18" y="80" font-size="11" font-weight="600" fill="#0369a1">Warmup Probe:</text>
+    <text x="18" y="100" font-size="11" fill="#334155">• 1-token health ping</text>
+    <text x="18" y="120" font-size="11" fill="#334155">• Prime quota window</text>
+    <text x="18" y="140" font-size="11" fill="#334155">• Confirm 200 OK</text>
+    
+    <rect x="18" y="170" width="156" height="88" rx="6" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
+    <text x="26" y="190" font-size="10" font-weight="600" fill="#64748b">Ready State:</text>
+    <text x="26" y="208" font-size="10" fill="#475569">New quota window is</text>
+    <text x="26" y="224" font-size="10" fill="#475569">immediately ready</text>
+    <text x="26" y="240" font-size="10" fill="#475569">for user prompts</text>
   </g>
 </svg>

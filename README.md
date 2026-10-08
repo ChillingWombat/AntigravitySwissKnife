@@ -10,12 +10,14 @@
 
 <p align="center">
   <a href="#overview">Overview</a> •
+  <a href="#key-features">Key Features</a> •
   <a href="#architecture">Architecture</a> •
   <a href="#modules">Modules</a> •
   <a href="#lifecycle">Lifecycle</a> •
   <a href="#platform-support">Platform Support</a> •
   <a href="#installation">Installation</a> •
   <a href="#terms-of-service-alignment--safety-notice">ToS &amp; Safety</a> •
+  <a href="#feedback--community">Feedback</a> •
   <a href="#thanks">Thanks</a> •
   <a href="#license">License</a>
 </p>
@@ -26,11 +28,45 @@
 
 Antigravity Swiss Knife is a local engineering tool designed to enhance workflows in Google Antigravity 2.0. It provides multi-account quota monitoring, zero-loss credential rotation, custom model security auditing, in-chat token telemetry, and auxiliary development extensions.
 
+> [!NOTE]
+> **Active Development & Rapid Iteration**: Antigravity Swiss Knife is actively expanding with frequent releases. We iterate rapidly based on developer workflows—please feel free to report bugs, suggest new capabilities, or share feedback on [GitHub Issues](https://github.com/ChillingWombat/AntigravitySwissKnife/issues).
+
 The project is built on three core technical principles:
 
 - **Local-First Execution**: The daemon and supervisory GUI run entirely on the host system. No network proxies or intermediary servers are inserted between Antigravity and upstream endpoints.
 - **Native Keyring Security**: Credentials remain managed inside the operating system's native secret storage (Linux Secret Service API via `libsecret`, macOS Keychain, and Windows Credential Manager).
 - **Atomic Reversibility**: Runtime modifications generate pristine `.swiss.bak` snapshots, enabling clean one-click restoration to default system states.
+
+---
+
+## Key Features
+
+<p align="center">
+  <img src="assets/key_features.png" alt="Antigravity Swiss Knife Key Features" width="100%" />
+</p>
+
+Antigravity Swiss Knife consolidates seven core engineering capabilities into a unified desktop and daemon companion:
+
+1. **Account Switcher**  
+   Track quotas across multiple Google CloudCode accounts in real time. Automatically rotate credentials with zero session loss, hardware profile virtualization (`machineid`, `.updaterId`, `installation_uuid`), and an RFC 6238 TOTP 2FA vault.
+
+2. **Custom Model**  
+   Bridge custom model endpoints (OpenAI, Anthropic Claude, DeepSeek) into your workflow. Features an automated 6-probe security auditor that validates TLS transport, guards against prompt injection/tampering, and prevents covert model downgrade substitutions.
+
+3. **UI Enhancement**  
+   Enhance Antigravity 2.0 chat productivity through lightweight injected runtime scripts: rapid conversation turn jump navigation, collapsible tool execution output cards, real-time TPS counters, and per-turn token accounting.
+
+4. **Preview Browser**  
+   An embedded multi-port web previewer docked directly alongside your chat workspace. Quickly inspect local dev servers across active development ports with hot-reload docks and integrated Chrome DevTools.
+
+5. **File Explorer**  
+   Navigate project directories from the companion desktop interface. Includes fast recursive file filtering, fuzzy path search, code syntax previews with monospaced line viewing, and quick scratchpad editing.
+
+6. **GitHub Workspace**  
+   Track engineering tasks via an interactive Kanban board (Backlog, In Progress, In Review, Done). Jump directly from tracked issues into active subagent conversation threads, manage issue stages, and synchronize local project states with GitHub.
+
+7. **Quick Memo**  
+   Capture developer thoughts and meeting notes instantly with Markdown formatting and built-in audio voice memo recording. Automatically transcribe voice recordings, organize by color and tags, and search notes with instant full-text filtering.
 
 ---
 
@@ -206,6 +242,17 @@ However, users must be fully aware of the serious account risks involved with pr
 > Google accounts flagged for subscription abuse or automated proxy tunneling typically have **only one single appeal opportunity**. If the appeal is rejected, the associated Google account and Cloud workspaces will be **permanently and irreversibly banned**.
 > 
 > We strongly advise users to keep all Antigravity Swiss Knife operations strictly local, interactive, and personal.
+
+---
+
+## Feedback & Community
+
+Antigravity Swiss Knife is under rapid, continuous development. We frequently release updates, improve reliability, and add new capabilities to support evolving developer workflows.
+
+We welcome all community feedback:
+- **Bug Reports**: If you experience an unexpected behavior, keyring issue, or platform regression, please open an issue on [GitHub Issues](https://github.com/ChillingWombat/AntigravitySwissKnife/issues).
+- **Feature Suggestions**: Have ideas for new workspace modules, integrations, or usability refinements? We actively prioritize community requests.
+- **Workflow Discussions**: Join the conversation to share how you use Antigravity Swiss Knife and suggest where friction can be eliminated.
 
 ---
 
