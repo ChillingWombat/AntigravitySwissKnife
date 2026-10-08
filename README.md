@@ -5,7 +5,7 @@
 <h1 align="center">Antigravity Swiss Knife</h1>
 
 <p align="center">
-  An open-source desktop companion and local companion daemon for Google Antigravity 2.0.
+  Open-source companion for Google Antigravity
 </p>
 
 <p align="center">
@@ -14,7 +14,8 @@
   <a href="#architecture">Architecture</a> •
   <a href="#modules">Modules</a> •
   <a href="#lifecycle">Lifecycle</a> •
-  <a href="#platform-support">Platform Support</a> •
+  <a href="#platform-support">Platform Support</a>
+  <br />
   <a href="#installation">Installation</a> •
   <a href="#terms-of-service-alignment--safety-notice">ToS &amp; Safety</a> •
   <a href="#feedback--community">Feedback</a> •
@@ -26,7 +27,7 @@
 
 ## Overview
 
-Antigravity Swiss Knife is a local engineering tool designed to enhance workflows in Google Antigravity 2.0. It provides multi-account quota monitoring, zero-loss credential rotation, custom model security auditing, in-chat token telemetry, and auxiliary development extensions.
+Antigravity Swiss Knife is a local engineering tool designed to enhance workflows in Google Antigravity 2.0. It provides multi-account quota monitoring, zero-loss credential rotation, custom model security auditing, in-chat token telemetry, and auxiliary development extensions. Pre-built standalone binaries are ready to download and run directly from [Releases](https://github.com/ChillingWombat/AntigravitySwissKnife/releases) with zero installation required, while building from source is fully supported for developers building locally.
 
 > [!NOTE]
 > **Active Development & Rapid Iteration**: Antigravity Swiss Knife is actively expanding with frequent releases. We iterate rapidly based on developer workflows—please feel free to report bugs, suggest new capabilities, or share feedback on [GitHub Issues](https://github.com/ChillingWombat/AntigravitySwissKnife/issues).
@@ -44,16 +45,6 @@ The project is built on three core technical principles:
 <p align="center">
   <img src="assets/key_features.png" alt="Antigravity Swiss Knife Key Features" width="100%" />
 </p>
-
-Antigravity Swiss Knife unifies seven developer workflows into a single host companion:
-
-- **Account Switcher**: Real-time CloudCode quota tracking, zero-loss credential rotation, hardware profile isolation (`machineid`, `.updaterId`, `installation_uuid`), and RFC 6238 TOTP vault.
-- **Custom Model**: Direct routing for OpenAI, Claude, and DeepSeek with a 6-probe security auditor covering TLS ciphers, canary downgrade detection, and prompt defense.
-- **UI Enhancement**: Injected chat controls for prompt turn jumping, collapsible tool cards, live tokens-per-second calculation, and per-turn accounting.
-- **Preview Browser**: Docked multi-port web previewer with responsive viewport presets and Chrome DevTools integration for local dev servers.
-- **File Explorer**: Integrated filesystem browser with recursive path search, syntax-highlighted previews, and quick scratchpad editing.
-- **GitHub Workspace**: Kanban issue tracking (Backlog, In Progress, In Review, Done) linked directly to subagent conversation threads.
-- **Quick Memo**: Instant Markdown scratchpad with built-in audio recording, speech-to-text transcription, and tag-based search.
 
 ---
 
@@ -111,13 +102,27 @@ Antigravity Swiss Knife is engineered for cross-platform operation across Linux,
 
 ## Installation
 
-### Prerequisites
+### Pre-built Releases (Ready to Run)
+
+Antigravity Swiss Knife does not require manual compilation or installation. Standalone, ready-to-use binaries are published directly under [Releases](https://github.com/ChillingWombat/AntigravitySwissKnife/releases):
+
+- **Linux**: Standalone AppImage (`.AppImage`) and Debian package (`.deb`)
+- **Windows**: Portable executable (`.exe`) and NSIS installer
+- **macOS**: Standalone disk image (`.dmg`) and zip archive
+
+Download the asset for your operating system and launch it immediately out of the box.
+
+### Building from Source (Optional)
+
+Developers who prefer to audit, modify, or compile the source code locally can build directly from this repository:
+
+#### Prerequisites
 
 - Go 1.22 or newer
 - Node.js 20 or newer with npm
 - Native OS secret store (`libsecret` on Linux, Keychain on macOS, Credential Manager on Windows)
 
-### Building from Source
+#### Build Commands
 
 ```bash
 # 1. Clone the repository
