@@ -234,8 +234,8 @@ func (s *Shield) RelaunchHostIDE() error {
 					_ = proc.Signal(syscall.SIGTERM)
 				}
 			}
-			// Poll for graceful exit up to 4 seconds
-			for i := 0; i < 40; i++ {
+			// Poll for graceful exit up to 6.5 seconds (Electron before-quit waits up to 5s for language_server)
+			for i := 0; i < 65; i++ {
 				time.Sleep(100 * time.Millisecond)
 				anyAlive := false
 				for _, pid := range mainPIDs {
@@ -257,6 +257,35 @@ func (s *Shield) RelaunchHostIDE() error {
 				}
 			}
 			time.Sleep(300 * time.Millisecond)
+		}
+	}
+
+	// Ensure no orphaned language_server processes remain holding SQLite locks
+	if lsProcs, lsErr := s.FindLanguageServerProcesses(); lsErr == nil && len(lsProcs) > 0 {
+		for _, lp := range lsProcs {
+			if proc, findErr := os.FindProcess(lp.PID); findErr == nil {
+				_ = proc.Signal(syscall.SIGTERM)
+			}
+		}
+		for i := 0; i < 5; i++ {
+			time.Sleep(100 * time.Millisecond)
+			anyLS := false
+			for _, lp := range lsProcs {
+				if isProcessAlive(lp.PID) {
+					anyLS = true
+					break
+				}
+			}
+			if !anyLS {
+				break
+			}
+		}
+		for _, lp := range lsProcs {
+			if isProcessAlive(lp.PID) {
+				if proc, findErr := os.FindProcess(lp.PID); findErr == nil {
+					_ = proc.Kill()
+				}
+			}
 		}
 	}
 
@@ -295,7 +324,7 @@ func (s *Shield) RelaunchHostIDE() error {
 
 	if resumePath != "" {
 		go func(target string) {
-			_ = gui.NewInjector(0).RestoreConversationPath(target, 25*time.Second)
+			_ = gui.NewInjector(0).RestoreConversationPath(target, 30*time.Second)
 		}(resumePath)
 	}
 	return nil

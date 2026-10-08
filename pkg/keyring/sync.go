@@ -53,6 +53,7 @@ func EnsureFreshAccessToken(acc *Account) bool {
 	client := &http.Client{Timeout: 8 * time.Second}
 	resp, err := client.PostForm(tokenRefreshEndpoint, form)
 	if err != nil {
+		acc.TokenExpiry = time.Time{}
 		return false
 	}
 	defer resp.Body.Close()
@@ -64,6 +65,7 @@ func EnsureFreshAccessToken(acc *Account) bool {
 		ExpiresIn    int    `json:"expires_in"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil || strings.TrimSpace(data.AccessToken) == "" {
+		acc.TokenExpiry = time.Time{}
 		return false
 	}
 
@@ -130,9 +132,10 @@ func buildSecretPayload(acc *Account) ([]byte, error) {
 		idToken = mintMinimalIDToken(acc.Email)
 	}
 	payload.Token.IDToken = idToken
-	if !acc.TokenExpiry.IsZero() {
+	hasRefresh := strings.TrimSpace(acc.RefreshToken) != ""
+	if !acc.TokenExpiry.IsZero() && (!hasRefresh || time.Until(acc.TokenExpiry) > 5*time.Minute) {
 		payload.Token.Expiry = acc.TokenExpiry.UTC().Format("2006-01-02T15:04:05.000000Z")
-	} else if strings.TrimSpace(acc.RefreshToken) != "" {
+	} else if hasRefresh {
 		payload.Token.Expiry = time.Now().Add(-1 * time.Minute).UTC().Format("2006-01-02T15:04:05.000000Z")
 	} else {
 		payload.Token.Expiry = time.Now().Add(1 * time.Hour).UTC().Format("2006-01-02T15:04:05.000000Z")
@@ -189,6 +192,9 @@ func SyncAppStorageLoginUser(email string) error {
 	}
 
 	rawMap["jetski.onboarding.lastLoginUsername"] = email
+	if _, exists := rawMap["jetski.onboarding.lastLoginIsGcpTos"]; !exists {
+		rawMap["jetski.onboarding.lastLoginIsGcpTos"] = "false"
+	}
 
 	updated, err := json.MarshalIndent(rawMap, "", "  ")
 	if err != nil {
@@ -376,10 +382,11 @@ func SyncOAuthCredsJSON(acc *Account) error {
 	_ = os.MkdirAll(geminiDir, 0755)
 	targetPath := filepath.Join(geminiDir, "oauth_creds.json")
 
+	hasRefresh := strings.TrimSpace(acc.RefreshToken) != ""
 	expiryMs := time.Now().Add(1 * time.Hour).UnixMilli()
-	if !acc.TokenExpiry.IsZero() {
+	if !acc.TokenExpiry.IsZero() && (!hasRefresh || time.Until(acc.TokenExpiry) > 5*time.Minute) {
 		expiryMs = acc.TokenExpiry.UnixMilli()
-	} else if strings.TrimSpace(acc.RefreshToken) != "" {
+	} else if hasRefresh {
 		expiryMs = time.Now().Add(-1 * time.Minute).UnixMilli()
 	}
 

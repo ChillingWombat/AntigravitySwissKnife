@@ -927,6 +927,91 @@ func TestTokenExpiryPersistence(t *testing.T) {
 	if !acc.TokenExpiry.UTC().Truncate(time.Second).Equal(expectedExp) {
 		t.Errorf("expected TokenExpiry=%v, got %v", expectedExp, acc.TokenExpiry)
 	}
+
+	// Updating with zero expiry must NOT fabricate a 55-minute future expiry
+	if err := reloaded.UpdateAccountTokensWithExpiry("expiry_test@google.com", "ya29.stale", "1//rt_persist", time.Time{}); err != nil {
+		t.Fatalf("UpdateAccountTokensWithExpiry zero error: %v", err)
+	}
+	accZero, err := reloaded.GetAccount("expiry_test@google.com")
+	if err != nil {
+		t.Fatalf("GetAccount error: %v", err)
+	}
+	if !accZero.TokenExpiry.IsZero() {
+		t.Errorf("expected zero TokenExpiry to be preserved, got %v", accZero.TokenExpiry)
+	}
+}
+
+func TestEnsureFreshAccessToken_FailedRefreshClearsStaleExpiryAndAppStorageTos(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"error":"temporarily_unavailable"}`))
+	}))
+	defer srv.Close()
+
+	origEndpoint := tokenRefreshEndpoint
+	tokenRefreshEndpoint = srv.URL
+	defer func() { tokenRefreshEndpoint = origEndpoint }()
+
+	// Account whose token expires in 2 minutes (<5m threshold) when refresh fails
+	acc := &Account{
+		Email:        "near_expiry@google.com",
+		AccessToken:  "ya29.near_expiry_token",
+		RefreshToken: "1//valid_refresh_token",
+		TokenExpiry:  time.Now().Add(2 * time.Minute),
+	}
+	if EnsureFreshAccessToken(acc) {
+		t.Fatalf("expected EnsureFreshAccessToken to return false on HTTP 502")
+	}
+	if !acc.TokenExpiry.IsZero() {
+		t.Fatalf("expected failed refresh to clear TokenExpiry so downstream surfaces mark token expired, got %v", acc.TokenExpiry)
+	}
+
+	payload, err := buildSecretPayload(acc)
+	if err != nil {
+		t.Fatalf("buildSecretPayload error: %v", err)
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(payload), &parsed); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	tokObj, _ := parsed["token"].(map[string]interface{})
+	expStr, _ := tokObj["expiry"].(string)
+	expTime, err := time.Parse(time.RFC3339, expStr)
+	if err != nil {
+		t.Fatalf("parse expiry error: %v", err)
+	}
+	if !expTime.Before(time.Now()) {
+		t.Errorf("expected past expiry in secret payload after failed refresh, got %v", expTime)
+	}
+
+	// Verify SyncAppStorageLoginUser sets jetski.onboarding.lastLoginIsGcpTos
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	cfgDir := filepath.Join(tmpHome, ".config", "Antigravity")
+	if err := os.MkdirAll(cfgDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "app_storage.json"), []byte(`{}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ANTIGRAVITY_CONFIG_DIR", cfgDir)
+	if err := SyncAppStorageLoginUser(acc.Email); err != nil {
+		t.Fatalf("SyncAppStorageLoginUser error: %v", err)
+	}
+	rawStorage, err := os.ReadFile(filepath.Join(cfgDir, "app_storage.json"))
+	if err != nil {
+		t.Fatalf("read app_storage.json error: %v", err)
+	}
+	var storageMap map[string]interface{}
+	if err := json.Unmarshal(rawStorage, &storageMap); err != nil {
+		t.Fatalf("unmarshal app_storage.json error: %v", err)
+	}
+	if storageMap["jetski.onboarding.lastLoginUsername"] != acc.Email {
+		t.Errorf("expected lastLoginUsername=%q, got %v", acc.Email, storageMap["jetski.onboarding.lastLoginUsername"])
+	}
+	if storageMap["jetski.onboarding.lastLoginIsGcpTos"] != "false" {
+		t.Errorf("expected lastLoginIsGcpTos=\"false\", got %v", storageMap["jetski.onboarding.lastLoginIsGcpTos"])
+	}
 }
 
 

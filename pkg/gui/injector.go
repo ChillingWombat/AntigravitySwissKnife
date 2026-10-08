@@ -604,15 +604,28 @@ func (inj *Injector) RestoreConversationPath(targetPath string, maxWait time.Dur
 	script := fmt.Sprintf(`(() => {
 		try {
 			const targetPath = %q;
+			const targetPathOnly = targetPath.split("?")[0];
 			const root = document.getElementById("root");
-			const ready = Boolean(root && root.childElementCount > 0);
+			const rootReady = Boolean(root && root.childElementCount > 0);
 			const curPath = window.location.pathname || "/";
-			if ((!curPath.startsWith("/c/") && !curPath.startsWith("/battle/")) || curPath === "/c/_new") {
-				window.history.replaceState(null, "", targetPath);
-				window.dispatchEvent(new PopStateEvent("popstate"));
+			const hasConvoView = Boolean(document.querySelector('[data-testid="conversation-view"]'));
+			const hasShell = Boolean(document.querySelector('[data-testid="new-conversation-button"], [data-testid="conversation-list-sidebar"]'));
+			const isConvoTarget = targetPathOnly.startsWith("/c/");
+			const viewReady = rootReady && curPath === targetPathOnly && (!isConvoTarget || hasConvoView);
+
+			if (!viewReady) {
+				const now = Date.now();
+				if (curPath !== targetPathOnly) {
+					window.__swissLastRestoreNudge = now;
+					window.history.replaceState(window.history.state, "", targetPath);
+				} else if (hasShell && (!window.__swissLastRestoreNudge || (now - window.__swissLastRestoreNudge) > 1200)) {
+					window.__swissLastRestoreNudge = now;
+					window.history.replaceState(window.history.state, "", "/");
+					window.history.replaceState(window.history.state, "", targetPath);
+				}
 			}
 			return {
-				ready: ready,
+				ready: viewReady,
 				path: (window.location.pathname || "/") + (window.location.search || "")
 			};
 		} catch (e) {

@@ -338,12 +338,29 @@ func (d *Daemon) registerRPCHandlers() {
 		if p.AccessToken != "" {
 			_ = d.Keyring.SetAccessToken(p.Email, p.AccessToken)
 		}
+		acc, _ := d.Keyring.GetAccount(p.Email)
+		var summary *quota.QuotaSummary
+		if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
+			oldTok := acc.AccessToken
+			var pollErr error
+			summary, pollErr = quota.PollAndCacheAccount(acc, d.Keyring)
+			if pollErr == nil && summary != nil {
+				d.setQuotaSummary(p.Email, summary)
+				if !p.SetActive && strings.EqualFold(p.Email, d.Keyring.ActiveAccount()) && acc.AccessToken != "" && acc.AccessToken != oldTok {
+					d.syncActiveAccountSurfaces(acc)
+				}
+			} else {
+				d.removeQuotaSummary(p.Email)
+				d.triggerQuotaRefreshAsync()
+			}
+		}
+
 		if p.SetActive {
 			var allEmails []string
 			for _, a := range d.Keyring.ListAccounts() {
 				allEmails = append(allEmails, a.Email)
 			}
-			if acc, _ := d.Keyring.GetAccount(p.Email); acc != nil {
+			if acc, _ = d.Keyring.GetAccount(p.Email); acc != nil {
 				_ = keyring.SyncAllSurfaces(acc, allEmails, d.Profiles)
 				_ = d.Keyring.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
 				if !strings.EqualFold(prevActive, p.Email) && d.Shield != nil && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
@@ -355,23 +372,6 @@ func (d *Daemon) registerRPCHandlers() {
 				} else {
 					_, _ = gui.NewInjector(0).RefreshUserStatus()
 				}
-			}
-		}
-
-		acc, _ := d.Keyring.GetAccount(p.Email)
-		var summary *quota.QuotaSummary
-		if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
-			oldTok := acc.AccessToken
-			var pollErr error
-			summary, pollErr = quota.PollAndCacheAccount(acc, d.Keyring)
-			if pollErr == nil && summary != nil {
-				d.setQuotaSummary(p.Email, summary)
-				if strings.EqualFold(p.Email, d.Keyring.ActiveAccount()) && acc.AccessToken != "" && acc.AccessToken != oldTok {
-					d.syncActiveAccountSurfaces(acc)
-				}
-			} else {
-				d.removeQuotaSummary(p.Email)
-				d.triggerQuotaRefreshAsync()
 			}
 		}
 
@@ -1248,10 +1248,11 @@ func (d *Daemon) schedulerLoop() {
 									if cAcc.AccessToken != "" {
 										_ = d.Keyring.UpdateAccountTokensWithExpiry(cAcc.Email, cAcc.AccessToken, cAcc.RefreshToken, cAcc.TokenExpiry)
 									}
-									if os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+									if d.Shield != nil && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+										_ = gui.NewInjector(0).CaptureActiveConversationPath()
 										go func() {
 											time.Sleep(200 * time.Millisecond)
-											_ = process.NewShield(0).RelaunchHostIDE()
+											_ = d.Shield.RelaunchHostIDE()
 										}()
 									}
 								}
