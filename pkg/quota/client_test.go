@@ -102,17 +102,20 @@ func TestDetectTierFromAvailableModels(t *testing.T) {
 		t.Errorf("expected %s, got %s", PlanTierUltra20X, tier)
 	}
 
-	// 2. Pro tier models returned
-	proServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// 2. Pro tier models with third-party models returned (Paid Pro)
+	proPaidServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"tieredModelIds": map[string]interface{}{
 				"pro": []string{"gemini-2.5-pro"},
 			},
+			"models": map[string]interface{}{
+				"claude-3-5-sonnet": map[string]string{"displayName": "Claude 3.5 Sonnet"},
+			},
 		})
 	}))
-	defer proServer.Close()
-	CloudCodeModelsURLs = []string{proServer.URL}
+	defer proPaidServer.Close()
+	CloudCodeModelsURLs = []string{proPaidServer.URL}
 
 	tier, err = DetectTierFromAvailableModels("mock-token")
 	if err != nil {
@@ -120,6 +123,26 @@ func TestDetectTierFromAvailableModels(t *testing.T) {
 	}
 	if tier != PlanTierPro {
 		t.Errorf("expected %s, got %s", PlanTierPro, tier)
+	}
+
+	// 2b. Pro tier models without third-party models returned (Pro - Trial)
+	proTrialServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"tieredModelIds": map[string]interface{}{
+				"pro": []string{"gemini-2.5-pro"},
+			},
+		})
+	}))
+	defer proTrialServer.Close()
+	CloudCodeModelsURLs = []string{proTrialServer.URL}
+
+	tier, err = DetectTierFromAvailableModels("mock-token")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tier != PlanTierProTrial {
+		t.Errorf("expected %s, got %s", PlanTierProTrial, tier)
 	}
 
 	// 3. Only Flash/Free tier models returned
@@ -322,7 +345,7 @@ func TestIsTrialWarningTextAndNormalize(t *testing.T) {
 		{"starter", PlanTierFree},
 		{"Free", PlanTierFree},
 		{"Pro", PlanTierPro},
-		{"Google AI Pro", PlanTierPro},
+		{"Google AI Pro", PlanTierProTrial},
 		{"Ultra 20X", PlanTierUltra20X},
 	}
 

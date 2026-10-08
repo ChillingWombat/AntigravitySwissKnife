@@ -1,19 +1,20 @@
 package gui
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	_ "modernc.org/sqlite"
 )
 
 // Store manages GUI improvement configuration and project discovery.
@@ -278,10 +279,19 @@ func (s *Store) SetProjectColor(projectName, hexColor string) error {
 	return nil
 }
 
-// RemoveProjectColor removes the custom color for a specific project.
+// RemoveProjectColor resets the project color to factory default if it is a pre-configured project,
+// or removes the custom color if it was user-defined.
 func (s *Store) RemoveProjectColor(projectName string) error {
 	s.mu.Lock()
-	delete(s.config.ProjectColors, projectName)
+	if s.config.ProjectColors == nil {
+		s.config.ProjectColors = make(map[string]string)
+	}
+	factoryColors := FactoryProjectColors()
+	if defaultColor, ok := factoryColors[projectName]; ok {
+		s.config.ProjectColors[projectName] = defaultColor
+	} else {
+		delete(s.config.ProjectColors, projectName)
+	}
 	s.mu.Unlock()
 
 	if err := s.Save(); err != nil {
@@ -293,6 +303,12 @@ func (s *Store) RemoveProjectColor(projectName string) error {
 	}
 
 	return nil
+}
+
+// ResetProjectColor resets the project color to factory default if it is a pre-configured project,
+// or removes the custom color if it was user-defined.
+func (s *Store) ResetProjectColor(projectName string) error {
+	return s.RemoveProjectColor(projectName)
 }
 
 // UpdateProjectOrder sets the custom order of projects.
@@ -397,17 +413,18 @@ func (s *Store) DetectProjects() ([]ProjectItem, error) {
 					while (fiber) {
 						if (fiber.memoizedProps?.items) {
 							fiber.memoizedProps.items.forEach(it => {
-								if (it.type === "header" && it.label) names.add(it.label);
+								if (it.type === "header" && it.label) {
+									const l = it.label.trim();
+									if (l && l !== "Today" && l !== "Yesterday" && l !== "Previous 7 Days" && l !== "Previous 30 Days") {
+										names.add(l);
+									}
+								}
 							});
 							break;
 						}
 						fiber = fiber.return;
 					}
 				}
-				document.querySelectorAll("[data-project-card]").forEach(el => {
-					const t = el.textContent?.trim();
-					if (t) names.add(t);
-				});
 				return Array.from(names);
 			})()`
 
@@ -424,22 +441,61 @@ func (s *Store) DetectProjects() ([]ProjectItem, error) {
 		}
 	}
 
-	// 2. Discover from conversation_summaries.db workspace paths
-	home, err := os.UserHomeDir()
-	if err == nil {
-		dbPath := filepath.Join(home, ".gemini", "antigravity", "conversation_summaries.db")
-		if data, err := os.ReadFile(dbPath); err == nil {
-			re := regexp.MustCompile(`file://(?:/[^"'\\]+)+`)
-			matches := re.FindAllString(string(data), -1)
-			for _, m := range matches {
-				u, err := url.Parse(m)
-				if err == nil && u.Path != "" {
-					base := filepath.Base(u.Path)
-					if base != "" && base != "." && base != "/" && !strings.Contains(base, "gemini") {
-						if _, exists := detectedSet[base]; !exists {
-							detectedSet[base] = "sqlite_history"
+	// 2. Discover from SQLite history ONLY if live Antigravity is not running or returned no projects
+	if len(detectedSet) == 0 {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			dbPath := filepath.Join(home, ".gemini", "antigravity", "conversation_summaries.db")
+			if _, statErr := os.Stat(dbPath); statErr == nil {
+				if sdb, errOpen := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=ro", dbPath)); errOpen == nil {
+					// 2a. Query conversations_fts table which stores canonical Antigravity project names
+					rowsFTS, errFTS := sdb.Query("SELECT DISTINCT project FROM conversations_fts WHERE project IS NOT NULL AND project != ''")
+					if errFTS == nil {
+						for rowsFTS.Next() {
+							var pName string
+							if errScan := rowsFTS.Scan(&pName); errScan == nil && pName != "" {
+								pName = strings.TrimSpace(pName)
+								if pName != "" {
+									detectedSet[pName] = "sqlite_history"
+								}
+							}
+						}
+						rowsFTS.Close()
+					}
+
+					// 2b. Only fallback to workspace URIs if no projects were found in FTS
+					if len(detectedSet) == 0 {
+						rows, errQuery := sdb.Query("SELECT DISTINCT workspace_uris FROM conversation_summaries WHERE workspace_uris IS NOT NULL AND workspace_uris != ''")
+						if errQuery == nil {
+							for rows.Next() {
+								var raw string
+								if errScan := rows.Scan(&raw); errScan == nil && raw != "" {
+									var uris []string
+									if errJSON := json.Unmarshal([]byte(raw), &uris); errJSON == nil {
+										for _, uStr := range uris {
+											u, errParse := url.Parse(uStr)
+											if errParse == nil && u.Path != "" {
+												unescapedPath, unescErr := url.PathUnescape(u.Path)
+												if unescErr == nil {
+													cleanPath := filepath.Clean(unescapedPath)
+													base := filepath.Base(cleanPath)
+													lower := strings.ToLower(base)
+													if lower == "projects" || lower == "documents" || lower == "desktop" || lower == "home" || lower == "workspace" {
+														continue
+													}
+													if base != "" && base != "." && base != "/" && !strings.Contains(base, "gemini") {
+														detectedSet[base] = "sqlite_history"
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+							rows.Close()
 						}
 					}
+					sdb.Close()
 				}
 			}
 		}

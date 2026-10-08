@@ -450,29 +450,6 @@ class StandaloneController(SwissKnifeController):
         )
         return pruner.prune(options=prune_opts, active_conversation_id=active_conversation_id).to_dict()
 
-    def analyze_prompt_cache(self, conversation_id: str | None = None, transcript_path: str | None = None) -> dict[str, Any]:
-        from antigravity_swiss.cache_optimizer.inspector import BrainCacheInspector
-        from antigravity_swiss.cache_optimizer.prompt_cache import PromptCacheOptimizer
-        opt = PromptCacheOptimizer(data_dir=self.config.antigravity_data_dir)
-        if transcript_path:
-            analysis = opt.analyze_transcript(transcript_path)
-        elif conversation_id:
-            analysis = opt.analyze_conversation(conversation_id, data_dir=self.config.antigravity_data_dir)
-        else:
-            inspector = BrainCacheInspector(
-                data_dir=self.config.antigravity_data_dir,
-                config_dir=self.config.antigravity_config_dir,
-            )
-            active_id = inspector.get_active_conversation_id()
-            if active_id:
-                analysis = opt.analyze_conversation(active_id, data_dir=self.config.antigravity_data_dir)
-            else:
-                results = opt.scan_all_conversations(data_dir=self.config.antigravity_data_dir, limit=1)
-                analysis = results[0] if results else None
-        if not analysis:
-            return {"error": "No conversation transcript found to analyze"}
-        return analysis.to_dict()
-
 
 
 def create_controller(

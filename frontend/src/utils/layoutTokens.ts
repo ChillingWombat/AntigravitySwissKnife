@@ -7,23 +7,23 @@
 
 // 1. Base 4-Pixel Grid Constants
 export const GRID_UNIT = 4
-export const WINDOW_MIN_WIDTH = 1152 // 288 * 4 (Strict 16:9)
-export const WINDOW_MIN_HEIGHT = 648 // 162 * 4 (Strict 16:9)
+export const WINDOW_MIN_WIDTH = 1216 // 304 * 4 (Strict 16:9)
+export const WINDOW_MIN_HEIGHT = 684 // 171 * 4 (Strict 16:9)
 export const WINDOW_ASPECT_RATIO_W = 16
 export const WINDOW_ASPECT_RATIO_H = 9
 export const WINDOW_ASPECT_RATIO = 16 / 9 // 1.7777777777777777
 
 // Top-Level Zone Dimensions
-export const NAV_RAIL_WIDTH = 220 // 55 * 4
+export const NAV_RAIL_WIDTH = 200 // 50 * 4
 export const HEADER_HEIGHT = 72 // 18 * 4
-export const WORKSPACE_MIN_WIDTH = 932 // 233 * 4 (WINDOW_MIN_WIDTH - NAV_RAIL_WIDTH)
-export const WORKSPACE_MIN_HEIGHT = 576 // 144 * 4 (WINDOW_MIN_HEIGHT - HEADER_HEIGHT)
-export const WORKSPACE_ASPECT_RATIO = 932 / 576 // 1.6180555555555556 (error < 0.00003 from PHI)
+export const WORKSPACE_MIN_WIDTH = 1016 // 254 * 4 (WINDOW_MIN_WIDTH - NAV_RAIL_WIDTH)
+export const WORKSPACE_MIN_HEIGHT = 612 // 153 * 4 (WINDOW_MIN_HEIGHT - HEADER_HEIGHT)
+export const WORKSPACE_ASPECT_RATIO = 1016 / 612 // 1.6601307189542483
 
 // Viewport & Content Budgeting
 export const WORKSPACE_PADDING_X = 24 // 6 * 4
-export const WORKSPACE_CONTENT_MIN_WIDTH = 884 // WORKSPACE_MIN_WIDTH - (WORKSPACE_PADDING_X * 2) = 932 - 48 = 884
-export const TABLE_MIN_WIDTH = 880 // 220 * 4 (Fits cleanly inside WORKSPACE_CONTENT_MIN_WIDTH 884px)
+export const WORKSPACE_CONTENT_MIN_WIDTH = 968 // WORKSPACE_MIN_WIDTH - (WORKSPACE_PADDING_X * 2) = 1016 - 48 = 968
+export const TABLE_MIN_WIDTH = 880 // 220 * 4 (Fits cleanly inside WORKSPACE_CONTENT_MIN_WIDTH 968px)
 
 // Component & Gadget Sizing Tokens (Multiples of 4)
 export const COMPONENT_TOKENS = {

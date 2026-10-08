@@ -25,12 +25,12 @@
 
   /* Layout & Grid Tokens (Base 4-pixel grid & Golden Ratio) */
   --grid-unit: 4px;
-  --window-min-width: 1152px;
-  --window-min-height: 648px;
-  --nav-rail-width: 220px;
+  --window-min-width: 1216px;
+  --window-min-height: 684px;
+  --nav-rail-width: 200px;
   --header-height: 72px;
-  --workspace-min-width: 932px;
-  --workspace-min-height: 576px;
+  --workspace-min-width: 1016px;
+  --workspace-min-height: 612px;
   --phi: 1.6180339887;
 }
 

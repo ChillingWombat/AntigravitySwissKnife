@@ -712,6 +712,184 @@ div:has(> .shrink-0.flex.items-center.border-b),
   cursor: crosshair;
 }
 
+/* Element-Specific Annotation Popover */
+.swiss-element-annotation-box {
+  position: absolute;
+  z-index: 70;
+  width: 320px;
+  max-width: calc(100% - 16px);
+  background: var(--canvas, #ffffff);
+  border: 1px solid var(--border, #cbd5e1);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  padding: 8px 10px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+:is(.dark, [data-theme="dark"]) .swiss-element-annotation-box {
+  background: var(--card, #1e293b);
+  border-color: var(--border, #334155);
+  color: #f8fafc;
+}
+.swiss-element-annotation-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.swiss-element-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(234, 67, 53, 0.1);
+  color: #ea4335;
+  font-size: 11px;
+  font-family: monospace;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
+.swiss-element-annotation-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 0;
+  flex-shrink: 0;
+}
+.swiss-element-annotation-close:hover {
+  background: rgba(234, 67, 53, 0.15);
+  color: #ea4335;
+}
+.swiss-element-annotation-body {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.swiss-element-annotation-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border, #cbd5e1);
+  background: var(--canvas, #ffffff);
+  color: var(--text, #1e293b);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.swiss-element-annotation-input:focus {
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.15);
+}
+:is(.dark, [data-theme="dark"]) .swiss-element-annotation-input {
+  background: var(--canvas, #0f172a);
+  border-color: var(--border, #334155);
+  color: #f8fafc;
+}
+.swiss-element-annotation-send {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  border: 1px solid #1a73e8;
+  background: #1a73e8;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.swiss-element-annotation-send:hover {
+  background: #1557b0;
+  border-color: #1557b0;
+}
+
+/* In-Chat Element Annotation Removable Chip */
+.swiss-chat-annotation-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 6px 0;
+  padding: 4px 8px 4px 10px;
+  border-radius: 6px;
+  background: rgba(234, 67, 53, 0.08);
+  border: 1px solid rgba(234, 67, 53, 0.25);
+  color: var(--text, #1e293b);
+  font-size: 12px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+:is(.dark, [data-theme="dark"]) .swiss-chat-annotation-chip {
+  background: rgba(234, 67, 53, 0.15);
+  border-color: rgba(234, 67, 53, 0.35);
+  color: #f8fafc;
+}
+.swiss-chat-chip-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+.swiss-chat-chip-content svg {
+  stroke: #ea4335;
+  flex-shrink: 0;
+}
+.swiss-chat-chip-selector {
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: #ea4335;
+  white-space: nowrap;
+}
+.swiss-chat-chip-comment {
+  color: var(--text-muted, #64748b);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:is(.dark, [data-theme="dark"]) .swiss-chat-chip-comment {
+  color: #cbd5e1;
+}
+.swiss-chat-chip-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.swiss-chat-chip-delete:hover {
+  background: rgba(234, 67, 53, 0.2);
+  color: #ea4335;
+}
+
 /* File Explorer View */
 .swiss-files-view {
   display: flex;
@@ -1367,8 +1545,26 @@ func GenerateAuxiliaryPluginsScript() string {
       }, 10);
     }
 
+    window.__swissOnAuxDaemonChanged = function(online) {
+      if (!online) {
+        document.querySelectorAll(".swiss-aux-btn-group, .swiss-aux-tabs-divider, .swiss-aux-tabs-divider-left, .swiss-aux-tabs-divider-right").forEach(el => el.remove());
+        if (activeAuxTab !== null) {
+          switchAuxTab(null);
+        }
+      } else {
+        setupAuxiliaryTabs();
+      }
+    };
+
     // 1. Auxiliary Panel Tab Injector Engine
     function setupAuxiliaryTabs() {
+      if (window.__swissDaemonOnline === false) {
+        document.querySelectorAll(".swiss-aux-btn-group, .swiss-aux-tabs-divider, .swiss-aux-tabs-divider-left, .swiss-aux-tabs-divider-right").forEach(el => el.remove());
+        if (activeAuxTab !== null) {
+          switchAuxTab(null);
+        }
+        return;
+      }
       // Find auxiliary panel header strictly matching .shrink-0.flex.items-center[class*="gap-0.5"].border-b
       const tabHeader = document.querySelector('.shrink-0.flex.items-center[class*="gap-0.5"].border-b') ||
                         document.querySelector('[data-testid="auxiliary-panel"] .shrink-0.flex.items-center[class*="gap-0.5"].border-b') ||
@@ -1377,9 +1573,13 @@ func GenerateAuxiliaryPluginsScript() string {
       if (!tabHeader) return;
 
       if (tabHeader.parentElement) {
-        tabHeader.parentElement.setAttribute('data-swiss-aux-panel', 'true');
+        if (tabHeader.parentElement.getAttribute('data-swiss-aux-panel') !== 'true') {
+          tabHeader.parentElement.setAttribute('data-swiss-aux-panel', 'true');
+        }
       }
-      tabHeader.setAttribute('data-swiss-aux-header', 'true');
+      if (tabHeader.getAttribute('data-swiss-aux-header') !== 'true') {
+        tabHeader.setAttribute('data-swiss-aux-header', 'true');
+      }
 
       // Define Swiss tabs with Antigravity-matching monochrome SVG stroke icons
       const tabs = [
@@ -1416,13 +1616,18 @@ func GenerateAuxiliaryPluginsScript() string {
       }
 
       function updateTabButtonMarkup(btn, t, fmt) {
-        btn.title = "Antigravity Swiss Knife: " + t.label;
+        const titleText = "Antigravity Swiss Knife: " + t.label;
+        if (btn.title !== titleText) btn.title = titleText;
         if (fmt === "icon_and_name") {
-          btn.classList.remove("icon-only");
-          btn.innerHTML = t.svg + '<span class="swiss-aux-tab-label">' + t.label + '</span>';
+          if (btn.classList.contains("icon-only")) btn.classList.remove("icon-only");
+          if (!btn.querySelector(".swiss-aux-tab-label")) {
+            btn.innerHTML = t.svg + '<span class="swiss-aux-tab-label">' + t.label + '</span>';
+          }
         } else {
-          btn.classList.add("icon-only");
-          btn.innerHTML = t.svg;
+          if (!btn.classList.contains("icon-only")) btn.classList.add("icon-only");
+          if (btn.querySelector(".swiss-aux-tab-label") || !btn.querySelector("svg")) {
+            btn.innerHTML = t.svg;
+          }
         }
       }
 
@@ -2379,6 +2584,15 @@ func GenerateAuxiliaryPluginsScript() string {
       const inspectBtn = toolbar.querySelector("#swiss-b-inspect");
       const clearBtn = toolbar.querySelector("#swiss-b-clear");
 
+      function exitInspectTool() {
+        drawTool = "none";
+        penBtn.classList.remove("active");
+        rectBtn.classList.remove("active");
+        inspectBtn.classList.remove("active");
+        canvas.style.pointerEvents = "none";
+        toggleDOMInspector(false);
+      }
+
       function setDrawTool(tool) {
         drawTool = (drawTool === tool) ? "none" : tool;
         penBtn.classList.toggle("active", drawTool === "pen");
@@ -2400,12 +2614,39 @@ func GenerateAuxiliaryPluginsScript() string {
       penBtn.onclick = () => setDrawTool("pen");
       rectBtn.onclick = () => setDrawTool("rect");
       inspectBtn.onclick = () => setDrawTool("inspect");
-      clearBtn.onclick = () => {
+      function clearElementAnnotation() {
+        const existing = screen.querySelector("#swiss-element-annotation-box");
+        if (existing) existing.remove();
+        lastSelectedElement = null;
+        lastAnnotatedRegion = null;
+        userComment = "";
         const ctx = canvas.getContext("2d");
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        lastAnnotatedRegion = null;
-        lastSelectedElement = null;
+      }
+
+      clearBtn.onclick = () => {
+        clearElementAnnotation();
       };
+
+      if (window.__swissBrowserKeyHandler) {
+        document.removeEventListener("keydown", window.__swissBrowserKeyHandler, true);
+        window.removeEventListener("keydown", window.__swissBrowserKeyHandler, true);
+      }
+      window.__swissBrowserKeyHandler = (e) => {
+        if ((e.key === "Escape" || e.key === "Esc" || e.keyCode === 27 || e.which === 27) && drawTool === "inspect") {
+          e.preventDefault();
+          e.stopPropagation();
+          if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+          exitInspectTool();
+        } else if ((e.key === "Escape" || e.key === "Esc" || e.keyCode === 27 || e.which === 27) && screen.querySelector("#swiss-element-annotation-box")) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+          clearElementAnnotation();
+        }
+      };
+      document.addEventListener("keydown", window.__swissBrowserKeyHandler, true);
+      window.addEventListener("keydown", window.__swissBrowserKeyHandler, true);
 
       // Drawing Interactions with Bézier Curve Smoothing & Box Tool
       const ctx = canvas.getContext("2d");
@@ -2520,6 +2761,12 @@ func GenerateAuxiliaryPluginsScript() string {
         if (!active) {
           if (webview && typeof webview.executeJavaScript === "function") {
             webview.executeJavaScript("if (window.__swissCleanupInspector) window.__swissCleanupInspector();");
+          } else {
+            try {
+              if (webview && webview.contentWindow && typeof webview.contentWindow.__swissCleanupInspector === "function") {
+                webview.contentWindow.__swissCleanupInspector();
+              }
+            } catch (_) {}
           }
           return;
         }
@@ -2610,69 +2857,309 @@ func GenerateAuxiliaryPluginsScript() string {
               rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height }
             };
             console.log('[SWISS_INSPECT_RESULT]', JSON.stringify(payload));
+            if (window.parent && window.parent !== window) {
+              try { window.parent.postMessage({ type: 'SWISS_INSPECT_RESULT', payload: payload }, '*'); } catch (_) {}
+            }
             window.__swissCleanupInspector();
+          }
+
+          function handleKeyDown(e) {
+            if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27 || e.which === 27) {
+              e.preventDefault();
+              e.stopPropagation();
+              if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+              console.log('[SWISS_INSPECT_CANCEL]');
+              if (window.parent && window.parent !== window) {
+                try { window.parent.postMessage({ type: 'SWISS_INSPECT_CANCEL' }, '*'); } catch (_) {}
+              }
+              window.__swissCleanupInspector();
+            }
           }
 
           window.__swissCleanupInspector = () => {
             window.__swissInspectorActive = false;
             document.removeEventListener('mousemove', handleMouseMove, true);
             document.removeEventListener('click', handleClick, true);
+            document.removeEventListener('keydown', handleKeyDown, true);
+            window.removeEventListener('keydown', handleKeyDown, true);
             if (overlay) overlay.style.display = 'none';
           };
 
           document.addEventListener('mousemove', handleMouseMove, true);
           document.addEventListener('click', handleClick, true);
+          document.addEventListener('keydown', handleKeyDown, true);
+          window.addEventListener('keydown', handleKeyDown, true);
         })()` + "`" + `;
 
         if (webview && typeof webview.executeJavaScript === "function") {
           webview.executeJavaScript(inspectorScript);
+        } else {
+          try {
+            if (webview && webview.contentDocument) {
+              const s = webview.contentDocument.createElement('script');
+              s.textContent = inspectorScript;
+              webview.contentDocument.body.appendChild(s);
+              s.remove();
+            }
+          } catch (_) {}
         }
+      }
+
+      function renderElementAnnotationBox(result) {
+        const existing = screen.querySelector("#swiss-element-annotation-box");
+        if (existing) existing.remove();
+
+        const box = document.createElement("div");
+        box.id = "swiss-element-annotation-box";
+        box.className = "swiss-element-annotation-box";
+
+        const screenW = screen.clientWidth || 400;
+        const screenH = screen.clientHeight || 600;
+        const boxW = 320;
+        const boxH = 76;
+        let left = Math.max(8, Math.min(result.rect.x, screenW - boxW - 8));
+        let top = result.rect.y + result.rect.height + 8;
+        if (top + boxH > screenH) {
+          top = Math.max(8, result.rect.y - boxH - 8);
+        }
+        box.style.left = left + "px";
+        box.style.top = top + "px";
+
+        const selectorEscaped = (result.selector || "element").replace(/"/g, "&quot;");
+
+        box.innerHTML = '<div class="swiss-element-annotation-header">' +
+          '<span class="swiss-element-badge" title="' + selectorEscaped + '">' +
+            '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+              '<circle cx="12" cy="12" r="10"/><path d="m22 12-4 0"/><path d="m6 12-4 0"/><path d="m12 6 0-4"/><path d="m12 22 0-4"/>' +
+            '</svg>' +
+            '<span>' + selectorEscaped + '</span>' +
+          '</span>' +
+          '<button class="swiss-element-annotation-close" id="swiss-element-annotation-close" title="Clear annotation & unselect element">' +
+            '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+              '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>' +
+            '</svg>' +
+          '</button>' +
+        '</div>' +
+        '<div class="swiss-element-annotation-body">' +
+          '<input type="text" class="swiss-element-annotation-input" id="swiss-element-annotation-input" placeholder="Enter annotation for element..." value="' + ((userComment || "").replace(/"/g, "&quot;")) + '" />' +
+          '<button class="swiss-element-annotation-send" id="swiss-element-annotation-send" title="Send element annotation to chat">' +
+            '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+              '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>' +
+            '</svg>' +
+            '<span>Send to Chat</span>' +
+          '</button>' +
+        '</div>';
+
+        screen.appendChild(box);
+
+        const input = box.querySelector("#swiss-element-annotation-input");
+        const closeBtn = box.querySelector("#swiss-element-annotation-close");
+        const sendBtn = box.querySelector("#swiss-element-annotation-send");
+
+        input.oninput = () => {
+          userComment = input.value.trim();
+        };
+
+        input.onkeydown = (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            userComment = input.value.trim();
+            executeSendToChatWorkflow();
+          } else if (e.key === "Escape" || e.key === "Esc") {
+            e.preventDefault();
+            clearElementAnnotation();
+          }
+        };
+
+        closeBtn.onclick = () => {
+          clearElementAnnotation();
+        };
+
+        sendBtn.onclick = () => {
+          userComment = input.value.trim();
+          executeSendToChatWorkflow();
+        };
+
+        setTimeout(() => {
+          input.focus();
+        }, 50);
+      }
+
+      function handleInspectResult(result) {
+        if (!result) return;
+        lastSelectedElement = result;
+        lastAnnotatedRegion = result.rect;
+
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        ctx.strokeStyle = "#ea4335";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(result.rect.x, result.rect.y, result.rect.width, result.rect.height);
+        ctx.fillStyle = "rgba(234, 67, 53, 0.15)";
+        ctx.fillRect(result.rect.x, result.rect.y, result.rect.width, result.rect.height);
+
+        ctx.fillStyle = "#ea4335";
+        ctx.fillRect(result.rect.x, Math.max(0, result.rect.y - 18), Math.min(180, result.selector.length * 8 + 8), 18);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 10px monospace";
+        ctx.fillText(result.selector.slice(0, 22), result.rect.x + 4, Math.max(12, result.rect.y - 5));
+
+        exitInspectTool();
+        renderElementAnnotationBox(result);
+      }
+
+      function attachChatAnnotationChip(selectedEl, comment) {
+        const chatContainer = document.querySelector('.chat-input-toolbar')?.parentElement ||
+                              document.querySelector('.chat-input-container') ||
+                              document.querySelector('[data-testid="chat-input-textarea"]')?.parentElement ||
+                              document.querySelector('.lexical-container')?.parentElement ||
+                              document.querySelector('textarea[placeholder*="Ask"]')?.parentElement;
+        if (!chatContainer) return;
+
+        const oldChip = document.getElementById("swiss-chat-annotation-chip");
+        if (oldChip) oldChip.remove();
+
+        const chip = document.createElement("div");
+        chip.id = "swiss-chat-annotation-chip";
+        chip.className = "swiss-chat-annotation-chip";
+        const selText = selectedEl ? (selectedEl.selector || "element") : "Preview Snapshot";
+        const commentText = comment ? ("“" + comment + "”") : "";
+
+        chip.innerHTML = '<div class="swiss-chat-chip-content">' +
+          '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+            '<circle cx="12" cy="12" r="10"/><path d="m22 12-4 0"/><path d="m6 12-4 0"/><path d="m12 6 0-4"/><path d="m12 22 0-4"/>' +
+          '</svg>' +
+          '<span class="swiss-chat-chip-selector">' + selText + '</span>' +
+          (commentText ? '<span class="swiss-chat-chip-comment">' + commentText + '</span>' : '') +
+        '</div>' +
+        '<button type="button" class="swiss-chat-chip-delete" id="swiss-chat-chip-delete" title="Delete element annotation from chat input">' +
+          '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>' +
+          '</svg>' +
+        '</button>';
+
+        const toolbar = chatContainer.querySelector('.chat-input-toolbar');
+        if (toolbar) {
+          chatContainer.insertBefore(chip, toolbar);
+        } else {
+          chatContainer.prepend(chip);
+        }
+
+        chip.querySelector("#swiss-chat-chip-delete").onclick = (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          chip.remove();
+
+          const textarea = document.querySelector('textarea[placeholder*="Ask"]') ||
+                           document.querySelector('textarea');
+          if (textarea && textarea.value) {
+            textarea.value = textarea.value.replace(/\[Preview Browser (Element )?Annotation[\s\S]*?\(Visual annotation attached: annotation\.png\)\n?/g, '').trim();
+            textarea.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+
+          const lexicalElem = document.querySelector('[data-lexical-editor="true"]') ||
+                              document.querySelector('.lexical-container [contenteditable="true"]');
+          if (lexicalElem) {
+            if (lexicalElem.__lexicalEditor) {
+              try {
+                lexicalElem.__lexicalEditor.update(() => {
+                  const currentText = lexicalElem.innerText || "";
+                  const cleaned = currentText.replace(/\[Preview Browser (Element )?Annotation[\s\S]*?\(Visual annotation attached: annotation\.png\)\n?/g, '').trim();
+                  if (typeof document.execCommand === "function") {
+                    lexicalElem.focus();
+                    document.execCommand("selectAll", false, null);
+                    document.execCommand("insertText", false, cleaned);
+                  }
+                });
+              } catch (_) {}
+            }
+          }
+
+          const fileInput = document.querySelector('input[type="file"]') ||
+                            document.querySelector('[type="file"]');
+          if (fileInput) {
+            try {
+              fileInput.value = "";
+              fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+            } catch (_) {}
+          }
+
+          clearElementAnnotation();
+          showToast("Deleted element annotation from chat input");
+        };
       }
 
       if (isWebview) {
         webview.addEventListener('console-message', (e) => {
-          if (e.message && e.message.startsWith('[SWISS_INSPECT_RESULT]')) {
+          if (e.message && e.message.includes('[SWISS_INSPECT_RESULT]')) {
             try {
-              const jsonStr = e.message.replace('[SWISS_INSPECT_RESULT]', '').trim();
+              const idx = e.message.indexOf('[SWISS_INSPECT_RESULT]');
+              const jsonStr = e.message.slice(idx + '[SWISS_INSPECT_RESULT]'.length).trim();
               const result = JSON.parse(jsonStr);
-              lastSelectedElement = result;
-              lastAnnotatedRegion = result.rect;
-
-              ctx.strokeStyle = "#ea4335";
-              ctx.lineWidth = 2;
-              ctx.strokeRect(result.rect.x, result.rect.y, result.rect.width, result.rect.height);
-              ctx.fillStyle = "rgba(234, 67, 53, 0.15)";
-              ctx.fillRect(result.rect.x, result.rect.y, result.rect.width, result.rect.height);
-
-              ctx.fillStyle = "#ea4335";
-              ctx.fillRect(result.rect.x, Math.max(0, result.rect.y - 18), Math.min(180, result.selector.length * 8 + 8), 18);
-              ctx.fillStyle = "#ffffff";
-              ctx.font = "bold 10px monospace";
-              ctx.fillText(result.selector.slice(0, 22), result.rect.x + 4, Math.max(12, result.rect.y - 5));
-
-              drawTool = "none";
-              canvas.style.pointerEvents = "none";
-              toolbar.querySelector("#swiss-b-inspect").classList.remove("active");
+              handleInspectResult(result);
             } catch (_) {}
+          } else if (e.message && e.message.includes('[SWISS_INSPECT_CANCEL]')) {
+            exitInspectTool();
           }
         });
       }
 
+      if (window.__swissBrowserMessageHandler) {
+        window.removeEventListener('message', window.__swissBrowserMessageHandler);
+      }
+      window.__swissBrowserMessageHandler = (e) => {
+        if (!e.data) return;
+        if (e.data.type === 'SWISS_INSPECT_RESULT') {
+          handleInspectResult(e.data.payload);
+        } else if (e.data.type === 'SWISS_INSPECT_CANCEL' || e.data === 'SWISS_INSPECT_CANCEL') {
+          exitInspectTool();
+        }
+      };
+      window.addEventListener('message', window.__swissBrowserMessageHandler);
+
+      try {
+        if (webview && webview.contentWindow) {
+          webview.contentWindow.addEventListener('keydown', (e) => {
+            if ((e.key === "Escape" || e.key === "Esc" || e.keyCode === 27 || e.which === 27) && drawTool === "inspect") {
+              e.preventDefault();
+              e.stopPropagation();
+              if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+              exitInspectTool();
+            }
+          }, true);
+        }
+      } catch (_) {}
+
       // Send to Antigravity Chat button workflow
-      toolbar.querySelector("#swiss-b-send-chat").onclick = async () => {
-        const comment = await showSwissPrompt(
-          "Add comment to attach with this preview snapshot to Antigravity chat:",
-          userComment || "Review UI alignment and inspected element markup."
-        );
-        if (comment === null) return;
-        userComment = comment;
+      async function executeSendToChatWorkflow() {
+        let comment = "";
+        const annotInput = screen.querySelector("#swiss-element-annotation-input");
+        if (annotInput && annotInput.value.trim()) {
+          comment = annotInput.value.trim();
+          userComment = comment;
+        }
 
-        const region = (lastAnnotatedRegion && lastAnnotatedRegion.width > 5 && lastAnnotatedRegion.height > 5)
-          ? lastAnnotatedRegion
-          : null;
+        if (lastSelectedElement) {
+          comment = comment || userComment || "Review UI alignment and inspected element markup.";
+          userComment = comment;
+        } else {
+          comment = await showSwissPrompt(
+            "Add comment to attach with this preview snapshot to Antigravity chat:",
+            userComment || "Review UI alignment and inspected element markup."
+          );
+          if (comment === null) return;
+          userComment = comment;
+        }
 
-        const exportW = region ? region.width : canvas.width;
-        const exportH = region ? region.height : canvas.height;
+        const region = (lastSelectedElement && lastSelectedElement.rect)
+          ? lastSelectedElement.rect
+          : ((lastAnnotatedRegion && lastAnnotatedRegion.width > 5 && lastAnnotatedRegion.height > 5)
+            ? lastAnnotatedRegion
+            : null);
+
+        const exportW = region ? Math.max(20, Math.round(region.width)) : canvas.width;
+        const exportH = region ? Math.max(20, Math.round(region.height)) : canvas.height;
 
         const exportCanvas = document.createElement("canvas");
         exportCanvas.width = exportW;
@@ -2737,17 +3224,26 @@ func GenerateAuxiliaryPluginsScript() string {
             } catch (_) {}
           }
 
-          let promptText = "[Preview Browser Annotation @ " + currentBrowserUrl + "]\n";
-          if (lastSelectedElement && lastSelectedElement.selector) {
-            promptText += "Selected Element: " + lastSelectedElement.selector + "\n";
+          let promptText = "";
+          if (lastSelectedElement) {
+            promptText = "[Preview Browser Element Annotation @ " + currentBrowserUrl + "]\n";
+            if (lastSelectedElement.selector) {
+              promptText += "Selected Element: " + lastSelectedElement.selector + "\n";
+            }
+            if (lastSelectedElement.outerHTML) {
+              promptText += "` + "\x60\x60\x60" + `html\n" + lastSelectedElement.outerHTML.trim() + "\n` + "\x60\x60\x60" + `\n";
+            }
+            if (userComment) {
+              promptText += "Annotation: " + userComment + "\n";
+            }
+            promptText += "(Visual annotation attached: annotation.png)";
+          } else {
+            promptText = "[Preview Browser Annotation @ " + currentBrowserUrl + "]\n";
+            if (userComment) {
+              promptText += "Comment: " + userComment + "\n";
+            }
+            promptText += "(Visual annotation attached: annotation.png)";
           }
-          if (lastSelectedElement && lastSelectedElement.outerHTML) {
-            promptText += "` + "\x60\x60\x60" + `html\n" + lastSelectedElement.outerHTML.trim() + "\n` + "\x60\x60\x60" + `\n";
-          }
-          if (userComment) {
-            promptText += "Comment: " + userComment + "\n";
-          }
-          promptText += "(Visual annotation attached: annotation.png)";
 
           let injectedLexical = false;
           const lexicalElem = document.querySelector('[data-lexical-editor="true"]') ||
@@ -2771,9 +3267,16 @@ func GenerateAuxiliaryPluginsScript() string {
             insertTextToChatInput(promptText);
           }
 
-          showToast("Visual annotation attached and DOM snippet injected into chat!");
+          attachChatAnnotationChip(lastSelectedElement, userComment);
+
+          const existingBox = screen.querySelector("#swiss-element-annotation-box");
+          if (existingBox) existingBox.remove();
+
+          showToast("Attached element annotation to Antigravity chat");
         }, "image/png");
-      };
+      }
+
+      toolbar.querySelector("#swiss-b-send-chat").onclick = executeSendToChatWorkflow;
     }
 
     // ----------------------------------------------------
@@ -4099,7 +4602,10 @@ func GenerateAuxiliaryPluginsScript() string {
         if (t && t.nodeType === 1) {
           if (t.id === "swiss-aux-container" || t.closest?.("#swiss-aux-container")) return false;
           if (t.classList?.contains("swiss-telemetry-badge") || t.closest?.(".swiss-telemetry-badge")) return false;
-          if (t.classList?.contains("swiss-aux-tab-btn")) return false;
+          if (t.classList?.contains("swiss-aux-tab-btn") || t.closest?.(".swiss-aux-tab-btn")) return false;
+          if (t.classList?.contains("swiss-aux-tabs-divider") || t.closest?.(".swiss-aux-tabs-divider")) return false;
+          if (t.classList?.contains("swiss-aux-btn-group") || t.closest?.(".swiss-aux-btn-group")) return false;
+          if (t.hasAttribute?.("data-swiss-aux-panel") || t.hasAttribute?.("data-swiss-aux-header") || t.hasAttribute?.("data-swiss-aux-active")) return false;
         }
         return true;
       });

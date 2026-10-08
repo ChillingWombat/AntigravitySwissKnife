@@ -28,13 +28,20 @@ import {
   Mic,
   Bookmark,
   Filter,
+  Download,
+  CheckCircle2,
+  Clock,
+  Archive,
+  ShieldAlert,
 } from 'lucide-react'
 import type {
   SystemStatus,
   SystemInstallations,
+  AppReleaseInfo,
   StorageInfo,
   PrivacySettings,
   DiagnosticResult,
+  VaultStatus,
 } from '../types'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
@@ -58,8 +65,15 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [installations, setInstallations] = useState<SystemInstallations | null>(null)
-  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false)
-  const [updateFeedback, setUpdateFeedback] = useState<string | null>(null)
+
+  // App Release & Updates State
+  const [appRelease, setAppRelease] = useState<AppReleaseInfo | null>(null)
+  const [isCheckingAppRelease, setIsCheckingAppRelease] = useState<boolean>(false)
+  const [appReleaseFeedback, setAppReleaseFeedback] = useState<{ text: string; isError: boolean } | null>(null)
+  const [autoCheckUpdates, setAutoCheckUpdates] = useState<boolean>(true)
+  const [autoUpgrade, setAutoUpgrade] = useState<boolean>(false)
+  const [isUpgrading, setIsUpgrading] = useState<boolean>(false)
+  const [upgradeFeedback, setUpgradeFeedback] = useState<{ text: string; isError: boolean } | null>(null)
 
   // App Access Password state
   const [isPasswordEnabled, setIsPasswordEnabled] = useState(false)
@@ -108,6 +122,12 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
   const [migrateData, setMigrateData] = useState<boolean>(true)
   const [isSavingStorage, setIsSavingStorage] = useState<boolean>(false)
   const [storageFeedback, setStorageFeedback] = useState<{ text: string; isError: boolean } | null>(null)
+
+  // Conversation History Vault state
+  const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null)
+  const [isSyncingVault, setIsSyncingVault] = useState<boolean>(false)
+  const [isTogglingVault, setIsTogglingVault] = useState<boolean>(false)
+  const [vaultFeedback, setVaultFeedback] = useState<{ text: string; isError: boolean } | null>(null)
 
   // Quick Memos Storage & Scope Settings state
   const [memoStorageLocation, setMemoStorageLocation] = useState<'global' | 'project'>(() => {
@@ -218,6 +238,97 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
     }
   }
 
+  const loadAppRelease = async () => {
+    try {
+      const data = await api.getAppRelease()
+      setAppRelease(data)
+      setAutoCheckUpdates(data.auto_check)
+      setAutoUpgrade(data.auto_upgrade)
+    } catch (err: any) {
+      console.error('Failed to load app release info:', err)
+    }
+  }
+
+  const handleCheckAppRelease = async () => {
+    setIsCheckingAppRelease(true)
+    setAppReleaseFeedback(null)
+    setUpgradeFeedback(null)
+    try {
+      const data = await api.checkAppRelease()
+      setAppRelease(data)
+      setAutoCheckUpdates(data.auto_check)
+      setAutoUpgrade(data.auto_upgrade)
+      if (data.has_update) {
+        setAppReleaseFeedback({
+          text: `A newer release (v${data.latest_version}) is available!`,
+          isError: false,
+        })
+      } else {
+        setAppReleaseFeedback({
+          text: `You are running the newest release (v${data.current_version}).`,
+          isError: false,
+        })
+      }
+    } catch (err: any) {
+      setAppReleaseFeedback({
+        text: `Update check failed: ${err.message || 'Network error'}`,
+        isError: true,
+      })
+    } finally {
+      setIsCheckingAppRelease(false)
+    }
+  }
+
+  const handleToggleAutoCheck = async (enabled: boolean) => {
+    setAutoCheckUpdates(enabled)
+    try {
+      await api.saveAppReleaseSettings({
+        auto_check: enabled,
+        auto_upgrade: autoUpgrade,
+      })
+    } catch (err: any) {
+      console.error('Failed to save auto-check setting:', err)
+    }
+  }
+
+  const handleToggleAutoUpgrade = async (enabled: boolean) => {
+    setAutoUpgrade(enabled)
+    try {
+      await api.saveAppReleaseSettings({
+        auto_check: autoCheckUpdates,
+        auto_upgrade: enabled,
+      })
+    } catch (err: any) {
+      console.error('Failed to save auto-upgrade setting:', err)
+    }
+  }
+
+  const handleUpgradeApp = async () => {
+    setIsUpgrading(true)
+    setUpgradeFeedback(null)
+    try {
+      const res = await api.upgradeApp()
+      if (res.success) {
+        setUpgradeFeedback({
+          text: res.message || 'Update completed successfully.',
+          isError: false,
+        })
+      } else {
+        setUpgradeFeedback({
+          text: res.message || 'Upgrade could not be completed automatically.',
+          isError: true,
+        })
+      }
+    } catch (err: any) {
+      setUpgradeFeedback({
+        text: `Upgrade failed: ${err.message || 'Unknown error'}`,
+        isError: true,
+      })
+    } finally {
+      setIsUpgrading(false)
+    }
+  }
+
   const loadPasswordSettings = async () => {
     try {
       const res = await api.getPasswordSettings()
@@ -252,6 +363,49 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
       }
     } catch (err: any) {
       console.error('Failed to load accounts for path overrides:', err)
+    }
+  }
+
+  const loadVaultStatus = async () => {
+    try {
+      const res = await api.getVaultStatus()
+      setVaultStatus(res)
+    } catch (err: any) {
+      console.warn('Could not load vault status:', err)
+    }
+  }
+
+  const handleSyncVault = async () => {
+    setIsSyncingVault(true)
+    setVaultFeedback(null)
+    try {
+      const res = await api.syncVault()
+      setVaultFeedback({
+        text: res.message || `Shielded ${res.new_vaulted} new sessions; rescued ${res.rescued_count} pruned sessions.`,
+        isError: false,
+      })
+      await loadVaultStatus()
+    } catch (err: any) {
+      setVaultFeedback({ text: `Vault sync failed: ${err.message}`, isError: true })
+    } finally {
+      setIsSyncingVault(false)
+    }
+  }
+
+  const handleToggleVault = async (enable: boolean) => {
+    setIsTogglingVault(true)
+    setVaultFeedback(null)
+    try {
+      const res = await api.toggleVault(enable)
+      setVaultFeedback({
+        text: res.enabled ? 'Conversation Vault Shield enabled.' : 'Conversation Vault Shield disabled.',
+        isError: false,
+      })
+      await loadVaultStatus()
+    } catch (err: any) {
+      setVaultFeedback({ text: `Failed to toggle vault: ${err.message}`, isError: true })
+    } finally {
+      setIsTogglingVault(false)
     }
   }
 
@@ -324,8 +478,10 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
 
   useEffect(() => {
     loadInstallations()
+    loadAppRelease()
     loadPasswordSettings()
     loadStorageSettings()
+    loadVaultStatus()
     loadPrivacySettings()
     loadMemoSettings()
   }, [])
@@ -389,20 +545,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
       setPasswordFeedback({ text: err.message || 'Failed to remove password.', isError: true })
     } finally {
       setIsSubmittingPassword(false)
-    }
-  }
-
-  const handleCheckUpdates = async () => {
-    setIsCheckingUpdates(true)
-    setUpdateFeedback(null)
-    try {
-      const data = await api.checkUpdates()
-      setInstallations(data)
-      setUpdateFeedback('Update check completed successfully.')
-    } catch (err: any) {
-      setUpdateFeedback(`Update check failed: ${err.message}`)
-    } finally {
-      setIsCheckingUpdates(false)
     }
   }
 
@@ -1317,6 +1459,130 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                 style={{ padding: '7px 20px', fontSize: '12.5px' }}
               >
                 {isSavingStorage ? 'Applying...' : 'Apply Storage Setting'}
+              </button>
+            </div>
+          </div>
+
+          {/* Conversation History Vault & Auto-Shield Card */}
+          <div className="google-card">
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '16px', gap: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                <Archive size={18} color="var(--primary)" style={{ marginTop: '2px', flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+                    Conversation History Vault & Auto-Shield
+                  </div>
+                  <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
+                    Prevents Antigravity's 500-session limit from silently pruning older conversations. Preserves database files via zero-overhead hardlinks and rescues unlinked conversations back into the active workspace.
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {vaultStatus?.enabled !== false ? (
+                  <span className="badge-chip badge-green" style={{ fontSize: '11.5px', padding: '5px 12px' }}>
+                    <ShieldCheck size={13} />
+                    <span>Shield Active</span>
+                  </span>
+                ) : (
+                  <span className="badge-chip badge-tonal" style={{ fontSize: '11.5px', padding: '5px 12px' }}>
+                    <ShieldAlert size={13} />
+                    <span>Shield Paused</span>
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {vaultFeedback && (
+              <div
+                style={{
+                  backgroundColor: vaultFeedback.isError ? 'var(--red-bg)' : 'var(--green-bg)',
+                  color: vaultFeedback.isError ? 'var(--red)' : 'var(--green)',
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  marginBottom: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                {vaultFeedback.isError ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
+                <span>{vaultFeedback.text}</span>
+              </div>
+            )}
+
+            {/* Metrics */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '18px' }}>
+              <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+                  Live Sessions
+                </div>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
+                  {vaultStatus?.live_count ?? 0}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  in ~/.gemini/conversations
+                </div>
+              </div>
+
+              <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+                  Vaulted Inodes
+                </div>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--primary)', marginTop: '4px' }}>
+                  {vaultStatus?.vaulted_count ?? 0}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  hardlinked in vault
+                </div>
+              </div>
+
+              <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+                  Auto-Rescued
+                </div>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--green)', marginTop: '4px' }}>
+                  {vaultStatus?.rescued_count ?? 0}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  restored on demand
+                </div>
+              </div>
+
+              <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+                  Disk Overhead
+                </div>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
+                  0 B
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  shared filesystem inodes
+                </div>
+              </div>
+            </div>
+
+            {/* Toggle and Action Bar */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', color: 'var(--text)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={vaultStatus?.enabled ?? true}
+                  disabled={isTogglingVault}
+                  onChange={(e) => handleToggleVault(e.target.checked)}
+                />
+                <span>Automatically sync and shield conversation databases against Antigravity background pruner</span>
+              </label>
+
+              <button
+                onClick={handleSyncVault}
+                disabled={isSyncingVault}
+                className="btn-pill-tonal"
+                style={{ padding: '7px 18px', fontSize: '12px' }}
+              >
+                <RefreshCw size={13} className={isSyncingVault ? 'animate-spin' : ''} />
+                <span>{isSyncingVault ? 'Syncing...' : 'Sync Vault Now'}</span>
               </button>
             </div>
           </div>
@@ -2307,49 +2573,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
       {/* Tab 3: About */}
       {currentTab === 3 && (
         <>
-          {/* App Info Card */}
-          <div className="google-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              <div
-                style={{
-                  width: '44px',
-                  height: '44px',
-                  borderRadius: '12px',
-                  backgroundColor: 'rgba(26, 115, 232, 0.1)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'var(--primary)',
-                  fontWeight: 800,
-                  fontSize: '18px',
-                }}
-              >
-                SK
-              </div>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <h2 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: 'var(--text)' }}>
-                    Antigravity Swiss Knife
-                  </h2>
-                  <span className="badge-chip badge-green">v2.0.0</span>
-                </div>
-                <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', marginTop: '3px' }}>
-                  Native standalone desktop companion and quota manager for Google Antigravity 2.0.
-                </div>
-              </div>
-            </div>
-
-            <a
-              href="https://github.com/ChillingWombat/AntigravitySwissKnife"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-pill-tonal"
-              style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
-            >
-              <ExternalLink size={13} /> View on GitHub
-            </a>
-          </div>
-
           {/* Support & Community Appreciation Card */}
           <div className="google-card" style={{ backgroundColor: 'var(--surface)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
@@ -2378,21 +2601,25 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '8px',
-                  backgroundColor: '#ffde21',
+                  backgroundColor: '#fef9c3',
                   color: '#000000',
-                  border: 'none',
+                  border: '1px solid #facc15',
                   borderRadius: '7px',
                   padding: '4px 18px',
                   height: '42px',
                   fontWeight: 700,
                   fontSize: '14px',
                   cursor: 'pointer',
-                  boxShadow: '1px 1px 0px rgba(0, 0, 0, 0.2)',
+                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.06)',
                   textDecoration: 'none',
-                  transition: 'opacity 0.15s ease, transform 0.15s ease',
+                  transition: 'background-color 0.15s ease, transform 0.15s ease',
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.9')}
-                onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#fef08a'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#fef9c3'
+                }}
               >
                 <img
                   src={soloCanImg}
@@ -2538,236 +2765,258 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
             </div>
           )}
 
-          {/* Antigravity Installations & Updates Card */}
+          {/* App Releases & System Updates Card */}
           <div className="google-card">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
               <div>
                 <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                  Antigravity Installations & Updates
+                  App Releases & System Updates
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  Cross-platform host detection ({installations?.platform || 'linux'} / {installations?.arch || 'amd64'})
+                  Antigravity Swiss Knife release channel ({appRelease?.platform || installations?.platform || 'linux'} / {appRelease?.arch || installations?.arch || 'amd64'})
                 </div>
               </div>
 
-              <button
-                onClick={handleCheckUpdates}
-                disabled={isCheckingUpdates}
-                className="btn-pill-primary"
-                style={{ padding: '6px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-              >
-                <RefreshCw size={13} />
-                {isCheckingUpdates ? 'Checking...' : 'Check for Updates'}
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={handleCheckAppRelease}
+                  disabled={isCheckingAppRelease}
+                  className="btn-pill-primary"
+                  style={{ padding: '6px 14px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
+                >
+                  <RefreshCw size={13} className={isCheckingAppRelease ? 'animate-spin' : ''} />
+                  {isCheckingAppRelease ? 'Checking...' : 'Check for Updates'}
+                </button>
+
+                {appRelease?.has_update && (
+                  <button
+                    type="button"
+                    onClick={handleUpgradeApp}
+                    disabled={isUpgrading}
+                    className="btn-pill-primary"
+                    style={{
+                      padding: '6px 14px',
+                      fontSize: '12px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      backgroundColor: 'var(--green)',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <Download size={13} />
+                    {isUpgrading ? 'Upgrading...' : 'Upgrade Now'}
+                  </button>
+                )}
+              </div>
             </div>
 
-            {updateFeedback && (
-              <div style={{ fontSize: '12px', color: 'var(--primary)', marginBottom: '14px', fontWeight: 500 }}>
-                {updateFeedback}
+            {/* Diagnostic / feedback alerts */}
+            {appReleaseFeedback && (
+              <div
+                style={{
+                  backgroundColor: appReleaseFeedback.isError ? 'var(--red-bg)' : 'var(--green-bg)',
+                  color: appReleaseFeedback.isError ? 'var(--red)' : 'var(--green)',
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  marginBottom: '16px',
+                  fontWeight: 500,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                <CheckCircle2 size={15} />
+                <span>{appReleaseFeedback.text}</span>
               </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
-              {/* Desktop App */}
+            {upgradeFeedback && (
+              <div
+                style={{
+                  backgroundColor: upgradeFeedback.isError ? 'var(--red-bg)' : 'var(--green-bg)',
+                  color: upgradeFeedback.isError ? 'var(--red)' : 'var(--green)',
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  marginBottom: '16px',
+                  fontWeight: 500,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                <CheckCircle2 size={15} />
+                <span>{upgradeFeedback.text}</span>
+              </div>
+            )}
+
+            {/* Status Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '16px' }}>
+              {/* Current Version */}
               <div
                 style={{
                   border: '1px solid var(--border)',
-                  borderRadius: '12px',
-                  padding: '16px',
+                  borderRadius: '10px',
+                  padding: '14px 16px',
                   backgroundColor: 'var(--canvas)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
                 }}
               >
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Monitor size={18} color="var(--primary)" />
-                      <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
-                        Desktop App (2.0)
-                      </span>
-                    </div>
-                    {installations?.desktop_app?.installed ? (
-                      <span className={`badge-chip ${installations.desktop_app.up_to_date ? 'badge-green' : 'badge-yellow'}`}>
-                        {installations.desktop_app.up_to_date
-                          ? `v${installations.desktop_app.version} (Up to Date)`
-                          : `v${installations.desktop_app.version} → v${installations.desktop_app.latest_version} (Update Available)`}
-                      </span>
-                    ) : (
-                      <span className="badge-chip badge-neutral">Not Detected</span>
-                    )}
-                  </div>
-
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>
-                    <strong>Binary / Package Path:</strong>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px' }}>
-                    <input
-                      type="text"
-                      readOnly
-                      value={installations?.desktop_app?.path || 'Not installed'}
-                      style={{
-                        flex: 1,
-                        backgroundColor: '#ffffff',
-                        fontFamily: 'monospace',
-                        fontSize: '11px',
-                        padding: '6px 10px',
-                        borderRadius: '6px',
-                        border: '1px solid var(--border)',
-                        color: 'var(--text)',
-                      }}
-                    />
-                    {installations?.desktop_app?.path && (
-                      <button
-                        onClick={() => copyPath('desktop_path', installations.desktop_app.path)}
-                        className="btn-pill-tonal"
-                        style={{ padding: '5px 10px', fontSize: '11px' }}
-                        title="Copy path"
-                      >
-                        {copiedKey === 'desktop_path' ? <Check size={12} /> : <Copy size={12} />}
-                      </button>
-                    )}
-                  </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)' }}>CURRENT VERSION</span>
+                  <span className="badge-chip badge-green">Installed</span>
                 </div>
-
-                <div style={{ fontSize: '11px', color: 'var(--text-subtle)', borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
-                  <strong>Process State:</strong> {installations?.desktop_app?.process_state || (status?.antigravity_running ? `Running (PID: ${status.antigravity_pid})` : 'Not running')}
+                <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text)' }}>
+                  v{appRelease?.current_version || '2.0.0'}
+                </div>
+                <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  Active desktop runtime build
                 </div>
               </div>
 
-              {/* agy CLI */}
+              {/* Latest Release */}
               <div
                 style={{
                   border: '1px solid var(--border)',
-                  borderRadius: '12px',
-                  padding: '16px',
+                  borderRadius: '10px',
+                  padding: '14px 16px',
                   backgroundColor: 'var(--canvas)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
                 }}
               >
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Terminal size={18} color="var(--primary)" />
-                      <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
-                        agy CLI
-                      </span>
-                    </div>
-                    {storageInfo?.app_zones?.agy?.installed ? (
-                      <span className="badge-chip badge-green">
-                        Installed {storageInfo.app_zones.agy.version ? `v${storageInfo.app_zones.agy.version}` : ''}
-                      </span>
-                    ) : (
-                      <span className="badge-chip badge-neutral">Not Detected</span>
-                    )}
-                  </div>
-
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>
-                    <strong>CLI Binary Path:</strong>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px' }}>
-                    <input
-                      type="text"
-                      readOnly
-                      value={storageInfo?.app_zones?.agy?.active_path || storageInfo?.app_zones?.agy?.detected_path || 'Not installed'}
-                      style={{
-                        flex: 1,
-                        backgroundColor: '#ffffff',
-                        fontFamily: 'monospace',
-                        fontSize: '11px',
-                        padding: '6px 10px',
-                        borderRadius: '6px',
-                        border: '1px solid var(--border)',
-                        color: 'var(--text)',
-                      }}
-                    />
-                    {(storageInfo?.app_zones?.agy?.active_path || storageInfo?.app_zones?.agy?.detected_path) && (
-                      <button
-                        onClick={() => copyPath('agy_path', storageInfo?.app_zones?.agy?.active_path || storageInfo?.app_zones?.agy?.detected_path || '')}
-                        className="btn-pill-tonal"
-                        style={{ padding: '5px 10px', fontSize: '11px' }}
-                        title="Copy path"
-                      >
-                        {copiedKey === 'agy_path' ? <Check size={12} /> : <Copy size={12} />}
-                      </button>
-                    )}
-                  </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)' }}>LATEST RELEASE</span>
+                  {appRelease?.has_update ? (
+                    <span className="badge-chip badge-yellow">Update Available</span>
+                  ) : (
+                    <span className="badge-chip badge-green">Up to Date</span>
+                  )}
                 </div>
-
-                <div style={{ fontSize: '11px', color: 'var(--text-subtle)', borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
-                  <strong>Execution Target:</strong> {storageInfo?.app_zones?.agy?.installed ? 'Autonomous terminal runner' : 'Binary not found in PATH'}
+                <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text)' }}>
+                  v{appRelease?.latest_version || appRelease?.current_version || '2.0.0'}
+                </div>
+                <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  {appRelease?.has_update
+                    ? `New version available (${appRelease.release_name || 'v' + appRelease.latest_version})`
+                    : 'Newest public release confirmed'}
                 </div>
               </div>
 
-              {/* VS Code Extension */}
+              {/* Update Status */}
               <div
                 style={{
                   border: '1px solid var(--border)',
-                  borderRadius: '12px',
-                  padding: '16px',
+                  borderRadius: '10px',
+                  padding: '14px 16px',
                   backgroundColor: 'var(--canvas)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
                 }}
               >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)' }}>CHECK STATUS</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-muted)', fontSize: '11px' }}>
+                    <Clock size={11} />
+                    <span>{appRelease?.last_checked ? appRelease.last_checked.split(' ')[1] || appRelease.last_checked : 'Active'}</span>
+                  </div>
+                </div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: appRelease?.has_update ? 'var(--yellow, #b06000)' : 'var(--green)' }}>
+                  {appRelease?.status_message || 'Application is up to date.'}
+                </div>
+                <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  {appRelease?.last_checked ? `Last checked: ${appRelease.last_checked}` : 'Ready to verify'}
+                </div>
+              </div>
+            </div>
+
+            {/* Release notes preview if available */}
+            {appRelease?.release_notes && (
+              <div
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: '10px',
+                  padding: '12px 16px',
+                  backgroundColor: 'var(--canvas)',
+                  marginBottom: '16px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>
+                    Release Notes & Highlights ({appRelease.release_name || `v${appRelease.latest_version}`})
+                  </div>
+                  {appRelease.html_url && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenExternal(appRelease.html_url)}
+                      className="btn-pill-tonal"
+                      style={{ fontSize: '11px', padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      <ExternalLink size={11} /> View Release on GitHub
+                    </button>
+                  )}
+                </div>
+                <div
+                  style={{
+                    fontSize: '12px',
+                    color: 'var(--text-muted)',
+                    lineHeight: 1.5,
+                    maxHeight: '120px',
+                    overflowY: 'auto',
+                    whiteSpace: 'pre-wrap',
+                  }}
+                >
+                  {appRelease.release_notes}
+                </div>
+              </div>
+            )}
+
+            {/* Automation Options: Auto Check & Upgrade */}
+            <div
+              style={{
+                border: '1px solid var(--border)',
+                borderRadius: '10px',
+                padding: '16px',
+                backgroundColor: 'var(--canvas)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '14px',
+              }}
+            >
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+                Release Automation & Background Options
+              </div>
+
+              {/* Toggle 1: Auto-check */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Code size={18} color="var(--primary)" />
-                      <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
-                        VS Code Extension
-                      </span>
-                    </div>
-                    {installations?.vscode_extension?.installed ? (
-                      <span className={`badge-chip ${installations.vscode_extension.up_to_date ? 'badge-green' : 'badge-yellow'}`}>
-                        {installations.vscode_extension.up_to_date
-                          ? `v${installations.vscode_extension.version} (Up to Date)`
-                          : `v${installations.vscode_extension.version} → v${installations.vscode_extension.latest_version} (Update Available)`}
-                      </span>
-                    ) : (
-                      <span className="badge-chip badge-neutral">Not Detected</span>
-                    )}
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                    Automatically Check for Updates
                   </div>
-
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>
-                    <strong>Extension Directory:</strong>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px' }}>
-                    <input
-                      type="text"
-                      readOnly
-                      value={installations?.vscode_extension?.path || 'Not installed'}
-                      style={{
-                        flex: 1,
-                        backgroundColor: '#ffffff',
-                        fontFamily: 'monospace',
-                        fontSize: '11px',
-                        padding: '6px 10px',
-                        borderRadius: '6px',
-                        border: '1px solid var(--border)',
-                        color: 'var(--text)',
-                      }}
-                    />
-                    {installations?.vscode_extension?.path && (
-                      <button
-                        onClick={() => copyPath('vscode_path', installations.vscode_extension.path)}
-                        className="btn-pill-tonal"
-                        style={{ padding: '5px 10px', fontSize: '11px' }}
-                        title="Copy path"
-                      >
-                        {copiedKey === 'vscode_path' ? <Check size={12} /> : <Copy size={12} />}
-                      </button>
-                    )}
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    Periodically check GitHub releases in the background when the application starts.
                   </div>
                 </div>
+                <ToggleSwitch
+                  checked={autoCheckUpdates}
+                  onChange={handleToggleAutoCheck}
+                />
+              </div>
 
-                <div style={{ fontSize: '11px', color: 'var(--text-subtle)', borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
-                  <strong>Integration Target:</strong> {installations?.vscode_extension?.installed ? 'Webview injection ready' : 'Extension not found'}
+              <div style={{ height: '1px', backgroundColor: 'var(--border)' }} />
+
+              {/* Toggle 2: Auto-upgrade */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                    Auto-Check & Upgrade
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    Automatically check for newer releases and stage updates for seamless desktop upgrading.
+                  </div>
                 </div>
+                <ToggleSwitch
+                  checked={autoUpgrade}
+                  onChange={handleToggleAutoUpgrade}
+                />
               </div>
             </div>
           </div>

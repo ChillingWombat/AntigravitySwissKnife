@@ -251,33 +251,6 @@ class AsyncUnixSocketServer:
             self.broadcast_event_threadsafe("notify.cache_pruned", res_dict)
             return res_dict
 
-        @self.register("cache.analyze_prompts")
-        def rpc_cache_analyze_prompts(
-            conversation_id: str | None = None,
-            transcript_path: str | None = None,
-        ) -> dict[str, Any]:
-            if not prompt_optimizer:
-                from antigravity_swiss.cache_optimizer.prompt_cache import PromptCacheOptimizer
-                optimizer = PromptCacheOptimizer(data_dir=getattr(inspector, "data_dir", None))
-            else:
-                optimizer = prompt_optimizer
-
-            if transcript_path:
-                analysis = optimizer.analyze_transcript(transcript_path)
-            elif conversation_id:
-                analysis = optimizer.analyze_conversation(conversation_id)
-            else:
-                active_id = getattr(inspector, "get_active_conversation_id", lambda: None)()
-                if active_id:
-                    analysis = optimizer.analyze_conversation(active_id)
-                else:
-                    results = optimizer.scan_all_conversations(limit=1)
-                    analysis = results[0] if results else None
-
-            if not analysis:
-                return {"error": "No conversation transcript found to analyze"}
-            return analysis.to_dict() if hasattr(analysis, "to_dict") else analysis
-
     async def start(self) -> None:
         """Bind socket, set permissions to 0600, and start listening."""
         if self._running:

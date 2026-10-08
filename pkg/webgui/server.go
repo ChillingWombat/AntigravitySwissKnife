@@ -33,6 +33,7 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/system"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/templates"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/totp"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/vault"
 )
 
 //go:embed all:dist
@@ -45,10 +46,12 @@ type Server struct {
 	customModelsStore  *custommodels.Store
 	customModelsTester *custommodels.Tester
 	systemDetector     *system.Detector
+	appReleaseManager  *system.AppReleaseManager
 	enhancementsStore  *enhancements.Store
 	templatesStore     *templates.Store
 	oauthMgr           *keyring.GoogleOAuthManager
 	githubService      *github.Service
+	vaultManager       *vault.Manager
 	httpServer         *http.Server
 	addr               string
 	memoMu             sync.RWMutex
@@ -66,25 +69,39 @@ func NewServer(addr string, socketPath string) *Server {
 	cmStore, _ := custommodels.NewStore("")
 	cmTester := custommodels.NewTester()
 	sysDetector := system.NewDetector()
+	appRelMgr := system.NewAppReleaseManager()
 	enhStore, _ := enhancements.NewStore("")
 	tmplStore, _ := templates.NewStore("")
 	oauthMgr := keyring.NewGoogleOAuthManager("", "")
 	ghStore, _ := github.NewStore("")
 	ghTracker := github.NewAgentTracker("", ghStore)
 	ghService := github.NewService(ghTracker, ghStore)
+	vaultMgr := vault.NewManager("", "")
 	return &Server{
 		client:             client,
 		guiStore:           guiStore,
 		customModelsStore:  cmStore,
 		customModelsTester: cmTester,
 		systemDetector:     sysDetector,
+		appReleaseManager:  appRelMgr,
 		enhancementsStore:  enhStore,
 		templatesStore:     tmplStore,
 		oauthMgr:           oauthMgr,
 		githubService:      ghService,
+		vaultManager:       vaultMgr,
 		addr:               addr,
 		knownWorkspaces:    make(map[string]struct{}),
 	}
+}
+
+// SetVaultManager replaces the vaultManager on the server (useful for tests).
+func (s *Server) SetVaultManager(mgr *vault.Manager) {
+	s.vaultManager = mgr
+}
+
+// SetAppReleaseManager replaces the appReleaseManager on the server (useful for tests).
+func (s *Server) SetAppReleaseManager(mgr *system.AppReleaseManager) {
+	s.appReleaseManager = mgr
 }
 
 // SetGUIStore replaces the guiStore on the server (useful for testing with isolated temporary config directories).
@@ -166,6 +183,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/cache/prune", s.handleCachePrune)
 	mux.HandleFunc("/api/quota", s.handleQuota)
 	mux.HandleFunc("/api/quota/fleet", s.handleFleetQuota)
+	mux.HandleFunc("/api/quota/refresh", s.handleQuotaRefresh)
 	mux.HandleFunc("/api/rules", s.handleRules)
 	mux.HandleFunc("/api/rules/auto_switch", s.handleAutoSwitch)
 	mux.HandleFunc("/api/gui/config", s.handleGUIConfig)
@@ -179,18 +197,32 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/gui/projects/open_settings", s.handleGUIProjectsOpenSettings)
 	mux.HandleFunc("/api/gui/conversations/auto-archive", s.handleGUIConversationsAutoArchive)
 	mux.HandleFunc("/api/gui/conversations/pruned", s.handleGUIConversationsPruned)
+	mux.HandleFunc("/api/vault/status", s.handleVaultStatus)
+	mux.HandleFunc("/api/vault/sync", s.handleVaultSync)
+	mux.HandleFunc("/api/vault/toggle", s.handleVaultToggle)
 	mux.HandleFunc("/api/gui/color", s.handleGUIProjectColor)
 	mux.HandleFunc("/api/gui/color/delete", s.handleGUIProjectColorDelete)
 	mux.HandleFunc("/api/gui/projects/color/delete", s.handleGUIProjectColorDelete)
+	mux.HandleFunc("/api/gui/color/reset", s.handleGUIProjectColorDelete)
+	mux.HandleFunc("/api/gui/projects/color/reset", s.handleGUIProjectColorDelete)
 	mux.HandleFunc("/api/gui/reorder", s.handleGUIProjectOrder)
 	mux.HandleFunc("/api/gui/apply", s.handleGUIApply)
 	mux.HandleFunc("/api/gui/desktop/install", s.handleGUIDesktopInstall)
 	mux.HandleFunc("/api/gui/desktop/restore", s.handleGUIDesktopRestore)
 	mux.HandleFunc("/api/gui/desktop/status", s.handleGUIDesktopStatus)
+	mux.HandleFunc("/api/desktop/relaunch", s.handleDesktopRelaunch)
+	mux.HandleFunc("/api/gui/desktop/relaunch", s.handleDesktopRelaunch)
+
 
 	// System installations & updates
 	mux.HandleFunc("/api/system/installations", s.handleSystemInstallations)
 	mux.HandleFunc("/api/system/check_updates", s.handleSystemCheckUpdates)
+
+	// App releases & upgrade
+	mux.HandleFunc("/api/system/app_release", s.handleAppRelease)
+	mux.HandleFunc("/api/system/check_app_release", s.handleCheckAppRelease)
+	mux.HandleFunc("/api/system/app_release/settings", s.handleAppReleaseSettings)
+	mux.HandleFunc("/api/system/app_release/upgrade", s.handleAppReleaseUpgrade)
 
 	// Available models catalog
 	mux.HandleFunc("/api/models/available", s.handleAvailableModels)
@@ -223,6 +255,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/oauth/google/start", s.handleGoogleOAuthStart)
 	mux.HandleFunc("/api/oauth/google/cancel", s.handleGoogleOAuthCancel)
 	mux.HandleFunc("/api/oauth/google/url", s.handleGoogleOAuthURL)
+	mux.HandleFunc("/api/oauth/google/exchange", s.handleGoogleOAuthExchange)
 
 	// Multi-Surface Antigravity Session Inspector
 	mux.HandleFunc("/api/surfaces", s.handleSurfaces)
@@ -295,8 +328,9 @@ func (s *Server) Start() error {
 
 	s.httpServer = &http.Server{
 		Handler:      s.corsMiddleware(mux),
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	go s.httpServer.Serve(l)
@@ -480,6 +514,9 @@ func (s *Server) handleAccountsImport(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, errImport.Error(), http.StatusInternalServerError)
 			return
 		}
+		if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
+			_, _ = quota.PollAndCacheAccount(acc, store)
+		}
 		writeJSON(w, acc)
 		return
 	}
@@ -535,7 +572,19 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 				_, _ = gui.NewInjector(0).RefreshUserStatus()
 			}
 		}
+		acc, _ := store.GetAccount(p.Email)
+		var summary *quota.QuotaSummary
+		if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
+			summary, _ = quota.PollAndCacheAccount(acc, store)
+		}
 		res = map[string]interface{}{"success": true, "email": p.Email}
+		if acc != nil {
+			res["plan_tier"] = acc.PlanTier
+			res["credits"] = acc.Credits
+		}
+		if summary != nil {
+			res["quota"] = summary
+		}
 	}
 	writeJSON(w, res)
 }
@@ -657,14 +706,23 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var p struct {
-		Email string `json:"email"`
+		Email       string `json:"email"`
+		RelaunchIDE *bool  `json:"relaunch_ide"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
+	shouldRelaunch := true
+	if p.RelaunchIDE != nil {
+		shouldRelaunch = *p.RelaunchIDE
+	}
+	reqPayload := map[string]interface{}{
+		"email":        p.Email,
+		"relaunch_ide": shouldRelaunch,
+	}
 	var res map[string]interface{}
-	if err := s.client.Call("swiss.switchAccount", p, &res); err != nil {
+	if err := s.client.Call("swiss.switchAccount", reqPayload, &res); err != nil {
 		store, storeErr := keyring.NewStore("")
 		if storeErr != nil {
 			http.Error(w, storeErr.Error(), http.StatusInternalServerError)
@@ -680,12 +738,37 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 		}
 		if acc, _ := store.GetAccount(p.Email); acc != nil {
 			_ = keyring.SyncAllSurfaces(acc, allEmails, nil)
-			_, _ = gui.NewInjector(0).RefreshUserStatus()
+			if !shouldRelaunch {
+				_, _ = gui.NewInjector(0).RefreshUserStatus()
+			}
 		}
-		res = map[string]interface{}{"switched": true, "account": p.Email}
+		if shouldRelaunch && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+			go func() {
+				time.Sleep(200 * time.Millisecond)
+				_ = process.NewShield(0).RelaunchHostIDE()
+			}()
+		}
+		res = map[string]interface{}{
+			"switched":       true,
+			"account":        p.Email,
+			"success":        true,
+			"active_account": p.Email,
+			"relaunch_ide":   shouldRelaunch,
+		}
+	} else {
+		if res == nil {
+			res = make(map[string]interface{})
+		}
+		res["success"] = true
+		res["active_account"] = p.Email
+		if shouldRelaunch {
+			res["relaunch_ide"] = true
+		}
 	}
 	writeJSON(w, res)
 }
+
+
 
 func (s *Server) handleTOTP(w http.ResponseWriter, r *http.Request) {
 	email := r.URL.Query().Get("email")
@@ -751,24 +834,62 @@ func (s *Server) handleTOTP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleFingerprint(w http.ResponseWriter, r *http.Request) {
 	email := r.URL.Query().Get("email")
 	if r.Method == http.MethodPost {
-		var p struct {
-			Email   string                    `json:"email"`
-			Profile fingerprint.DeviceProfile `json:"profile"`
+		var raw struct {
+			Email            string                     `json:"email"`
+			AccountEmail     string                     `json:"account_email"`
+			Profile          *fingerprint.DeviceProfile `json:"profile"`
+			MachineID        string                     `json:"machine_id"`
+			UpdaterID        string                     `json:"updater_id"`
+			InstallationID   string                     `json:"installation_id"`
+			InstallationUUID string                     `json:"installation_uuid"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 			http.Error(w, "invalid body", http.StatusBadRequest)
 			return
 		}
+		targetEmail := strings.TrimSpace(raw.Email)
+		if targetEmail == "" {
+			targetEmail = strings.TrimSpace(raw.AccountEmail)
+		}
+		var prof fingerprint.DeviceProfile
+		if raw.Profile != nil {
+			prof = *raw.Profile
+			if targetEmail == "" {
+				targetEmail = strings.TrimSpace(prof.AccountEmail)
+			}
+		} else {
+			prof = fingerprint.DeviceProfile{
+				AccountEmail:     targetEmail,
+				MachineID:        strings.TrimSpace(raw.MachineID),
+				UpdaterID:        strings.TrimSpace(raw.UpdaterID),
+				InstallationID:   strings.TrimSpace(raw.InstallationID),
+				InstallationUUID: strings.TrimSpace(raw.InstallationUUID),
+			}
+		}
+		if targetEmail == "" {
+			http.Error(w, "missing account email", http.StatusBadRequest)
+			return
+		}
+		prof.AccountEmail = targetEmail
+
+		reqPayload := map[string]interface{}{
+			"email":   targetEmail,
+			"profile": prof,
+		}
 		var res map[string]interface{}
-		if err := s.client.Call("swiss.setFingerprofile", p, &res); err != nil {
+		if err := s.client.Call("swiss.setFingerprofile", reqPayload, &res); err != nil {
 			fpStore, errStore := fingerprint.NewStore("")
 			if errStore != nil {
 				http.Error(w, errStore.Error(), http.StatusInternalServerError)
 				return
 			}
-			if err := fpStore.SetProfile(p.Email, &p.Profile); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+			if err := fpStore.SetProfile(targetEmail, &prof); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
+			}
+			kStore, _ := keyring.NewStore("")
+			if kStore != nil && strings.EqualFold(targetEmail, kStore.ActiveAccount()) {
+				_ = keyring.SyncHardwareProfile(targetEmail, fpStore)
 			}
 			res = map[string]interface{}{"success": true}
 		}
@@ -783,6 +904,28 @@ func (s *Server) handleFingerprint(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, fresh)
+		return
+	}
+
+	if r.URL.Query().Get("list") == "true" {
+		var list []fingerprint.DeviceProfile
+		if err := s.client.Call("swiss.listFingerprofiles", map[string]interface{}{}, &list); err != nil {
+			fpStore, errStore := fingerprint.NewStore("")
+			if errStore != nil {
+				http.Error(w, errStore.Error(), http.StatusInternalServerError)
+				return
+			}
+			if kStore, errK := keyring.NewStore(""); errK == nil && kStore != nil {
+				for _, acc := range kStore.ListAccounts() {
+					if acc.Email != "" {
+						_, _ = fpStore.GetOrCreateProfile(acc.Email)
+					}
+				}
+			}
+			writeJSON(w, fpStore.ListProfilesSlice())
+			return
+		}
+		writeJSON(w, list)
 		return
 	}
 
@@ -854,21 +997,45 @@ func (s *Server) handleCachePrune(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleQuota(w http.ResponseWriter, r *http.Request) {
+	reqEmail := strings.TrimSpace(r.URL.Query().Get("email"))
+	refreshParam := r.URL.Query().Get("refresh") == "true" || r.URL.Query().Get("refresh") == "1"
 	var q quota.QuotaSummary
-	if err := s.client.Call("swiss.getQuotaSummary", nil, &q); err != nil {
+	params := map[string]interface{}{}
+	if reqEmail != "" {
+		params["email"] = reqEmail
+	}
+	if refreshParam {
+		params["refresh"] = true
+	}
+	if err := s.client.Call("swiss.getQuotaSummary", params, &q); err != nil {
 		store, _ := keyring.NewStore("")
-		active := ""
+		target := reqEmail
+		if target == "" && store != nil {
+			target = store.ActiveAccount()
+		}
+		if refreshParam && store != nil {
+			if acc, _ := store.GetAccount(target); acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
+				if freshSum, errPoll := quota.PollAndCacheAccount(acc, store); errPoll == nil && freshSum != nil {
+					writeJSON(w, *freshSum)
+					return
+				}
+			}
+		}
+		diskCache := quota.LoadQuotaCache()
+		if cached, ok := diskCache[strings.ToLower(strings.TrimSpace(target))]; ok && cached != nil && !refreshParam {
+			writeJSON(w, *cached)
+			return
+		}
 		if store != nil {
-			active = store.ActiveAccount()
-			if acc, _ := store.GetAccount(active); acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
-				if polled, pollErr := quota.PollAccountLiveQuota(acc); pollErr == nil && polled != nil {
-					writeJSON(w, *polled)
+			if acc, _ := store.GetAccount(target); acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
+				if freshSum, errPoll := quota.PollAndCacheAccount(acc, store); errPoll == nil && freshSum != nil {
+					writeJSON(w, *freshSum)
 					return
 				}
 			}
 		}
 		q = quota.QuotaSummary{
-			AccountEmail:  active,
+			AccountEmail:  target,
 			Models:        []quota.ModelQuota{},
 			MinFraction:   0.0,
 			OverallHealth: core.StatusExhausted,
@@ -885,12 +1052,9 @@ func (s *Server) handleFleetQuota(w http.ResponseWriter, r *http.Request) {
 		var accounts []*keyring.Account
 		active := ""
 		if store != nil {
-			_ = keyring.SyncStoreFromCloudAccountsDB(store, "")
-			accounts = store.ListAccounts()
-			active = store.ActiveAccount()
-			summaries := quota.PollFleetAccounts(accounts, store)
 			thresh := core.DefaultAutoSwitchThresholdFraction
 			threshWeekly := core.DefaultAutoSwitchWeeklyThresholdFraction
+			autoImport := false
 			if c, errCfg := core.LoadConfig(); errCfg == nil {
 				if c.AutoSwitchThreshold > 0 {
 					thresh = c.AutoSwitchThreshold
@@ -898,14 +1062,47 @@ func (s *Server) handleFleetQuota(w http.ResponseWriter, r *http.Request) {
 				if c.AutoSwitchWeeklyThreshold > 0 {
 					threshWeekly = c.AutoSwitchWeeklyThreshold
 				}
+				autoImport = c.AutoImportActiveAccount
 			}
-			states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, thresh, threshWeekly)
+			var allEmails []string
+			for _, a := range store.ListAccounts() {
+				allEmails = append(allEmails, a.Email)
+			}
+			_, _ = store.ReconcileActiveAccount(autoImport, allEmails, nil)
+			accounts = store.ListAccounts()
+			active = store.ActiveAccount()
+			states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, nil, thresh, threshWeekly)
 			summary = quota.ComputeFleetSummary(states, active)
+			if len(quota.LoadQuotaCache()) == 0 && len(accounts) > 0 {
+				go func() {
+					_ = quota.PollFleetAccounts(accounts, store)
+				}()
+			}
 		} else {
 			summary = quota.ComputeFleetSummary(nil, "")
 		}
 	}
 	writeJSON(w, summary)
+}
+
+func (s *Server) handleQuotaRefresh(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var res map[string]interface{}
+	if err := s.client.Call("swiss.refreshFleetQuota", nil, &res); err != nil {
+		store, _ := keyring.NewStore("")
+		if store != nil {
+			go func() {
+				accs := store.ListAccounts()
+				_ = quota.PollFleetAccounts(accs, store)
+			}()
+		}
+		writeJSON(w, map[string]interface{}{"status": "refresh_triggered_fallback"})
+		return
+	}
+	writeJSON(w, res)
 }
 
 func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
@@ -1278,6 +1475,9 @@ func (s *Server) handleGUIProjectColorDelete(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	factoryColors := gui.FactoryProjectColors()
+	factoryColor, isFactory := factoryColors[p.Name]
+
 	if s.guiStore != nil {
 		if errRem := s.guiStore.RemoveProjectColor(p.Name); errRem != nil {
 			http.Error(w, errRem.Error(), http.StatusInternalServerError)
@@ -1288,13 +1488,23 @@ func (s *Server) handleGUIProjectColorDelete(w http.ResponseWriter, r *http.Requ
 	var res interface{}
 	if err := s.client.Call("swiss.removeGUIProjectColor", p, &res); err != nil {
 		if s.guiStore != nil {
-			writeJSON(w, map[string]interface{}{"success": true, "name": p.Name})
+			writeJSON(w, map[string]interface{}{
+				"success":          true,
+				"name":             p.Name,
+				"reset_to_factory": isFactory,
+				"color":            factoryColor,
+			})
 			return
 		}
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	writeJSON(w, res)
+	writeJSON(w, map[string]interface{}{
+		"success":          true,
+		"name":             p.Name,
+		"reset_to_factory": isFactory,
+		"color":            factoryColor,
+	})
 }
 
 func (s *Server) handleGUIProjectsArchived(w http.ResponseWriter, r *http.Request) {
@@ -1431,11 +1641,81 @@ func (s *Server) handleGUIConversationsPruned(w http.ResponseWriter, r *http.Req
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if s.vaultManager != nil {
+		cfg, _ := core.LoadConfig()
+		if cfg == nil || cfg.ConversationVaultEnabled {
+			_, _ = s.vaultManager.Sync()
+		}
+	}
 	pruned := gui.GetPrunedConversationIDs()
 	if pruned == nil {
 		pruned = []string{}
 	}
 	writeJSON(w, pruned)
+}
+
+func (s *Server) handleVaultStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	cfg, _ := core.LoadConfig()
+	enabled := true
+	if cfg != nil {
+		enabled = cfg.ConversationVaultEnabled
+	}
+	if s.vaultManager == nil {
+		s.vaultManager = vault.NewManager("", "")
+	}
+	status, err := s.vaultManager.GetStatus(enabled)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"error": err.Error()})
+		return
+	}
+	writeJSON(w, status)
+}
+
+func (s *Server) handleVaultSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.vaultManager == nil {
+		s.vaultManager = vault.NewManager("", "")
+	}
+	res, err := s.vaultManager.Sync()
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, res)
+}
+
+func (s *Server) handleVaultToggle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var p struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		cfg = core.DefaultConfig()
+	}
+	cfg.ConversationVaultEnabled = p.Enabled
+	if err := cfg.Save(); err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	if p.Enabled && s.vaultManager != nil {
+		_, _ = s.vaultManager.Sync()
+	}
+	writeJSON(w, map[string]interface{}{"success": true, "enabled": p.Enabled})
 }
 
 func (s *Server) handleGUIProjectOrder(w http.ResponseWriter, r *http.Request) {
@@ -1542,6 +1822,34 @@ func (s *Server) handleGUIDesktopStatus(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, status)
 }
 
+func (s *Server) handleDesktopRelaunch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" {
+		writeJSON(w, map[string]interface{}{
+			"success": true,
+			"message": "Antigravity host IDE relaunch skipped (dry run)",
+		})
+		return
+	}
+	var res map[string]interface{}
+	if err := s.client.Call("swiss.relaunchIDE", map[string]interface{}{}, &res); err != nil {
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			_ = process.NewShield(0).RelaunchHostIDE()
+		}()
+		res = map[string]interface{}{
+			"success": true,
+			"message": "Antigravity host IDE relaunch initiated",
+		}
+	}
+	writeJSON(w, res)
+}
+
+
+
 func (s *Server) handleSystemInstallations(w http.ResponseWriter, r *http.Request) {
 	if s.systemDetector == nil {
 		s.systemDetector = system.NewDetector()
@@ -1555,6 +1863,80 @@ func (s *Server) handleSystemCheckUpdates(w http.ResponseWriter, r *http.Request
 		s.systemDetector = system.NewDetector()
 	}
 	res, err := s.systemDetector.CheckUpdates()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, res)
+}
+
+func (s *Server) handleAppRelease(w http.ResponseWriter, r *http.Request) {
+	if s.appReleaseManager == nil {
+		s.appReleaseManager = system.NewAppReleaseManager()
+	}
+	cfg, _ := core.LoadConfig()
+	info := s.appReleaseManager.GetCachedReleaseInfo(cfg)
+	writeJSON(w, info)
+}
+
+func (s *Server) handleCheckAppRelease(w http.ResponseWriter, r *http.Request) {
+	if s.appReleaseManager == nil {
+		s.appReleaseManager = system.NewAppReleaseManager()
+	}
+	cfg, _ := core.LoadConfig()
+	info, err := s.appReleaseManager.CheckForUpdates(r.Context(), cfg)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, info)
+}
+
+func (s *Server) handleAppReleaseSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var payload struct {
+		AutoCheck   bool `json:"auto_check"`
+		AutoUpgrade bool `json:"auto_upgrade"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		cfg = core.DefaultConfig()
+	}
+	cfg.AutoCheckUpdates = payload.AutoCheck
+	cfg.AutoUpgrade = payload.AutoUpgrade
+	if err := cfg.Save(); err != nil {
+		http.Error(w, "failed to save configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success":      true,
+		"auto_check":   cfg.AutoCheckUpdates,
+		"auto_upgrade": cfg.AutoUpgrade,
+	})
+}
+
+func (s *Server) handleAppReleaseUpgrade(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.appReleaseManager == nil {
+		s.appReleaseManager = system.NewAppReleaseManager()
+	}
+	cfg, _ := core.LoadConfig()
+	info, err := s.appReleaseManager.CheckForUpdates(r.Context(), cfg)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	res, err := s.appReleaseManager.ExecuteUpgrade(r.Context(), info)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -2055,6 +2437,36 @@ func (s *Server) handleGoogleOAuthURL(w http.ResponseWriter, r *http.Request) {
 		"success":  true,
 		"active":   authURL != "",
 		"auth_url": authURL,
+	})
+}
+
+func (s *Server) handleGoogleOAuthExchange(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed: POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		CallbackURL string `json:"callback_url"`
+		Code        string `json:"code"`
+		RedirectURI string `json:"redirect_uri"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	res, err := s.oauthMgr.Exchange(req.CallbackURL, req.Code, req.RedirectURI)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success":       true,
+		"email":         res.Email,
+		"refresh_token": res.RefreshToken,
+		"access_token":  res.AccessToken,
 	})
 }
 

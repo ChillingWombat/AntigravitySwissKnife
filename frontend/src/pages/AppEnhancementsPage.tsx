@@ -395,11 +395,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
   const op = {
     enabled: rawOp ? rawOp.enabled : true,
     division_style: rawOp?.division_style || 'divider_line',
-    line_thickness: rawOp?.line_thickness || 1,
-    line_width_percent: rawOp?.line_width_percent || 100,
-    line_color: rawOp?.line_color || '#e2e8f0',
-    line_style: rawOp?.line_style || 'solid',
-    line_margin: rawOp?.line_margin !== undefined ? rawOp.line_margin : 0,
     zone_border_radius: rawOp?.zone_border_radius || 8,
     zone_border_color: rawOp?.zone_border_color || '#e2e8f0',
     zone_background_contrast: rawOp?.zone_background_contrast || 'whiter',
@@ -492,98 +487,36 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
 
         {jb.enabled && (
           <div style={{ borderTop: '1px solid var(--border, #e2e8f0)', paddingTop: '18px' }}>
-            {/* Top row: 3 Switches with toggles on the right and vertical breaker lines */}
+            {/* Optional interaction setting: Pulse Highlight Target Prompt Card on Jump */}
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                flexWrap: 'wrap',
+                justifyContent: 'space-between',
                 background: '#f8fafc',
                 borderRadius: '10px',
                 border: '1px solid #e2e8f0',
                 padding: '12px 16px',
                 marginBottom: '20px',
-                gap: '0px',
               }}
             >
-              {/* Switch 1: Sync with Scroll */}
               <label
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  gap: '12px',
+                  width: '100%',
+                  cursor: 'pointer',
                   fontSize: '13px',
                   color: '#334155',
-                  cursor: 'pointer',
-                  flex: 1,
-                  minWidth: '240px',
-                  paddingRight: '8px',
                 }}
               >
-                <span>Sync with Scroll (highlights lowest prompt on screen)</span>
-                <ToggleSwitch
-                  size="sm"
-                  checked={jb.sync_scroll}
-                  onChange={(checked) =>
-                    setConfig({
-                      ...config,
-                      prompt_jump_bar: { ...jb, sync_scroll: checked },
-                    })
-                  }
-                />
-              </label>
-
-              {/* Vertical Breaker 1 */}
-              <div style={{ width: '1px', height: '26px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0' }} />
-
-              {/* Switch 2: Show Preview Tooltip on Hover */}
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '12px',
-                  fontSize: '13px',
-                  color: '#334155',
-                  cursor: 'pointer',
-                  flex: 1,
-                  minWidth: '220px',
-                  padding: '0 8px',
-                }}
-              >
-                <span>Show Preview Tooltip on Hover</span>
-                <ToggleSwitch
-                  size="sm"
-                  checked={jb.show_tooltip}
-                  onChange={(checked) =>
-                    setConfig({
-                      ...config,
-                      prompt_jump_bar: { ...jb, show_tooltip: checked },
-                    })
-                  }
-                />
-              </label>
-
-              {/* Vertical Breaker 2 */}
-              <div style={{ width: '1px', height: '26px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0' }} />
-
-              {/* Switch 3: Pulse Highlight Target Prompt Card on Jump */}
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '12px',
-                  fontSize: '13px',
-                  color: '#334155',
-                  cursor: 'pointer',
-                  flex: 1,
-                  minWidth: '240px',
-                  paddingLeft: '8px',
-                }}
-              >
-                <span>Pulse Highlight Target Prompt Card on Jump</span>
+                <div>
+                  <span style={{ fontWeight: 500 }}>Pulse Highlight Target Prompt Card on Jump</span>
+                  <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
+                    Briefly highlights the target prompt card with an accent focus outline for 1.2s when jumping.
+                  </p>
+                </div>
                 <ToggleSwitch
                   size="sm"
                   checked={jb.focus_pulse}
@@ -665,11 +598,11 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           min="1.5"
                           max="8"
                           step="0.5"
-                          value={jb.dash_thickness || 3.5}
+                          value={jb.dash_thickness || 2.5}
                           onChange={(e) =>
                             setConfig({
                               ...config,
-                              prompt_jump_bar: { ...jb, dash_thickness: parseFloat(e.target.value) || 3.5 },
+                              prompt_jump_bar: { ...jb, dash_thickness: parseFloat(e.target.value) || 2.5 },
                             })
                           }
                           style={{
@@ -680,7 +613,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                             fontSize: '12.5px',
                           }}
                         />
-                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (default: 3.5)</span>
+                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (default: 2.5)</span>
                       </div>
                     </div>
 
@@ -729,7 +662,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     Active & Hover Line Color
                   </div>
                   <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#64748b' }}>
-                    Inactive lines remain subtle grey ({jb.inactive_thickness || 1.5}px). Choose the accent color for active indicator ({jb.dash_thickness || 3.5}px) and hover:
+                    Inactive lines remain subtle grey ({jb.inactive_thickness || 1.5}px). Choose the accent color for active indicator ({jb.dash_thickness || 2.5}px) and hover:
                   </p>
 
                   <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '14px' }}>
@@ -1007,7 +940,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     {[0, 1, 2, 3, 4].map((idx) => {
                       const isActive = idx === 2
                       const isHovered = previewHover === idx
-                      const activeH = `${jb.dash_thickness || 3.5}px`
+                      const activeH = `${jb.dash_thickness || 2.5}px`
                       const inactiveH = `${jb.inactive_thickness || 1.5}px`
                       const h = isActive ? activeH : inactiveH
                       const bg = isActive || isHovered ? activeColor : 'rgba(100, 116, 139, 0.42)'
@@ -1032,7 +965,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   </div>
 
                   <div style={{ fontSize: '12px', color: '#64748b', lineHeight: 1.5 }}>
-                    Line #3 is active (<strong>{jb.dash_width || 14}px &times; {jb.dash_thickness || 3.5}px</strong> in{' '}
+                    Line #3 is active (<strong>{jb.dash_width || 14}px &times; {jb.dash_thickness || 2.5}px</strong> in{' '}
                     <span style={{ color: activeColor, fontWeight: 700 }}>{activeColor}</span>).
                     <br />
                     Hover lines to test accent hover. Inactive lines stay at <strong>{jb.inactive_thickness || 1.5}px</strong> grey.
@@ -2410,6 +2343,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     justifyContent: 'center',
                     width: '100%',
                     height: '24px',
+                    marginTop: '1px',
                     cursor: 'pointer',
                     userSelect: 'none',
                     padding: '0',
@@ -2538,6 +2472,110 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Feature 7: Auto-Archive Inactive Conversations */}
+      {guiConfig && (
+        <div className="google-card" style={{ marginTop: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+                Auto-Archive Inactive Conversations
+              </h2>
+              <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)', maxWidth: '600px' }}>
+                Archive inactive project conversations to history after a set duration.
+              </p>
+            </div>
+
+            <ToggleSwitch
+              checked={guiConfig.auto_archive_conversations ?? true}
+              onChange={(checked) =>
+                setGuiConfig({
+                  ...guiConfig,
+                  auto_archive_conversations: checked,
+                })
+              }
+            />
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                  Inactivity Time Horizon Cutoff
+                </label>
+                <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Conversations inactive for longer than this duration will be archived.
+                </p>
+              </div>
+
+              <select
+                value={guiConfig.auto_archive_horizon || '14d'}
+                onChange={(e) =>
+                  setGuiConfig({
+                    ...guiConfig,
+                    auto_archive_horizon: e.target.value as any,
+                  })
+                }
+                style={{
+                  height: '36px',
+                  padding: '0 12px',
+                  borderRadius: '6px',
+                  border: '1.5px solid #cbd5e1',
+                  background: 'var(--card-bg, #ffffff)',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                  minWidth: '180px',
+                }}
+              >
+                <option value="3d">3 days</option>
+                <option value="7d">7 days</option>
+                <option value="14d">14 days</option>
+                <option value="30d">30 days</option>
+                <option value="60d">60 days</option>
+                <option value="90d">90 days</option>
+              </select>
+            </div>
+
+            <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                  Manual Archival Trigger
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Scan conversation database now and archive conversations older than {guiConfig.auto_archive_horizon || '14d'}.
+                </div>
+                {archiveResult && (
+                  <div style={{ marginTop: '4px', fontSize: '12px', color: '#059669', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <CheckCircle2 size={13} />
+                    <span>{archiveResult}</span>
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={handleTriggerAutoArchive}
+                disabled={archiving}
+                className="google-button google-button-secondary"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  height: '36px',
+                  padding: '0 16px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: archiving ? 'not-allowed' : 'pointer',
+                }}
+              >
+                <Archive size={16} />
+                <span>{archiving ? 'Scanning & Archiving...' : 'Archive Inactive Conversations Now'}</span>
+              </button>
             </div>
           </div>
         </div>
@@ -3027,231 +3065,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 </div>
 
                 {/* Detailed Controls based on selected mode */}
-                {op.division_style === 'divider_line' ? (
-                  /* Option 1 Settings: Line Thickness, Width, Style, Margin & Color */
-                  <div
-                    style={{
-                      background: '#f8fafc',
-                      borderRadius: '10px',
-                      border: '1px solid #e2e8f0',
-                      padding: '16px 20px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '16px',
-                    }}
-                  >
-                    <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>
-                      Divider Line Geometry & Dimensions
-                    </div>
-
-                    {/* Thickness & Width row with vertical grey breaker */}
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        flexWrap: 'wrap',
-                        gap: '0px',
-                        padding: '12px 14px',
-                        background: '#ffffff',
-                        borderRadius: '8px',
-                        border: '1px solid #e2e8f0',
-                      }}
-                    >
-                      {/* Line Thickness */}
-                      <div style={{ flex: 1, minWidth: '180px', paddingRight: '8px' }}>
-                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
-                          Line Thickness: <strong>{op.line_thickness}px</strong>
-                        </label>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          {[1, 2, 3, 4].map((t) => (
-                            <button
-                              key={t}
-                              type="button"
-                              onClick={() => setConfig({ ...config, overview_panel: { ...op, line_thickness: t } })}
-                              style={{
-                                flex: 1,
-                                padding: '5px 0',
-                                borderRadius: '6px',
-                                fontSize: '12px',
-                                fontWeight: op.line_thickness === t ? 700 : 500,
-                                color: op.line_thickness === t ? '#ffffff' : '#334155',
-                                backgroundColor: op.line_thickness === t ? '#0b57d0' : '#f1f5f9',
-                                border: '1px solid',
-                                borderColor: op.line_thickness === t ? '#0b57d0' : '#e2e8f0',
-                                cursor: 'pointer',
-                              }}
-                            >
-                              {t}px
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Vertical Grey Breaker */}
-                      <div style={{ width: '1px', height: '40px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0' }} />
-
-                      {/* Line Width Percent */}
-                      <div style={{ flex: 1, minWidth: '180px', paddingLeft: '8px' }}>
-                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
-                          Line Width: <strong>{op.line_width_percent}%</strong>
-                        </label>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          {[100, 95, 90, 80].map((w) => (
-                            <button
-                              key={w}
-                              type="button"
-                              onClick={() => setConfig({ ...config, overview_panel: { ...op, line_width_percent: w } })}
-                              style={{
-                                flex: 1,
-                                padding: '5px 0',
-                                borderRadius: '6px',
-                                fontSize: '12px',
-                                fontWeight: op.line_width_percent === w ? 700 : 500,
-                                color: op.line_width_percent === w ? '#ffffff' : '#334155',
-                                backgroundColor: op.line_width_percent === w ? '#0b57d0' : '#f1f5f9',
-                                border: '1px solid',
-                                borderColor: op.line_width_percent === w ? '#0b57d0' : '#e2e8f0',
-                                cursor: 'pointer',
-                              }}
-                            >
-                              {w}%
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Style & Margin row with vertical grey breaker */}
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        flexWrap: 'wrap',
-                        gap: '0px',
-                        padding: '12px 14px',
-                        background: '#ffffff',
-                        borderRadius: '8px',
-                        border: '1px solid #e2e8f0',
-                      }}
-                    >
-                      {/* Line Style */}
-                      <div style={{ flex: 1, minWidth: '180px', paddingRight: '8px' }}>
-                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
-                          Line Style:
-                        </label>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          {(['solid', 'dashed', 'dotted'] as const).map((s) => (
-                            <button
-                              key={s}
-                              type="button"
-                              onClick={() => setConfig({ ...config, overview_panel: { ...op, line_style: s } })}
-                              style={{
-                                flex: 1,
-                                padding: '5px 0',
-                                borderRadius: '6px',
-                                fontSize: '12px',
-                                textTransform: 'capitalize',
-                                fontWeight: op.line_style === s ? 700 : 500,
-                                color: op.line_style === s ? '#ffffff' : '#334155',
-                                backgroundColor: op.line_style === s ? '#0b57d0' : '#f1f5f9',
-                                border: '1px solid',
-                                borderColor: op.line_style === s ? '#0b57d0' : '#e2e8f0',
-                                cursor: 'pointer',
-                              }}
-                            >
-                              {s}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Vertical Grey Breaker */}
-                      <div style={{ width: '1px', height: '40px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0' }} />
-
-                      {/* Vertical Spacing / Margin */}
-                      <div style={{ flex: 1, minWidth: '180px', paddingLeft: '8px' }}>
-                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
-                          Vertical Margin: <strong>{op.line_margin === 0 ? '0px (Factory Distance)' : `${op.line_margin}px`}</strong>
-                        </label>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          {[0, 4, 8, 12].map((m) => (
-                            <button
-                              key={m}
-                              type="button"
-                              onClick={() => setConfig({ ...config, overview_panel: { ...op, line_margin: m } })}
-                              style={{
-                                flex: 1,
-                                padding: '5px 0',
-                                borderRadius: '6px',
-                                fontSize: '12px',
-                                fontWeight: op.line_margin === m ? 700 : 500,
-                                color: op.line_margin === m ? '#ffffff' : '#334155',
-                                backgroundColor: op.line_margin === m ? '#0b57d0' : '#f1f5f9',
-                                border: '1px solid',
-                                borderColor: op.line_margin === m ? '#0b57d0' : '#e2e8f0',
-                                cursor: 'pointer',
-                              }}
-                            >
-                              {m === 0 ? 'Factory' : `${m}px`}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Line Color Palette */}
-                    <div>
-                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
-                        Line Color:
-                      </label>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        {[
-                          { label: 'Subtle Grey', hex: '#e2e8f0' },
-                          { label: 'Slate', hex: '#cbd5e1' },
-                          { label: 'Neutral Dark', hex: '#94a3b8' },
-                          { label: 'Google Blue', hex: '#0b57d0' },
-                        ].map((col) => (
-                          <button
-                            key={col.hex}
-                            type="button"
-                            onClick={() => setConfig({ ...config, overview_panel: { ...op, line_color: col.hex } })}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '5px 10px',
-                              borderRadius: '6px',
-                              border: `1.5px solid ${op.line_color === col.hex ? '#0b57d0' : '#e2e8f0'}`,
-                              background: op.line_color === col.hex ? '#eff6ff' : '#ffffff',
-                              fontSize: '12px',
-                              fontWeight: op.line_color === col.hex ? 700 : 500,
-                              color: '#334155',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: col.hex, display: 'inline-block', border: '1px solid rgba(0,0,0,0.1)' }} />
-                            <span>{col.label}</span>
-                          </button>
-                        ))}
-                        <input
-                          type="text"
-                          value={op.line_color || '#e2e8f0'}
-                          onChange={(e) => setConfig({ ...config, overview_panel: { ...op, line_color: e.target.value } })}
-                          placeholder="#e2e8f0"
-                          style={{
-                            width: '85px',
-                            height: '30px',
-                            padding: '0 8px',
-                            borderRadius: '6px',
-                            border: '1px solid #cbd5e1',
-                            fontSize: '12px',
-                            fontFamily: 'monospace',
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ) : (
+                {op.division_style === 'border_zone' && (
                   /* Option 2 Settings: Border Zone Grouping, Background Contrast, Radius, Padding & Spacing */
                   <div
                     style={{
@@ -3831,7 +3645,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     width: '100%',
-                                    height: '14px',
+                                    height: '8px',
+                                    marginTop: '1px',
                                     cursor: 'pointer',
                                     userSelect: 'none',
                                     boxSizing: 'border-box',
@@ -3844,7 +3659,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                       alignItems: 'center',
                                       justifyContent: 'center',
                                       width: '14px',
-                                      height: '10px',
+                                      height: '6px',
                                       color: '#64748b',
                                       fontSize: '8px',
                                       transition: 'all 0.18s ease',
@@ -3931,7 +3746,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     width: '100%',
-                                    height: '14px',
+                                    height: '8px',
+                                    marginTop: '1px',
                                     cursor: 'pointer',
                                     userSelect: 'none',
                                     boxSizing: 'border-box',
@@ -3944,7 +3760,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                       alignItems: 'center',
                                       justifyContent: 'center',
                                       width: '14px',
-                                      height: '10px',
+                                      height: '6px',
                                       color: '#64748b',
                                       fontSize: '8px',
                                       transition: 'all 0.18s ease',
@@ -4001,7 +3817,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               <CheckCircle2 size={13} color="#16a34a" style={{ marginTop: '2px', flexShrink: 0 }} />
                               <span style={{ lineHeight: 1.3 }}>/teamwork-preview /wish-coding you need more then these 4 tickets...</span>
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                               <CheckCircle2 size={13} color="#16a34a" style={{ marginTop: '2px', flexShrink: 0 }} />
                               <span style={{ lineHeight: 1.3 }}>/teamwork-preview add a new section, to be below the UI Enhancement sectio...</span>
                             </div>
@@ -4056,8 +3872,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                     transition: 'all 0.15s ease',
                                   }
                                 : {
-                                    padding: '2px 0',
-                                    marginBottom: idx < sections.length - 1 ? (op.division_style === 'divider_line' ? `${5 + (op.line_margin || 0)}px` : '10px') : 0,
+                                    padding: '0',
+                                    marginBottom: idx < sections.length - 1 ? (op.division_style === 'divider_line' ? '5px' : '10px') : 0,
                                   }
                             }
                           >
@@ -4120,12 +3936,12 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           {!isZone && op.division_style === 'divider_line' && idx < sections.length - 1 && (
                             <div
                               style={{
-                                height: `${op.line_thickness || 1}px`,
-                                width: `calc(${op.line_width_percent || 100}% - 12px)`,
-                                backgroundColor: op.line_color || '#e2e8f0',
-                                margin: `0 auto ${5 + (op.line_margin || 0)}px auto`,
-                                borderStyle: op.line_style || 'solid',
-                                borderRadius: '1px',
+                                height: '0px',
+                                width: 'calc(100% - 12px)',
+                                border: 'none',
+                                borderTop: '1px solid #e2e8f0',
+                                margin: '0 auto 5px auto',
+                                boxSizing: 'border-box',
                               }}
                             />
                           )}
@@ -4141,115 +3957,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
       </div>
     </>
   )}
-
-  {/* Category 4: Chat History */}
-  {activeCategoryTab === 3 && (
-    <>
-      {/* Feature 7: Auto-Archive Inactive Conversations */}
-      {guiConfig && (
-        <div className="google-card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-            <div>
-              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
-                Auto-Archive Inactive Conversations
-              </h2>
-              <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)', maxWidth: '600px' }}>
-                Archive inactive project conversations to history after a set duration.
-              </p>
-            </div>
-
-            <ToggleSwitch
-              checked={guiConfig.auto_archive_conversations ?? true}
-              onChange={(checked) =>
-                setGuiConfig({
-                  ...guiConfig,
-                  auto_archive_conversations: checked,
-                })
-              }
-            />
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-              <div>
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                  Inactivity Time Horizon Cutoff
-                </label>
-                <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-                  Conversations inactive for longer than this duration will be archived.
-                </p>
-              </div>
-
-              <select
-                value={guiConfig.auto_archive_horizon || '14d'}
-                onChange={(e) =>
-                  setGuiConfig({
-                    ...guiConfig,
-                    auto_archive_horizon: e.target.value as any,
-                  })
-                }
-                style={{
-                  height: '36px',
-                  padding: '0 12px',
-                  borderRadius: '6px',
-                  border: '1.5px solid #cbd5e1',
-                  background: 'var(--card-bg, #ffffff)',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  color: 'var(--text)',
-                  cursor: 'pointer',
-                  minWidth: '180px',
-                }}
-              >
-                <option value="3d">3 days</option>
-                <option value="7d">7 days</option>
-                <option value="14d">14 days</option>
-                <option value="30d">30 days</option>
-                <option value="60d">60 days</option>
-                <option value="90d">90 days</option>
-              </select>
-            </div>
-
-            <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-              <div>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                  Manual Archival Trigger
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  Scan conversation database now and archive conversations older than {guiConfig.auto_archive_horizon || '14d'}.
-                </div>
-                {archiveResult && (
-                  <div style={{ marginTop: '4px', fontSize: '12px', color: '#059669', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <CheckCircle2 size={13} />
-                    <span>{archiveResult}</span>
-                  </div>
-                )}
-              </div>
-
-              <button
-                onClick={handleTriggerAutoArchive}
-                disabled={archiving}
-                className="google-button google-button-secondary"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  height: '36px',
-                  padding: '0 16px',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: archiving ? 'not-allowed' : 'pointer',
-                }}
-              >
-                <Archive size={16} />
-                <span>{archiving ? 'Scanning & Archiving...' : 'Archive Inactive Conversations Now'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  )}
     </div>
   )
 }
+

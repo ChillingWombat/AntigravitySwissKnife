@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react'
-import { createPortal } from 'react-dom'
 import {
   Coins,
   Cpu,
@@ -40,11 +39,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   const [internalActiveTab] = useState<number>(0)
   const activeTab = controlledActiveTab !== undefined ? controlledActiveTab : internalActiveTab
 
-  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
-
-  useEffect(() => {
-    setPortalTarget(document.getElementById('top-bar-right'))
-  }, [])
   // State for Unit Toggle: Tokens vs USD
   const [unitMode, setUnitMode] = useState<'usd' | 'tokens'>('usd')
   const [timeRange, setTimeRange] = useState<'24h' | '7d' | '30d' | 'all'>('7d')
@@ -170,14 +164,19 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
 
     try {
       const fleet = await api.getFleetQuota()
-      if (fleet && fleet.accounts && fleet.accounts.length > 0) {
+      let accs: any[] = fleet?.accounts || []
+      if (accs.length === 0) {
+        const raw = await api.getAccounts().catch(() => [])
+        if (Array.isArray(raw)) accs = raw
+      }
+      if (accs.length > 0) {
         setAccountBreakdowns(
-          fleet.accounts.map((acc, idx) => ({
+          accs.map((acc, idx) => ({
             email: acc.email,
             display_name: acc.label || acc.email.split('@')[0],
             total_tokens: idx === 0 ? summary.total_tokens : 0,
             cost_usd: idx === 0 ? summary.total_cost_usd : 0,
-            percentage: idx === 0 && fleet.accounts.length === 1 ? 100 : 0,
+            percentage: idx === 0 && accs.length === 1 ? 100 : 0,
           }))
         )
       } else {
@@ -246,143 +245,144 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Top Bar Right Global Controls via Portal */}
-      {portalTarget &&
-        createPortal(
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {/* Unit Switcher: USD ($) vs Tokens */}
-            <div
-              style={{
-                display: 'flex',
-                backgroundColor: 'var(--tonal)',
-                borderRadius: '8px',
-                padding: '3px',
-                gap: '2px',
-              }}
-            >
-              <button
-                onClick={() => setUnitMode('usd')}
-                style={{
-                  borderRadius: '6px',
-                  padding: '5px 12px',
-                  fontSize: '12px',
-                  fontWeight: unitMode === 'usd' ? 600 : 500,
-                  color: unitMode === 'usd' ? 'var(--primary)' : 'var(--text-muted)',
-                  backgroundColor: unitMode === 'usd' ? '#ffffff' : 'transparent',
-                  boxShadow: unitMode === 'usd' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                }}
-              >
-                <DollarSign size={13} />
-                <span>USD ($)</span>
-              </button>
-              <button
-                onClick={() => setUnitMode('tokens')}
-                style={{
-                  borderRadius: '6px',
-                  padding: '5px 12px',
-                  fontSize: '12px',
-                  fontWeight: unitMode === 'tokens' ? 600 : 500,
-                  color: unitMode === 'tokens' ? 'var(--primary)' : 'var(--text-muted)',
-                  backgroundColor: unitMode === 'tokens' ? '#ffffff' : 'transparent',
-                  boxShadow: unitMode === 'tokens' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                }}
-              >
-                <Hash size={13} />
-                <span>Tokens</span>
-              </button>
-            </div>
-
-            {/* Time Range Selector */}
-            <div
-              style={{
-                display: 'flex',
-                backgroundColor: 'var(--tonal)',
-                borderRadius: '8px',
-                padding: '3px',
-                gap: '2px',
-              }}
-            >
-              {(['24h', '7d', '30d', 'all'] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTimeRange(t)}
-                  style={{
-                    borderRadius: '6px',
-                    padding: '5px 10px',
-                    fontSize: '12px',
-                    fontWeight: timeRange === t ? 600 : 500,
-                    color: timeRange === t ? 'var(--primary)' : 'var(--text-muted)',
-                    backgroundColor: timeRange === t ? '#ffffff' : 'transparent',
-                    boxShadow: timeRange === t ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-
-            {/* Sync Prices Button */}
-            <button
-              onClick={handleAutoFetchPrices}
-              disabled={isFetchingPrices}
-              style={{
-                backgroundColor: '#ffffff',
-                border: '1px solid var(--border)',
-                borderRadius: '6px',
-                padding: '6px 12px',
-                fontSize: '12px',
-                fontWeight: 600,
-                color: 'var(--text)',
-                cursor: isFetchingPrices ? 'not-allowed' : 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
-              <RefreshCw size={13} className={isFetchingPrices ? 'animate-spin' : ''} />
-              <span>{isFetchingPrices ? 'Syncing...' : 'Sync Prices'}</span>
-            </button>
-          </div>,
-          portalTarget
-        )}
-
-      {fetchFeedback && (
-        <div
-          style={{
-            backgroundColor: '#e6f4ea',
-            color: '#137333',
-            border: '1px solid #ceead6',
-            borderRadius: '10px',
-            padding: '10px 16px',
-            fontSize: '13px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <CheckCircle2 size={16} />
-          {fetchFeedback}
-        </div>
-      )}
-
       {/* ============================================================ */}
       {/* TAB 0: CONSUMPTION OVERVIEW */}
       {/* ============================================================ */}
       {activeTab === 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Dedicated Controls Gadget Bar */}
+          <div
+            className="google-card"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '12px 16px',
+              flexWrap: 'wrap',
+              gap: '12px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              {/* Unit Switcher: USD ($) vs Tokens */}
+              <div
+                style={{
+                  display: 'flex',
+                  backgroundColor: 'var(--tonal)',
+                  borderRadius: '8px',
+                  padding: '3px',
+                  gap: '2px',
+                }}
+              >
+                <button
+                  onClick={() => setUnitMode('usd')}
+                  style={{
+                    borderRadius: '6px',
+                    padding: '5px 12px',
+                    fontSize: '12px',
+                    fontWeight: unitMode === 'usd' ? 600 : 500,
+                    color: unitMode === 'usd' ? 'var(--primary)' : 'var(--text-muted)',
+                    backgroundColor: unitMode === 'usd' ? '#ffffff' : 'transparent',
+                    boxShadow: unitMode === 'usd' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <DollarSign size={13} />
+                  <span>USD ($)</span>
+                </button>
+                <button
+                  onClick={() => setUnitMode('tokens')}
+                  style={{
+                    borderRadius: '6px',
+                    padding: '5px 12px',
+                    fontSize: '12px',
+                    fontWeight: unitMode === 'tokens' ? 600 : 500,
+                    color: unitMode === 'tokens' ? 'var(--primary)' : 'var(--text-muted)',
+                    backgroundColor: unitMode === 'tokens' ? '#ffffff' : 'transparent',
+                    boxShadow: unitMode === 'tokens' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <Hash size={13} />
+                  <span>Tokens</span>
+                </button>
+              </div>
+
+              {/* Time Range Selector */}
+              <div
+                style={{
+                  display: 'flex',
+                  backgroundColor: 'var(--tonal)',
+                  borderRadius: '8px',
+                  padding: '3px',
+                  gap: '2px',
+                }}
+              >
+                {(['24h', '7d', '30d', 'all'] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setTimeRange(t)}
+                    style={{
+                      borderRadius: '6px',
+                      padding: '5px 10px',
+                      fontSize: '12px',
+                      fontWeight: timeRange === t ? 600 : 500,
+                      color: timeRange === t ? 'var(--primary)' : 'var(--text-muted)',
+                      backgroundColor: timeRange === t ? '#ffffff' : 'transparent',
+                      boxShadow: timeRange === t ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      textTransform: 'uppercase',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Sync Prices Button */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {fetchFeedback && (
+                <span className="badge-chip badge-green" style={{ fontSize: '11px', padding: '4px 8px' }}>
+                  <CheckCircle2 size={12} />
+                  <span>{fetchFeedback}</span>
+                </span>
+              )}
+              <button
+                onClick={handleAutoFetchPrices}
+                disabled={isFetchingPrices}
+                className="btn-pill-tonal"
+                style={{
+                  backgroundColor: '#ffffff',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  padding: '6px 14px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: 'var(--text)',
+                  cursor: isFetchingPrices ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <RefreshCw size={13} className={isFetchingPrices ? 'animate-spin' : ''} />
+                <span>{isFetchingPrices ? 'Syncing...' : 'Sync Prices'}</span>
+              </button>
+            </div>
+          </div>
 
       {/* 2. Key Performance Metrics (KPI Cards) */}
       <div
@@ -715,6 +715,28 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
               Auto-fetched via LiteLLM/OpenRouter API specifications with optional manual cost overrides.
             </p>
           </div>
+          <button
+            onClick={handleAutoFetchPrices}
+            disabled={isFetchingPrices}
+            className="btn-pill-tonal"
+            style={{
+              backgroundColor: '#ffffff',
+              border: '1px solid var(--border)',
+              borderRadius: '6px',
+              padding: '6px 14px',
+              fontSize: '12px',
+              fontWeight: 600,
+              color: 'var(--text)',
+              cursor: isFetchingPrices ? 'not-allowed' : 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <RefreshCw size={13} className={isFetchingPrices ? 'animate-spin' : ''} />
+            <span>{isFetchingPrices ? 'Syncing...' : 'Sync Prices'}</span>
+          </button>
         </div>
 
         <div style={{ overflowX: 'auto' }}>

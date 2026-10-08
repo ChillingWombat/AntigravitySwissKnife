@@ -26,7 +26,7 @@
   body { background-color: var(--surface); color: var(--text-primary); display: flex; height: 100vh; overflow: hidden; }
   
   /* Left Nav Rail */
-  #nav { width: 220px; background: #ffffff; display: flex; flex-direction: column; padding: 24px 16px 16px; flex-shrink: 0; }
+  #nav { width: 200px; background: #ffffff; display: flex; flex-direction: column; padding: 24px 16px 16px; flex-shrink: 0; }
   .logo-title { font-size: 16px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.3px; text-align: center; }
   .logo-sub { font-size: 11px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; text-align: center; }
   .nav-sep { height: 1px; background: var(--border); margin: 16px 0 12px; }
@@ -162,7 +162,6 @@
   <div class="nav-sep"></div>
   <div class="nav-header">NAVIGATION</div>
   <button class="nav-btn active" id="nav-btn-0" onclick="switchNav(0)">Account Switcher</button>
-  <button class="nav-btn" id="nav-btn-1" onclick="switchNav(1)">Tools Marketplace</button>
 
   <div style="flex: 1;"></div>
 
@@ -190,10 +189,9 @@
   <div id="topbar">
     <div class="ribbon-tabs">
       <button class="ribbon-btn active" id="ribbon-0" onclick="showSub(0)">Dashboard</button>
-      <button class="ribbon-btn" id="ribbon-1" onclick="showSub(1)">Accounts & MFA</button>
-      <button class="ribbon-btn" id="ribbon-2" onclick="showSub(2)">Fingerprints</button>
-      <button class="ribbon-btn" id="ribbon-3" onclick="showSub(3)">Cache Manager</button>
-      <button class="ribbon-btn" id="ribbon-4" onclick="showSub(4)">Settings</button>
+      <button class="ribbon-btn" id="ribbon-1" onclick="showSub(1)">Fingerprints</button>
+      <button class="ribbon-btn" id="ribbon-2" onclick="showSub(2)">Cache Manager</button>
+      <button class="ribbon-btn" id="ribbon-3" onclick="showSub(3)">Settings</button>
     </div>
     <div class="account-badge" id="active-acc-badge" style="display: none;">Loading...</div>
   </div>
@@ -257,41 +255,6 @@
           <div class="card-header" style="margin-bottom: 2px;">ACCOUNTS INVENTORY & HORIZONS</div>
           <div style="font-size: 12px; color: var(--text-secondary);">Click on any account row to view details, update labels, MFA secret, or tokens.</div>
         </div>
-        <button class="btn-primary" onclick="showSub(1); toggleImportForm();">+ Import Account</button>
-      </div>
-
-      <table>
-        <thead>
-          <tr>
-            <th>Account Identity</th>
-            <th>Status</th>
-            <th>Next 5h Quota</th>
-            <th>Weekly Quota Left</th>
-            <th>Reset Horizon</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody id="dashboard-accounts-table"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Sub-page 1: Accounts & MFA -->
-  <div class="panel" id="sub-1">
-    <div class="card">
-      <div class="card-header">Live MFA / TOTP Authenticator</div>
-      <div class="totp-container">
-        <div>
-          <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;" id="totp-target">Active Account</div>
-          <div class="totp-code" id="totp-code">------</div>
-        </div>
-        <button class="btn-primary" onclick="copyTOTP()">Copy Code</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <div class="card-header" style="margin-bottom: 0;">Registered Accounts Inventory</div>
         <div style="display: flex; gap: 8px;">
           <button class="btn-secondary" onclick="scanLocalAccounts()">Scan Local Machine</button>
           <button class="btn-primary" onclick="toggleImportForm()">+ Import Account</button>
@@ -345,19 +308,21 @@
       <table>
         <thead>
           <tr>
-            <th>Account Email</th>
-            <th>Label</th>
-            <th>MFA Status</th>
+            <th>Account Identity</th>
+            <th>Status</th>
+            <th>Next 5h Quota</th>
+            <th>Weekly Quota Left</th>
+            <th>Reset Horizon</th>
             <th>Action</th>
           </tr>
         </thead>
-        <tbody id="accounts-table"></tbody>
+        <tbody id="dashboard-accounts-table"></tbody>
       </table>
     </div>
   </div>
 
-  <!-- Sub-page 2: Fingerprints -->
-  <div class="panel" id="sub-2">
+  <!-- Sub-page 1: Fingerprints -->
+  <div class="panel" id="sub-1">
     <div class="card">
       <div class="card-header">Device Telemetry Isolation</div>
       <div style="margin-bottom: 16px; display: flex; gap: 12px;">
@@ -376,8 +341,8 @@
     </div>
   </div>
 
-  <!-- Sub-page 3: Cache Manager -->
-  <div class="panel" id="sub-3">
+  <!-- Sub-page 2: Cache Manager -->
+  <div class="panel" id="sub-2">
     <div class="card">
       <div class="card-header">Storage Breakdown & Shield</div>
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
@@ -391,8 +356,8 @@
     </div>
   </div>
 
-  <!-- Sub-page 4: System / Switcher Settings -->
-  <div class="panel" id="sub-4">
+  <!-- Sub-page 3: System / Switcher Settings -->
+  <div class="panel" id="sub-3">
     <div class="card">
       <div class="card-header">Switcher & Quota Rules Configuration</div>
       <div style="display: flex; flex-direction: column; gap: 16px; max-width: 600px;">
@@ -423,14 +388,6 @@
           <button class="btn-primary" onclick="saveSettingsRules()">Save Configuration</button>
         </div>
       </div>
-    </div>
-  </div>
-
-  <!-- Tools Marketplace (Placeholder) -->
-  <div class="panel" id="market-panel">
-    <div class="card">
-      <div class="card-header">Tools Marketplace</div>
-      <div style="font-size: 13px; color: var(--text-secondary);">Browse, install, and configure Antigravity extension tools and plugins.</div>
     </div>
   </div>
 </div>
@@ -527,29 +484,19 @@
     document.querySelectorAll('.nav-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
     const settingsBtn = document.getElementById('nav-settings-btn');
     if (settingsBtn) settingsBtn.classList.remove('active');
-    const marketPanel = document.getElementById('market-panel');
     const topbar = document.getElementById('topbar');
-    if (idx === 1) {
-      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-      marketPanel.classList.add('active');
-      topbar.style.display = 'none';
-    } else {
-      marketPanel.classList.remove('active');
-      topbar.style.display = 'flex';
-      showSub(0);
-    }
+    if (topbar) topbar.style.display = 'flex';
+    showSub(0);
   }
 
   function showSub(idx) {
     document.querySelectorAll('.ribbon-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
     document.querySelectorAll('.panel').forEach((p, i) => {
-      if (p.id !== 'market-panel') {
-        p.classList.toggle('active', i === idx);
-      }
+      p.classList.toggle('active', i === idx);
     });
     const settingsBtn = document.getElementById('nav-settings-btn');
     if (settingsBtn) {
-      settingsBtn.classList.toggle('active', idx === 4);
+      settingsBtn.classList.toggle('active', idx === 3);
     }
   }
 
@@ -557,11 +504,9 @@
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
     const settingsBtn = document.getElementById('nav-settings-btn');
     if (settingsBtn) settingsBtn.classList.add('active');
-    const marketPanel = document.getElementById('market-panel');
     const topbar = document.getElementById('topbar');
-    marketPanel.classList.remove('active');
-    topbar.style.display = 'flex';
-    showSub(4);
+    if (topbar) topbar.style.display = 'flex';
+    showSub(3);
   }
 
   async function loadData() {
@@ -570,7 +515,8 @@
       const st = await fetch('/api/status').then(r => r.json());
       activeEmail = st.active_account || "";
       document.getElementById('active-acc-badge').innerText = activeEmail || "No Active Account";
-      document.getElementById('totp-target').innerText = activeEmail;
+      const totpTarget = document.getElementById('totp-target');
+      if (totpTarget) totpTarget.innerText = activeEmail;
       document.getElementById('fleet-active-text').innerText = activeEmail ? "Active: " + activeEmail : "Active: Standby";
       document.getElementById('fleet-sync-time').innerText = "Last Quota Sync: " + new Date().toLocaleTimeString();
 
@@ -614,14 +560,15 @@
         updateQuickSwitcher(cachedAccounts);
       }
 
-      // 4. Accounts Inventory for Tab 1
+      // 4. Accounts Inventory
       const accs = await fetch('/api/accounts').then(r => r.json()).catch(() => []);
       renderAccountsTable(accs || []);
 
       // 5. TOTP for active account
       const totp = await fetch('/api/totp?email=' + encodeURIComponent(activeEmail)).then(r => r.json()).catch(() => null);
-      if (totp && totp.code) {
-        document.getElementById('totp-code').innerText = totp.code.slice(0,3) + " " + totp.code.slice(3);
+      const totpCodeEl = document.getElementById('totp-code');
+      if (totpCodeEl && totp && totp.code) {
+        totpCodeEl.innerText = totp.code.slice(0,3) + " " + totp.code.slice(3);
       }
 
       // 6. Device Profile
@@ -723,6 +670,7 @@
 
   function renderAccountsTable(accs) {
     const el = document.getElementById('accounts-table');
+    if (!el) return;
     el.innerHTML = accs.map(a => {
       const activeBadge = a.is_active ? '<span class="pill pill-healthy">Active</span>' : '';
       const mfaBadge = a.has_totp ? '<span class="pill pill-healthy">Protected</span>' : '<span class="pill pill-warning">No MFA</span>';

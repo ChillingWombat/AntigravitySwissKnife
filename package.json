@@ -7,9 +7,9 @@
     "build:frontend": "npm run build --prefix frontend",
     "build:go": "go build -o bin/swiss ./cmd/swiss",
     "build": "npm run build:frontend && npm run build:go",
-    "desktop": "electron .",
-    "desktop:dev": "npm run build:frontend && electron .",
-    "desktop:minimized": "electron . --minimized",
+    "desktop": "electron . --no-sandbox",
+    "desktop:dev": "npm run build:frontend && electron . --no-sandbox",
+    "desktop:minimized": "electron . --no-sandbox --minimized",
     "test": "npm test --prefix frontend && go test ./pkg/...",
     "frontend:build": "npm run build:frontend",
     "go:build": "npm run build:go",
@@ -28,6 +28,7 @@
   "build": {
     "appId": "com.antigravity.swiss-knife",
     "productName": "Antigravity Swiss Knife",
+    "afterPack": "scripts/after-pack.js",
     "directories": {
       "output": "dist-desktop"
     },
@@ -41,6 +42,7 @@
         "AppImage",
         "deb"
       ],
+      "artifactName": "Antigravity-Swiss-Knife-${version}-x86_64.${ext}",
       "category": "Development",
       "icon": "assets/logo.png",
       "extraResources": [
@@ -52,9 +54,9 @@
     },
     "win": {
       "target": [
-        "nsis",
         "portable"
       ],
+      "signAndEditExecutable": false,
       "icon": "assets/logo.png",
       "extraResources": [
         {
@@ -62,6 +64,9 @@
           "to": "bin/swiss.exe"
         }
       ]
+    },
+    "portable": {
+      "artifactName": "Antigravity Swiss Knife.${ext}"
     },
     "mac": {
       "target": [
@@ -85,7 +90,7 @@
     "quota-switcher",
     "desktop"
   ],
-  "author": "Antigravity Swiss Knife Authors",
+  "author": "Antigravity Swiss Knife Authors <dev@antigravity-swiss.local>",
   "license": "MIT",
   "devDependencies": {
     "cross-env": "^10.1.0",

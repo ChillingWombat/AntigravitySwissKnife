@@ -21,6 +21,10 @@ func GenerateGitHubExtensionScript() string {
       clearInterval(window.__swissGHFetchInterval);
       window.__swissGHFetchInterval = null;
     }
+    if (window.__swissGHDaemonCheckInterval) {
+      clearInterval(window.__swissGHDaemonCheckInterval);
+      window.__swissGHDaemonCheckInterval = null;
+    }
     document.getElementById("swiss-github-ext-styles")?.remove();
     document.getElementById("swiss-main-stage-header")?.remove();
     document.getElementById("swiss-left-nav-group")?.remove();
@@ -75,6 +79,43 @@ func GenerateGitHubExtensionScript() string {
   let auxAgentTasks = null;
   let auxKanbanBoard = null;
   let lastFetchedAuxWs = null;
+
+  let isDaemonOnline = (window.__swissDaemonOnline !== false);
+  function setDaemonOnline(online) {
+    if (window.__swissDaemonOnline === online) return;
+    window.__swissDaemonOnline = online;
+    isDaemonOnline = online;
+    if (!online) {
+      const g = document.getElementById("swiss-left-nav-group");
+      if (g) g.remove();
+      if (activeMainStageExt !== null) {
+        closeMainStage();
+      }
+      if (typeof window.__swissOnAuxDaemonChanged === "function") {
+        window.__swissOnAuxDaemonChanged(false);
+      }
+    } else {
+      setupLeftNavTabs();
+      if (typeof window.__swissOnAuxDaemonChanged === "function") {
+        window.__swissOnAuxDaemonChanged(true);
+      }
+    }
+  }
+  window.setSwissDaemonOnline = setDaemonOnline;
+
+  async function checkDaemonConnection() {
+    try {
+      const res = await fetch("http://127.0.0.1:8765/api/status", {
+        method: "GET",
+        signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined,
+      });
+      if (res && res.ok) {
+        setDaemonOnline(true);
+        return;
+      }
+    } catch (_) {}
+    setDaemonOnline(false);
+  }
 
   function getLeftSidebar() {
     return document.getElementById("swiss-left-nav-group")?.closest(".bg-sidebar") ||
@@ -473,7 +514,7 @@ func GenerateGitHubExtensionScript() string {
       }
 
       let group = document.getElementById("swiss-left-nav-group");
-      if (!isLeftPanelEnabled()) {
+      if (!isLeftPanelEnabled() || window.__swissDaemonOnline === false || !isDaemonOnline) {
         if (group) group.remove();
         return;
       }
@@ -959,7 +1000,7 @@ func GenerateGitHubExtensionScript() string {
   function navigateToConversation(convId, rootParentId, isPruned) {
     const targetId = rootParentId || convId;
     if (isPruned || (targetId && window.__swissPrunedConversations && window.__swissPrunedConversations.has(targetId))) {
-      showToast("Conversation database was pruned or archived (file not found)");
+      showToast("Conversation trajectory was pruned by Antigravity (500-session limit reached)");
       return;
     }
     if (!targetId) return;
@@ -1766,6 +1807,82 @@ func GenerateGitHubExtensionScript() string {
     target.parent.style.flexDirection = "column";
   }
 
+  function triggerNativeSplit(direction = "horizontal") {
+    try {
+      const root = document.getElementById("root");
+      const key = root ? Object.keys(root).find(k => k.startsWith("__reactContainer") || k.startsWith("__reactFiber")) : null;
+      let store = null;
+      if (key) {
+        let fiber = root[key];
+        let depth = 0;
+        function search(node) {
+          if (!node || store || depth > 60) return;
+          depth++;
+          if (node.memoizedProps?.store) store = node.memoizedProps.store;
+          if (!store && node.memoizedState?.element?.props?.store) store = node.memoizedState.element.props.store;
+          if (!store && node.child) search(node.child);
+          if (!store && node.sibling) search(node.sibling);
+          depth--;
+        }
+        search(fiber);
+      }
+      if (store) {
+        const state = store.getState()?.multiConvoLayout;
+        const focused = state?.focusedPaneId || "pane-1";
+        store.dispatch({
+          type: "multiConvoLayout/splitPane",
+          payload: { targetPaneId: focused, cascadeId: "_new", direction }
+        });
+        showToast("Native split (" + (direction === "horizontal" ? "Right" : "Down") + ")");
+        return;
+      }
+
+      const stageContainer = document.getElementById("swiss-main-stage-container");
+      const pane = stageContainer ? stageContainer.closest("[data-pane-id]") : null;
+      const moreBtn = pane ? pane.querySelector('[data-testid="titlebar-more-actions"]') : document.querySelector('[data-testid="titlebar-more-actions"]');
+      if (moreBtn) {
+        moreBtn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        moreBtn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        moreBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        setTimeout(() => {
+          const splitMenu = Array.from(document.querySelectorAll('[role="menuitem"]')).find(m => m.innerText.trim().startsWith("Split"));
+          if (splitMenu) {
+            splitMenu.dispatchEvent(new PointerEvent("pointerenter", { bubbles: true }));
+            splitMenu.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+            splitMenu.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+            setTimeout(() => {
+              const targetText = "Split " + (direction === "horizontal" ? "Right" : "Down");
+              const subItem = Array.from(document.querySelectorAll('[role="menuitem"]')).find(m => m.innerText.trim() === targetText || m.innerText.trim().startsWith(targetText));
+              if (subItem) {
+                subItem.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+                subItem.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+                subItem.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+                showToast("Native split (" + (direction === "horizontal" ? "Right" : "Down") + ")");
+                return;
+              }
+              document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+            }, 80);
+          } else {
+            document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+          }
+        }, 60);
+        return;
+      }
+
+      const isMac = typeof navigator !== "undefined" && navigator.platform && navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      document.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "d",
+        code: "KeyD",
+        keyCode: 68,
+        which: 68,
+        ctrlKey: !isMac,
+        metaKey: isMac,
+        bubbles: true,
+        cancelable: true
+      }));
+    } catch (_) {}
+  }
+
   if (window.__swissScopeOutsideClickHandler) {
     document.removeEventListener("click", window.__swissScopeOutsideClickHandler);
   }
@@ -1899,7 +2016,7 @@ func GenerateGitHubExtensionScript() string {
           </div>
         </div>
 
-        <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 6px;">
           ${activeMainStageExt === "github" ? ` + "`" + `
             <div class="swiss-gh-view-switcher" id="swiss-stage-gh-tabs">
               <button class="swiss-gh-view-btn ${stageViewMode === "kanban" ? "active" : ""}" id="swiss-stage-view-kanban" data-stage-tab="board">
@@ -1926,6 +2043,12 @@ func GenerateGitHubExtensionScript() string {
               </svg>
             </button>
           ` + "`" + ` : ""}
+          <button class="swiss-stage-native-split-btn" id="swiss-stage-native-split-btn" title="Split Right">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="18" height="18" x="3" y="3" rx="2" />
+              <path d="M12 3v18" />
+            </svg>
+          </button>
           <button class="swiss-main-stage-close-btn" id="swiss-stage-close-btn" title="Back to Chat / Close Stage">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -1956,6 +2079,10 @@ func GenerateGitHubExtensionScript() string {
       });
       bindScopeMenuItems(scopeMenu);
     }
+
+    container.querySelector("#swiss-stage-native-split-btn")?.addEventListener("click", () => {
+      triggerNativeSplit("horizontal");
+    });
 
     container.querySelector("#swiss-stage-close-btn")?.addEventListener("click", () => {
       closeMainStage();
@@ -2713,8 +2840,15 @@ func GenerateGitHubExtensionScript() string {
 
   if (window.__swissGHNavInterval) clearInterval(window.__swissGHNavInterval);
   if (window.__swissGHFetchInterval) clearInterval(window.__swissGHFetchInterval);
+  if (window.__swissGHDaemonCheckInterval) clearInterval(window.__swissGHDaemonCheckInterval);
   window.__swissGHNavInterval = setInterval(setupLeftNavTabs, 1500);
   window.__swissGHFetchInterval = setInterval(fetchRepoData, 30000);
+  checkDaemonConnection();
+  const daemonInterval = setInterval(checkDaemonConnection, 3000);
+  if (daemonInterval && typeof daemonInterval.unref === "function") {
+    daemonInterval.unref();
+  }
+  window.__swissGHDaemonCheckInterval = daemonInterval;
 })();
 `
 }

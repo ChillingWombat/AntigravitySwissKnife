@@ -70,6 +70,7 @@ func NormalizePlanTier(raw string) string {
 	}
 	if strings.Contains(lower, "trial") ||
 		strings.Contains(lower, "promo") ||
+		strings.Contains(lower, "google ai pro") ||
 		strings.Contains(lower, "starter pro") ||
 		strings.Contains(lower, "jio") ||
 		strings.Contains(lower, "partner") ||
@@ -132,10 +133,10 @@ var (
 	}
 )
 
-// RefreshGoogleToken exchanges a refresh token for a valid access token.
-func RefreshGoogleToken(refreshToken, clientID, clientSecret string) (string, error) {
+// RefreshGoogleTokenFull exchanges a refresh token for a valid access token and optional rotated refresh token.
+func RefreshGoogleTokenFull(refreshToken, clientID, clientSecret string) (string, string, error) {
 	if refreshToken == "" {
-		return "", fmt.Errorf("empty refresh token")
+		return "", "", fmt.Errorf("empty refresh token")
 	}
 	if clientID == "" {
 		clientID = DefaultGoogleClientID
@@ -153,32 +154,39 @@ func RefreshGoogleToken(refreshToken, clientID, clientSecret string) (string, er
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.PostForm(GoogleTokenRefreshURL, form)
 	if err != nil {
-		return "", fmt.Errorf("failed to refresh token: %w", err)
+		return "", "", fmt.Errorf("failed to refresh token: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read refresh response: %w", err)
+		return "", "", fmt.Errorf("failed to read refresh response: %w", err)
 	}
 
 	var res struct {
-		AccessToken string `json:"access_token"`
-		Error       string `json:"error"`
-		ErrorDesc   string `json:"error_description"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		Error        string `json:"error"`
+		ErrorDesc    string `json:"error_description"`
 	}
 	if err := json.Unmarshal(body, &res); err != nil {
-		return "", fmt.Errorf("malformed refresh response: %w", err)
+		return "", "", fmt.Errorf("malformed refresh response: %w", err)
 	}
 
 	if res.Error != "" {
-		return "", fmt.Errorf("token refresh error %s: %s", res.Error, res.ErrorDesc)
+		return "", "", fmt.Errorf("token refresh error %s: %s", res.Error, res.ErrorDesc)
 	}
 	if res.AccessToken == "" {
-		return "", fmt.Errorf("no access token in refresh response")
+		return "", "", fmt.Errorf("no access token in refresh response")
 	}
 
-	return res.AccessToken, nil
+	return res.AccessToken, res.RefreshToken, nil
+}
+
+// RefreshGoogleToken exchanges a refresh token for a valid access token.
+func RefreshGoogleToken(refreshToken, clientID, clientSecret string) (string, error) {
+	acc, _, err := RefreshGoogleTokenFull(refreshToken, clientID, clientSecret)
+	return acc, err
 }
 
 type ProjectContextResult struct {
@@ -532,6 +540,22 @@ func FetchLiveQuota(accessToken string, project string) ([]ModelQuota, error) {
 	return breakdown.Models, nil
 }
 
+// QuotaAPIError represents an explicit structured error returned by Google CloudCode API.
+type QuotaAPIError struct {
+	StatusCode int
+	Status     string // "ERROR" or "BANNED"
+	Reason     string
+	Message    string
+	ActionURL  string
+}
+
+func (e *QuotaAPIError) Error() string {
+	if e.Reason != "" {
+		return fmt.Sprintf("%s (%s)", e.Message, e.Reason)
+	}
+	return e.Message
+}
+
 // FetchLiveQuotaBreakdown fetches complete quota buckets for Gemini and Claude/GPT models.
 func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBreakdown, error) {
 	if accessToken == "" {
@@ -544,6 +568,7 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	now := time.Now()
+	var lastAPIError *QuotaAPIError
 
 	for _, endpoint := range CloudCodeRetrieveQuotaURLs {
 		for attempt := 0; attempt < 2; attempt++ {
@@ -567,10 +592,56 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 
-			if resp.StatusCode == http.StatusForbidden && attempt == 0 {
-				continue // retry without project
-			}
 			if resp.StatusCode != http.StatusOK {
+				var errPayload struct {
+					Error struct {
+						Code    int    `json:"code"`
+						Message string `json:"message"`
+						Status  string `json:"status"`
+						Details []struct {
+							Reason   string            `json:"reason"`
+							Metadata map[string]string `json:"metadata"`
+						} `json:"details"`
+					} `json:"error"`
+				}
+				if jsonErr := json.Unmarshal(body, &errPayload); jsonErr == nil && errPayload.Error.Code > 0 {
+					msg := strings.TrimSpace(errPayload.Error.Message)
+					lowMsg := strings.ToLower(msg)
+					reason := ""
+					actionURL := ""
+					for _, d := range errPayload.Error.Details {
+						if d.Reason != "" {
+							reason = d.Reason
+						}
+						if d.Metadata != nil && d.Metadata["validation_url"] != "" {
+							actionURL = d.Metadata["validation_url"]
+						}
+					}
+					errStatus := "ERROR"
+					if strings.Contains(lowMsg, "suspended") || strings.Contains(lowMsg, "disabled") || strings.Contains(lowMsg, "banned") || strings.Contains(strings.ToLower(reason), "suspended") {
+						errStatus = "BANNED"
+					} else if reason == "VALIDATION_REQUIRED" || strings.Contains(lowMsg, "verify your account") {
+						errStatus = "ERROR"
+						if msg == "" {
+							msg = "Verify your account to continue."
+						}
+					} else if resp.StatusCode == http.StatusUnauthorized || errPayload.Error.Status == "UNAUTHENTICATED" {
+						errStatus = "ERROR"
+						if msg == "" {
+							msg = "Session expired or unauthenticated."
+						}
+					}
+					lastAPIError = &QuotaAPIError{
+						StatusCode: resp.StatusCode,
+						Status:     errStatus,
+						Reason:     reason,
+						Message:    msg,
+						ActionURL:  actionURL,
+					}
+				}
+				if resp.StatusCode == http.StatusForbidden && attempt == 0 {
+					continue // retry without project
+				}
 				continue
 			}
 
@@ -777,6 +848,9 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 		}
 	}
 
+	if lastAPIError != nil {
+		return nil, lastAPIError
+	}
 	return nil, fmt.Errorf("upstream quota check failed across all endpoints")
 }
 
@@ -835,6 +909,7 @@ func DetectTierFromAvailableModels(accessToken string) (string, error) {
 			hasUltra := len(ultraModels) > 0
 			hasEnterprise := len(entModels) > 0
 			hasPro := len(proModels) > 0
+			hasThirdParty := false
 
 			for mID, mMeta := range data.Models {
 				low := strings.ToLower(mID + " " + mMeta.DisplayName)
@@ -844,7 +919,10 @@ func DetectTierFromAvailableModels(accessToken string) (string, error) {
 				if strings.Contains(low, "enterprise") {
 					hasEnterprise = true
 				}
-				if strings.Contains(low, "claude") || strings.Contains(low, "gpt") || strings.Contains(low, "-pro") {
+				if strings.Contains(low, "claude") || strings.Contains(low, "gpt") {
+					hasThirdParty = true
+				}
+				if strings.Contains(low, "-pro") {
 					hasPro = true
 				}
 			}
@@ -856,7 +934,10 @@ func DetectTierFromAvailableModels(accessToken string) (string, error) {
 				return PlanTierEnterprise, nil
 			}
 			if hasPro {
-				return PlanTierPro, nil
+				if hasThirdParty {
+					return PlanTierPro, nil
+				}
+				return PlanTierProTrial, nil
 			}
 			if len(data.TieredModelIDs.Flash) > 0 || len(data.TieredModelIDs.FlashLite) > 0 {
 				return PlanTierFree, nil
@@ -923,14 +1004,21 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	accessToken := acc.AccessToken
 	project := "aicode-consumers"
 
+	var lastTokenRefreshErr error
+
 	// Step 1: Discover Project Context & Membership Tier & Credits from loadCodeAssist
 	pCtx, err := FetchProjectAndTier(accessToken)
 	if (err != nil || accessToken == "") && acc.RefreshToken != "" {
 		// Attempt token refresh
-		newTok, refErr := RefreshGoogleToken(acc.RefreshToken, "", "")
-		if refErr == nil && newTok != "" {
+		newTok, newRefTok, refErr := RefreshGoogleTokenFull(acc.RefreshToken, "", "")
+		if refErr != nil {
+			lastTokenRefreshErr = refErr
+		} else if newTok != "" {
 			acc.AccessToken = newTok
 			accessToken = newTok
+			if newRefTok != "" {
+				acc.RefreshToken = newRefTok
+			}
 			pCtx, err = FetchProjectAndTier(accessToken)
 		}
 	}
@@ -953,10 +1041,15 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	breakdown, qErr := FetchLiveQuotaBreakdown(accessToken, project)
 	if qErr != nil && acc.RefreshToken != "" && accessToken != "" {
 		// Try refreshing token once if quota check failed
-		newTok, refErr := RefreshGoogleToken(acc.RefreshToken, "", "")
-		if refErr == nil && newTok != "" {
+		newTok, newRefTok, refErr := RefreshGoogleTokenFull(acc.RefreshToken, "", "")
+		if refErr != nil {
+			lastTokenRefreshErr = refErr
+		} else if newTok != "" {
 			acc.AccessToken = newTok
 			accessToken = newTok
+			if newRefTok != "" {
+				acc.RefreshToken = newRefTok
+			}
 			breakdown, qErr = FetchLiveQuotaBreakdown(accessToken, project)
 		}
 	}
@@ -969,9 +1062,11 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 			credits = breakdown.Credits
 		}
 		if breakdown.HasClaudeGPTRights || breakdown.Quota5hClaudeGPT > 0 || breakdown.QuotaWeeklyClaudeGPT > 0 {
-			if tier == "" || tier == PlanTierFree {
+			if tier == "" || tier == PlanTierFree || tier == PlanTierProTrial {
 				tier = PlanTierPro
 			}
+		} else if tier == PlanTierPro && !breakdown.HasClaudeGPTRights {
+			tier = PlanTierProTrial
 		}
 	}
 
@@ -998,6 +1093,9 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 					if (tier == "" || tier == PlanTierFree) && pTier != PlanTierFree {
 						tier = pTier
 					}
+					if pTier == PlanTierProTrial && (tier == PlanTierPro || tier == "") {
+						tier = PlanTierProTrial
+					}
 				}
 				if ca.Credits > 0 && credits == 0 {
 					credits = ca.Credits
@@ -1018,9 +1116,12 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	if (tier == "" || tier == PlanTierFree) && acc.PlanTier != "" && acc.PlanTier != PlanTierFree {
 		tier = acc.PlanTier
 	}
+	if acc.PlanTier == PlanTierProTrial && tier == PlanTierPro {
+		tier = PlanTierProTrial
+	}
 
 	if tier == "" {
-		tier = PlanTierPro
+		tier = PlanTierFree
 	}
 	tier = NormalizePlanTier(tier)
 
@@ -1057,7 +1158,69 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 		return summary, nil
 	}
 
-	// Fallback to cached cloud_accounts.db metrics if network query fails
+	var apiErr *QuotaAPIError
+	if qErr != nil {
+		if ae, ok := qErr.(*QuotaAPIError); ok {
+			apiErr = ae
+		}
+	}
+
+	if apiErr != nil {
+		errMsg := apiErr.Message
+		if apiErr.Reason != "" && !strings.Contains(errMsg, apiErr.Reason) {
+			errMsg = fmt.Sprintf("%s (%s)", errMsg, apiErr.Reason)
+		}
+		if apiErr.ActionURL != "" {
+			errMsg = fmt.Sprintf("%s (Verification: %s)", errMsg, apiErr.ActionURL)
+		}
+		errStatus := apiErr.Status
+		if errStatus == "" {
+			errStatus = "ERROR"
+		}
+		acc.Status = errStatus
+		acc.ErrorMessage = errMsg
+
+		return &QuotaSummary{
+			AccountEmail:           acc.Email,
+			PlanTier:               tier,
+			Credits:                credits,
+			MinFraction:            0.0,
+			OverallHealth:          core.StatusExhausted,
+			ErrorMessage:           errMsg,
+			ErrorStatus:            errStatus,
+			ResetHorizonText:       "Error",
+			ResetHorizonWeeklyText: "Error",
+			LastPolled:             now,
+		}, apiErr
+	}
+
+	if lastTokenRefreshErr != nil && acc.RefreshToken != "" {
+		errMsg := fmt.Sprintf("Token refresh failed: %v", lastTokenRefreshErr)
+		errStatus := "ERROR"
+		acc.Status = errStatus
+		acc.ErrorMessage = errMsg
+		return &QuotaSummary{
+			AccountEmail:           acc.Email,
+			PlanTier:               tier,
+			Credits:                credits,
+			MinFraction:            0.0,
+			OverallHealth:          core.StatusExhausted,
+			ErrorMessage:           errMsg,
+			ErrorStatus:            errStatus,
+			ResetHorizonText:       "Error",
+			ResetHorizonWeeklyText: "Error",
+			LastPolled:             now,
+		}, lastTokenRefreshErr
+	}
+
+	// Fallback 1: Local Swiss Knife quota cache (independent of third-party manager)
+	normEmail := strings.ToLower(strings.TrimSpace(acc.Email))
+	if diskCache := LoadQuotaCache(); diskCache != nil && diskCache[normEmail] != nil {
+		cached := diskCache[normEmail]
+		return cached, nil
+	}
+
+	// Fallback 2: Cached cloud_accounts.db metrics if network query fails
 	if cachedAccs, cErr := keyring.ReadCloudAccountsDB(""); cErr == nil {
 		for _, ca := range cachedAccs {
 			if strings.EqualFold(ca.Email, acc.Email) {

@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/fingerprint"
@@ -20,6 +22,7 @@ type Store struct {
 	antigravityConfigDir string
 	accounts             map[string]*Account
 	activeEmail          string
+	lastManualSwitchTime time.Time
 	mu                   sync.RWMutex
 }
 
@@ -340,6 +343,9 @@ func (s *Store) ListAccounts() []*Account {
 		copyAcc := *acc
 		list = append(list, &copyAcc)
 	}
+	sort.Slice(list, func(i, j int) bool {
+		return strings.ToLower(list[i].Email) < strings.ToLower(list[j].Email)
+	})
 	return list
 }
 
@@ -705,18 +711,16 @@ func (s *Store) SetActiveAccount(email string) error {
 	}
 
 	st := strings.ToUpper(strings.TrimSpace(target.Status))
-	if st == "COOLDOWN" {
-		return fmt.Errorf("account %s is in cooldown waiting for quota reset and cannot be switched on", email)
-	}
 	if st == "BANNED" {
 		return fmt.Errorf("account %s is banned and cannot be switched on", email)
 	}
 
 	s.activeEmail = target.Email
+	s.lastManualSwitchTime = time.Now()
 	for _, a := range s.accounts {
 		if strings.EqualFold(a.Email, target.Email) {
 			a.IsActive = true
-			if a.Status != "BANNED" && a.Status != "ERROR" && a.Status != "COOLDOWN" {
+			if a.Status != "BANNED" && a.Status != "ERROR" {
 				a.Status = "ACTIVE"
 			}
 		} else {
@@ -760,9 +764,6 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 	}
 
 	if setActive {
-		if targetStatus == "COOLDOWN" {
-			return fmt.Errorf("account %s is in cooldown waiting for quota reset and cannot be switched on", email)
-		}
 		if targetStatus == "BANNED" {
 			return fmt.Errorf("account %s is banned and cannot be switched on", email)
 		}
@@ -773,7 +774,7 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 			Email:  email,
 			Status: "STANDBY",
 		}
-		if s.activeEmail == "" && targetStatus != "COOLDOWN" && targetStatus != "BANNED" && targetStatus != "ERROR" {
+		if s.activeEmail == "" && targetStatus != "COOLDOWN" && targetStatus != "COOLING" && targetStatus != "BANNED" && targetStatus != "ERROR" {
 			s.activeEmail = email
 			acc.IsActive = true
 		}
@@ -835,7 +836,7 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 		for e, a := range s.accounts {
 			if strings.EqualFold(e, email) {
 				a.IsActive = true
-				if a.Status != "BANNED" && a.Status != "ERROR" && a.Status != "COOLDOWN" {
+				if a.Status != "BANNED" && a.Status != "ERROR" {
 					a.Status = "ACTIVE"
 				}
 			} else {
@@ -847,14 +848,9 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 		}
 	} else {
 		acc.IsActive = (s.activeEmail != "" && strings.EqualFold(email, s.activeEmail))
-		if acc.Status == "COOLDOWN" && acc.IsActive {
-			acc.IsActive = false
-			if strings.EqualFold(s.activeEmail, acc.Email) {
-				s.activeEmail = ""
-			}
-		} else if !acc.IsActive && acc.Status == "ACTIVE" {
+		if !acc.IsActive && acc.Status == "ACTIVE" {
 			acc.Status = "STANDBY"
-		} else if acc.IsActive && acc.Status == "STANDBY" {
+		} else if acc.IsActive && acc.Status != "BANNED" && acc.Status != "ERROR" {
 			acc.Status = "ACTIVE"
 		}
 	}
@@ -862,8 +858,13 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 	return s.save()
 }
 
-// UpdateAccountStatus updates the status of an account (e.g. STANDBY, COOLDOWN, ERROR, BANNED).
+// UpdateAccountStatus updates the status of an account (e.g. STANDBY, COOLDOWN, COOLING, ERROR, BANNED).
 func (s *Store) UpdateAccountStatus(email, status string) error {
+	return s.UpdateAccountStatusWithError(email, status, "")
+}
+
+// UpdateAccountStatusWithError updates the status and error message of an account.
+func (s *Store) UpdateAccountStatusWithError(email, status, errorMessage string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -882,13 +883,14 @@ func (s *Store) UpdateAccountStatus(email, status string) error {
 	if st == "ACTIVE" && !target.IsActive {
 		return fmt.Errorf("cannot set ACTIVE status without setting active account")
 	}
-	if st == "COOLDOWN" && target.IsActive {
+	if (st == "COOLDOWN" || st == "COOLING" || st == "ERROR" || st == "BANNED") && target.IsActive {
 		target.IsActive = false
 		if strings.EqualFold(s.activeEmail, target.Email) {
 			s.activeEmail = ""
 		}
 	}
 	target.Status = st
+	target.ErrorMessage = errorMessage
 	return s.save()
 }
 
@@ -909,6 +911,78 @@ func (s *Store) UpdateAccountQuotaMetadata(email, planTier string, credits float
 	}
 
 	modified := false
+	if planTier != "" && planTier != "Free" && target.PlanTier != planTier {
+		target.PlanTier = planTier
+		modified = true
+	}
+	if credits > 0 && target.Credits != credits {
+		target.Credits = credits
+		modified = true
+	}
+
+	if modified {
+		return s.save()
+	}
+	return nil
+}
+
+// UpdateAccountTokens updates the access token (and optionally refresh token) without altering other fields.
+func (s *Store) UpdateAccountTokens(email, accessToken, refreshToken string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var target *Account
+	for e, a := range s.accounts {
+		if strings.EqualFold(e, email) {
+			target = a
+			break
+		}
+	}
+	if target == nil {
+		return nil
+	}
+
+	modified := false
+	if accessToken != "" && target.AccessToken != accessToken {
+		target.AccessToken = accessToken
+		modified = true
+	}
+	if refreshToken != "" && target.RefreshToken != refreshToken {
+		target.RefreshToken = refreshToken
+		modified = true
+	}
+
+	if modified {
+		return s.save()
+	}
+	return nil
+}
+
+// UpdateAccountTokensAndMetadata updates tokens, plan tier, and credits in a single write operation.
+func (s *Store) UpdateAccountTokensAndMetadata(email, accessToken, refreshToken, planTier string, credits float64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var target *Account
+	for e, a := range s.accounts {
+		if strings.EqualFold(e, email) {
+			target = a
+			break
+		}
+	}
+	if target == nil {
+		return nil
+	}
+
+	modified := false
+	if accessToken != "" && target.AccessToken != accessToken {
+		target.AccessToken = accessToken
+		modified = true
+	}
+	if refreshToken != "" && target.RefreshToken != refreshToken {
+		target.RefreshToken = refreshToken
+		modified = true
+	}
 	if planTier != "" && planTier != "Free" && target.PlanTier != planTier {
 		target.PlanTier = planTier
 		modified = true
@@ -1004,6 +1078,16 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 		return nil, nil
 	}
 
+	// In-flight manual switch latch: if an account switch occurred within the last 3 seconds,
+	// protect s.activeEmail from being reverted by a stale in-memory session while the IDE respawns.
+	if !s.lastManualSwitchTime.IsZero() && time.Since(s.lastManualSwitchTime) < 3*time.Second {
+		if s.activeEmail != "" && !strings.EqualFold(detectedEmail, s.activeEmail) {
+			if curAcc, ok := s.accounts[s.activeEmail]; ok {
+				return curAcc, nil
+			}
+		}
+	}
+
 	// Check if detected account exists in vault
 	var targetAcc *Account
 	for email, acc := range s.accounts {
@@ -1048,6 +1132,8 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 		// AND target account has non-empty credentials so we don't clobber host files with empty data.
 		if (!isSameActive || prevActive == "") && (targetAcc.RefreshToken != "" || targetAcc.AccessToken != "") {
 			_ = SyncAllSurfaces(targetAcc, allEmails, profileMgr)
+		} else {
+			_ = SyncAppStorageLoginUser(targetAcc.Email)
 		}
 		copyAcc := *targetAcc
 		return &copyAcc, nil

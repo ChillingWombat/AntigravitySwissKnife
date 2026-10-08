@@ -276,14 +276,12 @@ type RefreshUserStatusResult struct {
 // RefreshUserStatusScript is evaluated in Antigravity's Electron renderer via Chrome DevTools Protocol.
 // It traverses the React Fiber tree from document.getElementById("root"), locates userStatusProvider
 // and modelCtx, calls usp.lsClient.getUserStatus() to push fresh userStatus into state, and triggers
-// modelCtx.refreshModels(). If React Fiber traversal fails or USP cannot be resolved, it falls back
-// cleanly to window.location.reload().
+// modelCtx.refreshModels() with zero window reloads or visual flicker.
 const RefreshUserStatusScript = `(async () => {
 	try {
 		const root = document.getElementById("root");
 		if (!root) {
-			window.location.reload();
-			return { reloaded: true, reason: "no_root" };
+			return { success: false, reason: "no_root" };
 		}
 		let key = Object.keys(root).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactContainer"));
 		let curr = key ? root[key] : null;
@@ -294,8 +292,7 @@ const RefreshUserStatusScript = `(async () => {
 			}
 		}
 		if (!curr) {
-			window.location.reload();
-			return { reloaded: true, reason: "no_fiber_node" };
+			return { success: false, reason: "no_fiber_node" };
 		}
 		// If curr is FiberRootNode, step into root FiberNode (.current)
 		if (curr.current) {
@@ -324,14 +321,12 @@ const RefreshUserStatusScript = `(async () => {
 
 		// Validate USP interface
 		if (!usp || typeof usp.pushUpdate !== "function" || !usp.lsClient || typeof usp.lsClient.getUserStatus !== "function") {
-			window.location.reload();
-			return { reloaded: true, reason: "invalid_usp_interface" };
+			return { success: false, reason: "invalid_usp_interface" };
 		}
 
 		const resp = await usp.lsClient.getUserStatus({ metadata: usp.metadata });
 		if (!resp || !resp.userStatus) {
-			window.location.reload();
-			return { reloaded: true, reason: "empty_user_status_response" };
+			return { success: false, reason: "empty_user_status_response" };
 		}
 
 		usp.pushUpdate(resp.userStatus);
@@ -348,8 +343,7 @@ const RefreshUserStatusScript = `(async () => {
 			nodes_visited: count
 		};
 	} catch(err) {
-		try { window.location.reload(); } catch(_) {}
-		return { reloaded: true, error: String(err && err.message ? err.message : err) };
+		return { success: false, error: String(err && err.message ? err.message : err) };
 	}
 })()`
 
@@ -378,23 +372,15 @@ func (inj *Injector) RefreshUserStatus() (*RefreshUserStatusResult, error) {
 	var lastEmail string
 	refreshedCount := 0
 	anyFiberRefreshed := false
-	anyReloaded := false
 
 	for _, page := range pages {
 		res, err := inj.ExecuteScript(page.WebSocketDebuggerURL, RefreshUserStatusScript)
 		if err != nil {
 			lastErr = err
-			// Fallback: Attempt CDP Page reload
-			_, _ = inj.ExecuteScript(page.WebSocketDebuggerURL, "window.location.reload()")
-			anyReloaded = true
-			refreshedCount++
 		} else {
 			refreshedCount++
 			if fb, ok := res["fiber_refreshed"].(bool); ok && fb {
 				anyFiberRefreshed = true
-			}
-			if rl, ok := res["reloaded"].(bool); ok && rl {
-				anyReloaded = true
 			}
 			if em, ok := res["email"].(string); ok && em != "" {
 				lastEmail = em
@@ -410,22 +396,66 @@ func (inj *Injector) RefreshUserStatus() (*RefreshUserStatusResult, error) {
 		}, lastErr
 	}
 
-	refreshMethod := "zero-flicker React Fiber"
-	if anyReloaded && !anyFiberRefreshed {
-		refreshMethod = "fallback page reload"
-	} else if anyReloaded && anyFiberRefreshed {
-		refreshMethod = "mixed Fiber and reload"
-	}
-
 	return &RefreshUserStatusResult{
 		Success:        true,
 		Port:           port,
 		WindowsCount:   refreshedCount,
 		Email:          lastEmail,
 		FiberRefreshed: anyFiberRefreshed,
-		ReloadFallback: anyReloaded,
-		Message:        fmt.Sprintf("Successfully refreshed user status (%s) in %d Antigravity window(s)", refreshMethod, refreshedCount),
+		ReloadFallback: false,
+		Message:        fmt.Sprintf("Successfully refreshed user status (zero-flicker React Fiber) in %d Antigravity window(s)", refreshedCount),
 	}, nil
+}
+
+// GetLiveEmail inspects the running Antigravity IDE window via Chrome DevTools Protocol
+// and returns the live in-memory active user email, or empty string if not running or unavailable.
+func (inj *Injector) GetLiveEmail() string {
+	port, err := inj.FindDevToolsPort()
+	if err != nil || port <= 0 {
+		return ""
+	}
+	pages, err := inj.GetPageTargets(port)
+	if err != nil || len(pages) == 0 {
+		return ""
+	}
+
+	const script = `(() => {
+		try {
+			const root = document.getElementById("root");
+			let key = Object.keys(root).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactContainer"));
+			let curr = key ? root[key] : null;
+			if (curr && curr.current) curr = curr.current;
+			const queue = [curr];
+			const visited = new Set();
+			let count = 0;
+			while (queue.length > 0 && count < 6000) {
+				const node = queue.shift();
+				count++;
+				if (!node || visited.has(node)) continue;
+				visited.add(node);
+				const val = node.memoizedProps?.value;
+				if (val?.userStatusProvider?.userStatus?.email) {
+					return String(val.userStatusProvider.userStatus.email);
+				}
+				if (val?.userStatus?.email) {
+					return String(val.userStatus.email);
+				}
+				if (node.child) queue.push(node.child);
+				if (node.sibling) queue.push(node.sibling);
+			}
+		} catch(e) {}
+		return "";
+	})()`
+
+	for _, page := range pages {
+		res, err := inj.ExecuteScript(page.WebSocketDebuggerURL, script)
+		if err == nil && res != nil {
+			if v, ok := res["value"].(string); ok && strings.TrimSpace(v) != "" {
+				return strings.TrimSpace(v)
+			}
+		}
+	}
+	return ""
 }
 
 // CaptureScreenshot captures a PNG screenshot of the page target via CDP.

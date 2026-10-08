@@ -1,11 +1,23 @@
 export interface SystemStatus {
   daemon_running: boolean
   daemon_pid: number
-  version: string
-  active_account: string
-  total_accounts: number
-  antigravity_running: boolean
+  version?: string
+  active_account?: string
+  total_accounts?: number
+  antigravity_running?: boolean
   antigravity_pid?: number
+  auth_enabled?: boolean
+  auth_configured?: boolean
+  token_valid?: boolean
+  token_age_seconds?: number
+  accounts_count?: number
+  active_index?: number
+  extension_counts?: {
+    github_workspaces?: number
+    memos?: number
+    prompts?: number
+    skills?: number
+  }
 }
 
 export interface ModelQuota {
@@ -18,6 +30,16 @@ export interface ModelQuota {
 
 export interface QuotaSummary {
   account_email: string
+  plan_tier?: string
+  credits?: number
+  quota_5h_fraction?: number
+  quota_weekly_fraction?: number
+  quota_5h_claude_gpt?: number
+  quota_weekly_claude_gpt?: number
+  reset_seconds_5h?: number
+  reset_horizon_text?: string
+  reset_seconds_weekly?: number
+  reset_horizon_weekly_text?: string
   models: ModelQuota[]
   min_fraction: number
   overall_health: string
@@ -63,6 +85,7 @@ export function normalizePlanTier(raw?: string): string {
   if (
     lower.includes('trial') ||
     lower.includes('promo') ||
+    lower.includes('google ai pro') ||
     lower.includes('starter pro') ||
     lower.includes('jio') ||
     lower.includes('partner') ||
@@ -90,7 +113,7 @@ export interface AccountState {
   notes?: string
   password?: string
   is_active: boolean
-  status: 'ACTIVE' | 'STANDBY' | 'COOLDOWN' | 'ERROR' | 'BANNED' | string
+  status: 'ACTIVE' | 'STANDBY' | 'COOLDOWN' | 'COOLING' | 'ERROR' | 'BANNED' | string
   quota_5h_current?: number
   quota_5h_available: number
   reset_seconds?: number
@@ -103,11 +126,52 @@ export interface AccountState {
   has_mfa: boolean
   totp_secret?: string
   refresh_token?: string
+  access_token?: string
   credits?: number
   enable_credit_overages?: boolean
   allow_claude_gpt?: boolean
   error_message?: string
   status_reason?: string
+}
+
+export function toAccountState(acc: any, activeEmail?: string): AccountState {
+  const email = acc.email || ''
+  const isActive = Boolean(
+    acc.is_active ||
+    (activeEmail && activeEmail.trim().toLowerCase() === email.trim().toLowerCase())
+  )
+  let status = acc.status ? String(acc.status).toUpperCase() : (isActive ? 'ACTIVE' : 'STANDBY')
+  if (status === 'COOLDOWN') {
+    status = 'COOLING'
+  }
+  if (isActive && status === 'STANDBY') {
+    status = 'ACTIVE'
+  } else if (!isActive && status === 'ACTIVE') {
+    status = 'STANDBY'
+  }
+  return {
+    email,
+    label: acc.label || email,
+    plan_tier: acc.plan_tier || 'Free',
+    priority: acc.priority || 'High',
+    notes: acc.notes || '',
+    password: acc.password || '',
+    is_active: isActive,
+    status,
+    quota_5h_current: typeof acc.quota_5h_current === 'number' ? acc.quota_5h_current : 1.0,
+    quota_5h_available: typeof acc.quota_5h_available === 'number' ? acc.quota_5h_available : 1.0,
+    quota_weekly: typeof acc.quota_weekly === 'number' ? acc.quota_weekly : 1.0,
+    reset_horizon_text: acc.reset_horizon_text || 'Ready',
+    reset_horizon_weekly_text: acc.reset_horizon_weekly_text || 'Ready',
+    has_mfa: Boolean(acc.has_totp || acc.totp_secret),
+    totp_secret: acc.totp_secret || '',
+    refresh_token: acc.refresh_token || '',
+    credits: typeof acc.credits === 'number' ? acc.credits : 0,
+    enable_credit_overages: Boolean(acc.enable_credit_overages),
+    allow_claude_gpt: Boolean(acc.allow_claude_gpt),
+    error_message: acc.error_message || '',
+    status_reason: acc.status_reason || '',
+  }
 }
 
 export interface FleetQuotaSummary {
@@ -210,6 +274,28 @@ export interface CacheBreakdown {
   categories: CacheCategory[]
   reclaimable_bytes: number
   safe_to_delete: boolean
+}
+
+export interface VaultStatus {
+  enabled: boolean
+  vault_dir: string
+  conversations_dir: string
+  live_count: number
+  vaulted_count: number
+  rescued_count: number
+  last_sync_time: string
+  rescued_ids?: string[]
+  message?: string
+}
+
+export interface VaultSyncResult {
+  success: boolean
+  new_vaulted: number
+  rescued_count: number
+  rescued_ids: string[]
+  total_live: number
+  total_vaulted: number
+  message: string
 }
 
 export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'custom' | 'local'
@@ -334,6 +420,33 @@ export interface SystemInstallations {
   arch: string
 }
 
+export interface AppReleaseInfo {
+  current_version: string
+  latest_version: string
+  has_update: boolean
+  release_name: string
+  release_notes: string
+  published_at: string
+  html_url: string
+  download_url: string
+  asset_name?: string
+  asset_size?: number
+  platform: string
+  arch: string
+  auto_check: boolean
+  auto_upgrade: boolean
+  last_checked: string
+  status_message: string
+}
+
+export interface UpgradeResult {
+  success: boolean
+  message: string
+  download_url?: string
+  local_path?: string
+  target_version?: string
+}
+
 // App Enhancements types
 export interface PromptJumpBarConfig {
   enabled: boolean
@@ -351,11 +464,6 @@ export interface PromptJumpBarConfig {
 export interface OverviewPanelConfig {
   enabled: boolean
   division_style: 'divider_line' | 'border_zone'
-  line_thickness: number
-  line_width_percent: number
-  line_color: string
-  line_style: 'solid' | 'dashed' | 'dotted'
-  line_margin: number
   zone_border_radius: number
   zone_border_color: string
   zone_background_contrast: 'whiter' | 'subtle' | 'card'

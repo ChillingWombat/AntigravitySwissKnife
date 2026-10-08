@@ -1,21 +1,16 @@
 package custommodels
 
 import (
-	"encoding/json"
 	"fmt"
 )
 
 // GenerateCustomModelsScript produces the JavaScript logic injected into Antigravity
-// (Desktop Electron and VS Code extension webviews) to group model choices into
-// "Native Models" and "Custom Models", and render custom quota rings in "Models & Usage".
+// (Desktop Electron and VS Code extension webviews) to dynamically integrate custom models
+// when the Swiss Knife daemon is running and model inference is functional.
 func GenerateCustomModelsScript(cfg *Config) string {
-	if cfg == nil {
-		cfg = DefaultConfig()
-	}
-	cfgJSON, err := json.Marshal(cfg)
-	if err != nil {
-		cfgJSON = []byte(`{"version":"1.0.0","models":[],"project_binds":{}}`)
-	}
+	// Custom models must not be baked permanently into the offline Electron renderer.
+	// Initial state starts empty; config is loaded dynamically only when the Swiss Knife daemon is running and inference is supported.
+	cfgJSON := []byte(`{"version":"1.0.0","models":[],"project_binds":{}}`)
 
 	return fmt.Sprintf(`
 /* === Antigravity Swiss Knife: Custom Model Provider Integration === */
@@ -26,37 +21,10 @@ func GenerateCustomModelsScript(cfg *Config) string {
     if (!customConfig.models) customConfig.models = [];
     if (!customConfig.project_binds) customConfig.project_binds = {};
 
-    // Load config from local daemon or file if available
+    // Dynamic config loader: only queries the local daemon when running.
+    // Permanent injection must NOT load or show custom models offline when the app is stopped.
     async function refreshCustomConfig() {
       try {
-        if (typeof require !== "undefined") {
-          try {
-            const fs = require("fs");
-            const path = require("path");
-            const os = require("os");
-            const cfgDir = (typeof process !== "undefined" && process.env?.ANTIGRAVITY_SWISS_CONFIG_DIR) ||
-              (typeof process !== "undefined" && process.platform === "win32" && process.env?.APPDATA
-                ? path.join(process.env.APPDATA, "antigravity-swiss")
-                : path.join(os.homedir(), ".config", "antigravity-swiss"));
-            const cfgFile = path.join(cfgDir, "custom_models.json");
-            if (fs.existsSync(cfgFile)) {
-              const loaded = JSON.parse(fs.readFileSync(cfgFile, "utf8"));
-              if (loaded) {
-                customConfig = loaded;
-                if (!customConfig.models) customConfig.models = [];
-                if (!customConfig.project_binds) customConfig.project_binds = {};
-              }
-              if (typeof window !== "undefined" && !window.__swissCustomModelsWatched) {
-                window.__swissCustomModelsWatched = true;
-                try {
-                  fs.watch(cfgFile, () => {
-                    refreshCustomConfig();
-                  });
-                } catch (_) {}
-              }
-            }
-          } catch (_) {}
-        }
         if (typeof window !== "undefined" && window.fetch) {
           const res = await fetch("http://127.0.0.1:8765/api/custom_models");
           if (res.ok) {
@@ -65,10 +33,12 @@ func GenerateCustomModelsScript(cfg *Config) string {
               customConfig = loaded;
               if (!customConfig.models) customConfig.models = [];
               if (!customConfig.project_binds) customConfig.project_binds = {};
+              return;
             }
           }
         }
       } catch (_) {}
+      customConfig = { version: "1.0.0", models: [], project_binds: {} };
     }
 
     refreshCustomConfig();
@@ -94,10 +64,61 @@ func GenerateCustomModelsScript(cfg *Config) string {
       return title.split(" - ")[0].trim() || "Default Project";
     }
 
+    function isCustomModelInferenceAvailable() {
+      return Boolean(
+        customConfig &&
+        customConfig.inference_supported === true &&
+        customConfig.models &&
+        customConfig.models.some(m => m.enabled)
+      );
+    }
+
     // 1. Hook Model Selector Trigger Pill & Dropdown
     function updateModelSelector() {
       const trigger = document.querySelector('[data-testid="model-selector-trigger"]');
       const curProject = getActiveProjectName();
+
+      // Custom model options must only be displayed in the UI if custom model inference is
+      // actively supported and functional. If inference is not implemented/working, or if our app
+      // is not running, the model selector must remain in its clean native state.
+      if (!isCustomModelInferenceAvailable()) {
+        if (trigger && trigger.hasAttribute("data-swiss-custom-bound")) {
+          trigger.removeAttribute("data-swiss-custom-bound");
+          trigger.removeAttribute("data-swiss-native-label");
+          try {
+            const k = Object.keys(trigger).find(key => key.startsWith("__reactFiber"));
+            if (k && trigger[k]) {
+              const ch = trigger[k].memoizedProps?.children;
+              const collect = (node) => {
+                if (!node) return "";
+                if (typeof node === "string") return node;
+                if (typeof node === "number") return String(node);
+                if (Array.isArray(node)) return node.map(collect).join("");
+                if (node.props?.children) return collect(node.props.children);
+                return "";
+              };
+              const nativeText = collect(ch?.[0]);
+              const label = trigger.querySelector("span") || trigger;
+              if (nativeText && label) label.textContent = nativeText;
+            }
+          } catch (_) {}
+        }
+        const thinkingPill = document.querySelector("#swiss-thinking-level-pill");
+        if (thinkingPill) thinkingPill.remove();
+
+        const popover = document.querySelector('[role="menu"], [data-radix-popper-content-wrapper], .model-dropdown-menu');
+        if (popover) {
+          const customGrp = popover.querySelector(".swiss-custom-models-menu-group");
+          if (customGrp) customGrp.remove();
+          const customHeader = popover.querySelector('[data-testid="custom-models-header"]');
+          if (customHeader) customHeader.remove();
+          const nativeHeader = popover.querySelector('[data-testid="model-selector-header"]');
+          if (nativeHeader && nativeHeader.textContent.trim() === "Native Model") {
+            nativeHeader.textContent = "Model";
+          }
+        }
+        return;
+      }
 
       // Check if a custom model is explicitly bound to this project
       const boundModelId = customConfig?.project_binds?.[curProject];
@@ -392,6 +413,12 @@ func GenerateCustomModelsScript(cfg *Config) string {
         modelsPageHeader.parentElement;
 
       if (!cardsContainer) return;
+
+      if (!isCustomModelInferenceAvailable()) {
+        const existingSection = cardsContainer.querySelector("#swiss-custom-models-section");
+        if (existingSection) existingSection.remove();
+        return;
+      }
 
       const models = (customConfig?.models || []).filter(m => m.enabled);
       const configKey = JSON.stringify(models);

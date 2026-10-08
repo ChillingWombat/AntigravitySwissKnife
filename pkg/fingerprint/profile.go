@@ -14,6 +14,7 @@ var (
 
 // DeviceProfile holds virtualized hardware and installation telemetry UUIDs.
 type DeviceProfile struct {
+	AccountEmail     string `json:"account_email,omitempty"`
 	MachineID        string `json:"machine_id"`
 	UpdaterID        string `json:"updater_id"`
 	InstallationID   string `json:"installation_id"`

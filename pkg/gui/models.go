@@ -31,6 +31,15 @@ type Config struct {
 	AutoInject                  bool              `json:"auto_inject"`                  // Automatically inject into Antigravity desktop app
 }
 
+// FactoryProjectColors returns the factory default project colors.
+func FactoryProjectColors() map[string]string {
+	return map[string]string{
+		"Antigravity Swiss Knife": "#0b57d0", // Gemini blue
+		"Arbitrager":              "#7c3aed", // Vibrant purple
+		"Obsidian-HomePage":       "#059669", // Emerald green
+	}
+}
+
 // DefaultConfig returns the default GUI improvement configuration.
 func DefaultConfig() *Config {
 	return &Config{
@@ -41,11 +50,7 @@ func DefaultConfig() *Config {
 		ActiveConversationIndicator: "background", // "background" (accent fill), "border" (outline), or "left_bar"
 		ActiveConversationBorderWidth: "2px",
 		ActiveConversationBold:      false,        // Regular text weight on open conversation tab by default
-		ProjectColors: map[string]string{
-			"Antigravity Swiss Knife": "#0b57d0", // Gemini blue
-			"Arbitrager":              "#7c3aed", // Vibrant purple
-			"Obsidian-HomePage":       "#059669", // Emerald green
-		},
+		ProjectColors:               FactoryProjectColors(),
 		DragRearrangeEnabled: true,
 		ProjectOrder: []string{
 			"Antigravity Swiss Knife",

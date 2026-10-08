@@ -319,6 +319,27 @@ func generatePreloadLoaderScript() string {
 
     function injectSwiss() {
       try {
+        // 0. Pre-inject disk-saved project colors so they take precedence over factory defaults across port resets
+        let diskSavedColors = {};
+        let diskDeletedColors = [];
+        const configPath = path.join(configDir, "gui_improvements.json");
+        if (fs.existsSync(configPath)) {
+          try {
+            const parsedCfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
+            if (parsedCfg && parsedCfg.project_colors && typeof parsedCfg.project_colors === "object") {
+              diskSavedColors = parsedCfg.project_colors;
+            }
+            if (parsedCfg && Array.isArray(parsedCfg.deleted_colors)) {
+              diskDeletedColors = parsedCfg.deleted_colors;
+            }
+          } catch (_) {}
+        }
+        const diskBootstrap = 'window.__swissDiskSavedColors = ' + JSON.stringify(diskSavedColors) + ';\n' +
+          'window.__swissDiskDeletedColors = ' + JSON.stringify(diskDeletedColors) + ';\n';
+        try {
+          webFrame.executeJavaScript(diskBootstrap).catch(() => {});
+        } catch (_) {}
+
         // 1. Inject persistent stylesheet into head & webFrame
         if (fs.existsSync(cssPath)) {
           const css = fs.readFileSync(cssPath, 'utf8');
@@ -341,12 +362,27 @@ func generatePreloadLoaderScript() string {
           const js = fs.readFileSync(jsPath, 'utf8');
           if (js && js.trim()) {
             window.__swissDesktopScriptInjected = true;
+            const fullScript = diskBootstrap + js;
+            let executedInMain = false;
             try {
-              webFrame.executeJavaScript(js).catch(() => {});
-            } catch (_) {
-              const s = document.createElement("script");
-              s.textContent = js;
-              (document.head || document.documentElement).appendChild(s);
+              if (webFrame && typeof webFrame.executeJavaScriptInIsolatedWorld === "function") {
+                webFrame.executeJavaScriptInIsolatedWorld(0, [{ code: fullScript }]);
+                executedInMain = true;
+              }
+            } catch (_) {}
+            if (!executedInMain) {
+              try {
+                const s = document.createElement("script");
+                s.textContent = fullScript;
+                (document.head || document.documentElement).appendChild(s);
+                s.remove();
+                executedInMain = true;
+              } catch (_) {}
+            }
+            if (!executedInMain) {
+              try {
+                webFrame.executeJavaScript(fullScript).catch(() => {});
+              } catch (_) {}
             }
           }
         }
@@ -374,6 +410,153 @@ func generatePreloadLoaderScript() string {
           }
         }
       } catch (_) {}
+    });
+
+    // Listen for color persistence messages from renderer to update gui_improvements.json & persistent_styles.css
+    window.addEventListener("message", (event) => {
+      if (event.data && event.data.type === "swiss-persist-project-colors") {
+        try {
+          const colors = event.data.colors || {};
+          const deleted = event.data.deleted || [];
+          const configPath = path.join(configDir, "gui_improvements.json");
+          let cfgData = {};
+          if (fs.existsSync(configPath)) {
+            try { cfgData = JSON.parse(fs.readFileSync(configPath, "utf8")) || {}; } catch (_) {}
+          }
+          cfgData.project_colors = cfgData.project_colors || {};
+          if (typeof colors === "object") {
+            for (const [k, v] of Object.entries(colors)) {
+              if (v) cfgData.project_colors[k] = v;
+              else delete cfgData.project_colors[k];
+            }
+          }
+          if (Array.isArray(deleted)) {
+            cfgData.deleted_colors = deleted;
+            for (const p of deleted) {
+              delete cfgData.project_colors[p];
+            }
+          }
+          fs.writeFileSync(configPath, JSON.stringify(cfgData, null, 2), "utf8");
+
+          // Keep window.__swissDiskSavedColors and window.__swissDiskDeletedColors in sync
+          try {
+            const syncScript = 'window.__swissDiskSavedColors = ' + JSON.stringify(cfgData.project_colors) + ';' +
+              'window.__swissDiskDeletedColors = ' + JSON.stringify(cfgData.deleted_colors || []) + ';';
+            if (webFrame && typeof webFrame.executeJavaScriptInIsolatedWorld === "function") {
+              webFrame.executeJavaScriptInIsolatedWorld(0, [{ code: syncScript }]);
+            } else {
+              webFrame.executeJavaScript(syncScript).catch(() => {});
+            }
+          } catch (_) {}
+
+          // Keep persistent_styles.css and in-DOM style element in sync
+          if (fs.existsSync(cssPath)) {
+            let css = fs.readFileSync(cssPath, "utf8");
+            let modified = false;
+            const allTargets = new Set([...(Array.isArray(deleted) ? deleted : []), ...Object.keys(colors || {})]);
+            for (const p of allTargets) {
+              const safeP = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const patternWithComment = new RegExp('/\\*.*?\\*/\\s*\\[data-swiss-project="' + safeP + '".*?\\n\\}', 'gs');
+              if (patternWithComment.test(css)) {
+                css = css.replace(patternWithComment, '');
+                modified = true;
+              }
+              const patternDirect = new RegExp('\\[data-swiss-project="' + safeP + '".*?\\n\\}', 'gs');
+              if (patternDirect.test(css)) {
+                css = css.replace(patternDirect, '');
+                modified = true;
+              }
+            }
+            if (typeof colors === "object") {
+              for (const [pName, hex] of Object.entries(colors)) {
+                if (!hex) continue;
+                const safeP = pName.replace(/"/g, '\\"');
+                let r = 11, g = 87, b = 208;
+                if (hex.startsWith("#")) {
+                  const rawHex = hex.slice(1);
+                  if (rawHex.length === 3) {
+                    r = parseInt(rawHex[0] + rawHex[0], 16) || 11;
+                    g = parseInt(rawHex[1] + rawHex[1], 16) || 87;
+                    b = parseInt(rawHex[2] + rawHex[2], 16) || 208;
+                  } else if (rawHex.length >= 6) {
+                    r = parseInt(rawHex.slice(0, 2), 16) || 11;
+                    g = parseInt(rawHex.slice(2, 4), 16) || 87;
+                    b = parseInt(rawHex.slice(4, 6), 16) || 208;
+                  }
+                }
+                const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0;
+                const textColor = lum > 0.6 ? '#0f172a' : '#ffffff';
+                const projRule = '\n/* Project: ' + pName + ' */\n' +
+                  '[data-swiss-project="' + safeP + '"][data-project-card="true"],\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-project-card="true"],\n' +
+                  '[data-swiss-project="' + safeP + '"][data-project-card],\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-project-card],\n' +
+                  '[data-project-card][data-swiss-project="' + safeP + '"] {\n' +
+                  '  background-color: ' + hex + ' !important;\n' +
+                  '  color: ' + textColor + ' !important;\n' +
+                  '  border-radius: 8px !important;\n' +
+                  '  border: none !important;\n' +
+                  '}\n' +
+                  '[data-swiss-project="' + safeP + '"][data-project-card="true"] *,\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-project-card="true"] *,\n' +
+                  '[data-swiss-project="' + safeP + '"][data-project-card] *,\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-project-card] *,\n' +
+                  '[data-project-card][data-swiss-project="' + safeP + '"] * {\n' +
+                  '  color: ' + textColor + ' !important;\n' +
+                  '}\n' +
+                  '[data-swiss-project="' + safeP + '"] [class*="group/header"] button,\n' +
+                  '[data-swiss-project="' + safeP + '"] [class*="group/header"] a,\n' +
+                  '[data-swiss-project="' + safeP + '"] a[aria-label*="conversation" i] svg,\n' +
+                  '[data-swiss-project="' + safeP + '"] button[aria-label="Project options"] svg,\n' +
+                  '[data-swiss-project="' + safeP + '"] button[aria-label*="conversation"] svg {\n' +
+                  '  color: ' + textColor + ' !important;\n' +
+                  '  fill: ' + textColor + ' !important;\n' +
+                  '}\n' +
+                  '/* Automate Tasks / Sidecar Workspace Overlay Icon Badge */\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid*="sidecar-workspace-overlay"],\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-project-card] [data-testid*="sidecar-workspace-overlay"],\n' +
+                  '[data-swiss-project="' + safeP + '"] [class*="group/headerbtn"] [data-testid*="sidecar-workspace-overlay"],\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-project-card] span[class*="rounded-full"][class*="-bottom"],\n' +
+                  '[data-project-card][data-swiss-project="' + safeP + '"] [data-testid*="sidecar-workspace-overlay"],\n' +
+                  '[data-project-card][data-swiss-project="' + safeP + '"] span[class*="rounded-full"][class*="-bottom"] {\n' +
+                  '  background-color: ' + hex + ' !important;\n' +
+                  '  color: ' + textColor + ' !important;\n' +
+                  '}\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid*="sidecar-workspace-overlay"]:hover,\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-project-card]:hover [data-testid*="sidecar-workspace-overlay"],\n' +
+                  '[data-swiss-project="' + safeP + '"] [class*="group/headerbtn"]:hover [data-testid*="sidecar-workspace-overlay"] {\n' +
+                  '  background-color: ' + hex + ' !important;\n' +
+                  '}\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid*="sidecar-workspace-overlay"] :is(svg, svg path),\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-project-card] [data-testid*="sidecar-workspace-overlay"] :is(svg, svg path),\n' +
+                  '[data-swiss-project="' + safeP + '"] [class*="group/headerbtn"] [data-testid*="sidecar-workspace-overlay"] :is(svg, svg path),\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-project-card] span[class*="rounded-full"][class*="-bottom"] :is(svg, svg path),\n' +
+                  '[data-project-card][data-swiss-project="' + safeP + '"] [data-testid*="sidecar-workspace-overlay"] :is(svg, svg path),\n' +
+                  '[data-project-card][data-swiss-project="' + safeP + '"] span[class*="rounded-full"][class*="-bottom"] :is(svg, svg path) {\n' +
+                  '  color: ' + textColor + ' !important;\n' +
+                  '  fill: ' + textColor + ' !important;\n' +
+                  '}\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"],\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"] {\n' +
+                  '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', 0.15) !important;\n' +
+                  '  border-radius: 8px !important;\n' +
+                  '}\n';
+                css += projRule;
+                modified = true;
+              }
+            }
+            if (modified) {
+              fs.writeFileSync(cssPath, css, "utf8");
+              let styleEl = document.getElementById("antigravity-swiss-styles");
+              if (styleEl) {
+                styleEl.textContent = css;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("[SwissKnife Preload] Failed to persist colors to disk:", e);
+        }
+      }
     });
   } catch (err) {
     console.warn("[SwissKnife Preload] Loader initialization failed:", err);

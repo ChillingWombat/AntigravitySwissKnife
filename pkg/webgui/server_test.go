@@ -5,14 +5,18 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/system"
 )
 
 func TestWebGUIServesMinimalistLightHTML(t *testing.T) {
@@ -132,6 +136,72 @@ func TestWebGUIEndpoints(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestWebGUIQuotaAndAccountsEndpoints(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// 1. GET /api/quota/fleet - must return 200 OK immediately (<500ms), not block
+	start := time.Now()
+	resp, err := http.Get(baseURL + "/api/quota/fleet")
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("GET /api/quota/fleet failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if elapsed > 1*time.Second {
+		t.Errorf("GET /api/quota/fleet took %v, expected <1s", elapsed)
+	}
+	var fleet quota.FleetQuotaSummary
+	if err := json.NewDecoder(resp.Body).Decode(&fleet); err != nil {
+		t.Fatalf("failed to decode fleet quota summary: %v", err)
+	}
+
+	// 2. POST /api/quota/refresh - must trigger async refresh and return 200
+	respRefresh, err := http.Post(baseURL+"/api/quota/refresh", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST /api/quota/refresh failed: %v", err)
+	}
+	defer respRefresh.Body.Close()
+	if respRefresh.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", respRefresh.StatusCode)
+	}
+
+	// 3. GET /api/accounts - must return 200 OK
+	respAccs, err := http.Get(baseURL + "/api/accounts")
+	if err != nil {
+		t.Fatalf("GET /api/accounts failed: %v", err)
+	}
+	defer respAccs.Body.Close()
+	if respAccs.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", respAccs.StatusCode)
+	}
+
+	// 4. GET /api/quota and GET /api/quota?email=test - must return 200 OK immediately
+	respQuota, err := http.Get(baseURL + "/api/quota?email=test@example.com")
+	if err != nil {
+		t.Fatalf("GET /api/quota?email=test failed: %v", err)
+	}
+	defer respQuota.Body.Close()
+	if respQuota.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", respQuota.StatusCode)
+	}
+	var qSummary quota.QuotaSummary
+	if err := json.NewDecoder(respQuota.Body).Decode(&qSummary); err != nil {
+		t.Fatalf("failed to decode quota summary: %v", err)
+	}
+	if qSummary.AccountEmail != "test@example.com" {
+		t.Errorf("expected test@example.com, got %s", qSummary.AccountEmail)
+	}
+}
+
 func TestWebGUIPrunedConversationsEndpoint(t *testing.T) {
 	srv := NewServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
@@ -208,6 +278,103 @@ func TestWebGUISystemInstallationsEndpoints(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+func TestWebGUIAppReleaseEndpoints(t *testing.T) {
+	// Mock GitHub Releases server
+	mockReleases := []system.GitHubRelease{
+		{
+			TagName:     "v2.1.0",
+			Name:        "Antigravity Swiss Knife v2.1.0",
+			Body:        "Release notes for 2.1.0",
+			Draft:       false,
+			PublishedAt: time.Now(),
+			HTMLURL:     "https://github.com/ChillingWombat/AntigravitySwissKnife/releases/tag/v2.1.0",
+			Assets: []system.GitHubReleaseAsset{
+				{
+					ID:                 101,
+					Name:               "Antigravity-Swiss-Knife-2.1.0-x86_64.AppImage",
+					Size:               54321,
+					BrowserDownloadURL: "http://example.com/download.AppImage",
+				},
+			},
+		},
+	}
+
+	mockGH := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(mockReleases)
+	}))
+	defer mockGH.Close()
+
+	srv := NewServer("127.0.0.1:0", "")
+	mockRelMgr := system.NewAppReleaseManager(mockGH.URL)
+	srv.SetAppReleaseManager(mockRelMgr)
+
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// 1. GET /api/system/app_release
+	resp, err := http.Get(baseURL + "/api/system/app_release")
+	if err != nil {
+		t.Fatalf("GET /api/system/app_release failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var cachedInfo system.AppReleaseInfo
+	if err := json.NewDecoder(resp.Body).Decode(&cachedInfo); err != nil {
+		t.Fatalf("failed to decode cached info: %v", err)
+	}
+	resp.Body.Close()
+
+	if cachedInfo.CurrentVersion != core.AppVersion {
+		t.Errorf("expected current version %s, got %s", core.AppVersion, cachedInfo.CurrentVersion)
+	}
+
+	// 2. POST /api/system/check_app_release
+	resp, err = http.Post(baseURL+"/api/system/check_app_release", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST /api/system/check_app_release failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var checkedInfo system.AppReleaseInfo
+	if err := json.NewDecoder(resp.Body).Decode(&checkedInfo); err != nil {
+		t.Fatalf("failed to decode checked info: %v", err)
+	}
+	resp.Body.Close()
+
+	if !checkedInfo.HasUpdate {
+		t.Errorf("expected HasUpdate true when remote has 2.1.0")
+	}
+	if checkedInfo.LatestVersion != "2.1.0" {
+		t.Errorf("expected latest version 2.1.0, got %s", checkedInfo.LatestVersion)
+	}
+
+	// 3. POST /api/system/app_release/settings
+	settingsBody := `{"auto_check": true, "auto_upgrade": true}`
+	resp, err = http.Post(baseURL+"/api/system/app_release/settings", "application/json", strings.NewReader(settingsBody))
+	if err != nil {
+		t.Fatalf("POST /api/system/app_release/settings failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var settingsRes map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&settingsRes); err != nil {
+		t.Fatalf("failed to decode settings result: %v", err)
+	}
+	resp.Body.Close()
+
+	if settingsRes["auto_upgrade"] != true {
+		t.Errorf("expected auto_upgrade true in settings response")
+	}
 }
 
 func TestWebGUICustomModelsEndpoints(t *testing.T) {
@@ -1992,3 +2159,43 @@ func TestWebGUIFilesOpenIDEEndpoint(t *testing.T) {
 		t.Errorf("expected status 405, got %d", resp.StatusCode)
 	}
 }
+
+func TestDesktopRelaunchEndpoint(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
+	dummySock := filepath.Join(t.TempDir(), "test.sock")
+	srv := NewServer("127.0.0.1:0", dummySock)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// 1. POST /api/desktop/relaunch
+	resp, err := http.Post(baseURL+"/api/desktop/relaunch", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("POST /api/desktop/relaunch failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
+	}
+	var res map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if res["success"] != true {
+		t.Errorf("expected success: true, got %+v", res)
+	}
+
+	// 2. Method not allowed for GET
+	getResp, err := http.Get(baseURL + "/api/desktop/relaunch")
+	if err != nil {
+		t.Fatalf("GET /api/desktop/relaunch failed: %v", err)
+	}
+	defer getResp.Body.Close()
+	if getResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 Method Not Allowed, got %d", getResp.StatusCode)
+	}
+}
+

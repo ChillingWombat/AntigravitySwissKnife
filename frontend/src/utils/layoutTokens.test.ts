@@ -46,23 +46,20 @@ describe('Layout Tokens & Golden Ratio Math', () => {
   })
 
   it('verifies strict 16:9 window aspect ratio', () => {
-    assert.equal(WINDOW_MIN_WIDTH, 1152)
-    assert.equal(WINDOW_MIN_HEIGHT, 648)
+    assert.equal(WINDOW_MIN_WIDTH, 1216)
+    assert.equal(WINDOW_MIN_HEIGHT, 684)
     assert.equal(WINDOW_MIN_WIDTH / WINDOW_MIN_HEIGHT, 16 / 9)
     assert.equal(WINDOW_ASPECT_RATIO, 16 / 9)
   })
 
-  it('verifies workspace golden ratio dimensions within 0.00003 error', () => {
+  it('verifies workspace dimensions aligned to 4-pixel grid', () => {
     assert.equal(WORKSPACE_MIN_WIDTH, WINDOW_MIN_WIDTH - NAV_RAIL_WIDTH)
     assert.equal(WORKSPACE_MIN_HEIGHT, WINDOW_MIN_HEIGHT - HEADER_HEIGHT)
-    assert.equal(WORKSPACE_MIN_WIDTH, 932)
-    assert.equal(WORKSPACE_MIN_HEIGHT, 576)
-
-    const errorFromPhi = Math.abs(WORKSPACE_ASPECT_RATIO - PHI)
-    assert.ok(
-      errorFromPhi < 0.00003,
-      `Workspace ratio error (${errorFromPhi}) must be < 0.00003 from PHI (${PHI})`
-    )
+    assert.equal(WORKSPACE_MIN_WIDTH, 1016)
+    assert.equal(WORKSPACE_MIN_HEIGHT, 612)
+    assert.equal(WORKSPACE_ASPECT_RATIO, 1016 / 612)
+    assert.ok(isGridAligned4(WORKSPACE_MIN_WIDTH))
+    assert.ok(isGridAligned4(WORKSPACE_MIN_HEIGHT))
   })
 
   it('validates SPACING scale tokens are all multiples of 4', () => {
@@ -100,12 +97,12 @@ describe('Layout Tokens & Golden Ratio Math', () => {
     assert.ok(isGridAligned4(split.minor), 'Minor width must be 4-pixel aligned')
     assert.equal(split.major + split.minor, WORKSPACE_MIN_WIDTH)
 
-    // 932 / PHI = 576.007... -> ceilToGrid4 gives 580
-    assert.equal(calcMajorWidthCeil4(WORKSPACE_MIN_WIDTH), 580)
-    assert.equal(split.major, 580)
-    assert.equal(split.minor, 352)
+    // 1016 / PHI = 627.922... -> ceilToGrid4 gives 628
+    assert.equal(calcMajorWidthCeil4(WORKSPACE_MIN_WIDTH), 628)
+    assert.equal(split.major, 628)
+    assert.equal(split.minor, 388)
 
-    // With gap = 16
+    // With gap = 16 (available: 1000 -> 1000 / PHI = 618.033... -> ceilToGrid4 gives 620)
     const splitWithGap = calcGoldenSplit(WORKSPACE_MIN_WIDTH, 16)
     assert.ok(isGridAligned4(splitWithGap.major))
     assert.ok(isGridAligned4(splitWithGap.minor))
@@ -113,7 +110,7 @@ describe('Layout Tokens & Golden Ratio Math', () => {
 
     // Direct invocation of calcMinorWidth
     const minorCalculated = calcMinorWidth(WORKSPACE_MIN_WIDTH, split.major)
-    assert.equal(minorCalculated, 352)
+    assert.equal(minorCalculated, 388)
     const minorWithGapCalculated = calcMinorWidth(WORKSPACE_MIN_WIDTH, splitWithGap.major, 16)
     assert.equal(minorWithGapCalculated, splitWithGap.minor)
   })
@@ -167,7 +164,7 @@ describe('Layout Tokens & Golden Ratio Math', () => {
     assert.ok(isGridAligned4(WORKSPACE_PADDING_X), 'WORKSPACE_PADDING_X must be divisible by 4')
     assert.ok(isGridAligned4(TABLE_MIN_WIDTH), 'TABLE_MIN_WIDTH must be divisible by 4')
     assert.equal(WORKSPACE_CONTENT_MIN_WIDTH, WORKSPACE_MIN_WIDTH - 2 * WORKSPACE_PADDING_X)
-    assert.equal(WORKSPACE_CONTENT_MIN_WIDTH, 884)
+    assert.equal(WORKSPACE_CONTENT_MIN_WIDTH, 968)
     assert.equal(TABLE_MIN_WIDTH, 880)
     assert.ok(
       TABLE_MIN_WIDTH <= WORKSPACE_CONTENT_MIN_WIDTH,

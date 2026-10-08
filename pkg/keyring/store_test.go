@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/fingerprint"
 )
 
 func TestKeyringStoreCRUDAndRotation(t *testing.T) {
@@ -63,6 +66,36 @@ func TestKeyringStoreCRUDAndRotation(t *testing.T) {
 	}
 	if len(store2.ListAccounts()) != 2 {
 		t.Errorf("expected 2 accounts, got %d", len(store2.ListAccounts()))
+	}
+}
+
+func TestListAccounts_DeterministicSortedOrder(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "swiss_test_sort_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := NewStore(filepath.Join(tmpDir, "accounts.json"))
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	emails := []string{"zeta@gmail.com", "alpha@gmail.com", "beta@gmail.com", "delta@gmail.com"}
+	for _, em := range emails {
+		if err := store.AddOrUpdateAccount(&Account{Email: em}); err != nil {
+			t.Fatalf("AddOrUpdateAccount error: %v", err)
+		}
+	}
+
+	for i := 0; i < 10; i++ {
+		list := store.ListAccounts()
+		if len(list) != 4 {
+			t.Fatalf("expected 4 accounts, got %d", len(list))
+		}
+		if list[0].Email != "alpha@gmail.com" || list[1].Email != "beta@gmail.com" || list[2].Email != "delta@gmail.com" || list[3].Email != "zeta@gmail.com" {
+			t.Fatalf("unexpected order: %v, %v, %v, %v", list[0].Email, list[1].Email, list[2].Email, list[3].Email)
+		}
 	}
 }
 
@@ -151,14 +184,22 @@ func TestMultiSurfaceResolutionAndAutoImport(t *testing.T) {
 		t.Fatalf("expected desktop_user@google.com to win over CLI, got %v", detected)
 	}
 
-	// 2b. Setup app_storage.json with active desktop login user: true_desktop@google.com
-	// app_storage.json must take precedence over external jetski-standalone-oauth-token
-	_ = os.WriteFile(filepath.Join(configDir, "app_storage.json"), []byte(`{"jetski.onboarding.lastLoginUsername":"true_desktop@google.com"}`), 0600)
+	// 2b. Setup app_storage.json with stale onboarding username: stale_onboarding@google.com
+	// Live jetski-standalone-oauth-token must take precedence over stale onboarding app_storage.json
+	_ = os.WriteFile(filepath.Join(configDir, "app_storage.json"), []byte(`{"jetski.onboarding.lastLoginUsername":"stale_onboarding@google.com"}`), 0600)
 	detected = ResolveRunningAntigravityAccount(tmpDir, configDir)
-	if detected == nil || detected.Email != "true_desktop@google.com" {
-		t.Fatalf("expected true_desktop@google.com from app_storage.json to take precedence, got %v", detected)
+	if detected == nil || detected.Email != "desktop_user@google.com" {
+		t.Fatalf("expected desktop_user@google.com from jetski-standalone-oauth-token to take precedence over stale app_storage.json, got %v", detected)
+	}
+
+	// 2c. When standalone token is absent, app_storage.json acts as fallback for Desktop surface
+	_ = os.Remove(filepath.Join(geminiDir, "jetski-standalone-oauth-token"))
+	detected = ResolveRunningAntigravityAccount(tmpDir, configDir)
+	if detected == nil || detected.Email != "stale_onboarding@google.com" {
+		t.Fatalf("expected stale_onboarding@google.com from app_storage.json as fallback when standalone token is absent, got %v", detected)
 	}
 	_ = os.Remove(filepath.Join(configDir, "app_storage.json"))
+	_ = os.WriteFile(filepath.Join(geminiDir, "jetski-standalone-oauth-token"), []byte(createTokenJSON("desktop_user@google.com")), 0600)
 
 	// 3. Test Store Reconcile with unimported account and autoImport=false
 	accPath := filepath.Join(tmpDir, "accounts.json")
@@ -166,6 +207,8 @@ func TestMultiSurfaceResolutionAndAutoImport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStore error: %v", err)
 	}
+	store.homeDir = tmpDir
+	store.antigravityConfigDir = configDir
 	// Add an unrelated account
 	_ = store.AddOrUpdateAccount(&Account{Email: "vault_account@google.com", Label: "Vault Account"})
 
@@ -205,6 +248,8 @@ func TestMultiSurfaceResolutionAndAutoImport(t *testing.T) {
 	// 5. Test Store Reconcile when account is already in vault
 	// Switch active in vault back to vault_account
 	_ = store.SetActiveAccount("vault_account@google.com")
+	// Clear the 3-second manual switch latch cooldown so background reconciliation takes effect
+	store.lastManualSwitchTime = time.Time{}
 	// Now reconcile: running session is still desktop_user@google.com, which is now in vault.
 	// It should automatically switch back to desktop_user@google.com!
 	reconciled, err = store.ReconcileActiveAccount(false, []string{"vault_account@google.com", "desktop_user@google.com"}, nil)
@@ -441,17 +486,17 @@ func TestCooldownAccountSwitching(t *testing.T) {
 		t.Fatalf("expected active@example.com to be active, got %s", store.ActiveAccount())
 	}
 
-	// 2. SetActiveAccount rejects switching to COOLDOWN
+	// 2. SetActiveAccount allows manual switching to COOLDOWN account and promotes it to ACTIVE
 	err = store.SetActiveAccount("cooling@example.com")
-	if err == nil {
-		t.Fatalf("expected error switching to COOLDOWN account, got nil")
+	if err != nil {
+		t.Fatalf("expected manual switch to cooling account to succeed, got: %v", err)
 	}
-	expectedCooldownMsg := "account cooling@example.com is in cooldown waiting for quota reset and cannot be switched on"
-	if !strings.Contains(err.Error(), expectedCooldownMsg) {
-		t.Fatalf("expected error message %q, got %q", expectedCooldownMsg, err.Error())
+	if store.ActiveAccount() != "cooling@example.com" {
+		t.Fatalf("expected cooling@example.com to be active, got: %s", store.ActiveAccount())
 	}
-	if store.ActiveAccount() != "active@example.com" {
-		t.Fatalf("active account changed despite switch rejection: %s", store.ActiveAccount())
+	coolingAcc, _ := store.GetAccount("cooling@example.com")
+	if !coolingAcc.IsActive || coolingAcc.Status != "ACTIVE" {
+		t.Fatalf("expected cooling account to be promoted to ACTIVE, got: %v", coolingAcc)
 	}
 
 	// 3. SetActiveAccount rejects switching to BANNED
@@ -463,22 +508,15 @@ func TestCooldownAccountSwitching(t *testing.T) {
 		t.Fatalf("expected banned rejection message, got %q", err.Error())
 	}
 
-	// 4. UpdateAccountFull and UpdateAccountDetails reject setActive on COOLDOWN
-	err = store.UpdateAccountFull("cooling@example.com", "Cooling User", "Pro", "COOLDOWN", "Mid", "", "", "", "", 0, false, false, true)
-	if err == nil || !strings.Contains(err.Error(), expectedCooldownMsg) {
-		t.Fatalf("expected UpdateAccountFull to reject setActive on COOLDOWN, got: %v", err)
-	}
-	err = store.UpdateAccountDetails("cooling@example.com", "Cooling User", "Pro", "COOLDOWN", "Mid", "", "", "", "", true)
-	if err == nil || !strings.Contains(err.Error(), expectedCooldownMsg) {
-		t.Fatalf("expected UpdateAccountDetails to reject setActive on COOLDOWN, got: %v", err)
-	}
+	// 4. Switch back to active@example.com
+	_ = store.SetActiveAccount("active@example.com")
 
 	// 5. Transition to STANDBY allows switching on
 	err = store.UpdateAccountStatus("cooling@example.com", "STANDBY")
 	if err != nil {
 		t.Fatalf("UpdateAccountStatus to STANDBY failed: %v", err)
 	}
-	coolingAcc, err := store.GetAccount("cooling@example.com")
+	coolingAcc, err = store.GetAccount("cooling@example.com")
 	if err != nil || coolingAcc.Status != "STANDBY" {
 		t.Fatalf("expected status STANDBY, got %v, err=%v", coolingAcc, err)
 	}
@@ -707,3 +745,65 @@ func TestUpdateAccountFull_Ya29AccessTokenPreservesRefreshToken(t *testing.T) {
 		t.Errorf("expected AccessToken to be ya29.direct_set_at, got: %s", accDirect.AccessToken)
 	}
 }
+
+func TestSyncHardwareProfileToDirs_AllFourSurfaces(t *testing.T) {
+	tmpDir := t.TempDir()
+	agConfigDir := filepath.Join(tmpDir, ".config", "Antigravity")
+	geminiAgDir := filepath.Join(tmpDir, ".gemini", "antigravity")
+	if err := os.MkdirAll(geminiAgDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Pre-populate antigravity_state.pbtxt with existing onboarding/model settings
+	initialState := `agent_onboarding_completed: AGENT_ONBOARDING_STATE_COMPLETED
+last_selected_agent_model: MODEL_PLACEHOLDER_M318
+installation_uuid: "old-uuid-0000-4000-8000-000000000000"
+migrate_convos_into_projects: MIGRATION_STATUS_COMPLETED
+`
+	statePath := filepath.Join(geminiAgDir, "antigravity_state.pbtxt")
+	if err := os.WriteFile(statePath, []byte(initialState), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	prof, err := fingerprint.GenerateRandom()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SyncHardwareProfileToDirs(prof, agConfigDir, geminiAgDir); err != nil {
+		t.Fatalf("SyncHardwareProfileToDirs error: %v", err)
+	}
+
+	// 1. Verify machineid
+	mBytes, err := os.ReadFile(filepath.Join(agConfigDir, "machineid"))
+	if err != nil || string(mBytes) != prof.MachineID {
+		t.Errorf("expected machineid=%s, got %q (err=%v)", prof.MachineID, string(mBytes), err)
+	}
+
+	// 2. Verify .updaterId
+	uBytes, err := os.ReadFile(filepath.Join(agConfigDir, ".updaterId"))
+	if err != nil || string(uBytes) != prof.UpdaterID {
+		t.Errorf("expected .updaterId=%s, got %q (err=%v)", prof.UpdaterID, string(uBytes), err)
+	}
+
+	// 3. Verify installation_id
+	iBytes, err := os.ReadFile(filepath.Join(geminiAgDir, "installation_id"))
+	if err != nil || strings.TrimSpace(string(iBytes)) != prof.InstallationID {
+		t.Errorf("expected installation_id=%s, got %q (err=%v)", prof.InstallationID, string(iBytes), err)
+	}
+
+	// 4. Verify antigravity_state.pbtxt updated installation_uuid while preserving onboarding state
+	sBytes, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("failed to read statePath: %v", err)
+	}
+	sContent := string(sBytes)
+	expectedLine := `installation_uuid: "` + prof.InstallationUUID + `"`
+	if !strings.Contains(sContent, expectedLine) {
+		t.Errorf("expected state file to contain %s, got:\n%s", expectedLine, sContent)
+	}
+	if !strings.Contains(sContent, "last_selected_agent_model: MODEL_PLACEHOLDER_M318") {
+		t.Errorf("expected state file to preserve other lines, got:\n%s", sContent)
+	}
+}
+

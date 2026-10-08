@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 )
 
 // DiscoveredAccount represents an account found by scanning the local host environment.
@@ -77,7 +79,7 @@ func isTestMockEmail(email string) bool {
 	if norm == "target@gmail.com" || strings.HasSuffix(norm, "@example.com") || strings.HasSuffix(norm, ".test") || strings.HasSuffix(norm, "@mock.test") {
 		return true
 	}
-	if strings.HasPrefix(norm, "mock_") || strings.HasPrefix(norm, "test_") {
+	if strings.HasPrefix(norm, "mock_") || strings.HasPrefix(norm, "test_") || strings.HasPrefix(norm, "test.") {
 		return true
 	}
 	return false
@@ -112,6 +114,26 @@ func parseIDTokenEmail(idToken string) string {
 	return ""
 }
 
+// resolveEmailFromTokenOrCloudDB extracts email from JWT id_token, or resolves it by matching refresh/access token against cloud_accounts.db.
+func resolveEmailFromTokenOrCloudDB(idToken, refreshToken, accessToken, homeDir string) string {
+	if email := parseIDTokenEmail(idToken); email != "" && !isTestMockEmail(email) {
+		return normalizeEmail(email)
+	}
+	if refreshToken != "" || accessToken != "" {
+		if cloudAccs, err := ReadCloudAccountsDB(homeDir); err == nil && len(cloudAccs) > 0 {
+			for _, ca := range cloudAccs {
+				if (refreshToken != "" && ca.RefreshToken != "" && ca.RefreshToken == refreshToken) ||
+					(accessToken != "" && ca.AccessToken != "" && ca.AccessToken == accessToken) {
+					if ca.Email != "" && !isTestMockEmail(ca.Email) {
+						return normalizeEmail(ca.Email)
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
 // DetectAllSurfaces inspects the host environment and returns the detected accounts on each Antigravity surface.
 func DetectAllSurfaces(homeDir, configDir string) map[string]*DetectedSurfaceAccount {
 	if homeDir == "" {
@@ -127,42 +149,45 @@ func DetectAllSurfaces(homeDir, configDir string) map[string]*DetectedSurfaceAcc
 	results := make(map[string]*DetectedSurfaceAccount)
 
 	// 1. Antigravity 2.0 Desktop:
-	// Priority 1a: Antigravity app_storage.json (the definitive session configured in Desktop UI)
-	appStoragePath := filepath.Join(configDir, "app_storage.json")
-	if data, err := os.ReadFile(appStoragePath); err == nil {
-		var rawMap map[string]interface{}
-		if err := json.Unmarshal(data, &rawMap); err == nil {
-			if loginUser, ok := rawMap["jetski.onboarding.lastLoginUsername"].(string); ok {
-				loginUser = strings.TrimSpace(loginUser)
-				if loginUser != "" && !isTestMockEmail(loginUser) {
-					results[SurfaceDesktop] = &DetectedSurfaceAccount{
-						Email:       normalizeEmail(loginUser),
-						Surface:     SurfaceDesktop,
-						SurfaceName: SurfaceDesktopName,
+	// Priority 1a: Live in-memory user from running Antigravity IDE via Chrome DevTools Protocol (CDP)
+	// If the IDE is open and running, its live in-memory React session is the absolute source of truth.
+	if os.Getenv("ANTIGRAVITY_TEST_MODE") != "1" {
+		inj := gui.NewInjector(0)
+		if liveEmail := inj.GetLiveEmail(); liveEmail != "" && !isTestMockEmail(liveEmail) {
+			normalized := normalizeEmail(liveEmail)
+			var matchedAccess, matchedRefresh, matchedID string
+			if cloudAccs, err := ReadCloudAccountsDB(homeDir); err == nil {
+				for _, ca := range cloudAccs {
+					if strings.EqualFold(ca.Email, normalized) {
+						matchedAccess = ca.AccessToken
+						matchedRefresh = ca.RefreshToken
+						matchedID = ca.IDToken
+						break
 					}
 				}
+			}
+			results[SurfaceDesktop] = &DetectedSurfaceAccount{
+				Email:        normalized,
+				Surface:      SurfaceDesktop,
+				SurfaceName:  SurfaceDesktopName,
+				AccessToken:  matchedAccess,
+				RefreshToken: matchedRefresh,
+				IDToken:      matchedID,
 			}
 		}
 	}
 
 	// Priority 1b: Standalone OAuth Token (~/.gemini/jetski-standalone-oauth-token)
-	jetskiTokenPath := filepath.Join(homeDir, ".gemini", "jetski-standalone-oauth-token")
-	if data, err := os.ReadFile(jetskiTokenPath); err == nil {
-		var payload secretServicePayload
-		if err := json.Unmarshal(data, &payload); err == nil {
-			email := parseIDTokenEmail(payload.Token.IDToken)
-			if email != "" && !isTestMockEmail(email) {
-				normEmail := normalizeEmail(email)
-				if results[SurfaceDesktop] != nil {
-					// If app_storage already identified the desktop user, attach tokens if matching
-					if strings.EqualFold(results[SurfaceDesktop].Email, normEmail) {
-						results[SurfaceDesktop].AccessToken = payload.Token.AccessToken
-						results[SurfaceDesktop].RefreshToken = payload.Token.RefreshToken
-						results[SurfaceDesktop].IDToken = payload.Token.IDToken
-					}
-				} else {
+	// Fallback when Antigravity is not currently running or DevTools is unavailable.
+	if results[SurfaceDesktop] == nil {
+		jetskiTokenPath := filepath.Join(homeDir, ".gemini", "jetski-standalone-oauth-token")
+		if data, err := os.ReadFile(jetskiTokenPath); err == nil {
+			var payload secretServicePayload
+			if err := json.Unmarshal(data, &payload); err == nil {
+				email := resolveEmailFromTokenOrCloudDB(payload.Token.IDToken, payload.Token.RefreshToken, payload.Token.AccessToken, homeDir)
+				if email != "" && !isTestMockEmail(email) {
 					results[SurfaceDesktop] = &DetectedSurfaceAccount{
-						Email:        normEmail,
+						Email:        normalizeEmail(email),
 						Surface:      SurfaceDesktop,
 						SurfaceName:  SurfaceDesktopName,
 						AccessToken:  payload.Token.AccessToken,
@@ -174,9 +199,48 @@ func DetectAllSurfaces(homeDir, configDir string) map[string]*DetectedSurfaceAcc
 		}
 	}
 
+	// Priority 1c: Active Account in Antigravity Agent DB (~/.antigravity-agent/cloud_accounts.db)
+	if results[SurfaceDesktop] == nil {
+		if cloudAccs, err := ReadCloudAccountsDB(homeDir); err == nil {
+			for _, ca := range cloudAccs {
+				if ca.IsActive && ca.Email != "" && !isTestMockEmail(ca.Email) {
+					results[SurfaceDesktop] = &DetectedSurfaceAccount{
+						Email:        normalizeEmail(ca.Email),
+						Surface:      SurfaceDesktop,
+						SurfaceName:  SurfaceDesktopName,
+						AccessToken:  ca.AccessToken,
+						RefreshToken: ca.RefreshToken,
+						IDToken:      ca.IDToken,
+					}
+					break
+				}
+			}
+		}
+	}
+
+	// Priority 1c: Antigravity app_storage.json (fallback if no standalone token or cloud account exists)
+	if results[SurfaceDesktop] == nil {
+		appStoragePath := filepath.Join(configDir, "app_storage.json")
+		if data, err := os.ReadFile(appStoragePath); err == nil {
+			var rawMap map[string]interface{}
+			if err := json.Unmarshal(data, &rawMap); err == nil {
+				if loginUser, ok := rawMap["jetski.onboarding.lastLoginUsername"].(string); ok {
+					loginUser = strings.TrimSpace(loginUser)
+					if loginUser != "" && !isTestMockEmail(loginUser) {
+						results[SurfaceDesktop] = &DetectedSurfaceAccount{
+							Email:       normalizeEmail(loginUser),
+							Surface:     SurfaceDesktop,
+							SurfaceName: SurfaceDesktopName,
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// 2. Antigravity VS Code Extension: Linux Secret Service (service=gemini, username=antigravity)
 	if cred, err := readSecretServiceToken(); err == nil && cred != nil {
-		email := parseIDTokenEmail(cred.IDToken)
+		email := resolveEmailFromTokenOrCloudDB(cred.IDToken, cred.RefreshToken, cred.AccessToken, homeDir)
 		if email != "" && !isTestMockEmail(email) {
 			results[SurfaceVSCode] = &DetectedSurfaceAccount{
 				Email:        normalizeEmail(email),
@@ -195,7 +259,7 @@ func DetectAllSurfaces(homeDir, configDir string) map[string]*DetectedSurfaceAcc
 	if data, err := os.ReadFile(cliTokenPath); err == nil {
 		var payload secretServicePayload
 		if err := json.Unmarshal(data, &payload); err == nil {
-			email := parseIDTokenEmail(payload.Token.IDToken)
+			email := resolveEmailFromTokenOrCloudDB(payload.Token.IDToken, payload.Token.RefreshToken, payload.Token.AccessToken, homeDir)
 			if email != "" && !isTestMockEmail(email) {
 				results[SurfaceCLI] = &DetectedSurfaceAccount{
 					Email:        normalizeEmail(email),
@@ -218,7 +282,7 @@ func DetectAllSurfaces(homeDir, configDir string) map[string]*DetectedSurfaceAcc
 				IDToken      string `json:"id_token"`
 			}
 			if err := json.Unmarshal(data, &creds); err == nil {
-				email := parseIDTokenEmail(creds.IDToken)
+				email := resolveEmailFromTokenOrCloudDB(creds.IDToken, creds.RefreshToken, creds.AccessToken, homeDir)
 				if email != "" && !isTestMockEmail(email) {
 					results[SurfaceCLI] = &DetectedSurfaceAccount{
 						Email:        normalizeEmail(email),
@@ -381,7 +445,7 @@ func (s *Scanner) Scan() ([]DiscoveredAccount, error) {
 
 	// 3. Scan Linux Secret Service / Keyring via secret-tool
 	if cred, err := readSecretServiceToken(); err == nil && cred != nil {
-		emailFromToken := parseIDTokenEmail(cred.IDToken)
+		emailFromToken := resolveEmailFromTokenOrCloudDB(cred.IDToken, cred.RefreshToken, cred.AccessToken, s.homeDir)
 		if emailFromToken != "" && !isTestMockEmail(emailFromToken) {
 			key := normalizeEmail(emailFromToken)
 			disc, exists := discovered[key]
@@ -410,7 +474,7 @@ func (s *Scanner) Scan() ([]DiscoveredAccount, error) {
 	if data, err := os.ReadFile(jetskiTokenPath); err == nil {
 		var payload secretServicePayload
 		if err := json.Unmarshal(data, &payload); err == nil {
-			email := parseIDTokenEmail(payload.Token.IDToken)
+			email := resolveEmailFromTokenOrCloudDB(payload.Token.IDToken, payload.Token.RefreshToken, payload.Token.AccessToken, s.homeDir)
 			if email != "" && !isTestMockEmail(email) {
 				key := normalizeEmail(email)
 				disc, exists := discovered[key]
@@ -440,7 +504,7 @@ func (s *Scanner) Scan() ([]DiscoveredAccount, error) {
 	if data, err := os.ReadFile(cliTokenPath); err == nil {
 		var payload secretServicePayload
 		if err := json.Unmarshal(data, &payload); err == nil {
-			email := parseIDTokenEmail(payload.Token.IDToken)
+			email := resolveEmailFromTokenOrCloudDB(payload.Token.IDToken, payload.Token.RefreshToken, payload.Token.AccessToken, s.homeDir)
 			if email != "" && !isTestMockEmail(email) {
 				key := normalizeEmail(email)
 				disc, exists := discovered[key]
@@ -474,7 +538,7 @@ func (s *Scanner) Scan() ([]DiscoveredAccount, error) {
 			IDToken      string `json:"id_token"`
 		}
 		if err := json.Unmarshal(data, &creds); err == nil {
-			email := parseIDTokenEmail(creds.IDToken)
+			email := resolveEmailFromTokenOrCloudDB(creds.IDToken, creds.RefreshToken, creds.AccessToken, s.homeDir)
 			if email != "" && !isTestMockEmail(email) {
 				key := normalizeEmail(email)
 				disc, exists := discovered[key]

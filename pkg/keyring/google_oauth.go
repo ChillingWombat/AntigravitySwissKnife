@@ -41,11 +41,13 @@ type GoogleOAuthManager struct {
 }
 
 type activeGoogleFlow struct {
-	authURL string
-	result  chan *GoogleOAuthResult
-	err     chan error
-	server  *http.Server
-	cancel  context.CancelFunc
+	authURL      string
+	redirectURI  string
+	cachedTokens *GoogleOAuthResult
+	result       chan *GoogleOAuthResult
+	err          chan error
+	server       *http.Server
+	cancel       context.CancelFunc
 }
 
 // NewGoogleOAuthManager creates a new extractor instance.
@@ -114,6 +116,89 @@ func (m *GoogleOAuthManager) GetActiveAuthURL() string {
 	return ""
 }
 
+// Exchange exchanges an authorization code or callback URL for OAuth tokens.
+func (m *GoogleOAuthManager) Exchange(callbackURL, directCode, directRedirectURI string) (*GoogleOAuthResult, error) {
+	callbackURL = strings.TrimSpace(callbackURL)
+	callbackURL = strings.Trim(callbackURL, "\"'")
+	directCode = strings.TrimSpace(directCode)
+	directRedirectURI = strings.TrimSpace(directRedirectURI)
+
+	code := directCode
+	redirectURI := directRedirectURI
+
+	if callbackURL != "" {
+		raw := callbackURL
+		if !strings.HasPrefix(raw, "http://") && !strings.HasPrefix(raw, "https://") {
+			if strings.Contains(raw, "/oauth/callback") || strings.Contains(raw, "127.0.0.1") || strings.Contains(raw, "localhost") {
+				raw = "http://" + raw
+			}
+		}
+
+		if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
+			u, err := url.Parse(raw)
+			if err != nil {
+				return nil, fmt.Errorf("invalid return URL: %w", err)
+			}
+			if errParam := u.Query().Get("error"); errParam != "" {
+				desc := u.Query().Get("error_description")
+				if desc != "" {
+					return nil, fmt.Errorf("google returned error: %s (%s)", errParam, desc)
+				}
+				return nil, fmt.Errorf("google returned error: %s", errParam)
+			}
+			if parsedCode := u.Query().Get("code"); parsedCode != "" {
+				code = parsedCode
+			}
+			if redirectURI == "" {
+				redirectURI = fmt.Sprintf("%s://%s%s", u.Scheme, u.Host, u.Path)
+			}
+		} else if strings.Contains(raw, "code=") {
+			q := raw
+			if idx := strings.Index(q, "?"); idx != -1 {
+				q = q[idx+1:]
+			}
+			vals, err := url.ParseQuery(q)
+			if err == nil && vals.Get("code") != "" {
+				code = vals.Get("code")
+			}
+		} else if code == "" {
+			code = raw
+		}
+	}
+
+	if code == "" {
+		return nil, fmt.Errorf("no authorization code found in the return URL")
+	}
+
+	m.mu.Lock()
+	active := m.activeFlow
+	if redirectURI == "" && active != nil && active.redirectURI != "" {
+		redirectURI = active.redirectURI
+	}
+	m.mu.Unlock()
+
+	if redirectURI == "" {
+		return nil, fmt.Errorf("unable to determine redirect URI; please paste the full return URL starting with http://127.0.0.1:.../oauth/callback")
+	}
+
+	tokens, err := exchangeGoogleCode(m.clientID, m.clientSecret, code, redirectURI)
+	if err != nil {
+		return nil, err
+	}
+
+	m.mu.Lock()
+	if m.activeFlow != nil && m.activeFlow == active {
+		active.cachedTokens = tokens
+		select {
+		case active.result <- tokens:
+		default:
+		}
+	}
+	m.mu.Unlock()
+
+	return tokens, nil
+}
+
 // StartFlow starts the local loopback server, launches the browser, and returns the tokens.
 func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*GoogleOAuthResult, error) {
 	m.mu.Lock()
@@ -138,9 +223,10 @@ func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*
 
 	flowCtx, cancel := context.WithCancel(ctx)
 	flow := &activeGoogleFlow{
-		result: make(chan *GoogleOAuthResult, 1),
-		err:    make(chan error, 1),
-		cancel: cancel,
+		redirectURI: redirectURI,
+		result:      make(chan *GoogleOAuthResult, 1),
+		err:         make(chan error, 1),
+		cancel:      cancel,
 	}
 	m.activeFlow = flow
 	m.mu.Unlock()
@@ -153,8 +239,48 @@ func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*
 		m.mu.Unlock()
 	}()
 
+	successHTML := []byte(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Antigravity Swiss Knife - Login Successful</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background:#131314; color:#e3e3e3; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;">
+  <div style="background:#1e1f20; border:1px solid #3c4043; border-radius:16px; padding:36px 48px; text-align:center; max-width:440px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
+    <div style="width:52px; height:52px; margin:0 auto 16px; background:rgba(129,201,149,0.2); border-radius:50%; display:flex; align-items:center; justify-content:center; color:#81c995; font-size:24px;">&#x2713;</div>
+    <h2 style="margin:0 0 8px; color:#fff; font-size:20px;">Authentication Successful</h2>
+    <p style="color:#9aa0a6; font-size:14px; line-height:1.5; margin:0 0 16px;">Antigravity Swiss Knife has received and verified your credentials. You can safely close this browser window and return to the application.</p>
+    <p style="color:#5f6368; font-size:12px; margin:0 0 20px;">This tab will attempt to auto-close in <span id="countdown" style="font-weight:700; color:#81c995;">5</span> seconds.</p>
+    <button onclick="try{window.close();}catch(e){}try{window.open('','_self','');window.close();}catch(e){}" style="background:#81c995; color:#131314; border:none; border-radius:8px; padding:10px 28px; font-size:13px; font-weight:600; cursor:pointer;">Close Window</button>
+  </div>
+  <script>
+    let remaining = 5;
+    const countEl = document.getElementById('countdown');
+    const timer = setInterval(function() {
+      remaining--;
+      if (countEl) countEl.textContent = remaining;
+      if (remaining <= 0) {
+        clearInterval(timer);
+        try { window.close(); } catch(e) {}
+        try { window.open('', '_self', ''); window.close(); } catch(e) {}
+      }
+    }, 1000);
+  </script>
+</body>
+</html>`)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/oauth/callback", func(w http.ResponseWriter, r *http.Request) {
+		m.mu.Lock()
+		cached := flow.cachedTokens
+		m.mu.Unlock()
+		if cached != nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(successHTML)
+			return
+		}
+
 		code := r.URL.Query().Get("code")
 		if errParam := r.URL.Query().Get("error"); errParam != "" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -190,19 +316,13 @@ func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*
 			return
 		}
 
+		m.mu.Lock()
+		flow.cachedTokens = tokens
+		m.mu.Unlock()
+
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>Antigravity Swiss Knife - Login Successful</title></head>
-<body style="font-family:sans-serif;background:#131314;color:#e3e3e3;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
-  <div style="background:#1e1f20;border:1px solid #3c4043;border-radius:16px;padding:36px 48px;text-align:center;max-width:440px;">
-    <div style="width:52px;height:52px;margin:0 auto 16px;background:rgba(129,201,149,0.2);border-radius:50%;display:flex;align-items:center;justify-content:center;color:#81c995;font-size:24px;">&#x2713;</div>
-    <h2 style="margin:0 0 8px;color:#fff;">Authentication Successful</h2>
-    <p style="color:#9aa0a6;font-size:14px;line-height:1.5;">Antigravity Swiss Knife has extracted your OAuth credentials. You may close this window and return to the application.</p>
-  </div>
-</body>
-</html>`))
+		_, _ = w.Write(successHTML)
 
 		select {
 		case flow.result <- tokens:
@@ -238,7 +358,10 @@ func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*
 
 	select {
 	case res := <-flow.result:
-		_ = server.Close()
+		go func() {
+			time.Sleep(6 * time.Second)
+			_ = server.Close()
+		}()
 		return res, nil
 	case err := <-flow.err:
 		_ = server.Close()

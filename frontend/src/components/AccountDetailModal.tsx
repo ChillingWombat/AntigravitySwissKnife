@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail } from 'lucide-react'
+import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail, Link } from 'lucide-react'
 import type { AccountState } from '../types'
 import { renderPlanTierBadge } from '../pages/QuotaDashboardPage'
 import { HorizontalQuotaBar } from './HorizontalQuotaBar'
@@ -41,30 +41,116 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [extractedAccessToken, setExtractedAccessToken] = useState<string>('')
   const [showOAuth, setShowOAuth] = useState(false)
   const [isExtractingOAuth, setIsExtractingOAuth] = useState(false)
-  const [oauthAuthUrl, setOauthAuthUrl] = useState<string | null>(null)
-  const [copiedOAuthUrl, setCopiedOAuthUrl] = useState(false)
+  const [showManualCallbackField, setShowManualCallbackField] = useState(false)
+  const [manualCallbackUrl, setManualCallbackUrl] = useState('')
+  const [isExchangingOAuth, setIsExchangingOAuth] = useState(false)
   const [oauthSuccessMsg, setOauthSuccessMsg] = useState<string | null>(null)
   const oauthAbortControllerRef = useRef<AbortController | null>(null)
-  const status = account.status || (account.is_active ? 'ACTIVE' : 'STANDBY')
+  const [currentStatus, setCurrentStatus] = useState<string>(account.status || (account.is_active ? 'ACTIVE' : 'STANDBY'))
+  const [liveErrorMessage, setLiveErrorMessage] = useState<string | null>(account.error_message || null)
   const [notes, setNotes] = useState(account.notes || '')
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
+  const [liveQuota5h, setLiveQuota5h] = useState<number | null>(
+    account.quota_5h_available ?? account.quota_5h_current ?? null
+  )
+  const [liveQuotaWeekly, setLiveQuotaWeekly] = useState<number | null>(
+    account.quota_weekly ?? null
+  )
+  const [liveResetHorizon, setLiveResetHorizon] = useState<string | null>(
+    account.reset_horizon_text || null
+  )
+  const [liveResetHorizonWeekly, setLiveResetHorizonWeekly] = useState<string | null>(
+    account.reset_horizon_weekly_text || null
+  )
+  const [currentPlanTier, setCurrentPlanTier] = useState<string>(account.plan_tier || '')
+  const [isRefreshingQuota, setIsRefreshingQuota] = useState(false)
+
   const RIGHT_ACTION_WIDTH = '172px'
   const CONTROL_HEIGHT = '36px'
 
   const isQuotaConnected = Boolean(
-    (!isNewAccount &&
-      (account.is_active ||
-        account.status === 'ACTIVE' ||
-        Boolean(account.refresh_token?.trim()) ||
-        (Boolean(account.reset_horizon_text?.trim()) &&
-          account.reset_horizon_text !== 'Not Polled'))) ||
+    liveQuota5h !== null ||
+      (!isNewAccount &&
+        (account.is_active ||
+          currentStatus === 'ACTIVE' ||
+          account.status === 'ACTIVE' ||
+          Boolean(account.refresh_token?.trim()) ||
+          Boolean(refreshToken?.trim()) ||
+          (Boolean(account.reset_horizon_text?.trim()) &&
+            account.reset_horizon_text !== 'Not Polled'))) ||
       Boolean(oauthSuccessMsg)
   )
 
   const headerDisplay = getAccountHeaderDisplay(isNewAccount, label, email)
+
+  const handleRefreshLiveQuota = async () => {
+    const targetEmail = email.trim() || account.email
+    if (!targetEmail) return
+    setIsRefreshingQuota(true)
+    setError(null)
+    try {
+      const q = await api.refreshAccountQuota(targetEmail)
+      if (q) {
+        if (q.quota_5h_fraction !== undefined) setLiveQuota5h(q.quota_5h_fraction)
+        if (q.quota_weekly_fraction !== undefined) setLiveQuotaWeekly(q.quota_weekly_fraction)
+        if (q.reset_horizon_text) setLiveResetHorizon(q.reset_horizon_text)
+        if (q.reset_horizon_weekly_text) setLiveResetHorizonWeekly(q.reset_horizon_weekly_text)
+        if (q.plan_tier) {
+          account.plan_tier = q.plan_tier
+          setCurrentPlanTier(q.plan_tier)
+        }
+        if ((q as any).error_message) {
+          setLiveErrorMessage((q as any).error_message)
+          account.error_message = (q as any).error_message
+        } else {
+          setLiveErrorMessage(null)
+          account.error_message = ''
+        }
+        if ((q as any).error_status) {
+          setCurrentStatus((q as any).error_status)
+          account.status = (q as any).error_status
+        } else if (currentStatus === 'ERROR' || currentStatus === 'BANNED') {
+          const nextSt = account.is_active ? 'ACTIVE' : 'STANDBY'
+          setCurrentStatus(nextSt)
+          account.status = nextSt
+        }
+      }
+    } catch (err: any) {
+      console.warn('Quota refresh warning:', err)
+    } finally {
+      setIsRefreshingQuota(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!isNewAccount && account.email && (account.refresh_token || account.access_token)) {
+      if (account.reset_horizon_text === 'Not Polled' || liveQuota5h === null) {
+        api.getQuotaSummary(account.email).then((q) => {
+          if (q) {
+            if (q.quota_5h_fraction !== undefined) setLiveQuota5h(q.quota_5h_fraction)
+            if (q.quota_weekly_fraction !== undefined) setLiveQuotaWeekly(q.quota_weekly_fraction)
+            if (q.reset_horizon_text) setLiveResetHorizon(q.reset_horizon_text)
+            if (q.reset_horizon_weekly_text) setLiveResetHorizonWeekly(q.reset_horizon_weekly_text)
+            if (q.plan_tier) {
+              account.plan_tier = q.plan_tier
+              setCurrentPlanTier(q.plan_tier)
+            }
+            if ((q as any).error_message) {
+              setLiveErrorMessage((q as any).error_message)
+              account.error_message = (q as any).error_message
+            }
+            if ((q as any).error_status) {
+              setCurrentStatus((q as any).error_status)
+              account.status = (q as any).error_status
+            }
+          }
+        }).catch(() => {})
+      }
+    }
+  }, [account.email])
 
   // Real-time derived 6-number verification code
   const [derivedCode, setDerivedCode] = useState<string | null>(null)
@@ -120,6 +206,9 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       oauthAbortControllerRef.current = null
       api.cancelGoogleOAuth().catch(() => {})
     }
+    setShowManualCallbackField(false)
+    setManualCallbackUrl('')
+    setIsExchangingOAuth(false)
     onClose()
   }
 
@@ -129,65 +218,25 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       oauthAbortControllerRef.current = null
     }
     setIsExtractingOAuth(false)
-    setOauthAuthUrl(null)
-    setCopiedOAuthUrl(false)
+    if (!manualCallbackUrl.trim()) {
+      setShowManualCallbackField(false)
+    }
     try {
       await api.cancelGoogleOAuth()
     } catch {}
   }
 
-  const handleCopyOAuthUrl = async () => {
-    let urlToCopy = oauthAuthUrl
-    if (!urlToCopy) {
-      try {
-        const info = await api.getGoogleOAuthURL()
-        if (info && info.auth_url) {
-          urlToCopy = info.auth_url
-          setOauthAuthUrl(info.auth_url)
-        }
-      } catch {}
-    }
-    if (urlToCopy) {
-      try {
-        await navigator.clipboard.writeText(urlToCopy)
-        setCopiedOAuthUrl(true)
-        setOauthSuccessMsg('Login address copied to clipboard! Paste it into your fingerprint browser to complete sign-in.')
-        setTimeout(() => setCopiedOAuthUrl(false), 3000)
-      } catch (err: any) {
-        setError('Failed to copy to clipboard: ' + (err?.message || err))
-      }
-    } else {
-      setError('Login address is generating. Please click again in a moment.')
-    }
-  }
-
   const handleExtractGoogleOAuth = async () => {
     if (isExtractingOAuth) {
-      await handleCopyOAuthUrl()
+      await handleCancelGoogleOAuth()
       return
     }
     setIsExtractingOAuth(true)
+    setShowManualCallbackField(true)
     setError(null)
     setOauthSuccessMsg(null)
-    setOauthAuthUrl(null)
-    setCopiedOAuthUrl(false)
     const controller = new AbortController()
     oauthAbortControllerRef.current = controller
-
-    // Asynchronously poll for the generated auth URL so it is immediately ready for clipboard copying
-    ;(async () => {
-      for (let i = 0; i < 20; i++) {
-        if (controller.signal.aborted) break
-        try {
-          const info = await api.getGoogleOAuthURL()
-          if (info && info.auth_url) {
-            setOauthAuthUrl(info.auth_url)
-            break
-          }
-        } catch {}
-        await new Promise((r) => setTimeout(r, 100))
-      }
-    })()
 
     try {
       const res = await api.startGoogleOAuth(controller.signal)
@@ -204,6 +253,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           }
         }
         setOauthSuccessMsg(`Extracted refresh token successfully for ${res.email || email || account.email}`)
+        setShowManualCallbackField(false)
+        setManualCallbackUrl('')
       } else if (!controller.signal.aborted) {
         setError(res.error || 'Failed to extract OAuth refresh token from Google')
       }
@@ -216,8 +267,48 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       if (oauthAbortControllerRef.current === controller) {
         oauthAbortControllerRef.current = null
         setIsExtractingOAuth(false)
-        setOauthAuthUrl(null)
       }
+    }
+  }
+
+  const handleExchangeManualCallback = async (overrideUrl?: string) => {
+    const urlToExchange = (overrideUrl !== undefined ? overrideUrl : manualCallbackUrl).trim()
+    if (!urlToExchange) return
+
+    setIsExchangingOAuth(true)
+    setError(null)
+    setOauthSuccessMsg(null)
+
+    try {
+      const res = await api.exchangeGoogleOAuth({ callback_url: urlToExchange })
+      if (res.success && res.refresh_token) {
+        setRefreshToken(res.refresh_token)
+        if (res.access_token) {
+          setExtractedAccessToken(res.access_token)
+        }
+        if (res.email && !email.trim()) {
+          setEmail(res.email)
+          if (!label.trim() || aliasAutoFilled) {
+            setLabel(res.email)
+            setAliasAutoFilled(true)
+          }
+        }
+        setOauthSuccessMsg(`Extracted refresh token successfully for ${res.email || email || account.email}`)
+        setShowManualCallbackField(false)
+        setManualCallbackUrl('')
+        setIsExtractingOAuth(false)
+        if (oauthAbortControllerRef.current) {
+          oauthAbortControllerRef.current.abort()
+          oauthAbortControllerRef.current = null
+        }
+        api.cancelGoogleOAuth().catch(() => {})
+      } else {
+        setError(res.error || 'Failed to extract refresh token from return URL')
+      }
+    } catch (err: any) {
+      setError(err.message || 'Token exchange failed')
+    } finally {
+      setIsExchangingOAuth(false)
     }
   }
 
@@ -235,11 +326,14 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     try {
       const finalEmail = email.trim() || account.email
       const finalLabel = resolveDefaultAlias(label, email)
-      await api.updateAccount({
+      const targetStatus = (currentStatus === 'ERROR' || currentStatus === 'BANNED')
+        ? (account.is_active ? 'ACTIVE' : 'STANDBY')
+        : (currentStatus || (account.is_active ? 'ACTIVE' : 'STANDBY'))
+      const res = await api.updateAccount({
         email: finalEmail,
         label: finalLabel,
-        plan_tier: account.plan_tier || '',
-        status: account.status || status,
+        plan_tier: currentPlanTier || account.plan_tier || '',
+        status: targetStatus,
         priority: priority,
         password: password,
         notes: notes.trim(),
@@ -250,7 +344,27 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         enable_credit_overages: enableCreditOverages,
         allow_claude_gpt: allowClaudeGpt,
       })
-      onSaved()
+      if (res && res.quota) {
+        const q = res.quota
+        if (q.quota_5h_fraction !== undefined) setLiveQuota5h(q.quota_5h_fraction)
+        if (q.quota_weekly_fraction !== undefined) setLiveQuotaWeekly(q.quota_weekly_fraction)
+        if (q.reset_horizon_text) setLiveResetHorizon(q.reset_horizon_text)
+        if (q.reset_horizon_weekly_text) setLiveResetHorizonWeekly(q.reset_horizon_weekly_text)
+        if (q.plan_tier) {
+          account.plan_tier = q.plan_tier
+          setCurrentPlanTier(q.plan_tier)
+        }
+        if ((q as any).error_message) {
+          account.error_message = (q as any).error_message
+        }
+        if ((q as any).error_status) {
+          account.status = (q as any).error_status
+        }
+      } else if (res && res.plan_tier) {
+        account.plan_tier = res.plan_tier
+        setCurrentPlanTier(res.plan_tier)
+      }
+      await onSaved()
       handleClose()
     } catch (err: any) {
       setError(err.message || 'Failed to update account')
@@ -279,7 +393,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     }
   }
 
-  const st = (status || (account.is_active ? 'ACTIVE' : 'STANDBY')).toUpperCase()
+  const st = (currentStatus || (account.is_active ? 'ACTIVE' : 'STANDBY')).toUpperCase()
 
   return (
     <div
@@ -332,12 +446,12 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                         ? 'badge-yellow'
                         : account.is_active
                         ? 'badge-green'
-                        : st === 'COOLDOWN'
+                        : st === 'COOLDOWN' || st === 'COOLING'
                         ? 'badge-blue'
                         : 'badge-neutral'
                     }`}
                   >
-                    {account.is_active && st !== 'BANNED' && st !== 'ERROR' ? 'ACTIVE' : st === 'COOLDOWN' ? 'COOL DOWN' : st}
+                    {account.is_active && st !== 'BANNED' && st !== 'ERROR' ? 'ACTIVE' : (st === 'COOLDOWN' || st === 'COOLING') ? 'COOLING' : st}
                   </span>
                   {renderPlanTierBadge(account.plan_tier)}
                   {account.credits !== undefined && account.credits !== null && account.credits > 0 && (
@@ -373,17 +487,22 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             style={{
               backgroundColor: 'var(--red-bg)',
               color: 'var(--red)',
-              padding: '10px 16px',
+              padding: '12px 16px',
               borderRadius: '8px',
               fontSize: '12px',
               marginBottom: '16px',
               display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
+              flexDirection: 'column',
+              gap: '6px',
             }}
           >
-            <ShieldAlert size={16} />
-            <span>Account banned or suspended upstream. Please appeal via Google or discard this account.</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }}>
+              <ShieldAlert size={16} />
+              <span>Account Suspended Upstream (Banned)</span>
+            </div>
+            <div style={{ fontSize: '11px', opacity: 0.95, paddingLeft: '24px', lineHeight: 1.4, wordBreak: 'break-word', fontFamily: 'monospace' }}>
+              {liveErrorMessage || account.error_message || account.status_reason || 'This account has been flagged or disabled upstream by Google (e.g. TOS_VIOLATION). Quota requests cannot be serviced.'}
+            </div>
           </div>
         )}
 
@@ -392,17 +511,22 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             style={{
               backgroundColor: 'var(--yellow-bg)',
               color: 'var(--yellow)',
-              padding: '10px 16px',
+              padding: '12px 16px',
               borderRadius: '8px',
               fontSize: '12px',
               marginBottom: '16px',
               display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
+              flexDirection: 'column',
+              gap: '6px',
             }}
           >
-            <ShieldAlert size={16} />
-            <span>Authentication error. Verification or token re-extraction required.</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }}>
+              <ShieldAlert size={16} />
+              <span>Authentication / Quota Error</span>
+            </div>
+            <div style={{ fontSize: '11px', opacity: 0.95, paddingLeft: '24px', lineHeight: 1.4, wordBreak: 'break-word', fontFamily: 'monospace' }}>
+              {liveErrorMessage || account.error_message || account.status_reason || 'Authentication error or token expired. Verification or token re-extraction required.'}
+            </div>
           </div>
         )}
 
@@ -455,10 +579,33 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
               Gemini Quota
             </div>
-            {!isQuotaConnected && (
+            {!isQuotaConnected ? (
               <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
                 Pending connection
               </span>
+            ) : (
+              <button
+                type="button"
+                onClick={handleRefreshLiveQuota}
+                disabled={isRefreshingQuota || isSaving}
+                title="Fetch and refresh live quota"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: isRefreshingQuota ? 'wait' : 'pointer',
+                  padding: '2px 6px',
+                  color: 'var(--primary)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  borderRadius: '4px',
+                }}
+              >
+                <RefreshCw size={12} className={isRefreshingQuota ? 'spin' : ''} />
+                <span>{isRefreshingQuota ? 'Refreshing...' : 'Refresh Quota'}</span>
+              </button>
             )}
           </div>
 
@@ -467,14 +614,14 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px' }}>
                 <span style={{ fontWeight: 500, color: 'var(--text)' }}>5H Quota:</span>
                 <span style={{ color: 'var(--text-muted)' }}>
-                  {isQuotaConnected ? (account.reset_horizon_text || 'Ready') : 'Not connected'}
+                  {isQuotaConnected ? (liveResetHorizon || account.reset_horizon_text || 'Ready') : 'Not connected'}
                 </span>
               </div>
               <HorizontalQuotaBar
-                fraction={isQuotaConnected ? (account.quota_5h_available ?? account.quota_5h_current ?? 0) : 0}
+                fraction={isQuotaConnected ? (liveQuota5h ?? (account.quota_5h_available ?? account.quota_5h_current ?? 0)) : 0}
                 disabled={!isQuotaConnected}
                 maxWidth="100%"
-                title={isQuotaConnected ? (account.reset_horizon_text || 'Resets in 5h cycle') : 'Pending login and connection'}
+                title={isQuotaConnected ? (liveResetHorizon || account.reset_horizon_text || 'Resets in 5h cycle') : 'Pending login and connection'}
               />
             </div>
 
@@ -482,14 +629,14 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px' }}>
                 <span style={{ fontWeight: 500, color: 'var(--text)' }}>Weekly Quota:</span>
                 <span style={{ color: 'var(--text-muted)' }}>
-                  {isQuotaConnected ? (account.reset_horizon_weekly_text || account.reset_horizon_text || 'Ready') : 'Not connected'}
+                  {isQuotaConnected ? (liveResetHorizonWeekly || account.reset_horizon_weekly_text || liveResetHorizon || account.reset_horizon_text || 'Ready') : 'Not connected'}
                 </span>
               </div>
               <HorizontalQuotaBar
-                fraction={isQuotaConnected ? (account.quota_weekly ?? 0) : 0}
+                fraction={isQuotaConnected ? (liveQuotaWeekly ?? (account.quota_weekly ?? 0)) : 0}
                 disabled={!isQuotaConnected}
                 maxWidth="100%"
-                title={isQuotaConnected ? (account.reset_horizon_weekly_text || 'Resets on 7-day rolling cycle') : 'Pending login and connection'}
+                title={isQuotaConnected ? (liveResetHorizonWeekly || account.reset_horizon_weekly_text || 'Resets on 7-day rolling cycle') : 'Pending login and connection'}
               />
             </div>
           </div>
@@ -624,88 +771,42 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   {showOAuth ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
-              {isExtractingOAuth ? (
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', width: RIGHT_ACTION_WIDTH, flexShrink: 0 }}>
-                  <button
-                    type="button"
-                    onClick={handleExtractGoogleOAuth}
-                    className="btn-pill-outlined"
-                    style={{
-                      flex: 1,
-                      height: CONTROL_HEIGHT,
-                      boxSizing: 'border-box',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '4px',
-                      whiteSpace: 'nowrap',
-                      padding: '0 6px',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      backgroundColor: copiedOAuthUrl ? 'rgba(52, 168, 83, 0.08)' : 'var(--primary-light)',
-                      color: copiedOAuthUrl ? '#188038' : 'var(--primary)',
-                      borderColor: copiedOAuthUrl ? '#188038' : 'var(--primary)',
-                      cursor: 'pointer',
-                    }}
-                    title={copiedOAuthUrl ? 'Login address copied!' : 'Waiting for response. Click again to copy login address for fingerprint browser.'}
-                  >
-                    {copiedOAuthUrl ? <Check size={12} /> : <Copy size={12} />}
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {copiedOAuthUrl ? 'Copied Address!' : 'Waiting for response...'}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCancelGoogleOAuth}
-                    className="btn-pill-outlined"
-                    style={{
-                      width: '28px',
-                      height: CONTROL_HEIGHT,
-                      boxSizing: 'border-box',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      padding: 0,
-                      flexShrink: 0,
-                      color: '#d93025',
-                      borderColor: '#fce8e6',
-                      backgroundColor: '#fdf2f2',
-                      cursor: 'pointer',
-                    }}
-                    title="Cancel Google sign in"
-                  >
-                    <X size={13} />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleExtractGoogleOAuth}
-                  className="btn-pill-outlined"
-                  style={{
-                    width: RIGHT_ACTION_WIDTH,
-                    flexShrink: 0,
-                    height: CONTROL_HEIGHT,
-                    boxSizing: 'border-box',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px',
-                    whiteSpace: 'nowrap',
-                    padding: '0 12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    backgroundColor: 'var(--primary-light)',
-                    color: 'var(--primary)',
-                    borderColor: 'var(--primary)',
-                    cursor: 'pointer',
-                  }}
-                  title="Open browser to login with Google and extract long-term refresh token"
-                >
-                  <LogIn size={14} />
-                  Sign in with Google
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={isExtractingOAuth ? handleCancelGoogleOAuth : handleExtractGoogleOAuth}
+                className="btn-pill-outlined"
+                style={{
+                  width: RIGHT_ACTION_WIDTH,
+                  flexShrink: 0,
+                  height: CONTROL_HEIGHT,
+                  boxSizing: 'border-box',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                  padding: '0 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  backgroundColor: 'var(--primary-light)',
+                  color: 'var(--primary)',
+                  borderColor: 'var(--primary)',
+                  cursor: 'pointer',
+                }}
+                title={isExtractingOAuth ? 'Click to stop waiting' : 'Open browser to login with Google and extract long-term refresh token'}
+              >
+                {isExtractingOAuth ? (
+                  <>
+                    <RefreshCw size={13} className="animate-spin" />
+                    <span>Waiting for response...</span>
+                  </>
+                ) : (
+                  <>
+                    <LogIn size={14} />
+                    <span>Sign in with Google</span>
+                  </>
+                )}
+              </button>
             </div>
             {refreshToken.trim().startsWith('ya29.') && (
               <div
@@ -719,21 +820,86 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 Notice: Token starts with &apos;ya29&apos; (short-lived 1-hour Access Token). For background quota polling and autonomous rotation, enter a long-term Refresh Token (starts with &apos;1//&apos;) or click &apos;Sign in with Google&apos;.
               </div>
             )}
-            {isExtractingOAuth && (
-              <div
-                style={{
-                  marginTop: '6px',
-                  fontSize: '11px',
-                  color: 'var(--text-muted)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-              >
-                <Copy size={11} />
-                <span>
-                  Waiting for response. Click <strong>Waiting for response...</strong> to copy the login URL for your fingerprint browser.
-                </span>
+            {(showManualCallbackField || Boolean(manualCallbackUrl.trim())) && (
+              <div style={{ marginTop: '10px' }}>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: 'var(--text-muted)',
+                    marginBottom: '6px',
+                  }}
+                >
+                  <Link size={13} /> Return URL (OAuth Callback):
+                </label>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    placeholder="Paste return URL (e.g. http://127.0.0.1:.../oauth/callback?code=...)"
+                    value={manualCallbackUrl}
+                    onChange={(e) => setManualCallbackUrl(e.target.value)}
+                    onPaste={(e) => {
+                      const pasted = e.clipboardData.getData('text')?.trim()
+                      if (pasted && (pasted.includes('code=') || pasted.startsWith('http://') || pasted.startsWith('https://'))) {
+                        setManualCallbackUrl(pasted)
+                        handleExchangeManualCallback(pasted)
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        handleExchangeManualCallback()
+                      }
+                    }}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      height: CONTROL_HEIGHT,
+                      boxSizing: 'border-box',
+                      fontFamily: 'monospace',
+                      fontSize: '11px',
+                      padding: '0 10px',
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleExchangeManualCallback()}
+                    disabled={!manualCallbackUrl.trim() || isExchangingOAuth}
+                    className="btn-pill-primary"
+                    style={{
+                      width: RIGHT_ACTION_WIDTH,
+                      flexShrink: 0,
+                      height: CONTROL_HEIGHT,
+                      boxSizing: 'border-box',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      whiteSpace: 'nowrap',
+                      padding: '0 12px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: !manualCallbackUrl.trim() || isExchangingOAuth ? 'not-allowed' : 'pointer',
+                      opacity: !manualCallbackUrl.trim() || isExchangingOAuth ? 0.6 : 1,
+                    }}
+                    title="Exchange return URL for OAuth refresh token"
+                  >
+                    {isExchangingOAuth ? (
+                      <>
+                        <RefreshCw size={13} className="animate-spin" />
+                        <span>Exchanging...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check size={14} />
+                        <span>Extract Token</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -1025,7 +1191,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               disabled={isSaving}
               className="btn-pill-primary"
             >
-              <Save size={15} /> {isSaving ? 'Saving...' : 'Save Changes'}
+              <Save size={15} className={isSaving ? 'spin' : ''} /> {isSaving ? 'Saving & Refreshing...' : 'Save Changes'}
             </button>
           </div>
         </div>

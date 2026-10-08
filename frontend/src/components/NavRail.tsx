@@ -1,7 +1,6 @@
 import React from 'react'
 import {
   Users,
-  Grid,
   Settings,
   ShieldCheck,
   CheckCircle2,
@@ -17,7 +16,7 @@ import {
 import type { SystemStatus } from '../types'
 
 interface NavRailProps {
-  currentTool: number // 0: Switcher, 1: Marketplace, 2: System Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived Projects, 7: Extensions, 8: Token Monitor, 9: Utilities
+  currentTool: number // 0: Switcher, 2: System Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived Projects, 7: Extensions, 8: Token Monitor, 9: Utilities
   onSelectTool: (idx: number) => void
   status: SystemStatus | null
 }
@@ -30,7 +29,7 @@ export const NavRail: React.FC<NavRailProps> = ({
   return (
     <aside
       style={{
-        width: '220px',
+        width: '200px',
         backgroundColor: '#ffffff',
         borderRight: '1px solid var(--border)',
         display: 'flex',
@@ -50,7 +49,7 @@ export const NavRail: React.FC<NavRailProps> = ({
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          padding: '0 16px',
+          padding: '0 12px',
           flexShrink: 0,
         }}
       >
@@ -106,7 +105,7 @@ export const NavRail: React.FC<NavRailProps> = ({
           display: 'flex',
           flexDirection: 'column',
           flex: 1,
-          padding: '16px',
+          padding: '16px 12px',
           overflowY: 'auto',
           minHeight: 0,
         }}
@@ -119,7 +118,7 @@ export const NavRail: React.FC<NavRailProps> = ({
           style={{
             width: '100%',
             textAlign: 'left',
-            padding: '10px 16px',
+            padding: '9px 12px',
             borderRadius: '20px',
             fontSize: '13px',
             fontWeight: currentTool === 0 ? 600 : 500,
@@ -127,7 +126,8 @@ export const NavRail: React.FC<NavRailProps> = ({
             backgroundColor: currentTool === 0 ? 'var(--primary-container)' : 'transparent',
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
+            gap: '10px',
+            whiteSpace: 'nowrap',
           }}
         >
           <Users size={18} color={currentTool === 0 ? 'var(--primary)' : 'var(--text-muted)'} />
@@ -140,7 +140,7 @@ export const NavRail: React.FC<NavRailProps> = ({
           style={{
             width: '100%',
             textAlign: 'left',
-            padding: '10px 16px',
+            padding: '9px 12px',
             borderRadius: '20px',
             fontSize: '13px',
             fontWeight: currentTool === 3 ? 600 : 500,
@@ -148,7 +148,8 @@ export const NavRail: React.FC<NavRailProps> = ({
             backgroundColor: currentTool === 3 ? 'var(--primary-container)' : 'transparent',
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
+            gap: '10px',
+            whiteSpace: 'nowrap',
           }}
         >
           <Cpu size={18} color={currentTool === 3 ? 'var(--primary)' : 'var(--text-muted)'} />
@@ -161,7 +162,7 @@ export const NavRail: React.FC<NavRailProps> = ({
           style={{
             width: '100%',
             textAlign: 'left',
-            padding: '10px 16px',
+            padding: '9px 12px',
             borderRadius: '20px',
             fontSize: '13px',
             fontWeight: currentTool === 4 ? 600 : 500,
@@ -169,34 +170,38 @@ export const NavRail: React.FC<NavRailProps> = ({
             backgroundColor: currentTool === 4 ? 'var(--primary-container)' : 'transparent',
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
+            gap: '10px',
+            whiteSpace: 'nowrap',
           }}
         >
           <Zap size={18} color={currentTool === 4 ? 'var(--primary)' : 'var(--text-muted)'} />
           UI Enhancements
         </button>
 
-        <button
-          id="btnNavExtensions"
-          data-testid="btnNavExtensions"
-          onClick={() => onSelectTool(7)}
-          style={{
-            width: '100%',
-            textAlign: 'left',
-            padding: '10px 16px',
-            borderRadius: '20px',
-            fontSize: '13px',
-            fontWeight: currentTool === 7 || currentTool === 10 ? 600 : 500,
-            color: currentTool === 7 || currentTool === 10 ? 'var(--on-primary-container)' : 'var(--text-muted)',
-            backgroundColor: currentTool === 7 || currentTool === 10 ? 'var(--primary-container)' : 'transparent',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-          }}
-        >
-          <Boxes size={18} color={currentTool === 7 || currentTool === 10 ? 'var(--primary)' : 'var(--text-muted)'} />
-          Extensions
-        </button>
+        {Boolean(status?.daemon_running) && (
+          <button
+            id="btnNavExtensions"
+            data-testid="btnNavExtensions"
+            onClick={() => onSelectTool(7)}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              padding: '9px 12px',
+              borderRadius: '20px',
+              fontSize: '13px',
+              fontWeight: currentTool === 7 || currentTool === 10 ? 600 : 500,
+              color: currentTool === 7 || currentTool === 10 ? 'var(--on-primary-container)' : 'var(--text-muted)',
+              backgroundColor: currentTool === 7 || currentTool === 10 ? 'var(--primary-container)' : 'transparent',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <Boxes size={18} color={currentTool === 7 || currentTool === 10 ? 'var(--primary)' : 'var(--text-muted)'} />
+            Extensions
+          </button>
+        )}
 
         <button
           id="btnNavTokenMonitor"
@@ -204,7 +209,7 @@ export const NavRail: React.FC<NavRailProps> = ({
           style={{
             width: '100%',
             textAlign: 'left',
-            padding: '10px 16px',
+            padding: '9px 12px',
             borderRadius: '20px',
             fontSize: '13px',
             fontWeight: currentTool === 8 ? 600 : 500,
@@ -212,7 +217,8 @@ export const NavRail: React.FC<NavRailProps> = ({
             backgroundColor: currentTool === 8 ? 'var(--primary-container)' : 'transparent',
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
+            gap: '10px',
+            whiteSpace: 'nowrap',
           }}
         >
           <Coins size={18} color={currentTool === 8 ? 'var(--primary)' : 'var(--text-muted)'} />
@@ -225,7 +231,7 @@ export const NavRail: React.FC<NavRailProps> = ({
           style={{
             width: '100%',
             textAlign: 'left',
-            padding: '10px 16px',
+            padding: '9px 12px',
             borderRadius: '20px',
             fontSize: '13px',
             fontWeight: currentTool === 9 ? 600 : 500,
@@ -233,7 +239,8 @@ export const NavRail: React.FC<NavRailProps> = ({
             backgroundColor: currentTool === 9 ? 'var(--primary-container)' : 'transparent',
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
+            gap: '10px',
+            whiteSpace: 'nowrap',
           }}
         >
           <Wrench size={18} color={currentTool === 9 ? 'var(--primary)' : 'var(--text-muted)'} />
@@ -246,7 +253,7 @@ export const NavRail: React.FC<NavRailProps> = ({
           style={{
             width: '100%',
             textAlign: 'left',
-            padding: '10px 16px',
+            padding: '9px 12px',
             borderRadius: '20px',
             fontSize: '13px',
             fontWeight: currentTool === 5 ? 600 : 500,
@@ -254,31 +261,12 @@ export const NavRail: React.FC<NavRailProps> = ({
             backgroundColor: currentTool === 5 ? 'var(--primary-container)' : 'transparent',
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
+            gap: '10px',
+            whiteSpace: 'nowrap',
           }}
         >
           <Clock size={18} color={currentTool === 5 ? 'var(--primary)' : 'var(--text-muted)'} />
           Task Automations
-        </button>
-
-        <button
-          onClick={() => onSelectTool(1)}
-          style={{
-            width: '100%',
-            textAlign: 'left',
-            padding: '10px 16px',
-            borderRadius: '20px',
-            fontSize: '13px',
-            fontWeight: currentTool === 1 ? 600 : 500,
-            color: currentTool === 1 ? 'var(--on-primary-container)' : 'var(--text-muted)',
-            backgroundColor: currentTool === 1 ? 'var(--primary-container)' : 'transparent',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-          }}
-        >
-          <Grid size={18} color={currentTool === 1 ? 'var(--primary)' : 'var(--text-muted)'} />
-          Tools Marketplace
         </button>
 
         <button
@@ -287,7 +275,7 @@ export const NavRail: React.FC<NavRailProps> = ({
           style={{
             width: '100%',
             textAlign: 'left',
-            padding: '10px 16px',
+            padding: '9px 12px',
             borderRadius: '20px',
             fontSize: '13px',
             fontWeight: currentTool === 6 ? 600 : 500,
@@ -295,7 +283,8 @@ export const NavRail: React.FC<NavRailProps> = ({
             backgroundColor: currentTool === 6 ? 'var(--primary-container)' : 'transparent',
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
+            gap: '10px',
+            whiteSpace: 'nowrap',
           }}
         >
           <Archive size={18} color={currentTool === 6 ? 'var(--primary)' : 'var(--text-muted)'} />
@@ -311,7 +300,7 @@ export const NavRail: React.FC<NavRailProps> = ({
           backgroundColor: 'var(--canvas)',
           border: '1px solid var(--border)',
           borderRadius: '12px',
-          padding: '12px 14px',
+          padding: '10px 12px',
           marginBottom: '10px',
         }}
       >
@@ -348,7 +337,7 @@ export const NavRail: React.FC<NavRailProps> = ({
         style={{
           width: '100%',
           textAlign: 'left',
-          padding: '10px 16px',
+          padding: '9px 12px',
           borderRadius: '20px',
           fontSize: '13px',
           fontWeight: currentTool === 2 ? 600 : 500,
@@ -356,7 +345,8 @@ export const NavRail: React.FC<NavRailProps> = ({
           backgroundColor: currentTool === 2 ? 'var(--primary-container)' : 'transparent',
           display: 'flex',
           alignItems: 'center',
-          gap: '12px',
+          gap: '10px',
+          whiteSpace: 'nowrap',
         }}
       >
         <Settings size={18} color={currentTool === 2 ? 'var(--primary)' : 'var(--text-muted)'} />

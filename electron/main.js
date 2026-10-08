@@ -5,6 +5,12 @@ const fs = require('fs');
 const os = require('os');
 const { DaemonManager } = require('./daemon-manager');
 
+// Ensure Chromium sandbox switches are applied on Linux before initialization
+if (process.platform === 'linux' && app && app.commandLine) {
+  app.commandLine.appendSwitch('no-sandbox');
+  app.commandLine.appendSwitch('disable-setuid-sandbox');
+}
+
 // Desktop background & close behavior settings (defaults to OFF: quit app & stop daemon on window close)
 function getCloseToTraySetting() {
   try {
@@ -235,10 +241,10 @@ async function createWindow() {
   Menu.setApplicationMenu(null);
 
   mainWindow = new BrowserWindow({
-    width: 1152,
-    height: 648,
-    minWidth: 1152,
-    minHeight: 648,
+    width: 1216,
+    height: 684,
+    minWidth: 1216,
+    minHeight: 684,
     title: 'Antigravity Swiss Knife',
     icon: iconPath,
     show: !startMinimized,
@@ -424,8 +430,8 @@ async function runE2eVerification() {
       console.log(`[E2E-TEST] Window size: ${curWidth}x${curHeight}, Minimum size: ${minWidth}x${minHeight}`);
 
       // Verify minimum dimensions
-      if (minWidth !== 1152 || minHeight !== 648) {
-        console.error(`[E2E-TEST] Minimum size mismatch! Expected 1152x648, got: ${minWidth}x${minHeight}`);
+      if (minWidth !== 1216 || minHeight !== 684) {
+        console.error(`[E2E-TEST] Minimum size mismatch! Expected 1216x684, got: ${minWidth}x${minHeight}`);
         process.exit(1);
       }
       if (minWidth % 4 !== 0 || minHeight % 4 !== 0) {
@@ -437,7 +443,7 @@ async function runE2eVerification() {
         process.exit(1);
       }
 
-      // Verify current window dimensions (either exact 1152x648 or valid 16:9 4px-aligned multiple)
+      // Verify current window dimensions (either exact 1216x684 or valid 16:9 4px-aligned multiple)
       if (curWidth % 4 !== 0 || curHeight % 4 !== 0) {
         console.error(`[E2E-TEST] Current dimensions are not 4px aligned: ${curWidth}x${curHeight}`);
         process.exit(1);
@@ -451,7 +457,7 @@ async function runE2eVerification() {
         process.exit(1);
       }
 
-      console.log('[E2E-TEST] Window geometry verified: 1152x648 (16:9 aspect ratio, 4px aligned)');
+      console.log('[E2E-TEST] Window geometry verified: 1216x684 (16:9 aspect ratio, 4px aligned)');
       console.log('[E2E-TEST] Probing API status on', DAEMON_URL);
       const status = await probeDaemonStatus(2000);
       console.log('[E2E-TEST] API status result:', (status && status.daemon_running) ? 'OK' : 'FAILED');

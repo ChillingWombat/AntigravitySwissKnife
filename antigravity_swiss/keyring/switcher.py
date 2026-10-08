@@ -746,7 +746,7 @@ class KeyringService:
             if not target_record:
                 raise AccountNotFoundError(account_email)
             st = (target_record.status or "").strip().upper()
-            if st == "COOLDOWN":
+            if st in ("COOLDOWN", "COOLING"):
                 raise ValueError(f"account {account_email} is in cooldown waiting for quota reset and cannot be switched on")
             if st == "BANNED":
                 raise ValueError(f"account {account_email} is banned and cannot be switched on")
@@ -840,8 +840,11 @@ class KeyringSwitcher:
     ) -> None:
         from antigravity_swiss.core.config import SwissKnifeConfig
         cfg = config or SwissKnifeConfig.load()
-        self.config = cfg
         self.vault = vault or AccountVault(config_path=cfg.accounts_file)
+        if config is None and self.vault.config_path.resolve() != DEFAULT_ACCOUNTS_FILE.resolve():
+            cfg.antigravity_config_dir = self.vault.config_path.parent / "Antigravity"
+            cfg.antigravity_data_dir = self.vault.config_path.parent / "antigravity-data"
+        self.config = cfg
         if keyring_service is not None:
             self.service = keyring_service
             if vault is not None:

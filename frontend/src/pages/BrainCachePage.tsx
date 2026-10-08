@@ -2,11 +2,14 @@ import React, { useState, useEffect } from 'react'
 import {
   Trash2,
   ShieldCheck,
+  ShieldAlert,
   RefreshCw,
   AlertCircle,
   CheckCircle2,
+  Archive,
+  Info,
 } from 'lucide-react'
-import type { CacheBreakdown } from '../types'
+import type { CacheBreakdown, VaultStatus } from '../types'
 import { api } from '../api'
 
 export const BrainCachePage: React.FC = () => {
@@ -16,6 +19,12 @@ export const BrainCachePage: React.FC = () => {
   const [isPruning, setIsPruning] = useState<boolean>(false)
   const [feedback, setFeedback] = useState<{ text: string; isError: boolean } | null>(null)
   const [showPruneConfirm, setShowPruneConfirm] = useState<boolean>(false)
+
+  // Vault state
+  const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null)
+  const [isSyncingVault, setIsSyncingVault] = useState<boolean>(false)
+  const [isTogglingVault, setIsTogglingVault] = useState<boolean>(false)
+  const [vaultFeedback, setVaultFeedback] = useState<{ text: string; isError: boolean } | null>(null)
 
   const scanCache = async () => {
     setIsScanning(true)
@@ -27,6 +36,49 @@ export const BrainCachePage: React.FC = () => {
       setFeedback({ text: `Scan error: ${err.message}`, isError: true })
     } finally {
       setIsScanning(false)
+    }
+  }
+
+  const loadVaultStatus = async () => {
+    try {
+      const res = await api.getVaultStatus()
+      setVaultStatus(res)
+    } catch (err: any) {
+      console.warn('Could not load vault status:', err)
+    }
+  }
+
+  const handleSyncVault = async () => {
+    setIsSyncingVault(true)
+    setVaultFeedback(null)
+    try {
+      const res = await api.syncVault()
+      setVaultFeedback({
+        text: res.message || `Shielded ${res.new_vaulted} new sessions; rescued ${res.rescued_count} pruned sessions.`,
+        isError: false,
+      })
+      await loadVaultStatus()
+    } catch (err: any) {
+      setVaultFeedback({ text: `Vault sync failed: ${err.message}`, isError: true })
+    } finally {
+      setIsSyncingVault(false)
+    }
+  }
+
+  const handleToggleVault = async (enable: boolean) => {
+    setIsTogglingVault(true)
+    setVaultFeedback(null)
+    try {
+      const res = await api.toggleVault(enable)
+      setVaultFeedback({
+        text: res.enabled ? 'Conversation Vault Shield enabled.' : 'Conversation Vault Shield disabled.',
+        isError: false,
+      })
+      await loadVaultStatus()
+    } catch (err: any) {
+      setVaultFeedback({ text: `Failed to toggle vault: ${err.message}`, isError: true })
+    } finally {
+      setIsTogglingVault(false)
     }
   }
 
@@ -52,6 +104,7 @@ export const BrainCachePage: React.FC = () => {
 
   useEffect(() => {
     scanCache()
+    loadVaultStatus()
   }, [])
 
   const formatBytes = (bytes: number) => {
@@ -65,22 +118,6 @@ export const BrainCachePage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Header Info Card */}
-      <div className="google-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-            Brain Cache & Context Optimizer
-          </div>
-          <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
-            Inspect disk usage in ~/.gemini/antigravity/ and reclaim gigabytes of stale scratch data safely.
-          </div>
-        </div>
-
-        <button onClick={scanCache} disabled={isScanning} className="btn-pill-tonal">
-          <RefreshCw size={14} /> {isScanning ? 'Scanning...' : 'Scan Storage'}
-        </button>
-      </div>
-
       {/* Storage Statistics Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
         <div className="google-card">
@@ -109,15 +146,21 @@ export const BrainCachePage: React.FC = () => {
 
         <div className="google-card">
           <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '6px' }}>
-            Session Shield Status
+            Conversation Vault Shield
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
-            <span className="badge-chip badge-green" style={{ fontSize: '13px', padding: '6px 14px' }}>
-              <ShieldCheck size={16} /> ACTIVE
-            </span>
+            {vaultStatus?.enabled !== false ? (
+              <span className="badge-chip badge-green" style={{ fontSize: '13px', padding: '6px 14px' }}>
+                <ShieldCheck size={16} /> SHIELD ACTIVE
+              </span>
+            ) : (
+              <span className="badge-chip badge-tonal" style={{ fontSize: '13px', padding: '6px 14px' }}>
+                <ShieldAlert size={16} /> SHIELD PAUSED
+              </span>
+            )}
           </div>
           <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-            Zero-loss protection for active chats
+            {vaultStatus ? `${vaultStatus.vaulted_count} sessions protected` : 'Zero-loss protection for active chats'}
           </div>
         </div>
       </div>
@@ -140,6 +183,150 @@ export const BrainCachePage: React.FC = () => {
           <span>{feedback.text}</span>
         </div>
       )}
+
+      {/* Conversation Vault Shield Card */}
+      <div className="google-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Archive size={20} color="var(--primary)" />
+            <div>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
+                Conversation History Vault & Auto-Shield
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                Prevents Antigravity's 500-session limit from silently pruning older conversations. Zero-overhead hardlink protection.
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12.5px', fontWeight: 600 }}>
+              <input
+                type="checkbox"
+                checked={vaultStatus?.enabled ?? true}
+                disabled={isTogglingVault}
+                onChange={(e) => handleToggleVault(e.target.checked)}
+              />
+              <span>Auto-Shield Active</span>
+            </label>
+          </div>
+        </div>
+
+        {vaultFeedback && (
+          <div
+            style={{
+              backgroundColor: vaultFeedback.isError ? '#fce8e6' : 'var(--green-bg)',
+              color: vaultFeedback.isError ? '#b3261e' : 'var(--green)',
+              padding: '10px 14px',
+              borderRadius: '8px',
+              fontSize: '12px',
+              fontWeight: 500,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              marginBottom: '16px',
+            }}
+          >
+            {vaultFeedback.isError ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />}
+            <span>{vaultFeedback.text}</span>
+          </div>
+        )}
+
+        {/* Vault Metrics Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '16px' }}>
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              Live Sessions
+            </div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
+              {vaultStatus?.live_count ?? 0}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              active in ~/.gemini/
+            </div>
+          </div>
+
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              Vaulted Inodes
+            </div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--primary)', marginTop: '4px' }}>
+              {vaultStatus?.vaulted_count ?? 0}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              hardlinked in vault
+            </div>
+          </div>
+
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              Auto-Rescued
+            </div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--green)', marginTop: '4px' }}>
+              {vaultStatus?.rescued_count ?? 0}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              restored on access
+            </div>
+          </div>
+
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              Disk Overhead
+            </div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
+              0 B
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              shared filesystem inodes
+            </div>
+          </div>
+        </div>
+
+        {/* Explanatory Banner */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '10px',
+            backgroundColor: '#f8f9fa',
+            border: '1px solid var(--border)',
+            borderRadius: '8px',
+            padding: '12px 14px',
+            fontSize: '12px',
+            color: 'var(--text-muted)',
+            lineHeight: 1.5,
+            marginBottom: '16px',
+          }}
+        >
+          <Info size={16} color="var(--primary)" style={{ flexShrink: 0, marginTop: '2px' }} />
+          <div>
+            Antigravity natively deletes SQLite conversation databases once total history exceeds 500 chats, causing missing trajectory errors and UI freezes. The Conversation Vault maintains filesystem hardlinks on Linux, macOS, and Windows. When Antigravity unlinks a database, its inode survives in the vault and is automatically restored upon access.
+          </div>
+        </div>
+
+        {/* Vault Footer Action Bar */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
+          <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+            Vault Directory: <code>{vaultStatus?.vault_dir || '~/.gemini/antigravity/vault/conversations'}</code>
+            {vaultStatus?.last_sync_time && (
+              <span style={{ marginLeft: '12px' }}>
+                • Last Sync: {new Date(vaultStatus.last_sync_time).toLocaleTimeString()}
+              </span>
+            )}
+          </div>
+
+          <button
+            onClick={handleSyncVault}
+            disabled={isSyncingVault}
+            className="btn-pill-primary"
+            style={{ padding: '7px 18px', fontSize: '12px' }}
+          >
+            <RefreshCw size={13} className={isSyncingVault ? 'animate-spin' : ''} />
+            <span>{isSyncingVault ? 'Syncing...' : 'Sync Vault Now'}</span>
+          </button>
+        </div>
+      </div>
 
       {/* Safe Pruning Options Card */}
       <div className="google-card">
@@ -166,14 +353,25 @@ export const BrainCachePage: React.FC = () => {
 
           <div style={{ flex: 1 }} />
 
-          <button
-            onClick={handlePrune}
-            disabled={isPruning}
-            className="btn-pill-primary"
-            style={{ padding: '9px 22px' }}
-          >
-            <Trash2 size={15} /> {isPruning ? 'Pruning...' : 'Prune Cache Safely'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+              onClick={scanCache}
+              disabled={isScanning}
+              className="btn-pill-tonal"
+              style={{ padding: '9px 18px' }}
+            >
+              <RefreshCw size={14} className={isScanning ? 'animate-spin' : ''} /> {isScanning ? 'Scanning...' : 'Scan Storage'}
+            </button>
+
+            <button
+              onClick={handlePrune}
+              disabled={isPruning}
+              className="btn-pill-primary"
+              style={{ padding: '9px 22px' }}
+            >
+              <Trash2 size={15} /> {isPruning ? 'Pruning...' : 'Prune Cache Safely'}
+            </button>
+          </div>
         </div>
       </div>
 

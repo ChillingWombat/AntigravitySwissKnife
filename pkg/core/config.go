@@ -36,12 +36,16 @@ type Config struct {
 	StorageMode                string   `json:"storage_mode,omitempty"`
 	AnonymousErrorReports      bool                         `json:"anonymous_error_reports"`
 	AnonymousTelemetry         bool                         `json:"anonymous_telemetry"`
+	AutoCheckUpdates           bool                         `json:"auto_check_updates"`
+	AutoUpgrade                bool                         `json:"auto_upgrade"`
+	LastUpdateCheckTime        string                       `json:"last_update_check_time,omitempty"`
 	DesktopAppPath             string                       `json:"desktop_app_path,omitempty"`
 	AgyCLIPath                 string                       `json:"agy_cli_path,omitempty"`
 	VSCodeExtensionPath        string                       `json:"vscode_extension_path,omitempty"`
 	AppAccountOverrides        map[string]map[string]string `json:"app_account_overrides,omitempty"`
 	Memo                       MemoConfig                   `json:"memo"`
 	PreferredIDE               string                       `json:"preferred_ide,omitempty"`
+	ConversationVaultEnabled   bool                         `json:"conversation_vault_enabled"`
 
 	mu sync.RWMutex `json:"-"`
 }
@@ -78,6 +82,9 @@ func DefaultConfig() *Config {
 		StorageMode:                "system_default",
 		AnonymousErrorReports:      true,
 		AnonymousTelemetry:         false,
+		AutoCheckUpdates:           true,
+		AutoUpgrade:                false,
+		ConversationVaultEnabled:   true,
 		Memo: MemoConfig{
 			StorageLocation: "global",
 			ViewScope:       "all",

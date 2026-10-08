@@ -103,11 +103,10 @@ func WriteSecretServiceToken(acc *Account) error {
 
 // SyncAppStorageLoginUser updates jetski.onboarding.lastLoginUsername in ~/.config/Antigravity/app_storage.json.
 func SyncAppStorageLoginUser(email string) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
+	if isTestMockEmail(email) {
+		return nil
 	}
-	storagePath := filepath.Join(home, ".config", "Antigravity", "app_storage.json")
+	storagePath := filepath.Join(core.GetAntigravityHostConfigDir(), "app_storage.json")
 
 	data, err := os.ReadFile(storagePath)
 	if err != nil {
@@ -138,9 +137,79 @@ func SyncAppStorageLoginUser(email string) error {
 	return os.Rename(tmpPath, storagePath)
 }
 
-// SyncHardwareProfile swaps Antigravity's machineid and .updaterId files to match the account profile.
+// SyncHardwareProfileToDirs writes all 4 virtualized device telemetry identifiers
+// (machineid, .updaterId, installation_id, and installation_uuid in antigravity_state.pbtxt).
+func SyncHardwareProfileToDirs(prof *fingerprint.DeviceProfile, antigravityConfigDir, geminiAntigravityDir string) error {
+	if prof == nil {
+		return nil
+	}
+
+	if antigravityConfigDir != "" {
+		if err := os.MkdirAll(antigravityConfigDir, 0755); err != nil {
+			return err
+		}
+		// 1. Write ~/.config/Antigravity/machineid
+		if prof.MachineID != "" {
+			_ = os.WriteFile(filepath.Join(antigravityConfigDir, "machineid"), []byte(strings.TrimSpace(prof.MachineID)), 0644)
+		}
+		// 2. Write ~/.config/Antigravity/.updaterId
+		if prof.UpdaterID != "" {
+			_ = os.WriteFile(filepath.Join(antigravityConfigDir, ".updaterId"), []byte(strings.TrimSpace(prof.UpdaterID)), 0644)
+		}
+	}
+
+	if geminiAntigravityDir != "" {
+		if err := os.MkdirAll(geminiAntigravityDir, 0755); err != nil {
+			return err
+		}
+		// 3. Write ~/.gemini/antigravity/installation_id
+		if prof.InstallationID != "" {
+			_ = os.WriteFile(filepath.Join(geminiAntigravityDir, "installation_id"), []byte(strings.TrimSpace(prof.InstallationID)+"\n"), 0644)
+		}
+		// 4. Update installation_uuid in ~/.gemini/antigravity/antigravity_state.pbtxt
+		if prof.InstallationUUID != "" {
+			statePath := filepath.Join(geminiAntigravityDir, "antigravity_state.pbtxt")
+			uuidLine := fmt.Sprintf(`installation_uuid: "%s"`, strings.TrimSpace(prof.InstallationUUID))
+			existing, err := os.ReadFile(statePath)
+			var updatedContent string
+			if err == nil {
+				lines := strings.Split(string(existing), "\n")
+				replaced := false
+				for i, line := range lines {
+					trimmed := strings.TrimSpace(line)
+					if strings.HasPrefix(trimmed, "installation_uuid:") {
+						lines[i] = uuidLine
+						replaced = true
+					}
+				}
+				if !replaced {
+					if len(lines) > 0 && lines[len(lines)-1] == "" {
+						lines[len(lines)-1] = uuidLine
+						lines = append(lines, "")
+					} else {
+						lines = append(lines, uuidLine, "")
+					}
+				}
+				updatedContent = strings.Join(lines, "\n")
+			} else if os.IsNotExist(err) {
+				updatedContent = uuidLine + "\n"
+			}
+			if updatedContent != "" {
+				tmpPath := statePath + ".tmp"
+				if errWrite := os.WriteFile(tmpPath, []byte(updatedContent), 0644); errWrite == nil {
+					_ = os.Rename(tmpPath, statePath)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// SyncHardwareProfile swaps Antigravity's machineid, .updaterId, installation_id,
+// and antigravity_state.pbtxt installation_uuid to match the account's isolated profile.
 func SyncHardwareProfile(email string, profileMgr *fingerprint.Store) error {
-	if profileMgr == nil {
+	if profileMgr == nil || email == "" || isTestMockEmail(email) || os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" {
 		return nil
 	}
 	prof, err := profileMgr.GetOrCreateProfile(email)
@@ -153,21 +222,8 @@ func SyncHardwareProfile(email string, profileMgr *fingerprint.Store) error {
 		return err
 	}
 	antigravityDir := filepath.Join(home, ".config", "Antigravity")
-	if err := os.MkdirAll(antigravityDir, 0755); err != nil {
-		return err
-	}
-
-	// 1. Write machineid
-	if prof.MachineID != "" {
-		_ = os.WriteFile(filepath.Join(antigravityDir, "machineid"), []byte(strings.TrimSpace(prof.MachineID)), 0644)
-	}
-
-	// 2. Write .updaterId
-	if prof.UpdaterID != "" {
-		_ = os.WriteFile(filepath.Join(antigravityDir, ".updaterId"), []byte(strings.TrimSpace(prof.UpdaterID)), 0644)
-	}
-
-	return nil
+	geminiAntigravityDir := filepath.Join(home, ".gemini", "antigravity")
+	return SyncHardwareProfileToDirs(prof, antigravityDir, geminiAntigravityDir)
 }
 
 // SyncDesktopStandaloneToken writes ~/.gemini/jetski-standalone-oauth-token for Antigravity 2.0.
@@ -427,6 +483,9 @@ func SyncAllSurfaces(acc *Account, allEmails []string, profileMgr *fingerprint.S
 	_ = SyncCLIOAuthToken(acc)
 	_ = SyncGoogleAccountsJSON(acc.Email, allEmails)
 	_ = SyncOAuthCredsJSON(acc)
+
+	// 4. Cloud Accounts DB (if present)
+	_ = SyncCloudAccountsActiveAccount("", acc.Email)
 
 	return nil
 }

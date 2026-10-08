@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
 
 const (
@@ -157,8 +159,8 @@ except Exception as e:
 			status = "BANNED"
 		} else if upperStatus == "ERROR" || upperStatus == "INVALID" || upperStatus == "EXPIRED" {
 			status = "ERROR"
-		} else if upperStatus == "COOLDOWN" {
-			status = "COOLDOWN"
+		} else if upperStatus == "COOLDOWN" || upperStatus == "COOLING" {
+			status = core.AccountStatusCooling
 		} else if isActive {
 			status = "ACTIVE"
 		}
@@ -208,6 +210,7 @@ except Exception as e:
 					WarningMessage        string `json:"warning_message"`
 					WarningMessageCamel   string `json:"warningMessage"`
 					Notice                string `json:"notice"`
+					Models                map[string]interface{} `json:"models"`
 					QuotaGroups           []struct {
 						DisplayName string `json:"display_name"`
 						Description string `json:"description"`
@@ -241,11 +244,28 @@ except Exception as e:
 						subTier = qObj.PlanTierCamel
 					}
 
+					has3PModels := false
+					hasSonnet55 := false
+					if qObj.Models != nil {
+						for mName := range qObj.Models {
+							mLow := strings.ToLower(mName)
+							if strings.Contains(mLow, "sonnet-5-5") || strings.Contains(mLow, "sonnet-5.5") || strings.Contains(mLow, "opus-5-5") || strings.Contains(mLow, "opus-5.5") {
+								hasSonnet55 = true
+							}
+							if strings.Contains(mLow, "claude") || strings.Contains(mLow, "gpt-oss") {
+								has3PModels = true
+							}
+						}
+					}
+					isMissingSonnet55Trial := has3PModels && !hasSonnet55
+
 					isTrial := qObj.IsTrial || qObj.IsTrialCamel ||
 						strings.Contains(strings.ToLower(qObj.TrialStatus+" "+qObj.TrialStatusCamel), "trial") ||
 						strings.Contains(strings.ToLower(qObj.TrialStatus+" "+qObj.TrialStatusCamel), "promo") ||
+						strings.Contains(strings.ToLower(subTier), "google ai pro") ||
 						isTrialWarningText(qObj.WarningMessage) || isTrialWarningText(qObj.WarningMessageCamel) ||
-						isTrialWarningText(qObj.Notice) || isTrialWarningText(subTier)
+						isTrialWarningText(qObj.Notice) || isTrialWarningText(subTier) ||
+						isMissingSonnet55Trial
 
 					for _, g := range qObj.QuotaGroups {
 						if isTrialWarningText(g.DisplayName) || isTrialWarningText(g.Description) {
@@ -345,7 +365,10 @@ func SyncStoreFromCloudAccountsDB(s *Store, homeDir string) error {
 					modified = true
 				}
 				caSt := strings.ToUpper(strings.TrimSpace(ca.Status))
-				if caSt == "BANNED" || caSt == "ERROR" || caSt == "COOLDOWN" {
+				if caSt == "BANNED" || caSt == "ERROR" || caSt == "COOLDOWN" || caSt == "COOLING" {
+					if caSt == "COOLDOWN" {
+						caSt = core.AccountStatusCooling
+					}
 					if acc.Status != caSt {
 						acc.Status = caSt
 						modified = true
@@ -401,6 +424,30 @@ except Exception:
 	return nil
 }
 
+// SyncCloudAccountsActiveAccount updates is_active in ~/.antigravity-agent/cloud_accounts.db
+// so that third-party tools and queries see the same active account.
+func SyncCloudAccountsActiveAccount(homeDir, activeEmail string) error {
+	if homeDir == "" {
+		homeDir, _ = os.UserHomeDir()
+	}
+	dbPath := filepath.Join(homeDir, ".antigravity-agent", "cloud_accounts.db")
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		return nil
+	}
+	pyScript := fmt.Sprintf(`import sqlite3
+try:
+    con = sqlite3.connect(%q, timeout=5.0)
+    con.execute("UPDATE accounts SET is_active = CASE WHEN LOWER(email) = LOWER(?) THEN 1 ELSE 0 END", (%q,))
+    con.commit()
+    con.close()
+except Exception:
+    pass
+`, dbPath, activeEmail)
+	cmd := exec.Command("python3", "-c", pyScript)
+	_ = cmd.Run()
+	return nil
+}
+
 func isTrialWarningText(text string) bool {
 	if text == "" {
 		return false
@@ -433,6 +480,7 @@ func normalizeCloudTier(raw string) string {
 	}
 	if strings.Contains(low, "trial") ||
 		strings.Contains(low, "promo") ||
+		strings.Contains(low, "google ai pro") ||
 		strings.Contains(low, "starter pro") ||
 		strings.Contains(low, "jio") ||
 		strings.Contains(low, "partner") ||

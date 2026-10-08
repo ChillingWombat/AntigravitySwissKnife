@@ -74,9 +74,9 @@ func TestDetermineDefaultPlanTier(t *testing.T) {
 		// Explicit override takes precedence and normalizes legacy strings
 		{"user@stanford.edu", "Ultra 20X", "Ultra 20X"},
 		{"random@gmail.com", "Pro - Trial", "Pro - Trial"},
-		{"random@gmail.com", "Google AI Pro", "Pro"},
+		{"random@gmail.com", "Google AI Pro", "Pro - Trial"},
 		{"random@gmail.com", "Google AI Ultra", "Ultra 20X"},
-		{"random@gmail.com", "", "Pro"}, // fallback
+		{"random@gmail.com", "", "Free"}, // fallback defaults to Free
 	}
 
 	for _, tc := range cases {
@@ -99,7 +99,7 @@ func TestNormalizePlanTier(t *testing.T) {
 		{"Plus", "Plus"},
 		{"pro", "Pro"},
 		{"Pro", "Pro"},
-		{"Google AI Pro", "Pro"},
+		{"Google AI Pro", "Pro - Trial"},
 		{"PRO", "Pro"},
 		{"Pro - Trial", "Pro - Trial"},
 		{"trial", "Pro - Trial"},
@@ -458,14 +458,21 @@ func TestCooldownAccountLifecycleAndRanking(t *testing.T) {
 	if len(states) != 1 {
 		t.Fatalf("expected 1 state, got %d", len(states))
 	}
-	if states[0].Status != core.AccountStatusCooldown {
-		t.Fatalf("expected status %s when quota below threshold, got %s", core.AccountStatusCooldown, states[0].Status)
+	if states[0].Status != core.AccountStatusCooling {
+		t.Fatalf("expected status %s when quota below threshold, got %s", core.AccountStatusCooling, states[0].Status)
 	}
 
-	// 2. Returns to STANDBY when quota recovers above threshold
+	// 2. Returns to STANDBY when quota recovers above threshold (for both COOLING and legacy COOLDOWN)
 	accCooling := &keyring.Account{
 		Email:    "cooling_test@example.com",
 		Label:    "Cooling Test",
+		PlanTier: "Pro",
+		Status:   core.AccountStatusCooling,
+		IsActive: false,
+	}
+	accLegacyCooldown := &keyring.Account{
+		Email:    "legacy_cooldown@example.com",
+		Label:    "Legacy Cooldown Test",
 		PlanTier: "Pro",
 		Status:   core.AccountStatusCooldown,
 		IsActive: false,
@@ -477,17 +484,39 @@ func TestCooldownAccountLifecycleAndRanking(t *testing.T) {
 		Quota5hFraction:     0.90, // recovered above threshold
 		QuotaWeeklyFraction: 0.85,
 	}
+	recoveredLegacySummary := &QuotaSummary{
+		AccountEmail:        "legacy_cooldown@example.com",
+		PlanTier:            "Pro",
+		Quota5hFraction:     0.90,
+		QuotaWeeklyFraction: 0.85,
+	}
 
 	summariesRecovered := map[string]*QuotaSummary{
-		"cooling_test@example.com": recoveredSummary,
+		"cooling_test@example.com":    recoveredSummary,
+		"legacy_cooldown@example.com": recoveredLegacySummary,
 	}
 
-	statesRecovered := BuildAccountQuotaStatesFromMapWithThreshold([]*keyring.Account{accCooling}, summariesRecovered, 0.05)
-	if len(statesRecovered) != 1 {
-		t.Fatalf("expected 1 state, got %d", len(statesRecovered))
+	statesRecovered := BuildAccountQuotaStatesFromMapWithThreshold([]*keyring.Account{accCooling, accLegacyCooldown}, summariesRecovered, 0.05)
+	if len(statesRecovered) != 2 {
+		t.Fatalf("expected 2 states, got %d", len(statesRecovered))
 	}
-	if statesRecovered[0].Status != core.AccountStatusStandby {
-		t.Fatalf("expected status %s after quota resets, got %s", core.AccountStatusStandby, statesRecovered[0].Status)
+	for _, st := range statesRecovered {
+		if st.Status != core.AccountStatusStandby {
+			t.Fatalf("expected status %s after quota resets for %s, got %s", core.AccountStatusStandby, st.Email, st.Status)
+		}
+	}
+
+	// Legacy COOLDOWN status in keyring store without polled data is normalized to COOLING
+	accUnpolledLegacy := &keyring.Account{
+		Email:    "unpolled@example.com",
+		Label:    "Unpolled Legacy",
+		PlanTier: "Pro",
+		Status:   core.AccountStatusCooldown,
+		IsActive: false,
+	}
+	statesLegacy := BuildAccountQuotaStatesFromMapWithThreshold([]*keyring.Account{accUnpolledLegacy}, nil, 0.05)
+	if len(statesLegacy) != 1 || statesLegacy[0].Status != core.AccountStatusCooling {
+		t.Fatalf("expected legacy COOLDOWN to be normalized to COOLING, got %v", statesLegacy[0].Status)
 	}
 
 	// 3. RankStandbyAccounts and RankStandbyAccountsWithMode strictly exclude COOLDOWN accounts
@@ -522,6 +551,19 @@ func TestCooldownAccountLifecycleAndRanking(t *testing.T) {
 		if len(mCandidates) != 1 || mCandidates[0].Email != "healthy@example.com" {
 			t.Fatalf("mode %s must exclude COOLDOWN accounts, got %v", mode, mCandidates)
 		}
+	}
+
+	standbyCooling := AccountQuotaState{
+		Email:          "cooling_cand@example.com",
+		Status:         core.AccountStatusCooling,
+		IsActive:       false,
+		PlanTier:       "Pro",
+		Quota5hCurrent: 0.95,
+		QuotaWeekly:    0.95,
+	}
+	candCooling := RankStandbyAccounts([]AccountQuotaState{standbyCooling, standbyHealthy}, 0.05)
+	if len(candCooling) != 1 || candCooling[0].Email != "healthy@example.com" {
+		t.Fatalf("expected COOLING account to be excluded from standby candidates, got %v", candCooling)
 	}
 
 	// 4. EvaluateAutoSwitch excludes COOLDOWN accounts
@@ -659,8 +701,8 @@ func TestWeeklyThreshold_EvaluationAndExclusion(t *testing.T) {
 		},
 	}
 	states := BuildAccountQuotaStatesFromMapWithThresholds([]*keyring.Account{acc}, summaries, 0.05, 0.05)
-	if len(states) != 1 || states[0].Status != core.AccountStatusCooldown {
-		t.Fatalf("expected status %s for account with weekly quota below threshold, got %s", core.AccountStatusCooldown, states[0].Status)
+	if len(states) != 1 || states[0].Status != core.AccountStatusCooling {
+		t.Fatalf("expected status %s for account with weekly quota below threshold, got %s", core.AccountStatusCooling, states[0].Status)
 	}
 
 	// 4. Auto sorting places weekly-depleted standby in Tier 3 (cooldown) behind healthy standbys

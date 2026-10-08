@@ -32,3 +32,28 @@ func TestShieldProtectsSelf(t *testing.T) {
 		t.Fatalf("expected own PID to be protected")
 	}
 }
+
+func TestGetAntigravityBinaryPath(t *testing.T) {
+	p := core.GetAntigravityBinaryPath()
+	if p == "" {
+		t.Fatalf("expected non-empty Antigravity binary path")
+	}
+}
+
+func TestRelaunchHostIDEDryRun(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
+	shield := NewShield(0)
+	if err := shield.RelaunchHostIDE(); err != nil {
+		t.Fatalf("expected nil error on dry run relaunch, got %v", err)
+	}
+}
+
+func TestIsProcessAlive(t *testing.T) {
+	if !isProcessAlive(os.Getpid()) {
+		t.Fatalf("expected current process PID %d to be alive", os.Getpid())
+	}
+	if isProcessAlive(-999) {
+		t.Fatalf("expected negative PID to be reported as not alive")
+	}
+}
+

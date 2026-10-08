@@ -44,9 +44,12 @@ class DaemonManager {
     }
 
     // 2. Development mode: <projectRoot>/bin/swiss
-    const appDir = (app && typeof app.getAppPath === 'function')
+    let appDir = (app && typeof app.getAppPath === 'function')
       ? app.getAppPath()
       : path.resolve(__dirname, '..');
+    if (appDir.endsWith('.asar') || appDir.includes('.asar')) {
+      appDir = process.resourcesPath || path.dirname(appDir);
+    }
     const devPath = path.join(appDir, 'bin', binName);
     if (fs.existsSync(devPath)) {
       this.ensureExecutable(devPath);
@@ -171,15 +174,14 @@ class DaemonManager {
 
     // 3. Spawn child process
     let runCwd = path.resolve(__dirname, '..');
-    if (app && app.isPackaged) {
+    if (app && app.isPackaged && process.resourcesPath) {
       runCwd = process.resourcesPath;
     } else if (app && typeof app.getAppPath === 'function') {
-      const appPath = app.getAppPath();
-      try {
-        runCwd = fs.statSync(appPath).isDirectory() ? appPath : path.dirname(appPath);
-      } catch {
-        runCwd = path.dirname(appPath);
-      }
+      const p = app.getAppPath();
+      runCwd = (p.endsWith('.asar') || p.includes('.asar')) ? (process.resourcesPath || path.dirname(p)) : p;
+    }
+    if (runCwd.startsWith('/tmp/.mount_') || process.env.APPIMAGE) {
+      runCwd = os.homedir();
     }
 
     this.child = spawn(binPath, ['daemon', '--web', '--addr', `${this.host}:${this.port}`], {

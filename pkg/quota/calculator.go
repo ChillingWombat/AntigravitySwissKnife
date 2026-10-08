@@ -1,8 +1,11 @@
 package quota
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -53,6 +56,7 @@ type AccountQuotaState struct {
 	ResetHorizonText       string  `json:"reset_horizon_text"`
 	ResetSecondsWeekly     float64 `json:"reset_seconds_weekly"`
 	ResetHorizonWeeklyText string  `json:"reset_horizon_weekly_text"`
+	ErrorMessage           string  `json:"error_message,omitempty"`
 }
 
 // ComputeEffective5hAvailable calculates available quota in the next 5 hours with reset replenishing.
@@ -175,6 +179,75 @@ func ComputeFleetSummary(accounts []AccountQuotaState, activeEmail string) Fleet
 	}
 }
 
+// GetQuotaCachePath returns the path to the quota cache JSON file.
+func GetQuotaCachePath() string {
+	return filepath.Join(core.GetConfigDir(), "quota_cache.json")
+}
+
+// LoadQuotaCache loads cached quota summaries from disk.
+func LoadQuotaCache() map[string]*QuotaSummary {
+	path := GetQuotaCachePath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return make(map[string]*QuotaSummary)
+	}
+	var res map[string]*QuotaSummary
+	if err := json.Unmarshal(data, &res); err != nil {
+		return make(map[string]*QuotaSummary)
+	}
+	if res == nil {
+		res = make(map[string]*QuotaSummary)
+	}
+	return res
+}
+
+// SaveQuotaCache persists quota summaries to disk atomically, merging with any existing disk cache.
+func SaveQuotaCache(cache map[string]*QuotaSummary) error {
+	if len(cache) == 0 {
+		return nil
+	}
+	existing := LoadQuotaCache()
+	for k, v := range cache {
+		if v != nil {
+			existing[strings.ToLower(strings.TrimSpace(k))] = v
+		}
+	}
+	path := GetQuotaCachePath()
+	_ = os.MkdirAll(filepath.Dir(path), 0700)
+	data, err := json.MarshalIndent(existing, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// DeleteQuotaCacheEntry removes an account's quota summary from the disk cache.
+func DeleteQuotaCacheEntry(email string) error {
+	if email == "" {
+		return nil
+	}
+	norm := strings.ToLower(strings.TrimSpace(email))
+	existing := LoadQuotaCache()
+	if _, ok := existing[norm]; !ok {
+		return nil
+	}
+	delete(existing, norm)
+	path := GetQuotaCachePath()
+	data, err := json.MarshalIndent(existing, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
 // PollFleetAccounts polls live quotas for all accounts with credentials concurrently.
 func PollFleetAccounts(accounts []*keyring.Account, store *keyring.Store) map[string]*QuotaSummary {
 	results := make(map[string]*QuotaSummary)
@@ -207,14 +280,62 @@ func PollFleetAccounts(accounts []*keyring.Account, store *keyring.Store) map[st
 					if qSummary.Credits > 0 {
 						credits = qSummary.Credits
 					}
-					_ = store.UpdateAccountQuotaMetadata(targetAcc.Email, planTier, credits)
+					_ = store.UpdateAccountTokensAndMetadata(targetAcc.Email, targetAcc.AccessToken, targetAcc.RefreshToken, planTier, credits)
+					if qSummary.ErrorStatus != "" {
+						_ = store.UpdateAccountStatusWithError(targetAcc.Email, qSummary.ErrorStatus, qSummary.ErrorMessage)
+					} else if strings.EqualFold(targetAcc.Status, "ERROR") {
+						newStatus := "STANDBY"
+						if targetAcc.IsActive {
+							newStatus = "ACTIVE"
+						}
+						_ = store.UpdateAccountStatusWithError(targetAcc.Email, newStatus, "")
+					}
 				}
 			}
 		}(acc)
 	}
 
 	wg.Wait()
+	if len(results) > 0 {
+		_ = SaveQuotaCache(results)
+	}
 	return results
+}
+
+// PollAndCacheAccount queries Google CloudCode for real quota, tier, and credits for a single account,
+// updates the keyring store metadata, saves the quota summary to disk cache, and returns the summary.
+func PollAndCacheAccount(acc *keyring.Account, store *keyring.Store) (*QuotaSummary, error) {
+	if acc == nil {
+		return nil, fmt.Errorf("nil account")
+	}
+	summary, err := PollAccountLiveQuota(acc)
+	if summary == nil {
+		return nil, err
+	}
+	if store != nil {
+		planTier := acc.PlanTier
+		if summary.PlanTier != "" {
+			planTier = summary.PlanTier
+		}
+		credits := acc.Credits
+		if summary.Credits > 0 {
+			credits = summary.Credits
+		}
+		_ = store.UpdateAccountTokensAndMetadata(acc.Email, acc.AccessToken, acc.RefreshToken, planTier, credits)
+		if summary.ErrorStatus != "" {
+			_ = store.UpdateAccountStatusWithError(acc.Email, summary.ErrorStatus, summary.ErrorMessage)
+		} else if strings.EqualFold(acc.Status, "ERROR") {
+			newStatus := "STANDBY"
+			if acc.IsActive {
+				newStatus = "ACTIVE"
+			}
+			_ = store.UpdateAccountStatusWithError(acc.Email, newStatus, "")
+		}
+	}
+	_ = SaveQuotaCache(map[string]*QuotaSummary{
+		strings.ToLower(strings.TrimSpace(acc.Email)): summary,
+	})
+	return summary, err
 }
 
 // BuildAccountQuotaStates creates AccountQuotaState items from stored accounts.
@@ -259,11 +380,27 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 	results := make([]AccountQuotaState, 0, len(accounts))
 	now := time.Now()
 
-	// Load cached cloud_accounts.db as fast baseline
+	diskCache := LoadQuotaCache()
+
+	// Load cached cloud_accounts.db as legacy fallback only if some accounts are unpopulated
+	needsDB := false
+	for _, acc := range accounts {
+		if acc == nil || acc.Email == "" {
+			continue
+		}
+		norm := strings.ToLower(strings.TrimSpace(acc.Email))
+		if (summaries == nil || summaries[norm] == nil) && (diskCache == nil || diskCache[norm] == nil) {
+			needsDB = true
+			break
+		}
+	}
+
 	cachedMap := make(map[string]keyring.DiscoveredCloudAccount)
-	if cachedAccs, err := keyring.ReadCloudAccountsDB(""); err == nil {
-		for _, ca := range cachedAccs {
-			cachedMap[strings.ToLower(strings.TrimSpace(ca.Email))] = ca
+	if needsDB {
+		if cachedAccs, err := keyring.ReadCloudAccountsDB(""); err == nil {
+			for _, ca := range cachedAccs {
+				cachedMap[strings.ToLower(strings.TrimSpace(ca.Email))] = ca
+			}
 		}
 	}
 
@@ -285,6 +422,7 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 		} else if acc.IsActive {
 			status = "ACTIVE"
 		}
+		errorMessage := acc.ErrorMessage
 
 		cur5h := 0.0
 		curSec := 0.0
@@ -297,9 +435,21 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 		tier := acc.PlanTier
 		credits := acc.Credits
 
-		// 1. Check live summary first
+		// 1. Check live summary first, then disk cache
+		var s *QuotaSummary
 		if summaries != nil && summaries[normEmail] != nil {
-			s := summaries[normEmail]
+			s = summaries[normEmail]
+		} else if diskCache != nil && diskCache[normEmail] != nil {
+			s = diskCache[normEmail]
+		}
+
+		if s != nil {
+			if s.ErrorStatus != "" {
+				status = strings.ToUpper(s.ErrorStatus)
+			}
+			if s.ErrorMessage != "" {
+				errorMessage = s.ErrorMessage
+			}
 			if s.PlanTier != "" {
 				tier = s.PlanTier
 			}
@@ -402,7 +552,7 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 		} else {
 			tier = NormalizePlanTier(tier)
 		}
-		if (tier == PlanTierPro || tier == "") && (IsTrialWarningText(acc.Notes) || IsTrialWarningText(acc.Label) || IsTrialWarningText(acc.PlanTier)) {
+		if (tier == PlanTierPro || tier == PlanTierFree || tier == "") && (IsTrialWarningText(acc.Notes) || IsTrialWarningText(acc.Label) || IsTrialWarningText(acc.PlanTier)) {
 			tier = PlanTierProTrial
 		}
 
@@ -429,8 +579,8 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 			prio = "High"
 		}
 
-		// Cooldown evaluation for valid (non-banned, non-error) non-active accounts:
-		// A valid account whose quota is below threshold and waiting to be reset enters COOLDOWN.
+		// Cooling evaluation for valid (non-banned, non-error) non-active accounts:
+		// A valid account whose quota is below threshold and waiting to be reset enters COOLING.
 		// If quota recovers above threshold after reset, status returns to STANDBY.
 		if status != "BANNED" && status != "ERROR" && !acc.IsActive {
 			_, inCached := cachedMap[normEmail]
@@ -438,10 +588,12 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 			if hasPolledData {
 				isBelow := cur5h <= threshold5h || (curWeekly <= thresholdWeekly && !(acc.EnableCreditOverages && credits > 0))
 				if isBelow {
-					status = "COOLDOWN"
-				} else if status == "COOLDOWN" {
-					status = "STANDBY"
+					status = core.AccountStatusCooling
+				} else if status == core.AccountStatusCooldown || status == core.AccountStatusCooling {
+					status = core.AccountStatusStandby
 				}
+			} else if status == core.AccountStatusCooldown {
+				status = core.AccountStatusCooling
 			}
 		}
 
@@ -469,6 +621,7 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 			ResetHorizonText:       resText,
 			ResetSecondsWeekly:     curSecWeekly,
 			ResetHorizonWeeklyText: resWeeklyText,
+			ErrorMessage:           errorMessage,
 		})
 	}
 
@@ -510,10 +663,10 @@ func DetermineDefaultPlanTier(email string, explicitTier string) string {
 	if strings.Contains(lower, "plus") {
 		return PlanTierPlus
 	}
-	if explicitTier == PlanTierFree || strings.Contains(lower, "free") {
-		return PlanTierFree
+	if strings.Contains(lower, "pro") || strings.Contains(lower, "dev") || strings.Contains(lower, "lead") {
+		return PlanTierPro
 	}
-	return PlanTierPro
+	return PlanTierFree
 }
 
 // ClassifyErrorStatus classifies an error code or message into "BANNED", "ERROR", or "STANDBY".
@@ -937,7 +1090,7 @@ func RankStandbyAccountsWithThresholds(accounts []AccountQuotaState, threshold5h
 			continue
 		}
 		st := strings.ToUpper(acc.Status)
-		if st == "BANNED" || st == "ERROR" || st == "COOLDOWN" {
+		if st == "BANNED" || st == "ERROR" || st == "COOLDOWN" || st == "COOLING" {
 			continue
 		}
 		if acc.Quota5hCurrent <= threshold5h {
@@ -1183,7 +1336,7 @@ func SortAccountQuotaStatesWithThresholds(accounts []AccountQuotaState, activeEm
 		}
 		availWeeklyIn5h := ComputeEffectiveWeeklyAvailable(weekly, sec7d)
 		recoversWeeklyIn5h := hasWeekly || availWeeklyIn5h > thresholdWeekly
-		is5hBelow := cur5h <= threshold5h || st == "COOLDOWN"
+		is5hBelow := cur5h <= threshold5h || st == "COOLDOWN" || st == "COOLING"
 
 		if !is5hBelow && hasWeekly {
 			if IsFreePlanTier(a.Email, a.PlanTier) {

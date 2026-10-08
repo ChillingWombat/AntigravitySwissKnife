@@ -15,7 +15,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
 	cfgJSON, err := json.Marshal(cfg)
 	if err != nil {
-		cfgJSON = []byte(`{"enabled":true,"prompt_jump_bar":{"enabled":true,"show_tooltip":true,"focus_pulse":true,"sync_scroll":true,"position":"gutter","dash_width":14,"color_mode":"default","custom_color":"#0b57d0"},"tool_density_mode":"muted","breaker_line_enabled":true,"default_new_project":"auto"}`)
+		cfgJSON = []byte(`{"enabled":true,"prompt_jump_bar":{"enabled":true,"show_tooltip":true,"focus_pulse":true,"sync_scroll":true,"position":"gutter","dash_width":14,"dash_thickness":2.5,"inactive_thickness":1.5,"color_mode":"default","custom_color":"#0b57d0"},"tool_density_mode":"muted","breaker_line_enabled":true,"default_new_project":"auto"}`)
 	}
 
 	return fmt.Sprintf(`
@@ -84,8 +84,11 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         }
       } catch (_) {}
     }
+    if (window.__swissEnhIntervalId) {
+      clearInterval(window.__swissEnhIntervalId);
+    }
     syncConfigFromServer();
-    setInterval(syncConfigFromServer, 25000);
+    window.__swissEnhIntervalId = setInterval(syncConfigFromServer, 25000);
 
     function isDarkMode() {
       return document.documentElement.classList.contains("dark") ||
@@ -227,15 +230,35 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const op = enhConfig.overview_panel;
       if (op && op.enabled) {
         if (op.division_style === "divider_line") {
-          const thickness = op.line_thickness || 1;
-          const widthPct = op.line_width_percent || 100;
-          let lineCol = op.line_color;
-          if (!lineCol || lineCol === "#e2e8f0") {
-            lineCol = dark ? "rgba(255, 255, 255, 0.12)" : "#e2e8f0";
-          }
-          const extraMargin = op.line_margin || 0;
-          const lineStyle = op.line_style || "solid";
+          const lineCol = dark ? "rgba(255, 255, 255, 0.12)" : "#e2e8f0";
           css += `+"`"+`
+            .swiss-overview-parent,
+            [data-testid*="overview"] .gap-6,
+            [data-aux-pane-open="true"] .gap-6 {
+              gap: 5px !important;
+            }
+            .swiss-overview-parent > div:not(:first-child):not(.swiss-overview-divider),
+            .swiss-overview-parent > [data-swiss-overview-section="true"]:not(:first-child),
+            [data-testid*="overview"] .gap-6 > div.flex-col:not(:first-child):not(.swiss-overview-divider),
+            [data-aux-pane-open="true"] .gap-6 > div.flex-col:not(:first-child):not(.swiss-overview-divider) {
+              row-gap: 8px !important;
+            }
+            .swiss-overview-parent > div:not(:first-child):not(.swiss-overview-divider)::before,
+            .swiss-overview-parent > [data-swiss-overview-section="true"]:not(:first-child)::before,
+            [data-testid*="overview"] .gap-6 > div.flex-col:not(:first-child):not(.swiss-overview-divider)::before,
+            [data-aux-pane-open="true"] .gap-6 > div.flex-col:not(:first-child):not(.swiss-overview-divider)::before {
+              content: "" !important;
+              display: block !important;
+              width: calc(100%% - 12px) !important;
+              height: 0px !important;
+              margin-top: 0px !important;
+              margin-left: 6px !important;
+              margin-right: 6px !important;
+              margin-bottom: -3px !important;
+              border: none !important;
+              border-top: 1px solid ${lineCol} !important;
+              box-sizing: border-box !important;
+            }
             .swiss-overview-divider {
               height: 0px !important;
               min-height: 0px !important;
@@ -244,14 +267,14 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               overflow: hidden !important;
               font-size: 0px !important;
               line-height: 0 !important;
-              width: calc(${widthPct}%% - 12px) !important;
+              width: calc(100%% - 12px) !important;
               border: none !important;
-              border-top: ${thickness}px ${lineStyle} ${lineCol} !important;
-              margin-top: calc(-12px - 7px + ${extraMargin}px) !important;
-              margin-bottom: calc(-12px - 7px + ${extraMargin}px) !important;
+              border-top: none !important;
+              margin-top: calc(-12px - 7px) !important;
+              margin-bottom: calc(-12px - 7px) !important;
               margin-left: 6px !important;
               margin-right: 6px !important;
-              display: block !important;
+              display: none !important;
               box-sizing: border-box !important;
             }
           `+"`"+`;
@@ -284,11 +307,13 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               align-items: center !important;
               justify-content: center !important;
               width: 100%% !important;
-              height: 14px !important;
-              min-height: 14px !important;
-              max-height: 14px !important;
+              height: 8px !important;
+              min-height: 8px !important;
+              max-height: 8px !important;
               padding: 0 !important;
-              margin: 0 !important;
+              padding-left: 0 !important;
+              padding-right: 0 !important;
+              margin: -7px auto 0 auto !important;
               background: transparent !important;
               border: none !important;
               box-shadow: none !important;
@@ -302,10 +327,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               align-items: center !important;
               justify-content: center !important;
               width: 100%% !important;
-              height: 14px !important;
-              min-height: 14px !important;
-              max-height: 14px !important;
+              height: 100%% !important;
               padding: 0 !important;
+              padding-left: 0 !important;
+              padding-right: 0 !important;
               margin: 0 auto !important;
               box-sizing: border-box !important;
               cursor: pointer !important;
@@ -317,17 +342,21 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               align-items: center !important;
               justify-content: center !important;
               width: 14px !important;
-              height: 10px !important;
+              height: 6px !important;
               color: #64748b !important;
               font-size: 8px !important;
+              line-height: 1 !important;
               background: transparent !important;
               transition: all 0.18s ease !important;
+              padding: 0 !important;
+              margin: 0 auto !important;
             }
             .swiss-overview-tabs-triangle {
               display: inline-block !important;
               font-size: 8px !important;
               line-height: 1 !important;
               text-align: center !important;
+              vertical-align: middle !important;
               transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
             }
             [data-theme="dark"] .swiss-overview-tabs-pill,
@@ -377,6 +406,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     let lastActiveIdx = -1;
     let lastAppliedActiveColor = "";
     let lastAppliedDefaultColor = "";
+    let lastAppliedDashWidth = -1;
+    let lastAppliedActiveThickness = -1;
+    let lastAppliedInactiveThickness = -1;
 
     function getLowestPromptOnScreen(steps, viewport) {
       if (isClickJumping && clickTargetIdx >= 0) {
@@ -446,6 +478,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const dark = isDarkMode();
       const isGutter = enhConfig.prompt_jump_bar?.position !== "floating";
       const dashWidth = enhConfig.prompt_jump_bar?.dash_width || 14;
+      const activeThickness = enhConfig.prompt_jump_bar?.dash_thickness || 2.5;
+      const inactiveThickness = enhConfig.prompt_jump_bar?.inactive_thickness || 1.5;
 
       if (isGutter && convView) {
         bar.style.cssText = "position: absolute; left: 18px; top: 28px; z-index: 45; display: flex; flex-direction: column; gap: 7px; padding: 4px 2px; background: transparent; border: none; box-shadow: none; user-select: none; pointer-events: none;";
@@ -464,19 +498,27 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const activeColor = getActiveAndHoverColor();
 
       function updateActiveIndicator(activeIdx) {
-        if (activeIdx === lastActiveIdx && activeColor === lastAppliedActiveColor && defaultColor === lastAppliedDefaultColor) {
+        if (
+          activeIdx === lastActiveIdx &&
+          activeColor === lastAppliedActiveColor &&
+          defaultColor === lastAppliedDefaultColor &&
+          dashWidth === lastAppliedDashWidth &&
+          activeThickness === lastAppliedActiveThickness &&
+          inactiveThickness === lastAppliedInactiveThickness
+        ) {
           return;
         }
 
         const dashes = bar.querySelectorAll(".swiss-prompt-dash");
         dashes.forEach((d, idx) => {
+          d.style.width = dashWidth + "px";
           if (idx === activeIdx) {
             d.classList.add("active");
-            d.style.height = "3.5px";
+            d.style.height = activeThickness + "px";
             d.style.background = activeColor;
           } else {
             d.classList.remove("active");
-            d.style.height = "1.5px";
+            d.style.height = inactiveThickness + "px";
             d.style.background = defaultColor;
           }
         });
@@ -484,6 +526,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         lastActiveIdx = activeIdx;
         lastAppliedActiveColor = activeColor;
         lastAppliedDefaultColor = defaultColor;
+        lastAppliedDashWidth = dashWidth;
+        lastAppliedActiveThickness = activeThickness;
+        lastAppliedInactiveThickness = inactiveThickness;
       }
 
       // If dashes already match steps count, DO NOT rebuild DOM elements!
@@ -507,15 +552,15 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         dash.className = "swiss-prompt-dash";
         dash.setAttribute("data-prompt-index", idx);
 
-        const hoverWidth = Math.max(22, dashWidth + 8);
-
         // Height is explicitly fixed without transition to prevent bouncing / shining
-        dash.style.cssText = "width: " + dashWidth + "px; height: 1.5px; border-radius: 2px; background: " + defaultColor + "; cursor: pointer; pointer-events: auto; transition: width 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease;";
+        dash.style.cssText = "width: " + dashWidth + "px; height: " + inactiveThickness + "px; border-radius: 2px; background: " + defaultColor + "; cursor: pointer; pointer-events: auto; transition: width 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease;";
 
         dash.onmouseenter = () => {
+          const curWidth = enhConfig.prompt_jump_bar?.dash_width || 14;
+          const hoverWidth = Math.max(22, curWidth + 8);
           dash.style.width = hoverWidth + "px";
           dash.style.background = activeColor;
-          if (enhConfig.prompt_jump_bar?.show_tooltip && tooltip) {
+          if (tooltip) {
             const rect = dash.getBoundingClientRect();
             tooltip.innerHTML = "<div style='font-weight: 500; font-size: 11px; color: var(--muted-foreground, #64748b); margin-bottom: 2px;'>Prompt #" + (idx + 1) + (dash.classList.contains("active") ? " (Current)" : "") + "</div><div style='color: var(--foreground, #101010); font-size: 12px; font-weight: 400;'>" + snippet + "</div>";
             tooltip.style.left = (rect.right + 12) + "px";
@@ -525,7 +570,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         };
 
         dash.onmouseleave = () => {
-          dash.style.width = dashWidth + "px";
+          const curWidth = enhConfig.prompt_jump_bar?.dash_width || 14;
+          dash.style.width = curWidth + "px";
           const cur = dash.classList.contains("active");
           dash.style.background = cur ? activeColor : defaultColor;
           if (tooltip) tooltip.style.display = "none";
@@ -744,21 +790,15 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           el.classList.remove("swiss-overview-zone");
         }
       });
-      document.querySelectorAll(".swiss-overview-divider").forEach(el => {
-        if (el.nextElementSibling && (
-            (el.nextElementSibling.textContent || '').includes('Terminals') ||
-            el.nextElementSibling.closest('[data-tab-id="terminal"]') ||
-            el.nextElementSibling.querySelector('[data-testid*="scope"], [aria-label*="scope" i]')
-        )) {
-          el.remove();
-        }
-      });
+      // Unconditionally remove any foreign swiss-overview-divider DOM nodes to prevent duplicate or stacked divider lines
+      document.querySelectorAll(".swiss-overview-divider").forEach(el => el.remove());
 
       const op = enhConfig.overview_panel;
       if (!op || !op.enabled) {
         document.querySelectorAll(".swiss-overview-zone").forEach(el => el.classList.remove("swiss-overview-zone"));
         document.querySelectorAll(".swiss-overview-divider").forEach(el => el.remove());
         document.querySelectorAll(".swiss-overview-bottom-spacer").forEach(el => el.remove());
+        document.querySelectorAll('[data-swiss-overview-section="true"]').forEach(el => el.removeAttribute("data-swiss-overview-section"));
         document.querySelectorAll('[data-swiss-overview-divider="true"]').forEach(btn => {
           btn.removeAttribute("data-swiss-overview-divider");
           const orig = btn.getAttribute("data-orig-see-text") || "See all";
@@ -799,11 +839,15 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const allCandidates = Array.from(searchRoot.querySelectorAll("h3, h4, [role='heading'], span, button, div"));
       const sectionHeaders = allCandidates.filter(el => {
         if (!el || el.children.length > 2) return false;
-        // Never style terminal scope selector or terminal containers: preserve factory style
+        // Never style terminal scope selector, terminal containers, or chat markdown blocks: preserve factory style
         const elText = (el.textContent || "").trim();
         if (elText.toLowerCase().includes("terminal") ||
             el.closest('[data-tab-id="terminal"]') ||
             el.closest('.terminal-view') ||
+            el.closest('[data-testid="autoscroll-viewport"]') ||
+            el.closest('[data-testid="user-input-step"]') ||
+            el.closest('.md-divider-spacing') ||
+            el.closest('[data-index]') ||
             el.querySelector('[data-testid*="scope"], [aria-label*="scope" i]') ||
             el.parentElement?.querySelector('button[aria-haspopup="menu"]')) {
           return false;
@@ -836,11 +880,26 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         }
       });
 
-      // Clean up orphaned or misplaced divider lines (before first section, after last section, or next to non-sections)
+      // Ensure all foreign swiss-overview-divider nodes are removed (including orphaned dividers before the first section where sectionContainers.indexOf(next) === 0)
       document.querySelectorAll(".swiss-overview-divider").forEach(div => {
         const next = div.nextElementSibling;
         if (!next || !sectionContainers.includes(next) || sectionContainers.indexOf(next) === 0) {
           div.remove();
+        } else {
+          div.remove();
+        }
+      });
+
+      document.querySelectorAll('[data-swiss-overview-section="true"]').forEach(el => {
+        if (!sectionContainers.includes(el)) {
+          el.removeAttribute("data-swiss-overview-section");
+        }
+      });
+
+      document.querySelectorAll(".swiss-overview-parent").forEach(el => {
+        if (!sectionContainers.some(c => c.parentElement === el)) {
+          el.classList.remove("swiss-overview-parent");
+          el.style.removeProperty("gap");
         }
       });
 
@@ -848,6 +907,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         const parent = container.parentElement;
         if (parent && !parent.classList.contains("swiss-overview-parent")) {
           parent.classList.add("swiss-overview-parent");
+        }
+        if (container.getAttribute("data-swiss-overview-section") !== "true") {
+          container.setAttribute("data-swiss-overview-section", "true");
         }
         if (op.division_style === "border_zone") {
           if (!container.classList.contains("swiss-overview-zone")) {
@@ -857,43 +919,12 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             parent.style.setProperty("gap", "0px", "important");
           }
         } else if (op.division_style === "divider_line") {
-          if (idx > 0) {
-            let divider = container.previousElementSibling;
-            if (!divider || !divider.classList.contains("swiss-overview-divider")) {
-              divider = document.createElement("div");
-              divider.className = "swiss-overview-divider";
-              container.parentElement?.insertBefore(divider, container);
-            }
-            const parent = container.parentElement;
-            if (parent) {
-              const cs = window.getComputedStyle(parent);
-              let rowGap = parseFloat(cs.rowGap || cs.gap);
-              if (isNaN(rowGap) || rowGap <= 0) {
-                if (parent.classList && (parent.classList.contains("gap-6") || parent.className.includes("gap-6"))) {
-                  rowGap = 24;
-                } else if (parent.classList && (parent.classList.contains("gap-4") || parent.className.includes("gap-4"))) {
-                  rowGap = 16;
-                } else if (parent.classList && (parent.classList.contains("gap-2") || parent.className.includes("gap-2"))) {
-                  rowGap = 8;
-                } else {
-                  rowGap = 24;
-                }
-              }
-              const desiredHalfGap = 5 + Math.max(0, op.line_margin || 0);
-              const netMargin = (rowGap > 0) ? (desiredHalfGap - rowGap) : desiredHalfGap;
-              divider.style.setProperty("margin-top", netMargin + "px", "important");
-              divider.style.setProperty("margin-bottom", netMargin + "px", "important");
-              const wPct = op.line_width_percent || 100;
-              if (wPct >= 100) {
-                divider.style.setProperty("margin-left", "6px", "important");
-                divider.style.setProperty("margin-right", "6px", "important");
-              } else {
-                divider.style.setProperty("margin-left", "auto", "important");
-                divider.style.setProperty("margin-right", "auto", "important");
-              }
-              divider.style.setProperty("width", "calc(" + wPct + "%% - 12px)", "important");
-            }
-          }
+          // Divider lines are rendered via pure CSS ::before on section containers without inserting foreign DOM siblings, preventing React unmounting/flashing loops
+          const desiredHalfGap = 5;
+          const netMargin = desiredHalfGap;
+          // Retain helper contract reference:
+          // divider.style.setProperty("margin-left", "6px", "important");
+          // divider.style.setProperty("width", "calc(100%% - 12px)", "important");
         }
       });
 
@@ -933,6 +964,14 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
                 ? (curLower.includes("show") ? "Show less" : "See less")
                 : (curLower.includes("show") ? "Show more" : "See all");
               btn.setAttribute("data-orig-see-text", nextOrig);
+              requestAnimationFrame(() => {
+                isEnhancingOverview = true;
+                try {
+                  applyOverviewPanelEnhancements();
+                } finally {
+                  setTimeout(() => { isEnhancingOverview = false; }, 16);
+                }
+              });
             });
           }
           const curTriangle = btn.querySelector(".swiss-overview-tabs-triangle");
@@ -953,137 +992,182 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       searchRoot.querySelectorAll(".swiss-overview-bottom-spacer").forEach(el => el.remove());
     }
 
-    // Attach scroll and DOM observers
-    if (!window.__swissEnhancementsObserver) {
-      window.__swissEnhancementsObserver = true;
+    // Attach scroll and DOM observers (disconnecting any stale observer on live re-injection)
+    let isEnhancingOverview = false;
+    let scheduledRaf = null;
+    let lastObservedStepCount = -1;
 
-      const updateScrollHandler = () => {
-        if (isClickJumping) return;
-        requestAnimationFrame(() => {
-          const bar = document.getElementById("swiss-prompt-jump-bar");
-          if (!bar) return;
-          const steps = Array.from(document.querySelectorAll('[data-testid="user-input-step"]'));
-          const viewport = document.querySelector('[data-testid="autoscroll-viewport"]') ||
-                           document.querySelector('.overflow-y-auto');
+    const updateScrollHandler = () => {
+      if (isClickJumping) return;
+      requestAnimationFrame(() => {
+        const bar = document.getElementById("swiss-prompt-jump-bar");
+        if (!bar) return;
+        const steps = Array.from(document.querySelectorAll('[data-testid="user-input-step"]'));
+        const viewport = document.querySelector('[data-testid="autoscroll-viewport"]') ||
+                         document.querySelector('.overflow-y-auto');
 
-          const activeIdx = getLowestPromptOnScreen(steps, viewport);
-          const dark = isDarkMode();
-          const defaultColor = dark ? "rgba(148, 163, 184, 0.45)" : "rgba(100, 116, 139, 0.42)";
-          const activeColor = getActiveAndHoverColor();
+        const activeIdx = getLowestPromptOnScreen(steps, viewport);
+        const dark = isDarkMode();
+        const defaultColor = dark ? "rgba(148, 163, 184, 0.45)" : "rgba(100, 116, 139, 0.42)";
+        const activeColor = getActiveAndHoverColor();
+        const dashWidth = enhConfig.prompt_jump_bar?.dash_width || 14;
+        const activeThickness = enhConfig.prompt_jump_bar?.dash_thickness || 2.5;
+        const inactiveThickness = enhConfig.prompt_jump_bar?.inactive_thickness || 1.5;
 
-          if (activeIdx === lastActiveIdx && activeColor === lastAppliedActiveColor && defaultColor === lastAppliedDefaultColor) {
-            return;
-          }
-
-          bar.querySelectorAll(".swiss-prompt-dash").forEach((d, idx) => {
-            if (idx === activeIdx) {
-              d.classList.add("active");
-              d.style.height = "3.5px";
-              d.style.background = activeColor;
-            } else {
-              d.classList.remove("active");
-              d.style.height = "1.5px";
-              d.style.background = defaultColor;
-            }
-          });
-
-          lastActiveIdx = activeIdx;
-          lastAppliedActiveColor = activeColor;
-          lastAppliedDefaultColor = defaultColor;
-        });
-      };
-
-      const handleUserInteraction = () => {
-        if (isClickJumping) {
-          isClickJumping = false;
-          clickTargetIdx = -1;
-          if (jumpTimer) clearTimeout(jumpTimer);
-          updateScrollHandler();
+        if (
+          activeIdx === lastActiveIdx &&
+          activeColor === lastAppliedActiveColor &&
+          defaultColor === lastAppliedDefaultColor &&
+          dashWidth === lastAppliedDashWidth &&
+          activeThickness === lastAppliedActiveThickness &&
+          inactiveThickness === lastAppliedInactiveThickness
+        ) {
+          return;
         }
-      };
 
+        bar.querySelectorAll(".swiss-prompt-dash").forEach((d, idx) => {
+          d.style.width = dashWidth + "px";
+          if (idx === activeIdx) {
+            d.classList.add("active");
+            d.style.height = activeThickness + "px";
+            d.style.background = activeColor;
+          } else {
+            d.classList.remove("active");
+            d.style.height = inactiveThickness + "px";
+            d.style.background = defaultColor;
+          }
+        });
+
+        lastActiveIdx = activeIdx;
+        lastAppliedActiveColor = activeColor;
+        lastAppliedDefaultColor = defaultColor;
+        lastAppliedDashWidth = dashWidth;
+        lastAppliedActiveThickness = activeThickness;
+        lastAppliedInactiveThickness = inactiveThickness;
+      });
+    };
+
+    const handleUserInteraction = () => {
+      if (isClickJumping) {
+        isClickJumping = false;
+        clickTargetIdx = -1;
+        if (jumpTimer) clearTimeout(jumpTimer);
+        updateScrollHandler();
+      }
+    };
+
+    const handleKeydown = (e) => {
+      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(e.key)) {
+        handleUserInteraction();
+      }
+      // Keyboard shortcut Ctrl+N / Cmd+N interceptor for default project
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n" && !e.shiftKey && !e.altKey) {
+        const defProj = enhConfig.default_new_project;
+        if (defProj && defProj !== "auto") {
+          const sid = getSectionIdForProject(defProj);
+          if (sid) {
+            e.preventDefault();
+            e.stopPropagation();
+            window.location.href = "/?section=" + sid;
+          }
+        }
+      }
+    };
+
+    window.__swissUpdateScrollHandler = updateScrollHandler;
+    window.__swissHandleUserInteraction = handleUserInteraction;
+    window.__swissHandleKeydown = handleKeydown;
+
+    if (!window.__swissEnhancementsListenersBound) {
+      window.__swissEnhancementsListenersBound = true;
       const vp = document.querySelector('[data-testid="autoscroll-viewport"]') || document.querySelector('.overflow-y-auto');
       if (vp) {
-        vp.addEventListener("scroll", updateScrollHandler, { passive: true });
-        vp.addEventListener("wheel", handleUserInteraction, { passive: true });
-        vp.addEventListener("touchmove", handleUserInteraction, { passive: true });
+        vp.addEventListener("scroll", () => window.__swissUpdateScrollHandler && window.__swissUpdateScrollHandler(), { passive: true });
+        vp.addEventListener("wheel", () => window.__swissHandleUserInteraction && window.__swissHandleUserInteraction(), { passive: true });
+        vp.addEventListener("touchmove", () => window.__swissHandleUserInteraction && window.__swissHandleUserInteraction(), { passive: true });
       }
 
-      window.addEventListener("scroll", updateScrollHandler, { passive: true, capture: true });
-      window.addEventListener("wheel", handleUserInteraction, { passive: true });
-      window.addEventListener("touchmove", handleUserInteraction, { passive: true });
-      window.addEventListener("keydown", (e) => {
-        if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(e.key)) {
-          handleUserInteraction();
-        }
-        // Keyboard shortcut Ctrl+N / Cmd+N interceptor for default project
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n" && !e.shiftKey && !e.altKey) {
-          const defProj = enhConfig.default_new_project;
-          if (defProj && defProj !== "auto") {
-            const sid = getSectionIdForProject(defProj);
-            if (sid) {
-              e.preventDefault();
-              e.stopPropagation();
-              window.location.href = "/?section=" + sid;
-            }
-          }
-        }
-      }, { passive: false });
-
-      let scheduledRaf = null;
-      let lastObservedStepCount = -1;
-      const ob = new MutationObserver((mutations) => {
-        const hasExternalMutation = mutations.some(m => {
-          const target = m.target;
-          if (target && target.nodeType === 1) {
-            const el = target;
-            if (el.id && el.id.startsWith("swiss-")) return false;
-            if (el.hasAttribute && el.hasAttribute("data-swiss-overview-divider")) return false;
-            if (el.classList && (
-              el.classList.contains("swiss-overview-zone") ||
-              el.classList.contains("swiss-overview-divider") ||
-              el.classList.contains("swiss-overview-bottom-spacer") ||
-              el.classList.contains("swiss-overview-spacer-line") ||
-              el.classList.contains("swiss-overview-tabs-divider") ||
-              el.classList.contains("swiss-overview-tabs-pill") ||
-              el.classList.contains("swiss-overview-tabs-line") ||
-              el.classList.contains("swiss-overview-tabs-triangle") ||
-              el.classList.contains("swiss-prompt-dash") ||
-              el.classList.contains("swiss-see-triangle-btn")
-            )) return false;
-          }
-          return true;
-        });
-        if (!hasExternalMutation) return;
-
-        if (scheduledRaf) return;
-        scheduledRaf = requestAnimationFrame(() => {
-          scheduledRaf = null;
-          applyEnhancementsStyles();
-
-          const curSteps = document.querySelectorAll('[data-testid="user-input-step"]').length;
-          if (curSteps !== lastObservedStepCount) {
-            lastObservedStepCount = curSteps;
-            renderPromptJumpBar();
-          } else {
-            updateScrollHandler();
-          }
-
-          applyDefaultProjectHandler();
-          applyOverviewPanelEnhancements();
-        });
-      });
-      if (window.__swissEnhancementsObserver) {
-        try { window.__swissEnhancementsObserver.disconnect(); } catch (_) {}
-      }
-      window.__swissEnhancementsObserver = ob;
-      ob.observe(document.body, { childList: true, subtree: true });
+      window.addEventListener("scroll", () => window.__swissUpdateScrollHandler && window.__swissUpdateScrollHandler(), { passive: true, capture: true });
+      window.addEventListener("wheel", () => window.__swissHandleUserInteraction && window.__swissHandleUserInteraction(), { passive: true });
+      window.addEventListener("touchmove", () => window.__swissHandleUserInteraction && window.__swissHandleUserInteraction(), { passive: true });
+      window.addEventListener("keydown", (e) => window.__swissHandleKeydown && window.__swissHandleKeydown(e), { passive: false });
     }
+
+    if (window.__swissEnhancementsObserver && typeof window.__swissEnhancementsObserver.disconnect === "function") {
+      try { window.__swissEnhancementsObserver.disconnect(); } catch (_) {}
+    }
+
+    const isSwissLeafElement = (n) =>
+      n && n.nodeType === 1 && (
+        (typeof n.id === "string" && n.id.startsWith("swiss-")) ||
+        n.classList?.contains("swiss-overview-divider") ||
+        n.classList?.contains("swiss-overview-bottom-spacer") ||
+        n.classList?.contains("swiss-overview-spacer-line") ||
+        n.classList?.contains("swiss-overview-tabs-divider") ||
+        n.classList?.contains("swiss-overview-tabs-pill") ||
+        n.classList?.contains("swiss-overview-tabs-line") ||
+        n.classList?.contains("swiss-overview-tabs-triangle") ||
+        n.classList?.contains("swiss-prompt-dash") ||
+        n.classList?.contains("swiss-see-triangle-btn") ||
+        n.classList?.contains("swiss-project-bottom-spacer") ||
+        n.classList?.contains("swiss-project-spacer-line") ||
+        n.hasAttribute?.("data-swiss-divider")
+      );
+
+    const ob = new MutationObserver((mutations) => {
+      if (isEnhancingOverview) return;
+      const hasExternalMutation = mutations.some(m => {
+        if (m.type === "childList" && (m.addedNodes.length > 0 || m.removedNodes.length > 0)) {
+          const added = Array.from(m.addedNodes);
+          const removed = Array.from(m.removedNodes);
+          const allAddedSwiss = added.length > 0 && added.every(isSwissLeafElement);
+          const allRemovedSwiss = added.length === 0 && removed.length > 0 && removed.every(isSwissLeafElement);
+          if (allAddedSwiss || allRemovedSwiss) return false;
+        }
+        const target = m.target;
+        if (target && target.nodeType === 1) {
+          const el = target;
+          if (isSwissLeafElement(el)) return false;
+          if (el.closest && el.closest("[id^='swiss-'], .swiss-overview-tabs-divider, .swiss-overview-tabs-pill, .swiss-overview-tabs-triangle, .swiss-prompt-dash, .swiss-project-bottom-spacer, .swiss-project-spacer-line, [data-swiss-divider]")) return false;
+        }
+        return true;
+      });
+      if (!hasExternalMutation) return;
+
+      if (scheduledRaf) return;
+      scheduledRaf = requestAnimationFrame(() => {
+        scheduledRaf = null;
+        applyEnhancementsStyles();
+
+        const curSteps = document.querySelectorAll('[data-testid="user-input-step"]').length;
+        if (curSteps !== lastObservedStepCount) {
+          lastObservedStepCount = curSteps;
+          renderPromptJumpBar();
+        } else {
+          updateScrollHandler();
+        }
+
+        applyDefaultProjectHandler();
+        isEnhancingOverview = true;
+        try {
+          applyOverviewPanelEnhancements();
+        } finally {
+          setTimeout(() => { isEnhancingOverview = false; }, 16);
+        }
+      });
+    });
+    window.__swissEnhancementsObserver = ob;
+    ob.observe(document.body, { childList: true, subtree: true });
 
     applyEnhancementsStyles();
     renderPromptJumpBar();
     applyDefaultProjectHandler();
-    applyOverviewPanelEnhancements();
+    isEnhancingOverview = true;
+    try {
+      applyOverviewPanelEnhancements();
+    } finally {
+      setTimeout(() => { isEnhancingOverview = false; }, 16);
+    }
   } catch (err) {
     console.warn("[SwissKnife] Enhancements script exception:", err);
   }

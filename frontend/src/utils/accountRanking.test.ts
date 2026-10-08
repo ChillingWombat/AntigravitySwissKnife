@@ -220,6 +220,15 @@ describe('accountRanking utility', () => {
       const ranked = rankStandbyAccounts([cooldownAcc, bannedAcc, errorAcc, healthyStandby], 0.05, 'balanced')
       assert.strictEqual(ranked.length, 1)
       assert.strictEqual(ranked[0].email, 'healthy@gmail.com')
+
+      const coolingAcc: AccountState = {
+        ...cooldownAcc,
+        email: 'cooling@gmail.com',
+        status: 'COOLING',
+      }
+      const rankedWithCooling = rankStandbyAccounts([coolingAcc, healthyStandby], 0.05, 'balanced')
+      assert.strictEqual(rankedWithCooling.length, 1)
+      assert.strictEqual(rankedWithCooling[0].email, 'healthy@gmail.com')
     })
 
     it('excludes standby accounts below thresholdWeekly unless credit overages are enabled', () => {
@@ -506,6 +515,16 @@ describe('accountRanking utility', () => {
       assert.strictEqual(sorted[3].email, 'cooldown@gmail.com') // Tier 3
       assert.strictEqual(sorted[4].email, 'error@gmail.com')    // Tier 4
       assert.strictEqual(sorted[5].email, 'banned@gmail.com')   // Tier 5
+
+      const coolingOnlyAcc = { ...cooldownAcc, email: 'cooling_only@gmail.com', status: 'COOLING' as const }
+      const sortedCooling = sortAccounts(
+        [bannedAcc, errorAcc, coolingOnlyAcc, freeStandby, proStandby, active],
+        'active@gmail.com',
+        0.05,
+        'auto',
+        'balanced'
+      )
+      assert.strictEqual(sortedCooling[3].email, 'cooling_only@gmail.com') // Tier 3
     })
 
     it('demotes standby accounts below thresholdWeekly into Tier 3', () => {

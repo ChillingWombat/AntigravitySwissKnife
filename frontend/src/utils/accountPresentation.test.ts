@@ -106,7 +106,7 @@ describe('accountPresentation utility', () => {
       assert.strictEqual(normalizePlanTier('free'), 'Free')
       assert.strictEqual(normalizePlanTier('plus'), 'Plus')
       assert.strictEqual(normalizePlanTier('pro'), 'Pro')
-      assert.strictEqual(normalizePlanTier('Google AI Pro'), 'Pro')
+      assert.strictEqual(normalizePlanTier('Google AI Pro'), 'Pro - Trial')
       assert.strictEqual(normalizePlanTier('trial'), 'Pro - Trial')
       assert.strictEqual(normalizePlanTier('pro-trial'), 'Pro - Trial')
       assert.strictEqual(normalizePlanTier('promo'), 'Pro - Trial')
@@ -202,6 +202,60 @@ describe('accountPresentation utility', () => {
       assert.ok(modalSrc.includes('onBlur={handleEmailBlur}'), 'should trigger handleEmailBlur on account ID blur')
       assert.ok(modalSrc.includes('Show OAuth refresh token'), 'should have refresh token eye toggle tooltip')
       assert.ok(modalSrc.includes("refreshToken.trim().startsWith('ya29.')"), 'should detect temporary access token and advise refresh token')
+      assert.ok(modalSrc.includes("'COOLING'"), 'should render COOLING status badge')
+      assert.ok(!modalSrc.includes("'COOL DOWN'"), 'should not contain legacy COOL DOWN badge')
+    })
+
+    it('verifies toAccountState normalizes legacy COOLDOWN status to COOLING', async () => {
+      const { toAccountState } = await import('../types.ts')
+      const legacyAccount = {
+        email: 'legacy@example.com',
+        status: 'COOLDOWN',
+        is_active: false,
+      }
+      const state = toAccountState(legacyAccount)
+      assert.strictEqual(state.status, 'COOLING', 'legacy COOLDOWN should be normalized to COOLING')
+
+      const coolingAccount = {
+        email: 'cooling@example.com',
+        status: 'COOLING',
+        is_active: false,
+      }
+      const stateCooling = toAccountState(coolingAccount)
+      assert.strictEqual(stateCooling.status, 'COOLING', 'COOLING status should be preserved')
+
+      const standbyAccount = {
+        email: 'standby@example.com',
+        status: 'STANDBY',
+        is_active: false,
+      }
+      const stateStandby = toAccountState(standbyAccount)
+      assert.strictEqual(stateStandby.status, 'STANDBY', 'STANDBY status should be preserved')
+    })
+
+    it('verifies QuotaDashboardPage displays Cooling and eliminates legacy Cool Down status', async () => {
+      const fs = await import('node:fs')
+      const path = await import('node:path')
+      const pageSrc = fs.readFileSync(
+        path.resolve(import.meta.dirname, '../pages/QuotaDashboardPage.tsx'),
+        'utf8'
+      )
+      assert.ok(pageSrc.includes('Cooling'), 'should display Cooling badge')
+      assert.ok(!pageSrc.includes('Cool Down'), 'should not contain legacy Cool Down text')
+      assert.ok(!pageSrc.includes('cooling down until reset'), 'should not contain legacy cooling down tooltip')
+      assert.ok(pageSrc.includes('cooling until reset'), 'should contain modern cooling tooltip')
+    })
+
+    it('verifies QuotaDashboardPage displays Credit column header and reduced column width', async () => {
+      const fs = await import('node:fs')
+      const path = await import('node:path')
+      const pageSrc = fs.readFileSync(
+        path.resolve(import.meta.dirname, '../pages/QuotaDashboardPage.tsx'),
+        'utf8'
+      )
+      assert.ok(pageSrc.includes('<span>Credit</span>'), 'should display Credit column title')
+      assert.ok(!pageSrc.includes('<span>AI Credits</span>'), 'should not contain legacy AI Credits column header')
+      assert.ok(pageSrc.includes("width: '76px'"), 'should use compact 76px column width for Credit')
     })
   })
 })

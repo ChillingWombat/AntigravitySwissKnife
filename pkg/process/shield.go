@@ -3,10 +3,14 @@ package process
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
@@ -111,5 +115,171 @@ func (s *Shield) FindAntigravityProcesses() ([]ProcessInfo, error) {
 			})
 		}
 	}
+
+	// Prioritize primary Desktop IDE process at the front (comm == "antigravity" and not an Electron sub-process)
+	sort.SliceStable(results, func(i, j int) bool {
+		isMainIDE := func(p ProcessInfo) bool {
+			lower := strings.ToLower(p.Cmdline)
+			return p.Name == "antigravity" && !strings.Contains(lower, "--type=")
+		}
+		mainI := isMainIDE(results[i])
+		mainJ := isMainIDE(results[j])
+		if mainI != mainJ {
+			return mainI
+		}
+		return results[i].PID < results[j].PID
+	})
+
 	return results, nil
 }
+
+// FindLanguageServerProcesses scans for active Antigravity language_server instances.
+func (s *Shield) FindLanguageServerProcesses() ([]ProcessInfo, error) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		// Non-Linux or restricted /proc fallback
+		return nil, err
+	}
+
+	var results []ProcessInfo
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid <= 0 {
+			continue
+		}
+
+		cmdlineBytes, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
+		if err != nil {
+			continue
+		}
+		cmdline := strings.ReplaceAll(string(cmdlineBytes), "\x00", " ")
+		lower := strings.ToLower(cmdline)
+
+		// Match language_server spawned for Antigravity IDE hub
+		if strings.Contains(lower, "language_server") && (strings.Contains(lower, "antigravity") || strings.Contains(lower, "subclient_type hub")) {
+			commBytes, _ := os.ReadFile(filepath.Join("/proc", entry.Name(), "comm"))
+			comm := strings.TrimSpace(string(commBytes))
+
+			results = append(results, ProcessInfo{
+				PID:         pid,
+				Name:        comm,
+				Cmdline:     strings.TrimSpace(cmdline),
+				IsHostIDE:   false,
+				IsProtected: s.IsProtected(pid),
+			})
+		}
+	}
+	return results, nil
+}
+
+// RestartLanguageServer terminates the running language_server child process so the host IDE supervisor respawns it with new credentials.
+func (s *Shield) RestartLanguageServer() error {
+	procs, err := s.FindLanguageServerProcesses()
+	if err != nil || len(procs) == 0 {
+		return fmt.Errorf("no active Antigravity language_server process found")
+	}
+
+	for _, p := range procs {
+		if s.IsProtected(p.PID) {
+			continue
+		}
+		// Send SIGTERM so Electron's monitorLsCrashInternal detects termination and respawns cleanly
+		_ = s.SafeKill(p.PID, syscall.SIGTERM)
+	}
+	return nil
+}
+
+// RelaunchHostIDE gracefully terminates the running host Antigravity IDE (if alive)
+// and relaunches it as a detached background process so it reads fresh credentials from disk.
+func (s *Shield) RelaunchHostIDE() error {
+	if os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" {
+		return nil
+	}
+
+	procs, err := s.FindAntigravityProcesses()
+	if err == nil {
+		var mainPID int
+		for _, p := range procs {
+			lower := strings.ToLower(p.Cmdline)
+			if (p.Name == "antigravity" || strings.HasSuffix(p.Name, "antigravity")) &&
+				!strings.Contains(lower, "--type=") &&
+				!strings.Contains(lower, "swiss") {
+				mainPID = p.PID
+				break
+			}
+		}
+
+		if mainPID > 0 {
+			proc, findErr := os.FindProcess(mainPID)
+			if findErr == nil {
+				_ = proc.Signal(syscall.SIGTERM)
+				// Poll for graceful exit up to 4 seconds
+				for i := 0; i < 40; i++ {
+					time.Sleep(100 * time.Millisecond)
+					if !isProcessAlive(mainPID) {
+						break
+					}
+				}
+				// If still alive after grace period, force terminate
+				if isProcessAlive(mainPID) {
+					_ = proc.Kill()
+					time.Sleep(300 * time.Millisecond)
+				}
+			}
+		}
+	}
+
+	// Settle file handles and clear any stale Chromium/Electron singleton locks
+	time.Sleep(500 * time.Millisecond)
+	hostConfigDir := core.GetAntigravityHostConfigDir()
+	_ = os.Remove(filepath.Join(hostConfigDir, "SingletonLock"))
+	_ = os.Remove(filepath.Join(hostConfigDir, "SingletonSocket"))
+	_ = os.Remove(filepath.Join(hostConfigDir, "SingletonCookie"))
+
+	// Launch new detached process
+	binPath := core.GetAntigravityBinaryPath()
+	var cmd *exec.Cmd
+	if runtime.GOOS == "darwin" {
+		cmd = exec.Command("open", "-a", "Antigravity")
+	} else {
+		cmd = exec.Command(binPath)
+	}
+
+	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+	if err == nil {
+		defer devNull.Close()
+		cmd.Stdin = devNull
+		cmd.Stdout = devNull
+		cmd.Stderr = devNull
+	}
+
+	setDetachedProcess(cmd)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to launch Antigravity (%s): %w", binPath, err)
+	}
+	if cmd.Process != nil {
+		_ = cmd.Process.Release()
+	}
+	return nil
+}
+
+
+func isProcessAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	if runtime.GOOS == "linux" {
+		_, err := os.Stat(fmt.Sprintf("/proc/%d", pid))
+		return err == nil
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+

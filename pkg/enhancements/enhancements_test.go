@@ -28,6 +28,15 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.PromptJumpBar.Position != "gutter" {
 		t.Errorf("expected Position to be gutter, got %s", cfg.PromptJumpBar.Position)
 	}
+	if cfg.PromptJumpBar.DashWidth != 14 {
+		t.Errorf("expected DashWidth to be 14, got %d", cfg.PromptJumpBar.DashWidth)
+	}
+	if cfg.PromptJumpBar.DashThickness != 2.5 {
+		t.Errorf("expected DashThickness to be 2.5, got %v", cfg.PromptJumpBar.DashThickness)
+	}
+	if cfg.PromptJumpBar.InactiveThickness != 1.5 {
+		t.Errorf("expected InactiveThickness to be 1.5, got %v", cfg.PromptJumpBar.InactiveThickness)
+	}
 	if cfg.PromptJumpBar.ColorMode != "default" {
 		t.Errorf("expected ColorMode to be default, got %s", cfg.PromptJumpBar.ColorMode)
 	}
@@ -316,9 +325,6 @@ func TestOverviewPanel_ShowMoreButton_TriangleOnlyNoHorizontalLine(t *testing.T)
 
 func TestOverviewPanel_DividerLine_PreservesFactorySectionDistance(t *testing.T) {
 	cfg := DefaultConfig()
-	if cfg.OverviewPanel.LineMargin != 0 {
-		t.Errorf("expected default LineMargin to be 0 to preserve factory distance, got %d", cfg.OverviewPanel.LineMargin)
-	}
 
 	script := GenerateEnhancementsScript(cfg)
 	// Check that divider offsets compensate for flex gap to prevent blank areas and match factory spacing
@@ -335,13 +341,13 @@ func TestOverviewPanel_DividerLine_PreservesFactorySectionDistance(t *testing.T)
 	if !strings.Contains(script, "margin-left: 6px !important;") || !strings.Contains(script, "margin-right: 6px !important;") {
 		t.Errorf("expected divider CSS to include 6px horizontal margins")
 	}
-	if !strings.Contains(script, "width: calc(${widthPct}% - 12px) !important;") {
+	if !strings.Contains(script, "width: calc(100% - 12px) !important;") {
 		t.Errorf("expected divider CSS to shorten width with 12px inset calculation")
 	}
 	if !strings.Contains(script, `divider.style.setProperty("margin-left", "6px", "important")`) {
 		t.Errorf("expected divider JS to set 6px horizontal margin-left")
 	}
-	if !strings.Contains(script, `divider.style.setProperty("width", "calc(" + wPct + "% - 12px)", "important")`) {
+	if !strings.Contains(script, `divider.style.setProperty("width", "calc(100% - 12px)", "important")`) {
 		t.Errorf("expected divider JS to set shortened width with 12px inset")
 	}
 	// Check that orphaned dividers are pruned
@@ -358,19 +364,22 @@ func TestOverviewPanel_ShrunkSectionGapsAndCompactTriangle(t *testing.T) {
 	if !strings.Contains(script, "desiredHalfGap = 5") {
 		t.Errorf("expected script JS to compute desiredHalfGap = 5 for compact section spacing")
 	}
-	if !strings.Contains(script, "margin-top: calc(-12px - 7px + ${extraMargin}px)") {
-		t.Errorf("expected script CSS to specify tightened negative margin calculation (-19px) with extraMargin")
+	if !strings.Contains(script, "margin-top: calc(-12px - 7px)") {
+		t.Errorf("expected script CSS to specify tightened negative margin calculation (-19px)")
 	}
 
-	// Verify tightened show-more button (14px height, 14x10px pill, 8px font-size)
+	// Verify tightened show-more button (8px height, 14x6px pill, 8px font-size)
 	if !strings.Contains(script, `[data-swiss-overview-divider="true"] {`) {
 		t.Errorf("expected script CSS to style data-swiss-overview-divider")
 	}
-	if !strings.Contains(script, "height: 14px !important;") {
-		t.Errorf("expected script CSS to tighten show-more button to 14px height")
+	if strings.Contains(script, `div:has(> [data-swiss-overview-divider="true"])`) {
+		t.Errorf("script CSS must NOT target div:has(> [data-swiss-overview-divider=\"true\"]) because that crushes the parent overview section container to 8px height")
 	}
-	if !strings.Contains(script, "width: 14px !important;") || !strings.Contains(script, "height: 10px !important;") {
-		t.Errorf("expected script CSS to tighten show-more pill dimensions to 14x10px")
+	if !strings.Contains(script, "height: 8px !important;") {
+		t.Errorf("expected script CSS to tighten show-more button to 8px height")
+	}
+	if !strings.Contains(script, "width: 14px !important;") || !strings.Contains(script, "height: 6px !important;") {
+		t.Errorf("expected script CSS to tighten show-more pill dimensions to 14x6px")
 	}
 
 	// Verify border_zone gap zeroing on parent container
@@ -378,9 +387,39 @@ func TestOverviewPanel_ShrunkSectionGapsAndCompactTriangle(t *testing.T) {
 		t.Errorf("expected script JS to zero parent flex gap in border_zone mode")
 	}
 
-	// Verify auto centering when LineWidthPercent is less than 100%
-	if !strings.Contains(script, `divider.style.setProperty("margin-left", "auto", "important")`) {
-		t.Errorf("expected script JS to center divider lines using auto margin when width percent is less than 100")
+	// Verify divider lines rendered via ::before with 6px horizontal margins and -3px bottom margin compensation for section gap-2 (8px)
+	if !strings.Contains(script, `margin-left: 6px !important;`) || !strings.Contains(script, `margin-right: 6px !important;`) {
+		t.Errorf("expected script CSS to inset divider lines with 6px margins")
+	}
+	if !strings.Contains(script, `gap: 5px !important;`) {
+		t.Errorf("expected .swiss-overview-parent to set gap: 5px !important for 5px top half-gap")
+	}
+	if !strings.Contains(script, `row-gap: 8px !important;`) {
+		t.Errorf("expected section containers to lock row-gap: 8px !important so -3px bottom margin compensation is invariant")
+	}
+	if !strings.Contains(script, `margin-bottom: -3px !important;`) {
+		t.Errorf("expected ::before divider to set margin-bottom: -3px !important so 8px flex gap-2 - 3px = 5px bottom half-gap")
+	}
+	if !strings.Contains(script, `margin: -7px auto 0 auto !important;`) {
+		t.Errorf("expected [data-swiss-overview-divider=\"true\"] to pull top margin by -7px to tighten section gap-2 above triangle")
+	}
+
+	// Verify live re-injection disconnects and replaces stale MutationObserver rather than skipping
+	if strings.Contains(script, "if (!window.__swissEnhancementsObserver)") {
+		t.Errorf("script must not skip observer replacement when window.__swissEnhancementsObserver is already set")
+	}
+	if !strings.Contains(script, `typeof window.__swissEnhancementsObserver.disconnect === "function"`) {
+		t.Errorf("expected script to disconnect existing window.__swissEnhancementsObserver on re-injection")
+	}
+
+	// Verify chat markdown blocks are excluded from overview section header detection
+	if !strings.Contains(script, `el.closest('.md-divider-spacing')`) || !strings.Contains(script, `el.closest('[data-testid="autoscroll-viewport"]')`) {
+		t.Errorf("expected script to exclude chat markdown and autoscroll viewport from overview section headers")
+	}
+
+	// Verify MutationObserver does not ignore React mutations inside overview section/divider containers
+	if !strings.Contains(script, "const isSwissLeafElement = (n) =>") {
+		t.Errorf("expected script observer to filter only dedicated Swiss leaf elements")
 	}
 }
 

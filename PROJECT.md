@@ -9,9 +9,9 @@ Antigravity Swiss Knife is an independent native desktop manager, background dae
 │                 Desktop User Interface (PySide6 / Qt 6)                     │
 │  ┌───────────────────────┐  ┌────────────────────────────────────────────┐  │
 │  │ Fixed Left Nav Rail   │  │ Account Switcher Top Ribbon (5 Sub-Pages)  │  │
-│  │ (Switcher / Market /  │  │  1. Quota Dashboard (4 Circular Gauges)    │  │
-│  │  Settings)            │  │  2. Accounts & RFC 6238 MFA/TOTP Vault     │  │
-│  │                       │  │  3. Device Fingerprints Manager            │  │
+│  │ (Switcher /           │  │  1. Quota Dashboard (4 Circular Gauges)    │  │
+│  │  Extensions /         │  │  2. Accounts & RFC 6238 MFA/TOTP Vault     │  │
+│  │  Settings)            │  │  3. Device Fingerprints Manager            │  │
 │  │                       │  │  4. Brain Cache Manager                    │  │
 │  │                       │  │  5. Switcher Settings                      │  │
 │  └───────────────────────┘  └────────────────────────────────────────────┘  │
@@ -68,12 +68,11 @@ Antigravity Swiss Knife is an independent native desktop manager, background dae
 | F11 | `F11_PROFILE_SWAPPER` | Atomic synchronization and swapping of virtual device fingerprint profiles concurrently with keyring credential rotation. | M3 | ORIGINAL_REQUEST §R4 |
 | F12 | `F12_BRAIN_CACHE_INSPECTOR` | Deep disk usage scanning and categorization of `~/.gemini/antigravity/brain/` (screenshots, scratch, tool logs, tasks, step outputs) and `conversations/` SQLite files. | M3 | ORIGINAL_REQUEST §R5 |
 | F13 | `F13_BRAIN_CACHE_PRUNER` | Safe cleanup routines for stale tasks and scratch directories without disturbing active sessions or referenced artifacts. | M3 | ORIGINAL_REQUEST §R5 |
-| F14 | `F14_PROMPT_CACHE_OPTIMIZER` | Context cache analyzer identifying redundant prompts and token overhead to optimize memory and API usage. | M3 | ORIGINAL_REQUEST §R5 |
 | F15 | `F15_GEMINI_M3_THEME` | Complete Google Gemini Material Design 3 dark theme styling (`#131314` surface, `#1e1f20` cards, `#8ab4f8` accents, `#81c995`/`#fdd663`/`#f28b82` status colors, 16px card radius, 18px pill tabs). | M4 | ORIGINAL_REQUEST §R2 |
-| F16 | `F16_FIXED_LEFT_NAV_RAIL` | Collapsible/fixed navigation rail (72px) switching between top-level Swiss Knife suite tools (Account Switcher, Tools Marketplace / Extensions, System & Tray Settings). | M4 | ORIGINAL_REQUEST §R2 |
-| F17 | `F17_ACCOUNT_SWITCHER_TOP_RIBBON` | 5-tab top navigation ribbon (Quota Dashboard, Accounts & MFA Vault, Device Fingerprints, Brain Cache Manager, Switcher Settings). | M4 | ORIGINAL_REQUEST §R2 |
+| F16 | `F16_FIXED_LEFT_NAV_RAIL` | Collapsible/fixed navigation rail (72px) switching between top-level Swiss Knife suite tools (Account Switcher, Extensions Suite, System & Tray Settings). | M4 | ORIGINAL_REQUEST §R2 |
+| F17 | `F17_ACCOUNT_SWITCHER_TOP_RIBBON` | 4-tab top navigation ribbon (Quota Dashboard, Device Fingerprints, Brain Cache Manager, Switcher Settings). | M4 | ORIGINAL_REQUEST §R2 |
 | F18 | `F18_QUOTA_DASHBOARD_VIEW` | Real-time vector gauge meters for Gemini 3.8 Flash, Flash Lite, Pro, and Claude; active account status badge; reset countdown; 1-click manual switch. | M4 | ORIGINAL_REQUEST §R2 |
-| F19 | `F19_ACCOUNTS_MFA_VAULT_VIEW` | Multi-account inventory, credential management, backup codes, and live RFC 6238 TOTP engine. | M4 | ORIGINAL_REQUEST §R2 |
+| F19 | `F19_ACCOUNTS_MFA_VAULT_VIEW` | Integrated account setup & credential modal with multi-account inventory, OAuth tokens, and live RFC 6238 TOTP authenticator. | M4 | ORIGINAL_REQUEST §R2 |
 | F20 | `F20_RFC6238_TOTP_ENGINE` | Pure Python RFC 6238 TOTP computation (HMAC-SHA1, 30s step, 6-digit codes) with live animated countdown ring widget (`TotpCountdownRingWidget`). | M4 | ORIGINAL_REQUEST §R2 |
 | F21 | `F21_DEVICE_FINGERPRINTS_VIEW` | Interactive inspector and generator for virtualized hardware profiles. | M4 | ORIGINAL_REQUEST §R2 |
 | F22 | `F22_BRAIN_CACHE_VIEW` | Visual disk breakdown chart and safe cleanup action triggers. | M4 | ORIGINAL_REQUEST §R2 |
@@ -111,6 +110,21 @@ Antigravity Swiss Knife is an independent native desktop manager, background dae
 | M8 | Component & Gadget Sizing Compliance & Viewport Budgeting | Features F33, F34. Align cards, modals, gauges (`CircularGauge.tsx`), quota bars (`HorizontalQuotaBar.tsx`), toggle switches (`ToggleSwitch.tsx`) to 4px grid. Eliminate Quota Dashboard table horizontal scrollbar at 1152×648. | M7 | DONE (Certified green; gauges 128/12, bars 8/8, switches 36/20/16, table 880px budget pass) |
 | M9 | Automated Verification Suite & Adversarial Coverage Hardening | Features F35, F36. Programmatic test suite in `frontend/src/utils/layoutTokens.test.ts` asserting 4px divisibility, ceiling rounding behavior vs floor rounding, aspect ratios. TypeScript check and Vite build 100% pass. Adversarial validation with Challengers and Forensic Auditor. | M6, M7, M8 | DONE (40/40 frontend tests pass, 18/18 Go packages pass, E2E desktop 100% pass) |
 | M10 | Clean Codebase Architecture, 3-OS Release Pipeline & Multi-Agent Worktrees | Features F37, F38, F39. Dev/test resources isolation in `dev/`, cross-platform release builds in `release/` for Linux, Windows, macOS, and Git worktree isolation scripts for multi-agent concurrency. | none | DONE (Cross-compilation & packaging verified for all 3 OS, worktree scripts verified) |
+| M11 | Brain Cache Optimizer Contract Alignment & Active Cascade Shield | Issue #36. Align `/api/cache/scan` and `/api/cache/prune` JSON schemas between Go (`pkg/cache/`) and React (`BrainCachePage.tsx`), expose the 5-category breakdown (`scratch`, `steps`, `tasks`, `conversations`, `other`), and auto-populate `active_cascade_id` from `app_storage.json`. | M3 | PLANNED ([#36](https://github.com/ChillingWombat/AntigravitySwissKnife/issues/36)) |
+| M12 | Device Fingerprint API Unification & Full State Sync | Issue #37. Handle `GET /api/fingerprint?list=true` with `account_email`, accept flat/nested payloads in `POST /api/fingerprint` with RFC 4122 UUIDv4 `installation_id`, auto-heal/deduplicate `device_profiles.json`, and sync `~/.gemini/antigravity/installation_id` + `antigravity_state.pbtxt` in `SyncHardwareProfile`. | M3 | DONE ([#37](https://github.com/ChillingWombat/AntigravitySwissKnife/issues/37)) |
+| M13 | Real JSONL Token Attribution & Quota Burn-Rate Forecasting | Issue #38. Parse timestamped step records in `transcript.jsonl` (`?range=24h\|7d\|30d\|all`), compute true per-account/per-project/per-model token breakdowns, persist custom pricing overrides, and add 5h/weekly burn-rate ($\%/\text{hr}$) & Estimated Time to Exhaustion (ETTE) forecasting. | M2 | PLANNED ([#38](https://github.com/ChillingWombat/AntigravitySwissKnife/issues/38)) |
+
+---
+
+## Active Roadmap & GitHub Issue Backlog
+
+| Issue | Module / Subsystem | Scope & Technical Seam | Priority | Status |
+|---|---|---|---|---|
+| [#36](https://github.com/ChillingWombat/AntigravitySwissKnife/issues/36) | **Brain Cache Optimizer** (`pkg/cache/`, `BrainCachePage.tsx`) | Unify `scanCache`/`pruneCache` request/response fields, default category flags to `true`, wire live `active_cascade_id` from `app_storage.json`, and render the 5-category breakdown. | P0 (High) | Open (`ready-for-agent`) |
+| [#37](https://github.com/ChillingWombat/AntigravitySwissKnife/issues/37) | **Fingerprint Virtualizer** (`pkg/fingerprint/`, `FingerprintsPage.tsx`) | Support `GET /api/fingerprint?list=true` with `account_email`, fix UUIDv4 `installation_id` generation & flat POST body handling, auto-deduplicate colliding profiles, and extend `SyncHardwareProfile` to `installation_id` + `antigravity_state.pbtxt`. | P0 (High) | Done (Closed) |
+| [#38](https://github.com/ChillingWombat/AntigravitySwissKnife/issues/38) | **Token Cost Tracker** (`pkg/webgui/`, ` pkg/quota/`, `TokenMonitorPage.tsx`) | Replace `Size()/4` heuristic and `idx===0` attribution with real `transcript.jsonl` turn parsing, persist custom pricing, and add 5h/weekly quota burn-rate & ETTE forecasting. | P1 (High) | Open (`ready-for-agent`) |
+| [#29](https://github.com/ChillingWombat/AntigravitySwissKnife/issues/29) | **GitHub Workspace Kanban** (`pkg/github/`, `GitHubWorkspacePage.tsx`) | Two-way card drag-and-drop across columns (`Todo`, `In Progress`, `Review`, `Done`) synced to GitHub labels and issue state. | P1 (High) | Open (`ready-for-agent`) |
+| [#27](https://github.com/ChillingWombat/AntigravitySwissKnife/issues/27) | **Quick Memos** (`ExtensionsPage.tsx`) | Interactive canvas drawing board & UI wireframe sketch memos draggable into chat input. | P2 (Medium) | Open (`ready-for-agent`) |
 
 ---
 
@@ -234,8 +248,7 @@ antigravity_swiss/
 ├── cache_optimizer/
 │   ├── __init__.py
 │   ├── inspector.py          # Disk usage scanner for brain/ and conversations/
-│   ├── pruner.py             # Safe pruning for stale scratchpads and step logs
-│   └── prompt_cache.py       # Redundant prompt overhead detector
+│   └── pruner.py             # Safe pruning for stale scratchpads and step logs
 ├── totp/
 │   ├── __init__.py
 │   └── engine.py             # Pure Python RFC 6238 TOTP computation (HMAC-SHA1, 30s)
@@ -263,6 +276,6 @@ antigravity_swiss/
         ├── fingerprints.py    # Hardware profile inspection and generator
         ├── brain_cache.py     # Disk breakdown chart and cleanup actions
         ├── switcher_settings.py # Threshold sliders, polling frequencies, warmup
-        ├── extensions.py      # Tools Marketplace placeholder
+        ├── extensions.py      # Extensions Suite & workspace tools
         └── system_settings.py # System & tray preferences
 ```

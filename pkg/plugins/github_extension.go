@@ -619,15 +619,18 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
   justify-content: space-between;
   height: 40px;
   min-height: 40px;
-  padding: 0 12px;
-  padding-left: max(12px, calc(var(--static-cluster-width, 150px) - var(--sidebar-width, 256px)));
-  padding-right: max(12px, calc(44px - var(--aux-pane-width, 0px)));
+  padding: 0 10px;
   background: var(--background);
   border-bottom: 1px solid var(--border);
   color: var(--foreground);
   font-family: var(--font-sans, inherit);
   box-sizing: border-box;
   user-select: none;
+}
+
+[data-swiss-stage-active] [data-testid="toggle-aux-sidebar"],
+[data-swiss-stage-active] .absolute.right-0.top-0:has([data-testid="toggle-aux-sidebar"]) {
+  display: none !important;
 }
 
 .swiss-main-stage-header-left {
@@ -719,6 +722,24 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
 }
 .swiss-scope-item.selected {
   font-weight: 600;
+  background: var(--secondary);
+  color: var(--foreground);
+}
+
+.swiss-stage-native-split-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.swiss-stage-native-split-btn:hover {
   background: var(--secondary);
   color: var(--foreground);
 }

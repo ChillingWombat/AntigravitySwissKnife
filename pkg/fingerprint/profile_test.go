@@ -59,3 +59,63 @@ func TestStoreCRUD(t *testing.T) {
 		t.Errorf("expected persisted profile, got %+v", got2)
 	}
 }
+
+func TestStoreSanitizeDeduplicateAndCollisionGuard(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "profiles.json")
+
+	// Seed a file where two accounts share the same non-hex machine_id and duplicate updater_id
+	rawJSON := `{
+  "alpha@gmail.com": {
+    "machine_id": "b1025406-c0de-41d8-99ff-c661143b172f",
+    "updater_id": "21431880-0453-4828-ad35-3d22f2f19b41",
+    "installation_id": "b656b750-0aed-49f2-842e-05de620f74bd",
+    "installation_uuid": "0fa27fd5-8d15-4aa8-83cd-25f574bd39d8"
+  },
+  "beta@gmail.com": {
+    "machine_id": "b1025406-c0de-41d8-99ff-c661143b172f",
+    "updater_id": "21431880-0453-4828-ad35-3d22f2f19b41",
+    "installation_id": "25ec34b8-7f85-4547-ac05-33b700a69530",
+    "installation_uuid": "bbf9f571-b211-45e7-a5eb-fe05ddb3b8f3"
+  }
+}`
+	if err := os.WriteFile(storePath, []byte(rawJSON), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewStore(storePath)
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	alpha := store.GetProfile("alpha@gmail.com")
+	beta := store.GetProfile("beta@gmail.com")
+	if alpha == nil || beta == nil {
+		t.Fatalf("expected both profiles to exist")
+	}
+
+	if err := alpha.Validate(); err != nil {
+		t.Errorf("expected alpha profile to be healed to valid format, got: %v", err)
+	}
+	if err := beta.Validate(); err != nil {
+		t.Errorf("expected beta profile to be healed to valid format, got: %v", err)
+	}
+	if alpha.MachineID == beta.MachineID {
+		t.Errorf("expected deduplicated machine_id, both had %s", alpha.MachineID)
+	}
+	if alpha.UpdaterID == beta.UpdaterID {
+		t.Errorf("expected deduplicated updater_id, both had %s", alpha.UpdaterID)
+	}
+
+	// Attempting to save a colliding profile for beta must fail
+	colliding := *alpha
+	if err := store.SetProfile("beta@gmail.com", &colliding); err == nil {
+		t.Errorf("expected SetProfile to reject cross-account collision")
+	}
+
+	slice := store.ListProfilesSlice()
+	if len(slice) != 2 || slice[0].AccountEmail != "alpha@gmail.com" || slice[1].AccountEmail != "beta@gmail.com" {
+		t.Errorf("unexpected ListProfilesSlice: %+v", slice)
+	}
+}
+

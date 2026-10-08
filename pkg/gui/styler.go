@@ -387,12 +387,12 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
 [data-swiss-project="%s"] .group\/headerbtn:hover [data-testid*="sidecar-workspace-overlay"] {
   background-color: %s !important;
 }
-[data-swiss-project="%s"] [data-testid*="sidecar-workspace-overlay"] svg,
-[data-swiss-project="%s"] [data-project-card] [data-testid*="sidecar-workspace-overlay"] svg,
-[data-swiss-project="%s"] .group\/headerbtn [data-testid*="sidecar-workspace-overlay"] svg,
-[data-swiss-project="%s"] [data-project-card] span[class*="rounded-full"][class*="-bottom"] svg,
-[data-project-card][data-swiss-project="%s"] [data-testid*="sidecar-workspace-overlay"] svg,
-[data-project-card][data-swiss-project="%s"] span[class*="rounded-full"][class*="-bottom"] svg {
+[data-swiss-project="%s"] [data-testid*="sidecar-workspace-overlay"] :is(svg, svg path),
+[data-swiss-project="%s"] [data-project-card] [data-testid*="sidecar-workspace-overlay"] :is(svg, svg path),
+[data-swiss-project="%s"] .group\/headerbtn [data-testid*="sidecar-workspace-overlay"] :is(svg, svg path),
+[data-swiss-project="%s"] [data-project-card] span[class*="rounded-full"][class*="-bottom"] :is(svg, svg path),
+[data-project-card][data-swiss-project="%s"] [data-testid*="sidecar-workspace-overlay"] :is(svg, svg path),
+[data-project-card][data-swiss-project="%s"] span[class*="rounded-full"][class*="-bottom"] :is(svg, svg path) {
   color: %s !important;
   fill: %s !important;
 }
@@ -446,16 +446,16 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
   align-items: center !important;
   justify-content: flex-start !important;
   width: 100% !important;
-  height: 14px !important;
-  min-height: 14px !important;
-  max-height: 14px !important;
+  height: 9px !important;
+  min-height: 9px !important;
+  max-height: 9px !important;
   padding: 0 !important;
   margin: 0 !important;
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
   overflow: visible !important;
-  z-index: 2 !important;
+  z-index: 3 !important;
 }
 [data-index]:has(button[data-swiss-divider="true"]) > *:not(.swiss-project-bottom-spacer),
 div:has(> button[data-swiss-divider="true"]),
@@ -464,13 +464,13 @@ div:has(> [data-swiss-divider="true"]) {
   align-items: center !important;
   justify-content: center !important;
   width: 100% !important;
-  height: 10px !important;
-  min-height: 10px !important;
-  max-height: 10px !important;
+  height: 6px !important;
+  min-height: 6px !important;
+  max-height: 6px !important;
   padding: 0 !important;
   padding-left: 0 !important;
   padding-right: 0 !important;
-  margin: 0 auto !important;
+  margin: 1px auto 0 auto !important;
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
@@ -481,9 +481,9 @@ button[data-swiss-divider="true"] {
   align-items: center !important;
   justify-content: center !important;
   width: 100% !important;
-  height: 10px !important;
-  min-height: 10px !important;
-  max-height: 10px !important;
+  height: 6px !important;
+  min-height: 6px !important;
+  max-height: 6px !important;
   padding: 0 !important;
   padding-left: 0 !important;
   padding-right: 0 !important;
@@ -518,18 +518,22 @@ button[data-swiss-divider="true"]:hover {
   align-items: center !important;
   justify-content: center !important;
   width: 14px !important;
-  height: 10px !important;
+  height: 6px !important;
   color: #64748b !important;
   font-size: 8px !important;
+  line-height: 1 !important;
   background: transparent !important;
   transition: all 0.18s ease !important;
   z-index: 3 !important;
+  padding: 0 !important;
+  margin: 0 auto !important;
 }
 .swiss-convo-tabs-triangle {
   display: inline-block !important;
   font-size: 8px !important;
   line-height: 1 !important;
   text-align: center !important;
+  vertical-align: middle !important;
   transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 [data-index]:not(:has(button[data-swiss-divider="true"])) .swiss-project-bottom-spacer {
@@ -548,7 +552,7 @@ button[data-swiss-divider="true"]:hover {
 [data-index]:has(button[data-swiss-divider="true"]) .swiss-project-bottom-spacer {
   position: relative !important;
   width: 100% !important;
-  height: 4px !important;
+  height: 2px !important;
   pointer-events: none !important;
   box-sizing: border-box !important;
   background: transparent !important;
@@ -568,21 +572,24 @@ button[data-swiss-divider="true"]:hover {
 }
 .swiss-project-spacer-line {
   position: absolute !important;
-  left: 0 !important;
-  right: 0 !important;
-  width: 100% !important;
-  height: 1px !important;
-  background: rgba(148, 163, 184, 0.35) !important;
-  z-index: 2 !important;
+  left: 6px !important;
+  right: 6px !important;
+  width: calc(100% - 12px) !important;
+  height: 0px !important;
+  border: none !important;
+  border-top: 1px solid rgba(148, 163, 184, 0.35) !important;
+  box-sizing: border-box !important;
+  background: transparent !important;
+  z-index: 3 !important;
   pointer-events: none !important;
 }
 [data-index]:has(button[data-swiss-divider="true"]) .swiss-project-spacer-line {
-  top: 2px !important;
-  transform: translateY(-50%) !important;
+  top: 1px !important;
 }
 [data-theme="dark"] .swiss-project-spacer-line,
 .dark .swiss-project-spacer-line {
-  background: rgba(148, 163, 184, 0.22) !important;
+  border-top-color: rgba(148, 163, 184, 0.22) !important;
+  background: transparent !important;
 }
 [data-theme="dark"] .swiss-convo-tabs-pill,
 .dark .swiss-convo-tabs-pill {
@@ -654,6 +661,7 @@ func generateBaseScript(cfg *Config) string {
 		projectColors = cfg.ProjectColors
 	}
 	colorsJSON, _ := json.Marshal(projectColors)
+	factoryColorsJSON, _ := json.Marshal(FactoryProjectColors())
 
 	tabsMode := "dynamic"
 	if cfg != nil && cfg.ConversationTabsMode != "" {
@@ -706,6 +714,7 @@ func generateBaseScript(cfg *Config) string {
   const configuredOrder = %s;
   const archivedProjects = %s;
   const configuredColors = %s;
+  const factoryColors = %s;
   const tabsMode = %q;
   const tabsFixedLimit = %d;
   const tabsAgeThreshold = %q;
@@ -749,7 +758,7 @@ func generateBaseScript(cfg *Config) string {
         e.stopImmediatePropagation();
         e.preventDefault();
         if (typeof window.__swissToast === "function") {
-          window.__swissToast("Conversation database was pruned or archived (file not found)");
+          window.__swissToast("Conversation trajectory was pruned by Antigravity (500-session limit reached)");
         }
       }
     }, true);
@@ -1016,8 +1025,22 @@ func generateBaseScript(cfg *Config) string {
         container.querySelectorAll(".swiss-project-bottom-spacer").forEach(el => el.remove());
       }
 
+      const setAttrIfDiff = (node, attr, val) => {
+        if (node && node.getAttribute(attr) !== val) {
+          node.setAttribute(attr, val);
+        }
+      };
+      const removeAttrIfPresent = (node, attr) => {
+        if (node && node.hasAttribute(attr)) {
+          node.removeAttribute(attr);
+        }
+      };
+
       const itemsList = Array.from(container.querySelectorAll(":scope > [data-index]"));
       itemsList.sort((a, b) => parseInt(a.getAttribute("data-index"), 10) - parseInt(b.getAttribute("data-index"), 10));
+
+      const dpr = window.devicePixelRatio || 1;
+      const containerTop = container.getBoundingClientRect().top;
 
       itemsList.forEach(el => {
         try {
@@ -1038,38 +1061,6 @@ func generateBaseScript(cfg *Config) string {
 
           el.style.display = "";
 
-          // Consistent blank spacing below projects without contracted conversation tabs
-          let spacer = el.querySelector(".swiss-project-bottom-spacer");
-          if (consistentProjectSpacing && spacerIndices.has(idx)) {
-            if (!spacer) {
-              spacer = document.createElement("div");
-              spacer.className = "swiss-project-bottom-spacer";
-              el.appendChild(spacer);
-            }
-            let line = spacer.querySelector(".swiss-project-spacer-line");
-            if (consistentProjectSpacingLine) {
-              if (!line) {
-                line = document.createElement("div");
-                line.className = "swiss-project-spacer-line";
-                spacer.appendChild(line);
-              }
-              const nextItem = el.nextElementSibling;
-              const pInner = el.querySelector('[data-testid="conversation-row-sidebar"]') || el.firstElementChild;
-              const nextInner = nextItem ? (nextItem.querySelector('[data-project-card]') || nextItem.firstElementChild) : null;
-              if (pInner && nextInner) {
-                const pRect = pInner.getBoundingClientRect();
-                const nRect = nextInner.getBoundingClientRect();
-                const spRect = spacer.getBoundingClientRect();
-                const gapCenter = (pRect.bottom + nRect.top) / 2;
-                line.style.setProperty("top", (gapCenter - spRect.top) + "px", "important");
-              }
-            } else if (line) {
-              line.remove();
-            }
-          } else if (spacer) {
-            spacer.remove();
-          }
-
           // Project conversation row color tinting and pruned status
           if (item.type === "row") {
             const cid = (item.conversationId || item.id || "").replace(/^conversation-/, "");
@@ -1081,21 +1072,26 @@ func generateBaseScript(cfg *Config) string {
             if (item.groupId) {
               const pName = headerMap[item.groupId];
               if (pName) {
-                if (isColorEnabled) {
-                  el.setAttribute("data-swiss-project", pName);
-                  if (row) row.setAttribute("data-swiss-project", pName);
+                const hasRowColor = isColorEnabled && window.__swissDynamicColors && Boolean(window.__swissDynamicColors[pName]);
+                if (hasRowColor) {
+                  setAttrIfDiff(el, "data-swiss-project", pName);
+                  if (row) setAttrIfDiff(row, "data-swiss-project", pName);
                 } else {
-                  el.removeAttribute("data-swiss-project");
-                  if (row) row.removeAttribute("data-swiss-project");
+                  removeAttrIfPresent(el, "data-swiss-project");
+                  if (row) removeAttrIfPresent(row, "data-swiss-project");
                 }
               }
             }
 
             if (isPruned) {
-              el.setAttribute("data-swiss-pruned", "true");
-              if (row) row.setAttribute("data-swiss-pruned", "true");
-              el.setAttribute("title", "Conversation database was pruned or archived (file not found)");
-              if (row) row.setAttribute("title", "Conversation database was pruned or archived (file not found)");
+              setAttrIfDiff(el, "data-swiss-pruned", "true");
+              if (row) setAttrIfDiff(row, "data-swiss-pruned", "true");
+              if (el.getAttribute("title") !== "Conversation database was pruned or archived (file not found)") {
+                el.setAttribute("title", "Conversation database was pruned or archived (file not found)");
+              }
+              if (row && row.getAttribute("title") !== "Conversation database was pruned or archived (file not found)") {
+                row.setAttribute("title", "Conversation database was pruned or archived (file not found)");
+              }
 
               let badge = (row || el).querySelector(".swiss-pruned-badge");
               if (!badge) {
@@ -1110,8 +1106,8 @@ func generateBaseScript(cfg *Config) string {
                 }
               }
             } else {
-              el.removeAttribute("data-swiss-pruned");
-              if (row) row.removeAttribute("data-swiss-pruned");
+              removeAttrIfPresent(el, "data-swiss-pruned");
+              if (row) removeAttrIfPresent(row, "data-swiss-pruned");
               const badge = (row || el).querySelector(".swiss-pruned-badge");
               if (badge) badge.remove();
             }
@@ -1172,11 +1168,11 @@ func generateBaseScript(cfg *Config) string {
                 btn.style.setProperty("justify-content", "center", "important");
                 btn.style.setProperty("align-items", "center", "important");
                 btn.style.setProperty("width", "100%%", "important");
-                btn.style.setProperty("height", "10px", "important");
+                btn.style.setProperty("height", "6px", "important");
                 btn.style.setProperty("background", "transparent", "important");
                 btn.style.setProperty("overflow", "visible", "important");
                 btn.style.setProperty("padding", "0", "important");
-                btn.style.setProperty("margin", "0 auto", "important");
+                btn.style.setProperty("margin", (btn.parentElement && btn.parentElement !== el) ? "0 auto" : "1px auto 0 auto", "important");
 
                 if (el) {
                   el.style.setProperty("display", "flex", "important");
@@ -1185,7 +1181,8 @@ func generateBaseScript(cfg *Config) string {
                   el.style.setProperty("justify-content", "flex-start", "important");
                   el.style.setProperty("background", "transparent", "important");
                   el.style.setProperty("overflow", "visible", "important");
-                  el.style.setProperty("z-index", "2", "important");
+                  el.style.setProperty("height", "9px", "important");
+                  el.style.setProperty("z-index", "3", "important");
                 }
                 const btnParent = btn.parentElement;
                 if (btnParent && btnParent !== el) {
@@ -1193,11 +1190,11 @@ func generateBaseScript(cfg *Config) string {
                   btnParent.style.setProperty("justify-content", "center", "important");
                   btnParent.style.setProperty("align-items", "center", "important");
                   btnParent.style.setProperty("width", "100%%", "important");
-                  btnParent.style.setProperty("height", "10px", "important");
+                  btnParent.style.setProperty("height", "6px", "important");
                   btnParent.style.setProperty("background", "transparent", "important");
                   btnParent.style.setProperty("overflow", "visible", "important");
                   btnParent.style.setProperty("padding", "0", "important");
-                  btnParent.style.setProperty("margin", "0 auto", "important");
+                  btnParent.style.setProperty("margin", "1px auto 0 auto", "important");
                 }
 
                 const curTriangle = btn.querySelector(".swiss-convo-tabs-triangle");
@@ -1239,104 +1236,92 @@ func generateBaseScript(cfg *Config) string {
             }
           }
 
+          // Consistent blank spacing below projects without contracted conversation tabs
+          let spacer = el.querySelector(".swiss-project-bottom-spacer");
+          if (consistentProjectSpacing && spacerIndices.has(idx)) {
+            if (!spacer) {
+              spacer = document.createElement("div");
+              spacer.className = "swiss-project-bottom-spacer";
+              el.appendChild(spacer);
+            }
+            let line = spacer.querySelector(".swiss-project-spacer-line");
+            if (consistentProjectSpacingLine) {
+              if (!line) {
+                line = document.createElement("div");
+                line.className = "swiss-project-spacer-line";
+                spacer.appendChild(line);
+              }
+              line.style.setProperty("left", "6px", "important");
+              line.style.setProperty("right", "6px", "important");
+              line.style.setProperty("width", "calc(100%% - 12px)", "important");
+              const spRect = spacer.getBoundingClientRect();
+              const elRect = el.getBoundingClientRect();
+              let targetTop = 1;
+              if (el.querySelector('button[data-swiss-divider="true"]') || el.matches(':has(button[data-swiss-divider="true"])')) {
+                line.style.removeProperty("top");
+              } else {
+                const nextItem = el.nextElementSibling;
+                const pInner = el.querySelector('[data-testid="conversation-row-sidebar"]') || el.firstElementChild;
+                const nextInner = nextItem ? nextItem.querySelector('[data-project-card]') : null;
+                if (pInner && nextInner) {
+                  const pRect = pInner.getBoundingClientRect();
+                  const nRect = nextInner.getBoundingClientRect();
+                  const gapCenter = (pRect.bottom + nRect.top) / 2;
+                  targetTop = Math.round(gapCenter - 0.5 - spRect.top);
+                }
+                line.style.setProperty("top", targetTop + "px", "important");
+              }
+              const localY = (spRect.top - elRect.top) + targetTop;
+              const elOriginDevY = Math.round(containerTop * dpr) + (elRect.top - containerTop) * dpr;
+              const paintedBaseDevY = elOriginDevY + Math.round(localY * dpr);
+              const deltaCssY = (Math.round(paintedBaseDevY) - paintedBaseDevY) / dpr;
+              line.style.setProperty("transform", "translateY(" + deltaCssY.toFixed(4) + "px)", "important");
+            } else if (line) {
+              line.remove();
+            }
+          } else if (spacer) {
+            spacer.remove();
+          }
+
           if (item.type === "header") {
             const btn = el.matches("[data-project-card]") ? el : el.querySelector("[data-project-card]");
+            const hasHeaderColor = isColorEnabled && window.__swissDynamicColors && Boolean(window.__swissDynamicColors[item.label]);
             if (btn) {
-              if (isColorEnabled) btn.setAttribute("data-swiss-project", item.label);
-              else btn.removeAttribute("data-swiss-project");
+              if (hasHeaderColor) setAttrIfDiff(btn, "data-swiss-project", item.label);
+              else removeAttrIfPresent(btn, "data-swiss-project");
             }
             const headerGroup = el.querySelector('[class*="group/header"]') || el;
-            if (isColorEnabled) {
-              el.setAttribute("data-swiss-project", item.label);
-              if (headerGroup) headerGroup.setAttribute("data-swiss-project", item.label);
+            if (hasHeaderColor) {
+              setAttrIfDiff(el, "data-swiss-project", item.label);
+              if (headerGroup) setAttrIfDiff(headerGroup, "data-swiss-project", item.label);
             } else {
-              el.removeAttribute("data-swiss-project");
-              if (headerGroup) headerGroup.removeAttribute("data-swiss-project");
+              removeAttrIfPresent(el, "data-swiss-project");
+              if (headerGroup) removeAttrIfPresent(headerGroup, "data-swiss-project");
             }
 
-            // Drag-and-drop reordering on project headers
-            if (isDragEnabled) {
-              headerGroup.setAttribute("draggable", "true");
-              headerGroup.style.cursor = "grab";
-              headerGroup.setAttribute("data-project-id", item.id.replace("header-", ""));
-              headerGroup.setAttribute("data-project-label", item.label);
-
-              if (!headerGroup.__swissDragBound) {
-                headerGroup.__swissDragBound = true;
-                headerGroup.addEventListener("dragstart", (e) => {
-                  e.dataTransfer.setData("text/plain", headerGroup.getAttribute("data-project-id"));
-                  headerGroup.style.opacity = "0.5";
-                });
-                headerGroup.addEventListener("dragend", () => {
-                  headerGroup.style.opacity = "1";
-                });
-                headerGroup.addEventListener("dragover", (e) => {
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                });
-                headerGroup.addEventListener("drop", async (e) => {
-                  e.preventDefault();
-                  const srcId = e.dataTransfer.getData("text/plain");
-                  const targetId = headerGroup.getAttribute("data-project-id");
-                  if (srcId && targetId && srcId !== targetId) {
-                    // Get current projects order from nativeStorage
-                    const curItems = await window.nativeStorage?.getItems();
-                    let pOrder = [];
-                    try { pOrder = JSON.parse(curItems?.projectsOrder || "[]"); } catch(_) {}
-                    if (!pOrder.length) {
-                      pOrder = items.filter(it => it.type === "header").map(h => h.id.replace("header-", ""));
-                    }
-                    const srcIdx = pOrder.indexOf(srcId);
-                    const tgtIdx = pOrder.indexOf(targetId);
-                    if (srcIdx !== -1 && tgtIdx !== -1) {
-                      pOrder.splice(srcIdx, 1);
-                      pOrder.splice(tgtIdx, 0, srcId);
-                      await window.nativeStorage?.updateItems({
-                        projectsOrder: JSON.stringify(pOrder),
-                        projectsSortBy: "custom"
-                      });
-                    }
-                  }
-                });
-              }
-            } else {
+            // Allow Antigravity to handle project card reordering natively via React pointer events.
+            // Explicitly remove HTML5 draggable and grab cursor to prevent suppression of window pointermove events.
+            if (headerGroup.hasAttribute("draggable")) {
               headerGroup.removeAttribute("draggable");
+            }
+            if (btn && btn.hasAttribute("draggable")) {
+              btn.removeAttribute("draggable");
+            }
+            if (headerGroup.style.cursor === "grab") {
               headerGroup.style.cursor = "";
+            }
+
+            if (!headerGroup.__swissDragBound) {
+              headerGroup.__swissDragBound = true;
+              // Prevent native HTML5 drag hijack so pointer events flow cleanly to React handlers
+              headerGroup.addEventListener("dragstart", (e) => {
+                e.preventDefault();
+              });
             }
           }
         } catch (_) {}
       });
 
-      // Apply initial configured order if specified and not yet synced
-      if (isDragEnabled && configuredOrder && configuredOrder.length > 0 && !window.__swissOrderSynced) {
-        window.__swissOrderSynced = true;
-        (async () => {
-          const cur = await window.nativeStorage?.getItems();
-          let pOrder = [];
-          try { pOrder = JSON.parse(cur?.projectsOrder || "[]"); } catch(_) {}
-          // Map configured project names to group IDs
-          const nameToId = {};
-          items.forEach(it => {
-            if (it.type === "header") {
-              nameToId[it.label] = it.id.replace("header-", "");
-            }
-          });
-          const mappedOrder = configuredOrder.map(name => nameToId[name]).filter(Boolean);
-          if (mappedOrder.length > 0) {
-            // Append any remaining IDs not in configured order
-            items.forEach(it => {
-              if (it.type === "header") {
-                const gid = it.id.replace("header-", "");
-                if (!mappedOrder.includes(gid)) mappedOrder.push(gid);
-              }
-            });
-            await window.nativeStorage?.updateItems({
-              projectsOrder: JSON.stringify(mappedOrder),
-              projectsSortBy: "custom"
-            });
-          }
-        })();
-      }
       if (typeof window.__swissEnhanceProjectOptionsMenu === "function") {
         window.__swissEnhanceProjectOptionsMenu();
       }
@@ -1429,9 +1414,53 @@ func generateBaseScript(cfg *Config) string {
     }
   }
 
+  const FACTORY_PROJECT_COLORS = factoryColors || {};
+
   window.__swissDynamicColors = window.__swissDynamicColors || {};
+  Object.assign(window.__swissDynamicColors, FACTORY_PROJECT_COLORS);
   if (configuredColors && typeof configuredColors === "object") {
     Object.assign(window.__swissDynamicColors, configuredColors);
+  }
+  if (!window.__swissDiskSavedColors && typeof require !== "undefined") {
+    try {
+      const fs = require("fs");
+      const path = require("path");
+      const os = require("os");
+      let cfgDir = (typeof process !== "undefined" && process.env && process.env.ANTIGRAVITY_SWISS_CONFIG_DIR) || "";
+      if (!cfgDir) {
+        const platform = (typeof process !== "undefined" && process.platform) || "";
+        const home = (os && typeof os.homedir === "function") ? os.homedir() : "";
+        if (platform === "win32") {
+          const appData = (typeof process !== "undefined" && process.env && process.env.APPDATA) || "";
+          cfgDir = appData ? path.join(appData, "antigravity-swiss") : path.join(home, "AppData", "Roaming", "antigravity-swiss");
+        } else if (platform === "darwin") {
+          cfgDir = path.join(home, "Library", "Application Support", "antigravity-swiss");
+        } else {
+          const xdg = (typeof process !== "undefined" && process.env && process.env.XDG_CONFIG_HOME) || "";
+          cfgDir = xdg ? path.join(xdg, "antigravity-swiss") : path.join(home, ".config", "antigravity-swiss");
+        }
+      }
+      const configPath = path.join(cfgDir, "gui_improvements.json");
+      if (fs.existsSync(configPath)) {
+        const parsedCfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
+        if (parsedCfg && parsedCfg.project_colors && typeof parsedCfg.project_colors === "object") {
+          window.__swissDiskSavedColors = parsedCfg.project_colors;
+        }
+        if (parsedCfg && Array.isArray(parsedCfg.deleted_colors)) {
+          window.__swissDiskDeletedColors = parsedCfg.deleted_colors;
+        }
+      }
+    } catch (_) {}
+  }
+  if (window.__swissDiskSavedColors && typeof window.__swissDiskSavedColors === "object") {
+    Object.assign(window.__swissDynamicColors, window.__swissDiskSavedColors);
+  }
+  if (Array.isArray(window.__swissDiskDeletedColors)) {
+    window.__swissDiskDeletedColors.forEach(p => {
+      if (!FACTORY_PROJECT_COLORS[p]) {
+        delete window.__swissDynamicColors[p];
+      }
+    });
   }
   if (typeof localStorage !== "undefined") {
     try {
@@ -1448,11 +1477,34 @@ func generateBaseScript(cfg *Config) string {
       if (delCached) {
         const delList = JSON.parse(delCached);
         if (Array.isArray(delList)) {
-          delList.forEach(p => { delete window.__swissDynamicColors[p]; });
+          delList.forEach(p => {
+            if (!FACTORY_PROJECT_COLORS[p]) {
+              delete window.__swissDynamicColors[p];
+            }
+          });
         }
       }
     } catch (_) {}
   }
+
+  async function syncColorsFromDaemon() {
+    try {
+      const resp = await fetch("http://127.0.0.1:8765/api/gui/config");
+      if (resp && resp.ok) {
+        const data = await resp.json();
+        if (data && data.project_colors && typeof data.project_colors === "object") {
+          Object.assign(window.__swissDynamicColors, data.project_colors);
+          if (typeof localStorage !== "undefined") {
+            try {
+              localStorage.setItem("antigravity_swiss_project_colors", JSON.stringify(window.__swissDynamicColors));
+            } catch (_) {}
+          }
+          renderDynamicProjectStyles();
+        }
+      }
+    } catch (_) {}
+  }
+  syncColorsFromDaemon();
 
   function renderDynamicProjectStyles(projName, colorHex) {
     try {
@@ -1468,13 +1520,32 @@ func generateBaseScript(cfg *Config) string {
           } catch (_) {}
         }
       } else if (projName) {
-        delete window.__swissDynamicColors[projName];
-        if (typeof localStorage !== "undefined") {
+        if (FACTORY_PROJECT_COLORS[projName]) {
+          window.__swissDynamicColors[projName] = FACTORY_PROJECT_COLORS[projName];
+          if (typeof localStorage !== "undefined") {
+            try {
+              let delList = JSON.parse(localStorage.getItem("antigravity_swiss_deleted_colors") || "[]");
+              if (Array.isArray(delList)) {
+                delList = delList.filter(p => p !== projName);
+                localStorage.setItem("antigravity_swiss_deleted_colors", JSON.stringify(delList));
+              }
+            } catch (_) {}
+          }
+        } else {
+          delete window.__swissDynamicColors[projName];
+          if (typeof localStorage !== "undefined") {
+            try {
+              let delList = JSON.parse(localStorage.getItem("antigravity_swiss_deleted_colors") || "[]");
+              if (!Array.isArray(delList)) delList = [];
+              if (!delList.includes(projName)) delList.push(projName);
+              localStorage.setItem("antigravity_swiss_deleted_colors", JSON.stringify(delList));
+            } catch (_) {}
+          }
           try {
-            let delList = JSON.parse(localStorage.getItem("antigravity_swiss_deleted_colors") || "[]");
-            if (!Array.isArray(delList)) delList = [];
-            if (!delList.includes(projName)) delList.push(projName);
-            localStorage.setItem("antigravity_swiss_deleted_colors", JSON.stringify(delList));
+            const safeSelector = projName.replace(/"/g, '\\"');
+            document.querySelectorAll('[data-swiss-project="' + safeSelector + '"]').forEach(el => {
+              el.removeAttribute("data-swiss-project");
+            });
           } catch (_) {}
         }
       }
@@ -1485,6 +1556,17 @@ func generateBaseScript(cfg *Config) string {
         } catch (_) {}
       }
       persistProjectColorsToDisk(window.__swissDynamicColors);
+      try {
+        let currentDelList = [];
+        if (typeof localStorage !== "undefined") {
+          currentDelList = JSON.parse(localStorage.getItem("antigravity_swiss_deleted_colors") || "[]");
+        }
+        window.postMessage({
+          type: "swiss-persist-project-colors",
+          colors: window.__swissDynamicColors,
+          deleted: currentDelList
+        }, "*");
+      } catch (_) {}
 
       let dynStyleEl = document.getElementById("antigravity-swiss-dynamic-colors");
       if (!dynStyleEl) {
@@ -1557,6 +1639,30 @@ func generateBaseScript(cfg *Config) string {
           '[data-swiss-project="' + safeP + '"] a[aria-label*="conversation" i] svg,' +
           '[data-swiss-project="' + safeP + '"] button[aria-label="Project options"] svg,' +
           '[data-swiss-project="' + safeP + '"] button[aria-label*="conversation"] svg {' +
+          '  color: ' + textColor + ' !important;' +
+          '  fill: ' + textColor + ' !important;' +
+          '}' +
+          '/* Automate Tasks / Sidecar Workspace Overlay Icon Badge */' +
+          '[data-swiss-project="' + safeP + '"] [data-testid*="sidecar-workspace-overlay"],' +
+          '[data-swiss-project="' + safeP + '"] [data-project-card] [data-testid*="sidecar-workspace-overlay"],' +
+          '[data-swiss-project="' + safeP + '"] [class*="group/headerbtn"] [data-testid*="sidecar-workspace-overlay"],' +
+          '[data-swiss-project="' + safeP + '"] [data-project-card] span[class*="rounded-full"][class*="-bottom"],' +
+          '[data-project-card][data-swiss-project="' + safeP + '"] [data-testid*="sidecar-workspace-overlay"],' +
+          '[data-project-card][data-swiss-project="' + safeP + '"] span[class*="rounded-full"][class*="-bottom"] {' +
+          '  background-color: ' + hex + ' !important;' +
+          '  color: ' + textColor + ' !important;' +
+          '}' +
+          '[data-swiss-project="' + safeP + '"] [data-testid*="sidecar-workspace-overlay"]:hover,' +
+          '[data-swiss-project="' + safeP + '"] [data-project-card]:hover [data-testid*="sidecar-workspace-overlay"],' +
+          '[data-swiss-project="' + safeP + '"] [class*="group/headerbtn"]:hover [data-testid*="sidecar-workspace-overlay"] {' +
+          '  background-color: ' + hex + ' !important;' +
+          '}' +
+          '[data-swiss-project="' + safeP + '"] [data-testid*="sidecar-workspace-overlay"] :is(svg, svg path),' +
+          '[data-swiss-project="' + safeP + '"] [data-project-card] [data-testid*="sidecar-workspace-overlay"] :is(svg, svg path),' +
+          '[data-swiss-project="' + safeP + '"] [class*="group/headerbtn"] [data-testid*="sidecar-workspace-overlay"] :is(svg, svg path),' +
+          '[data-swiss-project="' + safeP + '"] [data-project-card] span[class*="rounded-full"][class*="-bottom"] :is(svg, svg path),' +
+          '[data-project-card][data-swiss-project="' + safeP + '"] [data-testid*="sidecar-workspace-overlay"] :is(svg, svg path),' +
+          '[data-project-card][data-swiss-project="' + safeP + '"] span[class*="rounded-full"][class*="-bottom"] :is(svg, svg path) {' +
           '  color: ' + textColor + ' !important;' +
           '  fill: ' + textColor + ' !important;' +
           '}'
@@ -1973,29 +2079,65 @@ func generateBaseScript(cfg *Config) string {
         resetBtn.onclick = async () => {
           closeMenu();
 
-          // 1. Optimistic client-side in-DOM scoped styling removal immediately
-          renderDynamicProjectStyles(projectName, null);
+          const factoryHex = FACTORY_PROJECT_COLORS[projectName];
+          if (factoryHex) {
+            // 1. Reset factory project to its default factory color
+            renderDynamicProjectStyles(projectName, factoryHex);
 
-          // 2. Cross-window sync via BroadcastChannel
-          if (window.__swissSyncChannel) {
+            // 2. Cross-window sync via BroadcastChannel
+            if (window.__swissSyncChannel) {
+              try {
+                window.__swissSyncChannel.postMessage({ type: "color-update", project: projectName, color: factoryHex });
+              } catch (_) {}
+            }
+
+            if (window.__swissToast) {
+              window.__swissToast("Reset color to factory for " + projectName);
+            }
+
+            // 3. Background persistence to reset endpoint
             try {
-              window.__swissSyncChannel.postMessage({ type: "color-delete", project: projectName });
-            } catch (_) {}
-          }
+              await fetch("http://127.0.0.1:8765/api/gui/color/reset", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: projectName })
+              });
+            } catch (_) {
+              try {
+                await fetch("http://127.0.0.1:8765/api/gui/color", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ name: projectName, color: factoryHex })
+                });
+              } catch (e) {
+                console.warn("[SwissKnife] Reset color failed:", e);
+              }
+            }
+          } else {
+            // 1. Optimistic client-side in-DOM scoped styling removal for custom project
+            renderDynamicProjectStyles(projectName, null);
 
-          if (window.__swissToast) {
-            window.__swissToast("Reset color for " + projectName);
-          }
+            // 2. Cross-window sync via BroadcastChannel
+            if (window.__swissSyncChannel) {
+              try {
+                window.__swissSyncChannel.postMessage({ type: "color-delete", project: projectName });
+              } catch (_) {}
+            }
 
-          // 3. Background persistence to dedicated color delete endpoint
-          try {
-            await fetch("http://127.0.0.1:8765/api/gui/color/delete", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ name: projectName })
-            });
-          } catch (e) {
-            console.warn("[SwissKnife] Reset color failed:", e);
+            if (window.__swissToast) {
+              window.__swissToast("Reset color for " + projectName);
+            }
+
+            // 3. Background persistence to dedicated color delete endpoint
+            try {
+              await fetch("http://127.0.0.1:8765/api/gui/color/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: projectName })
+              });
+            } catch (e) {
+              console.warn("[SwissKnife] Reset color failed:", e);
+            }
           }
         };
       }
@@ -2126,7 +2268,7 @@ func generateBaseScript(cfg *Config) string {
           t.classList?.contains("swiss-convo-tabs-pill") ||
           t.classList?.contains("swiss-project-bottom-spacer") ||
           t.classList?.contains("swiss-project-spacer-line") ||
-          t.closest?.("[id^='swiss-'], [class*='swiss-']")) {
+          t.closest?.("[id^='swiss-'], [class*='swiss-'], [data-swiss-divider], [data-swiss-overview-divider]")) {
         continue;
       }
       if (m.type === "childList" && (m.addedNodes.length > 0 || m.removedNodes.length > 0)) {
@@ -2176,7 +2318,7 @@ func generateBaseScript(cfg *Config) string {
     dragEnabled: isDragEnabled,
     taggedCount: document.querySelectorAll("[data-swiss-project]").length
   };
-})();`, string(cssJSON), enabled, colorStylingEnabled, dragRearrangeEnabled, string(orderJSON), string(archivedJSON), string(colorsJSON), tabsMode, tabsFixedLimit, tabsAgeThreshold, tabsMin, tabsMax, replaceSeeAllTriangle, consistentProjectSpacing, consistentProjectSpacingLine, isBorderMode, borderWidth, isLeftBarMode, fontWeight)
+})();`, string(cssJSON), enabled, colorStylingEnabled, dragRearrangeEnabled, string(orderJSON), string(archivedJSON), string(colorsJSON), string(factoryColorsJSON), tabsMode, tabsFixedLimit, tabsAgeThreshold, tabsMin, tabsMax, replaceSeeAllTriangle, consistentProjectSpacing, consistentProjectSpacingLine, isBorderMode, borderWidth, isLeftBarMode, fontWeight)
 
 	return baseScript
 }
@@ -2190,12 +2332,6 @@ func GenerateScript(cfg *Config) string {
 func GenerateScriptWithCustomModels(cfg *Config, cmCfg *custommodels.Config) string {
 	baseScript := generateBaseScript(cfg)
 
-	if cmCfg == nil {
-		if cmStore, err := custommodels.NewStore(""); err == nil {
-			c := cmStore.GetConfig()
-			cmCfg = &c
-		}
-	}
 	customScript := custommodels.GenerateCustomModelsScript(cmCfg)
 
 	var enhCfg *enhancements.EnhancementsConfig

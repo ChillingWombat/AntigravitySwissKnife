@@ -48,7 +48,7 @@ func TestNormalizeCloudTier(t *testing.T) {
 		{"starter-tier", "Free"},
 		{"student@stanford.edu", "Edu"},
 		{"teams_tier_enterprise", "Enterprise"},
-		{"Google AI Pro", "Pro"},
+		{"Google AI Pro", "Pro - Trial"},
 		{"standard", "Pro"},
 		{"code assist", "Pro"},
 		{"free", "Free"},

@@ -303,13 +303,210 @@ func TestGenerateAuxiliaryPluginsScript_DOMInspector(t *testing.T) {
 		"outerHTML",                // Outer HTML capture
 		"getBoundingClientRect",    // Bounding rect measurement
 		"SWISS_INSPECT_RESULT",     // Message bridge token
+		"SWISS_INSPECT_CANCEL",     // Message bridge cancellation token on Escape
 		"swiss-dom-inspect-overlay", // Highlight overlay ID
 		"swiss-dom-inspect-badge",   // Selector tag badge ID
+		"exitInspectTool",          // Helper to exit inspect element tool
 	}
 
 	for _, token := range requiredInspectorTokens {
 		if !strings.Contains(js, token) {
 			t.Errorf("expected script to contain DOM inspector token %q", token)
+		}
+	}
+}
+
+func TestGenerateAuxiliaryPluginsScript_DOMInspector_EscapeKeyExit(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+
+	requiredEscapeTokens := []string{
+		`window.__swissBrowserKeyHandler`,
+		`if ((e.key === "Escape" || e.key === "Esc" || e.keyCode === 27 || e.which === 27) && drawTool === "inspect")`,
+		`exitInspectTool();`,
+		`e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27 || e.which === 27`,
+		`console.log('[SWISS_INSPECT_CANCEL]')`,
+		`e.message.includes('[SWISS_INSPECT_CANCEL]')`,
+		`window.__swissBrowserMessageHandler`,
+		`SWISS_INSPECT_CANCEL`,
+	}
+
+	for _, token := range requiredEscapeTokens {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected script to contain Escape key exit token %q", token)
+		}
+	}
+
+	if nodePath, err := exec.LookPath("node"); err == nil {
+		nodeTestScript := `
+const assert = require("assert");
+
+class MockClassList {
+  constructor() { this._set = new Set(); }
+  add(c) { this._set.add(c); }
+  remove(c) { this._set.delete(c); }
+  toggle(c, force) {
+    if (force !== undefined) {
+      if (force) this._set.add(c); else this._set.delete(c);
+      return force;
+    }
+    if (this._set.has(c)) { this._set.delete(c); return false; }
+    this._set.add(c); return true;
+  }
+  contains(c) { return this._set.has(c); }
+}
+
+class MockElement {
+  constructor(tag = "div") {
+    this.tagName = tag.toUpperCase();
+    this.id = "";
+    this.classList = new MockClassList();
+    this.style = {};
+    this.children = [];
+    this._listeners = {};
+    this.attributes = {};
+  }
+  setAttribute(k, v) { this.attributes[k] = v; }
+  getAttribute(k) { return this.attributes[k]; }
+  querySelector(sel) {
+    if (sel.startsWith("#")) {
+      const id = sel.slice(1);
+      if (this.id === id) return this;
+      for (const ch of this.children) {
+        const found = ch.querySelector(sel);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+  querySelectorAll() { return []; }
+  appendChild(child) { this.children.push(child); return child; }
+  remove() {}
+  addEventListener(event, fn) {
+    if (!this._listeners[event]) this._listeners[event] = [];
+    this._listeners[event].push(fn);
+  }
+  removeEventListener(event, fn) {
+    if (!this._listeners[event]) return;
+    this._listeners[event] = this._listeners[event].filter(cb => cb !== fn);
+  }
+  dispatchEvent(event) {
+    const list = this._listeners[event.type] || [];
+    for (const fn of list) fn(event);
+  }
+}
+
+// 1. Verify drawTool state transitions and exitInspectTool logic
+let drawTool = "none";
+const penBtn = new MockElement(); penBtn.id = "swiss-b-pen";
+const rectBtn = new MockElement(); rectBtn.id = "swiss-b-rect";
+const inspectBtn = new MockElement(); inspectBtn.id = "swiss-b-inspect";
+const canvas = new MockElement(); canvas.id = "swiss-browser-canvas";
+
+let domInspectorActive = false;
+let cleanedUpInWebview = false;
+function toggleDOMInspector(active) {
+  domInspectorActive = active;
+  if (!active) cleanedUpInWebview = true;
+}
+
+function exitInspectTool() {
+  drawTool = "none";
+  penBtn.classList.remove("active");
+  rectBtn.classList.remove("active");
+  inspectBtn.classList.remove("active");
+  canvas.style.pointerEvents = "none";
+  toggleDOMInspector(false);
+}
+
+function setDrawTool(tool) {
+  drawTool = (drawTool === tool) ? "none" : tool;
+  penBtn.classList.toggle("active", drawTool === "pen");
+  rectBtn.classList.toggle("active", drawTool === "rect");
+  inspectBtn.classList.toggle("active", drawTool === "inspect");
+
+  if (drawTool === "inspect") {
+    canvas.style.pointerEvents = "none";
+    toggleDOMInspector(true);
+  } else if (drawTool === "none") {
+    canvas.style.pointerEvents = "none";
+    toggleDOMInspector(false);
+  } else {
+    canvas.style.pointerEvents = "auto";
+    toggleDOMInspector(false);
+  }
+}
+
+// Step 1: User activates Inspect tool
+setDrawTool("inspect");
+assert.strictEqual(drawTool, "inspect", "drawTool should be inspect");
+assert.strictEqual(inspectBtn.classList.contains("active"), true, "inspectBtn should be active");
+assert.strictEqual(domInspectorActive, true, "toggleDOMInspector should be true");
+
+// Step 2: User presses Escape key in host window
+const escEvent = {
+  key: "Escape",
+  preventDefaultCalled: false,
+  stopPropagationCalled: false,
+  stopImmediatePropagationCalled: false,
+  preventDefault() { this.preventDefaultCalled = true; },
+  stopPropagation() { this.stopPropagationCalled = true; },
+  stopImmediatePropagation() { this.stopImmediatePropagationCalled = true; }
+};
+
+if ((escEvent.key === "Escape" || escEvent.key === "Esc" || escEvent.keyCode === 27 || escEvent.which === 27) && drawTool === "inspect") {
+  escEvent.preventDefault();
+  escEvent.stopPropagation();
+  escEvent.stopImmediatePropagation();
+  exitInspectTool();
+}
+
+assert.strictEqual(drawTool, "none", "drawTool should reset to none on Escape");
+assert.strictEqual(inspectBtn.classList.contains("active"), false, "inspectBtn should lose active class on Escape");
+assert.strictEqual(canvas.style.pointerEvents, "none", "canvas pointerEvents should be none");
+assert.strictEqual(cleanedUpInWebview, true, "webview DOM inspector cleanup should be invoked");
+assert.strictEqual(escEvent.preventDefaultCalled, true, "preventDefault should be called on Escape");
+assert.strictEqual(escEvent.stopPropagationCalled, true, "stopPropagation should be called on Escape");
+assert.strictEqual(escEvent.stopImmediatePropagationCalled, true, "stopImmediatePropagation should be called on Escape");
+
+// Step 3: Re-activate and test cancellation via webview console-message
+setDrawTool("inspect");
+assert.strictEqual(drawTool, "inspect");
+assert.strictEqual(inspectBtn.classList.contains("active"), true);
+
+const consoleMsgEvent = { message: "renderer: [SWISS_INSPECT_CANCEL] user dismissed" };
+if (consoleMsgEvent.message && consoleMsgEvent.message.includes("[SWISS_INSPECT_CANCEL]")) {
+  exitInspectTool();
+}
+
+assert.strictEqual(drawTool, "none", "drawTool should reset to none on [SWISS_INSPECT_CANCEL]");
+assert.strictEqual(inspectBtn.classList.contains("active"), false, "inspectBtn should not be active");
+
+// Step 4: Re-activate and test key: "Esc", keyCode: 27, and which: 27 variants
+setDrawTool("inspect");
+const legacyEscEvent = { key: "Esc", which: 27, preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {} };
+if ((legacyEscEvent.key === "Escape" || legacyEscEvent.key === "Esc" || legacyEscEvent.keyCode === 27 || legacyEscEvent.which === 27) && drawTool === "inspect") {
+  exitInspectTool();
+}
+assert.strictEqual(drawTool, "none", "legacy Esc key should exit tool");
+
+// Step 5: Test postMessage cancellation
+setDrawTool("inspect");
+assert.strictEqual(drawTool, "inspect");
+const postMsgEvent = { data: { type: "SWISS_INSPECT_CANCEL" } };
+if (postMsgEvent.data && (postMsgEvent.data.type === "SWISS_INSPECT_CANCEL" || postMsgEvent.data === "SWISS_INSPECT_CANCEL")) {
+  exitInspectTool();
+}
+assert.strictEqual(drawTool, "none", "postMessage SWISS_INSPECT_CANCEL should exit tool");
+
+console.log("ALL_INSPECT_ESCAPE_TESTS_PASSED");
+`
+		cmd := exec.Command(nodePath, "-e", nodeTestScript)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("Node.js inspect escape test failed: %v\n%s", err, string(out))
+		}
+		if !strings.Contains(string(out), "ALL_INSPECT_ESCAPE_TESTS_PASSED") {
+			t.Fatalf("expected test output to contain ALL_INSPECT_ESCAPE_TESTS_PASSED, got %q", string(out))
 		}
 	}
 }
@@ -330,6 +527,199 @@ func TestGenerateAuxiliaryPluginsScript_SendToChatWorkflow(t *testing.T) {
 	for _, token := range requiredChatTokens {
 		if !strings.Contains(js, token) {
 			t.Errorf("expected script to contain Send to Chat token %q", token)
+		}
+	}
+}
+
+func TestGenerateAuxiliaryPluginsScript_ElementSpecificAnnotation(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	css := GenerateAuxiliaryPluginsCSS()
+
+	requiredTokens := []string{
+		"renderElementAnnotationBox",
+		"clearElementAnnotation",
+		"swiss-element-annotation-box",
+		"swiss-element-annotation-input",
+		"swiss-element-annotation-close",
+		"swiss-element-annotation-send",
+		"attachChatAnnotationChip",
+		"swiss-chat-annotation-chip",
+		"swiss-chat-chip-delete",
+		"executeSendToChatWorkflow",
+	}
+
+	for _, token := range requiredTokens {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected script to contain element annotation token %q", token)
+		}
+	}
+
+	requiredCSSTokens := []string{
+		".swiss-element-annotation-box",
+		".swiss-element-annotation-close",
+		".swiss-element-annotation-input",
+		".swiss-element-annotation-send",
+		".swiss-chat-annotation-chip",
+		".swiss-chat-chip-delete",
+	}
+
+	for _, token := range requiredCSSTokens {
+		if !strings.Contains(css, token) {
+			t.Errorf("expected CSS to contain element annotation token %q", token)
+		}
+	}
+
+	if nodePath, err := exec.LookPath("node"); err == nil {
+		nodeTestScript := `
+const assert = require("assert");
+
+class MockElement {
+  constructor(tag = "div") {
+    this.tagName = tag.toUpperCase();
+    this.id = "";
+    this.className = "";
+    this.value = "";
+    this.style = {};
+    this.children = [];
+    this.parentElement = null;
+    this._listeners = {};
+    this.attributes = {};
+  }
+  setAttribute(k, v) { this.attributes[k] = v; }
+  getAttribute(k) { return this.attributes[k]; }
+  querySelector(sel) {
+    if (sel.startsWith("#")) {
+      const id = sel.slice(1);
+      if (this.id === id) return this;
+      for (const ch of this.children) {
+        const found = ch.querySelector(sel);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+  appendChild(child) {
+    child.parentElement = this;
+    this.children.push(child);
+    return child;
+  }
+  insertBefore(child, ref) {
+    child.parentElement = this;
+    const idx = this.children.indexOf(ref);
+    if (idx >= 0) this.children.splice(idx, 0, child);
+    else this.children.push(child);
+    return child;
+  }
+  remove() {
+    if (this.parentElement) {
+      const idx = this.parentElement.children.indexOf(this);
+      if (idx >= 0) this.parentElement.children.splice(idx, 1);
+      this.parentElement = null;
+    }
+  }
+  addEventListener(event, fn) {
+    if (!this._listeners[event]) this._listeners[event] = [];
+    this._listeners[event].push(fn);
+  }
+  removeEventListener(event, fn) {
+    if (!this._listeners[event]) return;
+    this._listeners[event] = this._listeners[event].filter(cb => cb !== fn);
+  }
+  dispatchEvent(event) {
+    const list = this._listeners[event.type] || [];
+    for (const fn of list) fn(event);
+  }
+}
+
+const screen = new MockElement("div");
+screen.id = "screen";
+
+let lastSelectedElement = null;
+let lastAnnotatedRegion = null;
+let userComment = "";
+let canvasCleared = false;
+
+function clearElementAnnotation() {
+  const existing = screen.querySelector("#swiss-element-annotation-box");
+  if (existing) existing.remove();
+  lastSelectedElement = null;
+  lastAnnotatedRegion = null;
+  userComment = "";
+  canvasCleared = true;
+}
+
+function renderElementAnnotationBox(result) {
+  const existing = screen.querySelector("#swiss-element-annotation-box");
+  if (existing) existing.remove();
+
+  const box = new MockElement("div");
+  box.id = "swiss-element-annotation-box";
+
+  const input = new MockElement("input");
+  input.id = "swiss-element-annotation-input";
+  input.value = userComment || "";
+
+  const closeBtn = new MockElement("button");
+  closeBtn.id = "swiss-element-annotation-close";
+  closeBtn.onclick = () => clearElementAnnotation();
+
+  box.appendChild(input);
+  box.appendChild(closeBtn);
+  screen.appendChild(box);
+}
+
+// 1. Inspect element result sets up annotation box directly on element
+const inspectResult = { selector: "button.submit-btn", rect: { x: 50, y: 100, width: 120, height: 40 } };
+lastSelectedElement = inspectResult;
+renderElementAnnotationBox(inspectResult);
+
+assert.ok(screen.querySelector("#swiss-element-annotation-box"), "should render element annotation box");
+assert.ok(screen.querySelector("#swiss-element-annotation-input"), "should have input box for annotation");
+
+// 2. Clear button removes annotation box, unselects element, and clears canvas
+const closeBtn = screen.querySelector("#swiss-element-annotation-close");
+closeBtn.onclick();
+
+assert.strictEqual(screen.querySelector("#swiss-element-annotation-box"), null, "close button should remove box");
+assert.strictEqual(lastSelectedElement, null, "close button should unselect element");
+assert.strictEqual(canvasCleared, true, "close button should clear canvas");
+
+// 3. In-chat annotation chip and deletion from chat input box
+const chatContainer = new MockElement("div");
+const chatTextarea = new MockElement("textarea");
+chatTextarea.value = "User prompt text\n[Preview Browser Element Annotation @ localhost]\nSelected Element: div.card\nAnnotation: Fix border\n(Visual annotation attached: annotation.png)";
+chatContainer.appendChild(chatTextarea);
+
+let chipRemoved = false;
+const chip = new MockElement("div");
+chip.id = "swiss-chat-annotation-chip";
+const deleteBtn = new MockElement("button");
+deleteBtn.id = "swiss-chat-chip-delete";
+deleteBtn.onclick = () => {
+  chip.remove();
+  chipRemoved = true;
+  chatTextarea.value = chatTextarea.value.replace(/\[Preview Browser (Element )?Annotation[\s\S]*?\(Visual annotation attached: annotation\.png\)\n?/g, '').trim();
+  clearElementAnnotation();
+};
+chip.appendChild(deleteBtn);
+chatContainer.appendChild(chip);
+
+assert.ok(chatContainer.querySelector("#swiss-chat-annotation-chip"), "chat container should have annotation chip");
+deleteBtn.onclick();
+
+assert.strictEqual(chipRemoved, true, "clicking delete button should remove chip");
+assert.strictEqual(chatTextarea.value, "User prompt text", "clicking delete button should remove annotation block from chat input");
+assert.strictEqual(lastSelectedElement, null, "deleting from chat input should unselect element in preview");
+
+console.log("ALL_ELEMENT_ANNOTATION_TESTS_PASSED");
+`
+		cmd := exec.Command(nodePath, "-e", nodeTestScript)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("Node element annotation test failed: %v\n%s", err, string(out))
+		}
+		if !strings.Contains(string(out), "ALL_ELEMENT_ANNOTATION_TESTS_PASSED") {
+			t.Fatalf("expected test output to contain ALL_ELEMENT_ANNOTATION_TESTS_PASSED, got %q", string(out))
 		}
 	}
 }
@@ -1682,5 +2072,35 @@ func TestAuxiliaryTabProportionsAndBreakerMargin(t *testing.T) {
 		t.Errorf("expected script JS to set dividerRight opacity to 1")
 	}
 }
+
+func TestAuxiliaryDaemonOfflineHandling(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+
+	// 1. Verify window.__swissOnAuxDaemonChanged exists
+	if !strings.Contains(js, "window.__swissOnAuxDaemonChanged = function(online)") {
+		t.Errorf("expected script to register window.__swissOnAuxDaemonChanged")
+	}
+
+	// 2. Verify setupAuxiliaryTabs checks window.__swissDaemonOnline === false
+	if !strings.Contains(js, "if (window.__swissDaemonOnline === false)") {
+		t.Errorf("expected setupAuxiliaryTabs to guard against window.__swissDaemonOnline === false")
+	}
+
+	// 3. Verify daemon offline removal of auxiliary tab buttons and dividers
+	if !strings.Contains(js, `document.querySelectorAll(".swiss-aux-btn-group, .swiss-aux-tabs-divider, .swiss-aux-tabs-divider-left, .swiss-aux-tabs-divider-right").forEach(el => el.remove())`) {
+		t.Errorf("expected daemon offline handler to remove aux button group and dividers")
+	}
+
+	// 4. Verify syntax passes in Node
+	if nodePath, err := exec.LookPath("node"); err == nil {
+		cmd := exec.Command(nodePath, "--check")
+		cmd.Stdin = strings.NewReader(js)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("node syntax error in GenerateAuxiliaryPluginsScript: %v\n%s", err, string(out))
+		}
+	}
+}
+
 
 

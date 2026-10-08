@@ -15,7 +15,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import type { AccountState, FleetQuotaSummary, RuleConfig, DiscoveredAccount } from '../types'
-import { normalizePlanTier } from '../types'
+import { normalizePlanTier, toAccountState } from '../types'
 import { TABLE_MIN_WIDTH } from '../utils/layoutTokens'
 import { getAccountTableDisplay } from '../utils/accountPresentation'
 import { CircularGauge } from '../components/CircularGauge'
@@ -31,6 +31,8 @@ export { sortAccounts, type SortMode }
 
 interface QuotaDashboardPageProps {
   fleet: FleetQuotaSummary | null
+  directAccounts?: any[]
+  activeAccountEmail?: string
   rules: RuleConfig | null
   onRefresh: () => void
   onAutoSwitchToggled: (enabled: boolean) => void
@@ -123,6 +125,8 @@ export const renderPlanTierBadge = (tier?: string) => {
 
 export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   fleet,
+  directAccounts,
+  activeAccountEmail,
   rules,
   onRefresh,
   onAutoSwitchToggled,
@@ -132,6 +136,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const [isTogglingRules, setIsTogglingRules] = useState(false)
   const [isScanning, setIsScanning] = useState(false)
   const [switchFeedback, setSwitchFeedback] = useState<string | null>(null)
+  const [isRelaunching, setIsRelaunching] = useState(false)
   const [errorDetailAccount, setErrorDetailAccount] = useState<AccountState | null>(null)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; account: AccountState } | null>(null)
 
@@ -145,6 +150,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const handleRefreshClick = () => {
     setIsRefreshing(true)
     try {
+      api.refreshFleetQuota().catch(() => {})
       onRefresh()
     } finally {
       setTimeout(() => setIsRefreshing(false), 500)
@@ -157,8 +163,17 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
     return () => window.removeEventListener('click', handleGlobalClick)
   }, [])
 
-  const accounts = fleet?.accounts || []
-  const activeAccount = fleet?.active_account || ''
+  const accounts: AccountState[] = React.useMemo(() => {
+    if (fleet?.accounts && fleet.accounts.length > 0) {
+      return fleet.accounts
+    }
+    if (directAccounts && directAccounts.length > 0) {
+      const active = activeAccountEmail || fleet?.active_account || ''
+      return directAccounts.map((a) => toAccountState(a, active))
+    }
+    return []
+  }, [fleet?.accounts, directAccounts, activeAccountEmail, fleet?.active_account])
+  const activeAccount = activeAccountEmail || fleet?.active_account || accounts.find((a) => a.is_active)?.email || ''
   const autoSwitchOn = rules?.auto_switch_enabled ?? false
   const threshold = rules?.auto_switch_threshold ?? 0.10
   const thresholdWeekly = rules?.auto_switch_weekly_threshold ?? 0.05
@@ -172,6 +187,18 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
     a.status?.toUpperCase().includes('BANNED')
   ).length
 
+  const fallback5h = accounts.length > 0 ? (accounts.reduce((sum, a) => sum + (a.quota_5h_available ?? 1), 0) / accounts.length) : 0
+  const fallbackWeekly = accounts.length > 0 ? (accounts.reduce((sum, a) => sum + (a.quota_weekly ?? 1), 0) / accounts.length) : 0
+  const fallback5hClaude = accounts.length > 0 ? (accounts.reduce((sum, a) => sum + (a.quota_5h_claude_gpt ?? 1), 0) / accounts.length) : 0
+  const fallbackWeeklyClaude = accounts.length > 0 ? (accounts.reduce((sum, a) => sum + (a.quota_weekly_claude_gpt ?? 1), 0) / accounts.length) : 0
+
+  const gauge5hGemini = (fleet?.fleet_5h_gemini_available ?? fleet?.fleet_5h_available ?? fallback5h) * 100
+  const gaugeWeeklyGemini = (fleet?.fleet_weekly_gemini_available ?? fleet?.fleet_weekly_available ?? fallbackWeekly) * 100
+  const gauge5hClaude = (fleet?.fleet_5h_claude_gpt_available ?? fallback5hClaude) * 100
+  const gaugeWeeklyClaude = (fleet?.fleet_weekly_claude_gpt_available ?? fallbackWeeklyClaude) * 100
+  const gauge5h = (fleet?.fleet_5h_available ?? fallback5h) * 100
+  const gaugeWeekly = (fleet?.fleet_weekly_available ?? fallbackWeekly) * 100
+
   const handleToggleAutoSwitch = async () => {
     setIsTogglingRules(true)
     try {
@@ -182,6 +209,19 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
       setSwitchFeedback(`Could not toggle auto-switch: ${err.message}`)
     } finally {
       setIsTogglingRules(false)
+    }
+  }
+
+  const handleRelaunchIDE = async () => {
+    setIsRelaunching(true)
+    try {
+      await api.relaunchHostIDE()
+      setSwitchFeedback('Host IDE relaunch initiated. The application will reboot fresh.')
+      setTimeout(() => setSwitchFeedback(null), 5000)
+    } catch (err: any) {
+      setSwitchFeedback('Relaunch error: ' + (err.message || 'unknown error'))
+    } finally {
+      setIsRelaunching(false)
     }
   }
 
@@ -354,14 +394,36 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
             )}
 
             {switchFeedback && (
-              <div style={{ fontSize: '12px', color: 'var(--primary)', marginTop: '6px', fontWeight: 500 }}>
-                {switchFeedback}
+              <div style={{ fontSize: '12px', color: 'var(--primary)', marginTop: '6px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                {switchFeedback.includes('Relaunch') && (
+                  <RotateCw size={12} className={isRelaunching || switchFeedback.includes('Relaunching') ? 'animate-spin' : ''} />
+                )}
+                <span>{switchFeedback}</span>
+                {switchFeedback.includes('Relaunch IDE Now') && (
+                  <button
+                    onClick={handleRelaunchIDE}
+                    disabled={isRelaunching}
+                    className="btn-pill-outlined"
+                    style={{
+                      padding: '2px 8px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <RotateCw size={11} className={isRelaunching ? 'animate-spin' : ''} />
+                    {isRelaunching ? 'Relaunching...' : 'Relaunch IDE Now'}
+                  </button>
+                )}
               </div>
             )}
           </div>
 
-          {/* Action Row: Scan Local Accounts & Add Account */}
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '16px' }}>
+          {/* Action Row: Scan Local Accounts, Add Account & Relaunch IDE */}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '16px', flexWrap: 'wrap' }}>
             <button
               onClick={handleScanLocalAccounts}
               disabled={isScanning}
@@ -402,6 +464,26 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               <Plus size={14} /> Add Account
             </button>
 
+            <button
+              onClick={handleRelaunchIDE}
+              disabled={isRelaunching}
+              className="btn-pill-tonal"
+              style={{
+                width: '172px',
+                padding: '7px 16px',
+                fontSize: '12px',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                whiteSpace: 'nowrap',
+              }}
+              title="Gracefully reboot Antigravity host IDE with current active account"
+            >
+              <RotateCw size={14} className={isRelaunching ? 'animate-spin' : ''} />
+              {isRelaunching ? 'Relaunching...' : 'Relaunch IDE'}
+            </button>
           </div>
         </div>
 
@@ -476,13 +558,13 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: '12px' }}>
                   <CircularGauge
-                    percentage={(fleet?.fleet_5h_gemini_available ?? fleet?.fleet_5h_available ?? 0) * 100}
+                    percentage={gauge5hGemini}
                     title="Gemini 5H"
                     size={72}
                     strokeWidth={8}
                   />
                   <CircularGauge
-                    percentage={(fleet?.fleet_weekly_gemini_available ?? fleet?.fleet_weekly_available ?? 0) * 100}
+                    percentage={gaugeWeeklyGemini}
                     title="Gemini Weekly"
                     size={72}
                     strokeWidth={8}
@@ -500,13 +582,13 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: '12px' }}>
                   <CircularGauge
-                    percentage={(fleet?.fleet_5h_claude_gpt_available ?? 0) * 100}
+                    percentage={gauge5hClaude}
                     title="Claude/GPT 5H"
                     size={72}
                     strokeWidth={8}
                   />
                   <CircularGauge
-                    percentage={(fleet?.fleet_weekly_claude_gpt_available ?? 0) * 100}
+                    percentage={gaugeWeeklyClaude}
                     title="Claude/GPT Weekly"
                     size={72}
                     strokeWidth={8}
@@ -526,11 +608,11 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               }}
             >
               <CircularGauge
-                percentage={(fleet?.fleet_5h_available ?? 0) * 100}
+                percentage={gauge5h}
                 title="5H"
               />
               <CircularGauge
-                percentage={(fleet?.fleet_weekly_available ?? 0) * 100}
+                percentage={gaugeWeekly}
                 title="Weekly"
               />
             </div>
@@ -580,7 +662,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               >
                 <option value="auto">Auto</option>
                 <option value="identity">Account Name</option>
-                <option value="credits">AI Credits</option>
+                <option value="credits">Credit</option>
                 <option value="priority">Priority</option>
                 <option value="quota_5h">5-Hour Quota</option>
                 <option value="quota_weekly">Weekly Quota</option>
@@ -605,8 +687,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 <th
                   onClick={() => setSortMode('identity')}
                   style={{
-                    width: '220px',
-                    minWidth: '220px',
+                    width: '244px',
+                    minWidth: '244px',
                     padding: '12px 16px',
                     textAlign: 'left',
                     fontSize: '11px',
@@ -680,8 +762,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               <th
                 onClick={() => setSortMode('credits')}
                 style={{
-                  width: '100px',
-                  minWidth: '100px',
+                  width: '76px',
+                  minWidth: '76px',
                   padding: '12px 8px',
                   textAlign: 'center',
                   fontSize: '11px',
@@ -694,10 +776,10 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   cursor: 'pointer',
                   userSelect: 'none',
                 }}
-                title="Click to sort by Available AI Credits"
+                title="Click to sort by Available Credit"
               >
                 <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                  <span>AI Credits</span>
+                  <span>Credit</span>
                   {sortMode === 'credits' && <ArrowUpDown size={11} />}
                 </div>
               </th>
@@ -735,7 +817,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               const isActive = activeAccount ? acc.email.toLowerCase() === activeAccount.toLowerCase() : Boolean(acc.is_active)
               const current5h = acc.quota_5h_current ?? acc.quota_5h_available ?? 0
               const isHealthy = current5h > threshold && (acc.quota_weekly ?? 0) > thresholdWeekly
-              const isNextSwitch = autoSwitchOn && sortMode === 'auto' && !isActive && !acc.status?.toUpperCase().includes('BANNED') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('COOLDOWN') && index === 1 && isHealthy
+              const isNextSwitch = autoSwitchOn && sortMode === 'auto' && !isActive && !acc.status?.toUpperCase().includes('BANNED') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('COOLDOWN') && !acc.status?.toUpperCase().includes('COOLING') && index === 1 && isHealthy
               return (
                 <tr
                   key={acc.email}
@@ -994,47 +1076,53 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                           <CheckCircle2 size={12} /> Active
                         </span>
                       )
-                    ) : acc.status?.toUpperCase() === 'COOLDOWN' ? (
-                      <span
-                        className="badge-chip"
-                        style={{
-                          fontSize: '11px',
-                          padding: '4px 10px',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          color: '#1a73e8',
-                          backgroundColor: '#e8f0fe',
-                          border: '1px solid #d2e3fc',
-                          fontWeight: 600,
-                          cursor: 'default',
-                        }}
-                        title="Quota exhausted below threshold; cooling down until reset. Cannot be switched on."
-                      >
-                        <Timer size={12} /> Cool Down
-                      </span>
                     ) : (
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation()
-                          try {
-                            await api.switchAccount(acc.email)
-                            onRefresh()
-                          } catch (err: any) {
-                            setSwitchFeedback('Switch failed: ' + err.message)
-                          }
-                        }}
-                        className="btn-pill-tonal"
-                        style={{
-                          padding: '4px 12px',
-                          fontSize: '11px',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                        }}
-                      >
-                        <ArrowRightLeft size={11} /> Switch
-                      </button>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        {(acc.status?.toUpperCase() === 'COOLDOWN' || acc.status?.toUpperCase() === 'COOLING') ? (
+                          <span
+                            className="badge-chip"
+                            style={{
+                              fontSize: '11px',
+                              padding: '3px 8px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              color: '#1a73e8',
+                              backgroundColor: '#e8f0fe',
+                              border: '1px solid #d2e3fc',
+                              fontWeight: 600,
+                              cursor: 'default',
+                            }}
+                            title="Quota exhausted below threshold; cooling until reset."
+                          >
+                            <Timer size={11} /> Cooling
+                          </span>
+                        ) : (
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              try {
+                                await api.switchAccount(acc.email, true)
+                                setSwitchFeedback('Switched active account to ' + (acc.label || acc.email) + '. Relaunching Antigravity IDE...')
+                                setTimeout(() => setSwitchFeedback(null), 6000)
+                                setTimeout(onRefresh, 3000)
+                              } catch (err: any) {
+                                setSwitchFeedback('Switch failed: ' + err.message)
+                              }
+                            }}
+                            className="btn-pill-tonal"
+                            style={{
+                              padding: '4px 12px',
+                              fontSize: '11px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <ArrowRightLeft size={11} /> Switch
+                          </button>
+                        )}
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -1050,7 +1138,9 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
         <AccountDetailModal
           account={selectedRowAccount}
           onClose={() => setSelectedRowAccount(null)}
-          onSaved={onRefresh}
+          onSaved={async () => {
+            onRefresh()
+          }}
         />
       )}
 
@@ -1220,15 +1310,18 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           </button>
           {!contextMenu.account.is_active &&
             contextMenu.account.email !== activeAccount &&
+            contextMenu.account.status?.trim().toUpperCase() !== 'BANNED' &&
             contextMenu.account.status?.trim().toUpperCase() !== 'COOLDOWN' &&
-            contextMenu.account.status?.trim().toUpperCase() !== 'BANNED' && (
+            contextMenu.account.status?.trim().toUpperCase() !== 'COOLING' && (
             <button
               onClick={async () => {
                 const target = contextMenu.account.email
                 setContextMenu(null)
                 try {
-                  await api.switchAccount(target)
-                  onRefresh()
+                  await api.switchAccount(target, true)
+                  setSwitchFeedback('Switched active account to ' + (contextMenu.account.label || target) + '. Relaunching Antigravity IDE...')
+                  setTimeout(() => setSwitchFeedback(null), 6000)
+                  setTimeout(onRefresh, 3000)
                 } catch (err: any) {
                   setSwitchFeedback('Switch failed: ' + err.message)
                 }

@@ -20,7 +20,6 @@ from antigravity_swiss.cache_optimizer.models import (
     RedundancyMetrics,
     TokenBloatReport,
 )
-from antigravity_swiss.cache_optimizer.prompt_cache import PromptCacheOptimizer
 from antigravity_swiss.cache_optimizer.pruner import (
     BrainCachePruner,
     CachePruner,
@@ -31,7 +30,6 @@ __all__ = [
     "CacheInspector",
     "BrainCachePruner",
     "CachePruner",
-    "PromptCacheOptimizer",
     "CacheCategory",
     "CacheItem",
     "CacheCategoryUsage",
@@ -43,3 +41,4 @@ __all__ = [
     "TokenBloatReport",
     "RedundancyMetrics",
 ]
+

@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
 import {
   Archive,
   RotateCcw,
@@ -26,11 +25,6 @@ export const ArchivedProjectsPage: React.FC = () => {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [deleteConfirmProject, setDeleteConfirmProject] = useState<ArchivedProjectItem | null>(null)
   const [selectedToArchive, setSelectedToArchive] = useState('')
-  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
-
-  useEffect(() => {
-    setPortalTarget(document.getElementById('top-bar-right'))
-  }, [])
 
   const loadData = async () => {
     try {
@@ -124,60 +118,6 @@ export const ArchivedProjectsPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {portalTarget &&
-        createPortal(
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {/* Archive Active Project Dropdown */}
-            {activeProjects.length > 0 && (
-              <div style={{ position: 'relative' }}>
-                <select
-                  value={selectedToArchive}
-                  onChange={(e) => {
-                    setSelectedToArchive(e.target.value)
-                    handleArchiveSelect(e.target.value)
-                  }}
-                  disabled={actionLoading !== null}
-                  style={{
-                    height: '36px',
-                    padding: '0 32px 0 12px',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border)',
-                    background: 'var(--surface)',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    color: 'var(--text)',
-                    cursor: 'pointer',
-                    appearance: 'none',
-                  }}
-                >
-                  <option value="">+ Archive an active project...</option>
-                  {activeProjects.map((p) => (
-                    <option key={p.name} value={p.name}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown
-                  size={14}
-                  color="var(--text-muted)"
-                  style={{ position: 'absolute', right: '12px', top: '11px', pointerEvents: 'none' }}
-                />
-              </div>
-            )}
-
-            <button
-              onClick={loadData}
-              disabled={loading}
-              title="Refresh archived projects list"
-              className="btn-pill-tonal"
-              style={{ fontSize: '12px', padding: '7px 14px' }}
-            >
-              <RefreshCw size={13} className={loading ? 'spin' : ''} />
-              <span>Refresh</span>
-            </button>
-          </div>,
-          portalTarget
-        )}
 
       {statusMsg && (
         <div
@@ -198,9 +138,17 @@ export const ArchivedProjectsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Search Bar */}
-      {archived.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      {/* Action Toolbar */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          flexWrap: 'wrap',
+        }}
+      >
+        {archived.length > 0 ? (
           <div
             style={{
               position: 'relative',
@@ -231,8 +179,61 @@ export const ArchivedProjectsPage: React.FC = () => {
               }}
             />
           </div>
+        ) : (
+          <div />
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginLeft: 'auto' }}>
+          {/* Archive Active Project Dropdown */}
+          {activeProjects.length > 0 && (
+            <div style={{ position: 'relative' }}>
+              <select
+                value={selectedToArchive}
+                onChange={(e) => {
+                  setSelectedToArchive(e.target.value)
+                  handleArchiveSelect(e.target.value)
+                }}
+                disabled={actionLoading !== null}
+                style={{
+                  height: '36px',
+                  padding: '0 32px 0 12px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface)',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                  appearance: 'none',
+                }}
+              >
+                <option value="">+ Archive an active project...</option>
+                {activeProjects.map((p) => (
+                  <option key={p.name} value={p.name}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                size={14}
+                color="var(--text-muted)"
+                style={{ position: 'absolute', right: '12px', top: '11px', pointerEvents: 'none' }}
+              />
+            </div>
+          )}
+
+          <button
+            onClick={loadData}
+            disabled={loading}
+            title="Refresh archived projects list"
+            className="btn-pill-tonal"
+            style={{ fontSize: '12px', padding: '7px 14px' }}
+          >
+            <RefreshCw size={13} className={loading ? 'spin' : ''} />
+            <span>Refresh</span>
+          </button>
         </div>
-      )}
+      </div>
 
       {/* Table Container */}
       <div className="google-card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -268,7 +269,7 @@ export const ArchivedProjectsPage: React.FC = () => {
             </p>
           </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                 <th style={{ padding: '12px 18px', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.6px' }}>

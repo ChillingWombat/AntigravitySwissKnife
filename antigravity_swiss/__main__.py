@@ -194,7 +194,6 @@ def run_daemon(args: argparse.Namespace) -> int:
     # Initialize Cache Optimizer
     from antigravity_swiss.cache_optimizer.inspector import BrainCacheInspector
     from antigravity_swiss.cache_optimizer.pruner import BrainCachePruner
-    from antigravity_swiss.cache_optimizer.prompt_cache import PromptCacheOptimizer
     cache_inspector = BrainCacheInspector(
         data_dir=config.antigravity_data_dir,
         config_dir=config.antigravity_config_dir,
@@ -203,10 +202,7 @@ def run_daemon(args: argparse.Namespace) -> int:
         data_dir=config.antigravity_data_dir,
         config_dir=config.antigravity_config_dir,
     )
-    prompt_optimizer = PromptCacheOptimizer(
-        data_dir=config.antigravity_data_dir,
-    )
-    server.register_cache_handlers(cache_inspector, cache_pruner, prompt_optimizer)
+    server.register_cache_handlers(cache_inspector, cache_pruner)
 
     # Wire Quota & Rule Engine RPC methods
     server.register_quota_handlers(
@@ -382,41 +378,6 @@ def run_cache_prune(args: argparse.Namespace) -> int:
     return 0
 
 
-def run_cache_analyze_prompts(args: argparse.Namespace) -> int:
-    """Analyze prompt context bloat and display recommendations."""
-    config = SwissKnifeConfig.load()
-    controller = create_controller(config, prefer_daemon=True)
-    try:
-        data = controller.analyze_prompt_cache(
-            conversation_id=args.conversation_id,
-            transcript_path=args.transcript_path,
-        )
-    except Exception as exc:
-        print(f"[ERROR] Failed to analyze prompt cache: {exc}", file=sys.stderr)
-        return 1
-
-    if args.json:
-        print(json.dumps(data, indent=2))
-        return 0
-
-    print("═" * 66)
-    print("            PROMPT CACHE & CONTEXT BLOAT ANALYSIS")
-    print("═" * 66)
-    print(f"Conversation ID      : {data.get('conversation_id', 'Unknown')}")
-    print(f"Total Steps          : {data.get('total_steps', 0)}")
-    print(f"Model Turns          : {data.get('turn_count', 0)}")
-    print(f"Cumulative Tokens    : {data.get('total_prompt_tokens', 0):,}")
-    print(f"Redundant Tokens     : {data.get('estimated_redundant_tokens', 0):,}")
-    print(f"Potential Savings    : {data.get('potential_savings_percent', 0)}%")
-    print(f"Oversized Outputs    : {data.get('oversized_tool_outputs_count', 0)}")
-    print("─" * 66)
-    print("Recommendations:")
-    for rec in data.get("optimization_recommendations", []):
-        print(f"  • {rec}")
-    print("═" * 66)
-    return 0
-
-
 def run_fingerprint_status(args: argparse.Namespace) -> int:
     """Display active hardware fingerprint profile."""
     config = SwissKnifeConfig.load()
@@ -526,7 +487,7 @@ def main() -> int:
     p_switch.set_defaults(func=run_switch)
 
     # cache
-    p_cache = subparsers.add_parser("cache", help="Manage storage and prompt token caches")
+    p_cache = subparsers.add_parser("cache", help="Manage storage caches")
     c_sub = p_cache.add_subparsers(dest="cache_command", required=True)
 
     p_c_break = c_sub.add_parser("breakdown", help="Inspect categorized disk usage")
@@ -541,12 +502,6 @@ def main() -> int:
     p_c_prune.add_argument("--no-tasks", action="store_true", help="Do not prune background task logs")
     p_c_prune.add_argument("--json", action="store_true", help="Output raw JSON")
     p_c_prune.set_defaults(func=run_cache_prune)
-
-    p_c_prompt = c_sub.add_parser("analyze-prompts", help="Analyze conversation prompt token bloat")
-    p_c_prompt.add_argument("--conversation-id", type=str, help="Target conversation ID")
-    p_c_prompt.add_argument("--transcript-path", type=str, help="Direct path to transcript.jsonl")
-    p_c_prompt.add_argument("--json", action="store_true", help="Output raw JSON")
-    p_c_prompt.set_defaults(func=run_cache_analyze_prompts)
 
     # fingerprint
     p_fp = subparsers.add_parser("fingerprint", help="Manage virtual hardware identity profiles")

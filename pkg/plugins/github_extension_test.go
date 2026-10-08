@@ -26,8 +26,9 @@ func TestGenerateGitHubExtensionCSS(t *testing.T) {
 		".swiss-gh-kanban-card",
 		"#swiss-main-stage-container",
 		"#swiss-main-stage-header",
-		"padding-left: max(12px, calc(var(--static-cluster-width, 150px) - var(--sidebar-width, 256px)))",
-		"padding-right: max(12px, calc(44px - var(--aux-pane-width, 0px)))",
+		"padding: 0 10px;",
+		".swiss-stage-native-split-btn",
+		".swiss-main-stage-close-btn",
 		".swiss-main-stage-tab",
 		"#swiss-main-stage-body",
 		".swiss-gh-context-menu",
@@ -94,6 +95,8 @@ func TestGenerateGitHubExtensionScript(t *testing.T) {
 		"swiss-stage-gh-tabs",
 		"effRepo.full_name",
 		"effRepo.current_branch",
+		"triggerNativeSplit",
+		"swiss-stage-native-split-btn",
 		"data-swiss-stage-active",
 		"data-swiss-suppressed",
 	}
@@ -193,6 +196,12 @@ class MockElement {
         tab.setAttribute("data-ext", ext);
         hdr.appendChild(tab);
       });
+      const splitBtn = new MockElement("button");
+      splitBtn.id = "swiss-stage-native-split-btn";
+      hdr.appendChild(splitBtn);
+      const closeBtn = new MockElement("button");
+      closeBtn.id = "swiss-stage-close-btn";
+      hdr.appendChild(closeBtn);
       this.appendChild(hdr);
       const body = new MockElement("div");
       body.id = "swiss-main-stage-body";
@@ -528,8 +537,23 @@ assert.ok(stageContainer, "stage container should exist");
 assert.strictEqual(stageContainer.style.display, "flex", "stage container should be flex");
 assert.ok(document.getElementById("swiss-main-stage-header"), "stage header should exist");
 assert.ok(document.getElementById("swiss-stage-scope-btn"), "scope picker button should exist");
+const splitBtnEl = document.getElementById("swiss-stage-native-split-btn");
+assert.ok(splitBtnEl, "split button should exist in stage header");
+assert.ok(splitBtnEl.listeners.click && splitBtnEl.listeners.click.length > 0, "split button should have click listener");
+const closeBtnEl = document.getElementById("swiss-stage-close-btn");
+assert.ok(closeBtnEl, "close button should exist in stage header");
+assert.ok(closeBtnEl.listeners.click && closeBtnEl.listeners.click.length > 0, "close button should have click listener");
 
-// Verify closeMainStage() restores native breadcrumb bar and convoView
+// Verify clicking close button triggers closeMainStage() and restores native elements
+closeBtnEl.listeners.click[0]();
+assert.strictEqual(stageContainer.style.display, "none", "clicking close button should hide stage container");
+assert.strictEqual(breadcrumbBar.style.display, "", "breadcrumbBar display should be restored on clicking close button");
+assert.strictEqual(subShrink.style.display, "", "subShrink display should be restored on clicking close button");
+assert.strictEqual(convoView.style.display, "", "convoView display should be restored on clicking close button");
+
+// Re-open stage to verify programmatic closeMainStage()
+window.openSwissMainStage("memos");
+assert.strictEqual(stageContainer.style.display, "flex", "stage container should reopen");
 window.closeMainStage();
 assert.strictEqual(breadcrumbBar.style.display, "", "breadcrumbBar display should be restored on closeMainStage");
 assert.strictEqual(subShrink.style.display, "", "subShrink display should be restored on closeMainStage");
@@ -588,8 +612,28 @@ assert.strictEqual(window.__swissActiveMainStageExt, "memos", "clicking header t
 assert.notStrictEqual(window.__swissGHNavInterval, firstNavInterval, "re-injection should clear and replace __swissGHNavInterval");
 assert.strictEqual(window.__swissActiveMainStageExt, "memos", "re-injection should preserve active tab switched via header");
 
+// Verify daemon offline hides left nav group and closes main stage
+let auxDaemonChangedArg = null;
+window.__swissOnAuxDaemonChanged = (online) => { auxDaemonChangedArg = online; };
+window.openSwissMainStage("github");
+assert.ok(document.getElementById("swiss-main-stage-container").style.display === "flex", "main stage should be open");
+assert.ok(document.getElementById("swiss-left-nav-group"), "left nav group should exist before offline");
+
+window.setSwissDaemonOnline(false);
+assert.strictEqual(document.getElementById("swiss-left-nav-group"), null, "swiss-left-nav-group must be removed when daemon is offline");
+assert.strictEqual(document.getElementById("swiss-main-stage-container").style.display, "none", "main stage must be closed when daemon is offline");
+assert.strictEqual(auxDaemonChangedArg, false, "aux daemon changed notification must be sent with false");
+
+window.setupLeftNavTabs();
+assert.strictEqual(document.getElementById("swiss-left-nav-group"), null, "setupLeftNavTabs must not recreate left nav group when daemon is offline");
+
+window.setSwissDaemonOnline(true);
+assert.ok(document.getElementById("swiss-left-nav-group"), "swiss-left-nav-group must be restored when daemon comes back online");
+assert.strictEqual(auxDaemonChangedArg, true, "aux daemon changed notification must be sent with true");
+
 clearInterval(window.__swissGHNavInterval);
 clearInterval(window.__swissGHFetchInterval);
+if (window.__swissGHDaemonCheckInterval) clearInterval(window.__swissGHDaemonCheckInterval);
 `
 
 	cmd := exec.Command(nodePath, "-")

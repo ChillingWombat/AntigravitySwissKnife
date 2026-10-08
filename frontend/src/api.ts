@@ -1,5 +1,7 @@
 import type {
   CacheBreakdown,
+  VaultStatus,
+  VaultSyncResult,
   CustomModel,
   CustomModelsConfig,
   DeviceProfile,
@@ -8,6 +10,8 @@ import type {
   QuotaSummary,
   RuleConfig,
   SystemInstallations,
+  AppReleaseInfo,
+  UpgradeResult,
   SystemStatus,
   TestResult,
   EnhancementsConfig,
@@ -41,8 +45,18 @@ export const api = {
 
   getFleetQuota: () => request<FleetQuotaSummary>('/api/quota/fleet'),
 
-  getQuotaSummary: (email?: string) =>
-    request<QuotaSummary>(email ? `/api/quota?email=${encodeURIComponent(email)}` : '/api/quota'),
+  refreshFleetQuota: () => request<{ status: string }>('/api/quota/refresh', { method: 'POST' }),
+
+  getQuotaSummary: (email?: string, refresh?: boolean) => {
+    const params = new URLSearchParams()
+    if (email) params.set('email', email)
+    if (refresh) params.set('refresh', 'true')
+    const qs = params.toString()
+    return request<QuotaSummary>(qs ? `/api/quota?${qs}` : '/api/quota')
+  },
+
+  refreshAccountQuota: (email: string) =>
+    request<QuotaSummary>(`/api/quota?email=${encodeURIComponent(email)}&refresh=true`),
 
   getAccounts: () => request<any[]>('/api/accounts'),
 
@@ -70,12 +84,20 @@ export const api = {
       body: JSON.stringify(accounts),
     }),
 
-  switchAccount: (email: string) =>
-    request<{ success: boolean; active_account: string }>('/api/switch', {
+  switchAccount: (email: string, relaunch_ide: boolean = true) =>
+    request<{ success: boolean; active_account: string; relaunch_ide?: boolean }>('/api/switch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, relaunch_ide }),
     }),
+
+  relaunchHostIDE: () =>
+    request<{ success: boolean; message?: string }>('/api/desktop/relaunch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    }),
+
 
   updateAccount: (data: {
     email: string
@@ -93,7 +115,13 @@ export const api = {
     allow_claude_gpt?: boolean
     set_active?: boolean
   }) =>
-    request<{ success: boolean; email: string }>('/api/accounts/update', {
+    request<{
+      success: boolean
+      email: string
+      plan_tier?: string
+      credits?: number
+      quota?: QuotaSummary
+    }>('/api/accounts/update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -109,6 +137,16 @@ export const api = {
     request<{ success: boolean; cancelled?: boolean }>('/api/oauth/google/cancel', {
       method: 'POST',
     }),
+
+  exchangeGoogleOAuth: (payload: { callback_url?: string; code?: string; redirect_uri?: string }) =>
+    request<{ success: boolean; email?: string; refresh_token?: string; access_token?: string; error?: string }>(
+      '/api/oauth/google/exchange',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }
+    ),
 
   getGoogleOAuthURL: () =>
     request<{ success: boolean; active?: boolean; auth_url?: string }>('/api/oauth/google/url'),
@@ -225,6 +263,20 @@ export const api = {
       body: JSON.stringify({ older_than_days: days, cascade_shield: true }),
     }),
 
+  getVaultStatus: () => request<VaultStatus>('/api/vault/status'),
+
+  syncVault: () =>
+    request<VaultSyncResult>('/api/vault/sync', {
+      method: 'POST',
+    }),
+
+  toggleVault: (enabled: boolean) =>
+    request<{ success: boolean; enabled: boolean }>('/api/vault/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    }),
+
   getRules: () => request<RuleConfig>('/api/rules'),
 
   getAvailableModels: (force?: boolean) =>
@@ -251,6 +303,26 @@ export const api = {
 
   checkUpdates: () =>
     request<SystemInstallations>('/api/system/check_updates', {
+      method: 'POST',
+    }),
+
+  // App Releases & Upgrade Management
+  getAppRelease: () => request<AppReleaseInfo>('/api/system/app_release'),
+
+  checkAppRelease: () =>
+    request<AppReleaseInfo>('/api/system/check_app_release', {
+      method: 'POST',
+    }),
+
+  saveAppReleaseSettings: (settings: { auto_check: boolean; auto_upgrade: boolean }) =>
+    request<{ success: boolean; auto_check: boolean; auto_upgrade: boolean }>('/api/system/app_release/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    }),
+
+  upgradeApp: () =>
+    request<UpgradeResult>('/api/system/app_release/upgrade', {
       method: 'POST',
     }),
 

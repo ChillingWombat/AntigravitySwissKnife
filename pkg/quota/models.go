@@ -63,5 +63,7 @@ type QuotaSummary struct {
 	Models                 []ModelQuota `json:"models"`
 	MinFraction            float64      `json:"min_fraction"`
 	OverallHealth          string       `json:"overall_health"`
+	ErrorMessage           string       `json:"error_message,omitempty"`
+	ErrorStatus            string       `json:"error_status,omitempty"`
 	LastPolled             time.Time    `json:"last_polled"`
 }

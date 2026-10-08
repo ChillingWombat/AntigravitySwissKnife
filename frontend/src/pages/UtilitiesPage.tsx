@@ -20,6 +20,7 @@ import type {
   AcpHandshakeLog,
 } from '../types'
 import { api } from '../api'
+import { BrainCachePage } from './BrainCachePage'
 
 interface UtilitiesPageProps {
   initialTab?: number
@@ -789,48 +790,6 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
             </div>
           )}
 
-          {/* Overview Banner */}
-          <div
-            style={{
-              backgroundColor: '#ffffff',
-              border: '1px solid var(--border)',
-              borderRadius: '10px',
-              padding: '20px',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-              <div>
-                <h3 style={{ fontSize: '15px', fontWeight: 700, margin: '0 0 4px 0', color: 'var(--text)' }}>
-                  Agent Client Protocol (ACP) Inter-Agent Mesh
-                </h3>
-                <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--text-muted)' }}>
-                  ACP provides cross-agent tool delegation, shared workspace context, and multi-agent coordination between Antigravity, Claude Code, Cursor, and Copilot.
-                </p>
-              </div>
-
-              <button
-                onClick={handlePingAllAcp}
-                disabled={isPingingAll}
-                style={{
-                  backgroundColor: 'var(--primary)',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  padding: '8px 18px',
-                  fontSize: '12.5px',
-                  fontWeight: 600,
-                  cursor: isPingingAll ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                }}
-              >
-                <Activity size={14} className={isPingingAll ? 'animate-spin' : ''} />
-                {isPingingAll ? 'Pinging Nodes...' : 'Ping All ACP Nodes'}
-              </button>
-            </div>
-          </div>
 
           {/* Agent Nodes Grid */}
           <div
@@ -1012,6 +971,13 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* TAB 2: CACHE MANAGER & CONVERSATION VAULT */}
+      {/* ============================================================ */}
+      {activeTab === 2 && (
+        <BrainCachePage />
       )}
     </div>
   )

@@ -82,7 +82,6 @@ Credential rotation and quota synchronizations execute without interrupting acti
 
 The companion daemon acquires a process lock, retrieves the target credentials from the OS keyring, swaps hardware profile fingerprints (`machineid`, `.updaterId`, `installation_uuid`), and hot-reloads the Antigravity interface via Chrome DevTools Protocol (CDP). A 1-token probe verifies upstream quota readiness before returning control to the user.
 
-
 ---
 
 ## Platform Support
@@ -268,8 +267,11 @@ However, users must be fully aware of the serious account risks involved with pr
 Antigravity Swiss Knife is under rapid, continuous development. We frequently release updates, improve reliability, and add new capabilities to support evolving developer workflows.
 
 We welcome all community feedback:
+
 - **Bug Reports**: If you experience an unexpected behavior, keyring issue, or platform regression, please open an issue on [GitHub Issues](https://github.com/ChillingWombat/AntigravitySwissKnife/issues).
 - **Feature Suggestions**: Have ideas for new workspace modules, integrations, or usability refinements? We actively prioritize community requests.
+-
+
 - **Workflow Discussions**: Join the conversation to share how you use Antigravity Swiss Knife and suggest where friction can be eliminated.
 
 ---

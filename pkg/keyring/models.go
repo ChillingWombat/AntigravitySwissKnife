@@ -21,6 +21,7 @@ type Account struct {
 	RefreshToken         string    `json:"refresh_token,omitempty"`
 	IDToken              string    `json:"id_token,omitempty"`
 	TokenExpiry          time.Time `json:"token_expiry,omitempty"`
+	ErrorMessage         string    `json:"error_message,omitempty"`
 }
 
 // SessionState captures snapshot information to restore across rotations.

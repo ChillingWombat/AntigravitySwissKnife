@@ -201,7 +201,7 @@ def build_account_quota_states(
             elif "plus" in label.lower() or "backup" in label.lower():
                 explicit_tier = "Plus"
             else:
-                explicit_tier = "Pro" if is_active else "Free"
+                explicit_tier = "Free"
         else:
             norm = normalize_plan_tier(explicit_tier)
             t_status = str(acc.get("trial_status", "")).lower()
@@ -284,6 +284,7 @@ def normalize_plan_tier(tier: str) -> str:
     if (
         "trial" in t
         or "promo" in t
+        or "google ai pro" in t
         or "starter pro" in t
         or "jio" in t
         or "partner" in t
@@ -396,7 +397,7 @@ def sort_account_quota_states(
         has_credits = bool(a.enable_credit_overages and a.credits > 0)
         has_weekly = qwk > threshold or has_credits
         recovers_weekly_in_5h = has_weekly or qwk_avail > threshold
-        is_5h_below = q5h_cur <= threshold or st == "COOLDOWN"
+        is_5h_below = q5h_cur <= threshold or st in ("COOLDOWN", "COOLING")
         is_free = is_free_plan_tier(a.email, a.plan_tier)
         tier_mult = plan_tier_capacity_multiplier(a.plan_tier)
 

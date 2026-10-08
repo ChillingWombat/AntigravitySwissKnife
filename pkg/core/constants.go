@@ -17,7 +17,7 @@ const (
 	DefaultAutoSwitchThresholdFraction        = 0.05
 	DefaultAutoSwitchWeeklyThresholdFraction  = 0.05
 	DefaultWarmupLeadTimeSeconds              = 2.0
-	DefaultSocketTimeout                = 5 * time.Second
+	DefaultSocketTimeout                = 10 * time.Second
 	DefaultShutdownGracePeriod          = 3 * time.Second
 
 	// Account Switcher Modes
@@ -37,6 +37,7 @@ const (
 	AccountStatusActive   = "ACTIVE"
 	AccountStatusStandby  = "STANDBY"
 	AccountStatusCooldown = "COOLDOWN"
+	AccountStatusCooling  = "COOLING"
 	AccountStatusError    = "ERROR"
 	AccountStatusBanned   = "BANNED"
 
@@ -122,6 +123,16 @@ func GetConversationsDir() string {
 	return filepath.Join(GetAntigravityDir(), "conversations")
 }
 
+// GetConversationVaultDir returns ~/.gemini/antigravity/vault/conversations.
+func GetConversationVaultDir() string {
+	return filepath.Join(GetAntigravityDir(), "vault", "conversations")
+}
+
+// GetAnnotationsVaultDir returns ~/.gemini/antigravity/vault/annotations.
+func GetAnnotationsVaultDir() string {
+	return filepath.Join(GetAntigravityDir(), "vault", "annotations")
+}
+
 // GetAntigravityHostConfigDir returns host Antigravity settings directory per OS:
 // Linux: ~/.config/Antigravity
 // Windows: %APPDATA%\Antigravity
@@ -205,4 +216,24 @@ func GetVSCodeExtensionsDirs() []string {
 	}
 	return dirs
 }
+
+// GetAntigravityBinaryPath returns the path to the Antigravity executable per OS.
+func GetAntigravityBinaryPath() string {
+	if p := os.Getenv("ANTIGRAVITY_BIN_PATH"); p != "" {
+		return p
+	}
+	switch runtime.GOOS {
+	case "windows":
+		return filepath.Join(GetAntigravityDesktopAppPath(), "Antigravity.exe")
+	case "darwin":
+		return filepath.Join(GetAntigravityDesktopAppPath(), "Contents", "MacOS", "Antigravity")
+	default:
+		// Linux: prefer /usr/bin/antigravity, fallback to /opt/Antigravity/antigravity
+		if _, err := os.Stat("/usr/bin/antigravity"); err == nil {
+			return "/usr/bin/antigravity"
+		}
+		return filepath.Join(GetAntigravityDesktopAppPath(), "antigravity")
+	}
+}
+
 

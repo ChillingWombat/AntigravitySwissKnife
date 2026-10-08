@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/process"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/totp"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/vault"
 )
 
 // Daemon coordinates background services, IPC JSON-RPC dispatch, and scheduler loops.
@@ -31,6 +33,7 @@ type Daemon struct {
 	Inspector *cache.Inspector
 	Pruner    *cache.Pruner
 	TOTP      *totp.Engine
+	Vault     *vault.Manager
 	Server    *ipc.Server
 
 	ctx            context.Context
@@ -38,6 +41,11 @@ type Daemon struct {
 	wg             sync.WaitGroup
 	lastSwitchTime time.Time
 	mu             sync.RWMutex
+
+	quotaCache     map[string]*quota.QuotaSummary
+	quotaCacheMu   sync.RWMutex
+	isPollingFleet bool
+	pollingMu      sync.Mutex
 }
 
 // NewDaemon initializes all subsystem stores and sets up JSON-RPC method handlers.
@@ -85,15 +93,18 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 		Inspector:      inspector,
 		Pruner:         pruner,
 		TOTP:           totpEngine,
+		Vault:          vault.NewManager("", ""),
 		Server:         server,
 		ctx:            ctx,
 		cancel:         cancel,
 		lastSwitchTime: time.Now(),
+		quotaCache:     quota.LoadQuotaCache(),
 	}
 
 	d.registerRPCHandlers()
 
-	// Initial reconciliation of active running Antigravity account
+	// Initial reconciliation of active running Antigravity account and cloud accounts
+	_ = keyring.SyncStoreFromCloudAccountsDB(d.Keyring, "")
 	var initialEmails []string
 	for _, a := range d.Keyring.ListAccounts() {
 		initialEmails = append(initialEmails, a.Email)
@@ -102,6 +113,120 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 	_ = keyring.SyncCloudAccountsAutoSwitch("", d.Config.AutoSwitchEnabled)
 
 	return d, nil
+}
+
+func (d *Daemon) getQuotaSummaries() map[string]*quota.QuotaSummary {
+	d.quotaCacheMu.RLock()
+	defer d.quotaCacheMu.RUnlock()
+	res := make(map[string]*quota.QuotaSummary, len(d.quotaCache))
+	for k, v := range d.quotaCache {
+		res[k] = v
+	}
+	return res
+}
+
+func (d *Daemon) setQuotaSummary(email string, sum *quota.QuotaSummary) {
+	if email == "" || sum == nil {
+		return
+	}
+	norm := strings.ToLower(strings.TrimSpace(email))
+	d.quotaCacheMu.Lock()
+	if d.quotaCache == nil {
+		d.quotaCache = make(map[string]*quota.QuotaSummary)
+	}
+	d.quotaCache[norm] = sum
+	cacheCopy := make(map[string]*quota.QuotaSummary, len(d.quotaCache))
+	for k, v := range d.quotaCache {
+		cacheCopy[k] = v
+	}
+	d.quotaCacheMu.Unlock()
+	_ = quota.SaveQuotaCache(cacheCopy)
+}
+
+func (d *Daemon) updateQuotaSummaries(summaries map[string]*quota.QuotaSummary) {
+	if len(summaries) == 0 {
+		return
+	}
+	d.quotaCacheMu.Lock()
+	if d.quotaCache == nil {
+		d.quotaCache = make(map[string]*quota.QuotaSummary)
+	}
+	for k, v := range summaries {
+		if v != nil {
+			d.quotaCache[strings.ToLower(strings.TrimSpace(k))] = v
+		}
+	}
+	cacheCopy := make(map[string]*quota.QuotaSummary, len(d.quotaCache))
+	for k, v := range d.quotaCache {
+		cacheCopy[k] = v
+	}
+	d.quotaCacheMu.Unlock()
+	_ = quota.SaveQuotaCache(cacheCopy)
+}
+
+func (d *Daemon) removeQuotaSummary(email string) {
+	if email == "" {
+		return
+	}
+	norm := strings.ToLower(strings.TrimSpace(email))
+	d.quotaCacheMu.Lock()
+	if d.quotaCache != nil {
+		delete(d.quotaCache, norm)
+	}
+	d.quotaCacheMu.Unlock()
+	_ = quota.DeleteQuotaCacheEntry(email)
+}
+
+func (d *Daemon) syncActiveAccountSurfaces(acc *keyring.Account) {
+	if acc == nil {
+		return
+	}
+	var allEmails []string
+	for _, a := range d.Keyring.ListAccounts() {
+		allEmails = append(allEmails, a.Email)
+	}
+	_ = keyring.SyncAllSurfaces(acc, allEmails, d.Profiles)
+	_, _ = gui.NewInjector(0).RefreshUserStatus()
+}
+
+func (d *Daemon) triggerQuotaRefreshAsync() {
+	d.pollingMu.Lock()
+	if d.isPollingFleet {
+		d.pollingMu.Unlock()
+		return
+	}
+	d.isPollingFleet = true
+	d.pollingMu.Unlock()
+
+	go func() {
+		defer func() {
+			d.pollingMu.Lock()
+			d.isPollingFleet = false
+			d.pollingMu.Unlock()
+		}()
+
+		accounts := d.Keyring.ListAccounts()
+		if len(accounts) == 0 {
+			return
+		}
+
+		active := d.Keyring.ActiveAccount()
+		oldToken := ""
+		if activeAcc, _ := d.Keyring.GetAccount(active); activeAcc != nil {
+			oldToken = activeAcc.AccessToken
+		}
+
+		summaries := quota.PollFleetAccounts(accounts, d.Keyring)
+		if len(summaries) > 0 {
+			d.updateQuotaSummaries(summaries)
+		}
+
+		if active != "" {
+			if updatedAcc, _ := d.Keyring.GetAccount(active); updatedAcc != nil && updatedAcc.AccessToken != "" && updatedAcc.AccessToken != oldToken {
+				d.syncActiveAccountSurfaces(updatedAcc)
+			}
+		}
+	}()
 }
 
 func (d *Daemon) registerRPCHandlers() {
@@ -173,6 +298,12 @@ func (d *Daemon) registerRPCHandlers() {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
 		_, _ = d.Profiles.GetOrCreateProfile(p.Email)
+		if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
+			summary, pollErr := quota.PollAndCacheAccount(acc, d.Keyring)
+			if pollErr == nil && summary != nil {
+				d.setQuotaSummary(p.Email, summary)
+			}
+		}
 		return acc, nil
 	})
 
@@ -216,7 +347,33 @@ func (d *Daemon) registerRPCHandlers() {
 				_, _ = gui.NewInjector(0).RefreshUserStatus()
 			}
 		}
-		return map[string]interface{}{"success": true, "email": p.Email}, nil
+
+		acc, _ := d.Keyring.GetAccount(p.Email)
+		var summary *quota.QuotaSummary
+		if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
+			oldTok := acc.AccessToken
+			var pollErr error
+			summary, pollErr = quota.PollAndCacheAccount(acc, d.Keyring)
+			if pollErr == nil && summary != nil {
+				d.setQuotaSummary(p.Email, summary)
+				if strings.EqualFold(p.Email, d.Keyring.ActiveAccount()) && acc.AccessToken != "" && acc.AccessToken != oldTok {
+					d.syncActiveAccountSurfaces(acc)
+				}
+			} else {
+				d.removeQuotaSummary(p.Email)
+				d.triggerQuotaRefreshAsync()
+			}
+		}
+
+		res := map[string]interface{}{"success": true, "email": p.Email}
+		if acc != nil {
+			res["plan_tier"] = acc.PlanTier
+			res["credits"] = acc.Credits
+		}
+		if summary != nil {
+			res["quota"] = summary
+		}
+		return res, nil
 	}
 	d.Server.Register("swiss.updateAccount", updateHandler)
 	d.Server.Register("accounts.update", updateHandler)
@@ -232,6 +389,7 @@ func (d *Daemon) registerRPCHandlers() {
 		if err := d.Keyring.RemoveAccount(p.Email); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
+		d.removeQuotaSummary(p.Email)
 		return map[string]interface{}{"success": true, "removed": p.Email}, nil
 	}
 	d.Server.Register("swiss.removeAccount", removeHandler)
@@ -296,7 +454,8 @@ func (d *Daemon) registerRPCHandlers() {
 	// 3. Switch Account
 	switchHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		var p struct {
-			Email string `json:"email"`
+			Email       string `json:"email"`
+			RelaunchIDE *bool  `json:"relaunch_ide"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil || p.Email == "" {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: "missing required 'email' parameter"}
@@ -316,19 +475,58 @@ func (d *Daemon) registerRPCHandlers() {
 			allEmails = append(allEmails, a.Email)
 		}
 
+		shouldRelaunch := true
+		if p.RelaunchIDE != nil {
+			shouldRelaunch = *p.RelaunchIDE
+		}
+
 		// Synchronize across Antigravity 2.0 Desktop, Antigravity CLI (agy), and VS Code extension
 		if acc, _ := d.Keyring.GetAccount(p.Email); acc != nil {
 			_ = keyring.SyncAllSurfaces(acc, allEmails, d.Profiles)
-			_, _ = gui.NewInjector(0).RefreshUserStatus()
+			if !shouldRelaunch {
+				_, _ = gui.NewInjector(0).RefreshUserStatus()
+			}
+		}
+
+		if shouldRelaunch && d.Shield != nil && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+			go func() {
+				time.Sleep(200 * time.Millisecond)
+				_ = d.Shield.RelaunchHostIDE()
+			}()
 		}
 
 		return map[string]interface{}{
-			"switched": true,
-			"account":  p.Email,
+			"switched":       true,
+			"account":        p.Email,
+			"success":        true,
+			"active_account": p.Email,
+			"relaunch_ide":   shouldRelaunch,
 		}, nil
 	}
 	d.Server.Register("swiss.switchAccount", switchHandler)
 	d.Server.Register("accounts.switch", switchHandler)
+
+	// Graceful Host IDE Relaunch
+	relaunchHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+		if d.Shield == nil {
+			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: "shield manager not initialized"}
+		}
+		if os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" {
+			return map[string]interface{}{
+				"success": true,
+				"message": "Antigravity host IDE relaunch skipped (dry run)",
+			}, nil
+		}
+		if err := d.Shield.RelaunchHostIDE(); err != nil {
+			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
+		}
+		return map[string]interface{}{
+			"success": true,
+			"message": "Antigravity host IDE relaunch initiated",
+		}, nil
+	}
+	d.Server.Register("swiss.relaunchIDE", relaunchHandler)
+	d.Server.Register("desktop.relaunch", relaunchHandler)
 
 	// 4. Set TOTP Secret
 	d.Server.Register("swiss.setTOTPSecret", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
@@ -394,7 +592,7 @@ func (d *Daemon) registerRPCHandlers() {
 		}, nil
 	})
 
-	// 6. Device Profile: Get
+	// 6. Device Profile: Get & List
 	d.Server.Register("swiss.getFingerprofile", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		var p struct {
 			Email string `json:"email"`
@@ -412,18 +610,57 @@ func (d *Daemon) registerRPCHandlers() {
 		return prof, nil
 	})
 
+	d.Server.Register("swiss.listFingerprofiles", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+		for _, acc := range d.Keyring.ListAccounts() {
+			if acc.Email != "" {
+				_, _ = d.Profiles.GetOrCreateProfile(acc.Email)
+			}
+		}
+		return d.Profiles.ListProfilesSlice(), nil
+	})
+
 	// 7. Device Profile: Set
 	d.Server.Register("swiss.setFingerprofile", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
-		var p struct {
-			Email   string                    `json:"email"`
-			Profile fingerprint.DeviceProfile `json:"profile"`
+		var raw struct {
+			Email            string                     `json:"email"`
+			AccountEmail     string                     `json:"account_email"`
+			Profile          *fingerprint.DeviceProfile `json:"profile"`
+			MachineID        string                     `json:"machine_id"`
+			UpdaterID        string                     `json:"updater_id"`
+			InstallationID   string                     `json:"installation_id"`
+			InstallationUUID string                     `json:"installation_uuid"`
 		}
-		if err := json.Unmarshal(params, &p); err != nil || p.Email == "" {
+		if err := json.Unmarshal(params, &raw); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: "invalid params"}
 		}
+		targetEmail := strings.TrimSpace(raw.Email)
+		if targetEmail == "" {
+			targetEmail = strings.TrimSpace(raw.AccountEmail)
+		}
+		var prof fingerprint.DeviceProfile
+		if raw.Profile != nil {
+			prof = *raw.Profile
+			if targetEmail == "" {
+				targetEmail = strings.TrimSpace(prof.AccountEmail)
+			}
+		} else {
+			prof = fingerprint.DeviceProfile{
+				AccountEmail:     targetEmail,
+				MachineID:        strings.TrimSpace(raw.MachineID),
+				UpdaterID:        strings.TrimSpace(raw.UpdaterID),
+				InstallationID:   strings.TrimSpace(raw.InstallationID),
+				InstallationUUID: strings.TrimSpace(raw.InstallationUUID),
+			}
+		}
+		if targetEmail == "" {
+			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: "missing account email"}
+		}
 
-		if err := d.Profiles.SetProfile(p.Email, &p.Profile); err != nil {
+		if err := d.Profiles.SetProfile(targetEmail, &prof); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: err.Error()}
+		}
+		if strings.EqualFold(targetEmail, d.Keyring.ActiveAccount()) {
+			_ = keyring.SyncHardwareProfile(targetEmail, d.Profiles)
 		}
 		return map[string]interface{}{"success": true}, nil
 	})
@@ -639,17 +876,57 @@ func (d *Daemon) registerRPCHandlers() {
 
 	// 12. Quota Summary
 	getQuotaSummaryHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
-		active := d.Keyring.ActiveAccount()
-		acc, _ := d.Keyring.GetAccount(active)
+		var p struct {
+			Email   string `json:"email"`
+			Refresh bool   `json:"refresh"`
+		}
+		if len(params) > 0 {
+			_ = json.Unmarshal(params, &p)
+		}
+		target := strings.TrimSpace(p.Email)
+		if target == "" {
+			target = d.Keyring.ActiveAccount()
+		}
+		normTarget := strings.ToLower(target)
+
+		if !p.Refresh {
+			d.quotaCacheMu.RLock()
+			cachedSum := d.quotaCache[normTarget]
+			d.quotaCacheMu.RUnlock()
+			if cachedSum != nil {
+				return *cachedSum, nil
+			}
+
+			diskCache := quota.LoadQuotaCache()
+			if cached, ok := diskCache[normTarget]; ok && cached != nil {
+				d.setQuotaSummary(target, cached)
+				return *cached, nil
+			}
+		}
+
+		acc, _ := d.Keyring.GetAccount(target)
 		now := time.Now()
 		if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
-			summary, err := quota.PollAccountLiveQuota(acc)
+			oldTok := acc.AccessToken
+			summary, err := quota.PollAndCacheAccount(acc, d.Keyring)
 			if err == nil && summary != nil {
+				d.setQuotaSummary(target, summary)
+				if strings.EqualFold(target, d.Keyring.ActiveAccount()) && acc.AccessToken != "" && acc.AccessToken != oldTok {
+					d.syncActiveAccountSurfaces(acc)
+				}
 				return *summary, nil
 			}
 		}
+		if !p.Refresh {
+			d.quotaCacheMu.RLock()
+			cachedSum := d.quotaCache[normTarget]
+			d.quotaCacheMu.RUnlock()
+			if cachedSum != nil {
+				return *cachedSum, nil
+			}
+		}
 		return quota.QuotaSummary{
-			AccountEmail:  active,
+			AccountEmail:  target,
 			Models:        []quota.ModelQuota{},
 			MinFraction:   0.0,
 			OverallHealth: core.StatusExhausted,
@@ -661,10 +938,20 @@ func (d *Daemon) registerRPCHandlers() {
 
 	// 13. Fleet Quota & Per-Account Horizon States
 	d.Server.Register("swiss.getFleetQuota", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
-		_ = keyring.SyncStoreFromCloudAccountsDB(d.Keyring, "")
+		var allEmails []string
+		for _, a := range d.Keyring.ListAccounts() {
+			allEmails = append(allEmails, a.Email)
+		}
+		_, _ = d.Keyring.ReconcileActiveAccount(d.Config.AutoImportActiveAccount, allEmails, d.Profiles)
+
 		accounts := d.Keyring.ListAccounts()
 		active := d.Keyring.ActiveAccount()
-		summaries := quota.PollFleetAccounts(accounts, d.Keyring)
+		summaries := d.getQuotaSummaries()
+
+		if len(summaries) == 0 && len(accounts) > 0 {
+			d.triggerQuotaRefreshAsync()
+		}
+
 		d.mu.RLock()
 		thresh := d.Config.AutoSwitchThreshold
 		threshWeekly := d.Config.AutoSwitchWeeklyThreshold
@@ -678,6 +965,11 @@ func (d *Daemon) registerRPCHandlers() {
 		states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, thresh, threshWeekly)
 		summary := quota.ComputeFleetSummary(states, active)
 		return summary, nil
+	})
+
+	d.Server.Register("swiss.refreshFleetQuota", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+		d.triggerQuotaRefreshAsync()
+		return map[string]interface{}{"status": "refresh_started"}, nil
 	})
 
 	// 14. GUI Improvements - Config
@@ -729,7 +1021,14 @@ func (d *Daemon) registerRPCHandlers() {
 		if err := d.GUIStore.RemoveProjectColor(p.Name); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
-		return map[string]interface{}{"success": true, "name": p.Name}, nil
+		factoryColors := gui.FactoryProjectColors()
+		factoryColor, isFactory := factoryColors[p.Name]
+		return map[string]interface{}{
+			"success":          true,
+			"name":             p.Name,
+			"reset_to_factory": isFactory,
+			"color":            factoryColor,
+		}, nil
 	})
 
 	d.Server.Register("swiss.deleteGUIProject", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
@@ -830,20 +1129,57 @@ func (d *Daemon) schedulerLoop() {
 	standbyTicker := time.NewTicker(standbyInterval)
 	defer standbyTicker.Stop()
 
+	vaultTicker := time.NewTicker(60 * time.Second)
+	defer vaultTicker.Stop()
+
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	// Warm up fleet quota cache asynchronously in background on startup
+	d.triggerQuotaRefreshAsync()
+
+	// Initial conversation vault sync on daemon startup if enabled
+	d.mu.RLock()
+	initVaultEnabled := d.Config.ConversationVaultEnabled
+	d.mu.RUnlock()
+	if initVaultEnabled && d.Vault != nil {
+		_, _ = d.Vault.Sync()
+	}
 
 	for {
 		select {
 		case <-d.ctx.Done():
 			return
 
+		case <-vaultTicker.C:
+			d.mu.RLock()
+			vaultOn := d.Config.ConversationVaultEnabled
+			d.mu.RUnlock()
+			if vaultOn && d.Vault != nil {
+				_, _ = d.Vault.Sync()
+			}
+
 		case <-activeTicker.C:
 			// 1. Frequently refresh active account quota (e.g. every 2m)
+			var tickEmails []string
+			for _, a := range d.Keyring.ListAccounts() {
+				tickEmails = append(tickEmails, a.Email)
+			}
+			_, _ = d.Keyring.ReconcileActiveAccount(d.Config.AutoImportActiveAccount, tickEmails, d.Profiles)
 			active := d.Keyring.ActiveAccount()
 			if active != "" {
 				if acc, _ := d.Keyring.GetAccount(active); acc != nil {
+					oldTok := acc.AccessToken
 					sum, err := quota.PollAccountLiveQuota(acc)
 					if err == nil && sum != nil {
+						d.setQuotaSummary(active, sum)
+						tokenChanged := (acc.AccessToken != "" && acc.AccessToken != oldTok)
+						if acc.AccessToken != "" {
+							_ = d.Keyring.UpdateAccountTokens(active, acc.AccessToken, acc.RefreshToken)
+						}
+						if tokenChanged {
+							d.syncActiveAccountSurfaces(acc)
+						}
+
 						d.mu.RLock()
 						autoSwitch := d.Config.AutoSwitchEnabled
 						thresh := d.Config.AutoSwitchThreshold
@@ -910,7 +1246,13 @@ func (d *Daemon) schedulerLoop() {
 					default:
 					}
 
-					_, _ = quota.PollAccountLiveQuota(acc)
+					sum, _ := quota.PollAccountLiveQuota(acc)
+					if sum != nil {
+						d.setQuotaSummary(acc.Email, sum)
+						if acc.AccessToken != "" {
+							_ = d.Keyring.UpdateAccountTokens(acc.Email, acc.AccessToken, acc.RefreshToken)
+						}
+					}
 
 					// Add random time gap between standby accounts (5 to jitterSec seconds)
 					gap := 5

@@ -48,6 +48,8 @@ GATE_STATUS.md
 TEST_INFRA.md
 TEST_READY.md
 README.local.md
+*.AppImage
+antigravity-swiss-knife
 
 # Embed web assets exception
 !pkg/webgui/dist/

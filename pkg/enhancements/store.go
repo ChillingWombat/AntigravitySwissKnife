@@ -65,6 +65,15 @@ func (s *Store) load() error {
 	if cfg.Version == "" {
 		cfg.Version = "1.0.0"
 	}
+	if cfg.PromptJumpBar.DashWidth <= 0 {
+		cfg.PromptJumpBar.DashWidth = 14
+	}
+	if cfg.PromptJumpBar.DashThickness <= 0 {
+		cfg.PromptJumpBar.DashThickness = 2.5
+	}
+	if cfg.PromptJumpBar.InactiveThickness <= 0 {
+		cfg.PromptJumpBar.InactiveThickness = 1.5
+	}
 	if cfg.OverviewPanel.DivisionStyle == "" {
 		cfg.OverviewPanel = DefaultConfig().OverviewPanel
 	}
@@ -91,6 +100,10 @@ func (s *Store) load() error {
 			cfg.MainSectionExtensionsEnabled = true
 		}
 	}
+
+	// Prompt preview tooltip on hover and scroll synchronization are permanently enabled core features
+	cfg.PromptJumpBar.ShowTooltip = true
+	cfg.PromptJumpBar.SyncScroll = true
 
 	s.config = cfg
 	return nil
@@ -128,6 +141,8 @@ func (s *Store) UpdateConfig(newCfg EnhancementsConfig) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	newCfg.PromptJumpBar.ShowTooltip = true
+	newCfg.PromptJumpBar.SyncScroll = true
 	s.config = newCfg
 	return s.save()
 }

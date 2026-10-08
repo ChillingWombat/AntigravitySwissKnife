@@ -428,7 +428,7 @@ export function rankStandbyAccounts(
   for (const acc of accounts) {
     if (acc.is_active) continue
     const st = (acc.status || '').toUpperCase()
-    if (st === 'BANNED' || st === 'ERROR' || st === 'COOLDOWN') continue
+    if (st === 'BANNED' || st === 'ERROR' || st === 'COOLDOWN' || st === 'COOLING') continue
 
     const cur5h = acc.quota_5h_current ?? acc.quota_5h_available ?? 0
     if (cur5h <= threshold) continue
@@ -676,7 +676,7 @@ export function sortAccounts(
     const sec7d = a.reset_seconds_weekly ?? parseHorizonTextSeconds(a.reset_horizon_weekly_text)
     const availWeeklyIn5h = computeEffectiveWeeklyAvailable(weekly, sec7d)
     const recoversWeeklyIn5h = hasWeekly || availWeeklyIn5h > thresholdWeekly
-    const is5hBelow = cur5h <= threshold || st === 'COOLDOWN'
+    const is5hBelow = cur5h <= threshold || st === 'COOLDOWN' || st === 'COOLING'
 
     if (!is5hBelow && hasWeekly) {
       if (isFreePlanTier(a.email, a.plan_tier)) {

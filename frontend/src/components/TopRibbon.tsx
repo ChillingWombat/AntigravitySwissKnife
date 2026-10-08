@@ -9,9 +9,7 @@ interface TopRibbonProps {
 
 const TABS = [
   'Dashboard',
-  'Accounts & MFA',
   'Fingerprints',
-  'Cache Manager',
   'Settings',
 ]
 
