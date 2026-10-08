@@ -140,7 +140,7 @@ export const ArchivedProjectsPage: React.FC = () => {
                   style={{
                     height: '36px',
                     padding: '0 32px 0 12px',
-                    borderRadius: '20px',
+                    borderRadius: '8px',
                     border: '1px solid var(--border)',
                     background: 'var(--surface)',
                     fontSize: '12px',

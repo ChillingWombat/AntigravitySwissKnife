@@ -109,6 +109,12 @@ describe('accountPresentation utility', () => {
       assert.strictEqual(normalizePlanTier('Google AI Pro'), 'Pro')
       assert.strictEqual(normalizePlanTier('trial'), 'Pro - Trial')
       assert.strictEqual(normalizePlanTier('pro-trial'), 'Pro - Trial')
+      assert.strictEqual(normalizePlanTier('promo'), 'Pro - Trial')
+      assert.strictEqual(normalizePlanTier('starter pro'), 'Pro - Trial')
+      assert.strictEqual(normalizePlanTier('jio offer'), 'Pro - Trial')
+      assert.strictEqual(normalizePlanTier('partner bundle'), 'Pro - Trial')
+      assert.strictEqual(normalizePlanTier('Sonnet 5.5 is now available on paid Pro and Ultra plans. Third-party model access will no longer be available on your current plan starting on November 2, 2026.'), 'Pro - Trial')
+      assert.strictEqual(normalizePlanTier('starter quota'), 'Free')
       assert.strictEqual(normalizePlanTier('edu'), 'Edu')
       assert.strictEqual(normalizePlanTier('stanford.edu'), 'Edu')
       assert.strictEqual(normalizePlanTier('teams_tier_enterprise'), 'Enterprise')
@@ -150,7 +156,8 @@ describe('accountPresentation utility', () => {
       assert.strictEqual(ACCOUNT_SETUP_TEXTS.PASSWORD_PLACEHOLDER, 'Optional login password')
     })
 
-    it('verifies OAuth refresh token placeholder text', () => {
+    it('verifies OAuth refresh token label and placeholder text', () => {
+      assert.strictEqual(ACCOUNT_SETUP_TEXTS.OAUTH_REFRESH_LABEL, 'OAuth Refresh Token:')
       assert.strictEqual(
         ACCOUNT_SETUP_TEXTS.OAUTH_REFRESH_PLACEHOLDER,
         '1//... (Sign in with Google or paste token)'
@@ -193,6 +200,8 @@ describe('accountPresentation utility', () => {
       assert.ok(modalSrc.includes('renderPlanTierBadge(account.plan_tier)'), 'should render read-only plan tier badge in header')
       assert.ok(modalSrc.includes('getAccountHeaderDisplay'), 'should use getAccountHeaderDisplay')
       assert.ok(modalSrc.includes('onBlur={handleEmailBlur}'), 'should trigger handleEmailBlur on account ID blur')
+      assert.ok(modalSrc.includes('Show OAuth refresh token'), 'should have refresh token eye toggle tooltip')
+      assert.ok(modalSrc.includes("refreshToken.trim().startsWith('ya29.')"), 'should detect temporary access token and advise refresh token')
     })
   })
 })

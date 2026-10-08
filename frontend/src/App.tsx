@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { NavRail } from './components/NavRail'
 import { TopRibbon } from './components/TopRibbon'
 import { QuotaDashboardPage } from './pages/QuotaDashboardPage'
@@ -12,7 +13,7 @@ import { CustomModelsPage } from './pages/CustomModelsPage'
 import { AppEnhancementsPage } from './pages/AppEnhancementsPage'
 import { ScheduledTemplatesPage } from './pages/ScheduledTemplatesPage'
 import { ArchivedProjectsPage } from './pages/ArchivedProjectsPage'
-import { FeaturePluginsPage } from './pages/FeaturePluginsPage'
+import { ExtensionsPage } from './pages/ExtensionsPage'
 import { TokenMonitorPage } from './pages/TokenMonitorPage'
 import { UtilitiesPage } from './pages/UtilitiesPage'
 import { AppLockScreen } from './components/AppLockScreen'
@@ -20,13 +21,19 @@ import type { FleetQuotaSummary, RuleConfig, SystemStatus } from './types'
 import { api } from './api'
 
 export const App: React.FC = () => {
-  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 1: Marketplace, 2: Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived, 7: Plugins, 8: Token Monitor, 9: Utilities
+  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 1: Marketplace, 2: Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived, 7: Extensions, 8: Token Monitor, 9: Utilities
   const [currentTab, setCurrentTab] = useState<number>(0) // 0: Dashboard, 1: MFA, 2: FP, 3: Cache, 4: Rules
   const [systemSettingsTab, setSystemSettingsTab] = useState<number>(0) // 0: General, 1: Path & Storage, 2: Error & Privacy, 3: About
   const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Overview Panel, 3: Chat History
   const [automationTab, setAutomationTab] = useState<'catalog' | 'created'>('catalog')
-  const [featurePluginTab, setFeaturePluginTab] = useState<number>(0) // 0: Preview, 1: File Explorer, 2: Memos, 3: Mobile, 4: Computer Use
+  const [extensionTab, setExtensionTab] = useState<number>(0) // 0: Preview, 1: File Explorer, 2: Memos, 3: GitHub Workspace, 4: Mobile, 5: Computer Use
+  const [extensionScope, setExtensionScope] = useState<string>(() => {
+    return localStorage.getItem('antigravity_extension_scope') || 'GLOBAL'
+  })
+  const [availableProjects, setAvailableProjects] = useState<Array<{ name: string; color: string; order: number; is_archived: boolean }>>([])
+  const [isScopeDropdownOpen, setIsScopeDropdownOpen] = useState<boolean>(false)
   const [utilitiesTab, setUtilitiesTab] = useState<number>(0) // 0: Importer, 1: ACP Inspector
+  const [tokenMonitorTab, setTokenMonitorTab] = useState<number>(0) // 0: Overview, 1: Telemetry & Logs, 2: Pricing Matrix
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [fleet, setFleet] = useState<FleetQuotaSummary | null>(null)
   const [rules, setRules] = useState<RuleConfig | null>(null)
@@ -46,21 +53,43 @@ export const App: React.FC = () => {
 
   const loadAllData = async () => {
     try {
-      const [s, f, r] = await Promise.allSettled([
+      const [s, f, r, p] = await Promise.allSettled([
         api.getStatus(),
         api.getFleetQuota(),
         api.getRules(),
+        api.getGUIProjects(),
       ])
 
       if (s.status === 'fulfilled') setStatus(s.value)
       if (f.status === 'fulfilled') setFleet(f.value)
       if (r.status === 'fulfilled') setRules(r.value)
+      if (p.status === 'fulfilled' && Array.isArray(p.value)) {
+        const activeProjs = p.value.filter(proj => !proj.is_archived)
+        setAvailableProjects(activeProjs)
+        if (activeProjs.length > 0 && !localStorage.getItem('antigravity_last_active_project')) {
+          localStorage.setItem('antigravity_last_active_project', activeProjs[0].name)
+        }
+      }
     } catch (err) {
       console.error('Data loading error:', err)
     } finally {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (!isScopeDropdownOpen) return
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null
+      if (!target) return
+      if (target.closest('#btn-extension-scope-dropdown') || target.closest('#extension-scope-menu')) {
+        return
+      }
+      setIsScopeDropdownOpen(false)
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    return () => document.removeEventListener('mousedown', handleOutsideClick)
+  }, [isScopeDropdownOpen])
 
   useEffect(() => {
     checkAuth()
@@ -70,7 +99,12 @@ export const App: React.FC = () => {
     if (electronAPI?.onNavigate) {
       electronAPI.onNavigate((toolIdx: number) => {
         if (typeof toolIdx === 'number') {
-          setCurrentTool(toolIdx)
+          if (toolIdx === 10) {
+            setCurrentTool(7)
+            setExtensionTab(3)
+          } else {
+            setCurrentTool(toolIdx)
+          }
         }
       })
     }
@@ -131,7 +165,7 @@ export const App: React.FC = () => {
                   style={{
                     display: 'flex',
                     backgroundColor: 'var(--tonal)',
-                    borderRadius: '20px',
+                    borderRadius: '8px',
                     padding: '3px',
                     gap: '2px',
                   }}
@@ -143,7 +177,7 @@ export const App: React.FC = () => {
                         key={tab}
                         onClick={() => setEnhancementTab(idx)}
                         style={{
-                          borderRadius: '16px',
+                          borderRadius: '6px',
                           padding: '6px 16px',
                           fontSize: '12px',
                           fontWeight: isActive ? 600 : 500,
@@ -167,7 +201,7 @@ export const App: React.FC = () => {
                   style={{
                     display: 'flex',
                     backgroundColor: 'var(--tonal)',
-                    borderRadius: '20px',
+                    borderRadius: '8px',
                     padding: '3px',
                     gap: '2px',
                   }}
@@ -182,7 +216,7 @@ export const App: React.FC = () => {
                         key={tab.id}
                         onClick={() => setAutomationTab(tab.id as 'catalog' | 'created')}
                         style={{
-                          borderRadius: '16px',
+                          borderRadius: '6px',
                           padding: '6px 16px',
                           fontSize: '12px',
                           fontWeight: isActive ? 600 : 500,
@@ -200,32 +234,181 @@ export const App: React.FC = () => {
                 </div>
               )}
 
-              {currentTool === 7 && (
-                /* Feature Plugins Segmented Tabs */
+              {(currentTool === 7 || currentTool === 10) && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {/* Extension Scope Dropdown (GLOBAL vs Specific Project) */}
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      id="btn-extension-scope-dropdown"
+                      onClick={() => setIsScopeDropdownOpen(!isScopeDropdownOpen)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '5px 12px',
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                        fontWeight: 500,
+                        backgroundColor: 'var(--card)',
+                        color: 'var(--text)',
+                        border: '1px solid var(--border)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title="Select Extension Scope (GLOBAL or specific project)"
+                    >
+                      <span style={{ color: 'var(--text-muted)' }}>Scope:</span>
+                      <strong style={{ color: extensionScope === 'GLOBAL' ? 'var(--primary)' : 'var(--text)' }}>{extensionScope}</strong>
+                      <ChevronDown size={12} style={{ opacity: 0.7 }} />
+                    </button>
+
+                    {isScopeDropdownOpen && (
+                      <div
+                        id="extension-scope-menu"
+                        style={{
+                          position: 'absolute',
+                          top: '100%',
+                          left: 0,
+                          marginTop: '4px',
+                          minWidth: '220px',
+                          maxHeight: '280px',
+                          overflowY: 'auto',
+                          backgroundColor: '#ffffff',
+                          border: '1px solid var(--border)',
+                          borderRadius: '10px',
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                          zIndex: 1000,
+                          padding: '4px',
+                        }}
+                      >
+                        <button
+                          onClick={() => {
+                            setExtensionScope('GLOBAL')
+                            localStorage.setItem('antigravity_extension_scope', 'GLOBAL')
+                            setIsScopeDropdownOpen(false)
+                          }}
+                          style={{
+                            width: '100%',
+                            textAlign: 'left',
+                            padding: '7px 10px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            backgroundColor: extensionScope === 'GLOBAL' ? 'rgba(26, 115, 232, 0.1)' : 'transparent',
+                            color: extensionScope === 'GLOBAL' ? 'var(--primary)' : 'var(--text)',
+                            fontWeight: extensionScope === 'GLOBAL' ? 600 : 500,
+                            fontSize: '12px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                          }}
+                        >
+                          <span style={{ fontWeight: 600 }}>GLOBAL</span>
+                          <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: 'auto' }}>(Global Scope)</span>
+                        </button>
+
+                        {availableProjects.map((proj) => (
+                          <button
+                            key={proj.name}
+                            onClick={() => {
+                              setExtensionScope(proj.name)
+                              localStorage.setItem('antigravity_extension_scope', proj.name)
+                              localStorage.setItem('antigravity_last_active_project', proj.name)
+                              setIsScopeDropdownOpen(false)
+                            }}
+                            style={{
+                              width: '100%',
+                              textAlign: 'left',
+                              padding: '7px 10px',
+                              borderRadius: '6px',
+                              border: 'none',
+                              backgroundColor: extensionScope === proj.name ? 'rgba(26, 115, 232, 0.1)' : 'transparent',
+                              color: extensionScope === proj.name ? 'var(--primary)' : 'var(--text)',
+                              fontWeight: extensionScope === proj.name ? 600 : 500,
+                              fontSize: '12px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                            }}
+                          >
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{proj.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Extensions Segmented Tabs */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      backgroundColor: 'var(--tonal)',
+                      borderRadius: '8px',
+                      padding: '3px',
+                      gap: '2px',
+                    }}
+                  >
+                    {[
+                      'Preview Browser',
+                      'Auxiliary File Explorer',
+                      'Quick Memos',
+                      'GitHub Workspace',
+                      'Mobile Simulator',
+                      'Computer Use Enhancer',
+                    ].map((tab, idx) => {
+                      const effectiveActiveTab = currentTool === 10 ? 3 : extensionTab
+                      const isActive = effectiveActiveTab === idx
+                      return (
+                        <button
+                          key={tab}
+                          onClick={() => {
+                            if (currentTool === 10) setCurrentTool(7)
+                            setExtensionTab(idx)
+                          }}
+                          style={{
+                            borderRadius: '6px',
+                            padding: '6px 14px',
+                            fontSize: '12px',
+                            fontWeight: isActive ? 600 : 500,
+                            color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+                            backgroundColor: isActive ? '#ffffff' : 'transparent',
+                            boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          {tab}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {currentTool === 8 && (
+                /* Token Monitor Segmented Tabs */
                 <div
                   style={{
                     display: 'flex',
                     backgroundColor: 'var(--tonal)',
-                    borderRadius: '20px',
+                    borderRadius: '8px',
                     padding: '3px',
                     gap: '2px',
                   }}
                 >
-                  {[
-                    'Browser & App Preview',
-                    'Auxiliary File Explorer',
-                    'Quick Memos',
-                    'Mobile Simulator',
-                    'Computer Use Enhancer',
-                  ].map((tab, idx) => {
-                    const isActive = featurePluginTab === idx
+                  {['Consumption Overview', 'Telemetry & Logs', 'Pricing Matrix'].map((tab, idx) => {
+                    const isActive = tokenMonitorTab === idx
                     return (
                       <button
                         key={tab}
-                        onClick={() => setFeaturePluginTab(idx)}
+                        onClick={() => setTokenMonitorTab(idx)}
                         style={{
-                          borderRadius: '16px',
-                          padding: '6px 14px',
+                          borderRadius: '6px',
+                          padding: '6px 16px',
                           fontSize: '12px',
                           fontWeight: isActive ? 600 : 500,
                           color: isActive ? 'var(--primary)' : 'var(--text-muted)',
@@ -250,7 +433,7 @@ export const App: React.FC = () => {
                   style={{
                     display: 'flex',
                     backgroundColor: 'var(--tonal)',
-                    borderRadius: '20px',
+                    borderRadius: '8px',
                     padding: '3px',
                     gap: '2px',
                   }}
@@ -262,7 +445,7 @@ export const App: React.FC = () => {
                         key={tab}
                         onClick={() => setUtilitiesTab(idx)}
                         style={{
-                          borderRadius: '16px',
+                          borderRadius: '6px',
                           padding: '6px 16px',
                           fontSize: '12px',
                           fontWeight: isActive ? 600 : 500,
@@ -286,7 +469,7 @@ export const App: React.FC = () => {
                   style={{
                     display: 'flex',
                     backgroundColor: 'var(--tonal)',
-                    borderRadius: '20px',
+                    borderRadius: '8px',
                     padding: '3px',
                     gap: '2px',
                   }}
@@ -298,7 +481,7 @@ export const App: React.FC = () => {
                         key={tab}
                         onClick={() => setSystemSettingsTab(idx)}
                         style={{
-                          borderRadius: '16px',
+                          borderRadius: '6px',
                           padding: '6px 16px',
                           fontSize: '12px',
                           fontWeight: isActive ? 600 : 500,
@@ -318,21 +501,19 @@ export const App: React.FC = () => {
                 </div>
               )}
 
-              {currentTool !== 2 && currentTool !== 3 && currentTool !== 4 && currentTool !== 5 && currentTool !== 7 && currentTool !== 9 && (
+              {currentTool !== 2 && currentTool !== 3 && currentTool !== 4 && currentTool !== 5 && currentTool !== 7 && currentTool !== 8 && currentTool !== 9 && currentTool !== 10 && (
                 <h1 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', margin: 0 }}>
                   {currentTool === 1
                     ? 'Tools Marketplace'
                     : currentTool === 6
                     ? 'Archived Projects'
-                    : currentTool === 8
-                    ? 'Token & Cost Monitor'
                     : ''}
                 </h1>
               )}
             </div>
 
             <div id="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              {currentTool === 7 && (
+              {(currentTool === 7 || currentTool === 10) && (
                 <span
                   style={{
                     fontSize: '11.5px',
@@ -340,7 +521,7 @@ export const App: React.FC = () => {
                     backgroundColor: 'rgba(26, 115, 232, 0.1)',
                     color: 'var(--primary)',
                     padding: '5px 12px',
-                    borderRadius: '14px',
+                    borderRadius: '6px',
                     border: '1px solid rgba(26, 115, 232, 0.25)',
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -408,14 +589,30 @@ export const App: React.FC = () => {
           {currentTool === 4 && <AppEnhancementsPage activeCategoryTab={enhancementTab} />}
           {currentTool === 5 && <ScheduledTemplatesPage activeTab={automationTab} onTabChange={setAutomationTab} />}
           {currentTool === 6 && <ArchivedProjectsPage />}
-          {currentTool === 7 && (
-            <FeaturePluginsPage
-              activeTab={featurePluginTab}
-              onTabChange={setFeaturePluginTab}
+          {(currentTool === 7 || currentTool === 10) && (
+            <ExtensionsPage
+              activeTab={currentTool === 10 ? 3 : extensionTab}
+              onTabChange={(t) => {
+                if (currentTool === 10) setCurrentTool(7)
+                setExtensionTab(t)
+              }}
+              scope={extensionScope}
+              onScopeChange={setExtensionScope}
+              fallbackProject={availableProjects[0]?.name}
             />
           )}
-          {currentTool === 8 && <TokenMonitorPage />}
-          {currentTool === 9 && <UtilitiesPage initialTab={utilitiesTab} />}
+          {currentTool === 8 && (
+            <TokenMonitorPage
+              activeTab={tokenMonitorTab}
+              onTabChange={setTokenMonitorTab}
+            />
+          )}
+          {currentTool === 9 && (
+            <UtilitiesPage
+              activeTab={utilitiesTab}
+              onTabChange={setUtilitiesTab}
+            />
+          )}
         </main>
       </div>
     </div>

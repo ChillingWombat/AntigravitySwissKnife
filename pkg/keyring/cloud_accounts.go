@@ -157,6 +157,8 @@ except Exception as e:
 			status = "BANNED"
 		} else if upperStatus == "ERROR" || upperStatus == "INVALID" || upperStatus == "EXPIRED" {
 			status = "ERROR"
+		} else if upperStatus == "COOLDOWN" {
+			status = "COOLDOWN"
 		} else if isActive {
 			status = "ACTIVE"
 		}
@@ -193,11 +195,25 @@ except Exception as e:
 			decQuota, decErr := DecryptAGM(masterKey, quotaEnc)
 			if decErr == nil && decQuota != "" {
 				var qObj struct {
-					SubscriptionTier string `json:"subscription_tier"`
-					QuotaGroups      []struct {
+					SubscriptionTier      string `json:"subscription_tier"`
+					SubscriptionTierCamel string `json:"subscriptionTier"`
+					UserTier              string `json:"user_tier"`
+					UserTierCamel         string `json:"userTier"`
+					PlanTier              string `json:"plan_tier"`
+					PlanTierCamel         string `json:"planTier"`
+					IsTrial               bool   `json:"is_trial"`
+					IsTrialCamel          bool   `json:"isTrial"`
+					TrialStatus           string `json:"trial_status"`
+					TrialStatusCamel      string `json:"trialStatus"`
+					WarningMessage        string `json:"warning_message"`
+					WarningMessageCamel   string `json:"warningMessage"`
+					Notice                string `json:"notice"`
+					QuotaGroups           []struct {
 						DisplayName string `json:"display_name"`
+						Description string `json:"description"`
 						Buckets     []struct {
 							BucketID          string  `json:"bucket_id"`
+							DisplayName       string  `json:"display_name"`
 							Window            string  `json:"window"`
 							RemainingFraction float64 `json:"remaining_fraction"`
 							ResetTime         string  `json:"reset_time"`
@@ -208,8 +224,44 @@ except Exception as e:
 					} `json:"ai_credits"`
 				}
 				if json.Unmarshal([]byte(decQuota), &qObj) == nil {
-					if qObj.SubscriptionTier != "" {
-						acc.PlanTier = qObj.SubscriptionTier
+					subTier := qObj.SubscriptionTier
+					if subTier == "" {
+						subTier = qObj.SubscriptionTierCamel
+					}
+					if subTier == "" {
+						subTier = qObj.UserTier
+					}
+					if subTier == "" {
+						subTier = qObj.UserTierCamel
+					}
+					if subTier == "" {
+						subTier = qObj.PlanTier
+					}
+					if subTier == "" {
+						subTier = qObj.PlanTierCamel
+					}
+
+					isTrial := qObj.IsTrial || qObj.IsTrialCamel ||
+						strings.Contains(strings.ToLower(qObj.TrialStatus+" "+qObj.TrialStatusCamel), "trial") ||
+						strings.Contains(strings.ToLower(qObj.TrialStatus+" "+qObj.TrialStatusCamel), "promo") ||
+						isTrialWarningText(qObj.WarningMessage) || isTrialWarningText(qObj.WarningMessageCamel) ||
+						isTrialWarningText(qObj.Notice) || isTrialWarningText(subTier)
+
+					for _, g := range qObj.QuotaGroups {
+						if isTrialWarningText(g.DisplayName) || isTrialWarningText(g.Description) {
+							isTrial = true
+						}
+						for _, b := range g.Buckets {
+							if isTrialWarningText(b.DisplayName) {
+								isTrial = true
+							}
+						}
+					}
+
+					if isTrial {
+						acc.PlanTier = "Pro - Trial"
+					} else if subTier != "" {
+						acc.PlanTier = normalizeCloudTier(subTier)
 					}
 					if qObj.AICredits != nil && qObj.AICredits.Credits != nil {
 						if cNum, ok := qObj.AICredits.Credits.(float64); ok {
@@ -283,7 +335,7 @@ func SyncStoreFromCloudAccountsDB(s *Store, homeDir string) error {
 				}
 				if ca.PlanTier != "" {
 					pTier := normalizeCloudTier(ca.PlanTier)
-					if acc.PlanTier == "" || acc.PlanTier == "Free" {
+					if acc.PlanTier == "" || acc.PlanTier == "Free" || (pTier == "Pro - Trial" && (acc.PlanTier == "Pro" || acc.PlanTier == "")) {
 						acc.PlanTier = pTier
 						modified = true
 					}
@@ -293,7 +345,7 @@ func SyncStoreFromCloudAccountsDB(s *Store, homeDir string) error {
 					modified = true
 				}
 				caSt := strings.ToUpper(strings.TrimSpace(ca.Status))
-				if caSt == "BANNED" || caSt == "ERROR" {
+				if caSt == "BANNED" || caSt == "ERROR" || caSt == "COOLDOWN" {
 					if acc.Status != caSt {
 						acc.Status = caSt
 						modified = true
@@ -349,16 +401,43 @@ except Exception:
 	return nil
 }
 
+func isTrialWarningText(text string) bool {
+	if text == "" {
+		return false
+	}
+	low := strings.ToLower(text)
+	if strings.Contains(low, "third-party model access will no longer be available on your current plan") ||
+		strings.Contains(low, "sonnet 5.5 is now available on paid pro and ultra plans") ||
+		strings.Contains(low, "paid pro and ultra plans") ||
+		strings.Contains(low, "will no longer be available on your current plan") ||
+		(strings.Contains(low, "third-party model access") && (strings.Contains(low, "current plan") || strings.Contains(low, "november 2"))) ||
+		strings.Contains(low, "current plan starting on november 2, 2026") ||
+		strings.Contains(low, "starter quota") ||
+		strings.Contains(low, "trial") ||
+		strings.Contains(low, "promo") ||
+		strings.Contains(low, "partner offer") ||
+		strings.Contains(low, "jio") {
+		return true
+	}
+	return false
+}
+
 func normalizeCloudTier(raw string) string {
 	t := strings.TrimSpace(raw)
 	if t == "" {
 		return "Pro"
 	}
 	low := strings.ToLower(t)
-	if low == "free" || low == "free-tier" || low == "tier_free" {
+	if low == "free" || low == "free-tier" || low == "tier_free" || low == "starter" || low == "starter-tier" || low == "starter quota" {
 		return "Free"
 	}
-	if strings.Contains(low, "trial") {
+	if strings.Contains(low, "trial") ||
+		strings.Contains(low, "promo") ||
+		strings.Contains(low, "starter pro") ||
+		strings.Contains(low, "jio") ||
+		strings.Contains(low, "partner") ||
+		strings.Contains(low, "bundle") ||
+		isTrialWarningText(low) {
 		return "Pro - Trial"
 	}
 	if strings.Contains(low, "20x") || strings.Contains(low, "ultra_20x") || strings.Contains(low, "ultra 20x") {

@@ -132,7 +132,7 @@ func HexToRGB(hex string) (int, int, int, error) {
 
 // GenerateCSS generates custom CSS stylesheet content for all configured project colors and GUI improvements.
 func GenerateCSS(cfg *Config) string {
-	if cfg == nil || !cfg.Enabled || (!cfg.ColorStylingEnabled && len(cfg.ArchivedProjects) == 0 && cfg.ConversationTabsMode == "") {
+	if cfg == nil || !cfg.Enabled || (!cfg.ColorStylingEnabled && len(cfg.ArchivedProjects) == 0 && cfg.ConversationTabsMode == "" && !cfg.ReplaceSeeAllTriangle && !cfg.ConsistentProjectSpacing) {
 		return "/* Antigravity Swiss Knife Project Styling Disabled */"
 	}
 
@@ -168,46 +168,119 @@ func GenerateCSS(cfg *Config) string {
 [data-index][data-swiss-project] {
   background: transparent !important;
 }
+
+/* Unselected + New Conversation Button: normalize to clean transparent sidebar style */
+body:has([data-testid="conversation-view"]) [data-testid="new-conversation-button"],
+body:has([data-testid="conversation-row-sidebar"][data-selected="true"]) [data-testid="new-conversation-button"],
+body:has([data-testid="history-button"].active) [data-testid="new-conversation-button"],
+body:has([data-testid="history-button"][data-selected="true"]) [data-testid="new-conversation-button"],
+body:has([data-testid="history-button"][aria-selected="true"]) [data-testid="new-conversation-button"],
+body:has([data-testid="automations-button"].active) [data-testid="new-conversation-button"],
+body:has([data-testid="automations-button"][data-selected="true"]) [data-testid="new-conversation-button"],
+body:has([data-testid="automations-button"][aria-selected="true"]) [data-testid="new-conversation-button"],
+[data-swiss-stage-active] [data-testid="new-conversation-button"],
+body:has([data-swiss-stage-active]) [data-testid="new-conversation-button"],
+body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"],
+[data-testid="new-conversation-button"][data-selected="false"],
+[data-testid="new-conversation-button"].unselected {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  border: none !important;
+  color: var(--secondary-foreground, #71717a) !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+:is(.dark, [data-theme="dark"]) body:has([data-testid="conversation-view"]) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) body:has([data-testid="conversation-row-sidebar"][data-selected="true"]) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) body:has([data-testid="history-button"].active) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) body:has([data-testid="history-button"][data-selected="true"]) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) body:has([data-testid="history-button"][aria-selected="true"]) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) body:has([data-testid="automations-button"].active) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) body:has([data-testid="automations-button"][data-selected="true"]) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) body:has([data-testid="automations-button"][aria-selected="true"]) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) body:has([data-swiss-stage-active]) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"],
+:is(.dark, [data-theme="dark"]) [data-testid="new-conversation-button"][data-selected="false"],
+:is(.dark, [data-theme="dark"]) [data-testid="new-conversation-button"].unselected {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  border: none !important;
+  color: var(--secondary-foreground, #94a3b8) !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+body:has([data-testid="conversation-view"]) [data-testid="new-conversation-button"]:hover,
+body:has([data-testid="conversation-row-sidebar"][data-selected="true"]) [data-testid="new-conversation-button"]:hover,
+body:has([data-testid="history-button"].active) [data-testid="new-conversation-button"]:hover,
+body:has([data-testid="history-button"][data-selected="true"]) [data-testid="new-conversation-button"]:hover,
+body:has([data-testid="automations-button"].active) [data-testid="new-conversation-button"]:hover,
+body:has([data-testid="automations-button"][data-selected="true"]) [data-testid="new-conversation-button"]:hover,
+[data-swiss-stage-active] [data-testid="new-conversation-button"]:hover,
+body:has([data-swiss-stage-active]) [data-testid="new-conversation-button"]:hover,
+body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hover,
+[data-testid="new-conversation-button"][data-selected="false"]:hover,
+[data-testid="new-conversation-button"].unselected:hover {
+  background-color: var(--sidebar-muted, rgba(148, 163, 184, 0.15)) !important;
+  color: var(--foreground, #1e293b) !important;
+}
+
+:is(.dark, [data-theme="dark"]) body:has([data-testid="conversation-view"]) [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) body:has([data-testid="conversation-row-sidebar"][data-selected="true"]) [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) body:has([data-testid="history-button"].active) [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) body:has([data-testid="history-button"][data-selected="true"]) [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) body:has([data-testid="automations-button"].active) [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) body:has([data-testid="automations-button"][data-selected="true"]) [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) [data-swiss-stage-active] [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) body:has([data-swiss-stage-active]) [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hover,
+:is(.dark, [data-theme="dark"]) [data-testid="new-conversation-button"][data-selected="false"]:hover,
+:is(.dark, [data-theme="dark"]) [data-testid="new-conversation-button"].unselected:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #f1f5f9 !important;
+}
 `)
 
 	if cfg.ColorStylingEnabled {
 		for project, hex := range cfg.ProjectColors {
-		if project == "" || hex == "" {
-			continue
-		}
-		r, g, b, alpha, err := ParseColorWithAlpha(hex)
-		if err != nil {
-			r, g, b = 11, 87, 208 // fallback to blue
-			alpha = 1.0
-		}
-		mult := CalculateColorMultiplier(r, g, b, alpha)
-		effectiveOpacity := opacity * mult
-		effectiveHoverOpacity := hoverOpacity * mult
-		if effectiveHoverOpacity > 1.0 {
-			effectiveHoverOpacity = 1.0
-		}
-		effectiveSelectedOpacity := selectedOpacity * mult
-		if effectiveSelectedOpacity > 1.0 {
-			effectiveSelectedOpacity = 1.0
-		}
-
-		safeName := strings.ReplaceAll(project, `"`, `\"`)
-
-		borderStyle := "border: none !important; border-left: none !important;"
-		if isBorderMode {
-			borderStyle = ""
-		}
-		if isLeftBarMode && !isBorderMode {
-			borderStyle = "border-left: 3px solid transparent !important;"
-		}
-
-		var rowCSS string
-		if isBorderMode {
-			selectedBorderStyle := fmt.Sprintf("border: %s solid %s !important;", borderWidth, hex)
-			if isLeftBarMode {
-				selectedBorderStyle += fmt.Sprintf(" border-left: 3px solid %s !important;", hex)
+			if project == "" || hex == "" {
+				continue
 			}
-			rowCSS = fmt.Sprintf(`
+			r, g, b, alpha, err := ParseColorWithAlpha(hex)
+			if err != nil {
+				r, g, b = 11, 87, 208 // fallback to blue
+				alpha = 1.0
+			}
+			mult := CalculateColorMultiplier(r, g, b, alpha)
+			effectiveOpacity := opacity * mult
+			effectiveHoverOpacity := hoverOpacity * mult
+			if effectiveHoverOpacity > 1.0 {
+				effectiveHoverOpacity = 1.0
+			}
+			effectiveSelectedOpacity := selectedOpacity * mult
+			if effectiveSelectedOpacity > 1.0 {
+				effectiveSelectedOpacity = 1.0
+			}
+
+			safeName := strings.ReplaceAll(project, `"`, `\"`)
+
+			borderStyle := "border: none !important; border-left: none !important;"
+			if isBorderMode {
+				borderStyle = ""
+			}
+			if isLeftBarMode && !isBorderMode {
+				borderStyle = "border-left: 3px solid transparent !important;"
+			}
+
+			var rowCSS string
+			if isBorderMode {
+				selectedBorderStyle := fmt.Sprintf("border: %s solid %s !important;", borderWidth, hex)
+				if isLeftBarMode {
+					selectedBorderStyle += fmt.Sprintf(" border-left: 3px solid %s !important;", hex)
+				}
+				rowCSS = fmt.Sprintf(`
 /* Conversation Row: Clean rounded corners, light tint, border-mode */
 [data-swiss-project="%s"][data-testid="conversation-row-sidebar"],
 [data-swiss-project="%s"] [data-testid="conversation-row-sidebar"] {
@@ -237,14 +310,14 @@ func GenerateCSS(cfg *Config) string {
   %s
 }
 `, safeName, safeName, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, borderWidth, borderStyle, safeName, safeName, r, g, b, effectiveHoverOpacity, safeName, safeName, r, g, b, effectiveOpacity, selectedBorderStyle, fontWeight, safeName, safeName, r, g, b, effectiveHoverOpacity, selectedBorderStyle)
-		} else {
-			selectedBorderStyle := ""
-			activeBgOpacity := effectiveSelectedOpacity
-			if isLeftBarMode {
-				selectedBorderStyle = fmt.Sprintf("\n  border-left: 3px solid %s !important;", hex)
-				activeBgOpacity = effectiveOpacity
-			}
-			rowCSS = fmt.Sprintf(`
+			} else {
+				selectedBorderStyle := ""
+				activeBgOpacity := effectiveSelectedOpacity
+				if isLeftBarMode {
+					selectedBorderStyle = fmt.Sprintf("\n  border-left: 3px solid %s !important;", hex)
+					activeBgOpacity = effectiveOpacity
+				}
+				rowCSS = fmt.Sprintf(`
 /* Conversation Row: Clean rounded corners, light tint, solid edge optional */
 [data-swiss-project="%s"][data-testid="conversation-row-sidebar"],
 [data-swiss-project="%s"] [data-testid="conversation-row-sidebar"] {
@@ -267,28 +340,36 @@ func GenerateCSS(cfg *Config) string {
   font-weight: %s !important;
 }
 `, safeName, safeName, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, borderStyle, safeName, safeName, r, g, b, effectiveHoverOpacity, safeName, safeName, r, g, b, activeBgOpacity, selectedBorderStyle, fontWeight)
-		}
+			}
 
-		sb.WriteString(fmt.Sprintf(`
+			lum := (0.2126*float64(r) + 0.7152*float64(g) + 0.0722*float64(b)) / 255.0
+			textColor := "#ffffff"
+			if lum > 0.6 {
+				textColor = "#0f172a"
+			}
+
+			sb.WriteString(fmt.Sprintf(`
 /* Project Label Card */
 [data-swiss-project="%s"][data-project-card="true"],
 [data-swiss-project="%s"] [data-project-card="true"] {
   background-color: %s !important;
-  color: #ffffff !important;
+  color: %s !important;
   border-radius: 8px !important;
   border: none !important;
 }
 [data-swiss-project="%s"][data-project-card="true"] *,
 [data-swiss-project="%s"] [data-project-card="true"] * {
-  color: #ffffff !important;
+  color: %s !important;
 }
 
 /* Project Header Action Buttons (⋮ and + buttons) */
 [data-swiss-project="%s"] [class*="group/header"] button,
+[data-swiss-project="%s"] [class*="group/header"] a,
+[data-swiss-project="%s"] a[aria-label*="conversation" i] svg,
 [data-swiss-project="%s"] button[aria-label="Project options"] svg,
 [data-swiss-project="%s"] button[aria-label*="conversation"] svg {
-  color: #ffffff !important;
-  fill: #ffffff !important;
+  color: %s !important;
+  fill: %s !important;
 }
 %s
 /* Action Bar & Buttons on Hover: 100%% Seamless, no dark overlapping gradient strip */
@@ -305,7 +386,7 @@ func GenerateCSS(cfg *Config) string {
   background-color: rgba(255, 255, 255, 0.45) !important;
   border-radius: 6px !important;
 }
-`, safeName, safeName, hex, safeName, safeName, safeName, safeName, safeName, rowCSS, safeName, safeName, safeName, safeName, safeName, safeName))
+`, safeName, safeName, hex, textColor, safeName, safeName, textColor, safeName, safeName, safeName, safeName, safeName, textColor, textColor, rowCSS, safeName, safeName, safeName, safeName, safeName, safeName))
 		}
 	}
 
@@ -324,84 +405,152 @@ func GenerateCSS(cfg *Config) string {
 
 	// Conversation Tabs Expand/Contract Divider with centered circular pill and solid triangle indicator
 	sb.WriteString(`
-/* Antigravity Swiss Knife - Conversation Tabs Divider */
-div:has(> button[data-swiss-divider="true"]),
-div:has(> [data-swiss-divider="true"]) {
-  padding-left: 0 !important;
-  padding-right: 0 !important;
-  margin: 0 !important;
+/* Antigravity Swiss Knife - Conversation Tabs Divider (Show / Hide Button) */
+[data-index]:has(.swiss-project-bottom-spacer) {
+  z-index: 2 !important;
+  overflow: visible !important;
 }
-button[data-swiss-divider="true"] {
+[data-index]:has(button[data-swiss-divider="true"]),
+[data-index]:has([data-swiss-divider="true"]) {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  width: 100% !important;
+  height: 14px !important;
+  min-height: 14px !important;
+  max-height: 14px !important;
   padding: 0 !important;
   margin: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+  z-index: 2 !important;
+}
+[data-index]:has(button[data-swiss-divider="true"]) > *:not(.swiss-project-bottom-spacer),
+div:has(> button[data-swiss-divider="true"]),
+div:has(> [data-swiss-divider="true"]) {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
   width: 100% !important;
+  height: 10px !important;
+  min-height: 10px !important;
+  max-height: 10px !important;
+  padding: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  margin: 0 auto !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+button[data-swiss-divider="true"] {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  height: 10px !important;
+  min-height: 10px !important;
+  max-height: 10px !important;
+  padding: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  margin: 0 auto !important;
+  line-height: 1 !important;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+button[data-swiss-divider="true"]:hover {
+  background: transparent !important;
 }
 .swiss-convo-tabs-divider {
-  position: relative !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   width: 100% !important;
   height: 100% !important;
   padding: 0 !important;
+  margin: 0 auto !important;
   box-sizing: border-box !important;
   cursor: pointer !important;
   user-select: none !important;
-}
-.swiss-convo-tabs-line {
-  position: absolute !important;
-  top: 50% !important;
-  left: 0 !important;
-  right: 0 !important;
-  width: 100% !important;
-  height: 1px !important;
-  transform: translateY(-50%) !important;
-  background: rgba(148, 163, 184, 0.35) !important;
-  transition: background-color 0.18s ease !important;
-  z-index: 1 !important;
+  background: transparent !important;
+  overflow: visible !important;
 }
 .swiss-convo-tabs-pill {
-  position: absolute !important;
-  bottom: 50% !important;
-  left: 50% !important;
-  transform: translateX(-50%) !important;
-  margin-bottom: 1px !important;
-  z-index: 2 !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 16px !important;
-  height: 11px !important;
+  width: 14px !important;
+  height: 10px !important;
   color: #64748b !important;
   font-size: 8px !important;
+  background: transparent !important;
   transition: all 0.18s ease !important;
+  z-index: 3 !important;
 }
 .swiss-convo-tabs-triangle {
   display: inline-block !important;
   font-size: 8px !important;
   line-height: 1 !important;
+  text-align: center !important;
   transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+[data-index]:not(:has(button[data-swiss-divider="true"])) .swiss-project-bottom-spacer {
+  position: absolute !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 0 !important;
+  pointer-events: none !important;
+  box-sizing: border-box !important;
+  background: transparent !important;
+  overflow: visible !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+[data-index]:has(button[data-swiss-divider="true"]) .swiss-project-bottom-spacer {
+  position: relative !important;
+  width: 100% !important;
+  height: 4px !important;
+  pointer-events: none !important;
+  box-sizing: border-box !important;
+  background: transparent !important;
+  overflow: visible !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 .swiss-project-bottom-spacer {
   position: relative !important;
-  height: 32px !important;
   width: 100% !important;
   pointer-events: none !important;
   box-sizing: border-box !important;
+  background: transparent !important;
+  overflow: visible !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 .swiss-project-spacer-line {
   position: absolute !important;
-  top: 50% !important;
   left: 0 !important;
   right: 0 !important;
   width: 100% !important;
   height: 1px !important;
-  transform: translateY(-50%) !important;
   background: rgba(148, 163, 184, 0.35) !important;
-  z-index: 1 !important;
+  z-index: 2 !important;
+  pointer-events: none !important;
 }
-[data-theme="dark"] .swiss-convo-tabs-line,
-.dark .swiss-convo-tabs-line,
+[data-index]:has(button[data-swiss-divider="true"]) .swiss-project-spacer-line {
+  top: 2px !important;
+  transform: translateY(-50%) !important;
+}
 [data-theme="dark"] .swiss-project-spacer-line,
 .dark .swiss-project-spacer-line {
   background: rgba(148, 163, 184, 0.22) !important;
@@ -412,22 +561,44 @@ button[data-swiss-divider="true"] {
 }
 
 /* Hover effects */
-button[data-swiss-divider="true"]:hover .swiss-convo-tabs-line,
-.swiss-convo-tabs-divider:hover .swiss-convo-tabs-line,
-[data-swiss-custom-divider]:hover .swiss-convo-tabs-line {
-  background: rgba(148, 163, 184, 0.65) !important;
-}
 button[data-swiss-divider="true"]:hover .swiss-convo-tabs-pill,
 .swiss-convo-tabs-divider:hover .swiss-convo-tabs-pill,
 [data-swiss-custom-divider]:hover .swiss-convo-tabs-pill {
   color: #1e293b !important;
-  transform: translateX(-50%) scale(1.18) !important;
+  transform: scale(1.18) !important;
 }
 [data-theme="dark"] button[data-swiss-divider="true"]:hover .swiss-convo-tabs-pill,
 .dark button[data-swiss-divider="true"]:hover .swiss-convo-tabs-pill,
 [data-theme="dark"] [data-swiss-custom-divider]:hover .swiss-convo-tabs-pill,
 .dark [data-swiss-custom-divider]:hover .swiss-convo-tabs-pill {
   color: #f1f5f9 !important;
+}
+/* Pruned / Archived conversation tabs styling */
+[data-swiss-pruned="true"] {
+  opacity: 0.55 !important;
+  cursor: not-allowed !important;
+}
+[data-swiss-pruned="true"] * {
+  cursor: not-allowed !important;
+}
+[data-swiss-pruned="true"] button,
+[data-swiss-pruned="true"] [role="button"],
+[data-swiss-pruned="true"] [data-testid="conversation-kebab"],
+[data-swiss-pruned="true"] [data-testid="conversation-pin-button"],
+[data-swiss-pruned="true"] [data-testid="conversation-archive-button"] {
+  cursor: pointer !important;
+}
+.swiss-pruned-badge {
+  display: inline-block !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  opacity: 0.65 !important;
+  margin-left: 6px !important;
+  padding: 1px 4px !important;
+  border-radius: 4px !important;
+  background: rgba(148, 163, 184, 0.2) !important;
+  color: inherit !important;
+  vertical-align: middle !important;
 }
 `)
 
@@ -449,6 +620,11 @@ func generateBaseScript(cfg *Config) string {
 		archivedProjects = cfg.ArchivedProjects
 	}
 	archivedJSON, _ := json.Marshal(archivedProjects)
+	projectColors := make(map[string]string)
+	if cfg != nil && cfg.ProjectColors != nil {
+		projectColors = cfg.ProjectColors
+	}
+	colorsJSON, _ := json.Marshal(projectColors)
 
 	tabsMode := "dynamic"
 	if cfg != nil && cfg.ConversationTabsMode != "" {
@@ -500,6 +676,7 @@ func generateBaseScript(cfg *Config) string {
   const isDragEnabled = %t;
   const configuredOrder = %s;
   const archivedProjects = %s;
+  const configuredColors = %s;
   const tabsMode = %q;
   const tabsFixedLimit = %d;
   const tabsAgeThreshold = %q;
@@ -517,6 +694,37 @@ func generateBaseScript(cfg *Config) string {
   window.__swissBorderWidth = borderWidth;
   window.__swissIsLeftBarMode = isLeftBarMode;
   window.__swissFontWeight = fontWeight;
+
+  if (!window.__swissToast) {
+    window.__swissToast = function(msg) {
+      let t = document.getElementById("swiss-toast-notification");
+      if (t) t.remove();
+      t = document.createElement("div");
+      t.id = "swiss-toast-notification";
+      t.style.cssText = "position: fixed; bottom: 24px; right: 24px; z-index: 9999999; background: var(--card, #ffffff); color: var(--foreground, #101010); border: 1px solid var(--border, rgba(0, 0, 0, 0.08)); padding: 8px 14px; border-radius: 8px; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 12px; font-weight: 500; box-shadow: 0 4px 12px rgba(0,0,0,0.08); pointer-events: none; transition: opacity 0.3s ease; opacity: 1;";
+      t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(() => {
+        t.style.opacity = "0";
+        setTimeout(() => t.remove(), 300);
+      }, 2500);
+    };
+  }
+
+  // Intercept clicks on pruned/archived conversation tabs during capture phase to prevent infinite loading spinner
+  if (!window.__swissPrunedClickBound) {
+    window.__swissPrunedClickBound = true;
+    document.addEventListener("click", (e) => {
+      const prunedEl = e.target.closest('[data-swiss-pruned="true"]');
+      if (prunedEl) {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        if (typeof window.__swissToast === "function") {
+          window.__swissToast("Conversation database was pruned or archived (file not found)");
+        }
+      }
+    }, true);
+  }
 
   // 1. Manage stylesheet
   let styleEl = document.getElementById("antigravity-swiss-styles");
@@ -549,6 +757,13 @@ func generateBaseScript(cfg *Config) string {
       const key = Object.keys(container).find(k => k.startsWith("__reactFiber"));
       if (!key) return;
       let fiber = container[key];
+      if (fiber && fiber.alternate) {
+        let root = fiber;
+        while (root.return) root = root.return;
+        if (root.stateNode && root.stateNode.current && root.stateNode.current !== root) {
+          fiber = fiber.alternate;
+        }
+      }
       let items = null;
       while (fiber) {
         if (fiber.memoizedProps?.items) {
@@ -569,6 +784,50 @@ func generateBaseScript(cfg *Config) string {
         }
       });
 
+      // Check for pruned/archived conversation DB files
+      let fsModule = null;
+      let convsDir = null;
+      try {
+        if (typeof require !== "undefined") {
+          const fs = require("fs");
+          const path = require("path");
+          const os = require("os");
+          const cfgDir = (typeof process !== "undefined" && process.env && process.env.ANTIGRAVITY_CONFIG_DIR) || "";
+          convsDir = cfgDir ? path.join(cfgDir, "conversations") : path.join(os.homedir(), ".gemini", "antigravity", "conversations");
+          fsModule = fs;
+        }
+      } catch (_) {}
+
+      window.__swissPrunedConversations = window.__swissPrunedConversations || new Set();
+
+      if (!window.__swissPrunedFetched && window.fetch) {
+        window.__swissPrunedFetched = true;
+        fetch("http://127.0.0.1:8765/api/gui/conversations/pruned")
+          .then(r => r.json())
+          .then(list => {
+            if (Array.isArray(list)) {
+              list.forEach(id => window.__swissPrunedConversations.add(id));
+              if (typeof window.__swissUpdateTagsAndDraggables === "function") {
+                requestAnimationFrame(window.__swissUpdateTagsAndDraggables);
+              }
+            }
+          })
+          .catch(() => {});
+      }
+
+      items.forEach(it => {
+        if (it.type === "row") {
+          const cid = (it.conversationId || it.id || "").replace(/^conversation-/, "");
+          if (cid && fsModule && convsDir) {
+            try {
+              if (!fsModule.existsSync(convsDir + "/" + cid + ".db")) {
+                window.__swissPrunedConversations.add(cid);
+              }
+            } catch (_) {}
+          }
+        }
+      });
+
       // Determine hidden indices for archived projects
       const hiddenIndices = new Set();
       if (activeArchived && activeArchived.length > 0) {
@@ -584,9 +843,124 @@ func generateBaseScript(cfg *Config) string {
             const gid = it.groupId;
             const isArchived = activeArchived.includes(headerMap[gid]) || activeArchived.includes(gid);
             if (isArchived) hiddenIndices.add(idx);
+          } else if (it.type === "empty-placeholder") {
+            const gid = it.groupId || (it.id || "").replace("empty-placeholder-", "");
+            const isArchived = activeArchived.includes(headerMap[gid]) || activeArchived.includes(gid);
+            if (isArchived) hiddenIndices.add(idx);
           }
         });
       }
+
+      // Group items by project to filter conversation tabs according to tabsMode, tabsFixedLimit, and tabsAgeThreshold
+      const projects = [];
+      let curProj = null;
+      items.forEach((it, idx) => {
+        if (it.type === "header") {
+          curProj = {
+            headerIdx: idx,
+            groupId: it.id.replace("header-", ""),
+            label: it.label,
+            rows: [],
+            hasShowMore: false,
+            showMoreIdx: -1,
+            showMoreItem: null,
+            emptyPlaceholderIdx: -1
+          };
+          projects.push(curProj);
+        } else if (it.type === "section-header" || it.type === "spacer") {
+          curProj = null;
+        } else if (it.type === "row" && curProj && (!it.groupId || it.groupId === curProj.groupId)) {
+          curProj.rows.push(idx);
+        } else if (it.type === "show-more" && curProj && (!it.groupId || it.groupId === curProj.groupId)) {
+          curProj.hasShowMore = true;
+          curProj.showMoreIdx = idx;
+          curProj.showMoreItem = it;
+        } else if (it.type === "empty-placeholder" && curProj && (!it.groupId || it.groupId === curProj.groupId)) {
+          curProj.emptyPlaceholderIdx = idx;
+        }
+      });
+
+      window.__swissManuallyExpandedProjects = window.__swissManuallyExpandedProjects || new Set();
+
+      // Retrieve Redux summaries if available for dynamic tabs recency
+      let summaries = null;
+      if (tabsMode === "dynamic") {
+        try {
+          const rootEl = document.getElementById("root");
+          if (rootEl) {
+            const rKey = Object.keys(rootEl).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactContainer"));
+            let curr = rootEl[rKey];
+            while (curr && !summaries) {
+              if (curr.memoizedProps?.store) {
+                summaries = curr.memoizedProps.store.getState()?.trajectorySummaries?.summaries;
+                break;
+              }
+              curr = curr.child;
+            }
+          }
+        } catch (_) {}
+      }
+
+      // Parse tabsAgeThreshold into cutoff ms
+      let ageCutoffMs = 0;
+      if (tabsMode === "dynamic") {
+        let ageDays = 14;
+        const match = String(tabsAgeThreshold || "14d").match(/^(\d+)([dhm]?)$/);
+        if (match) {
+          const val = parseInt(match[1], 10);
+          const unit = match[2];
+          ageDays = unit === "h" ? val / 24 : unit === "m" ? val / (24 * 60) : val;
+        }
+        ageCutoffMs = Date.now() - (ageDays * 24 * 60 * 60 * 1000);
+      }
+
+      projects.forEach(p => {
+        if (hiddenIndices.has(p.headerIdx)) return;
+
+        // Calculate targetLimit for visible tabs
+        let targetLimit = tabsFixedLimit > 0 ? tabsFixedLimit : 6;
+        if (tabsMode === "dynamic") {
+          let recentCount = 0;
+          p.rows.forEach(rIdx => {
+            const it = items[rIdx];
+            if (!it) return;
+            const cid = (it.conversationId || it.id || "").replace(/^conversation-/, "");
+            const sum = summaries ? summaries[cid] : null;
+            let ts = sum ? (sum.lastModifiedTime || sum.last_modified_time || sum.createdTime) : null;
+            if (!ts && it.lastModifiedTime) ts = it.lastModifiedTime;
+            if (!ts && it.data && it.data.lastModifiedTime) ts = it.data.lastModifiedTime;
+            if (ts && new Date(ts).getTime() >= ageCutoffMs) {
+              recentCount++;
+            }
+          });
+          const minTabs = tabsMin > 0 ? tabsMin : 3;
+          const maxTabs = tabsMax > 0 ? tabsMax : 6;
+          targetLimit = Math.max(minTabs, Math.min(maxTabs, recentCount > 0 ? recentCount : minTabs));
+        }
+
+        p.targetLimit = targetLimit;
+
+        // Break out of Antigravity's default collapsed truncation (e.g. only 3 tabs shown + "See all")
+        // if user configured more tabs than currently visible in collapsed state
+        if (p.hasShowMore && p.rows.length < targetLimit) {
+          const isSeeAll = (p.showMoreItem?.label || "").toLowerCase().includes("see all");
+          if (isSeeAll) {
+            const showMoreBtn = container.querySelector('[data-index="' + p.showMoreIdx + '"] button');
+            if (showMoreBtn && !showMoreBtn.__swissAutoExpanded) {
+              showMoreBtn.__swissAutoExpanded = true;
+              showMoreBtn.click();
+            }
+          }
+        }
+
+        // Hide rows exceeding target limit unless manually expanded by user
+        const isManuallyExpanded = window.__swissManuallyExpandedProjects.has(p.groupId);
+        if (p.hasShowMore && !isManuallyExpanded && p.rows.length > targetLimit) {
+          for (let i = targetLimit; i < p.rows.length; i++) {
+            hiddenIndices.add(p.rows[i]);
+          }
+        }
+      });
 
       // Clean up any obsolete custom divider DOM elements
       container.querySelectorAll(".swiss-custom-divider").forEach(el => el.remove());
@@ -594,33 +968,19 @@ func generateBaseScript(cfg *Config) string {
       // Compute uncontracted project spacer indices
       const spacerIndices = new Set();
       if (consistentProjectSpacing) {
-        const projects = [];
-        let curProj = null;
-        items.forEach((it, idx) => {
-          if (it.type === "header") {
-            curProj = {
-              headerIdx: idx,
-              groupId: it.id.replace("header-", ""),
-              rows: [],
-              hasShowMore: false
-            };
-            projects.push(curProj);
-          } else if (it.type === "row" && curProj) {
-            curProj.rows.push(idx);
-          } else if (it.type === "show-more" && curProj) {
-            curProj.hasShowMore = true;
-          }
-        });
-
         projects.forEach(p => {
           if (hiddenIndices.has(p.headerIdx)) return;
-          if (!p.hasShowMore) {
+          if (!p.hasShowMore || p.showMoreIdx === undefined || p.showMoreIdx === -1 || hiddenIndices.has(p.showMoreIdx)) {
             const visibleRows = p.rows.filter(rIdx => !hiddenIndices.has(rIdx));
             if (visibleRows.length > 0) {
               spacerIndices.add(visibleRows[visibleRows.length - 1]);
+            } else if (p.emptyPlaceholderIdx !== undefined && p.emptyPlaceholderIdx !== -1 && !hiddenIndices.has(p.emptyPlaceholderIdx)) {
+              spacerIndices.add(p.emptyPlaceholderIdx);
             } else {
               spacerIndices.add(p.headerIdx);
             }
+          } else {
+            spacerIndices.add(p.showMoreIdx);
           }
         });
       } else {
@@ -664,6 +1024,16 @@ func generateBaseScript(cfg *Config) string {
                 line.className = "swiss-project-spacer-line";
                 spacer.appendChild(line);
               }
+              const nextItem = el.nextElementSibling;
+              const pInner = el.querySelector('[data-testid="conversation-row-sidebar"]') || el.firstElementChild;
+              const nextInner = nextItem ? (nextItem.querySelector('[data-project-card]') || nextItem.firstElementChild) : null;
+              if (pInner && nextInner) {
+                const pRect = pInner.getBoundingClientRect();
+                const nRect = nextInner.getBoundingClientRect();
+                const spRect = spacer.getBoundingClientRect();
+                const gapCenter = (pRect.bottom + nRect.top) / 2;
+                line.style.setProperty("top", (gapCenter - spRect.top) + "px", "important");
+              }
             } else if (line) {
               line.remove();
             }
@@ -671,20 +1041,50 @@ func generateBaseScript(cfg *Config) string {
             spacer.remove();
           }
 
-          // Project conversation row color tinting
-          if (item.type === "row" && item.groupId) {
-            const pName = headerMap[item.groupId];
-            if (pName) {
-              const row = el.matches('[data-testid="conversation-row-sidebar"]')
-                ? el
-                : el.querySelector('[data-testid="conversation-row-sidebar"]');
-              if (isColorEnabled) {
-                el.setAttribute("data-swiss-project", pName);
-                if (row) row.setAttribute("data-swiss-project", pName);
-              } else {
-                el.removeAttribute("data-swiss-project");
-                if (row) row.removeAttribute("data-swiss-project");
+          // Project conversation row color tinting and pruned status
+          if (item.type === "row") {
+            const cid = (item.conversationId || item.id || "").replace(/^conversation-/, "");
+            const isPruned = cid && window.__swissPrunedConversations && window.__swissPrunedConversations.has(cid);
+            const row = el.matches('[data-testid="conversation-row-sidebar"]')
+              ? el
+              : el.querySelector('[data-testid="conversation-row-sidebar"]');
+
+            if (item.groupId) {
+              const pName = headerMap[item.groupId];
+              if (pName) {
+                if (isColorEnabled) {
+                  el.setAttribute("data-swiss-project", pName);
+                  if (row) row.setAttribute("data-swiss-project", pName);
+                } else {
+                  el.removeAttribute("data-swiss-project");
+                  if (row) row.removeAttribute("data-swiss-project");
+                }
               }
+            }
+
+            if (isPruned) {
+              el.setAttribute("data-swiss-pruned", "true");
+              if (row) row.setAttribute("data-swiss-pruned", "true");
+              el.setAttribute("title", "Conversation database was pruned or archived (file not found)");
+              if (row) row.setAttribute("title", "Conversation database was pruned or archived (file not found)");
+
+              let badge = (row || el).querySelector(".swiss-pruned-badge");
+              if (!badge) {
+                badge = document.createElement("span");
+                badge.className = "swiss-pruned-badge";
+                badge.textContent = " [Archived]";
+                const titleEl = (row || el).querySelector("span.truncate, span") || (row || el);
+                if (titleEl && titleEl !== (row || el)) {
+                  titleEl.appendChild(badge);
+                } else {
+                  (row || el).appendChild(badge);
+                }
+              }
+            } else {
+              el.removeAttribute("data-swiss-pruned");
+              if (row) row.removeAttribute("data-swiss-pruned");
+              const badge = (row || el).querySelector(".swiss-pruned-badge");
+              if (badge) badge.remove();
             }
           }
 
@@ -692,24 +1092,120 @@ func generateBaseScript(cfg *Config) string {
           if (item.type === "show-more" || (el.querySelector("button") && (el.querySelector("button").textContent.includes("See all") || el.querySelector("button").textContent.includes("See less") || el.querySelector("button").getAttribute("data-swiss-divider") === "true"))) {
             const btn = el.querySelector("button");
             if (btn) {
+              const projForShowMore = projects.find(p => p.showMoreIdx === idx || (item.groupId && p.groupId === item.groupId));
+              const gid = projForShowMore ? projForShowMore.groupId : (item.groupId || "");
+              if (gid) {
+                btn.setAttribute("data-swiss-group-id", gid);
+              }
+              const isManuallyExpanded = gid && window.__swissManuallyExpandedProjects.has(gid);
+              const hasExcessRows = projForShowMore && projForShowMore.rows.length > projForShowMore.targetLimit;
+              btn.setAttribute("data-swiss-can-expand", hasExcessRows ? "true" : "false");
+
               if (replaceSeeAllTriangle) {
-                const rawLabel = item.label || btn.getAttribute("data-swiss-orig-label") || btn.textContent.trim();
-                const isSeeAll = rawLabel.toLowerCase().includes("see all");
-                const symbol = isSeeAll ? "▾" : "▴";
+                let labelText = (item && item.label) || btn.getAttribute("data-swiss-orig-label") || btn.textContent.trim();
+                if (labelText === "▾" || labelText === "▴" || !labelText) {
+                  const origAttr = btn.getAttribute("data-swiss-orig-label");
+                  labelText = (origAttr && origAttr !== "▾" && origAttr !== "▴") ? origAttr : "";
+                }
+                const isNativeSeeAll = labelText.toLowerCase().includes("see all");
+                const isNativeSeeLess = labelText.toLowerCase().includes("see less");
+
+                let isExpanded = false;
+                if (projForShowMore) {
+                  const hasHiddenRows = projForShowMore.rows.some(rIdx => hiddenIndices.has(rIdx));
+                  if (hasHiddenRows) {
+                    isExpanded = false;
+                  } else if (isManuallyExpanded) {
+                    isExpanded = true;
+                  } else if (isNativeSeeLess) {
+                    isExpanded = true;
+                  } else {
+                    isExpanded = false;
+                  }
+                } else {
+                  isExpanded = isNativeSeeLess;
+                }
+
+                const symbol = isExpanded ? "▴" : "▾";
+                let titleText = isExpanded ? "Show fewer tabs" : "Show more tabs";
+                if (!isExpanded && isNativeSeeAll && labelText.includes("(") && labelText.includes(")")) {
+                  const m = labelText.match(/\((\d+)\)/);
+                  if (m) {
+                    titleText = "Show more tabs (" + m[1] + ")";
+                  }
+                }
                 btn.setAttribute("data-swiss-divider", "true");
-                btn.setAttribute("data-swiss-orig-label", rawLabel);
-                btn.setAttribute("title", rawLabel);
+                if (labelText && labelText !== "▾" && labelText !== "▴") {
+                  btn.setAttribute("data-swiss-orig-label", labelText);
+                }
+                btn.setAttribute("title", titleText);
+                btn.style.setProperty("display", "flex", "important");
+                btn.style.setProperty("justify-content", "center", "important");
+                btn.style.setProperty("align-items", "center", "important");
+                btn.style.setProperty("width", "100%%", "important");
+                btn.style.setProperty("height", "10px", "important");
+                btn.style.setProperty("background", "transparent", "important");
+                btn.style.setProperty("overflow", "visible", "important");
+                btn.style.setProperty("padding", "0", "important");
+                btn.style.setProperty("margin", "0 auto", "important");
+
+                if (el) {
+                  el.style.setProperty("display", "flex", "important");
+                  el.style.setProperty("flex-direction", "column", "important");
+                  el.style.setProperty("align-items", "center", "important");
+                  el.style.setProperty("justify-content", "flex-start", "important");
+                  el.style.setProperty("background", "transparent", "important");
+                  el.style.setProperty("overflow", "visible", "important");
+                  el.style.setProperty("z-index", "2", "important");
+                }
+                const btnParent = btn.parentElement;
+                if (btnParent && btnParent !== el) {
+                  btnParent.style.setProperty("display", "flex", "important");
+                  btnParent.style.setProperty("justify-content", "center", "important");
+                  btnParent.style.setProperty("align-items", "center", "important");
+                  btnParent.style.setProperty("width", "100%%", "important");
+                  btnParent.style.setProperty("height", "10px", "important");
+                  btnParent.style.setProperty("background", "transparent", "important");
+                  btnParent.style.setProperty("overflow", "visible", "important");
+                  btnParent.style.setProperty("padding", "0", "important");
+                  btnParent.style.setProperty("margin", "0 auto", "important");
+                }
+
                 const curTriangle = btn.querySelector(".swiss-convo-tabs-triangle");
                 if (!curTriangle || curTriangle.textContent !== symbol) {
                   btn.innerHTML = '<div class="swiss-convo-tabs-divider">' +
                     '<div class="swiss-convo-tabs-pill"><span class="swiss-convo-tabs-triangle">' + symbol + '</span></div>' +
-                    '<div class="swiss-convo-tabs-line"></div>' +
                   '</div>';
                 }
               } else if (btn.getAttribute("data-swiss-divider") === "true") {
                 btn.removeAttribute("data-swiss-divider");
                 const orig = btn.getAttribute("data-swiss-orig-label") || item.label || btn.getAttribute("title") || "See all";
                 btn.textContent = orig;
+              }
+
+              if (!btn.__swissToggleBound) {
+                btn.__swissToggleBound = true;
+                btn.addEventListener("click", (e) => {
+                  const curGid = btn.getAttribute("data-swiss-group-id");
+                  if (!curGid) return;
+                  if (window.__swissManuallyExpandedProjects.has(curGid)) {
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    window.__swissManuallyExpandedProjects.delete(curGid);
+                    if (typeof window.__swissUpdateTagsAndDraggables === "function") {
+                      window.__swissUpdateTagsAndDraggables();
+                    }
+                  } else if (btn.getAttribute("data-swiss-can-expand") === "true") {
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    window.__swissManuallyExpandedProjects.add(curGid);
+                    if (typeof window.__swissUpdateTagsAndDraggables === "function") {
+                      window.__swissUpdateTagsAndDraggables();
+                    }
+                  } else {
+                    window.__swissManuallyExpandedProjects.add(curGid);
+                  }
+                }, true);
               }
             }
           }
@@ -818,18 +1314,25 @@ func generateBaseScript(cfg *Config) string {
     } catch (_) {}
   }
 
-  // 3. Project Options Menu Enhancement (New Conversation, Archive, Set Color with 5 Presets + 10x10 Custom Palette)
-  const HUES = [0, 24, 42, 85, 145, 175, 205, 250, 285, 325];
-  const LIGHTNESSES = [90, 82, 74, 65, 56, 48, 40, 32, 24, 16];
+  // 3. Project Options Menu Enhancement (New Conversation, Archive, Set Color with 7 Presets + 10x10 Custom Palette)
+  const GREYSCALE = ['#ffffff', '#f4f4f5', '#e4e4e7', '#cbd5e1', '#94a3b8', '#64748b', '#475569', '#334155', '#1e293b', '#09090b'];
+  const CHROMATIC_HUES = [0, 40, 80, 120, 160, 200, 240, 280, 320];
+  const LIGHTNESSES = [92, 84, 76, 68, 60, 52, 44, 36, 28, 20];
   const GRID_COLORS = [];
   for (let r = 0; r < 10; r++) {
     const l = LIGHTNESSES[r];
     for (let c = 0; c < 10; c++) {
-      GRID_COLORS.push("hsl(" + HUES[c] + ", 82%%, " + l + "%%)");
+      if (c === 0) {
+        GRID_COLORS.push(GREYSCALE[r]);
+      } else {
+        GRID_COLORS.push("hsl(" + CHROMATIC_HUES[c - 1] + ", 82%%, " + l + "%%)");
+      }
     }
   }
 
   const PRESET_COLORS = [
+    { name: "Slate Black", hex: "#0f172a" },
+    { name: "Slate Grey", hex: "#64748b" },
     { name: "Blue", hex: "#0b57d0" },
     { name: "Purple", hex: "#7c3aed" },
     { name: "Emerald", hex: "#059669" },
@@ -859,15 +1362,100 @@ func generateBaseScript(cfg *Config) string {
   }
 
   // 3a. Dynamic scoped in-DOM project styling & cross-window sync
+  function persistProjectColorsToDisk(colors) {
+    try {
+      if (typeof require !== "undefined") {
+        const fs = require("fs");
+        const path = require("path");
+        const os = require("os");
+        let cfgDir = (typeof process !== "undefined" && process.env && process.env.ANTIGRAVITY_SWISS_CONFIG_DIR) || "";
+        if (!cfgDir) {
+          const platform = (typeof process !== "undefined" && process.platform) || "";
+          const home = (os && typeof os.homedir === "function") ? os.homedir() : "";
+          if (platform === "win32") {
+            const appData = (typeof process !== "undefined" && process.env && process.env.APPDATA) || "";
+            cfgDir = appData ? path.join(appData, "antigravity-swiss") : path.join(home, "AppData", "Roaming", "antigravity-swiss");
+          } else if (platform === "darwin") {
+            cfgDir = path.join(home, "Library", "Application Support", "antigravity-swiss");
+          } else {
+            const xdg = (typeof process !== "undefined" && process.env && process.env.XDG_CONFIG_HOME) || "";
+            cfgDir = xdg ? path.join(xdg, "antigravity-swiss") : path.join(home, ".config", "antigravity-swiss");
+          }
+        }
+        if (!fs.existsSync(cfgDir)) {
+          fs.mkdirSync(cfgDir, { recursive: true });
+        }
+        const configPath = path.join(cfgDir, "gui_improvements.json");
+        let data = {};
+        if (fs.existsSync(configPath)) {
+          try {
+            data = JSON.parse(fs.readFileSync(configPath, "utf8")) || {};
+          } catch (_) {}
+        }
+        data.project_colors = colors;
+        fs.writeFileSync(configPath, JSON.stringify(data, null, 2), "utf8");
+      }
+    } catch (e) {
+      console.warn("[SwissKnife] Failed to persist project colors to disk:", e);
+    }
+  }
+
   window.__swissDynamicColors = window.__swissDynamicColors || {};
+  if (configuredColors && typeof configuredColors === "object") {
+    Object.assign(window.__swissDynamicColors, configuredColors);
+  }
+  if (typeof localStorage !== "undefined") {
+    try {
+      const cached = localStorage.getItem("antigravity_swiss_project_colors");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && typeof parsed === "object") {
+          Object.assign(window.__swissDynamicColors, parsed);
+        }
+      } else {
+        localStorage.setItem("antigravity_swiss_project_colors", JSON.stringify(window.__swissDynamicColors));
+      }
+      const delCached = localStorage.getItem("antigravity_swiss_deleted_colors");
+      if (delCached) {
+        const delList = JSON.parse(delCached);
+        if (Array.isArray(delList)) {
+          delList.forEach(p => { delete window.__swissDynamicColors[p]; });
+        }
+      }
+    } catch (_) {}
+  }
 
   function renderDynamicProjectStyles(projName, colorHex) {
     try {
       if (colorHex) {
         window.__swissDynamicColors[projName] = colorHex;
+        if (typeof localStorage !== "undefined") {
+          try {
+            let delList = JSON.parse(localStorage.getItem("antigravity_swiss_deleted_colors") || "[]");
+            if (Array.isArray(delList)) {
+              delList = delList.filter(p => p !== projName);
+              localStorage.setItem("antigravity_swiss_deleted_colors", JSON.stringify(delList));
+            }
+          } catch (_) {}
+        }
       } else if (projName) {
         delete window.__swissDynamicColors[projName];
+        if (typeof localStorage !== "undefined") {
+          try {
+            let delList = JSON.parse(localStorage.getItem("antigravity_swiss_deleted_colors") || "[]");
+            if (!Array.isArray(delList)) delList = [];
+            if (!delList.includes(projName)) delList.push(projName);
+            localStorage.setItem("antigravity_swiss_deleted_colors", JSON.stringify(delList));
+          } catch (_) {}
+        }
       }
+
+      if (typeof localStorage !== "undefined") {
+        try {
+          localStorage.setItem("antigravity_swiss_project_colors", JSON.stringify(window.__swissDynamicColors));
+        } catch (_) {}
+      }
+      persistProjectColorsToDisk(window.__swissDynamicColors);
 
       let dynStyleEl = document.getElementById("antigravity-swiss-dynamic-colors");
       if (!dynStyleEl) {
@@ -892,13 +1480,19 @@ func generateBaseScript(cfg *Config) string {
         if (hex.startsWith("#")) {
           const rawHex = hex.slice(1);
           if (rawHex.length === 3) {
-            r = parseInt(rawHex[0] + rawHex[0], 16) || 11;
-            g = parseInt(rawHex[1] + rawHex[1], 16) || 87;
-            b = parseInt(rawHex[2] + rawHex[2], 16) || 208;
-          } else if (rawHex.length === 6) {
-            r = parseInt(rawHex.slice(0, 2), 16) || 11;
-            g = parseInt(rawHex.slice(2, 4), 16) || 87;
-            b = parseInt(rawHex.slice(4, 6), 16) || 208;
+            const pr = parseInt(rawHex[0] + rawHex[0], 16);
+            const pg = parseInt(rawHex[1] + rawHex[1], 16);
+            const pb = parseInt(rawHex[2] + rawHex[2], 16);
+            if (!isNaN(pr) && !isNaN(pg) && !isNaN(pb)) {
+              r = pr; g = pg; b = pb;
+            }
+          } else if (rawHex.length >= 6) {
+            const pr = parseInt(rawHex.slice(0, 2), 16);
+            const pg = parseInt(rawHex.slice(2, 4), 16);
+            const pb = parseInt(rawHex.slice(4, 6), 16);
+            if (!isNaN(pr) && !isNaN(pg) && !isNaN(pb)) {
+              r = pr; g = pg; b = pb;
+            }
           }
         }
 
@@ -908,6 +1502,7 @@ func generateBaseScript(cfg *Config) string {
         const effOpacity = (baseOpacity * lightMult).toFixed(2);
         const effHoverOpacity = Math.min(1.0, (baseOpacity + 0.08) * lightMult).toFixed(2);
         const effSelectedOpacity = Math.min(1.0, (baseOpacity + 0.16) * lightMult).toFixed(2);
+        const textColor = lum > 0.6 ? '#0f172a' : '#ffffff';
 
         cssRules.push(
           '/* Dynamic Project Label Card */' +
@@ -917,7 +1512,7 @@ func generateBaseScript(cfg *Config) string {
           '[data-swiss-project="' + safeP + '"] [data-project-card],' +
           '[data-project-card][data-swiss-project="' + safeP + '"] {' +
           '  background-color: ' + hex + ' !important;' +
-          '  color: #ffffff !important;' +
+          '  color: ' + textColor + ' !important;' +
           '  border-radius: 8px !important;' +
           '  border: none !important;' +
           '}' +
@@ -926,13 +1521,15 @@ func generateBaseScript(cfg *Config) string {
           '[data-swiss-project="' + safeP + '"][data-project-card] *,' +
           '[data-swiss-project="' + safeP + '"] [data-project-card] *,' +
           '[data-project-card][data-swiss-project="' + safeP + '"] * {' +
-          '  color: #ffffff !important;' +
+          '  color: ' + textColor + ' !important;' +
           '}' +
           '[data-swiss-project="' + safeP + '"] [class*="group/header"] button,' +
+          '[data-swiss-project="' + safeP + '"] [class*="group/header"] a,' +
+          '[data-swiss-project="' + safeP + '"] a[aria-label*="conversation" i] svg,' +
           '[data-swiss-project="' + safeP + '"] button[aria-label="Project options"] svg,' +
           '[data-swiss-project="' + safeP + '"] button[aria-label*="conversation"] svg {' +
-          '  color: #ffffff !important;' +
-          '  fill: #ffffff !important;' +
+          '  color: ' + textColor + ' !important;' +
+          '  fill: ' + textColor + ' !important;' +
           '}'
         );
 
@@ -1016,6 +1613,7 @@ func generateBaseScript(cfg *Config) string {
     }
   }
   window.__swissRenderDynamicProjectStyles = renderDynamicProjectStyles;
+  renderDynamicProjectStyles();
 
   // Cross-window BroadcastChannel setup
   if (!window.__swissSyncChannel && typeof BroadcastChannel !== "undefined") {
@@ -1118,7 +1716,7 @@ func generateBaseScript(cfg *Config) string {
       }
       if (!projectName) return;
 
-      const currentVer = "v2_archive";
+      const currentVer = "v3_palette_10x10";
       if (menu.__swissMenuVersion === currentVer && menu.__swissProjectBound === projectName && menu.querySelector("#swiss-menu-archive-action")?.onclick) return;
       menu.__swissMenuVersion = currentVer;
       menu.__swissProjectBound = projectName;
@@ -1169,8 +1767,28 @@ func generateBaseScript(cfg *Config) string {
             fiber = fiber.return;
           }
         } catch (_) {}
-        if (gid) {
-          window.location.href = "/?section=" + gid;
+        let matchedLink = null;
+        if (!gid) {
+          const links = document.querySelectorAll('a[aria-label="New Conversation in Project"]');
+          for (const l of links) {
+            const h = l.closest('.group\\/header, [data-project-card], [data-index], [data-swiss-project]');
+            if (h && (h.textContent || '').trim().toLowerCase().includes(projectName.toLowerCase())) {
+              matchedLink = l;
+              const m = (l.getAttribute('href') || '').match(/section=([a-zA-Z0-9_-]+)/);
+              if (m) { gid = m[1]; break; }
+            }
+          }
+        }
+        if (matchedLink) {
+          matchedLink.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+        } else if (gid) {
+          try {
+            window.history.pushState({}, "", "/?section=" + gid);
+            window.dispatchEvent(new PopStateEvent("popstate"));
+          } catch (_) {}
+          if (window.location.search !== "?section=" + gid) {
+            window.location.href = "/?section=" + gid;
+          }
         }
       };
 
@@ -1232,14 +1850,14 @@ func generateBaseScript(cfg *Config) string {
         '</div>' +
         '<div style="display: flex; gap: 6px; padding: 2px 8px 4px 8px; align-items: center;">' +
           PRESET_COLORS.map(function(p) {
-            return '<div class="swiss-preset-swatch swiss-menu-swatch" data-color="' + p.hex + '" title="' + p.name + '" style="width: 15px; height: 15px; border-radius: 50%%; background: ' + p.hex + '; cursor: pointer; transition: transform 0.12s; border: 1.5px solid transparent; flex-shrink: 0;"></div>';
+            return '<div class="swiss-preset-swatch swiss-menu-swatch" data-color="' + p.hex + '" title="' + p.name + '" style="width: 15px; height: 15px; border-radius: 50%%; background: ' + p.hex + '; cursor: pointer; transition: transform 0.12s; box-shadow: inset 0 0 0 1px rgba(128, 128, 128, 0.25); flex-shrink: 0; box-sizing: border-box;"></div>';
           }).join("") +
-          '<div id="swiss-custom-trigger" class="swiss-menu-custom-trigger" title="Custom 10x10 Palette" style="width: 15px; height: 15px; border-radius: 50%%; background: conic-gradient(from 0deg, #6c5ce7, #a259c6, #e05260, #e66735, #e69d28, #d4be22, #88b832, #3db862, #2ca88b, #259cb8, #2d7ee8, #4c6ee0, #6c5ce7); cursor: pointer; transition: transform 0.12s; border: 1.5px solid transparent; flex-shrink: 0;"></div>' +
+          '<div id="swiss-custom-trigger" class="swiss-menu-custom-trigger" title="Custom 10x10 Palette" style="width: 15px; height: 15px; border-radius: 50%%; background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red); cursor: pointer; transition: transform 0.12s, box-shadow 0.12s; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12); box-sizing: border-box;"></div>' +
         '</div>' +
         '<div id="swiss-custom-grid-container" class="swiss-menu-custom-grid" style="display: none; padding: 2px 6px 4px 6px;">' +
           '<div style="display: grid; grid-template-columns: repeat(10, 16px); gap: 3px; justify-content: center; background: var(--muted, rgba(0, 0, 0, 0.03)); padding: 6px; border-radius: 6px; border: 1px solid var(--border, rgba(0, 0, 0, 0.075));">' +
             GRID_COLORS.map(function(c) {
-              return '<div class="swiss-grid-cell" data-color="' + c + '" style="width: 16px; height: 16px; border-radius: 50%%; background: ' + c + '; cursor: pointer; transition: transform 0.12s;"></div>';
+              return '<div class="swiss-grid-cell" data-color="' + c + '" style="width: 16px; height: 16px; border-radius: 50%%; background: ' + c + '; cursor: pointer; transition: transform 0.12s; box-shadow: inset 0 0 0 1px rgba(128, 128, 128, 0.25); box-sizing: border-box;"></div>';
             }).join("") +
           '</div>' +
         '</div>';
@@ -1357,29 +1975,87 @@ func generateBaseScript(cfg *Config) string {
 
   window.__swissEnhanceProjectOptionsMenu = enhanceProjectOptionsMenu;
   window.__swissUpdateTagsAndDraggables = updateTagsAndDraggables;
+  document.querySelectorAll('[role="menu"]').forEach(m => { delete m.__swissMenuVersion; });
+
+  function normalizeNewConversationButton() {
+    try {
+      const btn = document.querySelector('[data-testid="new-conversation-button"]');
+      if (!btn) return;
+      const isConv = Boolean(
+        (window.location.pathname && window.location.pathname.startsWith('/c/')) ||
+        document.querySelector('[data-testid="conversation-view"]') ||
+        document.querySelector('[data-testid="conversation-row-sidebar"][data-selected="true"]')
+      );
+      const isHistory = Boolean(
+        (window.location.pathname && window.location.pathname.startsWith('/history')) ||
+        document.querySelector('[data-testid="history-button"].active') ||
+        document.querySelector('[data-testid="history-button"][data-selected="true"]')
+      );
+      const isStage = Boolean(
+        document.body.getAttribute('data-swiss-stage-active') ||
+        document.querySelector('.swiss-left-nav-tab.active')
+      );
+      const isUnselected = isConv || isHistory || isStage || (window.location.pathname && window.location.pathname !== '/');
+      if (isUnselected) {
+        btn.setAttribute('data-selected', 'false');
+        btn.setAttribute('aria-selected', 'false');
+        btn.removeAttribute('data-state');
+        btn.classList.remove('active');
+        btn.classList.add('unselected');
+      } else {
+        btn.setAttribute('data-selected', 'true');
+        btn.setAttribute('aria-selected', 'true');
+        btn.classList.remove('unselected');
+      }
+    } catch (_) {}
+  }
+  if (!window.normalizeNewConversationButton) {
+    window.normalizeNewConversationButton = normalizeNewConversationButton;
+  }
+  normalizeNewConversationButton();
 
   let isUpdatingSwiss = false;
+  let pendingSwissUpdate = false;
   let scheduledRafSwiss = null;
 
   function triggerSwissUpdate() {
-    if (isUpdatingSwiss) return;
+    if (isUpdatingSwiss) {
+      pendingSwissUpdate = true;
+      return;
+    }
     if (scheduledRafSwiss) return;
     scheduledRafSwiss = requestAnimationFrame(() => {
       scheduledRafSwiss = null;
-      if (isUpdatingSwiss) return;
+      if (isUpdatingSwiss) {
+        pendingSwissUpdate = true;
+        return;
+      }
       isUpdatingSwiss = true;
+      pendingSwissUpdate = false;
       try {
         if (typeof window.__swissUpdateTagsAndDraggables === "function") {
           window.__swissUpdateTagsAndDraggables();
         }
+        if (typeof window.normalizeNewConversationButton === "function") {
+          window.normalizeNewConversationButton();
+        }
       } finally {
         setTimeout(() => {
           isUpdatingSwiss = false;
-        }, 50);
+          if (pendingSwissUpdate) {
+            pendingSwissUpdate = false;
+            triggerSwissUpdate();
+          }
+        }, 16);
       }
     });
   }
 
+  try {
+    if (typeof updateTagsAndDraggables === "function") {
+      updateTagsAndDraggables();
+    }
+  } catch (_) {}
   triggerSwissUpdate();
 
   // 1. Passive scroll listeners
@@ -1416,13 +2092,24 @@ func generateBaseScript(cfg *Config) string {
           t.id === "swiss-toast-notification" ||
           (typeof t.id === "string" && t.id.startsWith("swiss-")) ||
           t.hasAttribute?.("data-swiss-divider") || 
-          t.hasAttribute?.("data-swiss-project") ||
+          t.classList?.contains("swiss-pruned-badge") ||
           t.classList?.contains("swiss-convo-tabs-divider") || 
           t.classList?.contains("swiss-convo-tabs-pill") ||
           t.classList?.contains("swiss-project-bottom-spacer") ||
           t.classList?.contains("swiss-project-spacer-line") ||
-          t.closest?.("[id^='swiss-'], [class*='swiss-'], [data-swiss-project]")) {
+          t.closest?.("[id^='swiss-'], [class*='swiss-']")) {
         continue;
+      }
+      if (m.type === "childList" && (m.addedNodes.length > 0 || m.removedNodes.length > 0)) {
+        const allSwiss = Array.from(m.addedNodes).concat(Array.from(m.removedNodes)).every(n =>
+          n.nodeType === 1 && (
+            n.classList?.contains("swiss-project-bottom-spacer") ||
+            n.classList?.contains("swiss-project-spacer-line") ||
+            n.classList?.contains("swiss-pruned-badge") ||
+            n.classList?.contains("swiss-convo-tabs-divider")
+          )
+        );
+        if (allSwiss) continue;
       }
       if (t.getAttribute?.("role") === "menu" || t.querySelector?.('[role="menu"]')) {
         menuAppeared = true;
@@ -1442,7 +2129,7 @@ func generateBaseScript(cfg *Config) string {
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ["data-selected", "data-index", "data-testid", "data-open", "role"]
+    attributeFilter: ["data-selected", "data-index", "data-testid", "data-open", "role", "aria-expanded"]
   });
 
   // 4. Fallback interval so no virtualized row ever misses its project styling
@@ -1460,7 +2147,7 @@ func generateBaseScript(cfg *Config) string {
     dragEnabled: isDragEnabled,
     taggedCount: document.querySelectorAll("[data-swiss-project]").length
   };
-})();`, string(cssJSON), enabled, colorStylingEnabled, dragRearrangeEnabled, string(orderJSON), string(archivedJSON), tabsMode, tabsFixedLimit, tabsAgeThreshold, tabsMin, tabsMax, replaceSeeAllTriangle, consistentProjectSpacing, consistentProjectSpacingLine, isBorderMode, borderWidth, isLeftBarMode, fontWeight)
+})();`, string(cssJSON), enabled, colorStylingEnabled, dragRearrangeEnabled, string(orderJSON), string(archivedJSON), string(colorsJSON), tabsMode, tabsFixedLimit, tabsAgeThreshold, tabsMin, tabsMax, replaceSeeAllTriangle, consistentProjectSpacing, consistentProjectSpacingLine, isBorderMode, borderWidth, isLeftBarMode, fontWeight)
 
 	return baseScript
 }

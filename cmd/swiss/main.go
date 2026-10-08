@@ -496,6 +496,7 @@ func runSwitch(args []string) {
 		}
 		profStore, _ := fingerprint.NewStore("")
 		_ = keyring.SyncAllSurfaces(acc, allEmails, profStore)
+		_, _ = gui.NewInjector(0).RefreshUserStatus()
 	}
 	fmt.Printf("[OK] Successfully switched active account to: %s (direct)\n", email)
 }
@@ -802,7 +803,20 @@ func runPatch(args []string) {
 		if st.Error != "" {
 			fmt.Printf("  Error         : %s\n", st.Error)
 		}
-	case "install", "apply":
+	case "apply":
+		fmt.Println("Applying styles and enhancements to Antigravity desktop app...")
+		res, err := store.Apply()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Apply failed: %v\n", err)
+			os.Exit(1)
+		}
+		if *jsonOut {
+			b, _ := json.MarshalIndent(res, "", "  ")
+			fmt.Println(string(b))
+			return
+		}
+		fmt.Printf("Result: %s\n", res.Message)
+	case "install":
 		fmt.Println("Installing persistent loader into Antigravity desktop app...")
 		res, err := store.InstallDesktopLoader()
 		if err != nil {

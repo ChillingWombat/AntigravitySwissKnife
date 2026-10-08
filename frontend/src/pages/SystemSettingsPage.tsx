@@ -22,6 +22,12 @@ import {
   RotateCcw,
   Star,
   AlertTriangle,
+  Globe,
+  Folder,
+  FileText,
+  Mic,
+  Bookmark,
+  Filter,
 } from 'lucide-react'
 import type {
   SystemStatus,
@@ -74,12 +80,47 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
     return localStorage.getItem('antigravity_close_to_tray_enabled') === 'true'
   })
 
+  // Preferred IDE state
+  const [preferredIDE, setPreferredIDE] = useState<string>(() => {
+    return localStorage.getItem('antigravity_preferred_ide') || 'code'
+  })
+  const [ideFeedback, setIdeFeedback] = useState<string | null>(null)
+  const [isSavingIDE, setIsSavingIDE] = useState<boolean>(false)
+
+  const handleSaveIDE = async (newIDE: string) => {
+    setIsSavingIDE(true)
+    setPreferredIDE(newIDE)
+    localStorage.setItem('antigravity_preferred_ide', newIDE)
+    try {
+      await api.setPreferredIDE(newIDE)
+      setIdeFeedback('Saved preferred IDE to configuration.')
+    } catch {
+      setIdeFeedback('Saved preferred IDE locally.')
+    } finally {
+      setIsSavingIDE(false)
+      setTimeout(() => setIdeFeedback(null), 3000)
+    }
+  }
+
   // Storage and Path state
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null)
   const [selectedStorageMode, setSelectedStorageMode] = useState<'system_default' | 'app_portable'>('system_default')
   const [migrateData, setMigrateData] = useState<boolean>(true)
   const [isSavingStorage, setIsSavingStorage] = useState<boolean>(false)
   const [storageFeedback, setStorageFeedback] = useState<{ text: string; isError: boolean } | null>(null)
+
+  // Quick Memos Storage & Scope Settings state
+  const [memoStorageLocation, setMemoStorageLocation] = useState<'global' | 'project'>(() => {
+    return (localStorage.getItem('antigravity_memo_storage_location') as 'global' | 'project') || 'global'
+  })
+  const [memoViewScope, setMemoViewScope] = useState<'all' | 'current'>(() => {
+    return (localStorage.getItem('antigravity_memo_view_scope') as 'all' | 'current') || 'all'
+  })
+  const [memoSearchScope, setMemoSearchScope] = useState<'text' | 'all'>(() => {
+    return (localStorage.getItem('antigravity_memo_search_scope') as 'text' | 'all') || 'text'
+  })
+  const [memoConfigFeedback, setMemoConfigFeedback] = useState<{ text: string; isError: boolean } | null>(null)
+  const [isSavingMemoConfig, setIsSavingMemoConfig] = useState<boolean>(false)
 
   // 3 App Zones, Custom Paths & Per-Account Overrides state
   const [accounts, setAccounts] = useState<any[]>([])
@@ -227,11 +268,66 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
     }
   }
 
+  const loadMemoSettings = async () => {
+    try {
+      const res = await api.getMemoConfig()
+      if (res && res.success && res.config) {
+        const cfg = res.config
+        if (cfg.storage_location === 'global' || cfg.storage_location === 'project') {
+          setMemoStorageLocation(cfg.storage_location)
+          localStorage.setItem('antigravity_memo_storage_location', cfg.storage_location)
+        }
+        if (cfg.view_scope === 'all' || cfg.view_scope === 'current') {
+          setMemoViewScope(cfg.view_scope)
+          localStorage.setItem('antigravity_memo_view_scope', cfg.view_scope)
+        }
+        if (cfg.search_scope === 'text' || cfg.search_scope === 'all') {
+          setMemoSearchScope(cfg.search_scope)
+          localStorage.setItem('antigravity_memo_search_scope', cfg.search_scope)
+        }
+      }
+    } catch (err: any) {
+      console.error('Failed to load memo settings:', err)
+    }
+  }
+
+  const handleUpdateMemoConfig = async (
+    newStorage: 'global' | 'project',
+    newView: 'all' | 'current',
+    newSearch: 'text' | 'all'
+  ) => {
+    setMemoStorageLocation(newStorage)
+    setMemoViewScope(newView)
+    setMemoSearchScope(newSearch)
+    localStorage.setItem('antigravity_memo_storage_location', newStorage)
+    localStorage.setItem('antigravity_memo_view_scope', newView)
+    localStorage.setItem('antigravity_memo_search_scope', newSearch)
+    setIsSavingMemoConfig(true)
+    try {
+      const res = await api.updateMemoConfig({
+        storage_location: newStorage,
+        view_scope: newView,
+        search_scope: newSearch,
+      })
+      if (res && res.success) {
+        setMemoConfigFeedback({ text: 'Quick Memos settings updated and synchronized with backend.', isError: false })
+      } else {
+        setMemoConfigFeedback({ text: 'Settings updated locally.', isError: false })
+      }
+    } catch {
+      setMemoConfigFeedback({ text: 'Saved settings locally (backend unreachable).', isError: false })
+    } finally {
+      setIsSavingMemoConfig(false)
+      setTimeout(() => setMemoConfigFeedback(null), 3500)
+    }
+  }
+
   useEffect(() => {
     loadInstallations()
     loadPasswordSettings()
     loadStorageSettings()
     loadPrivacySettings()
+    loadMemoSettings()
   }, [])
 
   const handleSetPassword = async () => {
@@ -940,6 +1036,115 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Preferred IDE Workspace Integration Card */}
+          <div className="google-card">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '8px',
+                    backgroundColor: 'var(--primary-light)',
+                    border: '1px solid var(--border)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--primary)',
+                  }}
+                >
+                  <Code size={18} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+                    IDE Workspace Integration
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    Configure your preferred code editor or IDE when launching folders as workspaces from the File Explorer toolbar.
+                  </div>
+                </div>
+              </div>
+
+              <span className="badge-chip badge-green">
+                ACTIVE: {preferredIDE.toUpperCase()}
+              </span>
+            </div>
+
+            {ideFeedback && (
+              <div
+                style={{
+                  backgroundColor: 'var(--green-bg)',
+                  color: 'var(--green)',
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  marginBottom: '16px',
+                }}
+              >
+                {ideFeedback}
+              </div>
+            )}
+
+            <div
+              style={{
+                backgroundColor: 'var(--canvas)',
+                border: '1px solid var(--border)',
+                borderRadius: '12px',
+                padding: '16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
+              }}
+            >
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                  Preferred IDE / Editor:
+                </label>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', maxWidth: '450px' }}>
+                  <select
+                    value={['code', 'cursor', 'windsurf', 'codium', 'zed'].includes(preferredIDE.toLowerCase()) ? preferredIDE.toLowerCase() : 'custom'}
+                    onChange={(e) => {
+                      if (e.target.value !== 'custom') {
+                        handleSaveIDE(e.target.value)
+                      }
+                    }}
+                    style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', color: 'var(--text)', fontSize: '12px' }}
+                  >
+                    <option value="code">VS Code (`code`)</option>
+                    <option value="cursor">Cursor (`cursor`)</option>
+                    <option value="windsurf">Windsurf (`windsurf`)</option>
+                    <option value="codium">VSCodium (`codium`)</option>
+                    <option value="zed">Zed (`zed`)</option>
+                    <option value="custom">Custom Command / Binary</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                  Command Binary / Executable:
+                </label>
+                <div style={{ display: 'flex', gap: '10px', maxWidth: '450px' }}>
+                  <input
+                    type="text"
+                    value={preferredIDE}
+                    onChange={(e) => setPreferredIDE(e.target.value)}
+                    placeholder="e.g. code, cursor, windsurf, codium, zed"
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    onClick={() => handleSaveIDE(preferredIDE)}
+                    disabled={isSavingIDE}
+                    className="btn-pill-primary"
+                    style={{ fontSize: '11px', padding: '6px 14px' }}
+                  >
+                    {isSavingIDE ? 'Saving...' : 'Save IDE'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </>
       )}
 
@@ -1113,6 +1318,289 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               >
                 {isSavingStorage ? 'Applying...' : 'Apply Storage Setting'}
               </button>
+            </div>
+          </div>
+
+          {/* Quick Memos Storage & Scope Settings Card */}
+          <div className="google-card">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+                  Quick Memos Storage & Scope Settings
+                </div>
+                <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
+                  Configure workspace-specific vs. global storage persistence, view boundaries, and search scopes for Quick Memos.
+                </div>
+              </div>
+
+              <div className="badge-chip badge-tonal" style={{ fontSize: '11.5px', padding: '5px 12px' }}>
+                <Bookmark size={13} />
+                <span>{memoStorageLocation === 'project' ? 'Per-Project Storage' : 'Global Shared'}</span>
+              </div>
+            </div>
+
+            {memoConfigFeedback && (
+              <div
+                style={{
+                  backgroundColor: memoConfigFeedback.isError ? 'var(--red-bg)' : 'var(--green-bg)',
+                  color: memoConfigFeedback.isError ? 'var(--red)' : 'var(--green)',
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  marginBottom: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                <Check size={14} />
+                <span>{memoConfigFeedback.text}</span>
+              </div>
+            )}
+
+            {/* 1. Storage Location */}
+            <div style={{ marginBottom: '20px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '10px' }}>
+                Storage Location
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                {/* Global Shared Storage */}
+                <div
+                  onClick={() => handleUpdateMemoConfig('global', memoViewScope, memoSearchScope)}
+                  style={{
+                    border: memoStorageLocation === 'global' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                    backgroundColor: memoStorageLocation === 'global' ? 'rgba(26, 115, 232, 0.04)' : 'var(--canvas)',
+                    borderRadius: '12px',
+                    padding: '16px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Globe size={18} color={memoStorageLocation === 'global' ? 'var(--primary)' : 'var(--text-muted)'} />
+                      <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)' }}>
+                        Global Shared Storage
+                      </span>
+                    </div>
+                    <input
+                      type="radio"
+                      name="memo_storage_location"
+                      checked={memoStorageLocation === 'global'}
+                      onChange={() => handleUpdateMemoConfig('global', memoViewScope, memoSearchScope)}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </div>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    Shared across all workspaces in central app configuration directory (<code>~/.config/antigravity-swiss/memos.json</code>).
+                  </p>
+                </div>
+
+                {/* Per-Project Storage */}
+                <div
+                  onClick={() => handleUpdateMemoConfig('project', memoViewScope, memoSearchScope)}
+                  style={{
+                    border: memoStorageLocation === 'project' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                    backgroundColor: memoStorageLocation === 'project' ? 'rgba(26, 115, 232, 0.04)' : 'var(--canvas)',
+                    borderRadius: '12px',
+                    padding: '16px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Folder size={18} color={memoStorageLocation === 'project' ? 'var(--primary)' : 'var(--text-muted)'} />
+                      <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)' }}>
+                        Per-Project Storage
+                      </span>
+                    </div>
+                    <input
+                      type="radio"
+                      name="memo_storage_location"
+                      checked={memoStorageLocation === 'project'}
+                      onChange={() => handleUpdateMemoConfig('project', memoViewScope, memoSearchScope)}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </div>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    Stored in <code>.antigravity/memos.json</code> within each project's workspace directory.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. View Scope */}
+            <div style={{ marginBottom: '20px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '10px' }}>
+                View Scope
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                {/* All Projects */}
+                <div
+                  onClick={() => handleUpdateMemoConfig(memoStorageLocation, 'all', memoSearchScope)}
+                  style={{
+                    border: memoViewScope === 'all' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                    backgroundColor: memoViewScope === 'all' ? 'rgba(26, 115, 232, 0.04)' : 'var(--canvas)',
+                    borderRadius: '12px',
+                    padding: '16px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Layers size={18} color={memoViewScope === 'all' ? 'var(--primary)' : 'var(--text-muted)'} />
+                      <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)' }}>
+                        All Projects
+                      </span>
+                    </div>
+                    <input
+                      type="radio"
+                      name="memo_view_scope"
+                      checked={memoViewScope === 'all'}
+                      onChange={() => handleUpdateMemoConfig(memoStorageLocation, 'all', memoSearchScope)}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </div>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    Display all memos across all projects and global storage.
+                  </p>
+                </div>
+
+                {/* Current Project Only */}
+                <div
+                  onClick={() => handleUpdateMemoConfig(memoStorageLocation, 'current', memoSearchScope)}
+                  style={{
+                    border: memoViewScope === 'current' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                    backgroundColor: memoViewScope === 'current' ? 'rgba(26, 115, 232, 0.04)' : 'var(--canvas)',
+                    borderRadius: '12px',
+                    padding: '16px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Filter size={18} color={memoViewScope === 'current' ? 'var(--primary)' : 'var(--text-muted)'} />
+                      <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)' }}>
+                        Current Project Only
+                      </span>
+                    </div>
+                    <input
+                      type="radio"
+                      name="memo_view_scope"
+                      checked={memoViewScope === 'current'}
+                      onChange={() => handleUpdateMemoConfig(memoStorageLocation, 'current', memoSearchScope)}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </div>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    Restrict the memo view to the currently active project workspace.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Default Search Scope */}
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '10px' }}>
+                Default Search Scope
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                {/* Text Memos Only (Default) */}
+                <div
+                  onClick={() => handleUpdateMemoConfig(memoStorageLocation, memoViewScope, 'text')}
+                  style={{
+                    border: memoSearchScope === 'text' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                    backgroundColor: memoSearchScope === 'text' ? 'rgba(26, 115, 232, 0.04)' : 'var(--canvas)',
+                    borderRadius: '12px',
+                    padding: '16px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <FileText size={18} color={memoSearchScope === 'text' ? 'var(--primary)' : 'var(--text-muted)'} />
+                      <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)' }}>
+                        Text Memos Only (Default)
+                      </span>
+                    </div>
+                    <input
+                      type="radio"
+                      name="memo_search_scope"
+                      checked={memoSearchScope === 'text'}
+                      onChange={() => handleUpdateMemoConfig(memoStorageLocation, memoViewScope, 'text')}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </div>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    Search queries only match text memos.
+                  </p>
+                </div>
+
+                {/* Text and Voice Memos */}
+                <div
+                  onClick={() => handleUpdateMemoConfig(memoStorageLocation, memoViewScope, 'all')}
+                  style={{
+                    border: memoSearchScope === 'all' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                    backgroundColor: memoSearchScope === 'all' ? 'rgba(26, 115, 232, 0.04)' : 'var(--canvas)',
+                    borderRadius: '12px',
+                    padding: '16px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Mic size={18} color={memoSearchScope === 'all' ? 'var(--primary)' : 'var(--text-muted)'} />
+                      <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)' }}>
+                        Text and Voice Memos
+                      </span>
+                    </div>
+                    <input
+                      type="radio"
+                      name="memo_search_scope"
+                      checked={memoSearchScope === 'all'}
+                      onChange={() => handleUpdateMemoConfig(memoStorageLocation, memoViewScope, 'all')}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </div>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    Search queries match both text memos and transcribed voice memos.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Card Footer Info */}
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px', fontSize: '11px', color: 'var(--text-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                Active storage: <code>{memoStorageLocation === 'project' ? '<workspace>/.antigravity/memos.json' : '~/.config/antigravity-swiss/memos.json'}</code>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {isSavingMemoConfig && <RefreshCw size={12} className="animate-spin" />}
+                <span>{isSavingMemoConfig ? 'Syncing...' : 'Synchronized with backend'}</span>
+              </div>
             </div>
           </div>
 
@@ -2005,7 +2493,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               <div
                 style={{
                   backgroundColor: 'var(--surface)',
-                  borderRadius: '16px',
+                  borderRadius: '10px',
                   padding: '24px',
                   maxWidth: '480px',
                   width: '90%',

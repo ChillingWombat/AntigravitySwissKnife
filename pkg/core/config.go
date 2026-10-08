@@ -12,6 +12,7 @@ import (
 type Config struct {
 	AutoSwitchEnabled          bool     `json:"auto_switch_enabled"`
 	AutoSwitchThreshold        float64  `json:"auto_switch_threshold"`
+	AutoSwitchWeeklyThreshold  float64  `json:"auto_switch_weekly_threshold"`
 	SwitchMode                 string   `json:"switch_mode,omitempty"`
 	PollingIntervalSec         int      `json:"polling_interval_seconds"`
 	ActivePollingIntervalSec   int      `json:"active_polling_interval_seconds"`
@@ -39,8 +40,17 @@ type Config struct {
 	AgyCLIPath                 string                       `json:"agy_cli_path,omitempty"`
 	VSCodeExtensionPath        string                       `json:"vscode_extension_path,omitempty"`
 	AppAccountOverrides        map[string]map[string]string `json:"app_account_overrides,omitempty"`
+	Memo                       MemoConfig                   `json:"memo"`
+	PreferredIDE               string                       `json:"preferred_ide,omitempty"`
 
 	mu sync.RWMutex `json:"-"`
+}
+
+// MemoConfig represents settings for the Quick Memos extension.
+type MemoConfig struct {
+	StorageLocation string `json:"storage_location"` // "global" | "project"
+	ViewScope       string `json:"view_scope"`       // "all" | "current"
+	SearchScope     string `json:"search_scope"`     // "text" | "all"
 }
 
 // DefaultConfig returns default configuration parameters.
@@ -48,6 +58,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		AutoSwitchEnabled:          true,
 		AutoSwitchThreshold:        DefaultAutoSwitchThresholdFraction,
+		AutoSwitchWeeklyThreshold:  DefaultAutoSwitchWeeklyThresholdFraction,
 		SwitchMode:                 DefaultSwitchMode,
 		AutoImportActiveAccount:    false,
 		PollingIntervalSec:         DefaultPollingIntervalSeconds,
@@ -60,13 +71,19 @@ func DefaultConfig() *Config {
 		AllowAICreditsUsage:        false,
 		AllowNonGeminiNativeModels: false,
 		ModelSourceHierarchy:       []string{"gemini", "custom", "non_gemini", "credits"},
-		DefaultGeminiModel:         "gemini-3.8-flash",
+		DefaultGeminiModel:         "gemini-3.8-flash-high",
 		DefaultCustomModel:         "",
 		DefaultNonGeminiModel:      "claude-opus-4-6",
 		DefaultGeminiReasoningLevel: "high",
 		StorageMode:                "system_default",
 		AnonymousErrorReports:      true,
 		AnonymousTelemetry:         false,
+		Memo: MemoConfig{
+			StorageLocation: "global",
+			ViewScope:       "all",
+			SearchScope:     "text",
+		},
+		PreferredIDE: "code",
 	}
 }
 
@@ -86,6 +103,21 @@ func LoadConfig() (*Config, error) {
 	cfg := DefaultConfig()
 	if err := json.Unmarshal(data, cfg); err != nil {
 		return DefaultConfig(), nil // fallback safely
+	}
+	if cfg.AutoSwitchThreshold <= 0 {
+		cfg.AutoSwitchThreshold = DefaultAutoSwitchThresholdFraction
+	}
+	if cfg.AutoSwitchWeeklyThreshold <= 0 {
+		cfg.AutoSwitchWeeklyThreshold = DefaultAutoSwitchWeeklyThresholdFraction
+	}
+	if cfg.Memo.StorageLocation == "" {
+		cfg.Memo.StorageLocation = "global"
+	}
+	if cfg.Memo.ViewScope == "" {
+		cfg.Memo.ViewScope = "all"
+	}
+	if cfg.Memo.SearchScope == "" {
+		cfg.Memo.SearchScope = "text"
 	}
 	return cfg, nil
 }
@@ -199,5 +231,61 @@ func (c *Config) GetAccountOverride(appType, email string) string {
 	}
 	return c.AppAccountOverrides[appType][email]
 }
+
+// GetMemoConfig returns thread-safe copy of memo configuration.
+func (c *Config) GetMemoConfig() MemoConfig {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	res := c.Memo
+	if res.StorageLocation == "" {
+		res.StorageLocation = "global"
+	}
+	if res.ViewScope == "" {
+		res.ViewScope = "all"
+	}
+	if res.SearchScope == "" {
+		res.SearchScope = "text"
+	}
+	return res
+}
+
+// SetMemoConfig updates and persists memo configuration.
+func (c *Config) SetMemoConfig(cfg MemoConfig) error {
+	c.mu.Lock()
+	if cfg.StorageLocation == "" {
+		cfg.StorageLocation = "global"
+	}
+	if cfg.ViewScope == "" {
+		cfg.ViewScope = "all"
+	}
+	if cfg.SearchScope == "" {
+		cfg.SearchScope = "text"
+	}
+	c.Memo = cfg
+	c.mu.Unlock()
+	return c.Save()
+}
+
+// GetPreferredIDE returns the configured preferred IDE or default "code".
+func (c *Config) GetPreferredIDE() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.PreferredIDE == "" {
+		return "code"
+	}
+	return c.PreferredIDE
+}
+
+// SetPreferredIDE sets and persists the preferred IDE.
+func (c *Config) SetPreferredIDE(ide string) error {
+	c.mu.Lock()
+	c.PreferredIDE = ide
+	if c.PreferredIDE == "" {
+		c.PreferredIDE = "code"
+	}
+	c.mu.Unlock()
+	return c.Save()
+}
+
 
 

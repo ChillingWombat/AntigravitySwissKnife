@@ -35,6 +35,8 @@ class AccountQuotaState:
     notes: str = ""
     password: str = ""
     reset_seconds_weekly: float = 0.0
+    enable_credit_overages: bool = False
+    credits: int = 0
 
     @property
     def hours_until_reset(self) -> float:
@@ -71,9 +73,27 @@ class AccountQuotaState:
             # Resets within 5 hours! Quota refreshes back to 100% (1.0).
             # Replenished capacity is available for (5.0 - h) / 5.0 of the window.
             replenished_boost = (1.0 - cur) * ((5.0 - h) / 5.0)
-            return max(0.0, min(1.0, cur + replenished_boost))
+            avail = max(0.0, min(1.0, cur + replenished_boost))
         else:
-            return cur
+            avail = cur
+
+        has_credits = self.enable_credit_overages and self.credits > 0
+        qwk = max(0.0, min(1.0, float(self.quota_weekly)))
+        if not has_credits and qwk <= 0.05:
+            sec_weekly = float(self.reset_seconds_weekly)
+            weekly_avail = compute_effective_weekly_available(self.quota_weekly, sec_weekly)
+            avail = min(avail, weekly_avail)
+        return avail
+
+
+def compute_effective_weekly_available(weekly_frac: float, reset_seconds_weekly: float) -> float:
+    """Calculates available weekly quota in the next 5 hours with reset replenishing."""
+    cur = max(0.0, min(1.0, float(weekly_frac)))
+    if 0.0 < reset_seconds_weekly <= 18000.0:
+        h = reset_seconds_weekly / 3600.0
+        replenished_boost = (1.0 - cur) * ((5.0 - h) / 5.0)
+        return max(0.0, min(1.0, cur + replenished_boost))
+    return cur
 
 
 def compute_fleet_quota_summary(
@@ -164,12 +184,17 @@ def build_account_quota_states(
 
         # Extract plan tier or default based on account metadata/label
         explicit_tier = str(acc.get("plan_tier", "")).strip()
+        notes = str(acc.get("notes", "") or "")
         if not explicit_tier:
             if "ultra" in label.lower() or "ultra" in email.lower():
                 explicit_tier = "Ultra 20X"
             elif "edu" in label.lower() or "edu" in email.lower():
                 explicit_tier = "Edu"
-            elif "trial" in label.lower():
+            elif (
+                any(k in label.lower() or k in email.lower() for k in ("trial", "promo", "jio", "partner", "bundle"))
+                or is_trial_warning_text(label)
+                or is_trial_warning_text(notes)
+            ):
                 explicit_tier = "Pro - Trial"
             elif "pro" in label.lower() or "dev" in email.lower() or "lead" in label.lower():
                 explicit_tier = "Pro"
@@ -177,6 +202,19 @@ def build_account_quota_states(
                 explicit_tier = "Plus"
             else:
                 explicit_tier = "Pro" if is_active else "Free"
+        else:
+            norm = normalize_plan_tier(explicit_tier)
+            t_status = str(acc.get("trial_status", "")).lower()
+            if (norm == "Pro" or not norm) and (
+                is_trial_warning_text(notes)
+                or is_trial_warning_text(label)
+                or bool(acc.get("is_trial", False))
+                or "trial" in t_status
+                or "promo" in t_status
+            ):
+                explicit_tier = "Pro - Trial"
+            else:
+                explicit_tier = norm
 
         prio = str(acc.get("priority", "High") or "High").strip().capitalize()
         if prio not in ("High", "Mid", "Low"):
@@ -216,14 +254,42 @@ def classify_error_status(status_code: int = 0, error_code: str = "", error_msg:
     return "ERROR"
 
 
+def is_trial_warning_text(text: str) -> bool:
+    """Checks if any warning or tooltip text matches known trial restriction notices."""
+    if not text:
+        return False
+    low = text.lower()
+    return (
+        "third-party model access will no longer be available on your current plan" in low
+        or "sonnet 5.5 is now available on paid pro and ultra plans" in low
+        or "paid pro and ultra plans" in low
+        or "will no longer be available on your current plan" in low
+        or ("third-party model access" in low and ("current plan" in low or "november 2" in low))
+        or "current plan starting on november 2, 2026" in low
+        or "starter quota" in low
+        or "trial" in low
+        or "promo" in low
+        or "partner offer" in low
+        or "jio" in low
+    )
+
+
 def normalize_plan_tier(tier: str) -> str:
     """Normalizes raw plan tier strings to canonical representations."""
     if not tier:
         return "Free"
     t = tier.strip().lower()
-    if t in ("free", "free-tier", "tier_free"):
+    if t in ("free", "free-tier", "tier_free", "starter", "starter-tier", "starter quota"):
         return "Free"
-    if "trial" in t:
+    if (
+        "trial" in t
+        or "promo" in t
+        or "starter pro" in t
+        or "jio" in t
+        or "partner" in t
+        or "bundle" in t
+        or is_trial_warning_text(t)
+    ):
         return "Pro - Trial"
     if "20x" in t or "ultra_20x" in t or "ultra 20x" in t:
         return "Ultra 20X"
@@ -325,30 +391,44 @@ def sort_account_quota_states(
         q5h_cur = max(0.0, min(1.0, float(a.quota_5h_current)))
         q5h_avail = a.quota_5h_available
         qwk = max(0.0, min(1.0, float(a.quota_weekly)))
-        is_below = q5h_cur <= threshold or qwk <= 0.05
+        sec_weekly = float(a.reset_seconds_weekly)
+        qwk_avail = compute_effective_weekly_available(qwk, sec_weekly)
+        has_credits = bool(a.enable_credit_overages and a.credits > 0)
+        has_weekly = qwk > threshold or has_credits
+        recovers_weekly_in_5h = has_weekly or qwk_avail > threshold
+        is_5h_below = q5h_cur <= threshold or st == "COOLDOWN"
         is_free = is_free_plan_tier(a.email, a.plan_tier)
         tier_mult = plan_tier_capacity_multiplier(a.plan_tier)
 
-        # 6 Structural Tiers:
+        # 7 Structural Tiers:
         # Tier 0: Active account (Row 1 pinned)
         # Tier 1: Healthy Paid Standby successors
         # Tier 2: Healthy Free Standby successors (Free ranked strictly after paid)
-        # Tier 3: Cooling down / Below threshold accounts
-        # Tier 4: Error accounts
-        # Tier 5: Banned accounts
+        # Tier 3: 5h Cooldown with healthy or recovering weekly quota (recovering in <= 5h)
+        # Tier 4: Weekly Depleted / Exhausted accounts
+        # Tier 5: Error accounts
+        # Tier 6: Banned accounts
         if is_act:
             tier = 0
         elif is_ban:
-            tier = 5
+            tier = 6
         elif is_err:
-            tier = 4
-        elif not is_below:
+            tier = 5
+        elif not is_5h_below and has_weekly:
             tier = 2 if is_free else 1
-        else:
+        elif recovers_weekly_in_5h:
             tier = 3
+        else:
+            tier = 4
 
         prio_map = {"HIGH": 0, "MID": 1, "LOW": 2}
         prio_rank = prio_map.get((a.priority or "High").upper(), 0)
+
+        if tier == 4:
+            # Weekly depleted accounts: paid before free, user priority, sooner weekly reset, blended readiness
+            sec_7d = sec_weekly if sec_weekly > 0 else 99999999.0
+            depleted_score = round(0.5 * qwk + 0.5 * q5h_cur, 4)
+            return (tier, 1 if is_free else 0, prio_rank, sec_7d, -depleted_score, -round(q5h_avail, 4), (a.label or a.email).lower())
 
         sm = (switch_mode or "balanced").lower()
         if sm == "max_continuous":
@@ -362,7 +442,7 @@ def sort_account_quota_states(
             # balanced
             score = tier_mult * (0.42 * q5h_cur + 0.12 * q5h_avail + 0.32 * qwk)
 
-        return (tier, prio_rank, -round(score, 4), -round(q5h_cur, 4), (a.label or a.email).lower())
+        return (tier, 1 if is_free else 0, prio_rank, -round(score, 4), -round(q5h_cur, 4), (a.label or a.email).lower())
 
     return sorted(items, key=_auto_sort_key)
 

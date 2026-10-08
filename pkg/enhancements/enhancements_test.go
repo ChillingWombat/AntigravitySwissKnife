@@ -2,6 +2,7 @@ package enhancements
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -36,8 +37,17 @@ func TestDefaultConfig(t *testing.T) {
 	if !cfg.BreakerLineEnabled {
 		t.Errorf("expected BreakerLineEnabled to be true by default")
 	}
+	if !cfg.LeftPanelExtensionsEnabled {
+		t.Errorf("expected LeftPanelExtensionsEnabled to be true by default")
+	}
+	if cfg.LeftPanelExtensionsMode != "single" {
+		t.Errorf("expected LeftPanelExtensionsMode to be 'single' by default, got %s", cfg.LeftPanelExtensionsMode)
+	}
 	if cfg.DefaultNewProject != "auto" {
 		t.Errorf("expected DefaultNewProject to be 'auto', got %s", cfg.DefaultNewProject)
+	}
+	if !cfg.OverviewPanel.ReplaceSeeAllTriangle {
+		t.Errorf("expected OverviewPanel.ReplaceSeeAllTriangle to be true by default")
 	}
 }
 
@@ -140,6 +150,46 @@ func TestGenerateEnhancementsScript(t *testing.T) {
 	if !strings.Contains(script, "new-conversation-button") {
 		t.Errorf("expected script to intercept new-conversation-button")
 	}
+	if !strings.Contains(script, "swiss-overview-tabs-divider") {
+		t.Errorf("expected script to contain swiss-overview-tabs-divider")
+	}
+	if !strings.Contains(script, "swiss-overview-bottom-spacer") {
+		t.Errorf("expected script to contain swiss-overview-bottom-spacer cleanup")
+	}
+}
+
+func TestOverviewPanel_Divider(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "enhancements-overview-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	configPath := filepath.Join(tmpDir, "enhancements.json")
+	store, err := NewStore(configPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	cfg := store.GetConfig()
+	if !cfg.OverviewPanel.ReplaceSeeAllTriangle {
+		t.Errorf("expected ReplaceSeeAllTriangle to default to true")
+	}
+
+	// Update and verify persistence
+	cfg.OverviewPanel.ReplaceSeeAllTriangle = false
+	if err := store.UpdateConfig(cfg); err != nil {
+		t.Fatalf("failed to update config: %v", err)
+	}
+
+	store2, err := NewStore(configPath)
+	if err != nil {
+		t.Fatalf("failed to load store2: %v", err)
+	}
+	loaded := store2.GetConfig()
+	if loaded.OverviewPanel.ReplaceSeeAllTriangle {
+		t.Errorf("expected ReplaceSeeAllTriangle false to persist")
+	}
 }
 
 func TestOverviewPanel_AuxTabsFormat(t *testing.T) {
@@ -173,6 +223,225 @@ func TestOverviewPanel_AuxTabsFormat(t *testing.T) {
 	}
 	if store.GetConfig().OverviewPanel.AuxTabsFormat != "icon" {
 		t.Errorf("expected AuxTabsFormat fallback to 'icon', got %s", store.GetConfig().OverviewPanel.AuxTabsFormat)
+	}
+}
+
+func TestGenerateEnhancementsScript_Syntax(t *testing.T) {
+	js := GenerateEnhancementsScript(nil)
+	if js == "" {
+		t.Fatalf("expected non-empty JS script")
+	}
+
+	if _, err := exec.LookPath("node"); err == nil {
+		cmd := exec.Command("node", "--check")
+		cmd.Stdin = strings.NewReader(js)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("node syntax error in GenerateEnhancementsScript: %v\n%s", err, string(out))
+		}
+	}
+}
+
+func TestGenerateEnhancementsScript_TerminalScopePreservesFactoryStyle(t *testing.T) {
+	cfg := DefaultConfig()
+	script := GenerateEnhancementsScript(cfg)
+
+	// 1. Ensure "Terminals" is NOT treated as an overview panel section title
+	if strings.Contains(script, "\"Terminals\"") {
+		t.Errorf("expected script NOT to include 'Terminals' in overview titles so terminal scope selector retains factory style")
+	}
+
+	// 2. Ensure script explicitly protects terminal scope selector from custom zone styling
+	if !strings.Contains(script, "terminal scope selector") {
+		t.Errorf("expected script to explicitly reference and protect terminal scope selector")
+	}
+}
+
+func TestOverviewPanel_DefaultDivisionStyle_IsDividerLine(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.OverviewPanel.DivisionStyle != "divider_line" {
+		t.Errorf("expected default DivisionStyle to be 'divider_line', got %s", cfg.OverviewPanel.DivisionStyle)
+	}
+
+	script := GenerateEnhancementsScript(cfg)
+	if !strings.Contains(script, "swiss-overview-divider") {
+		t.Errorf("expected script to contain swiss-overview-divider")
+	}
+	if !strings.Contains(script, "swiss-overview-zone") {
+		t.Errorf("expected script to contain cleanup logic for swiss-overview-zone")
+	}
+}
+
+func TestGenerateEnhancementsScript_ContrastSafeguard(t *testing.T) {
+	cfg := DefaultConfig()
+	script := GenerateEnhancementsScript(cfg)
+
+	if !strings.Contains(script, `if (dark && lum < 0.15)`) || !strings.Contains(script, `return "#e2e8f0";`) {
+		t.Errorf("expected dark-mode luminance safeguard (lum < 0.15 -> #e2e8f0) in getActiveAndHoverColor")
+	}
+	if !strings.Contains(script, `if (!dark && lum > 0.85)`) || !strings.Contains(script, `return "#334155";`) {
+		t.Errorf("expected light-mode luminance safeguard (lum > 0.85 -> #334155) in getActiveAndHoverColor")
+	}
+}
+
+func TestOverviewPanel_ShowMoreButton_TriangleOnlyNoHorizontalLine(t *testing.T) {
+	cfg := DefaultConfig()
+	script := GenerateEnhancementsScript(cfg)
+
+	if !strings.Contains(script, "swiss-overview-tabs-triangle") {
+		t.Errorf("expected script to contain swiss-overview-tabs-triangle")
+	}
+	if !strings.Contains(script, "swiss-overview-tabs-divider") {
+		t.Errorf("expected script to contain swiss-overview-tabs-divider")
+	}
+	// The show more/less button in the overview panel must NOT render a horizontal line
+	if strings.Contains(script, "<div class=\"swiss-overview-tabs-line\"></div>") {
+		t.Errorf("expected overview show more/less button HTML NOT to contain swiss-overview-tabs-line horizontal line element")
+	}
+	if strings.Contains(script, ".swiss-overview-tabs-line {") {
+		t.Errorf("expected overview CSS NOT to define .swiss-overview-tabs-line rule")
+	}
+
+	// Verify both "See all/less" and "Show more/less" text patterns are matched
+	if !strings.Contains(script, `isMore = /^(see|show)\s+(all|more)/i`) {
+		t.Errorf("expected script to match both 'see' and 'show' expand patterns")
+	}
+	if !strings.Contains(script, `isLess = /^(see|show)\s+(less|fewer)/i`) {
+		t.Errorf("expected script to match both 'less' and 'fewer' contract patterns")
+	}
+	if !strings.Contains(script, `lower.includes("show more")`) {
+		t.Errorf("expected script to handle 'show more' in triangle direction determination")
+	}
+}
+
+func TestOverviewPanel_DividerLine_PreservesFactorySectionDistance(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.OverviewPanel.LineMargin != 0 {
+		t.Errorf("expected default LineMargin to be 0 to preserve factory distance, got %d", cfg.OverviewPanel.LineMargin)
+	}
+
+	script := GenerateEnhancementsScript(cfg)
+	// Check that divider offsets compensate for flex gap to prevent blank areas and match factory spacing
+	if !strings.Contains(script, "margin-top: calc(-12px") {
+		t.Errorf("expected script CSS to compensate for flex gap with negative margin calculation")
+	}
+	if !strings.Contains(script, "netMargin") {
+		t.Errorf("expected script JS to compute netMargin to match factory section gap")
+	}
+	if !strings.Contains(script, "min-height: 0px") || !strings.Contains(script, "overflow: hidden") {
+		t.Errorf("expected divider CSS to have zero-height resets to avoid unwanted height inflation")
+	}
+	// Check horizontal insets so the divider line does not touch the edges
+	if !strings.Contains(script, "margin-left: 6px !important;") || !strings.Contains(script, "margin-right: 6px !important;") {
+		t.Errorf("expected divider CSS to include 6px horizontal margins")
+	}
+	if !strings.Contains(script, "width: calc(${widthPct}% - 12px) !important;") {
+		t.Errorf("expected divider CSS to shorten width with 12px inset calculation")
+	}
+	if !strings.Contains(script, `divider.style.setProperty("margin-left", "6px", "important")`) {
+		t.Errorf("expected divider JS to set 6px horizontal margin-left")
+	}
+	if !strings.Contains(script, `divider.style.setProperty("width", "calc(" + wPct + "% - 12px)", "important")`) {
+		t.Errorf("expected divider JS to set shortened width with 12px inset")
+	}
+	// Check that orphaned dividers are pruned
+	if !strings.Contains(script, "sectionContainers.indexOf(next) === 0") {
+		t.Errorf("expected script to prune orphaned dividers before the first section")
+	}
+}
+
+func TestOverviewPanel_ShrunkSectionGapsAndCompactTriangle(t *testing.T) {
+	cfg := DefaultConfig()
+	script := GenerateEnhancementsScript(cfg)
+
+	// Verify shrunken compact divider gap calculation (5px half gap -> 10px total section distance)
+	if !strings.Contains(script, "desiredHalfGap = 5") {
+		t.Errorf("expected script JS to compute desiredHalfGap = 5 for compact section spacing")
+	}
+	if !strings.Contains(script, "margin-top: calc(-12px - 7px + ${extraMargin}px)") {
+		t.Errorf("expected script CSS to specify tightened negative margin calculation (-19px) with extraMargin")
+	}
+
+	// Verify tightened show-more button (14px height, 14x10px pill, 8px font-size)
+	if !strings.Contains(script, `[data-swiss-overview-divider="true"] {`) {
+		t.Errorf("expected script CSS to style data-swiss-overview-divider")
+	}
+	if !strings.Contains(script, "height: 14px !important;") {
+		t.Errorf("expected script CSS to tighten show-more button to 14px height")
+	}
+	if !strings.Contains(script, "width: 14px !important;") || !strings.Contains(script, "height: 10px !important;") {
+		t.Errorf("expected script CSS to tighten show-more pill dimensions to 14x10px")
+	}
+
+	// Verify border_zone gap zeroing on parent container
+	if !strings.Contains(script, `parent.style.setProperty("gap", "0px", "important")`) {
+		t.Errorf("expected script JS to zero parent flex gap in border_zone mode")
+	}
+
+	// Verify auto centering when LineWidthPercent is less than 100%
+	if !strings.Contains(script, `divider.style.setProperty("margin-left", "auto", "important")`) {
+		t.Errorf("expected script JS to center divider lines using auto margin when width percent is less than 100")
+	}
+}
+
+func TestLeftPanelExtensions_StoreAndScript(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "enh-left-panel-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	configPath := filepath.Join(tmpDir, "enhancements.json")
+	store, err := NewStore(configPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	cfg := store.GetConfig()
+	if !cfg.LeftPanelExtensionsEnabled {
+		t.Errorf("expected LeftPanelExtensionsEnabled to be true by default")
+	}
+	if cfg.LeftPanelExtensionsMode != "single" {
+		t.Errorf("expected LeftPanelExtensionsMode to be 'single' by default, got %s", cfg.LeftPanelExtensionsMode)
+	}
+
+	if err := store.ToggleLeftPanelExtensions(false); err != nil {
+		t.Fatalf("failed to toggle left panel extensions: %v", err)
+	}
+	if store.GetConfig().LeftPanelExtensionsEnabled {
+		t.Errorf("expected LeftPanelExtensionsEnabled to be false after toggle")
+	}
+
+	if err := store.SetLeftPanelExtensionsMode("individual"); err != nil {
+		t.Fatalf("failed to set left panel extensions mode: %v", err)
+	}
+	if store.GetConfig().LeftPanelExtensionsMode != "individual" {
+		t.Errorf("expected LeftPanelExtensionsMode to be 'individual'")
+	}
+
+	if !cfg.MainSectionExtensionsEnabled {
+		t.Errorf("expected MainSectionExtensionsEnabled to be true by default")
+	}
+	if err := store.ToggleMainSectionExtensions(false); err != nil {
+		t.Fatalf("failed to toggle main section extensions: %v", err)
+	}
+	if store.GetConfig().MainSectionExtensionsEnabled {
+		t.Errorf("expected MainSectionExtensionsEnabled to be false after toggle")
+	}
+
+	curCfg := store.GetConfig()
+	script := GenerateEnhancementsScript(&curCfg)
+	if !strings.Contains(script, "antigravity_swiss_left_panel_enabled") {
+		t.Errorf("expected script to sync antigravity_swiss_left_panel_enabled to localStorage")
+	}
+	if !strings.Contains(script, "antigravity_swiss_left_panel_mode") {
+		t.Errorf("expected script to sync antigravity_swiss_left_panel_mode to localStorage")
+	}
+	if !strings.Contains(script, "antigravity_swiss_main_section_enabled") {
+		t.Errorf("expected script to sync antigravity_swiss_main_section_enabled to localStorage")
+	}
+	if !strings.Contains(script, "swiss-left-nav-config-updated") {
+		t.Errorf("expected script to dispatch swiss-left-nav-config-updated event")
 	}
 }
 

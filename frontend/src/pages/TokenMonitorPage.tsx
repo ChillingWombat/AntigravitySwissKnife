@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Coins,
   Cpu,
@@ -13,6 +14,7 @@ import {
   Sparkles,
   Clock,
   Activity,
+  CornerDownRight,
 } from 'lucide-react'
 import type {
   ModelPricing,
@@ -26,9 +28,23 @@ import { api } from '../api'
 
 interface TokenMonitorPageProps {
   onRefresh?: () => void
+  activeTab?: number
+  onTabChange?: (tab: number) => void
 }
 
-export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
+export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
+  onRefresh: _onRefresh,
+  activeTab: controlledActiveTab,
+  onTabChange: _onTabChange,
+}) => {
+  const [internalActiveTab] = useState<number>(0)
+  const activeTab = controlledActiveTab !== undefined ? controlledActiveTab : internalActiveTab
+
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
+
+  useEffect(() => {
+    setPortalTarget(document.getElementById('top-bar-right'))
+  }, [])
   // State for Unit Toggle: Tokens vs USD
   const [unitMode, setUnitMode] = useState<'usd' | 'tokens'>('usd')
   const [timeRange, setTimeRange] = useState<'24h' | '7d' | '30d' | 'all'>('7d')
@@ -230,143 +246,118 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* 1. Header with Controls & Unit Toggle */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '12px',
-        }}
-      >
-        <div>
-          <h2
-            style={{
-              fontSize: '20px',
-              fontWeight: 700,
-              color: 'var(--text)',
-              margin: '0 0 4px 0',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-            }}
-          >
-            <Coins size={22} color="var(--primary)" />
-            Token & Cost Monitor
-          </h2>
-          <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>
-            Real-time multi-account token consumption, pricing synchronization, and in-chat response telemetry.
-          </p>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          {/* Unit Switcher: USD ($) vs Tokens */}
-          <div
-            style={{
-              display: 'flex',
-              backgroundColor: 'var(--tonal)',
-              borderRadius: '20px',
-              padding: '3px',
-              gap: '2px',
-            }}
-          >
-            <button
-              onClick={() => setUnitMode('usd')}
+      {/* Top Bar Right Global Controls via Portal */}
+      {portalTarget &&
+        createPortal(
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {/* Unit Switcher: USD ($) vs Tokens */}
+            <div
               style={{
-                borderRadius: '16px',
-                padding: '6px 14px',
-                fontSize: '12px',
-                fontWeight: unitMode === 'usd' ? 600 : 500,
-                color: unitMode === 'usd' ? 'var(--primary)' : 'var(--text-muted)',
-                backgroundColor: unitMode === 'usd' ? '#ffffff' : 'transparent',
-                boxShadow: unitMode === 'usd' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                border: 'none',
-                cursor: 'pointer',
                 display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
+                backgroundColor: 'var(--tonal)',
+                borderRadius: '8px',
+                padding: '3px',
+                gap: '2px',
               }}
             >
-              <DollarSign size={14} />
-              USD ($)
-            </button>
-            <button
-              onClick={() => setUnitMode('tokens')}
-              style={{
-                borderRadius: '16px',
-                padding: '6px 14px',
-                fontSize: '12px',
-                fontWeight: unitMode === 'tokens' ? 600 : 500,
-                color: unitMode === 'tokens' ? 'var(--primary)' : 'var(--text-muted)',
-                backgroundColor: unitMode === 'tokens' ? '#ffffff' : 'transparent',
-                boxShadow: unitMode === 'tokens' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                border: 'none',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
-              <Hash size={14} />
-              Tokens (k/M)
-            </button>
-          </div>
-
-          {/* Time Range Selector */}
-          <div
-            style={{
-              display: 'flex',
-              backgroundColor: 'var(--tonal)',
-              borderRadius: '20px',
-              padding: '3px',
-              gap: '2px',
-            }}
-          >
-            {(['24h', '7d', '30d', 'all'] as const).map((t) => (
               <button
-                key={t}
-                onClick={() => setTimeRange(t)}
+                onClick={() => setUnitMode('usd')}
                 style={{
-                  borderRadius: '16px',
-                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  padding: '5px 12px',
                   fontSize: '12px',
-                  fontWeight: timeRange === t ? 600 : 500,
-                  color: timeRange === t ? 'var(--primary)' : 'var(--text-muted)',
-                  backgroundColor: timeRange === t ? '#ffffff' : 'transparent',
-                  boxShadow: timeRange === t ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                  fontWeight: unitMode === 'usd' ? 600 : 500,
+                  color: unitMode === 'usd' ? 'var(--primary)' : 'var(--text-muted)',
+                  backgroundColor: unitMode === 'usd' ? '#ffffff' : 'transparent',
+                  boxShadow: unitMode === 'usd' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                   border: 'none',
                   cursor: 'pointer',
-                  textTransform: 'uppercase',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
                 }}
               >
-                {t}
+                <DollarSign size={13} />
+                <span>USD ($)</span>
               </button>
-            ))}
-          </div>
+              <button
+                onClick={() => setUnitMode('tokens')}
+                style={{
+                  borderRadius: '6px',
+                  padding: '5px 12px',
+                  fontSize: '12px',
+                  fontWeight: unitMode === 'tokens' ? 600 : 500,
+                  color: unitMode === 'tokens' ? 'var(--primary)' : 'var(--text-muted)',
+                  backgroundColor: unitMode === 'tokens' ? '#ffffff' : 'transparent',
+                  boxShadow: unitMode === 'tokens' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                <Hash size={13} />
+                <span>Tokens</span>
+              </button>
+            </div>
 
-          <button
-            onClick={handleAutoFetchPrices}
-            disabled={isFetchingPrices}
-            style={{
-              backgroundColor: '#ffffff',
-              border: '1px solid var(--border)',
-              borderRadius: '20px',
-              padding: '7px 14px',
-              fontSize: '12px',
-              fontWeight: 600,
-              color: 'var(--text)',
-              cursor: isFetchingPrices ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-            }}
-          >
-            <RefreshCw size={14} className={isFetchingPrices ? 'animate-spin' : ''} />
-            {isFetchingPrices ? 'Syncing...' : 'Sync Prices'}
-          </button>
-        </div>
-      </div>
+            {/* Time Range Selector */}
+            <div
+              style={{
+                display: 'flex',
+                backgroundColor: 'var(--tonal)',
+                borderRadius: '8px',
+                padding: '3px',
+                gap: '2px',
+              }}
+            >
+              {(['24h', '7d', '30d', 'all'] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTimeRange(t)}
+                  style={{
+                    borderRadius: '6px',
+                    padding: '5px 10px',
+                    fontSize: '12px',
+                    fontWeight: timeRange === t ? 600 : 500,
+                    color: timeRange === t ? 'var(--primary)' : 'var(--text-muted)',
+                    backgroundColor: timeRange === t ? '#ffffff' : 'transparent',
+                    boxShadow: timeRange === t ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+
+            {/* Sync Prices Button */}
+            <button
+              onClick={handleAutoFetchPrices}
+              disabled={isFetchingPrices}
+              style={{
+                backgroundColor: '#ffffff',
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                padding: '6px 12px',
+                fontSize: '12px',
+                fontWeight: 600,
+                color: 'var(--text)',
+                cursor: isFetchingPrices ? 'not-allowed' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <RefreshCw size={13} className={isFetchingPrices ? 'animate-spin' : ''} />
+              <span>{isFetchingPrices ? 'Syncing...' : 'Sync Prices'}</span>
+            </button>
+          </div>,
+          portalTarget
+        )}
 
       {fetchFeedback && (
         <div
@@ -387,6 +378,12 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
         </div>
       )}
 
+      {/* ============================================================ */}
+      {/* TAB 0: CONSUMPTION OVERVIEW */}
+      {/* ============================================================ */}
+      {activeTab === 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
       {/* 2. Key Performance Metrics (KPI Cards) */}
       <div
         style={{
@@ -400,7 +397,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
           style={{
             backgroundColor: '#ffffff',
             border: '1px solid var(--border)',
-            borderRadius: '16px',
+            borderRadius: '10px',
             padding: '18px',
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
           }}
@@ -438,7 +435,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
           style={{
             backgroundColor: '#ffffff',
             border: '1px solid var(--border)',
-            borderRadius: '16px',
+            borderRadius: '10px',
             padding: '18px',
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
           }}
@@ -475,7 +472,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
           style={{
             backgroundColor: '#ffffff',
             border: '1px solid var(--border)',
-            borderRadius: '16px',
+            borderRadius: '10px',
             padding: '18px',
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
           }}
@@ -512,7 +509,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
           style={{
             backgroundColor: '#ffffff',
             border: '1px solid var(--border)',
-            borderRadius: '16px',
+            borderRadius: '10px',
             padding: '18px',
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
           }}
@@ -545,224 +542,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
         </div>
       </div>
 
-      {/* 3. In-Chat Response Token & TPS Display Simulator (Multi-Agent Subagent Aggregator) */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          border: '1px solid var(--border)',
-          borderRadius: '16px',
-          padding: '20px',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span
-                style={{
-                  backgroundColor: '#e8f0fe',
-                  color: 'var(--primary)',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  padding: '3px 8px',
-                  borderRadius: '12px',
-                }}
-              >
-                In-Chat Telemetry Injection
-              </span>
-              <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
-                Response Token & TPS Speed Footer (Subagent Aggregation Engine)
-              </h3>
-            </div>
-            <p style={{ margin: '4px 0 0 0', fontSize: '12.5px', color: 'var(--text-muted)' }}>
-              Antigravity Swiss Knife intercepts responses in Antigravity 2.0 and injects a real-time telemetry badge
-              under every message bubble. When subagents run concurrently, their tokens are recursively aggregated into the parent response.
-            </p>
-          </div>
-        </div>
-
-        {/* Interactive Controls for Simulator */}
-        <div
-          style={{
-            backgroundColor: 'var(--tonal)',
-            borderRadius: '12px',
-            padding: '14px 18px',
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: '16px',
-            marginBottom: '16px',
-          }}
-        >
-          <div>
-            <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-              Orchestrator Prompt Tokens: {simOrchestratorTokens.toLocaleString()}
-            </label>
-            <input
-              type="range"
-              min={1000}
-              max={15000}
-              step={500}
-              value={simOrchestratorTokens}
-              onChange={(e) => setSimOrchestratorTokens(Number(e.target.value))}
-              style={{ width: '100%', accentColor: 'var(--primary)' }}
-            />
-          </div>
-
-          <div>
-            <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-              Subagents Spawned: {simSubagentsCount} agents
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={5}
-              step={1}
-              value={simSubagentsCount}
-              onChange={(e) => setSimSubagentsCount(Number(e.target.value))}
-              style={{ width: '100%', accentColor: 'var(--primary)' }}
-            />
-          </div>
-
-          <div>
-            <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-              Avg Subagent Tokens: {simSubagentAvgTokens.toLocaleString()}
-            </label>
-            <input
-              type="range"
-              min={2000}
-              max={20000}
-              step={1000}
-              value={simSubagentAvgTokens}
-              onChange={(e) => setSimSubagentAvgTokens(Number(e.target.value))}
-              style={{ width: '100%', accentColor: 'var(--primary)' }}
-            />
-          </div>
-
-          <div>
-            <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-              Prompt Cache Hit Ratio: {simCachedRatio}%
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={95}
-              step={5}
-              value={simCachedRatio}
-              onChange={(e) => setSimCachedRatio(Number(e.target.value))}
-              style={{ width: '100%', accentColor: '#137333' }}
-            />
-          </div>
-        </div>
-
-        {/* Live In-Chat Message Preview */}
-        <div
-          style={{
-            border: '1px solid var(--border)',
-            borderRadius: '12px',
-            backgroundColor: '#ffffff',
-            padding: '16px',
-          }}
-        >
-          {/* Agent Message Header */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-            <div
-              style={{
-                width: '26px',
-                height: '26px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#ffffff',
-                fontSize: '13px',
-                fontWeight: 700,
-              }}
-            >
-              ✦
-            </div>
-            <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-              Antigravity Agent (Gemini 2.5 Pro)
-            </span>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-              Session: 083fbabc • Project: Antigravity Swiss Knife
-            </span>
-          </div>
-
-          {/* Response Text Content */}
-          <div style={{ fontSize: '13px', lineHeight: 1.5, color: 'var(--text)', marginBottom: '14px' }}>
-            I have analyzed your request and refactored the auxiliary panels to include the new Feature Plugins and Token Monitor sections.
-            {simSubagentsCount > 0 && (
-              <span style={{ display: 'block', marginTop: '6px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                ↳ Orchestrated {simSubagentsCount} parallel subagents (`code-review`, `research`) to verify API signatures and sandbox isolation.
-              </span>
-            )}
-          </div>
-
-          {/* THE INJECTED TELEMETRY FOOTER BADGE */}
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: '10px',
-              backgroundColor: '#f8f9fa',
-              border: '1px solid #e0e0e0',
-              borderRadius: '8px',
-              padding: '6px 12px',
-              fontSize: '11.5px',
-              color: '#3c4043',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600, color: 'var(--primary)' }}>
-              <Zap size={13} />
-              <span>{formatTokens(totalSimTokens)} tokens</span>
-            </div>
-
-            <span style={{ color: '#dadce0' }}>•</span>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <span>Prompt: <b>{formatTokens(totalSimPromptTokens)}</b></span>
-              <span style={{ color: '#137333', fontSize: '10.5px' }}>
-                (Cached: {formatTokens(totalSimCachedTokens)} / {simCachedRatio}%)
-              </span>
-              <span>| Output: <b>{formatTokens(totalSimOutputTokens)}</b></span>
-            </div>
-
-            <span style={{ color: '#dadce0' }}>•</span>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#b06000' }}>
-              <Activity size={13} />
-              <span><b>76.2 TPS</b></span>
-            </div>
-
-            <span style={{ color: '#dadce0' }}>•</span>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <span>Cost: <b>{formatCost(simCostWithCache)}</b></span>
-              <span style={{ color: '#137333', fontSize: '10.5px' }}>(saved {formatCost(simSavedCost)})</span>
-            </div>
-
-            {simSubagentsCount > 0 && (
-              <>
-                <span style={{ color: '#dadce0' }}>•</span>
-                <span
-                  style={{
-                    backgroundColor: '#e8f0fe',
-                    color: 'var(--primary)',
-                    borderRadius: '4px',
-                    padding: '1px 6px',
-                    fontSize: '10.5px',
-                    fontWeight: 600,
-                  }}
-                >
-                  Aggregated 1 Parent + {simSubagentsCount} Subagents
-                </span>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
       {/* 4. Multi-Dimensional Usage Breakdown (Models, Accounts, Projects) */}
       <div
         style={{
@@ -776,7 +555,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
           style={{
             backgroundColor: '#ffffff',
             border: '1px solid var(--border)',
-            borderRadius: '16px',
+            borderRadius: '10px',
             padding: '20px',
           }}
         >
@@ -834,7 +613,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
           style={{
             backgroundColor: '#ffffff',
             border: '1px solid var(--border)',
-            borderRadius: '16px',
+            borderRadius: '10px',
             padding: '20px',
           }}
         >
@@ -909,16 +688,23 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
           </div>
         </div>
       </div>
+        </div>
+      )}
 
-      {/* 5. Live Pricing Matrix & Override Management */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          border: '1px solid var(--border)',
-          borderRadius: '16px',
-          padding: '20px',
-        }}
-      >
+      {/* ============================================================ */}
+      {/* TAB 2: PRICING MATRIX */}
+      {/* ============================================================ */}
+      {activeTab === 2 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* 5. Live Pricing Matrix & Override Management */}
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              border: '1px solid var(--border)',
+              borderRadius: '10px',
+              padding: '20px',
+            }}
+          >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
           <div>
             <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -996,7 +782,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
                         fontWeight: 500,
                       }}
                     >
-                      {pr.source === 'api' ? '⚡ Auto-Fetched' : '✎ Manual Override'}
+                      {pr.source === 'api' ? 'Auto-Fetched' : 'Manual Override'}
                     </span>
                   </td>
                   <td style={{ padding: '10px 12px', textAlign: 'right' }}>
@@ -1005,7 +791,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
                       style={{
                         backgroundColor: 'transparent',
                         border: '1px solid var(--border)',
-                        borderRadius: '14px',
+                        borderRadius: '6px',
                         padding: '4px 10px',
                         fontSize: '11.5px',
                         color: 'var(--primary)',
@@ -1021,6 +807,8 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
           </table>
         </div>
       </div>
+        </div>
+      )}
 
       {/* Edit Rate Modal */}
       {editingPricing && (
@@ -1041,7 +829,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
           <div
             style={{
               backgroundColor: '#ffffff',
-              borderRadius: '20px',
+              borderRadius: '10px',
               padding: '24px',
               width: '420px',
               boxShadow: '0 8px 30px rgba(0,0,0,0.18)',
@@ -1128,7 +916,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
                 style={{
                   backgroundColor: 'transparent',
                   border: '1px solid var(--border)',
-                  borderRadius: '16px',
+                  borderRadius: '6px',
                   padding: '7px 16px',
                   fontSize: '12.5px',
                   cursor: 'pointer',
@@ -1151,7 +939,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
                 style={{
                   backgroundColor: 'var(--primary)',
                   border: 'none',
-                  borderRadius: '16px',
+                  borderRadius: '6px',
                   padding: '7px 18px',
                   fontSize: '12.5px',
                   fontWeight: 600,
@@ -1166,12 +954,235 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
         </div>
       )}
 
-      {/* 6. Live Telemetry Stream Log */}
-      <div
+      {/* ============================================================ */}
+      {/* TAB 1: TELEMETRY & LOGS */}
+      {/* ============================================================ */}
+      {activeTab === 1 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* 3. In-Chat Response Token & TPS Display Simulator (Multi-Agent Subagent Aggregator) */}
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              border: '1px solid var(--border)',
+              borderRadius: '10px',
+              padding: '20px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span
+                    style={{
+                      backgroundColor: '#e8f0fe',
+                      color: 'var(--primary)',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                    }}
+                  >
+                    In-Chat Telemetry Injection
+                  </span>
+                  <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
+                    In-Chat Token & TPS Telemetry
+                  </h3>
+                </div>
+                <p style={{ margin: '4px 0 0 0', fontSize: '12.5px', color: 'var(--text-muted)' }}>
+                  Injects real-time token and TPS telemetry below response bubbles. Aggregates concurrent subagent tokens automatically.
+                </p>
+              </div>
+            </div>
+
+            {/* Interactive Controls for Simulator */}
+            <div
+              style={{
+                backgroundColor: 'var(--tonal)',
+                borderRadius: '12px',
+                padding: '14px 18px',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: '16px',
+                marginBottom: '16px',
+              }}
+            >
+              <div>
+                <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                  Orchestrator Prompt Tokens: {simOrchestratorTokens.toLocaleString()}
+                </label>
+                <input
+                  type="range"
+                  min={1000}
+                  max={15000}
+                  step={500}
+                  value={simOrchestratorTokens}
+                  onChange={(e) => setSimOrchestratorTokens(Number(e.target.value))}
+                  style={{ width: '100%', accentColor: 'var(--primary)' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                  Subagents Spawned: {simSubagentsCount} agents
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={5}
+                  step={1}
+                  value={simSubagentsCount}
+                  onChange={(e) => setSimSubagentsCount(Number(e.target.value))}
+                  style={{ width: '100%', accentColor: 'var(--primary)' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                  Avg Subagent Tokens: {simSubagentAvgTokens.toLocaleString()}
+                </label>
+                <input
+                  type="range"
+                  min={2000}
+                  max={20000}
+                  step={1000}
+                  value={simSubagentAvgTokens}
+                  onChange={(e) => setSimSubagentAvgTokens(Number(e.target.value))}
+                  style={{ width: '100%', accentColor: 'var(--primary)' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                  Prompt Cache Hit Ratio: {simCachedRatio}%
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={95}
+                  step={5}
+                  value={simCachedRatio}
+                  onChange={(e) => setSimCachedRatio(Number(e.target.value))}
+                  style={{ width: '100%', accentColor: '#137333' }}
+                />
+              </div>
+            </div>
+
+            {/* Live In-Chat Message Preview */}
+            <div
+              style={{
+                border: '1px solid var(--border)',
+                borderRadius: '12px',
+                backgroundColor: '#ffffff',
+                padding: '16px',
+              }}
+            >
+              {/* Agent Message Header */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                <div
+                  style={{
+                    width: '26px',
+                    height: '26px',
+                    borderRadius: '50%',
+                    backgroundColor: 'var(--primary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#ffffff',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                  }}
+                >
+                  <Sparkles size={14} color="#ffffff" />
+                </div>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                  Antigravity Agent (Gemini 2.5 Pro)
+                </span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  Session: 083fbabc • Project: Antigravity Swiss Knife
+                </span>
+              </div>
+
+              {/* Response Text Content */}
+              <div style={{ fontSize: '13px', lineHeight: 1.5, color: 'var(--text)', marginBottom: '14px' }}>
+                I have analyzed your request and refactored the auxiliary panels to include the new Feature Plugins and Token Monitor sections.
+                {simSubagentsCount > 0 && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                    <CornerDownRight size={11} style={{ fontStyle: 'normal', flexShrink: 0 }} />
+                    <span>Orchestrated {simSubagentsCount} parallel subagents (`code-review`, `research`) to verify API signatures and sandbox isolation.</span>
+                  </span>
+                )}
+              </div>
+
+              {/* THE INJECTED TELEMETRY FOOTER BADGE */}
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '10px',
+                  backgroundColor: '#f8f9fa',
+                  border: '1px solid #e0e0e0',
+                  borderRadius: '8px',
+                  padding: '6px 12px',
+                  fontSize: '11.5px',
+                  color: '#3c4043',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600, color: 'var(--primary)' }}>
+                  <Zap size={13} />
+                  <span>{formatTokens(totalSimTokens)} tokens</span>
+                </div>
+
+                <span style={{ color: '#dadce0' }}>•</span>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span>Prompt: <b>{formatTokens(totalSimPromptTokens)}</b></span>
+                  <span style={{ color: '#137333', fontSize: '10.5px' }}>
+                    (Cached: {formatTokens(totalSimCachedTokens)} / {simCachedRatio}%)
+                  </span>
+                  <span>| Output: <b>{formatTokens(totalSimOutputTokens)}</b></span>
+                </div>
+
+                <span style={{ color: '#dadce0' }}>•</span>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#b06000' }}>
+                  <Activity size={13} />
+                  <span><b>76.2 TPS</b></span>
+                </div>
+
+                <span style={{ color: '#dadce0' }}>•</span>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span>Cost: <b>{formatCost(simCostWithCache)}</b></span>
+                  <span style={{ color: '#137333', fontSize: '10.5px' }}>(saved {formatCost(simSavedCost)})</span>
+                </div>
+
+                {simSubagentsCount > 0 && (
+                  <>
+                    <span style={{ color: '#dadce0' }}>•</span>
+                    <span
+                      style={{
+                        backgroundColor: '#e8f0fe',
+                        color: 'var(--primary)',
+                        borderRadius: '4px',
+                        padding: '1px 6px',
+                        fontSize: '10.5px',
+                        fontWeight: 600,
+                      }}
+                    >
+                      Aggregated 1 Parent + {simSubagentsCount} Subagents
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* 6. Live Telemetry Stream Log */}
+          <div
         style={{
           backgroundColor: '#ffffff',
           border: '1px solid var(--border)',
-          borderRadius: '16px',
+          borderRadius: '10px',
           padding: '20px',
         }}
       >
@@ -1208,7 +1219,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
             style={{
               backgroundColor: '#ffffff',
               border: '1px solid var(--border)',
-              borderRadius: '18px',
+              borderRadius: '6px',
               padding: '6px 14px',
               fontSize: '12px',
               fontWeight: 600,
@@ -1301,6 +1312,8 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = () => {
           </table>
         </div>
       </div>
+        </div>
+      )}
     </div>
   )
 }

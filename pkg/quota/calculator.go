@@ -71,6 +71,17 @@ func ComputeEffective5hAvailable(currentFrac float64, resetSeconds float64) floa
 	return cur
 }
 
+// ComputeEffectiveWeeklyAvailable calculates available weekly quota in the next 5 hours with reset replenishing.
+func ComputeEffectiveWeeklyAvailable(weeklyFrac float64, resetWeeklySeconds float64) float64 {
+	cur := math.Max(0.0, math.Min(1.0, weeklyFrac))
+	if resetWeeklySeconds > 0.0 && resetWeeklySeconds <= FiveHourWindowSeconds {
+		h := resetWeeklySeconds / 3600.0
+		replenishedBoost := (1.0 - cur) * ((5.0 - h) / 5.0)
+		return math.Max(0.0, math.Min(1.0, cur+replenishedBoost))
+	}
+	return cur
+}
+
 // FormatHorizonSec returns human-readable countdown string.
 func FormatHorizonSec(sec float64) string {
 	s := int(math.Max(0.0, sec))
@@ -208,22 +219,43 @@ func PollFleetAccounts(accounts []*keyring.Account, store *keyring.Store) map[st
 
 // BuildAccountQuotaStates creates AccountQuotaState items from stored accounts.
 func BuildAccountQuotaStates(accounts []*keyring.Account, activeSummary *QuotaSummary) []AccountQuotaState {
+	return BuildAccountQuotaStatesWithThresholds(accounts, activeSummary, core.DefaultAutoSwitchThresholdFraction, core.DefaultAutoSwitchWeeklyThresholdFraction)
+}
+
+// BuildAccountQuotaStatesWithThreshold creates AccountQuotaState items from stored accounts with custom threshold.
+func BuildAccountQuotaStatesWithThreshold(accounts []*keyring.Account, activeSummary *QuotaSummary, threshold float64) []AccountQuotaState {
+	return BuildAccountQuotaStatesWithThresholds(accounts, activeSummary, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction)
+}
+
+// BuildAccountQuotaStatesWithThresholds creates AccountQuotaState items from stored accounts with custom 5h and weekly thresholds.
+func BuildAccountQuotaStatesWithThresholds(accounts []*keyring.Account, activeSummary *QuotaSummary, threshold5h, thresholdWeekly float64) []AccountQuotaState {
 	var summaries map[string]*QuotaSummary
 	if activeSummary != nil {
 		summaries = map[string]*QuotaSummary{
 			strings.ToLower(strings.TrimSpace(activeSummary.AccountEmail)): activeSummary,
 		}
 	}
-	return BuildAccountQuotaStatesFromMap(accounts, summaries)
+	return BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, threshold5h, thresholdWeekly)
 }
 
 // BuildAccountQuotaStatesFromMap builds account states using live summaries and cached agent db.
 func BuildAccountQuotaStatesFromMap(accounts []*keyring.Account, summaries map[string]*QuotaSummary) []AccountQuotaState {
-	return BuildAccountQuotaStatesFromMapWithThreshold(accounts, summaries, core.DefaultAutoSwitchThresholdFraction)
+	return BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, core.DefaultAutoSwitchThresholdFraction, core.DefaultAutoSwitchWeeklyThresholdFraction)
 }
 
 // BuildAccountQuotaStatesFromMapWithThreshold builds account states using live summaries, cached agent db, and custom exhaustion threshold.
 func BuildAccountQuotaStatesFromMapWithThreshold(accounts []*keyring.Account, summaries map[string]*QuotaSummary, threshold float64) []AccountQuotaState {
+	return BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction)
+}
+
+// BuildAccountQuotaStatesFromMapWithThresholds builds account states using live summaries, cached agent db, and custom exhaustion thresholds.
+func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, summaries map[string]*QuotaSummary, threshold5h, thresholdWeekly float64) []AccountQuotaState {
+	if threshold5h <= 0 {
+		threshold5h = core.DefaultAutoSwitchThresholdFraction
+	}
+	if thresholdWeekly <= 0 {
+		thresholdWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
+	}
 	results := make([]AccountQuotaState, 0, len(accounts))
 	now := time.Now()
 
@@ -336,6 +368,9 @@ func BuildAccountQuotaStatesFromMapWithThreshold(accounts []*keyring.Account, su
 			}
 		} else if ca, ok := cachedMap[normEmail]; ok {
 			// 2. Check cached agent DB
+			if caSt := strings.ToUpper(strings.TrimSpace(ca.Status)); caSt == "BANNED" || caSt == "ERROR" {
+				status = caSt
+			}
 			if ca.PlanTier != "" {
 				tier = ca.PlanTier
 			}
@@ -367,8 +402,16 @@ func BuildAccountQuotaStatesFromMapWithThreshold(accounts []*keyring.Account, su
 		} else {
 			tier = NormalizePlanTier(tier)
 		}
+		if (tier == PlanTierPro || tier == "") && (IsTrialWarningText(acc.Notes) || IsTrialWarningText(acc.Label) || IsTrialWarningText(acc.PlanTier)) {
+			tier = PlanTierProTrial
+		}
 
 		avail5h := ComputeEffective5hAvailable(cur5h, curSec)
+		hasCreditOverages := acc.EnableCreditOverages && credits > 0
+		if !hasCreditOverages && curWeekly <= thresholdWeekly {
+			availWeeklyIn5h := ComputeEffectiveWeeklyAvailable(curWeekly, curSecWeekly)
+			avail5h = math.Min(avail5h, availWeeklyIn5h)
+		}
 		if resText == "Not Polled" && curSec > 0 {
 			resText = FormatHorizonSec(curSec)
 		} else if resText == "Not Polled" && cur5h > 0 {
@@ -390,9 +433,10 @@ func BuildAccountQuotaStatesFromMapWithThreshold(accounts []*keyring.Account, su
 		// A valid account whose quota is below threshold and waiting to be reset enters COOLDOWN.
 		// If quota recovers above threshold after reset, status returns to STANDBY.
 		if status != "BANNED" && status != "ERROR" && !acc.IsActive {
-			hasPolledData := cur5h > 0 || curWeekly > 0 || curSec > 0 || curSecWeekly > 0 || (resText != "" && resText != "Not Polled") || (summaries != nil && summaries[normEmail] != nil)
+			_, inCached := cachedMap[normEmail]
+			hasPolledData := cur5h > 0 || curWeekly > 0 || curSec > 0 || curSecWeekly > 0 || (resText != "" && resText != "Not Polled") || (summaries != nil && summaries[normEmail] != nil) || inCached
 			if hasPolledData {
-				isBelow := cur5h <= threshold || (curWeekly <= 0.05 && !(acc.EnableCreditOverages && credits > 0))
+				isBelow := cur5h <= threshold5h || (curWeekly <= thresholdWeekly && !(acc.EnableCreditOverages && credits > 0))
 				if isBelow {
 					status = "COOLDOWN"
 				} else if status == "COOLDOWN" {
@@ -455,7 +499,12 @@ func DetermineDefaultPlanTier(email string, explicitTier string) string {
 	if strings.Contains(lower, "ultra") {
 		return PlanTierUltra20X
 	}
-	if strings.Contains(lower, "trial") {
+	if strings.Contains(lower, "trial") ||
+		strings.Contains(lower, "promo") ||
+		strings.Contains(lower, "jio") ||
+		strings.Contains(lower, "partner") ||
+		strings.Contains(lower, "bundle") ||
+		IsTrialWarningText(lower) {
 		return PlanTierProTrial
 	}
 	if strings.Contains(lower, "plus") {
@@ -710,6 +759,13 @@ func ExtractAccountMetrics(acc AccountQuotaState, mode string) AccountMetrics {
 		sec7d = ParseHorizonTextSeconds(acc.ResetHorizonWeeklyText)
 	}
 
+	// Cap effective 5h available quota by weekly quota available over 5h window if credit overages are not enabled and weekly quota is depleted
+	hasCreditOverages := acc.EnableCreditOverages && acc.Credits > 0
+	if !hasCreditOverages && q7d <= 0.05 {
+		availWeeklyIn5h := ComputeEffectiveWeeklyAvailable(q7d, sec7d)
+		q5hAvail = math.Min(q5hAvail, availWeeklyIn5h)
+	}
+
 	var r7dSoonness float64
 	if sec7d > 0.0 && sec7d <= WeeklyWindowSeconds {
 		r7dSoonness = clamp01(1.0 - (sec7d / WeeklyWindowSeconds))
@@ -857,11 +913,22 @@ func CompareStandbyCandidates(a, b AccountQuotaState, threshold float64, mode st
 
 // RankStandbyAccounts sorts standby accounts in default balanced mode (backwards-compatible).
 func RankStandbyAccounts(accounts []AccountQuotaState, threshold float64) []AccountQuotaState {
-	return RankStandbyAccountsWithMode(accounts, threshold, SwitchModeBalanced)
+	return RankStandbyAccountsWithThresholds(accounts, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction, SwitchModeBalanced)
 }
 
 // RankStandbyAccountsWithMode filters eligible standby candidates and sorts them by switch mode.
 func RankStandbyAccountsWithMode(accounts []AccountQuotaState, threshold float64, mode string) []AccountQuotaState {
+	return RankStandbyAccountsWithThresholds(accounts, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction, mode)
+}
+
+// RankStandbyAccountsWithThresholds filters eligible standby candidates and sorts them by switch mode using custom 5h and weekly thresholds.
+func RankStandbyAccountsWithThresholds(accounts []AccountQuotaState, threshold5h, thresholdWeekly float64, mode string) []AccountQuotaState {
+	if threshold5h <= 0 {
+		threshold5h = core.DefaultAutoSwitchThresholdFraction
+	}
+	if thresholdWeekly <= 0 {
+		thresholdWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
+	}
 	m := NormalizeSwitchMode(mode)
 	candidates := make([]AccountQuotaState, 0)
 
@@ -873,10 +940,10 @@ func RankStandbyAccountsWithMode(accounts []AccountQuotaState, threshold float64
 		if st == "BANNED" || st == "ERROR" || st == "COOLDOWN" {
 			continue
 		}
-		if acc.Quota5hCurrent <= threshold {
+		if acc.Quota5hCurrent <= threshold5h {
 			continue
 		}
-		hasWeekly := acc.QuotaWeekly > 0.05 || (acc.EnableCreditOverages && acc.Credits > 0)
+		hasWeekly := acc.QuotaWeekly > thresholdWeekly || (acc.EnableCreditOverages && acc.Credits > 0)
 		if !hasWeekly {
 			continue
 		}
@@ -884,7 +951,7 @@ func RankStandbyAccountsWithMode(accounts []AccountQuotaState, threshold float64
 	}
 
 	sort.Slice(candidates, func(i, j int) bool {
-		return CompareStandbyCandidates(candidates[i], candidates[j], threshold, m)
+		return CompareStandbyCandidates(candidates[i], candidates[j], threshold5h, m)
 	})
 
 	return candidates
@@ -945,8 +1012,19 @@ func ShouldSwitchProactivelyMaxTokens(active, bestStandby AccountQuotaState, thr
 	return false, "Active account remains optimal for current window"
 }
 
-// EvaluateAutoSwitch evaluates whether the active account should switch and identifies the best successor.
+// EvaluateAutoSwitch evaluates whether the active account should switch and identifies the best successor (backwards-compatible).
 func EvaluateAutoSwitch(accounts []AccountQuotaState, activeEmail string, threshold float64, mode string, activeDwellSec float64) (bool, *AccountQuotaState, string) {
+	return EvaluateAutoSwitchWithThresholds(accounts, activeEmail, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction, mode, activeDwellSec)
+}
+
+// EvaluateAutoSwitchWithThresholds evaluates whether the active account should switch using both 5h and weekly thresholds.
+func EvaluateAutoSwitchWithThresholds(accounts []AccountQuotaState, activeEmail string, threshold5h, thresholdWeekly float64, mode string, activeDwellSec float64) (bool, *AccountQuotaState, string) {
+	if threshold5h <= 0 {
+		threshold5h = core.DefaultAutoSwitchThresholdFraction
+	}
+	if thresholdWeekly <= 0 {
+		thresholdWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
+	}
 	m := NormalizeSwitchMode(mode)
 	var active *AccountQuotaState
 	for i := range accounts {
@@ -956,7 +1034,7 @@ func EvaluateAutoSwitch(accounts []AccountQuotaState, activeEmail string, thresh
 		}
 	}
 
-	ranked := RankStandbyAccountsWithMode(accounts, threshold, m)
+	ranked := RankStandbyAccountsWithThresholds(accounts, threshold5h, thresholdWeekly, m)
 	if len(ranked) == 0 {
 		return false, nil, "No eligible standby accounts above threshold"
 	}
@@ -965,17 +1043,24 @@ func EvaluateAutoSwitch(accounts []AccountQuotaState, activeEmail string, thresh
 
 	// 1. Mandatory Threshold Trigger (applies in all modes)
 	if active != nil {
-		is5hBreached := active.Quota5hCurrent <= threshold
-		isWeeklyBreached := active.QuotaWeekly <= 0.05 && !(active.EnableCreditOverages && active.Credits > 0)
+		is5hBreached := active.Quota5hCurrent <= threshold5h
+		isWeeklyBreached := active.QuotaWeekly <= thresholdWeekly && !(active.EnableCreditOverages && active.Credits > 0)
 		if is5hBreached || isWeeklyBreached {
-			reason := fmt.Sprintf("Active quota (5h: %.1f%%, weekly: %.1f%%) dropped below threshold (%.1f%%)", active.Quota5hCurrent*100, active.QuotaWeekly*100, threshold*100)
+			var reason string
+			if is5hBreached && isWeeklyBreached {
+				reason = fmt.Sprintf("Active quota (5h: %.1f%%, weekly: %.1f%%) dropped below thresholds (5h: %.1f%%, weekly: %.1f%%)", active.Quota5hCurrent*100, active.QuotaWeekly*100, threshold5h*100, thresholdWeekly*100)
+			} else if is5hBreached {
+				reason = fmt.Sprintf("Active 5h quota (%.1f%%) dropped below threshold (%.1f%%)", active.Quota5hCurrent*100, threshold5h*100)
+			} else {
+				reason = fmt.Sprintf("Active weekly quota (%.1f%%) dropped below threshold (%.1f%%)", active.QuotaWeekly*100, thresholdWeekly*100)
+			}
 			return true, best, reason
 		}
 	}
 
 	// 2. Proactive rotation only in MaxTokens mode
 	if m == SwitchModeMaxTokens && active != nil {
-		shouldProactive, reason := ShouldSwitchProactivelyMaxTokens(*active, *best, threshold, activeDwellSec)
+		shouldProactive, reason := ShouldSwitchProactivelyMaxTokens(*active, *best, threshold5h, activeDwellSec)
 		if shouldProactive {
 			return true, best, reason
 		}
@@ -984,8 +1069,19 @@ func EvaluateAutoSwitch(accounts []AccountQuotaState, activeEmail string, thresh
 	return false, nil, "Active account quota is healthy"
 }
 
-// SortAccountQuotaStates sorts all accounts for UI dashboard display in accordance with sortMode and switchMode.
+// SortAccountQuotaStates sorts all accounts for UI dashboard display in accordance with sortMode and switchMode (backwards-compatible).
 func SortAccountQuotaStates(accounts []AccountQuotaState, activeEmail string, threshold float64, sortMode string, switchMode string) []AccountQuotaState {
+	return SortAccountQuotaStatesWithThresholds(accounts, activeEmail, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction, sortMode, switchMode)
+}
+
+// SortAccountQuotaStatesWithThresholds sorts all accounts for UI dashboard display using custom 5h and weekly thresholds.
+func SortAccountQuotaStatesWithThresholds(accounts []AccountQuotaState, activeEmail string, threshold5h, thresholdWeekly float64, sortMode string, switchMode string) []AccountQuotaState {
+	if threshold5h <= 0 {
+		threshold5h = core.DefaultAutoSwitchThresholdFraction
+	}
+	if thresholdWeekly <= 0 {
+		thresholdWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
+	}
 	items := make([]AccountQuotaState, len(accounts))
 	copy(items, accounts)
 
@@ -1060,32 +1156,47 @@ func SortAccountQuotaStates(accounts []AccountQuotaState, activeEmail string, th
 	// Tier 0: Active healthy account (Row 1 pinned)
 	// Tier 1: Healthy Paid Standby successors above threshold (ordered by switch mode)
 	// Tier 2: Healthy Free Standby successors (Free ranked last among eligible standbys)
-	// Tier 3: Cooling down / below threshold accounts
-	// Tier 4: Error accounts
-	// Tier 5: Banned accounts
+	// Tier 3: 5h Cooldown with healthy weekly quota (recovering in <= 5h)
+	// Tier 4: Weekly Depleted / Exhausted (locked out for weekly cycle)
+	// Tier 5: Error accounts
+	// Tier 6: Banned accounts
 	getTier := func(a AccountQuotaState) int {
-		st := strings.ToUpper(a.Status)
-		if st == "BANNED" {
-			return 5
-		}
-		if st == "ERROR" {
-			return 4
-		}
-		if st == "COOLDOWN" {
-			return 3
-		}
 		isAct := a.IsActive || a.Email == activeEmail
-		isBelow := a.Quota5hCurrent <= threshold || (a.QuotaWeekly <= 0.05 && !(a.EnableCreditOverages && a.Credits > 0))
-		if isAct && !isBelow {
+		if isAct {
 			return 0
 		}
-		if !isBelow {
+		st := strings.ToUpper(a.Status)
+		if st == "BANNED" {
+			return 6
+		}
+		if st == "ERROR" {
+			return 5
+		}
+
+		cur5h := a.Quota5hCurrent
+		weekly := a.QuotaWeekly
+		hasCreditOverages := a.EnableCreditOverages && a.Credits > 0
+		hasWeekly := weekly > thresholdWeekly || hasCreditOverages
+		sec7d := a.ResetSecondsWeekly
+		if sec7d <= 0.0 && a.ResetHorizonWeeklyText != "" {
+			sec7d = ParseHorizonTextSeconds(a.ResetHorizonWeeklyText)
+		}
+		availWeeklyIn5h := ComputeEffectiveWeeklyAvailable(weekly, sec7d)
+		recoversWeeklyIn5h := hasWeekly || availWeeklyIn5h > thresholdWeekly
+		is5hBelow := cur5h <= threshold5h || st == "COOLDOWN"
+
+		if !is5hBelow && hasWeekly {
 			if IsFreePlanTier(a.Email, a.PlanTier) {
 				return 2
 			}
 			return 1
 		}
-		return 3
+
+		if recoversWeeklyIn5h {
+			return 3 // 5h Cooldown with healthy or recovering weekly quota
+		}
+
+		return 4 // Weekly Depleted
 	}
 
 	sort.Slice(items, func(i, j int) bool {
@@ -1095,22 +1206,67 @@ func SortAccountQuotaStates(accounts []AccountQuotaState, activeEmail string, th
 			return tA < tB
 		}
 
-		// Within Tier 1 or Tier 2: compare by switch mode
-		if tA == 1 || tA == 2 {
-			return CompareStandbyCandidates(items[i], items[j], threshold, swMode)
+		// Within Tier 1, Tier 2, or Tier 3: compare by switch mode
+		if tA == 1 || tA == 2 || tA == 3 {
+			return CompareStandbyCandidates(items[i], items[j], threshold5h, swMode)
 		}
 
-		// Within Tier 3 (cooling down): prioritize paid over free, then highest available recovery
-		if tA == 3 {
+		// Within Tier 4 (Weekly Depleted):
+		if tA == 4 {
 			freeI := IsFreePlanTier(items[i].Email, items[i].PlanTier)
 			freeJ := IsFreePlanTier(items[j].Email, items[j].PlanTier)
 			if freeI != freeJ {
 				return !freeI
 			}
-			if math.Abs(items[i].Quota5hAvailable-items[j].Quota5hAvailable) > 0.001 {
-				return items[i].Quota5hAvailable > items[j].Quota5hAvailable
+			pa := PriorityRank(items[i].Priority)
+			pb := PriorityRank(items[j].Priority)
+			if pa != pb {
+				return pa < pb
 			}
-			return items[i].QuotaWeekly > items[j].QuotaWeekly
+
+			sec7dI := items[i].ResetSecondsWeekly
+			if sec7dI <= 0 && items[i].ResetHorizonWeeklyText != "" {
+				sec7dI = ParseHorizonTextSeconds(items[i].ResetHorizonWeeklyText)
+			}
+			sec7dJ := items[j].ResetSecondsWeekly
+			if sec7dJ <= 0 && items[j].ResetHorizonWeeklyText != "" {
+				sec7dJ = ParseHorizonTextSeconds(items[j].ResetHorizonWeeklyText)
+			}
+			// Sooner weekly reset first if both known and differ by > 60s
+			if sec7dI > 0 && sec7dJ > 0 && math.Abs(sec7dI-sec7dJ) > 60 {
+				return sec7dI < sec7dJ
+			}
+			if sec7dI > 0 && sec7dJ <= 0 {
+				return true
+			}
+			if sec7dI <= 0 && sec7dJ > 0 {
+				return false
+			}
+
+			// Blended readiness score for depleted accounts (higher 5h or weekly quota first)
+			scoreI := 0.5*items[i].QuotaWeekly + 0.5*items[i].Quota5hCurrent
+			scoreJ := 0.5*items[j].QuotaWeekly + 0.5*items[j].Quota5hCurrent
+			if math.Abs(scoreI-scoreJ) > 0.001 {
+				return scoreI > scoreJ
+			}
+
+			diffWeekly := items[i].QuotaWeekly - items[j].QuotaWeekly
+			if math.Abs(diffWeekly) > 0.001 {
+				return diffWeekly > 0
+			}
+			diff5h := items[i].Quota5hAvailable - items[j].Quota5hAvailable
+			if math.Abs(diff5h) > 0.001 {
+				return diff5h > 0
+			}
+			nameI := strings.ToLower(items[i].Label)
+			if nameI == "" {
+				nameI = strings.ToLower(items[i].Email)
+			}
+			nameJ := strings.ToLower(items[j].Label)
+			if nameJ == "" {
+				nameJ = strings.ToLower(items[j].Email)
+			}
+			return nameI < nameJ
 		}
 		return items[i].Email < items[j].Email
 	})

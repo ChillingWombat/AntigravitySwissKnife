@@ -1,6 +1,8 @@
 package quota
 
 import (
+	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -557,6 +559,310 @@ func TestCooldownAccountLifecycleAndRanking(t *testing.T) {
 	if len(sortedList) != 2 || sortedList[0].Email != "healthy@example.com" || sortedList[1].Email != "cooldown@example.com" {
 		t.Fatalf("expected healthy before cooldown in auto sort, got %v", sortedList)
 	}
+
+	// 6. Active account below threshold is pinned to Tier 0 and does not enter COOLDOWN
+	activeAcc := &keyring.Account{
+		Email:    "active_low@example.com",
+		Label:    "Active Low",
+		PlanTier: "Pro",
+		Status:   "ACTIVE",
+		IsActive: true,
+	}
+	activeLowSummary := &QuotaSummary{
+		AccountEmail:    "active_low@example.com",
+		PlanTier:        "Pro",
+		Quota5hFraction: 0.01,
+	}
+	activeStates := BuildAccountQuotaStatesWithThreshold([]*keyring.Account{activeAcc}, activeLowSummary, 0.05)
+	if len(activeStates) != 1 || activeStates[0].Status == core.AccountStatusCooldown {
+		t.Fatalf("active account must never enter COOLDOWN status, got %s", activeStates[0].Status)
+	}
+
+	sortedWithActiveLow := SortAccountQuotaStates([]AccountQuotaState{standbyHealthy, activeStates[0]}, activeStates[0].Email, 0.05, "auto", SwitchModeBalanced)
+	if len(sortedWithActiveLow) != 2 || sortedWithActiveLow[0].Email != "active_low@example.com" {
+		t.Fatalf("active account even with low quota must remain pinned at Row 0, got %v", sortedWithActiveLow)
+	}
 }
+
+func TestWeeklyThreshold_EvaluationAndExclusion(t *testing.T) {
+	// 1. Active account has 100% 5h quota, but weekly quota is 4% (0.04)
+	activeWeeklyLow := AccountQuotaState{
+		Email:            "active_weekly_low@example.com",
+		IsActive:         true,
+		PlanTier:         "Pro",
+		Status:           "ACTIVE",
+		Quota5hCurrent:   1.0,
+		Quota5hAvailable: 1.0,
+		QuotaWeekly:      0.04, // 4%, below 5% weekly threshold
+	}
+	standbyHealthy := AccountQuotaState{
+		Email:            "standby_healthy@example.com",
+		IsActive:         false,
+		PlanTier:         "Pro",
+		Status:           "STANDBY",
+		Quota5hCurrent:   0.9,
+		Quota5hAvailable: 0.9,
+		QuotaWeekly:      0.8,
+	}
+
+	// With weekly threshold at 0.05, switch should trigger even though 5h quota is 100%
+	shouldSwitch, succ, reason := EvaluateAutoSwitchWithThresholds(
+		[]AccountQuotaState{activeWeeklyLow, standbyHealthy},
+		activeWeeklyLow.Email,
+		0.05,
+		0.05,
+		SwitchModeBalanced,
+		600.0,
+	)
+	if !shouldSwitch {
+		t.Fatalf("expected auto switch when weekly quota is below threshold (4%% <= 5%%)")
+	}
+	if succ == nil || succ.Email != standbyHealthy.Email {
+		t.Fatalf("expected successor %s, got %v", standbyHealthy.Email, succ)
+	}
+	if !strings.Contains(reason, "weekly") {
+		t.Fatalf("expected reason to mention weekly quota, got %q", reason)
+	}
+
+	// 2. Standby candidate with weekly quota below threshold is excluded from candidates
+	standbyWeeklyLow := AccountQuotaState{
+		Email:            "standby_weekly_low@example.com",
+		IsActive:         false,
+		PlanTier:         "Pro",
+		Status:           "STANDBY",
+		Quota5hCurrent:   1.0,
+		QuotaWeekly:      0.04, // below weekly threshold 0.05
+	}
+	candidates := RankStandbyAccountsWithThresholds(
+		[]AccountQuotaState{standbyWeeklyLow, standbyHealthy},
+		0.05,
+		0.05,
+		SwitchModeBalanced,
+	)
+	if len(candidates) != 1 || candidates[0].Email != standbyHealthy.Email {
+		t.Fatalf("expected only healthy standby candidate, got %v", candidates)
+	}
+
+	// 3. Account with weekly quota below threshold enters COOLDOWN via BuildAccountQuotaStatesFromMapWithThresholds
+	acc := &keyring.Account{
+		Email:    "test_weekly_cooldown@example.com",
+		Label:    "Weekly Cooldown Account",
+		PlanTier: "Pro",
+		Status:   "STANDBY",
+	}
+	summaries := map[string]*QuotaSummary{
+		"test_weekly_cooldown@example.com": {
+			AccountEmail:        "test_weekly_cooldown@example.com",
+			PlanTier:            "Pro",
+			Quota5hFraction:     1.0,
+			QuotaWeeklyFraction: 0.03, // 3%, below 0.05
+		},
+	}
+	states := BuildAccountQuotaStatesFromMapWithThresholds([]*keyring.Account{acc}, summaries, 0.05, 0.05)
+	if len(states) != 1 || states[0].Status != core.AccountStatusCooldown {
+		t.Fatalf("expected status %s for account with weekly quota below threshold, got %s", core.AccountStatusCooldown, states[0].Status)
+	}
+
+	// 4. Auto sorting places weekly-depleted standby in Tier 3 (cooldown) behind healthy standbys
+	sorted := SortAccountQuotaStatesWithThresholds(
+		[]AccountQuotaState{standbyWeeklyLow, standbyHealthy},
+		"",
+		0.05,
+		0.05,
+		"auto",
+		SwitchModeBalanced,
+	)
+	if len(sorted) != 2 || sorted[0].Email != standbyHealthy.Email || sorted[1].Email != standbyWeeklyLow.Email {
+		t.Fatalf("expected healthy standby before weekly-depleted standby, got %v", sorted)
+	}
+}
+
+func TestSortAccountQuotaStates_CooldownVsWeeklyDepleted(t *testing.T) {
+	active := AccountQuotaState{
+		Email:            "jose@example.com",
+		IsActive:         true,
+		PlanTier:         "Pro",
+		Status:           "COOLDOWN",
+		Quota5hCurrent:   0.64,
+		Quota5hAvailable: 0.64,
+		QuotaWeekly:      0.0,
+	}
+	albert := AccountQuotaState{
+		Email:                  "alberto@example.com",
+		IsActive:               false,
+		PlanTier:               "Pro",
+		Status:                 "COOLDOWN",
+		Quota5hCurrent:         0.0,
+		Quota5hAvailable:       0.86,
+		QuotaWeekly:            0.01, // 1% weekly - exhausted!
+		ResetSeconds:           2400, // 40m
+		ResetSecondsWeekly:     300000,
+		ResetHorizonText:       "Resets in 40m",
+		ResetHorizonWeeklyText: "Resets in 3d",
+	}
+	satya := AccountQuotaState{
+		Email:                  "satya@example.com",
+		IsActive:               false,
+		PlanTier:               "Pro",
+		Status:                 "COOLDOWN",
+		Quota5hCurrent:         0.0,
+		Quota5hAvailable:       0.46,
+		QuotaWeekly:            0.33, // 33% weekly - healthy!
+		ResetSeconds:           9720, // 2h 42m
+		ResetSecondsWeekly:     400000,
+		ResetHorizonText:       "Resets in 2h 42m",
+		ResetHorizonWeeklyText: "Resets in 4d",
+	}
+	prwh := AccountQuotaState{
+		Email:                  "prwh@example.com",
+		IsActive:               false,
+		PlanTier:               "Pro",
+		Status:                 "STANDBY",
+		Quota5hCurrent:         0.0,
+		Quota5hAvailable:       0.34,
+		QuotaWeekly:            0.83, // 83% weekly - tons of quota!
+		ResetSeconds:           12000, // 3h 20m
+		ResetSecondsWeekly:     500000,
+		ResetHorizonText:       "Resets in 3h 20m",
+		ResetHorizonWeeklyText: "Resets in 5d",
+	}
+
+	// In Balanced mode: PRWH (83% weekly) ranks ahead of Satya (33%), and both rank ahead of Albert (1%)
+	sortedBal := SortAccountQuotaStatesWithThresholds(
+		[]AccountQuotaState{albert, satya, prwh, active},
+		active.Email,
+		0.05,
+		0.05,
+		"auto",
+		SwitchModeBalanced,
+	)
+	if len(sortedBal) != 4 {
+		t.Fatalf("expected 4 sorted accounts, got %d", len(sortedBal))
+	}
+	if sortedBal[0].Email != "jose@example.com" {
+		t.Errorf("expected active account in row 0, got %s", sortedBal[0].Email)
+	}
+	if sortedBal[1].Email != "prwh@example.com" {
+		t.Errorf("expected prwh in row 1 (highest weekly in balanced), got %s", sortedBal[1].Email)
+	}
+	if sortedBal[2].Email != "satya@example.com" {
+		t.Errorf("expected satya in row 2 (recovers 5h soon with 33%% weekly), got %s", sortedBal[2].Email)
+	}
+	if sortedBal[3].Email != "alberto@example.com" {
+		t.Errorf("expected albert in row 3 (weekly depleted), got %s", sortedBal[3].Email)
+	}
+
+	// In MaxContinuous mode: Satya (sooner 5h recovery, 46% projected) ranks ahead of PRWH (34%), Albert remains last
+	sortedCont := SortAccountQuotaStatesWithThresholds(
+		[]AccountQuotaState{albert, satya, prwh, active},
+		active.Email,
+		0.05,
+		0.05,
+		"auto",
+		SwitchModeMaxContinuous,
+	)
+	if sortedCont[0].Email != "jose@example.com" {
+		t.Errorf("expected active account in row 0, got %s", sortedCont[0].Email)
+	}
+	if sortedCont[1].Email != "satya@example.com" {
+		t.Errorf("expected satya in row 1 (sooner 5h recovery in continuous mode), got %s", sortedCont[1].Email)
+	}
+	if sortedCont[2].Email != "prwh@example.com" {
+		t.Errorf("expected prwh in row 2, got %s", sortedCont[2].Email)
+	}
+	if sortedCont[3].Email != "alberto@example.com" {
+		t.Errorf("expected albert in row 3, got %s", sortedCont[3].Email)
+	}
+}
+
+func TestExtractAccountMetrics_WeeklyDepletionCap(t *testing.T) {
+	albert := AccountQuotaState{
+		Email:                  "alberto@example.com",
+		Quota5hCurrent:         0.0,
+		Quota5hAvailable:       0.86,
+		QuotaWeekly:            0.01,
+		ResetSeconds:           2400,
+		ResetHorizonText:       "Resets in 40m",
+		ResetSecondsWeekly:     300000,
+		ResetHorizonWeeklyText: "Resets in 3d",
+	}
+	metrics := ExtractAccountMetrics(albert, SwitchModeBalanced)
+	if metrics.Q5hAvail > 0.01 {
+		t.Errorf("expected Q5hAvail to be capped by weekly quota (0.01), got %f", metrics.Q5hAvail)
+	}
+}
+
+func TestSortAccountQuotaStates_JoseAntonioVsAlbert(t *testing.T) {
+	jose := AccountQuotaState{
+		Email:              "jose@example.com",
+		PlanTier:           "Pro",
+		Status:             "COOLDOWN",
+		Quota5hCurrent:     0.84,
+		Quota5hAvailable:   0.84,
+		QuotaWeekly:        0.0,
+		ResetSecondsWeekly: 300000,
+	}
+	albert := AccountQuotaState{
+		Email:              "alberto@example.com",
+		PlanTier:           "Pro",
+		Status:             "COOLDOWN",
+		Quota5hCurrent:     0.0,
+		Quota5hAvailable:   0.86,
+		QuotaWeekly:        0.01,
+		ResetSeconds:       2400,
+		ResetSecondsWeekly: 300000,
+	}
+
+	sorted := SortAccountQuotaStatesWithThresholds([]AccountQuotaState{albert, jose}, "", 0.05, 0.05, "auto", SwitchModeBalanced)
+	if len(sorted) != 2 {
+		t.Fatalf("expected 2 accounts, got %d", len(sorted))
+	}
+	if sorted[0].Email != "jose@example.com" {
+		t.Errorf("expected Jose Antonio (84%% 5h quota) to outrank Albert (0%% 5h quota) in Tier 4, got %s", sorted[0].Email)
+	}
+}
+
+func TestSortAccountQuotaStates_WeeklyRecoveringEntersTier3(t *testing.T) {
+	recovering := AccountQuotaState{
+		Email:              "recovering@example.com",
+		PlanTier:           "Pro",
+		Status:             "COOLDOWN",
+		Quota5hCurrent:     0.0,
+		Quota5hAvailable:   0.5,
+		QuotaWeekly:        0.0,
+		ResetSeconds:       3600,
+		ResetSecondsWeekly: 1800, // Weekly resets in 30m!
+	}
+	depleted := AccountQuotaState{
+		Email:              "depleted@example.com",
+		PlanTier:           "Pro",
+		Status:             "COOLDOWN",
+		Quota5hCurrent:     0.0,
+		Quota5hAvailable:   0.5,
+		QuotaWeekly:        0.01,
+		ResetSeconds:       3600,
+		ResetSecondsWeekly: 400000, // 4.5 days
+	}
+
+	sorted := SortAccountQuotaStatesWithThresholds([]AccountQuotaState{depleted, recovering}, "", 0.05, 0.05, "auto", SwitchModeBalanced)
+	if len(sorted) != 2 {
+		t.Fatalf("expected 2 accounts, got %d", len(sorted))
+	}
+	if sorted[0].Email != "recovering@example.com" {
+		t.Errorf("expected account recovering weekly in 30m to enter Tier 3 ahead of Tier 4, got %s", sorted[0].Email)
+	}
+}
+
+func TestComputeEffectiveWeeklyAvailable_Boundary(t *testing.T) {
+	b5h := ComputeEffectiveWeeklyAvailable(0.02, 18000.0)
+	if b5h != 0.02 {
+		t.Errorf("expected exactly 0.02 at 5h boundary, got %f", b5h)
+	}
+	inWindow := ComputeEffectiveWeeklyAvailable(0.0, 3600.0)
+	if math.Abs(inWindow-0.80) > 0.001 {
+		t.Errorf("expected 0.80 for 1h reset, got %f", inWindow)
+	}
+}
+
 
 

@@ -34,6 +34,30 @@ const (
 	PlanTierEnterprise = "Enterprise"
 )
 
+// IsTrialWarningText checks if any warning or tooltip message matches known trial / promotional restriction notices.
+// Specifically detects notices such as:
+// "Sonnet 5.5 is now available on paid Pro and Ultra plans. Third-party model access will no longer be available on your current plan starting on November 2, 2026."
+func IsTrialWarningText(text string) bool {
+	if text == "" {
+		return false
+	}
+	low := strings.ToLower(text)
+	if strings.Contains(low, "third-party model access will no longer be available on your current plan") ||
+		strings.Contains(low, "sonnet 5.5 is now available on paid pro and ultra plans") ||
+		strings.Contains(low, "paid pro and ultra plans") ||
+		strings.Contains(low, "will no longer be available on your current plan") ||
+		(strings.Contains(low, "third-party model access") && (strings.Contains(low, "current plan") || strings.Contains(low, "november 2"))) ||
+		strings.Contains(low, "current plan starting on november 2, 2026") ||
+		strings.Contains(low, "starter quota") ||
+		strings.Contains(low, "trial") ||
+		strings.Contains(low, "promo") ||
+		strings.Contains(low, "partner offer") ||
+		strings.Contains(low, "jio") {
+		return true
+	}
+	return false
+}
+
 // NormalizePlanTier maps any API response or legacy label into canonical tier representation.
 func NormalizePlanTier(raw string) string {
 	trimmed := strings.TrimSpace(raw)
@@ -41,10 +65,16 @@ func NormalizePlanTier(raw string) string {
 		return PlanTierFree
 	}
 	lower := strings.ToLower(trimmed)
-	if lower == "free" || lower == "free-tier" || lower == "tier_free" {
+	if lower == "free" || lower == "free-tier" || lower == "tier_free" || lower == "starter" || lower == "starter-tier" || lower == "starter quota" {
 		return PlanTierFree
 	}
-	if strings.Contains(lower, "trial") {
+	if strings.Contains(lower, "trial") ||
+		strings.Contains(lower, "promo") ||
+		strings.Contains(lower, "starter pro") ||
+		strings.Contains(lower, "jio") ||
+		strings.Contains(lower, "partner") ||
+		strings.Contains(lower, "bundle") ||
+		IsTrialWarningText(lower) {
 		return PlanTierProTrial
 	}
 	if strings.Contains(lower, "20x") || strings.Contains(lower, "ultra_20x") || strings.Contains(lower, "ultra 20x") {
@@ -237,6 +267,9 @@ func FetchProjectAndTier(accessToken string) (*ProjectContextResult, error) {
 			IsTrialSnake                 bool          `json:"is_trial"`
 			TrialStatus                  string        `json:"trialStatus"`
 			TrialStatusSnake             string        `json:"trial_status"`
+			WarningMessage               string        `json:"warningMessage"`
+			WarningMessageSnake          string        `json:"warning_message"`
+			Notice                       string        `json:"notice"`
 			AllowedTiers                 []rawTierItem `json:"allowedTiers"`
 			AllowedTiersSnake            []rawTierItem `json:"allowed_tiers"`
 			IneligibleTiers              []rawTierItem `json:"ineligibleTiers"`
@@ -255,12 +288,30 @@ func FetchProjectAndTier(accessToken string) (*ProjectContextResult, error) {
 				ProjectID: projectID,
 			}
 
+			// Helper to check if item indicates a trial
+			isItemTrial := func(item *rawTierItem) bool {
+				if item == nil {
+					return false
+				}
+				if item.IsTrial || item.IsTrialSnake {
+					return true
+				}
+				tStat := strings.ToLower(item.TrialStatus + " " + item.TrialStatusSnake)
+				if strings.Contains(tStat, "trial") || strings.Contains(tStat, "promo") || (strings.Contains(tStat, "active") && (strings.Contains(strings.ToLower(item.Name+" "+item.DisplayName+" "+item.Description), "trial") || strings.Contains(strings.ToLower(item.Name+" "+item.DisplayName+" "+item.Description), "promo"))) {
+					return true
+				}
+				if IsTrialWarningText(item.Description) || IsTrialWarningText(item.DisplayName) || IsTrialWarningText(item.Name) {
+					return true
+				}
+				return false
+			}
+
 			// Helper to extract tier name or ID from raw item
 			getItemTier := func(item *rawTierItem) string {
 				if item == nil {
 					return ""
 				}
-				if item.IsTrial || item.IsTrialSnake || strings.EqualFold(item.TrialStatus, "active") || strings.EqualFold(item.TrialStatusSnake, "active") {
+				if isItemTrial(item) {
 					return PlanTierProTrial
 				}
 				if item.Tier != "" {
@@ -300,8 +351,20 @@ func FetchProjectAndTier(accessToken string) (*ProjectContextResult, error) {
 			}
 
 			// 1. Direct explicit paid / current / user / subscription tier
+			isRootTrial := res.IsTrial || res.IsTrialSnake ||
+				strings.Contains(strings.ToLower(res.TrialStatus+" "+res.TrialStatusSnake), "trial") ||
+				strings.Contains(strings.ToLower(res.TrialStatus+" "+res.TrialStatusSnake), "promo") ||
+				(strings.EqualFold(res.TrialStatus, "active") && (strings.Contains(strings.ToLower(res.PlanName+" "+res.PlanTier), "trial") || strings.Contains(strings.ToLower(res.PlanName+" "+res.PlanTier), "promo"))) ||
+				IsTrialWarningText(res.WarningMessage) || IsTrialWarningText(res.WarningMessageSnake) ||
+				IsTrialWarningText(res.Notice) ||
+				IsTrialWarningText(res.PlanName) || IsTrialWarningText(res.PlanNameSnake) ||
+				IsTrialWarningText(res.PlanTier) || IsTrialWarningText(res.PlanTierSnake) ||
+				isItemTrial(res.CurrentTier) || isItemTrial(res.CurrentTierSnake) ||
+				isItemTrial(res.PaidTier) || isItemTrial(res.PaidTierSnake) ||
+				isItemTrial(res.UserTier) || isItemTrial(res.UserTierSnake)
+
 			var rawTier string
-			if res.IsTrial || res.IsTrialSnake || strings.EqualFold(res.TrialStatus, "active") || strings.EqualFold(res.TrialStatusSnake, "active") {
+			if isRootTrial {
 				rawTier = PlanTierProTrial
 			} else if t := getItemTier(res.PaidTier); t != "" {
 				rawTier = t
@@ -333,6 +396,10 @@ func FetchProjectAndTier(accessToken string) (*ProjectContextResult, error) {
 				rawTier = res.PlanName
 			} else if res.PlanNameSnake != "" {
 				rawTier = res.PlanNameSnake
+			}
+
+			if isRootTrial && (rawTier == "" || NormalizePlanTier(rawTier) == PlanTierPro) {
+				rawTier = PlanTierProTrial
 			}
 
 			// 2. Allowed tiers inspection
@@ -368,10 +435,18 @@ func FetchProjectAndTier(accessToken string) (*ProjectContextResult, error) {
 					tStr := strings.ToLower(getItemTier(&it))
 					if strings.Contains(tStr, "free") {
 						// Free tier is unsupported/ineligible, account has Code Assist / Pro access
-						rawTier = PlanTierPro
+						if isRootTrial {
+							rawTier = PlanTierProTrial
+						} else {
+							rawTier = PlanTierPro
+						}
 						break
 					}
 				}
+			}
+
+			if isRootTrial && (rawTier == "" || NormalizePlanTier(rawTier) == PlanTierPro) {
+				rawTier = PlanTierProTrial
 			}
 
 			if rawTier != "" {
@@ -506,6 +581,13 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 				UserTierSnake         string `json:"user_tier"`
 				PlanTier              string `json:"planTier"`
 				PlanTierSnake         string `json:"plan_tier"`
+				IsTrial               bool   `json:"isTrial"`
+				IsTrialSnake          bool   `json:"is_trial"`
+				TrialStatus           string `json:"trialStatus"`
+				TrialStatusSnake      string `json:"trial_status"`
+				WarningMessage        string `json:"warningMessage"`
+				WarningMessageSnake   string `json:"warning_message"`
+				Notice                string `json:"notice"`
 				AICredits             *struct {
 					Credits interface{} `json:"credits"`
 				} `json:"aiCredits"`
@@ -549,6 +631,30 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 			}
 			if subTier == "" {
 				subTier = res.PlanTierSnake
+			}
+
+			isSummaryTrial := res.IsTrial || res.IsTrialSnake ||
+				strings.Contains(strings.ToLower(res.TrialStatus+" "+res.TrialStatusSnake), "trial") ||
+				strings.Contains(strings.ToLower(res.TrialStatus+" "+res.TrialStatusSnake), "promo") ||
+				IsTrialWarningText(res.WarningMessage) || IsTrialWarningText(res.WarningMessageSnake) ||
+				IsTrialWarningText(res.Notice) ||
+				IsTrialWarningText(subTier)
+
+			if len(res.Groups) > 0 {
+				for _, g := range res.Groups {
+					if IsTrialWarningText(g.DisplayName) || IsTrialWarningText(g.Description) {
+						isSummaryTrial = true
+					}
+					for _, b := range g.Buckets {
+						if IsTrialWarningText(b.DisplayName) {
+							isSummaryTrial = true
+						}
+					}
+				}
+			}
+
+			if isSummaryTrial && (subTier == "" || NormalizePlanTier(subTier) == PlanTierPro) {
+				subTier = PlanTierProTrial
 			}
 
 			var credAmount float64

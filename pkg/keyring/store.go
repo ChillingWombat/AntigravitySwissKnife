@@ -49,19 +49,19 @@ func NewStore(accountsPath string) (*Store, error) {
 }
 
 type rawAccountItem struct {
-	Email      string `json:"email"`
-	Label      string `json:"label"`
-	PlanTier   string `json:"plan_tier,omitempty"`
-	Status     string `json:"status,omitempty"`
-	Priority   string `json:"priority,omitempty"`
-	Notes      string `json:"notes,omitempty"`
-	Password   string `json:"password,omitempty"`
+	Email                string  `json:"email"`
+	Label                string  `json:"label"`
+	PlanTier             string  `json:"plan_tier,omitempty"`
+	Status               string  `json:"status,omitempty"`
+	Priority             string  `json:"priority,omitempty"`
+	Notes                string  `json:"notes,omitempty"`
+	Password             string  `json:"password,omitempty"`
 	IsHealthy            *bool   `json:"is_healthy,omitempty"`
 	TOTPSecret           string  `json:"totp_secret"`
 	Credits              float64 `json:"credits,omitempty"`
 	EnableCreditOverages bool    `json:"enable_credit_overages"`
 	AllowClaudeGPT       bool    `json:"allow_claude_gpt"`
-	Credential *struct {
+	Credential           *struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
 		IDToken      string `json:"id_token,omitempty"`
@@ -251,7 +251,7 @@ func (s *Store) save() error {
 		EnableCreditOverages bool    `json:"enable_credit_overages"`
 		AllowClaudeGPT       bool    `json:"allow_claude_gpt"`
 		IsHealthy            bool    `json:"is_healthy"`
-		Credential struct {
+		Credential           struct {
 			AccessToken  string `json:"access_token"`
 			RefreshToken string `json:"refresh_token"`
 			IDToken      string `json:"id_token,omitempty"`
@@ -526,7 +526,15 @@ func (s *Store) BatchImportAccounts(items []BatchImportItem) (int, error) {
 			rToken = item.Token
 		}
 		if rToken != "" {
-			acc.RefreshToken = strings.TrimSpace(rToken)
+			cleanToken := strings.TrimSpace(rToken)
+			if strings.HasPrefix(cleanToken, "ya29.") {
+				acc.AccessToken = cleanToken
+			} else {
+				if acc.RefreshToken != cleanToken && item.AccessToken == "" {
+					acc.AccessToken = ""
+				}
+				acc.RefreshToken = cleanToken
+			}
 		}
 
 		if item.AccessToken != "" {
@@ -621,10 +629,18 @@ func (s *Store) ImportAccount(email, refreshToken, accessToken, label, totpSecre
 	}
 
 	if refreshToken != "" {
-		acc.RefreshToken = refreshToken
+		cleanToken := strings.TrimSpace(refreshToken)
+		if strings.HasPrefix(cleanToken, "ya29.") {
+			acc.AccessToken = cleanToken
+		} else {
+			if acc.RefreshToken != cleanToken && accessToken == "" {
+				acc.AccessToken = ""
+			}
+			acc.RefreshToken = cleanToken
+		}
 	}
 	if accessToken != "" {
-		acc.AccessToken = accessToken
+		acc.AccessToken = strings.TrimSpace(accessToken)
 	}
 	if totpSecret != "" {
 		acc.TOTPSecret = totpSecret
@@ -656,6 +672,19 @@ func (s *Store) SetTOTPSecret(email, secret string) error {
 	}
 	acc.TOTPSecret = secret
 	acc.HasTOTP = (secret != "")
+	return s.save()
+}
+
+// SetAccessToken sets or clears the cached access token for an account.
+func (s *Store) SetAccessToken(email, accessToken string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	acc, exists := s.accounts[email]
+	if !exists {
+		return fmt.Errorf("%w: %s", core.ErrAccountNotFound, email)
+	}
+	acc.AccessToken = strings.TrimSpace(accessToken)
 	return s.save()
 }
 
@@ -722,12 +751,29 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 	defer s.mu.Unlock()
 
 	acc, exists := s.accounts[email]
+	targetStatus := strings.ToUpper(strings.TrimSpace(status))
+	if targetStatus == "" && exists {
+		targetStatus = strings.ToUpper(strings.TrimSpace(acc.Status))
+	}
+	if targetStatus == "" {
+		targetStatus = "STANDBY"
+	}
+
+	if setActive {
+		if targetStatus == "COOLDOWN" {
+			return fmt.Errorf("account %s is in cooldown waiting for quota reset and cannot be switched on", email)
+		}
+		if targetStatus == "BANNED" {
+			return fmt.Errorf("account %s is banned and cannot be switched on", email)
+		}
+	}
+
 	if !exists {
 		acc = &Account{
 			Email:  email,
 			Status: "STANDBY",
 		}
-		if s.activeEmail == "" {
+		if s.activeEmail == "" && targetStatus != "COOLDOWN" && targetStatus != "BANNED" && targetStatus != "ERROR" {
 			s.activeEmail = email
 			acc.IsActive = true
 		}
@@ -764,7 +810,15 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 	acc.TOTPSecret = totpSecret
 	acc.HasTOTP = (totpSecret != "")
 	if refreshToken != "" {
-		acc.RefreshToken = refreshToken
+		cleanToken := strings.TrimSpace(refreshToken)
+		if strings.HasPrefix(cleanToken, "ya29.") {
+			acc.AccessToken = cleanToken
+		} else {
+			if acc.RefreshToken != cleanToken {
+				acc.AccessToken = ""
+			}
+			acc.RefreshToken = cleanToken
+		}
 	}
 	// Anti-downgrade safeguard: only update credits if positive, or if existing credits are already zero.
 	// This prevents overwriting auto-detected positive balances with empty form defaults.
@@ -777,17 +831,6 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 	acc.AllowClaudeGPT = allowClaudeGPT
 
 	if setActive {
-		targetStatus := strings.ToUpper(strings.TrimSpace(status))
-		if targetStatus == "" {
-			targetStatus = strings.ToUpper(strings.TrimSpace(acc.Status))
-		}
-		if targetStatus == "COOLDOWN" {
-			return fmt.Errorf("account %s is in cooldown waiting for quota reset and cannot be switched on", email)
-		}
-		if targetStatus == "BANNED" {
-			return fmt.Errorf("account %s is banned and cannot be switched on", email)
-		}
-
 		s.activeEmail = email
 		for e, a := range s.accounts {
 			if strings.EqualFold(e, email) {
@@ -804,7 +847,12 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 		}
 	} else {
 		acc.IsActive = (s.activeEmail != "" && strings.EqualFold(email, s.activeEmail))
-		if !acc.IsActive && acc.Status == "ACTIVE" {
+		if acc.Status == "COOLDOWN" && acc.IsActive {
+			acc.IsActive = false
+			if strings.EqualFold(s.activeEmail, acc.Email) {
+				s.activeEmail = ""
+			}
+		} else if !acc.IsActive && acc.Status == "ACTIVE" {
 			acc.Status = "STANDBY"
 		} else if acc.IsActive && acc.Status == "STANDBY" {
 			acc.Status = "ACTIVE"
@@ -909,6 +957,7 @@ func (s *Store) RemoveAccount(email string) error {
 			a.IsActive = true
 			break
 		}
+		_ = SyncAppStorageLoginUser(s.activeEmail)
 	}
 
 	return s.save()
@@ -925,15 +974,16 @@ func (s *Store) ActiveAccount() string {
 // (strictly following the priority sequence: Antigravity 2.0 Desktop > Antigravity VS Code Extension > Antigravity CLI)
 // and reconciles it with the Swiss Knife vault:
 // 1. If the running account is already in the vault:
-//    - Sets it as active.
-//    - Ensures other accounts are not active.
-//    - Synchronizes all 3 surfaces to this active account so they remain unified.
+//   - Sets it as active.
+//   - Ensures other accounts are not active.
+//   - Synchronizes all 3 surfaces to this active account so they remain unified.
+//
 // 2. If the running account is NOT in the vault:
-//    - If autoImport is true:
-//        Automatically imports the account into the vault, sets it as active,
-//        and synchronizes all 3 surfaces to this active account.
-//    - If autoImport is false:
-//        No account in Swiss Knife is treated as active (active_account: "", all IsActive: false).
+//   - If autoImport is true:
+//     Automatically imports the account into the vault, sets it as active,
+//     and synchronizes all 3 surfaces to this active account.
+//   - If autoImport is false:
+//     No account in Swiss Knife is treated as active (active_account: "", all IsActive: false).
 func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, profileMgr *fingerprint.Store) (*Account, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1065,4 +1115,3 @@ func (s *Store) ClearActiveAccount() error {
 	}
 	return s.save()
 }
-

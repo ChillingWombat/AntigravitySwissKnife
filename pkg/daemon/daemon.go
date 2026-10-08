@@ -188,6 +188,7 @@ func (d *Daemon) registerRPCHandlers() {
 			Password             string  `json:"password"`
 			TOTPSecret           string  `json:"totp_secret"`
 			RefreshToken         string  `json:"refresh_token"`
+			AccessToken          string  `json:"access_token"`
 			Credits              float64 `json:"credits"`
 			EnableCreditOverages bool    `json:"enable_credit_overages"`
 			AllowClaudeGPT       bool    `json:"allow_claude_gpt"`
@@ -201,6 +202,19 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 		if err := d.Keyring.UpdateAccountFull(p.Email, p.Label, p.PlanTier, p.Status, p.Priority, p.Notes, p.Password, p.TOTPSecret, p.RefreshToken, p.Credits, p.EnableCreditOverages, p.AllowClaudeGPT, p.SetActive); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
+		}
+		if p.AccessToken != "" {
+			_ = d.Keyring.SetAccessToken(p.Email, p.AccessToken)
+		}
+		if p.SetActive {
+			var allEmails []string
+			for _, a := range d.Keyring.ListAccounts() {
+				allEmails = append(allEmails, a.Email)
+			}
+			if acc, _ := d.Keyring.GetAccount(p.Email); acc != nil {
+				_ = keyring.SyncAllSurfaces(acc, allEmails, d.Profiles)
+				_, _ = gui.NewInjector(0).RefreshUserStatus()
+			}
 		}
 		return map[string]interface{}{"success": true, "email": p.Email}, nil
 	}
@@ -305,6 +319,7 @@ func (d *Daemon) registerRPCHandlers() {
 		// Synchronize across Antigravity 2.0 Desktop, Antigravity CLI (agy), and VS Code extension
 		if acc, _ := d.Keyring.GetAccount(p.Email); acc != nil {
 			_ = keyring.SyncAllSurfaces(acc, allEmails, d.Profiles)
+			_, _ = gui.NewInjector(0).RefreshUserStatus()
 		}
 
 		return map[string]interface{}{
@@ -359,10 +374,10 @@ func (d *Daemon) registerRPCHandlers() {
 
 		if acc.TOTPSecret == "" {
 			return map[string]interface{}{
-				"code":               "------",
-				"remaining_seconds":  0,
-				"progress_fraction":  0.0,
-				"has_totp":           false,
+				"code":              "------",
+				"remaining_seconds": 0,
+				"progress_fraction": 0.0,
+				"has_totp":          false,
 			}, nil
 		}
 
@@ -473,7 +488,7 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 		defaultGemini := d.Config.DefaultGeminiModel
 		if defaultGemini == "" {
-			defaultGemini = "gemini-3.8-flash"
+			defaultGemini = "gemini-3.8-flash-high"
 		}
 		defaultNonGemini := d.Config.DefaultNonGeminiModel
 		if defaultNonGemini == "" {
@@ -485,9 +500,14 @@ func (d *Daemon) registerRPCHandlers() {
 		} else {
 			switchMode = quota.NormalizeSwitchMode(switchMode)
 		}
+		threshWeekly := d.Config.AutoSwitchWeeklyThreshold
+		if threshWeekly <= 0 {
+			threshWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
+		}
 		return map[string]interface{}{
 			"auto_switch_enabled":              d.Config.AutoSwitchEnabled,
 			"auto_switch_threshold":            d.Config.AutoSwitchThreshold,
+			"auto_switch_weekly_threshold":     threshWeekly,
 			"switch_mode":                      switchMode,
 			"polling_interval_seconds":         d.Config.PollingIntervalSec,
 			"active_polling_interval_seconds":  activePoll,
@@ -514,6 +534,7 @@ func (d *Daemon) registerRPCHandlers() {
 		var p struct {
 			AutoSwitchEnabled           *bool     `json:"auto_switch_enabled"`
 			AutoSwitchThreshold         *float64  `json:"auto_switch_threshold"`
+			AutoSwitchWeeklyThreshold   *float64  `json:"auto_switch_weekly_threshold"`
 			SwitchMode                  *string   `json:"switch_mode"`
 			PollingIntervalSec          *int      `json:"polling_interval_seconds"`
 			ActivePollingIntervalSec    *int      `json:"active_polling_interval_seconds"`
@@ -542,6 +563,9 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 		if p.AutoSwitchThreshold != nil {
 			d.Config.AutoSwitchThreshold = *p.AutoSwitchThreshold
+		}
+		if p.AutoSwitchWeeklyThreshold != nil {
+			d.Config.AutoSwitchWeeklyThreshold = *p.AutoSwitchWeeklyThreshold
 		}
 		if p.SwitchMode != nil {
 			d.Config.SwitchMode = quota.NormalizeSwitchMode(*p.SwitchMode)
@@ -607,9 +631,9 @@ func (d *Daemon) registerRPCHandlers() {
 			configDir = custom
 		}
 		return map[string]interface{}{
-			"surfaces":                keyring.DetectAllSurfaces(home, configDir),
-			"active_surface_account":  keyring.ResolveRunningAntigravityAccount(home, configDir),
-			"priority_sequence":       []string{"Antigravity 2.0 Desktop", "Antigravity VS Code Extension", "Antigravity CLI"},
+			"surfaces":               keyring.DetectAllSurfaces(home, configDir),
+			"active_surface_account": keyring.ResolveRunningAntigravityAccount(home, configDir),
+			"priority_sequence":      []string{"Antigravity 2.0 Desktop", "Antigravity VS Code Extension", "Antigravity CLI"},
 		}, nil
 	})
 
@@ -641,7 +665,17 @@ func (d *Daemon) registerRPCHandlers() {
 		accounts := d.Keyring.ListAccounts()
 		active := d.Keyring.ActiveAccount()
 		summaries := quota.PollFleetAccounts(accounts, d.Keyring)
-		states := quota.BuildAccountQuotaStatesFromMap(accounts, summaries)
+		d.mu.RLock()
+		thresh := d.Config.AutoSwitchThreshold
+		threshWeekly := d.Config.AutoSwitchWeeklyThreshold
+		d.mu.RUnlock()
+		if thresh <= 0 {
+			thresh = core.DefaultAutoSwitchThresholdFraction
+		}
+		if threshWeekly <= 0 {
+			threshWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
+		}
+		states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, thresh, threshWeekly)
 		summary := quota.ComputeFleetSummary(states, active)
 		return summary, nil
 	})
@@ -813,18 +847,25 @@ func (d *Daemon) schedulerLoop() {
 						d.mu.RLock()
 						autoSwitch := d.Config.AutoSwitchEnabled
 						thresh := d.Config.AutoSwitchThreshold
+						threshWeekly := d.Config.AutoSwitchWeeklyThreshold
+						if thresh <= 0 {
+							thresh = core.DefaultAutoSwitchThresholdFraction
+						}
+						if threshWeekly <= 0 {
+							threshWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
+						}
 						switchMode := d.Config.SwitchMode
 						lastSw := d.lastSwitchTime
 						d.mu.RUnlock()
 
 						if autoSwitch {
 							accounts := d.Keyring.ListAccounts()
-							states := quota.BuildAccountQuotaStates(accounts, sum)
+							states := quota.BuildAccountQuotaStatesWithThresholds(accounts, sum, thresh, threshWeekly)
 							var activeDwellSec float64
 							if !lastSw.IsZero() {
 								activeDwellSec = time.Since(lastSw).Seconds()
 							}
-							shouldSwitch, successor, _ := quota.EvaluateAutoSwitch(states, active, thresh, switchMode, activeDwellSec)
+							shouldSwitch, successor, _ := quota.EvaluateAutoSwitchWithThresholds(states, active, thresh, threshWeekly, switchMode, activeDwellSec)
 							if shouldSwitch && successor != nil && successor.Email != active {
 								_ = d.Keyring.SetActiveAccount(successor.Email)
 								d.mu.Lock()
@@ -836,6 +877,7 @@ func (d *Daemon) schedulerLoop() {
 								}
 								if cAcc, _ := d.Keyring.GetAccount(successor.Email); cAcc != nil {
 									_ = keyring.SyncAllSurfaces(cAcc, allEmails, d.Profiles)
+									_, _ = gui.NewInjector(0).RefreshUserStatus()
 								}
 							}
 						}

@@ -71,6 +71,27 @@ func (s *Store) load() error {
 	if cfg.OverviewPanel.AuxTabsFormat == "" {
 		cfg.OverviewPanel.AuxTabsFormat = "icon"
 	}
+	if cfg.LeftPanelExtensionsMode == "" {
+		cfg.LeftPanelExtensionsMode = "single"
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err == nil {
+		if opRaw, ok := raw["overview_panel"].(map[string]interface{}); ok {
+			if _, ok := opRaw["replace_see_all_triangle"]; !ok {
+				cfg.OverviewPanel.ReplaceSeeAllTriangle = true
+			}
+		} else {
+			cfg.OverviewPanel.ReplaceSeeAllTriangle = true
+		}
+		if _, ok := raw["left_panel_extensions_enabled"]; !ok {
+			cfg.LeftPanelExtensionsEnabled = true
+		}
+		if _, ok := raw["main_section_extensions_enabled"]; !ok {
+			cfg.MainSectionExtensionsEnabled = true
+		}
+	}
+
 	s.config = cfg
 	return nil
 }
@@ -170,5 +191,36 @@ func (s *Store) SetAuxTabsFormat(format string) error {
 	s.config.OverviewPanel.AuxTabsFormat = format
 	return s.save()
 }
+
+// ToggleLeftPanelExtensions toggles display of extension buttons in the left navigation sidebar.
+func (s *Store) ToggleLeftPanelExtensions(enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.config.LeftPanelExtensionsEnabled = enabled
+	return s.save()
+}
+
+// SetLeftPanelExtensionsMode sets the display mode for left panel extension buttons ("single" or "individual").
+func (s *Store) SetLeftPanelExtensionsMode(mode string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if mode != "individual" {
+		mode = "single"
+	}
+	s.config.LeftPanelExtensionsMode = mode
+	return s.save()
+}
+
+// ToggleMainSectionExtensions toggles opening extensions in the main section vs auxiliary panel.
+func (s *Store) ToggleMainSectionExtensions(enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.config.MainSectionExtensionsEnabled = enabled
+	return s.save()
+}
+
 
 

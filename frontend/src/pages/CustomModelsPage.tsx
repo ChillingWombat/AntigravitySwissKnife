@@ -522,7 +522,7 @@ export const CustomModelsPage: React.FC = () => {
               display: 'flex',
               alignItems: 'center',
               backgroundColor: 'var(--tonal)',
-              borderRadius: '20px',
+              borderRadius: '8px',
               padding: '3px',
               gap: '2px',
             }}
@@ -538,7 +538,7 @@ export const CustomModelsPage: React.FC = () => {
                   key={tab.id}
                   onClick={() => setModelFilter(tab.id as ModelFilterOption)}
                   style={{
-                    borderRadius: '16px',
+                    borderRadius: '6px',
                     padding: '6px 16px',
                     fontSize: '12px',
                     fontWeight: isActive ? 600 : 500,
@@ -1117,7 +1117,7 @@ export const CustomModelsPage: React.FC = () => {
                                 )}
                                 {levels.length > 0 && (
                                   <span style={{ fontSize: '10px', color: '#137333', backgroundColor: '#e6f4ea', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
-                                    🧠 Thinking
+                                    Thinking
                                   </span>
                                 )}
                               </div>
@@ -1414,7 +1414,7 @@ export const CustomModelsPage: React.FC = () => {
                     style={{
                       ...testBtn.style,
                       padding: '0 12px',
-                      borderRadius: '20px',
+                      borderRadius: '6px',
                       fontSize: '12px',
                       display: 'inline-flex',
                       alignItems: 'center',

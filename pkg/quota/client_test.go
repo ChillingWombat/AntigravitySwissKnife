@@ -276,4 +276,60 @@ func TestFetchProjectAndTier(t *testing.T) {
 	if res.TierName != PlanTierProTrial {
 		t.Errorf("expected tier %s for trial account, got %s", PlanTierProTrial, res.TierName)
 	}
+
+	// Test 6: Warning notice identifying trial account
+	noticeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"cloudaicompanionProject": "projects/notice-project",
+			"tier":                    "TIER_PRO",
+			"warningMessage":          "Sonnet 5.5 is now available on paid Pro and Ultra plans. Third-party model access will no longer be available on your current plan starting on November 2, 2026.",
+		})
+	}))
+	defer noticeServer.Close()
+	CloudCodeLoadProjectURLs = []string{noticeServer.URL}
+
+	res, err = FetchProjectAndTier("mock-token")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.TierName != PlanTierProTrial {
+		t.Errorf("expected tier %s for notice account, got %s", PlanTierProTrial, res.TierName)
+	}
+}
+
+func TestIsTrialWarningTextAndNormalize(t *testing.T) {
+	exactNotice := "Sonnet 5.5 is now available on paid Pro and Ultra plans. Third-party model access will no longer be available on your current plan starting on November 2, 2026."
+	if !IsTrialWarningText(exactNotice) {
+		t.Errorf("expected IsTrialWarningText to be true for exact user tooltip notice")
+	}
+	if !IsTrialWarningText("Third-party model access will no longer be available on your current plan") {
+		t.Errorf("expected IsTrialWarningText to be true for model access notice")
+	}
+
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Pro - Trial", PlanTierProTrial},
+		{"trial", PlanTierProTrial},
+		{"promo", PlanTierProTrial},
+		{"starter pro", PlanTierProTrial},
+		{"jio", PlanTierProTrial},
+		{"partner", PlanTierProTrial},
+		{exactNotice, PlanTierProTrial},
+		{"starter quota", PlanTierFree},
+		{"starter", PlanTierFree},
+		{"Free", PlanTierFree},
+		{"Pro", PlanTierPro},
+		{"Google AI Pro", PlanTierPro},
+		{"Ultra 20X", PlanTierUltra20X},
+	}
+
+	for _, tc := range tests {
+		got := NormalizePlanTier(tc.input)
+		if got != tc.expected {
+			t.Errorf("NormalizePlanTier(%q) = %q, expected %q", tc.input, got, tc.expected)
+		}
+	}
 }

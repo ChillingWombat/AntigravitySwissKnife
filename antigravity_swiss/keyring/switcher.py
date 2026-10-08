@@ -51,7 +51,20 @@ logger = logging.getLogger("antigravity_swiss.keyring")
 DEFAULT_CONFIG_DIR = Path.home() / ".config" / "antigravity-swiss"
 DEFAULT_ACCOUNTS_FILE = DEFAULT_CONFIG_DIR / "accounts.json"
 DEFAULT_LOCK_FILE = DEFAULT_CONFIG_DIR / "accounts.lock"
-ANTIGRAVITY_STORAGE_FILE = Path.home() / ".config" / "Antigravity" / "app_storage.json"
+def get_default_antigravity_storage_file() -> Path:
+    if os.environ.get("ANTIGRAVITY_STORAGE_FILE"):
+        return Path(os.environ["ANTIGRAVITY_STORAGE_FILE"]).expanduser().resolve()
+    if os.environ.get("ANTIGRAVITY_CONFIG_DIR"):
+        return Path(os.environ["ANTIGRAVITY_CONFIG_DIR"]).expanduser().resolve() / "app_storage.json"
+    if os.environ.get("ANTIGRAVITY_SWISS_TESTING") == "1" or os.environ.get("ANTIGRAVITY_TEST_MODE") == "1":
+        if os.environ.get("XDG_CONFIG_HOME"):
+            return (Path(os.environ["XDG_CONFIG_HOME"]) / "Antigravity" / "app_storage.json").resolve()
+        if os.environ.get("HOME"):
+            return (Path(os.environ["HOME"]) / ".config" / "Antigravity" / "app_storage.json").resolve()
+    return (Path.home() / ".config" / "Antigravity" / "app_storage.json").resolve()
+
+
+ANTIGRAVITY_STORAGE_FILE = get_default_antigravity_storage_file()
 
 
 class KeyringCredential(NamedTuple):
@@ -635,7 +648,13 @@ class AccountStore:
 
 
 def get_default_keyring_backend() -> KeyringBackendProtocol:
-    """Detects available keyring backend, preferring secret-tool then D-Bus."""
+    """Detects available keyring backend, preferring mock during testing, then secret-tool, then D-Bus."""
+    if os.environ.get("ANTIGRAVITY_SWISS_TESTING") == "1" or os.environ.get("ANTIGRAVITY_TEST_MODE") == "1":
+        try:
+            from tests.fixtures.mock_keyring import MockKeyringBackend
+            return MockKeyringBackend()
+        except ImportError:
+            pass
     if SecretToolBackend.is_available():
         return SecretToolBackend()
     if DBusKeyring.is_available():
@@ -666,7 +685,7 @@ class KeyringService:
         self.vault = vault or AccountVault()
         self.service = service
         self.username = username
-        self.storage_path = Path(storage_path or ANTIGRAVITY_STORAGE_FILE).expanduser().resolve()
+        self.storage_path = Path(storage_path or get_default_antigravity_storage_file()).expanduser().resolve()
         self._switch_listeners: list[Callable[[str, str], None]] = []
 
     def register_switch_listener(self, listener: Callable[[str, str], None]) -> None:
@@ -682,6 +701,12 @@ class KeyringService:
     def get_active_credential(self) -> KeyringCredential:
         raw = self.backend.lookup(service=self.service, username=self.username)
         if not raw:
+            active = self.vault.get_active_account()
+            if active:
+                rec = self.vault.get_account(active)
+                if rec and rec.credential:
+                    self.set_active_credential(rec.credential)
+                    return rec.credential
             raise KeyringNotFoundError(
                 f"No credential found in keyring for service='{self.service}', username='{self.username}'"
             )
@@ -720,6 +745,11 @@ class KeyringService:
             target_record = self.vault.get_account(account_email)
             if not target_record:
                 raise AccountNotFoundError(account_email)
+            st = (target_record.status or "").strip().upper()
+            if st == "COOLDOWN":
+                raise ValueError(f"account {account_email} is in cooldown waiting for quota reset and cannot be switched on")
+            if st == "BANNED":
+                raise ValueError(f"account {account_email} is banned and cannot be switched on")
 
             active_email = self.vault.get_active_account()
             if active_email and active_email != account_email:

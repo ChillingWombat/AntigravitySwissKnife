@@ -73,7 +73,13 @@ export function resolveAccountPlanTier(email: string, tier?: string): string {
   const lowerEmail = email.toLowerCase()
   if (lowerEmail.includes('ultra')) return 'Ultra 20X'
   if (lowerEmail.includes('.edu') || lowerEmail.includes('student') || lowerEmail.includes('univ')) return 'Edu'
-  if (lowerEmail.includes('trial')) return 'Pro - Trial'
+  if (
+    lowerEmail.includes('trial') ||
+    lowerEmail.includes('promo') ||
+    lowerEmail.includes('jio') ||
+    lowerEmail.includes('partner') ||
+    lowerEmail.includes('bundle')
+  ) return 'Pro - Trial'
   if (lowerEmail.includes('dev') || lowerEmail.includes('pro')) return 'Pro'
   if (lowerEmail.includes('plus')) return 'Plus'
   return 'Free'
@@ -191,6 +197,16 @@ export function computeEffective5hAvailable(currentFrac: number, resetSeconds: n
   return cur
 }
 
+export function computeEffectiveWeeklyAvailable(weeklyFrac: number, resetWeeklySec: number): number {
+  const cur = clamp01(weeklyFrac)
+  if (resetWeeklySec > 0 && resetWeeklySec <= FIVE_HOUR_WINDOW_SECONDS) {
+    const h = resetWeeklySec / 3600.0
+    const replenishedBoost = (1.0 - cur) * ((5.0 - h) / 5.0)
+    return clamp01(cur + replenishedBoost)
+  }
+  return cur
+}
+
 export interface AccountMetrics {
   q5hCur: number
   q5hAvail: number
@@ -235,6 +251,13 @@ export function extractAccountMetrics(acc: AccountState, mode: SwitchMode): Acco
   let sec7d = acc.reset_seconds_weekly ?? 0
   if (sec7d <= 0 && acc.reset_horizon_weekly_text) {
     sec7d = parseHorizonTextSeconds(acc.reset_horizon_weekly_text)
+  }
+
+  // Cap effective 5h available quota by weekly quota available over 5h window if credit overages are not enabled and weekly quota is depleted
+  const hasCredits = Boolean(acc.enable_credit_overages && (acc.credits ?? 0) > 0)
+  if (!hasCredits && q7d <= 0.05) {
+    const availWeeklyIn5h = computeEffectiveWeeklyAvailable(q7d, sec7d)
+    q5hAvail = Math.min(q5hAvail, availWeeklyIn5h)
   }
 
   let r7dSoonness = 0.35
@@ -396,7 +419,8 @@ export function compareStandbyCandidates(
 export function rankStandbyAccounts(
   accounts: AccountState[],
   threshold: number,
-  mode: SwitchMode = 'balanced'
+  mode: SwitchMode = 'balanced',
+  thresholdWeekly: number = 0.05
 ): AccountState[] {
   const m = normalizeSwitchMode(mode)
   const candidates: AccountState[] = []
@@ -410,7 +434,7 @@ export function rankStandbyAccounts(
     if (cur5h <= threshold) continue
 
     const hasWeekly =
-      (acc.quota_weekly ?? 0) > 0.05 ||
+      (acc.quota_weekly ?? 0) > thresholdWeekly ||
       Boolean(acc.enable_credit_overages && (acc.credits ?? 0) > 0)
     if (!hasWeekly) continue
 
@@ -521,7 +545,8 @@ export function evaluateAutoSwitch(
   activeEmail: string,
   threshold: number,
   mode: SwitchMode = 'balanced',
-  activeDwellSec = 0
+  activeDwellSec = 0,
+  thresholdWeekly: number = 0.05
 ): { shouldSwitch: boolean; successor: AccountState | null; reason: string } {
   const m = normalizeSwitchMode(mode)
   const normActive = activeEmail.toLowerCase().trim()
@@ -529,7 +554,7 @@ export function evaluateAutoSwitch(
     (a) => a.is_active || (normActive !== '' && a.email.toLowerCase().trim() === normActive)
   )
 
-  const ranked = rankStandbyAccounts(accounts, threshold, m)
+  const ranked = rankStandbyAccounts(accounts, threshold, m, thresholdWeekly)
   if (ranked.length === 0) {
     return { shouldSwitch: false, successor: null, reason: 'No eligible standby accounts above threshold' }
   }
@@ -540,12 +565,19 @@ export function evaluateAutoSwitch(
   if (active) {
     const cur5h = active.quota_5h_current ?? active.quota_5h_available ?? 0
     const weekly = active.quota_weekly ?? 0
-    const hasWeekly = weekly > 0.05 || Boolean(active.enable_credit_overages && (active.credits ?? 0) > 0)
+    const hasWeekly = weekly > thresholdWeekly || Boolean(active.enable_credit_overages && (active.credits ?? 0) > 0)
     const is5hBreached = cur5h <= threshold
     const isWeeklyBreached = !hasWeekly
 
     if (is5hBreached || isWeeklyBreached) {
-      const reason = `Active quota (5h: ${(cur5h * 100).toFixed(1)}%, weekly: ${(weekly * 100).toFixed(1)}%) dropped below threshold (${(threshold * 100).toFixed(1)}%)`
+      let reason: string
+      if (is5hBreached && isWeeklyBreached) {
+        reason = `Active quota (5h: ${(cur5h * 100).toFixed(1)}%, weekly: ${(weekly * 100).toFixed(1)}%) dropped below thresholds (5h: ${(threshold * 100).toFixed(1)}%, weekly: ${(thresholdWeekly * 100).toFixed(1)}%)`
+      } else if (is5hBreached) {
+        reason = `Active 5h quota (${(cur5h * 100).toFixed(1)}%) dropped below threshold (${(threshold * 100).toFixed(1)}%)`
+      } else {
+        reason = `Active weekly quota (${(weekly * 100).toFixed(1)}%) dropped below threshold (${(thresholdWeekly * 100).toFixed(1)}%)`
+      }
       return { shouldSwitch: true, successor: best, reason }
     }
   }
@@ -566,7 +598,8 @@ export function sortAccounts(
   activeEmail: string,
   threshold: number,
   mode: SortMode,
-  switchMode?: SwitchMode
+  switchMode?: SwitchMode,
+  thresholdWeekly: number = 0.05
 ): AccountState[] {
   const copy = [...accounts]
   const swMode = normalizeSwitchMode(switchMode)
@@ -622,29 +655,41 @@ export function sortAccounts(
   // Tier 0: Active healthy account (Row 1 pinned)
   // Tier 1: Healthy Paid Standby successors above threshold (ordered by switch mode)
   // Tier 2: Healthy Free Standby successors (Free ranked last among eligible standbys)
-  // Tier 3: Cooling down / below threshold accounts
-  // Tier 4: Error accounts
-  // Tier 5: Banned accounts
+  // Tier 3: 5h Cooldown with healthy weekly quota (recovering in <= 5h)
+  // Tier 4: Weekly Depleted / Exhausted accounts (locked out for weekly cycle)
+  // Tier 5: Error accounts
+  // Tier 6: Banned accounts
   const normActive = activeEmail.toLowerCase().trim()
 
   const getTier = (a: AccountState): number => {
+    const isAct = normActive !== '' ? a.email.toLowerCase().trim() === normActive : Boolean(a.is_active)
+    if (isAct) return 0
+
     const st = (a.status || '').toUpperCase()
-    if (st === 'BANNED') return 5
-    if (st === 'ERROR') return 4
-    if (st === 'COOLDOWN') return 3
+    if (st === 'BANNED') return 6
+    if (st === 'ERROR') return 5
 
     const cur5h = a.quota_5h_current ?? a.quota_5h_available ?? 0
     const weekly = a.quota_weekly ?? 0
-    const hasWeekly = weekly > 0.05 || Boolean(a.enable_credit_overages && (a.credits ?? 0) > 0)
-    const isBelow = cur5h <= threshold || !hasWeekly
+    const hasCredits = Boolean(a.enable_credit_overages && (a.credits ?? 0) > 0)
+    const hasWeekly = weekly > thresholdWeekly || hasCredits
+    const sec7d = a.reset_seconds_weekly ?? parseHorizonTextSeconds(a.reset_horizon_weekly_text)
+    const availWeeklyIn5h = computeEffectiveWeeklyAvailable(weekly, sec7d)
+    const recoversWeeklyIn5h = hasWeekly || availWeeklyIn5h > thresholdWeekly
+    const is5hBelow = cur5h <= threshold || st === 'COOLDOWN'
 
-    if (!isBelow) {
+    if (!is5hBelow && hasWeekly) {
       if (isFreePlanTier(a.email, a.plan_tier)) {
-        return 2
+        return 2 // Healthy Free Standby
       }
-      return 1
+      return 1 // Healthy Paid Standby
     }
-    return 3
+
+    if (recoversWeeklyIn5h) {
+      return 3 // 5h Cooldown with healthy or recovering weekly quota
+    }
+
+    return 4 // Weekly Depleted / Exhausted
   }
 
   return copy.sort((a, b) => {
@@ -660,23 +705,51 @@ export function sortAccounts(
       return tA - tB
     }
 
-    // Within Tier 1 or Tier 2: compare by switch mode
-    if (tA === 1 || tA === 2) {
+    // Within Tier 1, Tier 2, or Tier 3: compare using mode-aware standby ranking!
+    if (tA === 1 || tA === 2 || tA === 3) {
       return compareStandbyCandidates(a, b, threshold, swMode)
     }
 
-    // Within Tier 3 (cooling down): prioritize paid over free, then highest available recovery
-    if (tA === 3) {
+    // Within Tier 4 (Weekly Depleted):
+    if (tA === 4) {
       const freeA = isFreePlanTier(a.email, a.plan_tier)
       const freeB = isFreePlanTier(b.email, b.plan_tier)
       if (freeA !== freeB) {
         return freeA ? 1 : -1
       }
+      const pa = priorityRank(a.priority)
+      const pb = priorityRank(b.priority)
+      if (pa !== pb) return pa - pb
+
+      // Sooner weekly reset first if available
+      const sec7dA = a.reset_seconds_weekly ?? parseHorizonTextSeconds(a.reset_horizon_weekly_text)
+      const sec7dB = b.reset_seconds_weekly ?? parseHorizonTextSeconds(b.reset_horizon_weekly_text)
+      if (sec7dA > 0 && sec7dB > 0 && Math.abs(sec7dA - sec7dB) > 60) {
+        return sec7dA - sec7dB
+      }
+      if (sec7dA > 0 && sec7dB <= 0) return -1
+      if (sec7dA <= 0 && sec7dB > 0) return 1
+
+      // Blended readiness score for depleted accounts (higher 5h or weekly quota first)
+      const cur5hA = a.quota_5h_current ?? a.quota_5h_available ?? 0
+      const cur5hB = b.quota_5h_current ?? b.quota_5h_available ?? 0
+      const scoreA = 0.5 * (a.quota_weekly ?? 0) + 0.5 * cur5hA
+      const scoreB = 0.5 * (b.quota_weekly ?? 0) + 0.5 * cur5hB
+      if (Math.abs(scoreA - scoreB) > 0.001) {
+        return scoreB - scoreA
+      }
+
+      // Higher remaining weekly quota first (e.g. 4% > 1% > 0%)
+      const diffWeekly = (b.quota_weekly ?? 0) - (a.quota_weekly ?? 0)
+      if (Math.abs(diffWeekly) > 0.001) {
+        return diffWeekly
+      }
+      // Highest 5h available recovery
       const diff5h = (b.quota_5h_available ?? 0) - (a.quota_5h_available ?? 0)
       if (Math.abs(diff5h) > 0.001) {
         return diff5h
       }
-      return (b.quota_weekly ?? 0) - (a.quota_weekly ?? 0)
+      return (a.label || a.email).localeCompare(b.label || b.email)
     }
 
     return (a.label || a.email).localeCompare(b.label || b.email)

@@ -11,6 +11,7 @@ import {
   shouldSwitchProactivelyMaxTokens,
   evaluateAutoSwitch,
   sortAccounts,
+  computeEffectiveWeeklyAvailable,
 } from './accountRanking.ts'
 import type { AccountState } from '../types.ts'
 
@@ -220,6 +221,31 @@ describe('accountRanking utility', () => {
       assert.strictEqual(ranked.length, 1)
       assert.strictEqual(ranked[0].email, 'healthy@gmail.com')
     })
+
+    it('excludes standby accounts below thresholdWeekly unless credit overages are enabled', () => {
+      const lowWeeklyStandby: AccountState = {
+        email: 'lowweekly@gmail.com',
+        label: 'Low Weekly Account',
+        plan_tier: 'Pro',
+        is_active: false,
+        status: 'STANDBY',
+        quota_5h_current: 1.0,
+        quota_5h_available: 1.0,
+        quota_weekly: 0.04,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const ranked = rankStandbyAccounts([lowWeeklyStandby], 0.05, 'balanced', 0.05)
+      assert.strictEqual(ranked.length, 0)
+
+      const overageStandby: AccountState = {
+        ...lowWeeklyStandby,
+        enable_credit_overages: true,
+        credits: 50,
+      }
+      const rankedOverage = rankStandbyAccounts([overageStandby], 0.05, 'balanced', 0.05)
+      assert.strictEqual(rankedOverage.length, 1)
+    })
   })
 
   describe('evaluateAutoSwitch & proactive rotation', () => {
@@ -288,6 +314,20 @@ describe('accountRanking utility', () => {
       const res = evaluateAutoSwitch([exhaustedActive, standbyReady], active.email, 0.05, 'max_continuous', 30)
       assert.strictEqual(res.shouldSwitch, true)
       assert.strictEqual(res.successor?.email, 'standby@gmail.com')
+      assert.ok(res.reason.includes('dropped below threshold'))
+    })
+
+    it('switches on weekly quota threshold breach even when 5h quota is 100%', () => {
+      const weeklyDepletedActive: AccountState = {
+        ...active,
+        quota_5h_current: 1.0,
+        quota_5h_available: 1.0,
+        quota_weekly: 0.04, // breached <= 0.05
+      }
+      const res = evaluateAutoSwitch([weeklyDepletedActive, standbyReady], active.email, 0.05, 'balanced', 0, 0.05)
+      assert.strictEqual(res.shouldSwitch, true)
+      assert.strictEqual(res.successor?.email, 'standby@gmail.com')
+      assert.ok(res.reason.includes('Active weekly quota (4.0%)'))
       assert.ok(res.reason.includes('dropped below threshold'))
     })
   })
@@ -466,6 +506,246 @@ describe('accountRanking utility', () => {
       assert.strictEqual(sorted[3].email, 'cooldown@gmail.com') // Tier 3
       assert.strictEqual(sorted[4].email, 'error@gmail.com')    // Tier 4
       assert.strictEqual(sorted[5].email, 'banned@gmail.com')   // Tier 5
+    })
+
+    it('demotes standby accounts below thresholdWeekly into Tier 3', () => {
+      const active: AccountState = {
+        email: 'active@gmail.com',
+        is_active: true,
+        plan_tier: 'Pro',
+        status: 'ACTIVE',
+        quota_5h_current: 0.8,
+        quota_5h_available: 0.8,
+        quota_weekly: 0.8,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const healthyStandby: AccountState = {
+        email: 'healthy@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'STANDBY',
+        quota_5h_current: 0.6,
+        quota_5h_available: 0.6,
+        quota_weekly: 0.8,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const lowWeeklyStandby: AccountState = {
+        email: 'lowweekly@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'STANDBY',
+        quota_5h_current: 0.9,
+        quota_5h_available: 0.9,
+        quota_weekly: 0.04, // <= 0.05
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+
+      const sorted = sortAccounts(
+        [lowWeeklyStandby, healthyStandby, active],
+        active.email,
+        0.05,
+        'auto',
+        'balanced',
+        0.05
+      )
+
+      assert.strictEqual(sorted[0].email, 'active@gmail.com')
+      assert.strictEqual(sorted[1].email, 'healthy@gmail.com')
+      assert.strictEqual(sorted[2].email, 'lowweekly@gmail.com')
+    })
+
+    it('ranks 5h-cooling accounts with healthy weekly quota (Satya, PRWH) strictly above weekly-depleted accounts (Albert)', () => {
+      const active: AccountState = {
+        email: 'jose@gmail.com',
+        is_active: true,
+        plan_tier: 'Pro',
+        status: 'COOLDOWN',
+        quota_5h_current: 0.64,
+        quota_5h_available: 0.64,
+        quota_weekly: 0.0,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const albert: AccountState = {
+        email: 'alberto.carey8718@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'COOLDOWN',
+        quota_5h_current: 0.0,
+        quota_5h_available: 0.86,
+        quota_weekly: 0.01, // 1% weekly - exhausted!
+        reset_seconds: 2400, // resets in 40m
+        reset_horizon_text: 'Resets in 40m',
+        has_mfa: false,
+      }
+      const satya: AccountState = {
+        email: 'satyaprakash78447@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'COOLDOWN',
+        quota_5h_current: 0.0,
+        quota_5h_available: 0.46,
+        quota_weekly: 0.33, // 33% weekly - healthy!
+        reset_seconds: 9720, // resets in 2h 42m
+        reset_horizon_text: 'Resets in 2h 42m',
+        has_mfa: false,
+      }
+      const prwh: AccountState = {
+        email: 'prwh.dpl@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'STANDBY',
+        quota_5h_current: 0.0,
+        quota_5h_available: 0.34,
+        quota_weekly: 0.83, // 83% weekly - tons of quota!
+        reset_seconds: 12000, // resets in 3h 20m
+        reset_horizon_text: 'Resets in 3h 20m',
+        has_mfa: false,
+      }
+
+      // In balanced mode: PRWH (83% weekly) ranks top among cooling, Satya second, Albert last
+      const sortedBal = sortAccounts(
+        [albert, satya, prwh, active],
+        active.email,
+        0.05,
+        'auto',
+        'balanced',
+        0.05
+      )
+      assert.strictEqual(sortedBal[0].email, 'jose@gmail.com', 'Active account pinned to row 0')
+      assert.strictEqual(sortedBal[1].email, 'prwh.dpl@gmail.com', 'PRWH with 83% weekly quota ranks ahead')
+      assert.strictEqual(sortedBal[2].email, 'satyaprakash78447@gmail.com', 'Satya with 33% weekly quota ranks ahead of Albert')
+      assert.strictEqual(sortedBal[3].email, 'alberto.carey8718@gmail.com', 'Albert with 1% weekly quota demoted to weekly-depleted tier')
+
+      // In max_continuous mode: Satya (sooner 5h recovery, 46% projected) ranks ahead of PRWH (34%), Albert still last
+      const sortedCont = sortAccounts(
+        [albert, satya, prwh, active],
+        active.email,
+        0.05,
+        'auto',
+        'max_continuous',
+        0.05
+      )
+      assert.strictEqual(sortedCont[0].email, 'jose@gmail.com')
+      assert.strictEqual(sortedCont[1].email, 'satyaprakash78447@gmail.com', 'Satya recovers 5h capacity earlier in continuous window')
+      assert.strictEqual(sortedCont[2].email, 'prwh.dpl@gmail.com', 'PRWH recovers after Satya')
+      assert.strictEqual(sortedCont[3].email, 'alberto.carey8718@gmail.com', 'Albert cannot provide continuous quota with 1% weekly limit')
+    })
+
+    it('extractAccountMetrics caps 5h available quota by weekly quota when weekly is depleted', () => {
+      const albert: AccountState = {
+        email: 'alberto.carey8718@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'COOLDOWN',
+        quota_5h_current: 0.0,
+        quota_5h_available: 0.86,
+        quota_weekly: 0.01,
+        reset_seconds: 2400,
+        reset_horizon_text: 'Resets in 40m',
+        reset_seconds_weekly: 300000, // 3.5 days away
+        has_mfa: false,
+      }
+      const metrics = extractAccountMetrics(albert, 'balanced')
+      assert.strictEqual(metrics.q7d, 0.01)
+      assert.ok(metrics.q5hAvail <= 0.01, `Expected effective 5h available to be capped at weekly quota 0.01, got ${metrics.q5hAvail}`)
+    })
+
+    it('ranks Jose Antonio (84% 5h, 0% weekly) ahead of Albert (0% 5h, 1% weekly) due to 5h readiness in Tier 4', () => {
+      const jose: AccountState = {
+        email: 'jose@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'COOLDOWN',
+        quota_5h_current: 0.84,
+        quota_5h_available: 0.84,
+        quota_weekly: 0.0,
+        reset_seconds_weekly: 300000,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const albert: AccountState = {
+        email: 'albert@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'COOLDOWN',
+        quota_5h_current: 0.0,
+        quota_5h_available: 0.86,
+        quota_weekly: 0.01,
+        reset_seconds: 2400,
+        reset_seconds_weekly: 300000,
+        reset_horizon_text: 'Resets in 40m',
+        has_mfa: false,
+      }
+
+      const sorted = sortAccounts([albert, jose], '', 0.05, 'auto', 'balanced', 0.05)
+      assert.strictEqual(sorted[0].email, 'jose@gmail.com', 'Jose Antonio with 84% 5h quota should outrank Albert with 0% 5h quota')
+      assert.strictEqual(sorted[1].email, 'albert@gmail.com')
+    })
+
+    it('places account with weekly quota recovering within 5h into Tier 3 rather than Tier 4', () => {
+      const weeklyRecovering: AccountState = {
+        email: 'recovering@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'COOLDOWN',
+        quota_5h_current: 0.0,
+        quota_5h_available: 0.5,
+        quota_weekly: 0.0,
+        reset_seconds: 3600,
+        reset_seconds_weekly: 1800, // Weekly resets in 30 minutes!
+        reset_horizon_text: 'Resets in 1h',
+        has_mfa: false,
+      }
+      const weeklyDepleted: AccountState = {
+        email: 'depleted@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'COOLDOWN',
+        quota_5h_current: 0.0,
+        quota_5h_available: 0.5,
+        quota_weekly: 0.01,
+        reset_seconds: 3600,
+        reset_seconds_weekly: 400000, // 4.5 days away
+        reset_horizon_text: 'Resets in 1h',
+        has_mfa: false,
+      }
+
+      const sorted = sortAccounts([weeklyDepleted, weeklyRecovering], '', 0.05, 'auto', 'balanced', 0.05)
+      assert.strictEqual(sorted[0].email, 'recovering@gmail.com', 'Account recovering weekly quota in 30m enters Tier 3')
+      assert.strictEqual(sorted[1].email, 'depleted@gmail.com', 'Account depleted for 4.5 days remains in Tier 4')
+    })
+
+    it('bypasses weekly cap when enable_credit_overages is true with positive credits', () => {
+      const creditAcc: AccountState = {
+        email: 'credits@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'STANDBY',
+        quota_5h_current: 0.8,
+        quota_5h_available: 0.8,
+        quota_weekly: 0.0,
+        enable_credit_overages: true,
+        credits: 100,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const metrics = extractAccountMetrics(creditAcc, 'balanced')
+      assert.strictEqual(metrics.q5hAvail, 0.8, 'Credits allow 5h available to not be capped by weekly 0')
+
+      const sorted = sortAccounts([creditAcc], '', 0.05, 'auto', 'balanced', 0.05)
+      // Should be in Tier 1 (Healthy Paid Standby) because hasWeekly is true via credits
+      assert.strictEqual(sorted[0].email, 'credits@gmail.com')
+    })
+
+    it('computes computeEffectiveWeeklyAvailable smoothly at 18000s boundary', () => {
+      const atBoundary = computeEffectiveWeeklyAvailable(0.02, 18000)
+      assert.strictEqual(atBoundary, 0.02, 'At exactly 5h boundary boost is 0')
+      const insideWindow = computeEffectiveWeeklyAvailable(0.0, 3600)
+      assert.strictEqual(insideWindow, 0.8, '1 hour reset provides 80% replenishment across 5h window')
     })
   })
 })

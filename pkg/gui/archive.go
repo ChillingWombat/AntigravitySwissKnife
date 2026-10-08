@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	_ "modernc.org/sqlite"
 )
 
 // AutoArchiveResult contains details of an auto-archiving run.
@@ -197,4 +201,43 @@ except Exception as e:
 		CutoffTime:    cutoffStr,
 		Message:       fmt.Sprintf("Successfully archived %d stale conversation(s) into conversation history (horizon: %s)", len(archivedIDs), horizon),
 	}, nil
+}
+
+// GetPrunedConversationIDs returns IDs of conversations present in conversation_summaries.db
+// whose physical database file in conversations/ directory is missing.
+func GetPrunedConversationIDs() []string {
+	dbPath := filepath.Join(core.GetAntigravityDir(), "conversation_summaries.db")
+	convsDir := core.GetConversationsDir()
+	return ScanPrunedConversationIDs(dbPath, convsDir)
+}
+
+// ScanPrunedConversationIDs queries a summaries SQLite db and checks for missing conversation db files.
+func ScanPrunedConversationIDs(dbPath, convsDir string) []string {
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		return []string{}
+	}
+
+	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=ro", dbPath))
+	if err != nil {
+		return []string{}
+	}
+	defer db.Close()
+
+	rows, err := db.Query("SELECT conversation_id FROM conversation_summaries")
+	if err != nil {
+		return []string{}
+	}
+	defer rows.Close()
+
+	var pruned []string
+	for rows.Next() {
+		var cid string
+		if err := rows.Scan(&cid); err == nil && cid != "" {
+			physicalDB := filepath.Join(convsDir, cid+".db")
+			if _, err := os.Stat(physicalDB); os.IsNotExist(err) {
+				pruned = append(pruned, cid)
+			}
+		}
+	}
+	return pruned
 }

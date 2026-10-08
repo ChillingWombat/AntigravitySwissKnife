@@ -71,6 +71,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   onSaved,
 }) => {
   const [threshold, setThreshold] = useState<number>(initialRules?.auto_switch_threshold ?? 0.05)
+  const [weeklyThreshold, setWeeklyThreshold] = useState<number>(initialRules?.auto_switch_weekly_threshold ?? 0.05)
   const [switchMode, setSwitchMode] = useState<SwitchMode>(initialRules?.switch_mode || 'balanced')
   const [pollingInterval, setPollingInterval] = useState<number>(initialRules?.polling_interval_seconds ?? 60)
   const [activePollingInterval, setActivePollingInterval] = useState<number>(initialRules?.active_polling_interval_seconds ?? 120)
@@ -88,29 +89,14 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       ? initialRules.model_source_hierarchy
       : ['gemini', 'custom_model', 'non_gemini', 'ai_credits']
   )
-  const [defaultGemini, setDefaultGemini] = useState<string>(initialRules?.default_gemini_model || 'gemini-3.8-flash')
+  const [defaultGemini, setDefaultGemini] = useState<string>(initialRules?.default_gemini_model || 'gemini-3.8-flash-high')
   const [defaultCustom, setDefaultCustom] = useState<string>(initialRules?.default_custom_model || '')
   const [defaultNonGemini, setDefaultNonGemini] = useState<string>(initialRules?.default_non_gemini_model || 'claude-opus-4-6')
   const [geminiReasoningLevel, setGeminiReasoningLevel] = useState<string>(initialRules?.default_gemini_reasoning_level || 'high')
 
-  // Dynamic available model lists
-  const [geminiModelOptions, setGeminiModelOptions] = useState<AvailableModelItem[]>([
-    { id: 'gemini-3.8-flash', display_name: 'Gemini 3.8 Flash' },
-    { id: 'gemini-3.8-pro', display_name: 'Gemini 3.8 Pro' },
-    { id: 'gemini-3.5-flash-lite', display_name: 'Gemini 3.5 Flash Lite' },
-    { id: 'gemini-3.1-pro', display_name: 'Gemini 3.1 Pro' },
-    { id: 'gemini-2.5-pro', display_name: 'Gemini 2.5 Pro' },
-    { id: 'gemini-2.5-flash', display_name: 'Gemini 2.5 Flash' },
-    { id: 'gemini-2.0-flash', display_name: 'Gemini 2.0 Flash' },
-  ])
-  const [nonGeminiModelOptions, setNonGeminiModelOptions] = useState<AvailableModelItem[]>([
-    { id: 'claude-opus-4-6', display_name: 'Claude Opus 4.6' },
-    { id: 'claude-3-7-sonnet', display_name: 'Claude 3.7 Sonnet' },
-    { id: 'claude-3-5-sonnet', display_name: 'Claude 3.5 Sonnet' },
-    { id: 'claude-3-5-haiku', display_name: 'Claude 3.5 Haiku' },
-    { id: 'gpt-4o', display_name: 'OpenAI GPT-4o' },
-    { id: 'o3-mini', display_name: 'OpenAI o3-mini' },
-  ])
+  // Dynamic available model lists (fetched automatically from running IDE / CloudCode)
+  const [geminiModelOptions, setGeminiModelOptions] = useState<AvailableModelItem[]>([])
+  const [nonGeminiModelOptions, setNonGeminiModelOptions] = useState<AvailableModelItem[]>([])
   const [isFetchingModels, setIsFetchingModels] = useState<boolean>(false)
   const [autoImportActive, setAutoImportActive] = useState<boolean>(initialRules?.auto_import_active_account ?? false)
   const [surfacesData, setSurfacesData] = useState<SurfacesResponse | null>(null)
@@ -265,6 +251,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   useEffect(() => {
     if (initialRules) {
       setThreshold(initialRules.auto_switch_threshold)
+      if (initialRules.auto_switch_weekly_threshold !== undefined) {
+        setWeeklyThreshold(initialRules.auto_switch_weekly_threshold)
+      }
       if (initialRules.switch_mode) {
         setSwitchMode(initialRules.switch_mode)
       }
@@ -426,6 +415,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     try {
       await api.saveRules({
         auto_switch_threshold: threshold,
+        auto_switch_weekly_threshold: weeklyThreshold,
         switch_mode: switchMode,
         polling_interval_seconds: pollingInterval,
         active_polling_interval_seconds: activePollingInterval,
@@ -454,6 +444,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   }
 
   const thresholdPercent = Math.round(threshold * 100)
+  const weeklyThresholdPercent = Math.round(weeklyThreshold * 100)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -639,11 +630,11 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             </div>
           </div>
 
-          {/* Threshold Slider */}
+          {/* 5-Hour Threshold Slider */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
               <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                Exhaustion Threshold Trigger:
+                5-Hour Quota Threshold Trigger:
               </span>
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--primary)' }}>
                 {thresholdPercent}% Quota Remaining
@@ -662,7 +653,34 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               }}
             />
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-              Triggers proactive rotation to the next highest-quota standby account before reaching zero quota.
+              Triggers proactive rotation when the active account 5-hour quota drops to or below this threshold.
+            </div>
+          </div>
+
+          {/* 7-Day (Weekly) Quota Threshold Slider */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                7-Day (Weekly) Quota Threshold Trigger:
+              </span>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--primary)' }}>
+                {weeklyThresholdPercent}% Quota Remaining
+              </span>
+            </div>
+            <input
+              type="range"
+              min={1}
+              max={50}
+              value={weeklyThresholdPercent}
+              onChange={(e) => setWeeklyThreshold(Number(e.target.value) / 100)}
+              style={{
+                width: '100%',
+                accentColor: 'var(--primary)',
+                cursor: 'pointer',
+              }}
+            />
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              Triggers auto-rotation when the active account 7-day rolling quota drops to or below this threshold, preventing lockouts when 5-hour quota remains high.
             </div>
           </div>
 
@@ -977,18 +995,59 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                 The preferred Google Gemini model assigned for new conversations and default execution.
               </div>
             </div>
-            <select
-              value={defaultGemini}
-              onChange={(e) => setDefaultGemini(e.target.value)}
-              style={{ width: '240px' }}
-              aria-label="Default Gemini Model"
-            >
-              {geminiModelOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.display_name}
-                </option>
-              ))}
-            </select>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <select
+                value={defaultGemini}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setDefaultGemini(val)
+                  if (val.endsWith('-high') || val.includes('high')) {
+                    setGeminiReasoningLevel('high')
+                  } else if (val.endsWith('-medium') || val.includes('medium')) {
+                    setGeminiReasoningLevel('medium')
+                  } else if (val.endsWith('-low') || val.includes('low')) {
+                    setGeminiReasoningLevel('low')
+                  } else if (val.endsWith('-off') || val.includes('off')) {
+                    setGeminiReasoningLevel('off')
+                  }
+                }}
+                style={{ width: '220px' }}
+                aria-label="Default Gemini Model"
+              >
+                {geminiModelOptions.length === 0 ? (
+                  <option value={defaultGemini}>
+                    {isFetchingModels ? 'Fetching live models...' : (defaultGemini || 'No Gemini models found')}
+                  </option>
+                ) : (
+                  geminiModelOptions.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.display_name}
+                    </option>
+                  ))
+                )}
+              </select>
+
+              <select
+                value={geminiReasoningLevel}
+                onChange={(e) => {
+                  const lvl = e.target.value
+                  setGeminiReasoningLevel(lvl)
+                  const baseModel = defaultGemini.replace(/-(high|medium|low|off)$/, '')
+                  const candidate = `${baseModel}-${lvl}`
+                  if (geminiModelOptions.some((opt) => opt.id === candidate)) {
+                    setDefaultGemini(candidate)
+                  }
+                }}
+                style={{ width: '100px' }}
+                aria-label="Default Gemini Reasoning Level"
+                title="Reasoning Level for Gemini models"
+              >
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+                <option value="off">Off</option>
+              </select>
+            </div>
           </div>
 
           {/* Default Custom Model */}
@@ -1043,11 +1102,17 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               style={{ width: '240px' }}
               aria-label="Default Non-Gemini Native Model"
             >
-              {nonGeminiModelOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.display_name}
+              {nonGeminiModelOptions.length === 0 ? (
+                <option value={defaultNonGemini}>
+                  {isFetchingModels ? 'Fetching live models...' : (defaultNonGemini || 'No Non-Gemini models found')}
                 </option>
-              ))}
+              ) : (
+                nonGeminiModelOptions.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.display_name}
+                  </option>
+                ))
+              )}
             </select>
           </div>
         </div>

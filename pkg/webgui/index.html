@@ -405,8 +405,13 @@
         </div>
 
         <div class="form-group">
-          <label>Auto-Switch Threshold: <span id="threshold-val" style="font-weight: 700; color: var(--accent);">10%</span></label>
-          <input type="range" id="threshold-range" min="5" max="30" value="10" oninput="document.getElementById('threshold-val').innerText = this.value + '%'" style="width: 100%; accent-color: var(--accent);" />
+          <label>5-Hour Auto-Switch Threshold: <span id="threshold-val" style="font-weight: 700; color: var(--accent);">10%</span></label>
+          <input type="range" id="threshold-range" min="1" max="50" value="10" oninput="document.getElementById('threshold-val').innerText = this.value + '%'" style="width: 100%; accent-color: var(--accent);" />
+        </div>
+
+        <div class="form-group">
+          <label>7-Day (Weekly) Auto-Switch Threshold: <span id="weekly-threshold-val" style="font-weight: 700; color: var(--accent);">5%</span></label>
+          <input type="range" id="weekly-threshold-range" min="1" max="50" value="5" oninput="document.getElementById('weekly-threshold-val').innerText = this.value + '%'" style="width: 100%; accent-color: var(--accent);" />
         </div>
 
         <div class="form-group">
@@ -586,6 +591,13 @@
           document.getElementById('threshold-range').value = t;
           document.getElementById('threshold-val').innerText = t + '%';
         }
+        if (rules.auto_switch_weekly_threshold) {
+          const tw = Math.round(rules.auto_switch_weekly_threshold * 100);
+          const rangeEl = document.getElementById('weekly-threshold-range');
+          const valEl = document.getElementById('weekly-threshold-val');
+          if (rangeEl) rangeEl.value = tw;
+          if (valEl) valEl.innerText = tw + '%';
+        }
         if (rules.polling_interval_seconds) {
           document.getElementById('polling-range').value = rules.polling_interval_seconds;
           document.getElementById('polling-val').innerText = rules.polling_interval_seconds + 's';
@@ -757,6 +769,7 @@
 
   async function saveSettingsRules() {
     const threshold = parseFloat(document.getElementById('threshold-range').value) / 100.0;
+    const weeklyThreshold = parseFloat(document.getElementById('weekly-threshold-range')?.value || '5') / 100.0;
     const interval = parseInt(document.getElementById('polling-range').value);
     await fetch('/api/rules', {
       method: 'POST',
@@ -764,6 +777,7 @@
       body: JSON.stringify({
         auto_switch_enabled: autoSwitchEnabled,
         auto_switch_threshold: threshold,
+        auto_switch_weekly_threshold: weeklyThreshold,
         polling_interval_seconds: interval
       })
     });

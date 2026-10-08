@@ -368,6 +368,7 @@ class StandaloneController(SwissKnifeController):
         return {
             "auto_switch_enabled": self.config.auto_switch_enabled,
             "auto_switch_threshold": self.config.auto_switch_threshold,
+            "auto_switch_weekly_threshold": getattr(self.config, "auto_switch_weekly_threshold", 0.05),
             "cooldown_seconds": 300.0,
             "switch_margin": 0.05,
             "per_model_thresholds": {
@@ -385,6 +386,8 @@ class StandaloneController(SwissKnifeController):
             self.config.auto_switch_enabled = bool(kwargs["auto_switch_enabled"])
         if "auto_switch_threshold" in kwargs:
             self.config.auto_switch_threshold = max(0.0, min(1.0, float(kwargs["auto_switch_threshold"])))
+        if "auto_switch_weekly_threshold" in kwargs:
+            self.config.auto_switch_weekly_threshold = max(0.0, min(1.0, float(kwargs["auto_switch_weekly_threshold"])))
         self.config.save_settings()
         return self.get_rule_config()
 

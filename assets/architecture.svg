@@ -1,0 +1,239 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" width="1200" height="680" style="background:#090d16; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <defs>
+    <linearGradient id="bgGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="50%" stop-color="#090d16"/>
+      <stop offset="100%" stop-color="#06090f"/>
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#141c2e"/>
+      <stop offset="100%" stop-color="#0d1424"/>
+    </linearGradient>
+    <linearGradient id="blueGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2563eb" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.8"/>
+    </linearGradient>
+    <linearGradient id="greenGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#059669" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#10b981" stop-opacity="0.8"/>
+    </linearGradient>
+    <linearGradient id="purpleGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#a855f7" stop-opacity="0.8"/>
+    </linearGradient>
+    <linearGradient id="amberGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#d97706" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.8"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#38bdf8"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#10b981"/>
+    </marker>
+    <marker id="arrowMuted" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#64748b"/>
+    </marker>
+    <filter id="cardShadow" x="-5%" y="-5%" width="110%" height="115%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="680" fill="url(#bgGlow)"/>
+
+  <!-- Subtle Grid lines -->
+  <g stroke="#1e293b" stroke-width="0.5" stroke-opacity="0.4">
+    <line x1="60" y1="0" x2="60" y2="680"/>
+    <line x1="200" y1="0" x2="200" y2="680"/>
+    <line x1="400" y1="0" x2="400" y2="680"/>
+    <line x1="600" y1="0" x2="600" y2="680"/>
+    <line x1="800" y1="0" x2="800" y2="680"/>
+    <line x1="1000" y1="0" x2="1000" y2="680"/>
+    <line x1="1140" y1="0" x2="1140" y2="680"/>
+    <line x1="0" y1="60" x2="1200" y2="60"/>
+    <line x1="0" y1="200" x2="1200" y2="200"/>
+    <line x1="0" y1="360" x2="1200" y2="360"/>
+    <line x1="0" y1="520" x2="1200" y2="520"/>
+  </g>
+
+  <!-- Header -->
+  <g transform="translate(60, 44)">
+    <text x="0" y="0" font-size="20" font-weight="700" fill="#f8fafc" letter-spacing="-0.02em">Antigravity Swiss Knife — System Architecture</text>
+    <text x="0" y="24" font-size="12" fill="#94a3b8">Native companion daemon, desktop supervisory interface, and runtime extension architecture</text>
+  </g>
+
+  <!-- Top Badges -->
+  <g transform="translate(900, 36)">
+    <rect x="0" y="0" width="100" height="24" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <text x="50" y="16" font-size="11" font-weight="600" fill="#38bdf8" text-anchor="middle">Go 1.26</text>
+    <rect x="112" y="0" width="128" height="24" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <text x="176" y="16" font-size="11" font-weight="600" fill="#a78bfa" text-anchor="middle">Electron / React 19</text>
+  </g>
+
+  <!-- SECTION 1: USER SURFACES (TOP) -->
+  <!-- Box 1A: Antigravity 2.0 Host -->
+  <g transform="translate(60, 100)" filter="url(#cardShadow)">
+    <rect width="510" height="150" rx="10" fill="url(#cardGrad)" stroke="#1e293b" stroke-width="1.2"/>
+    <rect width="510" height="4" rx="2" fill="url(#blueGlow)"/>
+    <text x="24" y="32" font-size="14" font-weight="700" fill="#f1f5f9">Google Antigravity 2.0 (Host Desktop App)</text>
+    <text x="24" y="50" font-size="11" fill="#64748b">Target application runtime environment (/opt/Antigravity)</text>
+    
+    <g transform="translate(24, 68)">
+      <!-- Pill 1 -->
+      <rect x="0" y="0" width="144" height="62" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="22" font-size="11" font-weight="600" fill="#38bdf8">Persistent Injection</text>
+      <text x="12" y="40" font-size="10" fill="#94a3b8">persistent_script.js</text>
+      <text x="12" y="52" font-size="9" fill="#64748b">persistent_styles.css</text>
+
+      <!-- Pill 2 -->
+      <rect x="156" y="0" width="144" height="62" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="22" font-size="11" font-weight="600" fill="#38bdf8">Turn Navigation</text>
+      <text x="12" y="40" font-size="10" fill="#94a3b8">Prompt Jump History</text>
+      <text x="12" y="52" font-size="9" fill="#64748b">Tool Output Filtering</text>
+
+      <!-- Pill 3 -->
+      <rect x="312" y="0" width="150" height="62" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="22" font-size="11" font-weight="600" fill="#38bdf8">In-Chat Telemetry</text>
+      <text x="12" y="40" font-size="10" fill="#94a3b8">Real-time TPS Metrics</text>
+      <text x="12" y="52" font-size="9" fill="#64748b">Subagent Aggregation</text>
+    </g>
+  </g>
+
+  <!-- Box 1B: Swiss Knife Companion GUI -->
+  <g transform="translate(630, 100)" filter="url(#cardShadow)">
+    <rect width="510" height="150" rx="10" fill="url(#cardGrad)" stroke="#1e293b" stroke-width="1.2"/>
+    <rect width="510" height="4" rx="2" fill="url(#purpleGlow)"/>
+    <text x="24" y="32" font-size="14" font-weight="700" fill="#f1f5f9">Swiss Knife Desktop Application (GUI)</text>
+    <text x="24" y="50" font-size="11" fill="#64748b">Companion supervisory control center &amp; extension workspace</text>
+
+    <g transform="translate(24, 68)">
+      <!-- Pill 1 -->
+      <rect x="0" y="0" width="144" height="62" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="22" font-size="11" font-weight="600" fill="#c084fc">Fleet Management</text>
+      <text x="12" y="40" font-size="10" fill="#94a3b8">Multi-Account Quotas</text>
+      <text x="12" y="52" font-size="9" fill="#64748b">MFA / TOTP Vault</text>
+
+      <!-- Pill 2 -->
+      <rect x="156" y="0" width="144" height="62" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="22" font-size="11" font-weight="600" fill="#c084fc">Auditor &amp; Relays</text>
+      <text x="12" y="40" font-size="10" fill="#94a3b8">6-Probe Security Suite</text>
+      <text x="12" y="52" font-size="9" fill="#64748b">Canary Downgrade Test</text>
+
+      <!-- Pill 3 -->
+      <rect x="312" y="0" width="150" height="62" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="22" font-size="11" font-weight="600" fill="#c084fc">Auxiliary Panels</text>
+      <text x="12" y="40" font-size="10" fill="#94a3b8">Preview Browser &amp; Memos</text>
+      <text x="12" y="52" font-size="9" fill="#64748b">GitHub Projects Kanban</text>
+    </g>
+  </g>
+
+  <!-- INTER-LAYER IPC BUS (CONNECTOR) -->
+  <g transform="translate(60, 274)">
+    <rect width="1080" height="32" rx="6" fill="#0f172a" stroke="#334155" stroke-dasharray="4 4" stroke-width="1"/>
+    <text x="540" y="20" font-size="11" font-weight="600" fill="#94a3b8" text-anchor="middle">
+      Local IPC Bus: Unix Domain Socket (<tspan fill="#38bdf8">/run/user/1000/antigravity-swiss/daemon.sock</tspan>) &amp; Localhost HTTP (<tspan fill="#38bdf8">127.0.0.1:8765</tspan>)
+    </text>
+  </g>
+
+  <!-- Vertical Arrows connecting surfaces to IPC bus -->
+  <line x1="315" y1="250" x2="315" y2="274" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="885" y1="250" x2="885" y2="274" stroke="#a855f7" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="315" y1="306" x2="315" y2="330" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="885" y1="306" x2="885" y2="330" stroke="#a855f7" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- SECTION 2: CORE DAEMON (CENTER) -->
+  <g transform="translate(60, 330)" filter="url(#cardShadow)">
+    <rect width="1080" height="170" rx="10" fill="url(#cardGrad)" stroke="#1e293b" stroke-width="1.2"/>
+    <rect width="1080" height="4" rx="2" fill="url(#greenGlow)"/>
+    <text x="24" y="30" font-size="14" font-weight="700" fill="#f1f5f9">Swiss Companion Daemon (Headless Go Engine — bin/swiss daemon)</text>
+    <text x="24" y="48" font-size="11" fill="#64748b">Zero-CGo native binary orchestrating local credential switching, telemetry, and background lifecycle</text>
+
+    <!-- 5 Daemon Engines in a row -->
+    <g transform="translate(24, 64)">
+      <!-- Box 1 -->
+      <rect x="0" y="0" width="194" height="88" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="22" font-size="11" font-weight="700" fill="#34d399">Keyring &amp; Switcher</text>
+      <text x="12" y="40" font-size="10" fill="#94a3b8">• OAuth2 Token Extraction</text>
+      <text x="12" y="56" font-size="10" fill="#94a3b8">• Secret Service Sync</text>
+      <text x="12" y="72" font-size="10" fill="#94a3b8">• Session Lock Avoidance</text>
+
+      <!-- Box 2 -->
+      <rect x="210" y="0" width="194" height="88" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="22" font-size="11" font-weight="700" fill="#34d399">Quota &amp; Keep-Alive</text>
+      <text x="12" y="40" font-size="10" fill="#94a3b8">• Upstream API Polling</text>
+      <text x="12" y="56" font-size="10" fill="#94a3b8">• Reset Horizon Detection</text>
+      <text x="12" y="72" font-size="10" fill="#94a3b8">• Warmup Ping Dispatch</text>
+
+      <!-- Box 3 -->
+      <rect x="420" y="0" width="194" height="88" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="22" font-size="11" font-weight="700" fill="#34d399">Fingerprint Isolation</text>
+      <text x="12" y="40" font-size="10" fill="#94a3b8">• machineid Virtualization</text>
+      <text x="12" y="56" font-size="10" fill="#94a3b8">• updaterId &amp; UUID Isolation</text>
+      <text x="12" y="72" font-size="10" fill="#94a3b8">• Anti-Correlation Defense</text>
+
+      <!-- Box 4 -->
+      <rect x="630" y="0" width="194" height="88" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="22" font-size="11" font-weight="700" fill="#34d399">Telemetry &amp; Audit</text>
+      <text x="12" y="40" font-size="10" fill="#94a3b8">• In-Chat Token Accounting</text>
+      <text x="12" y="56" font-size="10" fill="#94a3b8">• 6-Probe Security Auditor</text>
+      <text x="12" y="72" font-size="10" fill="#94a3b8">• Dynamic Pricing Registry</text>
+
+      <!-- Box 5 -->
+      <rect x="840" y="0" width="192" height="88" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="22" font-size="11" font-weight="700" fill="#34d399">Storage &amp; Backup</text>
+      <text x="12" y="40" font-size="10" fill="#94a3b8">• Pure-Go SQLite Database</text>
+      <text x="12" y="56" font-size="10" fill="#94a3b8">• Atomic *.swiss.bak Rollback</text>
+      <text x="12" y="72" font-size="10" fill="#94a3b8">• Cache Pruner &amp; Cleanup</text>
+    </g>
+  </g>
+
+  <!-- SECTION 3: BOTTOM SUBSYSTEMS -->
+  <!-- Box 3A: Local OS &amp; Security (Bottom Left) -->
+  <g transform="translate(60, 526)" filter="url(#cardShadow)">
+    <rect width="510" height="120" rx="10" fill="url(#cardGrad)" stroke="#1e293b" stroke-width="1.2"/>
+    <rect width="510" height="4" rx="2" fill="url(#amberGlow)"/>
+    <text x="24" y="28" font-size="13" font-weight="700" fill="#f1f5f9">Operating System Keyring &amp; Local Storage</text>
+    <text x="24" y="44" font-size="11" fill="#64748b">Zero unencrypted credentials on disk; native OS credential vaults</text>
+
+    <g transform="translate(24, 58)">
+      <rect x="0" y="0" width="144" height="48" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="20" font-size="10" font-weight="600" fill="#fbbf24">Linux Secret Service</text>
+      <text x="12" y="36" font-size="9" fill="#94a3b8">libsecret / secret-tool</text>
+
+      <rect x="156" y="0" width="144" height="48" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="20" font-size="10" font-weight="600" fill="#fbbf24">macOS &amp; Windows</text>
+      <text x="12" y="36" font-size="9" fill="#94a3b8">Keychain / Credential Mgr</text>
+
+      <rect x="312" y="0" width="150" height="48" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="20" font-size="10" font-weight="600" fill="#fbbf24">Local Embedded DB</text>
+      <text x="12" y="36" font-size="9" fill="#94a3b8">modernc.org/sqlite</text>
+    </g>
+  </g>
+
+  <!-- Box 3B: External Services (Bottom Right) -->
+  <g transform="translate(630, 526)" filter="url(#cardShadow)">
+    <rect width="510" height="120" rx="10" fill="url(#cardGrad)" stroke="#1e293b" stroke-width="1.2"/>
+    <rect width="510" height="4" rx="2" fill="url(#blueGlow)"/>
+    <text x="24" y="28" font-size="13" font-weight="700" fill="#f1f5f9">Upstream Protocols &amp; External Integrations</text>
+    <text x="24" y="44" font-size="11" fill="#64748b">Direct HTTPS endpoints without intermediary proxy interception</text>
+
+    <g transform="translate(24, 58)">
+      <rect x="0" y="0" width="144" height="48" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="20" font-size="10" font-weight="600" fill="#38bdf8">CloudCode API</text>
+      <text x="12" y="36" font-size="9" fill="#94a3b8">cloudcode-pa.googleapis</text>
+
+      <rect x="156" y="0" width="144" height="48" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="20" font-size="10" font-weight="600" fill="#38bdf8">Custom Relays</text>
+      <text x="12" y="36" font-size="9" fill="#94a3b8">OpenAI / Claude / LiteLLM</text>
+
+      <rect x="312" y="0" width="150" height="48" rx="6" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="20" font-size="10" font-weight="600" fill="#38bdf8">GitHub Workspace</text>
+      <text x="12" y="36" font-size="9" fill="#94a3b8">REST &amp; GraphQL v4 API</text>
+    </g>
+  </g>
+
+  <!-- Connecting Arrows from Daemon to Bottom -->
+  <line x1="315" y1="500" x2="315" y2="526" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrowMuted)"/>
+  <line x1="885" y1="500" x2="885" y2="526" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arrow)"/>
+</svg>

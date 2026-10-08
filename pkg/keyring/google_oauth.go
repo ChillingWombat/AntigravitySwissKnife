@@ -41,10 +41,11 @@ type GoogleOAuthManager struct {
 }
 
 type activeGoogleFlow struct {
-	result chan *GoogleOAuthResult
-	err    chan error
-	server *http.Server
-	cancel context.CancelFunc
+	authURL string
+	result  chan *GoogleOAuthResult
+	err     chan error
+	server  *http.Server
+	cancel  context.CancelFunc
 }
 
 // NewGoogleOAuthManager creates a new extractor instance.
@@ -81,11 +82,48 @@ func OpenBrowser(targetURL string) error {
 	return exec.Command(cmd, args...).Start()
 }
 
+// CancelFlow aborts any active OAuth loopback flow and shuts down the loopback server immediately.
+func (m *GoogleOAuthManager) CancelFlow() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.activeFlow != nil {
+		if m.activeFlow.cancel != nil {
+			m.activeFlow.cancel()
+		}
+		if m.activeFlow.server != nil {
+			_ = m.activeFlow.server.Close()
+		}
+		m.activeFlow = nil
+	}
+}
+
+// IsFlowActive returns whether an OAuth authorization flow is currently waiting for callback.
+func (m *GoogleOAuthManager) IsFlowActive() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.activeFlow != nil
+}
+
+// GetActiveAuthURL returns the authorization URL of the currently waiting flow, if any.
+func (m *GoogleOAuthManager) GetActiveAuthURL() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.activeFlow != nil {
+		return m.activeFlow.authURL
+	}
+	return ""
+}
+
 // StartFlow starts the local loopback server, launches the browser, and returns the tokens.
 func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*GoogleOAuthResult, error) {
 	m.mu.Lock()
 	if m.activeFlow != nil {
-		m.activeFlow.cancel()
+		if m.activeFlow.cancel != nil {
+			m.activeFlow.cancel()
+		}
+		if m.activeFlow.server != nil {
+			_ = m.activeFlow.server.Close()
+		}
 		m.activeFlow = nil
 	}
 
@@ -188,6 +226,11 @@ func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*
 		"prompt":        {"select_account consent"},
 	}
 	authURL := fmt.Sprintf("%s?%s", GoogleOAuthAuthURL, authParams.Encode())
+	m.mu.Lock()
+	if m.activeFlow == flow {
+		flow.authURL = authURL
+	}
+	m.mu.Unlock()
 
 	if openBrowser {
 		_ = OpenBrowser(authURL)
@@ -195,13 +238,13 @@ func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*
 
 	select {
 	case res := <-flow.result:
-		_ = server.Shutdown(context.Background())
+		_ = server.Close()
 		return res, nil
 	case err := <-flow.err:
-		_ = server.Shutdown(context.Background())
+		_ = server.Close()
 		return nil, err
 	case <-flowCtx.Done():
-		_ = server.Shutdown(context.Background())
+		_ = server.Close()
 		return nil, flowCtx.Err()
 	}
 }

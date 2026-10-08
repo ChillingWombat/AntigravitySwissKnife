@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail } from 'lucide-react'
 import type { AccountState } from '../types'
 import { renderPlanTierBadge } from '../pages/QuotaDashboardPage'
@@ -38,9 +38,13 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [totpSecret, setTotpSecret] = useState(account.totp_secret || '')
   const [showTotp, setShowTotp] = useState(false)
   const [refreshToken, setRefreshToken] = useState(account.refresh_token || '')
+  const [extractedAccessToken, setExtractedAccessToken] = useState<string>('')
   const [showOAuth, setShowOAuth] = useState(false)
   const [isExtractingOAuth, setIsExtractingOAuth] = useState(false)
+  const [oauthAuthUrl, setOauthAuthUrl] = useState<string | null>(null)
+  const [copiedOAuthUrl, setCopiedOAuthUrl] = useState(false)
   const [oauthSuccessMsg, setOauthSuccessMsg] = useState<string | null>(null)
+  const oauthAbortControllerRef = useRef<AbortController | null>(null)
   const status = account.status || (account.is_active ? 'ACTIVE' : 'STANDBY')
   const [notes, setNotes] = useState(account.notes || '')
   const [isSaving, setIsSaving] = useState(false)
@@ -100,14 +104,98 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     setTimeout(() => setCopiedTotp(false), 1500)
   }
 
+  useEffect(() => {
+    return () => {
+      if (oauthAbortControllerRef.current) {
+        oauthAbortControllerRef.current.abort()
+        oauthAbortControllerRef.current = null
+        api.cancelGoogleOAuth().catch(() => {})
+      }
+    }
+  }, [])
+
+  const handleClose = () => {
+    if (oauthAbortControllerRef.current) {
+      oauthAbortControllerRef.current.abort()
+      oauthAbortControllerRef.current = null
+      api.cancelGoogleOAuth().catch(() => {})
+    }
+    onClose()
+  }
+
+  const handleCancelGoogleOAuth = async () => {
+    if (oauthAbortControllerRef.current) {
+      oauthAbortControllerRef.current.abort()
+      oauthAbortControllerRef.current = null
+    }
+    setIsExtractingOAuth(false)
+    setOauthAuthUrl(null)
+    setCopiedOAuthUrl(false)
+    try {
+      await api.cancelGoogleOAuth()
+    } catch {}
+  }
+
+  const handleCopyOAuthUrl = async () => {
+    let urlToCopy = oauthAuthUrl
+    if (!urlToCopy) {
+      try {
+        const info = await api.getGoogleOAuthURL()
+        if (info && info.auth_url) {
+          urlToCopy = info.auth_url
+          setOauthAuthUrl(info.auth_url)
+        }
+      } catch {}
+    }
+    if (urlToCopy) {
+      try {
+        await navigator.clipboard.writeText(urlToCopy)
+        setCopiedOAuthUrl(true)
+        setOauthSuccessMsg('Login address copied to clipboard! Paste it into your fingerprint browser to complete sign-in.')
+        setTimeout(() => setCopiedOAuthUrl(false), 3000)
+      } catch (err: any) {
+        setError('Failed to copy to clipboard: ' + (err?.message || err))
+      }
+    } else {
+      setError('Login address is generating. Please click again in a moment.')
+    }
+  }
+
   const handleExtractGoogleOAuth = async () => {
+    if (isExtractingOAuth) {
+      await handleCopyOAuthUrl()
+      return
+    }
     setIsExtractingOAuth(true)
     setError(null)
     setOauthSuccessMsg(null)
+    setOauthAuthUrl(null)
+    setCopiedOAuthUrl(false)
+    const controller = new AbortController()
+    oauthAbortControllerRef.current = controller
+
+    // Asynchronously poll for the generated auth URL so it is immediately ready for clipboard copying
+    ;(async () => {
+      for (let i = 0; i < 20; i++) {
+        if (controller.signal.aborted) break
+        try {
+          const info = await api.getGoogleOAuthURL()
+          if (info && info.auth_url) {
+            setOauthAuthUrl(info.auth_url)
+            break
+          }
+        } catch {}
+        await new Promise((r) => setTimeout(r, 100))
+      }
+    })()
+
     try {
-      const res = await api.startGoogleOAuth()
+      const res = await api.startGoogleOAuth(controller.signal)
       if (res.success && res.refresh_token) {
         setRefreshToken(res.refresh_token)
+        if (res.access_token) {
+          setExtractedAccessToken(res.access_token)
+        }
         if (res.email && !email.trim()) {
           setEmail(res.email)
           if (!label.trim() || aliasAutoFilled) {
@@ -115,14 +203,21 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             setAliasAutoFilled(true)
           }
         }
-        setOauthSuccessMsg(`Extracted token successfully for ${res.email || email || account.email}`)
-      } else {
-        setError(res.error || 'Failed to extract OAuth token from Google')
+        setOauthSuccessMsg(`Extracted refresh token successfully for ${res.email || email || account.email}`)
+      } else if (!controller.signal.aborted) {
+        setError(res.error || 'Failed to extract OAuth refresh token from Google')
       }
     } catch (err: any) {
+      if (controller.signal.aborted || err.name === 'AbortError') {
+        return
+      }
       setError(err.message || 'Google OAuth extraction failed or timed out')
     } finally {
-      setIsExtractingOAuth(false)
+      if (oauthAbortControllerRef.current === controller) {
+        oauthAbortControllerRef.current = null
+        setIsExtractingOAuth(false)
+        setOauthAuthUrl(null)
+      }
     }
   }
 
@@ -150,12 +245,13 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         notes: notes.trim(),
         totp_secret: normalizeMfaSecret(totpSecret).toUpperCase(),
         refresh_token: refreshToken.trim(),
+        access_token: extractedAccessToken.trim() || undefined,
         credits: account.credits !== undefined && account.credits !== null ? account.credits : 0,
         enable_credit_overages: enableCreditOverages,
         allow_claude_gpt: allowClaudeGpt,
       })
       onSaved()
-      onClose()
+      handleClose()
     } catch (err: any) {
       setError(err.message || 'Failed to update account')
     } finally {
@@ -172,9 +268,10 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     setIsSaving(true)
     setError(null)
     try {
-      await api.deleteAccount(account.email)
+      const targetEmail = account.email || email.trim()
+      await api.deleteAccount(targetEmail)
       onSaved()
-      onClose()
+      handleClose()
     } catch (err: any) {
       setError(err.message || 'Failed to remove account')
     } finally {
@@ -196,7 +293,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         justifyContent: 'center',
         zIndex: 1000,
       }}
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
         className="google-card"
@@ -207,7 +304,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           overflowY: 'auto',
           padding: '28px',
           backgroundColor: '#ffffff',
-          borderRadius: '16px',
+          borderRadius: '10px',
           boxShadow: 'var(--shadow-md)',
         }}
         onClick={(e) => e.stopPropagation()}
@@ -233,14 +330,14 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                         ? 'badge-red'
                         : st === 'ERROR'
                         ? 'badge-yellow'
-                        : st === 'COOLDOWN'
-                        ? 'badge-blue'
                         : account.is_active
                         ? 'badge-green'
+                        : st === 'COOLDOWN'
+                        ? 'badge-blue'
                         : 'badge-neutral'
                     }`}
                   >
-                    {st === 'COOLDOWN' ? 'COOL DOWN' : st}
+                    {account.is_active && st !== 'BANNED' && st !== 'ERROR' ? 'ACTIVE' : st === 'COOLDOWN' ? 'COOL DOWN' : st}
                   </span>
                   {renderPlanTierBadge(account.plan_tier)}
                   {account.credits !== undefined && account.credits !== null && account.credits > 0 && (
@@ -257,7 +354,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             style={{
               padding: '6px',
               borderRadius: '50%',
@@ -522,39 +619,123 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                     alignItems: 'center',
                     padding: '4px',
                   }}
-                  title={showOAuth ? 'Hide OAuth token' : 'Show OAuth token'}
+                  title={showOAuth ? 'Hide OAuth refresh token' : 'Show OAuth refresh token'}
                 >
                   {showOAuth ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
-              <button
-                type="button"
-                onClick={handleExtractGoogleOAuth}
-                disabled={isExtractingOAuth}
-                className="btn-pill-outlined"
-                style={{
-                  width: RIGHT_ACTION_WIDTH,
-                  flexShrink: 0,
-                  height: CONTROL_HEIGHT,
-                  boxSizing: 'border-box',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px',
-                  whiteSpace: 'nowrap',
-                  padding: '0 12px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  backgroundColor: 'var(--primary-light)',
-                  color: 'var(--primary)',
-                  borderColor: 'var(--primary)',
-                }}
-                title="Open browser to login with Google and extract token"
-              >
-                <LogIn size={14} />
-                {isExtractingOAuth ? 'Waiting...' : 'Sign in with Google'}
-              </button>
+              {isExtractingOAuth ? (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', width: RIGHT_ACTION_WIDTH, flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    onClick={handleExtractGoogleOAuth}
+                    className="btn-pill-outlined"
+                    style={{
+                      flex: 1,
+                      height: CONTROL_HEIGHT,
+                      boxSizing: 'border-box',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      whiteSpace: 'nowrap',
+                      padding: '0 6px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      backgroundColor: copiedOAuthUrl ? 'rgba(52, 168, 83, 0.08)' : 'var(--primary-light)',
+                      color: copiedOAuthUrl ? '#188038' : 'var(--primary)',
+                      borderColor: copiedOAuthUrl ? '#188038' : 'var(--primary)',
+                      cursor: 'pointer',
+                    }}
+                    title={copiedOAuthUrl ? 'Login address copied!' : 'Waiting for response. Click again to copy login address for fingerprint browser.'}
+                  >
+                    {copiedOAuthUrl ? <Check size={12} /> : <Copy size={12} />}
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {copiedOAuthUrl ? 'Copied Address!' : 'Waiting for response...'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCancelGoogleOAuth}
+                    className="btn-pill-outlined"
+                    style={{
+                      width: '28px',
+                      height: CONTROL_HEIGHT,
+                      boxSizing: 'border-box',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 0,
+                      flexShrink: 0,
+                      color: '#d93025',
+                      borderColor: '#fce8e6',
+                      backgroundColor: '#fdf2f2',
+                      cursor: 'pointer',
+                    }}
+                    title="Cancel Google sign in"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleExtractGoogleOAuth}
+                  className="btn-pill-outlined"
+                  style={{
+                    width: RIGHT_ACTION_WIDTH,
+                    flexShrink: 0,
+                    height: CONTROL_HEIGHT,
+                    boxSizing: 'border-box',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    whiteSpace: 'nowrap',
+                    padding: '0 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    backgroundColor: 'var(--primary-light)',
+                    color: 'var(--primary)',
+                    borderColor: 'var(--primary)',
+                    cursor: 'pointer',
+                  }}
+                  title="Open browser to login with Google and extract long-term refresh token"
+                >
+                  <LogIn size={14} />
+                  Sign in with Google
+                </button>
+              )}
             </div>
+            {refreshToken.trim().startsWith('ya29.') && (
+              <div
+                style={{
+                  marginTop: '6px',
+                  fontSize: '11px',
+                  color: 'var(--yellow, #b06000)',
+                  lineHeight: 1.4,
+                }}
+              >
+                Notice: Token starts with &apos;ya29&apos; (short-lived 1-hour Access Token). For background quota polling and autonomous rotation, enter a long-term Refresh Token (starts with &apos;1//&apos;) or click &apos;Sign in with Google&apos;.
+              </div>
+            )}
+            {isExtractingOAuth && (
+              <div
+                style={{
+                  marginTop: '6px',
+                  fontSize: '11px',
+                  color: 'var(--text-muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Copy size={11} />
+                <span>
+                  Waiting for response. Click <strong>Waiting for response...</strong> to copy the login URL for your fingerprint browser.
+                </span>
+              </div>
+            )}
           </div>
 
           {/* MFA / TOTP Secret Key with input-level verification code timer, shower and copier gadget */}
@@ -740,7 +921,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              gap: '16px',
+              gap: '8px',
               padding: '4px 0',
             }}
           >
@@ -819,7 +1000,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
         {/* Footer Actions */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '20px' }}>
-          {!isNewAccount ? (
+          {(!isNewAccount || Boolean(email.trim())) ? (
             <button
               onClick={handleDelete}
               disabled={isSaving}
@@ -833,7 +1014,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
           <div style={{ display: 'flex', gap: '10px' }}>
             <button
-              onClick={onClose}
+              onClick={handleClose}
               disabled={isSaving}
               className="btn-pill-outlined"
             >

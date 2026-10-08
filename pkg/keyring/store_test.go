@@ -1,9 +1,12 @@
 package keyring
 
 import (
+	"database/sql"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -332,13 +335,13 @@ func TestBatchImportAndExportAccounts(t *testing.T) {
 
 	items := []BatchImportItem{
 		{
-			ID:         "alice@work.com",
-			Password:   "AlicePass2026!",
-			MFA:        "JBSWY3DPEHPK3PXP",
-			OathToken:  "1//oauth_refresh_alice",
-			Label:      "Alice Work",
-			PlanTier:   "Pro",
-			Priority:   "High",
+			ID:        "alice@work.com",
+			Password:  "AlicePass2026!",
+			MFA:       "JBSWY3DPEHPK3PXP",
+			OathToken: "1//oauth_refresh_alice",
+			Label:     "Alice Work",
+			PlanTier:  "Pro",
+			Priority:  "High",
 		},
 		{
 			Email:        "bob@personal.com",
@@ -403,4 +406,304 @@ func TestBatchImportAndExportAccounts(t *testing.T) {
 	}
 }
 
+func TestCooldownAccountSwitching(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "keyring_cooldown_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
 
+	configPath := filepath.Join(tmpDir, "accounts.json")
+	store, err := NewStore(configPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	// 1. Setup accounts
+	err = store.UpdateAccountFull("active@example.com", "Active User", "Pro", "ACTIVE", "High", "", "", "", "", 100, false, false, true)
+	if err != nil {
+		t.Fatalf("failed to add active account: %v", err)
+	}
+	err = store.UpdateAccountFull("standby@example.com", "Standby User", "Pro", "STANDBY", "Mid", "", "", "", "", 50, false, false, false)
+	if err != nil {
+		t.Fatalf("failed to add standby account: %v", err)
+	}
+	err = store.UpdateAccountFull("cooling@example.com", "Cooling User", "Pro", "COOLDOWN", "Mid", "", "", "", "", 0, false, false, false)
+	if err != nil {
+		t.Fatalf("failed to add cooling account: %v", err)
+	}
+	err = store.UpdateAccountFull("banned@example.com", "Banned User", "Free", "BANNED", "Low", "", "", "", "", 0, false, false, false)
+	if err != nil {
+		t.Fatalf("failed to add banned account: %v", err)
+	}
+
+	if store.ActiveAccount() != "active@example.com" {
+		t.Fatalf("expected active@example.com to be active, got %s", store.ActiveAccount())
+	}
+
+	// 2. SetActiveAccount rejects switching to COOLDOWN
+	err = store.SetActiveAccount("cooling@example.com")
+	if err == nil {
+		t.Fatalf("expected error switching to COOLDOWN account, got nil")
+	}
+	expectedCooldownMsg := "account cooling@example.com is in cooldown waiting for quota reset and cannot be switched on"
+	if !strings.Contains(err.Error(), expectedCooldownMsg) {
+		t.Fatalf("expected error message %q, got %q", expectedCooldownMsg, err.Error())
+	}
+	if store.ActiveAccount() != "active@example.com" {
+		t.Fatalf("active account changed despite switch rejection: %s", store.ActiveAccount())
+	}
+
+	// 3. SetActiveAccount rejects switching to BANNED
+	err = store.SetActiveAccount("banned@example.com")
+	if err == nil {
+		t.Fatalf("expected error switching to BANNED account, got nil")
+	}
+	if !strings.Contains(err.Error(), "is banned and cannot be switched on") {
+		t.Fatalf("expected banned rejection message, got %q", err.Error())
+	}
+
+	// 4. UpdateAccountFull and UpdateAccountDetails reject setActive on COOLDOWN
+	err = store.UpdateAccountFull("cooling@example.com", "Cooling User", "Pro", "COOLDOWN", "Mid", "", "", "", "", 0, false, false, true)
+	if err == nil || !strings.Contains(err.Error(), expectedCooldownMsg) {
+		t.Fatalf("expected UpdateAccountFull to reject setActive on COOLDOWN, got: %v", err)
+	}
+	err = store.UpdateAccountDetails("cooling@example.com", "Cooling User", "Pro", "COOLDOWN", "Mid", "", "", "", "", true)
+	if err == nil || !strings.Contains(err.Error(), expectedCooldownMsg) {
+		t.Fatalf("expected UpdateAccountDetails to reject setActive on COOLDOWN, got: %v", err)
+	}
+
+	// 5. Transition to STANDBY allows switching on
+	err = store.UpdateAccountStatus("cooling@example.com", "STANDBY")
+	if err != nil {
+		t.Fatalf("UpdateAccountStatus to STANDBY failed: %v", err)
+	}
+	coolingAcc, err := store.GetAccount("cooling@example.com")
+	if err != nil || coolingAcc.Status != "STANDBY" {
+		t.Fatalf("expected status STANDBY, got %v, err=%v", coolingAcc, err)
+	}
+
+	err = store.SetActiveAccount("cooling@example.com")
+	if err != nil {
+		t.Fatalf("expected successful switch to reset account, got error: %v", err)
+	}
+	if store.ActiveAccount() != "cooling@example.com" {
+		t.Fatalf("expected active account to be cooling@example.com, got %s", store.ActiveAccount())
+	}
+	coolingAcc, _ = store.GetAccount("cooling@example.com")
+	if !coolingAcc.IsActive || coolingAcc.Status != "ACTIVE" {
+		t.Fatalf("expected active cooling account to have IsActive=true and Status=ACTIVE, got %v", coolingAcc)
+	}
+	oldActive, _ := store.GetAccount("active@example.com")
+	if oldActive.IsActive || oldActive.Status != "STANDBY" {
+		t.Fatalf("expected old active account to be demoted to STANDBY, got %v", oldActive)
+	}
+
+	// 6. Transitioning active account to COOLDOWN deactivates it cleanly
+	err = store.UpdateAccountStatus("cooling@example.com", "COOLDOWN")
+	if err != nil {
+		t.Fatalf("UpdateAccountStatus to COOLDOWN failed: %v", err)
+	}
+	coolingAcc, _ = store.GetAccount("cooling@example.com")
+	if coolingAcc.IsActive || coolingAcc.Status != "COOLDOWN" {
+		t.Fatalf("expected cooling account to be deactivated, got is_active=%v, status=%s", coolingAcc.IsActive, coolingAcc.Status)
+	}
+	if store.ActiveAccount() != "" {
+		t.Fatalf("expected empty activeAccount when active account enters cooldown, got %s", store.ActiveAccount())
+	}
+
+	// 7. Creating new account with status COOLDOWN when activeEmail is empty does not auto-activate
+	err = store.UpdateAccountFull("new_cold@example.com", "Cold", "Free", "COOLDOWN", "Low", "", "", "", "", 0, false, false, false)
+	if err != nil {
+		t.Fatalf("failed to add new_cold account: %v", err)
+	}
+	coldAcc, _ := store.GetAccount("new_cold@example.com")
+	if coldAcc.IsActive {
+		t.Fatalf("expected new COOLDOWN account not to be active, got IsActive=true")
+	}
+	if store.ActiveAccount() != "" {
+		t.Fatalf("expected activeEmail to remain empty, got %s", store.ActiveAccount())
+	}
+
+	// 8. Store reload from disk retains correct state
+	reloadedStore, err := NewStore(configPath)
+	if err != nil {
+		t.Fatalf("failed to reload store from disk: %v", err)
+	}
+	reloadedCold, _ := reloadedStore.GetAccount("new_cold@example.com")
+	if reloadedCold.Status != "COOLDOWN" || reloadedCold.IsActive {
+		t.Fatalf("expected reloaded status COOLDOWN, got status=%s, is_active=%v", reloadedCold.Status, reloadedCold.IsActive)
+	}
+}
+
+func TestSyncStateVscdb(t *testing.T) {
+	// 1. Test buildUserStatusSentinel exact protobuf wire format
+	expectedSentinel := "ClMKFXVzZXJTdGF0dXNTZW50aW5lbEtleRI6CjhHaEp3Y25kb0xtUndiRUJuYldGcGJDNWpiMjA2RW5CeWQyZ3VaSEJzUUdkdFlXbHNMbU52YlE9PQ=="
+	actualSentinel := buildUserStatusSentinel("prwh.dpl@gmail.com")
+	if actualSentinel != expectedSentinel {
+		t.Fatalf("buildUserStatusSentinel mismatch:\nexpected: %s\ngot:      %s", expectedSentinel, actualSentinel)
+	}
+
+	// 2. Test SyncStateVscdb against an isolated SQLite state.vscdb
+	tmpDir, err := os.MkdirTemp("", "swiss_test_vscdb_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	origEnv := os.Getenv("ANTIGRAVITY_HOST_CONFIG_DIR")
+	defer os.Setenv("ANTIGRAVITY_HOST_CONFIG_DIR", origEnv)
+	os.Setenv("ANTIGRAVITY_HOST_CONFIG_DIR", tmpDir)
+
+	vscdbDir := filepath.Join(tmpDir, "User", "globalStorage")
+	if err := os.MkdirAll(vscdbDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(vscdbDir, "state.vscdb")
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);
+		INSERT INTO ItemTable(key, value) VALUES('antigravityUnifiedStateSync.userStatus', 'old_status');
+		INSERT INTO ItemTable(key, value) VALUES('antigravity.profileUrl', 'https://old.example.com/avatar.png');
+	`)
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Mint token with picture claim
+	claimsWithPic := fmt.Sprintf(`{"email":"switched_user@gmail.com","picture":"https://lh3.googleusercontent.com/a/test_avatar_123"}`)
+	idTokenWithPic := fmt.Sprintf("header.%s.sig", base64.RawURLEncoding.EncodeToString([]byte(claimsWithPic)))
+
+	testAcc := &Account{
+		Email:   "switched_user@gmail.com",
+		IDToken: idTokenWithPic,
+	}
+
+	if err := SyncStateVscdb(testAcc); err != nil {
+		t.Fatalf("SyncStateVscdb failed: %v", err)
+	}
+
+	// Verify ItemTable was updated
+	checkDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer checkDB.Close()
+
+	var valStatus string
+	err = checkDB.QueryRow("SELECT value FROM ItemTable WHERE key='antigravityUnifiedStateSync.userStatus'").Scan(&valStatus)
+	if err != nil {
+		t.Fatalf("failed to query updated userStatus: %v", err)
+	}
+	expectedUpdated := buildUserStatusSentinel("switched_user@gmail.com")
+	if valStatus != expectedUpdated {
+		t.Errorf("userStatus not updated correctly:\nexpected: %s\ngot:      %s", expectedUpdated, valStatus)
+	}
+
+	var valPic string
+	err = checkDB.QueryRow("SELECT value FROM ItemTable WHERE key='antigravity.profileUrl'").Scan(&valPic)
+	if err != nil {
+		t.Fatalf("failed to query updated profileUrl: %v", err)
+	}
+	if valPic != "https://lh3.googleusercontent.com/a/test_avatar_123" {
+		t.Errorf("profileUrl not updated correctly:\nexpected: https://lh3.googleusercontent.com/a/test_avatar_123\ngot:      %s", valPic)
+	}
+}
+
+func TestUpdateAccountFull_RefreshTokenInvalidatesStaleAccessToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	accPath := filepath.Join(tmpDir, "accounts.json")
+	store, err := NewStore(accPath)
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	// 1. Import account with both an access token and refresh token
+	acc, err := store.ImportAccount("test_token_invalidation@google.com", "1//initial_rt", "ya29.initial_at", "Test Token User", "")
+	if err != nil {
+		t.Fatalf("ImportAccount error: %v", err)
+	}
+	if acc.AccessToken != "ya29.initial_at" || acc.RefreshToken != "1//initial_rt" {
+		t.Fatalf("expected initial tokens, got AT=%s RT=%s", acc.AccessToken, acc.RefreshToken)
+	}
+
+	// 2. Updating with the same refresh token keeps the cached access token
+	err = store.UpdateAccountFull("test_token_invalidation@google.com", "Updated Alias", "Pro", "ACTIVE", "High", "Notes", "", "", "1//initial_rt", 0, false, false, false)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull error: %v", err)
+	}
+	accUpdated, err := store.GetAccount("test_token_invalidation@google.com")
+	if err != nil {
+		t.Fatalf("GetAccount error: %v", err)
+	}
+	if accUpdated.AccessToken != "ya29.initial_at" {
+		t.Errorf("expected cached AccessToken to remain untouched when RefreshToken is identical, got: %s", accUpdated.AccessToken)
+	}
+
+	// 3. Updating with a new refresh token invalidates the stale access token
+	err = store.UpdateAccountFull("test_token_invalidation@google.com", "Updated Alias", "Pro", "ACTIVE", "High", "Notes", "", "", "1//new_rotated_rt", 0, false, false, false)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull error: %v", err)
+	}
+	accRotated, err := store.GetAccount("test_token_invalidation@google.com")
+	if err != nil {
+		t.Fatalf("GetAccount error: %v", err)
+	}
+	if accRotated.RefreshToken != "1//new_rotated_rt" {
+		t.Errorf("expected new RefreshToken, got: %s", accRotated.RefreshToken)
+	}
+	if accRotated.AccessToken != "" {
+		t.Errorf("expected cached AccessToken to be invalidated to empty string on new RefreshToken, got: %s", accRotated.AccessToken)
+	}
+}
+
+func TestUpdateAccountFull_Ya29AccessTokenPreservesRefreshToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	accPath := filepath.Join(tmpDir, "accounts.json")
+	store, err := NewStore(accPath)
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	// 1. Create account with an existing long-term refresh token
+	acc, err := store.ImportAccount("test_ya29@google.com", "1//persistent_rt", "", "User", "")
+	if err != nil {
+		t.Fatalf("ImportAccount error: %v", err)
+	}
+	if acc.RefreshToken != "1//persistent_rt" {
+		t.Fatalf("expected RT=1//persistent_rt, got %s", acc.RefreshToken)
+	}
+
+	// 2. Updating with a ya29 token populates AccessToken and does NOT overwrite persistent RefreshToken
+	err = store.UpdateAccountFull("test_ya29@google.com", "User", "Pro", "ACTIVE", "High", "", "", "", "ya29.ephemeral_at", 0, false, false, false)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull error: %v", err)
+	}
+	accUpdated, err := store.GetAccount("test_ya29@google.com")
+	if err != nil {
+		t.Fatalf("GetAccount error: %v", err)
+	}
+	if accUpdated.AccessToken != "ya29.ephemeral_at" {
+		t.Errorf("expected AccessToken to be updated to ya29.ephemeral_at, got: %s", accUpdated.AccessToken)
+	}
+	if accUpdated.RefreshToken != "1//persistent_rt" {
+		t.Errorf("expected RefreshToken to remain intact as 1//persistent_rt, got: %s", accUpdated.RefreshToken)
+	}
+
+	// 3. SetAccessToken direct method works
+	err = store.SetAccessToken("test_ya29@google.com", "ya29.direct_set_at")
+	if err != nil {
+		t.Fatalf("SetAccessToken error: %v", err)
+	}
+	accDirect, err := store.GetAccount("test_ya29@google.com")
+	if err != nil {
+		t.Fatalf("GetAccount error: %v", err)
+	}
+	if accDirect.AccessToken != "ya29.direct_set_at" {
+		t.Errorf("expected AccessToken to be ya29.direct_set_at, got: %s", accDirect.AccessToken)
+	}
+}

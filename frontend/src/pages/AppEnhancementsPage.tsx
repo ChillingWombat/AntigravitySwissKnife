@@ -15,12 +15,21 @@ import {
   Image,
   Sliders,
   Globe,
+  PanelLeft,
+  LayoutGrid,
+  Layout,
+  PocketKnife,
+  GitBranch,
+  Maximize2,
+  X,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 import type { EnhancementsConfig, GUIConfig } from '../types'
 
 const PRESET_COLORS = [
+  { name: 'Slate Black', hex: '#0f172a' },
+  { name: 'Slate Grey', hex: '#64748b' },
   { name: 'Google Blue', hex: '#0b57d0' },
   { name: 'Vibrant Purple', hex: '#7c3aed' },
   { name: 'Emerald Green', hex: '#059669' },
@@ -29,19 +38,25 @@ const PRESET_COLORS = [
 ]
 
 // Generate 10x10 color palette grid
-const HUES = [210, 260, 280, 330, 0, 25, 45, 142, 170, 195]
+const GREYSCALE = ['#ffffff', '#f4f4f5', '#e4e4e7', '#cbd5e1', '#94a3b8', '#64748b', '#475569', '#334155', '#1e293b', '#09090b']
+const CHROMATIC_HUES = [0, 40, 80, 120, 160, 200, 240, 280, 320]
 const LIGHTNESSES = [92, 84, 76, 68, 60, 52, 44, 36, 28, 20]
 const GRID_COLORS: string[][] = []
 for (let r = 0; r < 10; r++) {
   const row: string[] = []
   const l = LIGHTNESSES[r]
   for (let c = 0; c < 10; c++) {
-    row.push(`hsl(${HUES[c]}, 82%, ${l}%)`)
+    if (c === 0) {
+      row.push(GREYSCALE[r])
+    } else {
+      row.push(`hsl(${CHROMATIC_HUES[c - 1]}, 82%, ${l}%)`)
+    }
   }
   GRID_COLORS.push(row)
 }
 
 function hslToHex(hsl: string): string {
+  if (hsl.startsWith('#')) return hsl
   const m = hsl.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/)
   if (!m) return '#0b57d0'
   const h = parseInt(m[1]) / 360
@@ -165,6 +180,9 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
   const baseTintOpacity = guiConfig?.tint_opacity ?? 0.15
   const previewProjColor = guiConfig?.project_colors?.['Antigravity Swiss Knife'] || '#0b57d0'
   const parsedProjColor = parseColorWithAlpha(previewProjColor)
+  const projColorLum = (0.2126 * parsedProjColor.r + 0.7152 * parsedProjColor.g + 0.0722 * parsedProjColor.b) / 255.0
+  const projCardTextColor = projColorLum > 0.6 ? '#0f172a' : '#ffffff'
+  const projAccentTextColor = projColorLum > 0.6 ? '#334155' : previewProjColor
   const projColorMult = calculateColorMultiplier(parsedProjColor.r, parsedProjColor.g, parsedProjColor.b, parsedProjColor.alpha)
   const effectivePreviewOpacity = Number((baseTintOpacity * projColorMult).toFixed(3))
   const effectiveActiveOpacity = Number((Math.min(1.0, (baseTintOpacity + 0.16) * projColorMult)).toFixed(3))
@@ -277,6 +295,93 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
     }
   }
 
+  const handleLeftPanelEnabledChange = async (enabled: boolean) => {
+    if (!config) return
+    const updatedConfig: EnhancementsConfig = {
+      ...config,
+      left_panel_extensions_enabled: enabled,
+    }
+    setConfig(updatedConfig)
+    try {
+      localStorage.setItem('antigravity_swiss_left_panel_enabled', enabled ? 'true' : 'false')
+      window.dispatchEvent(
+        new CustomEvent('swiss-left-nav-config-updated', {
+          detail: {
+            enabled,
+            mode: config.left_panel_extensions_mode || 'single',
+            main_section_enabled: config.main_section_extensions_enabled !== false,
+          },
+        })
+      )
+      if (typeof (window as any).setupLeftNavTabs === 'function') {
+        (window as any).setupLeftNavTabs()
+      }
+    } catch {}
+    try {
+      await api.updateEnhancements(updatedConfig)
+    } catch (err: any) {
+      console.error('Failed to auto-save left_panel_extensions_enabled:', err)
+    }
+  }
+
+  const handleLeftPanelModeChange = async (mode: 'single' | 'individual') => {
+    if (!config) return
+    const updatedConfig: EnhancementsConfig = {
+      ...config,
+      left_panel_extensions_mode: mode,
+    }
+    setConfig(updatedConfig)
+    try {
+      localStorage.setItem('antigravity_swiss_left_panel_mode', mode)
+      window.dispatchEvent(
+        new CustomEvent('swiss-left-nav-config-updated', {
+          detail: {
+            enabled: config.left_panel_extensions_enabled !== false,
+            mode,
+            main_section_enabled: config.main_section_extensions_enabled !== false,
+          },
+        })
+      )
+      if (typeof (window as any).setupLeftNavTabs === 'function') {
+        (window as any).setupLeftNavTabs()
+      }
+    } catch {}
+    try {
+      await api.updateEnhancements(updatedConfig)
+    } catch (err: any) {
+      console.error('Failed to auto-save left_panel_extensions_mode:', err)
+    }
+  }
+
+  const handleMainSectionEnabledChange = async (enabled: boolean) => {
+    if (!config) return
+    const updatedConfig: EnhancementsConfig = {
+      ...config,
+      main_section_extensions_enabled: enabled,
+    }
+    setConfig(updatedConfig)
+    try {
+      localStorage.setItem('antigravity_swiss_main_section_enabled', enabled ? 'true' : 'false')
+      window.dispatchEvent(
+        new CustomEvent('swiss-left-nav-config-updated', {
+          detail: {
+            enabled: config.left_panel_extensions_enabled !== false,
+            mode: config.left_panel_extensions_mode || 'single',
+            main_section_enabled: enabled,
+          },
+        })
+      )
+      if (typeof (window as any).setupLeftNavTabs === 'function') {
+        (window as any).setupLeftNavTabs()
+      }
+    } catch {}
+    try {
+      await api.updateEnhancements(updatedConfig)
+    } catch (err: any) {
+      console.error('Failed to auto-save main_section_extensions_enabled:', err)
+    }
+  }
+
   if (loading || !config) {
     return (
       <div style={{ padding: '32px', textAlign: 'center', color: '#64748b' }}>
@@ -286,28 +391,35 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
   }
 
   const jb = config.prompt_jump_bar
-  const op = config.overview_panel || {
-    enabled: true,
-    division_style: 'border_zone',
-    line_thickness: 1,
-    line_width_percent: 100,
-    line_color: '#e2e8f0',
-    line_style: 'solid',
-    line_margin: 12,
-    zone_border_radius: 8,
-    zone_border_color: '#e2e8f0',
-    zone_background_contrast: 'whiter',
-    zone_padding: 10,
-    zone_gap: 10,
-    replace_see_all_triangle: true,
-    aux_tabs_format: 'icon',
+  const rawOp = config.overview_panel
+  const op = {
+    enabled: rawOp ? rawOp.enabled : true,
+    division_style: rawOp?.division_style || 'divider_line',
+    line_thickness: rawOp?.line_thickness || 1,
+    line_width_percent: rawOp?.line_width_percent || 100,
+    line_color: rawOp?.line_color || '#e2e8f0',
+    line_style: rawOp?.line_style || 'solid',
+    line_margin: rawOp?.line_margin !== undefined ? rawOp.line_margin : 0,
+    zone_border_radius: rawOp?.zone_border_radius || 8,
+    zone_border_color: rawOp?.zone_border_color || '#e2e8f0',
+    zone_background_contrast: rawOp?.zone_background_contrast || 'whiter',
+    zone_padding: rawOp?.zone_padding || 10,
+    zone_gap: rawOp?.zone_gap || 10,
+    replace_see_all_triangle: rawOp?.replace_see_all_triangle !== false,
+    aux_tabs_format: rawOp?.aux_tabs_format || 'icon',
   }
-  const activeColor =
+  const rawActiveColor =
     jb.color_mode === 'default'
       ? '#64748b'
       : jb.color_mode === 'project'
       ? '#059669' // Sample project emerald green for preview
       : jb.custom_color || '#0b57d0'
+  const parsedActiveRgb = parseColorWithAlpha(rawActiveColor)
+  const activeColorLum = (0.2126 * parsedActiveRgb.r + 0.7152 * parsedActiveRgb.g + 0.0722 * parsedActiveRgb.b) / 255.0
+  const activeColor = activeColorLum > 0.85 ? '#334155' : rawActiveColor
+  const leftPanelEnabled = config.left_panel_extensions_enabled !== false
+  const leftPanelMode = config.left_panel_extensions_mode || 'single'
+  const mainSectionEnabled = config.main_section_extensions_enabled !== false
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -363,8 +475,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               Quick Prompt Jump Bar
             </h2>
             <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
-              Horizontal dash lines in conversation margin allowing instant jump to any user prompt turn.
-              Dynamically highlights the lowest (latest) prompt currently on screen as you scroll.
+              Jump directly to any prompt turn from the margin. Automatically highlights the current turn while scrolling.
             </p>
           </div>
 
@@ -407,7 +518,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   cursor: 'pointer',
                   flex: 1,
                   minWidth: '240px',
-                  paddingRight: '16px',
+                  paddingRight: '8px',
                 }}
               >
                 <span>Sync with Scroll (highlights lowest prompt on screen)</span>
@@ -424,7 +535,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               </label>
 
               {/* Vertical Breaker 1 */}
-              <div style={{ width: '1px', height: '26px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 12px' }} />
+              <div style={{ width: '1px', height: '26px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0' }} />
 
               {/* Switch 2: Show Preview Tooltip on Hover */}
               <label
@@ -438,7 +549,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   cursor: 'pointer',
                   flex: 1,
                   minWidth: '220px',
-                  paddingRight: '16px',
+                  padding: '0 8px',
                 }}
               >
                 <span>Show Preview Tooltip on Hover</span>
@@ -455,7 +566,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               </label>
 
               {/* Vertical Breaker 2 */}
-              <div style={{ width: '1px', height: '26px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 12px' }} />
+              <div style={{ width: '1px', height: '26px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0' }} />
 
               {/* Switch 3: Pulse Highlight Target Prompt Card on Jump */}
               <label
@@ -469,6 +580,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   cursor: 'pointer',
                   flex: 1,
                   minWidth: '240px',
+                  paddingLeft: '8px',
                 }}
               >
                 <span>Pulse Highlight Target Prompt Card on Jump</span>
@@ -490,7 +602,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'minmax(0, 1fr) 1px 360px',
-                gap: '24px',
+                gap: '24px 12px',
                 alignItems: 'stretch',
               }}
             >
@@ -716,28 +828,33 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           Presets:
                         </span>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          {PRESET_COLORS.map((p) => (
-                            <div
-                              key={p.hex}
-                              onClick={() =>
-                                setConfig({
-                                  ...config,
-                                  prompt_jump_bar: { ...jb, custom_color: p.hex },
-                                })
-                              }
-                              title={p.name}
-                              style={{
-                                width: '22px',
-                                height: '22px',
-                                borderRadius: '50%',
-                                background: p.hex,
-                                cursor: 'pointer',
-                                border: jb.custom_color === p.hex ? '2px solid #0f172a' : '2px solid transparent',
-                                transform: jb.custom_color === p.hex ? 'scale(1.15)' : 'scale(1)',
-                                transition: 'transform 0.12s',
-                              }}
-                            />
-                          ))}
+                          {PRESET_COLORS.map((p) => {
+                            const isSel = jb.custom_color?.toLowerCase() === p.hex.toLowerCase()
+                            return (
+                              <div
+                                key={p.hex}
+                                onClick={() =>
+                                  setConfig({
+                                    ...config,
+                                    prompt_jump_bar: { ...jb, custom_color: p.hex },
+                                  })
+                                }
+                                title={p.name}
+                                style={{
+                                  width: '22px',
+                                  height: '22px',
+                                  borderRadius: '50%',
+                                  background: p.hex,
+                                  cursor: 'pointer',
+                                  boxSizing: 'border-box',
+                                  border: isSel ? '2px solid #0f172a' : '2px solid transparent',
+                                  boxShadow: isSel && p.hex === '#0f172a' ? 'inset 0 0 0 1.5px #ffffff' : 'none',
+                                  transform: isSel ? 'scale(1.15)' : 'scale(1)',
+                                  transition: 'transform 0.12s',
+                                }}
+                              />
+                            )
+                          })}
                         </div>
 
                         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -811,13 +928,19 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                       prompt_jump_bar: { ...jb, custom_color: hex },
                                     })
                                   }
+                                  title={hex}
                                   style={{
                                     width: '18px',
                                     height: '18px',
-                                    borderRadius: '3px',
+                                    borderRadius: '2px',
+                                    boxSizing: 'border-box',
                                     background: cellHsl,
                                     cursor: 'pointer',
-                                    border: isSelected ? '2px solid #0f172a' : '1px solid rgba(0,0,0,0.06)',
+                                    border: isSelected ? '2px solid #0f172a' : '1px solid rgba(0,0,0,0.08)',
+                                    boxShadow:
+                                      isSelected && (hex.toLowerCase() === '#09090b' || hex.toLowerCase() === '#1e293b')
+                                        ? 'inset 0 0 0 1px #ffffff'
+                                        : 'none',
                                     transform: isSelected ? 'scale(1.2)' : 'scale(1)',
                                     zIndex: isSelected ? 2 : 1,
                                     transition: 'transform 0.1s',
@@ -928,8 +1051,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
             Thinking & Tool Execution Visual Density
           </h2>
           <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-            Decrease visual dominance of intermediate tool steps, command runs, and thinking blocks so the final
-            answer clearly stands out.
+            Compact intermediate tool runs, commands, and thinking steps to keep chat answers clean and readable.
           </p>
         </div>
 
@@ -992,8 +1114,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               Conversation Turn Breaker Line
             </h2>
             <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-              Inserts a clean horizontal divider separator above each new user prompt, clearly delineating the previous
-              agent response from your new prompt.
+              Add a subtle horizontal divider above each user prompt to clearly separate turns.
             </p>
           </div>
 
@@ -1014,17 +1135,390 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
   {/* Category 2: Project Panel */}
   {activeCategoryTab === 1 && (
     <>
+      {/* Feature: Left Sidebar Extension Navigation */}
+      <div className="google-card">
+        {/* Toggle 1: Include in Left Sidebar */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <PanelLeft size={18} color="#0b57d0" />
+              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+                Left Sidebar Extension Navigation
+              </h2>
+            </div>
+            <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)', maxWidth: '640px', lineHeight: 1.5 }}>
+              Show Swiss Knife extension tabs in Antigravity's left sidebar as a unified tab or individual extension buttons.
+            </p>
+          </div>
+
+          <ToggleSwitch
+            checked={leftPanelEnabled}
+            onChange={handleLeftPanelEnabledChange}
+          />
+        </div>
+
+        {/* Toggle 2: Open in Main Section */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border, #e2e8f0)' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Layout size={18} color="#0b57d0" />
+              <h3 style={{ margin: 0, fontSize: '14.5px', fontWeight: 600, color: 'var(--text)' }}>
+                Open Extension in Main Section
+              </h3>
+            </div>
+            <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)', maxWidth: '640px', lineHeight: 1.5 }}>
+              Open extensions in the main chat stage rather than the right auxiliary panel.
+            </p>
+          </div>
+
+          <ToggleSwitch
+            checked={mainSectionEnabled}
+            onChange={handleMainSectionEnabledChange}
+          />
+        </div>
+
+        {leftPanelEnabled && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) 1px 320px',
+              gap: '24px 12px',
+              alignItems: 'stretch',
+              marginTop: '18px',
+            }}
+          >
+            {/* Left Column: Mode Selection Options */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <label style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
+                Sidebar Navigation Mode
+              </label>
+
+              {/* Option 1: Single Tab Button */}
+              <div
+                onClick={() => handleLeftPanelModeChange('single')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '12px',
+                  padding: '14px 16px',
+                  borderRadius: '8px',
+                  border: `1.5px solid ${leftPanelMode === 'single' ? '#0b57d0' : '#e2e8f0'}`,
+                  backgroundColor: leftPanelMode === 'single' ? '#eff6ff' : '#ffffff',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <div
+                  style={{
+                    width: '18px',
+                    height: '18px',
+                    borderRadius: '50%',
+                    border: `2px solid ${leftPanelMode === 'single' ? '#0b57d0' : '#94a3b8'}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: '2px',
+                    flexShrink: 0,
+                  }}
+                >
+                  {leftPanelMode === 'single' && (
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#0b57d0' }} />
+                  )}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                    <PocketKnife size={14} color={leftPanelMode === 'single' ? '#0b57d0' : '#64748b'} />
+                    <span style={{ fontSize: '13.5px', fontWeight: 600, color: leftPanelMode === 'single' ? '#1e3a8a' : '#1e293b' }}>
+                      Single Tab Button (Swiss Knife)
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: leftPanelMode === 'single' ? '#dbeafe' : '#f1f5f9',
+                        color: leftPanelMode === 'single' ? '#1d4ed8' : '#64748b',
+                        fontWeight: 500,
+                      }}
+                    >
+                      Compact
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '12.5px', color: '#64748b', lineHeight: 1.4 }}>
+                    Single compact Swiss Knife tab in the sidebar. Keeps navigation minimal.
+                  </p>
+                </div>
+              </div>
+
+              {/* Option 2: Individual Extension Tabs */}
+              <div
+                onClick={() => handleLeftPanelModeChange('individual')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '12px',
+                  padding: '14px 16px',
+                  borderRadius: '8px',
+                  border: `1.5px solid ${leftPanelMode === 'individual' ? '#0b57d0' : '#e2e8f0'}`,
+                  backgroundColor: leftPanelMode === 'individual' ? '#eff6ff' : '#ffffff',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <div
+                  style={{
+                    width: '18px',
+                    height: '18px',
+                    borderRadius: '50%',
+                    border: `2px solid ${leftPanelMode === 'individual' ? '#0b57d0' : '#94a3b8'}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: '2px',
+                    flexShrink: 0,
+                  }}
+                >
+                  {leftPanelMode === 'individual' && (
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#0b57d0' }} />
+                  )}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                    <LayoutGrid size={14} color={leftPanelMode === 'individual' ? '#0b57d0' : '#64748b'} />
+                    <span style={{ fontSize: '13.5px', fontWeight: 600, color: leftPanelMode === 'individual' ? '#1e3a8a' : '#1e293b' }}>
+                      Individual Extension Tabs
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: leftPanelMode === 'individual' ? '#dbeafe' : '#f1f5f9',
+                        color: leftPanelMode === 'individual' ? '#1d4ed8' : '#64748b',
+                        fontWeight: 500,
+                      }}
+                    >
+                      Direct Access
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '12.5px', color: '#64748b', lineHeight: 1.4 }}>
+                    Individual tabs for Browser, Files, Memos, and GitHub matching Antigravity native sidebar items.
+                  </p>
+                </div>
+              </div>
+
+              {/* Informational Note */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  backgroundColor: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  fontSize: '12px',
+                  color: '#64748b',
+                }}
+              >
+                <span>Proportions: Tab buttons match factory buttons (16px optical icon symbol, 13-14px font size, weight 400, 32px height). Universal Breaker Line Rule: Breaker lines do not expand the gap between tab buttons or sections (identical distance as if no breaker line was added).</span>
+              </div>
+            </div>
+
+            {/* Vertical Breaker */}
+            <div style={{ width: '1px', backgroundColor: 'var(--border, #e2e8f0)', alignSelf: 'stretch', margin: '0' }} />
+
+            {/* Right Column: Sidebar Live Preview */}
+            <div
+              style={{
+                width: '320px',
+                boxSizing: 'border-box',
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                padding: '14px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                  Left Sidebar Live Preview
+                </span>
+                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Antigravity 2.21</span>
+              </div>
+
+              {/* Simulated Left Sidebar Container */}
+              <div
+                style={{
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '6px',
+                  padding: '8px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px',
+                }}
+              >
+                {/* Factory Button: New Conversation */}
+                <div
+                  style={{
+                    height: '32px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '0 8px',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(0,0,0,0.03)',
+                    color: '#334155',
+                    fontSize: '13px',
+                    fontWeight: 400,
+                  }}
+                >
+                  <Plus size={16} strokeWidth={1.6} color="#64748b" />
+                  <span>New conversation</span>
+                </div>
+
+                {/* Factory Button: Automations */}
+                <div
+                  style={{
+                    height: '32px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '0 8px',
+                    borderRadius: '8px',
+                    color: '#475569',
+                    fontSize: '13px',
+                    fontWeight: 400,
+                  }}
+                >
+                  <Zap size={16} strokeWidth={1.6} color="#64748b" />
+                  <span>Automations</span>
+                </div>
+
+                {/* Breaker Line - Zero gap expansion (margin: -2.5px 0 preserves exact 6px button gap) */}
+                <div style={{ height: '1px', backgroundColor: '#e2e8f0', margin: '-2.5px 0' }} />
+
+                {/* Injected Swiss Nav Tabs */}
+                {leftPanelMode === 'single' ? (
+                  <div
+                    style={{
+                      height: '32px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '0 8px',
+                      borderRadius: '8px',
+                      backgroundColor: '#eff6ff',
+                      color: '#0b57d0',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      border: '1px solid #bfdbfe',
+                    }}
+                  >
+                    <PocketKnife size={16} strokeWidth={1.6} color="#0b57d0" />
+                    <span style={{ lineHeight: 1.2 }}>Swiss Knife</span>
+                    <span style={{ marginLeft: 'auto', fontSize: '10px', color: '#2563eb', backgroundColor: '#dbeafe', padding: '1px 5px', borderRadius: '3px', fontWeight: 500 }}>
+                      {mainSectionEnabled ? 'Main Section' : 'Aux Panel'}
+                    </span>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div
+                      style={{
+                        height: '32px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '0 8px',
+                        borderRadius: '8px',
+                        backgroundColor: '#eff6ff',
+                        color: '#0b57d0',
+                        fontSize: '13px',
+                        fontWeight: 500,
+                      }}
+                    >
+                      <Globe size={16} strokeWidth={1.6} color="#0b57d0" />
+                      <span style={{ lineHeight: 1.2 }}>Preview Browser</span>
+                    </div>
+                    <div
+                      style={{
+                        height: '32px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '0 8px',
+                        borderRadius: '8px',
+                        color: '#475569',
+                        fontSize: '13px',
+                        fontWeight: 400,
+                      }}
+                    >
+                      <Folder size={16} strokeWidth={1.6} color="#64748b" />
+                      <span style={{ lineHeight: 1.2 }}>File Explorer</span>
+                    </div>
+                    <div
+                      style={{
+                        height: '32px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '0 8px',
+                        borderRadius: '8px',
+                        color: '#475569',
+                        fontSize: '13px',
+                        fontWeight: 400,
+                      }}
+                    >
+                      <FileText size={16} strokeWidth={1.6} color="#64748b" />
+                      <span style={{ lineHeight: 1.2 }}>Quick Memos</span>
+                    </div>
+                    <div
+                      style={{
+                        height: '32px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '0 8px',
+                        borderRadius: '8px',
+                        color: '#475569',
+                        fontSize: '13px',
+                        fontWeight: 400,
+                      }}
+                    >
+                      <GitBranch size={16} strokeWidth={1.6} color="#64748b" />
+                      <span style={{ lineHeight: 1.2 }}>GitHub Workspace</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Breaker Line - Zero gap expansion (margin: -2.5px 0 preserves exact 6px gap) */}
+                <div style={{ height: '1px', backgroundColor: '#e2e8f0', margin: '-2.5px 0' }} />
+
+                {/* Simulated Project Header */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 6px', fontSize: '11px', color: '#94a3b8' }}>
+                  <span>Projects</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 8px', fontSize: '12px', color: '#475569' }}>
+                  <span>▾ Antigravity Swiss Knife</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Feature 4: Predefined Default Project for New Conversations */}
       <div className="google-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
           <div>
             <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
-              Predefined Default Project for New Conversations
+              Default Project for New Conversations
             </h2>
             <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)', maxWidth: '600px', lineHeight: 1.5 }}>
-              Set a fixed predefined project when clicking the "+ New Conversation" button or pressing Ctrl+N / Cmd+N.
-              <br />
-              By default, Antigravity picks the last opened chat's project; configuring this anchors new draft chats to your preferred project automatically.
+              Set a default project for new chats (Ctrl+N / Cmd+N) instead of the current active project.
             </p>
           </div>
 
@@ -1070,7 +1564,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 Project Colors & Active Conversation Indicator
               </h2>
               <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-                Assign custom accent colors to projects and configure how the current open conversation tab is highlighted in the sidebar.
+                Set project accent colors and sidebar conversation highlight styles.
               </p>
             </div>
 
@@ -1086,7 +1580,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
           </div>
 
           {guiConfig.color_styling_enabled && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 1px 360px', gap: '24px', alignItems: 'stretch', marginTop: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 1px 360px', gap: '24px 12px', alignItems: 'stretch', marginTop: '16px' }}>
               {/* Settings Controls */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
                 {/* Mode Selection */}
@@ -1365,8 +1859,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   {/* Project Header */}
                   <div
                     style={{
-                      background: '#0b57d0',
-                      color: '#ffffff',
+                      background: previewProjColor,
+                      color: projCardTextColor,
                       borderRadius: '8px',
                       height: '32px',
                       padding: '0 10px',
@@ -1400,13 +1894,13 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           : `rgba(${parsedProjColor.r}, ${parsedProjColor.g}, ${parsedProjColor.b}, ${effectivePreviewOpacity})`,
                       border:
                         guiConfig.active_conversation_indicator === 'border'
-                          ? `${guiConfig.active_conversation_border_width || '2px'} solid ${previewProjColor}`
+                          ? `${guiConfig.active_conversation_border_width || '2px'} solid ${projAccentTextColor}`
                           : '1px solid transparent',
                       borderLeft:
                         guiConfig.active_conversation_indicator === 'left_bar'
-                          ? `3px solid ${previewProjColor}`
+                          ? `3px solid ${projAccentTextColor}`
                           : guiConfig.active_conversation_indicator === 'border'
-                          ? `${guiConfig.active_conversation_border_width || '2px'} solid ${previewProjColor}`
+                          ? `${guiConfig.active_conversation_border_width || '2px'} solid ${projAccentTextColor}`
                           : '1px solid transparent',
                       borderRadius: '8px',
                       padding: '0 10px',
@@ -1422,12 +1916,12 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, overflow: 'hidden' }}>
-                      <MessageSquare size={13} style={{ color: previewProjColor, flexShrink: 0 }} />
+                      <MessageSquare size={13} style={{ color: projAccentTextColor, flexShrink: 0 }} />
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         Task Completion Check
                       </span>
                     </div>
-                    <span style={{ fontSize: '11px', color: previewProjColor, fontWeight: 600, flexShrink: 0 }}>Just now</span>
+                    <span style={{ fontSize: '11px', color: projAccentTextColor, fontWeight: 600, flexShrink: 0 }}>Just now</span>
                   </div>
 
                   {/* Ordinary Conversation Tab 1 */}
@@ -1488,15 +1982,15 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 <div style={{ fontSize: '11px', color: '#64748b', textAlign: 'center', lineHeight: 1.4 }}>
                   {guiConfig.active_conversation_indicator === 'border' ? (
                     <span>
-                      ✓ Active tab outlined with <strong>{guiConfig.active_conversation_border_width || '2px'} accent border</strong>
+                      Active tab outlined with <strong>{guiConfig.active_conversation_border_width || '2px'} accent border</strong>
                     </span>
                   ) : guiConfig.active_conversation_indicator === 'left_bar' ? (
                     <span>
-                      ✓ Active tab marked with <strong>3px left accent bar</strong>
+                      Active tab marked with <strong>3px left accent bar</strong>
                     </span>
                   ) : (
                     <span>
-                      ✓ Active tab highlighted with <strong>accent background fill</strong>
+                      Active tab highlighted with <strong>accent background fill</strong>
                     </span>
                   )}
                   {(guiConfig.active_conversation_bold ?? false) ? ' (bold title)' : ' (regular title)'}
@@ -1515,11 +2009,11 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               Conversation Tabs Display
             </h2>
             <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-              Configure how many conversation tabs are displayed under each project in the sidebar. Replaces raw "See all" and "See less" text buttons with an elegant 1px inset divider line and centered solid triangle.
+              Limit visible conversation tabs per project and replace text buttons with minimal dividers.
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 1px 360px', gap: '24px', alignItems: 'stretch' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 1px 360px', gap: '24px 12px', alignItems: 'stretch' }}>
             {/* Left column: Controls stacked vertically */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {/* Simplicity Replacement Zone */}
@@ -1554,7 +2048,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 />
               </div>
 
-              {/* Consistent Blank Area Below All Projects Zone */}
+              {/* Divider Separation Below All Projects Zone */}
               <div
                 style={{
                   padding: '14px 16px',
@@ -1576,10 +2070,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 >
                   <div>
                     <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
-                      Consistent Blank Area Below All Projects
+                      Divider Separation Below All Projects
                     </div>
                     <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
-                      Add blank spacing area below projects without contracted conversation tabs for balanced, consistent project separation.
+                      Add horizontal divider lines in the natural gap below projects without contracted conversation tabs for balanced, consistent project separation.
                     </p>
                   </div>
                   <ToggleSwitch
@@ -1593,7 +2087,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   />
                 </div>
 
-                {/* Sub-option: Horizontal Line at Middle of Blank Space */}
+                {/* Sub-option: Horizontal Line at Middle of Project Gap */}
                 {(guiConfig.consistent_project_spacing ?? true) && (
                   <div
                     style={{
@@ -1607,10 +2101,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   >
                     <div>
                       <div style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
-                        Horizontal Line at Middle of Blank Space
+                        Horizontal Line at Middle of Project Gap
                       </div>
                       <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
-                        Add a centered 1px horizontal divider line in the middle of the added white space.
+                        Add a centered 1px horizontal divider line in the middle of the existing project gap.
                       </p>
                     </div>
                     <ToggleSwitch
@@ -2020,43 +2514,27 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 <div
                   style={{
                     position: 'relative',
-                    height: '32px',
+                    height: '0px',
                     width: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: (guiConfig.consistent_project_spacing_line ?? true)
-                      ? 'transparent'
-                      : 'repeating-linear-gradient(45deg, rgba(148, 163, 184, 0.06), rgba(148, 163, 184, 0.06) 4px, transparent 4px, transparent 8px)',
-                    borderRadius: '4px',
-                    border: (guiConfig.consistent_project_spacing_line ?? true)
-                      ? 'none'
-                      : '1px dashed rgba(148, 163, 184, 0.3)',
-                    fontSize: '10px',
-                    color: '#64748b',
-                    fontWeight: 500,
                     boxSizing: 'border-box',
                   }}
                   title={
                     (guiConfig.consistent_project_spacing_line ?? true)
-                      ? '32px consistent blank spacing area with horizontal line at middle'
-                      : '32px consistent blank spacing area below uncontracted project'
+                      ? 'Consistent horizontal divider line centered in the existing project gap'
+                      : 'Natural project gap below uncontracted project'
                   }
                 >
-                  {(guiConfig.consistent_project_spacing_line ?? true) ? (
+                  {(guiConfig.consistent_project_spacing_line ?? true) && (
                     <div
                       style={{
                         position: 'absolute',
-                        top: '50%',
+                        top: '6px',
                         left: 0,
                         right: 0,
                         height: '1px',
                         background: 'rgba(148, 163, 184, 0.35)',
-                        transform: 'translateY(-50%)',
                       }}
                     />
-                  ) : (
-                    '32px consistent spacing'
                   )}
                 </div>
               )}
@@ -2100,7 +2578,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               </span>
             </div>
             <p style={{ margin: '6px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-              Configure how injected Swiss extensions (Browser, Files, Memos) are displayed alongside Antigravity's native tabs (Overview, Review, Terminal) in the auxiliary panel header.
+              Choose between icon-only or icon with label for auxiliary panel extension tabs.
             </p>
           </div>
         </div>
@@ -2176,7 +2654,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   border: '1px solid #cbd5e1',
                   color: '#1e293b',
                 }}
-                title="Browser"
+                title="Preview Browser"
               >
                 <Globe size={14} />
               </div>
@@ -2211,6 +2689,24 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 title="Memos"
               >
                 <FileText size={14} />
+              </div>
+              <div
+                style={{
+                  width: '24px',
+                  height: '24px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '4px',
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  color: '#1e293b',
+                }}
+                title="GitHub"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
+                </svg>
               </div>
             </div>
           </div>
@@ -2276,7 +2772,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 }}
               >
                 <Globe size={13} />
-                <span>Browser</span>
+                <span>Preview Browser</span>
               </div>
               <div
                 style={{
@@ -2314,6 +2810,26 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 <FileText size={13} />
                 <span>Memos</span>
               </div>
+              <div
+                style={{
+                  height: '24px',
+                  padding: '0 8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  borderRadius: '4px',
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  color: '#1e293b',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
+                </svg>
+                <span>GitHub</span>
+              </div>
             </div>
           </div>
         </div>
@@ -2331,10 +2847,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
         >
           <div>
             <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
-              Overview Panel Section Division & Visual Grouping
+              Overview Panel Section Division
             </h2>
             <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-              Enhance section distinction in Antigravity's right-side Overview Panel (Subagents, Files Changed, Artifacts, Uploads, Background Tasks, Goals, Skills) for instant legibility.
+              Add clean borders, subtle dividers, and zebra striping to Antigravity's Overview panel sections.
             </p>
           </div>
 
@@ -2364,7 +2880,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 marginBottom: '20px',
               }}
             >
-              {/* Switch 1: Replace See all / See less with compact triangle */}
+              {/* Switch 1: Replace See all / See less with refined divider */}
               <label
                 style={{
                   display: 'flex',
@@ -2379,7 +2895,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   paddingRight: '16px',
                 }}
               >
-                <span>Replace "See all" & "See less" with Little Triangle (▾ / ▸)</span>
+                <span>Refined Expand/Contract Triangle (▾ / ▴)</span>
                 <ToggleSwitch
                   size="sm"
                   checked={op.replace_see_all_triangle}
@@ -2392,56 +2908,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 />
               </label>
 
-              {/* Vertical Breaker 1 */}
-              <div style={{ width: '1px', height: '26px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 12px' }} />
-
-              {/* Switch 2: Subtle Count Badges */}
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '12px',
-                  fontSize: '13px',
-                  color: '#334155',
-                  cursor: 'pointer',
-                  flex: 1,
-                  minWidth: '220px',
-                  paddingRight: '16px',
-                }}
-              >
-                <span>Section Header Counter Badges</span>
-                <ToggleSwitch
-                  size="sm"
-                  checked={true}
-                  onChange={() => {}}
-                />
-              </label>
-
-              {/* Vertical Breaker 2 */}
-              <div style={{ width: '1px', height: '26px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 12px' }} />
-
-              {/* Switch 3: Click to Expand / Collapse */}
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '12px',
-                  fontSize: '13px',
-                  color: '#334155',
-                  cursor: 'pointer',
-                  flex: 1,
-                  minWidth: '220px',
-                }}
-              >
-                <span>Clickable Section Accordion</span>
-                <ToggleSwitch
-                  size="sm"
-                  checked={true}
-                  onChange={() => {}}
-                />
-              </label>
             </div>
 
             {/* 2-Column Layout: Settings on Left, Fixed Vertical Divider, Interactive Overview Preview on Right */}
@@ -2449,7 +2915,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'minmax(0, 1fr) 1px 360px',
-                gap: '24px',
+                gap: '24px 12px',
                 alignItems: 'stretch',
               }}
             >
@@ -2592,7 +3058,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       }}
                     >
                       {/* Line Thickness */}
-                      <div style={{ flex: 1, minWidth: '180px', paddingRight: '12px' }}>
+                      <div style={{ flex: 1, minWidth: '180px', paddingRight: '8px' }}>
                         <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                           Line Thickness: <strong>{op.line_thickness}px</strong>
                         </label>
@@ -2622,10 +3088,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       </div>
 
                       {/* Vertical Grey Breaker */}
-                      <div style={{ width: '1px', height: '40px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 12px' }} />
+                      <div style={{ width: '1px', height: '40px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0' }} />
 
                       {/* Line Width Percent */}
-                      <div style={{ flex: 1, minWidth: '180px', paddingLeft: '4px' }}>
+                      <div style={{ flex: 1, minWidth: '180px', paddingLeft: '8px' }}>
                         <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                           Line Width: <strong>{op.line_width_percent}%</strong>
                         </label>
@@ -2669,7 +3135,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       }}
                     >
                       {/* Line Style */}
-                      <div style={{ flex: 1, minWidth: '180px', paddingRight: '12px' }}>
+                      <div style={{ flex: 1, minWidth: '180px', paddingRight: '8px' }}>
                         <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                           Line Style:
                         </label>
@@ -2700,15 +3166,15 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       </div>
 
                       {/* Vertical Grey Breaker */}
-                      <div style={{ width: '1px', height: '40px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 12px' }} />
+                      <div style={{ width: '1px', height: '40px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0' }} />
 
                       {/* Vertical Spacing / Margin */}
-                      <div style={{ flex: 1, minWidth: '180px', paddingLeft: '4px' }}>
+                      <div style={{ flex: 1, minWidth: '180px', paddingLeft: '8px' }}>
                         <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
-                          Vertical Margin: <strong>{op.line_margin}px</strong>
+                          Vertical Margin: <strong>{op.line_margin === 0 ? '0px (Factory Distance)' : `${op.line_margin}px`}</strong>
                         </label>
                         <div style={{ display: 'flex', gap: '6px' }}>
-                          {[8, 12, 16, 20].map((m) => (
+                          {[0, 4, 8, 12].map((m) => (
                             <button
                               key={m}
                               type="button"
@@ -2726,7 +3192,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                 cursor: 'pointer',
                               }}
                             >
-                              {m}px
+                              {m === 0 ? 'Factory' : `${m}px`}
                             </button>
                           ))}
                         </div>
@@ -2857,7 +3323,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       }}
                     >
                       {/* Border Radius */}
-                      <div style={{ flex: 1, minWidth: '180px', paddingRight: '12px' }}>
+                      <div style={{ flex: 1, minWidth: '180px', paddingRight: '8px' }}>
                         <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                           Border Radius: <strong>{op.zone_border_radius}px</strong>
                         </label>
@@ -2887,10 +3353,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       </div>
 
                       {/* Vertical Grey Breaker */}
-                      <div style={{ width: '1px', height: '40px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 12px' }} />
+                      <div style={{ width: '1px', height: '40px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0' }} />
 
                       {/* Gap Between Zones */}
-                      <div style={{ flex: 1, minWidth: '180px', paddingLeft: '4px' }}>
+                      <div style={{ flex: 1, minWidth: '180px', paddingLeft: '8px' }}>
                         <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                           Zone Spacing (Gap): <strong>{op.zone_gap}px</strong>
                         </label>
@@ -2934,7 +3400,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       }}
                     >
                       {/* Internal Padding */}
-                      <div style={{ flex: 1, minWidth: '180px', paddingRight: '12px' }}>
+                      <div style={{ flex: 1, minWidth: '180px', paddingRight: '8px' }}>
                         <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                           Internal Padding: <strong>{op.zone_padding}px</strong>
                         </label>
@@ -2964,10 +3430,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       </div>
 
                       {/* Vertical Grey Breaker */}
-                      <div style={{ width: '1px', height: '40px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 12px' }} />
+                      <div style={{ width: '1px', height: '40px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0' }} />
 
                       {/* Border Color */}
-                      <div style={{ flex: 1, minWidth: '180px', paddingLeft: '4px' }}>
+                      <div style={{ flex: 1, minWidth: '180px', paddingLeft: '8px' }}>
                         <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                           Border Color:
                         </label>
@@ -3120,15 +3586,16 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         <Plus size={13} />
                       </div>
 
-                      {/* Divider */}
-                      <div style={{ width: '1px', height: '14px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 4px' }} />
+                      {/* Left Divider */}
+                      <div style={{ width: '1px', minWidth: '1px', maxWidth: '1px', height: '16px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 0.5px', flexShrink: 0, opacity: 0.7 }} />
 
                       {/* Injected Swiss Tabs in chosen format */}
                       {(op.aux_tabs_format || 'icon') === 'icon' ? (
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '1px', flexShrink: 0 }}>
                           <div
                             style={{
-                              width: '24px',
+                              width: '21px',
+                              minWidth: '20px',
                               height: '24px',
                               display: 'flex',
                               alignItems: 'center',
@@ -3136,14 +3603,16 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               borderRadius: '4px',
                               color: '#64748b',
                               backgroundColor: 'transparent',
+                              flexShrink: 0,
                             }}
-                            title="Browser"
+                            title="Preview Browser"
                           >
-                            <Globe size={14} />
+                            <Globe size={13.5} />
                           </div>
                           <div
                             style={{
-                              width: '24px',
+                              width: '21px',
+                              minWidth: '20px',
                               height: '24px',
                               display: 'flex',
                               alignItems: 'center',
@@ -3151,14 +3620,16 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               borderRadius: '4px',
                               color: '#64748b',
                               backgroundColor: 'transparent',
+                              flexShrink: 0,
                             }}
                             title="Files"
                           >
-                            <Folder size={14} />
+                            <Folder size={13.5} />
                           </div>
                           <div
                             style={{
-                              width: '24px',
+                              width: '21px',
+                              minWidth: '20px',
                               height: '24px',
                               display: 'flex',
                               alignItems: 'center',
@@ -3166,69 +3637,118 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               borderRadius: '4px',
                               color: '#64748b',
                               backgroundColor: 'transparent',
+                              flexShrink: 0,
                             }}
                             title="Memos"
                           >
-                            <FileText size={14} />
+                            <FileText size={13.5} />
+                          </div>
+                          <div
+                            style={{
+                              width: '21px',
+                              minWidth: '20px',
+                              height: '24px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderRadius: '4px',
+                              color: '#64748b',
+                              backgroundColor: 'transparent',
+                              flexShrink: 0,
+                            }}
+                            title="GitHub"
+                          >
+                            <svg width="13.5" height="13.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
+                            </svg>
                           </div>
                         </div>
                       ) : (
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', flexShrink: 0 }}>
                           <div
                             style={{
-                              height: '22px',
+                              height: '24px',
                               padding: '0 6px',
                               display: 'flex',
                               alignItems: 'center',
                               gap: '4px',
                               borderRadius: '4px',
                               color: '#64748b',
-                              fontSize: '11px',
+                              fontSize: '10.5px',
                               fontWeight: 500,
+                              whiteSpace: 'nowrap',
+                              flexShrink: 0,
                             }}
                           >
-                            <Globe size={12} />
-                            <span>Browser</span>
+                            <Globe size={13} />
+                            <span>Preview Browser</span>
                           </div>
                           <div
                             style={{
-                              height: '22px',
+                              height: '24px',
                               padding: '0 6px',
                               display: 'flex',
                               alignItems: 'center',
                               gap: '4px',
                               borderRadius: '4px',
                               color: '#64748b',
-                              fontSize: '11px',
+                              fontSize: '10.5px',
                               fontWeight: 500,
+                              whiteSpace: 'nowrap',
+                              flexShrink: 0,
                             }}
                           >
-                            <Folder size={12} />
+                            <Folder size={13} />
                             <span>Files</span>
                           </div>
                           <div
                             style={{
-                              height: '22px',
+                              height: '24px',
                               padding: '0 6px',
                               display: 'flex',
                               alignItems: 'center',
                               gap: '4px',
                               borderRadius: '4px',
                               color: '#64748b',
-                              fontSize: '11px',
+                              fontSize: '10.5px',
                               fontWeight: 500,
+                              whiteSpace: 'nowrap',
+                              flexShrink: 0,
                             }}
                           >
-                            <FileText size={12} />
+                            <FileText size={13} />
                             <span>Memos</span>
+                          </div>
+                          <div
+                            style={{
+                              height: '24px',
+                              padding: '0 6px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              borderRadius: '4px',
+                              color: '#64748b',
+                              fontSize: '10.5px',
+                              fontWeight: 500,
+                              whiteSpace: 'nowrap',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
+                            </svg>
+                            <span>GitHub</span>
                           </div>
                         </div>
                       )}
+
+                      {/* Right Divider */}
+                      <div style={{ width: '1px', minWidth: '1px', maxWidth: '1px', height: '16px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 0.5px', flexShrink: 0, opacity: 0.7 }} />
                     </div>
 
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center', color: '#94a3b8' }}>
-                      <span style={{ fontSize: '13px', lineHeight: 1, cursor: 'pointer' }}>⤢</span>
-                      <span style={{ fontSize: '13px', lineHeight: 1, cursor: 'pointer' }}>✕</span>
+                      <Maximize2 size={12} style={{ cursor: 'pointer' }} />
+                      <X size={12} style={{ cursor: 'pointer' }} />
                     </div>
                   </div>
 
@@ -3271,7 +3791,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                 <span>main_test.go <span style={{ color: '#94a3b8', fontSize: '11px' }}>cmd/swiss</span></span>
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span style={{ color: '#6366f1', fontSize: '11px', fontWeight: 700 }}>⚛</span>
+                                <span style={{ color: '#6366f1', fontSize: '11px', fontWeight: 700 }}>TSX</span>
                                 <span>App.tsx <span style={{ color: '#94a3b8', fontSize: '11px' }}>frontend/src</span></span>
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -3279,7 +3799,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                 <span>api.ts <span style={{ color: '#94a3b8', fontSize: '11px' }}>frontend/src</span></span>
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span style={{ color: '#6366f1', fontSize: '11px', fontWeight: 700 }}>⚛</span>
+                                <span style={{ color: '#6366f1', fontSize: '11px', fontWeight: 700 }}>TSX</span>
                                 <span>AccountDetailModal.tsx <span style={{ color: '#94a3b8', fontSize: '11px' }}>frontend/src/components</span></span>
                               </div>
 
@@ -3301,31 +3821,40 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               )}
                             </div>
 
-                            {/* "See all" vs Little Triangle Replacement */}
-                            <div style={{ marginTop: '6px' }}>
+                            {/* "See all" vs Refined Triangle Replacement */}
+                            <div style={{ marginTop: '2px' }}>
                               {op.replace_see_all_triangle ? (
-                                <button
-                                  type="button"
+                                <div
                                   onClick={() => setOverviewFilesExpanded(!overviewFilesExpanded)}
                                   style={{
-                                    display: 'inline-flex',
+                                    display: 'flex',
                                     alignItems: 'center',
-                                    gap: '4px',
-                                    fontSize: '11px',
-                                    fontWeight: 600,
-                                    color: '#0b57d0',
-                                    background: 'rgba(11, 87, 208, 0.08)',
-                                    border: '1px solid rgba(11, 87, 208, 0.15)',
-                                    borderRadius: '4px',
-                                    padding: '2px 6px',
+                                    justifyContent: 'center',
+                                    width: '100%',
+                                    height: '14px',
                                     cursor: 'pointer',
-                                    transition: 'all 0.15s',
+                                    userSelect: 'none',
+                                    boxSizing: 'border-box',
                                   }}
                                   title={overviewFilesExpanded ? 'Collapse files list' : 'Expand all 33 files'}
                                 >
-                                  <span style={{ fontSize: '9px' }}>{overviewFilesExpanded ? '▲' : '▼'}</span>
-                                  <span>{overviewFilesExpanded ? 'less' : '(33)'}</span>
-                                </button>
+                                  <div
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      width: '14px',
+                                      height: '10px',
+                                      color: '#64748b',
+                                      fontSize: '8px',
+                                      transition: 'all 0.18s ease',
+                                    }}
+                                  >
+                                    <span style={{ fontSize: '8px', lineHeight: 1 }}>
+                                      {overviewFilesExpanded ? '▴' : '▾'}
+                                    </span>
+                                  </div>
+                                </div>
                               ) : (
                                 <button
                                   type="button"
@@ -3393,30 +3922,39 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               )}
                             </div>
 
-                            <div style={{ marginTop: '6px' }}>
+                            <div style={{ marginTop: '2px' }}>
                               {op.replace_see_all_triangle ? (
-                                <button
-                                  type="button"
+                                <div
                                   onClick={() => setOverviewUploadsExpanded(!overviewUploadsExpanded)}
                                   style={{
-                                    display: 'inline-flex',
+                                    display: 'flex',
                                     alignItems: 'center',
-                                    gap: '4px',
-                                    fontSize: '11px',
-                                    fontWeight: 600,
-                                    color: '#0b57d0',
-                                    background: 'rgba(11, 87, 208, 0.08)',
-                                    border: '1px solid rgba(11, 87, 208, 0.15)',
-                                    borderRadius: '4px',
-                                    padding: '2px 6px',
+                                    justifyContent: 'center',
+                                    width: '100%',
+                                    height: '14px',
                                     cursor: 'pointer',
-                                    transition: 'all 0.15s',
+                                    userSelect: 'none',
+                                    boxSizing: 'border-box',
                                   }}
                                   title={overviewUploadsExpanded ? 'Collapse uploads' : 'Expand all 14 uploads'}
                                 >
-                                  <span style={{ fontSize: '9px' }}>{overviewUploadsExpanded ? '▲' : '▼'}</span>
-                                  <span>{overviewUploadsExpanded ? 'less' : '(14)'}</span>
-                                </button>
+                                  <div
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      width: '14px',
+                                      height: '10px',
+                                      color: '#64748b',
+                                      fontSize: '8px',
+                                      transition: 'all 0.18s ease',
+                                    }}
+                                  >
+                                    <span style={{ fontSize: '8px', lineHeight: 1 }}>
+                                      {overviewUploadsExpanded ? '▴' : '▾'}
+                                    </span>
+                                  </div>
+                                </div>
                               ) : (
                                 <button
                                   type="button"
@@ -3519,6 +4057,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                   }
                                 : {
                                     padding: '2px 0',
+                                    marginBottom: idx < sections.length - 1 ? (op.division_style === 'divider_line' ? `${5 + (op.line_margin || 0)}px` : '10px') : 0,
                                   }
                             }
                           >
@@ -3574,16 +4113,17 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
 
                             {/* Section Content */}
                             {!isCollapsed && sec.renderContent()}
+
                           </div>
 
                           {/* Horizontal Divider Line between sections (when in divider_line mode) */}
-                          {!isZone && idx < sections.length - 1 && (
+                          {!isZone && op.division_style === 'divider_line' && idx < sections.length - 1 && (
                             <div
                               style={{
                                 height: `${op.line_thickness || 1}px`,
-                                width: `${op.line_width_percent || 100}%`,
+                                width: `calc(${op.line_width_percent || 100}% - 12px)`,
                                 backgroundColor: op.line_color || '#e2e8f0',
-                                margin: `${op.line_margin || 12}px auto`,
+                                margin: `0 auto ${5 + (op.line_margin || 0)}px auto`,
                                 borderStyle: op.line_style || 'solid',
                                 borderRadius: '1px',
                               }}
@@ -3614,7 +4154,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 Auto-Archive Inactive Conversations
               </h2>
               <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)', maxWidth: '600px' }}>
-                Automatically move stale conversations from your project panels into Conversation History based on time horizon.
+                Archive inactive project conversations to history after a set duration.
               </p>
             </div>
 
@@ -3679,8 +4219,9 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   Scan conversation database now and archive conversations older than {guiConfig.auto_archive_horizon || '14d'}.
                 </div>
                 {archiveResult && (
-                  <div style={{ marginTop: '4px', fontSize: '12px', color: '#059669', fontWeight: 600 }}>
-                    ✓ {archiveResult}
+                  <div style={{ marginTop: '4px', fontSize: '12px', color: '#059669', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <CheckCircle2 size={13} />
+                    <span>{archiveResult}</span>
                   </div>
                 )}
               </div>
