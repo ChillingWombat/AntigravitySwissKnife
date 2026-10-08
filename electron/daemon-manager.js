@@ -170,12 +170,20 @@ class DaemonManager {
     console.log(`[DaemonManager] Spawning Go daemon sidecar: ${binPath} daemon --web --addr ${this.host}:${this.port}`);
 
     // 3. Spawn child process
-    const rootDir = (app && typeof app.getAppPath === 'function')
-      ? app.getAppPath()
-      : path.resolve(__dirname, '..');
+    let runCwd = path.resolve(__dirname, '..');
+    if (app && app.isPackaged) {
+      runCwd = process.resourcesPath;
+    } else if (app && typeof app.getAppPath === 'function') {
+      const appPath = app.getAppPath();
+      try {
+        runCwd = fs.statSync(appPath).isDirectory() ? appPath : path.dirname(appPath);
+      } catch {
+        runCwd = path.dirname(appPath);
+      }
+    }
 
     this.child = spawn(binPath, ['daemon', '--web', '--addr', `${this.host}:${this.port}`], {
-      cwd: rootDir,
+      cwd: runCwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false, // Ensures child process group is tied to Electron
       windowsHide: true,

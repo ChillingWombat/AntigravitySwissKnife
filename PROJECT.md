@@ -91,6 +91,9 @@ Antigravity Swiss Knife is an independent native desktop manager, background dae
 | F34 | `F34_VIEWPORT_OVERFLOW_ELIMINATION` | Resolving `QuotaDashboardPage.tsx` table from `minWidth: '960px'` to 880px with 4px aligned column widths, eliminating horizontal scrollbar and visual clipping at 1152×648 viewport. | M8 | ORIGINAL_REQUEST (2026-10-06) §R3 |
 | F35 | `F35_AUTOMATED_LAYOUT_TEST_SUITE` | Comprehensive unit test suite in `frontend/src/utils/layoutTokens.test.ts` asserting 4px grid divisibility, 16:9 ratio, golden ratio proximity ($<0.00003$), ceiling vs floor rounding 16:9 bias proof, component token divisibility, and table viewport budget. | M9 | ORIGINAL_REQUEST (2026-10-06) §R4 |
 | F36 | `F36_BUILD_AND_SYSTEM_VERIFICATION` | Full TypeScript check (`tsc -b`), Vite build (`vite build`), unit tests (`npm test --prefix frontend`), and desktop verification (`npm run test:desktop`) passing with 100% clean exit. | M9 | ORIGINAL_REQUEST (2026-10-06) §R4 |
+| F37 | `F37_CLEAN_DEV_TEST_STRUCTURE` | Reorganization of dev scratchpads, test fixtures, and milestone checklists into dedicated, gitignored `dev/` directory (`scratch/`, `testing/`, `milestones/`, `tools/`). | M10 | ORIGINAL_REQUEST (2026-10-08) |
+| F38 | `F38_CROSS_PLATFORM_RELEASE_PIPELINE` | Automated cross-compilation and packaging pipeline (`scripts/build-release.js`) outputting self-contained production apps for Linux, Windows, and macOS into gitignored `release/`. | M10 | ORIGINAL_REQUEST (2026-10-08) |
+| F39 | `F39_MULTI_AGENT_WORKTREE_MANAGEMENT` | Git worktree infrastructure (`scripts/worktree.sh`, `.worktrees/` in `.gitignore`) enabling concurrent agent feature branch development without checkout collisions. | M10 | ORIGINAL_REQUEST (2026-10-08) |
 
 ---
 
@@ -107,6 +110,7 @@ Antigravity Swiss Knife is an independent native desktop manager, background dae
 | M7 | Golden Ratio Layout Architecture & 4-Pixel Grid Alignment | Features F30, F31, F32. `frontend/src/utils/layoutTokens.ts`, CSS custom properties, NavRail 220px, Header 72px, main content workspace 932×576 px (ratio 1.61806), and ceiling 4-increment step rule ($W_{\text{major}} = \lceil W / \phi \rceil_4$). | none | DONE (Certified green by Reviewers, Challengers, Forensic Auditor; Gate PASS) |
 | M8 | Component & Gadget Sizing Compliance & Viewport Budgeting | Features F33, F34. Align cards, modals, gauges (`CircularGauge.tsx`), quota bars (`HorizontalQuotaBar.tsx`), toggle switches (`ToggleSwitch.tsx`) to 4px grid. Eliminate Quota Dashboard table horizontal scrollbar at 1152×648. | M7 | DONE (Certified green; gauges 128/12, bars 8/8, switches 36/20/16, table 880px budget pass) |
 | M9 | Automated Verification Suite & Adversarial Coverage Hardening | Features F35, F36. Programmatic test suite in `frontend/src/utils/layoutTokens.test.ts` asserting 4px divisibility, ceiling rounding behavior vs floor rounding, aspect ratios. TypeScript check and Vite build 100% pass. Adversarial validation with Challengers and Forensic Auditor. | M6, M7, M8 | DONE (40/40 frontend tests pass, 18/18 Go packages pass, E2E desktop 100% pass) |
+| M10 | Clean Codebase Architecture, 3-OS Release Pipeline & Multi-Agent Worktrees | Features F37, F38, F39. Dev/test resources isolation in `dev/`, cross-platform release builds in `release/` for Linux, Windows, macOS, and Git worktree isolation scripts for multi-agent concurrency. | none | DONE (Cross-compilation & packaging verified for all 3 OS, worktree scripts verified) |
 
 ---
 

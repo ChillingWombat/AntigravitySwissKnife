@@ -17,7 +17,13 @@
     "dist": "npm run build && electron-builder",
     "dist:linux": "npm run build && electron-builder --linux",
     "dist:win": "npm run build && electron-builder --win",
-    "dist:mac": "npm run build && electron-builder --mac"
+    "dist:mac": "npm run build && electron-builder --mac",
+    "release": "node scripts/build-release.js all",
+    "release:linux": "node scripts/build-release.js linux",
+    "release:win": "node scripts/build-release.js windows",
+    "release:mac": "node scripts/build-release.js macos",
+    "app:prod": "node scripts/build-release.js run",
+    "worktree": "bash scripts/worktree.sh"
   },
   "build": {
     "appId": "com.antigravity.swiss-knife",
@@ -30,26 +36,32 @@
       "assets/**/*",
       "pkg/webgui/dist/**/*"
     ],
-    "extraResources": [
-      {
-        "from": "bin/swiss",
-        "to": "bin/swiss"
-      }
-    ],
     "linux": {
       "target": [
         "AppImage",
         "deb"
       ],
       "category": "Development",
-      "icon": "assets/logo.png"
+      "icon": "assets/logo.png",
+      "extraResources": [
+        {
+          "from": "bin/swiss",
+          "to": "bin/swiss"
+        }
+      ]
     },
     "win": {
       "target": [
         "nsis",
         "portable"
       ],
-      "icon": "assets/logo.png"
+      "icon": "assets/logo.png",
+      "extraResources": [
+        {
+          "from": "bin/swiss.exe",
+          "to": "bin/swiss.exe"
+        }
+      ]
     },
     "mac": {
       "target": [
@@ -57,7 +69,13 @@
         "zip"
       ],
       "category": "public.app-category.developer-tools",
-      "icon": "assets/logo.png"
+      "icon": "assets/logo.png",
+      "extraResources": [
+        {
+          "from": "bin/swiss",
+          "to": "bin/swiss"
+        }
+      ]
     }
   },
   "keywords": [

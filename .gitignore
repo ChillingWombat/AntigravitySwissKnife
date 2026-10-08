@@ -1,13 +1,53 @@
 # Dependencies
+node_modules
 node_modules/
 .pnpm-store/
 frontend/dist/
 build/
 target/
 
-# Binaries and scratch scripts
+# Binaries and compiled outputs
 bin/
+/swiss
+*.exe
+dist/
+dist-desktop/
+
+# Git Worktrees for concurrent agent & branch isolation
+.worktrees/
+worktrees/
+
+# Gitignored Production Release Folder (compiled apps for all 3 OS)
+release/linux/
+release/windows/
+release/macos/
+release/*.zip
+release/*.tar.gz
+release/*.AppImage
+release/*.deb
+release/*.dmg
+release/*.exe
+!release/README.md
+!release/run.sh
+
+# Gitignored Development & Testing Resources
+dev/*
+!dev/README.md
 scratch/
+tests/
+tests/stress_results.json
+*.test.data
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Persona & Agent Information
+.agents/
+GATE_STATUS.md
+TEST_INFRA.md
+TEST_READY.md
+README.local.md
 
 # Embed web assets exception
 !pkg/webgui/dist/
@@ -30,30 +70,3 @@ vault.key
 *.swp
 *.bak
 app.asar.bak
-
-# Python artifacts
-__pycache__/
-*.py[cod]
-*$py.class
-.pytest_cache/
-
-# Persona & Agent Information
-.agents/
-GATE_STATUS.md
-TEST_INFRA.md
-TEST_READY.md
-
-# Test Data
-tests/stress_results.json
-*.test.data
-
-# Test Scripts
-tests/
-
-# Local documents
-README.local.md
-
-# Worktrees and desktop packaging
-.worktrees/
-dist-desktop/
-

@@ -150,6 +150,87 @@ For headless daemon execution only:
 
 ---
 
+## Production Releases & Multi-Branch Laptop Workflow
+
+Antigravity Swiss Knife provides an automated cross-platform release pipeline that compiles and packages self-contained applications for all three operating systems directly into the gitignored `release/` folder:
+
+```bash
+# Package production releases for all 3 platforms
+npm run release
+
+# Or package for a specific operating system
+npm run release:linux      # release/linux/ (AppImage/deb/unpacked)
+npm run release:win        # release/windows/ (installer & unpacked .exe)
+npm run release:mac        # release/macos/ (.app bundle & DMG)
+```
+
+### Running the Production App Concurrently with Active Agent Branches
+
+A major problem when collaborating with autonomous coding agents is that switching Git branches (`git checkout` / `git switch`) during active development can break or corrupt a running desktop instance.
+
+Because release builds are placed in `release/`, you can launch and run the compiled production application on your laptop **completely decoupled** from source code branches:
+
+```bash
+# Launch the production release app locally
+npm run app:prod
+
+# Or directly execute the universal launcher
+bash release/run.sh
+```
+
+While the production app runs in the background or foreground, agents can pull, modify, switch, and test code on Git branches without interrupting your running session.
+
+---
+
+## Codebase Architecture & Clean Directory Layout
+
+To ensure that end users and open-source consumers receive a clean, uncluttered repository, all development-only scratchpads, adversarial tests, and milestone logs are grouped into dedicated gitignored directories:
+
+```
+├── cmd/swiss/             # Go daemon CLI entrypoint
+├── pkg/                   # Go core packages, handlers, daemons (*_test.go unit tests)
+├── frontend/              # React 19 / TypeScript supervisory UI (*.test.ts unit tests)
+├── electron/              # Desktop application runner & daemon supervisor
+├── assets/                # Visual brand assets, architecture diagrams, theme SVGs
+├── scripts/               # Production build, release, and worktree automation scripts
+│   ├── build-release.js   # Automated 3-OS compiler and packager
+│   └── worktree.sh        # Multi-agent Git worktree manager
+├── release/               # [Gitignored] Compiled standalone apps (Linux, Windows, macOS)
+│   ├── linux/             # Packaged Linux app & Go binary
+│   ├── windows/           # Packaged Windows app & Go binary (.exe)
+│   ├── macos/             # Packaged macOS app & Go binaries (arm64 + amd64)
+│   ├── run.sh             # Universal OS launcher
+│   └── README.md          # Release architecture documentation
+└── dev/                   # [Gitignored] Development and testing resources
+    ├── scratch/           # Ad-hoc investigation scripts, temporary test scripts
+    ├── testing/           # Legacy test harnesses, fixtures, adversarial runners
+    ├── milestones/        # Development milestone logs and checklist records
+    ├── tools/             # Local profiling dumps and developer helpers
+    └── README.md          # Development directory documentation
+```
+
+---
+
+## Version Control Strategy for Multi-Agent Collaboration
+
+When multiple agents or developers work on this repository simultaneously, sharing a single working tree causes frequent checkout conflicts and file collisions.
+
+To isolate concurrent development, use **Git Worktrees**:
+
+```bash
+# List all active agent worktrees
+./scripts/worktree.sh list
+
+# Create a new isolated worktree for a feature branch
+./scripts/worktree.sh create feature/my-feature
+
+# Remove a worktree once work is merged
+./scripts/worktree.sh remove feature/my-feature
+```
+
+Each worktree lives in `.worktrees/` (which is gitignored), has its own working directory, shares the central Git database, and automatically links `node_modules` so tests and builds run without dependency duplication.
+
+
 ## Terms of Service Alignment & Safety Notice
 
 ### Local Client Compliance
