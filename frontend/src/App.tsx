@@ -24,7 +24,7 @@ export const App: React.FC = () => {
   const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Overview Panel
   const [availableProjects, setAvailableProjects] = useState<Array<{ name: string; color: string; order: number; is_archived: boolean }>>([])
   const [utilitiesTab, setUtilitiesTab] = useState<number>(0) // 0: Importer, 1: ACP Inspector
-  const [tokenMonitorTab, setTokenMonitorTab] = useState<number>(0) // 0: Overview, 1: Telemetry & Logs, 2: Pricing Matrix
+  const [tokenMonitorTab, setTokenMonitorTab] = useState<number>(0) // 0: Overview, 1: Telemetry & Logs, 2: Token Price
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [fleet, setFleet] = useState<FleetQuotaSummary | null>(null)
   const [directAccounts, setDirectAccounts] = useState<any[]>([])
@@ -210,7 +210,7 @@ export const App: React.FC = () => {
                     gap: '2px',
                   }}
                 >
-                  {['Consumption Overview', 'Telemetry & Logs', 'Pricing Matrix'].map((tab, idx) => {
+                  {['Consumption Overview', 'Telemetry & Logs', 'Token Price'].map((tab, idx) => {
                     const isActive = tokenMonitorTab === idx
                     return (
                       <button

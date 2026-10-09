@@ -1,12 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import {
-  Coins,
-  Cpu,
-  Layers,
   Zap,
   TrendingDown,
-  DollarSign,
-  Hash,
   Download,
   RefreshCw,
   CheckCircle2,
@@ -263,7 +258,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-              {/* Unit Switcher: USD ($) vs Tokens */}
+              {/* Unit Switcher: USD vs Tokens */}
               <div
                 style={{
                   display: 'flex',
@@ -291,8 +286,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  <DollarSign size={13} />
-                  <span>USD ($)</span>
+                  <span>USD</span>
                 </button>
                 <button
                   onClick={() => setUnitMode('tokens')}
@@ -312,7 +306,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  <Hash size={13} />
                   <span>Tokens</span>
                 </button>
               </div>
@@ -402,24 +395,10 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
               {unitMode === 'usd' ? 'Total Cost (Spend)' : 'Total Tokens'}
             </span>
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                backgroundColor: '#e8f0fe',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--primary)',
-              }}
-            >
-              {unitMode === 'usd' ? <DollarSign size={18} /> : <Hash size={18} />}
-            </div>
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
             {unitMode === 'usd' ? `$${summary.total_cost_usd.toFixed(2)}` : formatTokens(summary.total_tokens)}
@@ -440,24 +419,10 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
               Cached Input Ratio
             </span>
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                backgroundColor: '#e6f4ea',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#137333',
-              }}
-            >
-              <Sparkles size={18} />
-            </div>
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
             {summary.input_tokens > 0 ? ((summary.cached_input_tokens / summary.input_tokens) * 100).toFixed(1) : '0.0'}%
@@ -477,24 +442,10 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
               Average Generation Speed
             </span>
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                backgroundColor: '#fef7e0',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#b06000',
-              }}
-            >
-              <Zap size={18} />
-            </div>
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
             {summary.avg_tps} <span style={{ fontSize: '15px', fontWeight: 500 }}>TPS</span>
@@ -514,24 +465,10 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
               Completed Chat Turns
             </span>
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                backgroundColor: '#fce8e6',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#d93025',
-              }}
-            >
-              <Activity size={18} />
-            </div>
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
             {summary.requests_count}
@@ -560,13 +497,9 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Cpu size={16} color="var(--primary)" />
+            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
               Usage by Model
             </h3>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              Unit: {unitMode === 'usd' ? 'USD ($)' : 'Tokens'}
-            </span>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -618,8 +551,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Layers size={16} color="var(--primary)" />
+            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
               Usage by Fleet Account
             </h3>
             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
@@ -664,27 +596,41 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             )}
           </div>
 
-          {/* Project Attribution Preview */}
-          <div style={{ marginTop: '20px', borderTop: '1px solid var(--border)', paddingTop: '14px' }}>
-            <h4 style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--text-muted)', margin: '0 0 10px 0' }}>
-              Workspace Attribution
-            </h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {projectBreakdowns.length === 0 ? (
-                <div style={{ padding: '12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
-                  No workspaces configured yet.
+        </div>
+
+        {/* Project Breakdown */}
+        <div
+          style={{
+            backgroundColor: '#ffffff',
+            border: '1px solid var(--border)',
+            borderRadius: '10px',
+            padding: '20px',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
+              Project Breakdown
+            </h3>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              Across {projectBreakdowns.length} Project{projectBreakdowns.length === 1 ? '' : 's'}
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {projectBreakdowns.length === 0 ? (
+              <div style={{ padding: '12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+                No workspaces configured yet.
+              </div>
+            ) : (
+              projectBreakdowns.map((p) => (
+                <div key={p.project_name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                  <span style={{ color: 'var(--text)', fontWeight: 500 }}>{p.project_name}</span>
+                  <span style={{ color: 'var(--text-muted)' }}>
+                    {unitMode === 'usd' ? formatCost(p.cost_usd) : formatTokens(p.total_tokens)} ({p.requests} turns)
+                  </span>
                 </div>
-              ) : (
-                projectBreakdowns.map((p) => (
-                  <div key={p.project_name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                    <span style={{ color: 'var(--text)', fontWeight: 500 }}>{p.project_name}</span>
-                    <span style={{ color: 'var(--text-muted)' }}>
-                      {unitMode === 'usd' ? formatCost(p.cost_usd) : formatTokens(p.total_tokens)} ({p.requests} turns)
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -696,7 +642,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
       {/* ============================================================ */}
       {activeTab === 2 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* 5. Live Pricing Matrix & Override Management */}
+          {/* 5. Live Token Price & Override Management */}
           <div
             style={{
               backgroundColor: '#ffffff',
@@ -707,9 +653,8 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
           >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
           <div>
-            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Coins size={16} color="var(--primary)" />
-              Token Pricing Matrix (USD per 1,000,000 Tokens)
+            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
+              Token Price (USD per 1M Tokens)
             </h3>
             <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
               Auto-fetched via LiteLLM/OpenRouter API specifications with optional manual cost overrides.
