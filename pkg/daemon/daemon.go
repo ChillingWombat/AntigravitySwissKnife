@@ -299,9 +299,12 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 		_, _ = d.Profiles.GetOrCreateProfile(p.Email)
 		if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
-			summary, pollErr := quota.PollAndCacheAccount(acc, d.Keyring)
-			if pollErr == nil && summary != nil {
+			summary, _ := quota.PollAndCacheAccount(acc, d.Keyring)
+			if summary != nil {
 				d.setQuotaSummary(p.Email, summary)
+			}
+			if refreshed, _ := d.Keyring.GetAccount(p.Email); refreshed != nil {
+				acc = refreshed
 			}
 		}
 		return acc, nil
@@ -344,14 +347,17 @@ func (d *Daemon) registerRPCHandlers() {
 			oldTok := acc.AccessToken
 			var pollErr error
 			summary, pollErr = quota.PollAndCacheAccount(acc, d.Keyring)
-			if pollErr == nil && summary != nil {
+			if summary != nil {
 				d.setQuotaSummary(p.Email, summary)
-				if !p.SetActive && strings.EqualFold(p.Email, d.Keyring.ActiveAccount()) && acc.AccessToken != "" && acc.AccessToken != oldTok {
+				if pollErr == nil && !p.SetActive && strings.EqualFold(p.Email, d.Keyring.ActiveAccount()) && acc.AccessToken != "" && acc.AccessToken != oldTok {
 					d.syncActiveAccountSurfaces(acc)
 				}
 			} else {
 				d.removeQuotaSummary(p.Email)
 				d.triggerQuotaRefreshAsync()
+			}
+			if refreshed, _ := d.Keyring.GetAccount(p.Email); refreshed != nil {
+				acc = refreshed
 			}
 		}
 
@@ -379,6 +385,8 @@ func (d *Daemon) registerRPCHandlers() {
 		if acc != nil {
 			res["plan_tier"] = acc.PlanTier
 			res["credits"] = acc.Credits
+			res["status"] = acc.Status
+			res["error_message"] = acc.ErrorMessage
 		}
 		if summary != nil {
 			res["quota"] = summary
@@ -940,9 +948,9 @@ func (d *Daemon) registerRPCHandlers() {
 		if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
 			oldTok := acc.AccessToken
 			summary, err := quota.PollAndCacheAccount(acc, d.Keyring)
-			if err == nil && summary != nil {
+			if summary != nil {
 				d.setQuotaSummary(target, summary)
-				if strings.EqualFold(target, d.Keyring.ActiveAccount()) && acc.AccessToken != "" && acc.AccessToken != oldTok {
+				if err == nil && strings.EqualFold(target, d.Keyring.ActiveAccount()) && acc.AccessToken != "" && acc.AccessToken != oldTok {
 					d.syncActiveAccountSurfaces(acc)
 				}
 				return *summary, nil
@@ -1204,13 +1212,12 @@ func (d *Daemon) schedulerLoop() {
 			if active != "" {
 				if acc, _ := d.Keyring.GetAccount(active); acc != nil {
 					oldTok := acc.AccessToken
-					sum, err := quota.PollAccountLiveQuota(acc)
-					if err == nil && sum != nil {
+					sum, err := quota.PollAndCacheAccount(acc, d.Keyring)
+					if sum != nil {
 						d.setQuotaSummary(active, sum)
+					}
+					if err == nil && sum != nil {
 						tokenChanged := (acc.AccessToken != "" && acc.AccessToken != oldTok)
-						if acc.AccessToken != "" {
-							_ = d.Keyring.UpdateAccountTokensWithExpiry(active, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
-						}
 						if tokenChanged {
 							d.syncActiveAccountSurfaces(acc)
 						}
@@ -1290,12 +1297,9 @@ func (d *Daemon) schedulerLoop() {
 					default:
 					}
 
-					sum, _ := quota.PollAccountLiveQuota(acc)
+					sum, _ := quota.PollAndCacheAccount(acc, d.Keyring)
 					if sum != nil {
 						d.setQuotaSummary(acc.Email, sum)
-						if acc.AccessToken != "" {
-							_ = d.Keyring.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
-						}
 					}
 
 					// Add random time gap between standby accounts (5 to jitterSec seconds)

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -239,35 +240,8 @@ func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*
 		m.mu.Unlock()
 	}()
 
-	successHTML := []byte(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Antigravity Swiss Knife - Login Successful</title>
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background:#131314; color:#e3e3e3; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;">
-  <div style="background:#1e1f20; border:1px solid #3c4043; border-radius:16px; padding:36px 48px; text-align:center; max-width:440px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
-    <div style="width:52px; height:52px; margin:0 auto 16px; background:rgba(129,201,149,0.2); border-radius:50%; display:flex; align-items:center; justify-content:center; color:#81c995; font-size:24px;">&#x2713;</div>
-    <h2 style="margin:0 0 8px; color:#fff; font-size:20px;">Authentication Successful</h2>
-    <p style="color:#9aa0a6; font-size:14px; line-height:1.5; margin:0 0 16px;">Antigravity Swiss Knife has received and verified your credentials. You can safely close this browser window and return to the application.</p>
-    <p style="color:#5f6368; font-size:12px; margin:0 0 20px;">This tab will attempt to auto-close in <span id="countdown" style="font-weight:700; color:#81c995;">5</span> seconds.</p>
-    <button onclick="try{window.close();}catch(e){}try{window.open('','_self','');window.close();}catch(e){}" style="background:#81c995; color:#131314; border:none; border-radius:8px; padding:10px 28px; font-size:13px; font-weight:600; cursor:pointer;">Close Window</button>
-  </div>
-  <script>
-    let remaining = 5;
-    const countEl = document.getElementById('countdown');
-    const timer = setInterval(function() {
-      remaining--;
-      if (countEl) countEl.textContent = remaining;
-      if (remaining <= 0) {
-        clearInterval(timer);
-        try { window.close(); } catch(e) {}
-        try { window.open('', '_self', ''); window.close(); } catch(e) {}
-      }
-    }, 1000);
-  </script>
-</body>
-</html>`)
+	successHTML := []byte(oauthSuccessHTML)
+	renderErrorHTML := renderOAuthErrorHTML
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/oauth/callback", func(w http.ResponseWriter, r *http.Request) {
@@ -285,7 +259,7 @@ func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*
 		if errParam := r.URL.Query().Get("error"); errParam != "" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte(fmt.Sprintf("<html><body style='font-family:sans-serif;background:#131314;color:#f28b82;padding:40px;text-align:center;'><h2>Authentication Failed</h2><p>%s</p></body></html>", errParam)))
+			_, _ = w.Write(renderErrorHTML("Authentication Failed", errParam))
 			select {
 			case flow.err <- fmt.Errorf("oauth error from google: %s", errParam):
 			default:
@@ -295,7 +269,7 @@ func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*
 		if code == "" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte("<html><body style='font-family:sans-serif;background:#131314;color:#f28b82;padding:40px;text-align:center;'><h2>Missing code parameter</h2></body></html>"))
+			_, _ = w.Write(renderErrorHTML("Missing Code Parameter", "No authorization code was provided in the callback URL."))
 			select {
 			case flow.err <- fmt.Errorf("no authorization code provided"):
 			default:
@@ -308,7 +282,7 @@ func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*
 		if err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write([]byte(fmt.Sprintf("<html><body style='font-family:sans-serif;background:#131314;color:#f28b82;padding:40px;text-align:center;'><h2>Exchange Failed</h2><p>%s</p></body></html>", err.Error())))
+			_, _ = w.Write(renderErrorHTML("Exchange Failed", err.Error()))
 			select {
 			case flow.err <- err:
 			default:
@@ -465,4 +439,58 @@ func fetchUserInfoEmail(accessToken string) string {
 		return claims.Email
 	}
 	return ""
+}
+
+const oauthSuccessHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Antigravity Swiss Knife - Login Successful</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background:#f8fafd; color:#1f1f1f; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;">
+  <div style="background:#ffffff; border:1px solid #dadce0; border-radius:12px; padding:36px 48px; text-align:center; max-width:440px; box-shadow: 0 1px 3px rgba(60,64,67,0.08), 0 4px 12px rgba(60,64,67,0.05);">
+    <div style="width:52px; height:52px; margin:0 auto 16px; background:#e8f0fe; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#1a73e8;">
+      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+    </div>
+    <h2 style="margin:0 0 8px; color:#1f1f1f; font-size:20px; font-weight:700;">Authentication Successful</h2>
+    <p style="color:#5f6368; font-size:14px; line-height:1.5; margin:0 0 16px;">Antigravity Swiss Knife has received and verified your credentials. You can safely close this browser window and return to the application.</p>
+    <p style="color:#5f6368; font-size:12px; margin:0 0 20px;">This tab will attempt to auto-close in <span id="countdown" style="font-weight:700; color:#1a73e8;">5</span> seconds.</p>
+    <button onclick="try{window.close();}catch(e){}try{window.open('','_self','');window.close();}catch(e){}" style="background:#1a73e8; color:#ffffff; border:none; border-radius:9999px; padding:10px 28px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; box-shadow:0 1px 2px rgba(26,115,232,0.2);">Close Window</button>
+  </div>
+  <script>
+    let remaining = 5;
+    const countEl = document.getElementById('countdown');
+    const timer = setInterval(function() {
+      remaining--;
+      if (countEl) countEl.textContent = remaining;
+      if (remaining <= 0) {
+        clearInterval(timer);
+        try { window.close(); } catch(e) {}
+        try { window.open('', '_self', ''); window.close(); } catch(e) {}
+      }
+    }, 1000);
+  </script>
+</body>
+</html>`
+
+func renderOAuthErrorHTML(title, detail string) []byte {
+	safeTitle := html.EscapeString(title)
+	safeDetail := html.EscapeString(detail)
+	return []byte(fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Antigravity Swiss Knife - %s</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background:#f8fafd; color:#1f1f1f; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;">
+  <div style="background:#ffffff; border:1px solid #dadce0; border-radius:12px; padding:36px 48px; text-align:center; max-width:440px; box-shadow: 0 1px 3px rgba(60,64,67,0.08), 0 4px 12px rgba(60,64,67,0.05);">
+    <div style="width:52px; height:52px; margin:0 auto 16px; background:#fce8e6; border-radius:50%%; display:flex; align-items:center; justify-content:center; color:#d93025;">
+      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#d93025" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
+    </div>
+    <h2 style="margin:0 0 8px; color:#d93025; font-size:20px; font-weight:700;">%s</h2>
+    <p style="color:#5f6368; font-size:14px; line-height:1.5; margin:0 0 20px;">%s</p>
+    <button onclick="try{window.close();}catch(e){}try{window.open('','_self','');window.close();}catch(e){}" style="background:#1a73e8; color:#ffffff; border:none; border-radius:9999px; padding:10px 28px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; box-shadow:0 1px 2px rgba(26,115,232,0.2);">Close Window</button>
+  </div>
+</body>
+</html>`, safeTitle, safeTitle, safeDetail))
 }

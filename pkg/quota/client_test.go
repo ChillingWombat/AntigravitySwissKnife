@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 )
 
 func TestDetectTierFromGoogleUserInfo(t *testing.T) {
@@ -356,3 +360,135 @@ func TestIsTrialWarningTextAndNormalize(t *testing.T) {
 		}
 	}
 }
+
+func TestFetchLiveQuotaBreakdown_ValidationRequiredShortCircuit(t *testing.T) {
+	origQuotaURLs := CloudCodeRetrieveQuotaURLs
+	defer func() { CloudCodeRetrieveQuotaURLs = origQuotaURLs }()
+
+	primaryCalls := 0
+	fallbackCalls := 0
+
+	primarySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		primaryCalls++
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{
+			"error": {
+				"code": 403,
+				"message": "Verify your account to continue.",
+				"status": "PERMISSION_DENIED",
+				"details": [
+					{
+						"@type": "type.googleapis.com/google.rpc.ErrorInfo",
+						"reason": "VALIDATION_REQUIRED",
+						"metadata": {
+							"validation_url": "https://accounts.google.com/signin/continue?flowName=GlifWebSignIn&authuser"
+						}
+					}
+				]
+			}
+		}`))
+	}))
+	defer primarySrv.Close()
+
+	fallbackSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fallbackCalls++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer fallbackSrv.Close()
+
+	CloudCodeRetrieveQuotaURLs = []string{primarySrv.URL, fallbackSrv.URL}
+
+	breakdown, err := FetchLiveQuotaBreakdown("mock-token", "")
+	if breakdown != nil {
+		t.Fatalf("expected nil breakdown on VALIDATION_REQUIRED, got %+v", breakdown)
+	}
+	apiErr, ok := err.(*QuotaAPIError)
+	if !ok {
+		t.Fatalf("expected *QuotaAPIError, got %T (%v)", err, err)
+	}
+	if apiErr.Status != "ERROR" {
+		t.Errorf("expected Status ERROR, got %q", apiErr.Status)
+	}
+	if apiErr.Reason != "VALIDATION_REQUIRED" {
+		t.Errorf("expected Reason VALIDATION_REQUIRED, got %q", apiErr.Reason)
+	}
+	if primaryCalls != 1 {
+		t.Errorf("expected primary endpoint to be called once, got %d", primaryCalls)
+	}
+	if fallbackCalls != 0 {
+		t.Errorf("expected fallback endpoint not to be called on VALIDATION_REQUIRED, got %d", fallbackCalls)
+	}
+}
+
+func TestPollAndCacheAccount_ClearsErrorInStoreOnRecovery(t *testing.T) {
+	origLoadURLs := CloudCodeLoadProjectURLs
+	origQuotaURLs := CloudCodeRetrieveQuotaURLs
+	defer func() {
+		CloudCodeLoadProjectURLs = origLoadURLs
+		CloudCodeRetrieveQuotaURLs = origQuotaURLs
+	}()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"cloudaicompanionProject": "aicode-consumers",
+			"paidTier": {"id": "g1-pro-tier", "name": "Google AI Pro"},
+			"groups": [
+				{
+					"displayName": "Gemini Models",
+					"buckets": [
+						{"bucketId": "gemini-5h", "window": "5h", "remainingFraction": 0.9},
+						{"bucketId": "gemini-weekly", "window": "weekly", "remainingFraction": 0.8}
+					]
+				}
+			]
+		}`))
+	}))
+	defer srv.Close()
+
+	CloudCodeLoadProjectURLs = []string{srv.URL}
+	CloudCodeRetrieveQuotaURLs = []string{srv.URL}
+
+	tmpPath := filepath.Join(t.TempDir(), "accounts.json")
+	store, err := keyring.NewStore(tmpPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	_, err = store.ImportAccount("joseantoniocarrarofalchi@gmail.com", "1//mock-rt", "ya29.mock-at", "Jose", "")
+	if err != nil {
+		t.Fatalf("failed to import account: %v", err)
+	}
+	_ = store.UpdateAccountStatusWithError("joseantoniocarrarofalchi@gmail.com", "ERROR", "Verify your account to continue. (VALIDATION_REQUIRED)")
+
+	acc, _ := store.GetAccount("joseantoniocarrarofalchi@gmail.com")
+	if acc.Status != "ERROR" || acc.ErrorMessage == "" {
+		t.Fatalf("expected initial ERROR status, got %q / %q", acc.Status, acc.ErrorMessage)
+	}
+
+	summary, pollErr := PollAndCacheAccount(acc, store)
+	if pollErr != nil {
+		t.Fatalf("expected nil pollErr on recovery, got %v", pollErr)
+	}
+	if summary == nil || summary.ErrorStatus != "" {
+		t.Fatalf("expected clean summary, got %+v", summary)
+	}
+
+	afterAcc, _ := store.GetAccount("joseantoniocarrarofalchi@gmail.com")
+	if afterAcc.Status == "ERROR" {
+		t.Errorf("expected store status to recover from ERROR, still got %q", afterAcc.Status)
+	}
+	if afterAcc.ErrorMessage != "" {
+		t.Errorf("expected store ErrorMessage to be cleared on recovery, got %q", afterAcc.ErrorMessage)
+	}
+}
+
+func TestPopulateVerificationAuthUser(t *testing.T) {
+	raw := "https://accounts.google.com/signin/continue?sarp=1&flowName=GlifWebSignIn&authuser"
+	got := populateVerificationAuthUser(raw, "joseantoniocarrarofalchi@gmail.com")
+	if !strings.HasSuffix(got, "&authuser=joseantoniocarrarofalchi%40gmail.com") {
+		t.Errorf("expected populated authuser param, got %q", got)
+	}
+}
+

@@ -569,6 +569,9 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 		var summary *quota.QuotaSummary
 		if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
 			summary, _ = quota.PollAndCacheAccount(acc, store)
+			if refreshed, _ := store.GetAccount(p.Email); refreshed != nil {
+				acc = refreshed
+			}
 		}
 		if p.SetActive {
 			var allEmails []string
@@ -596,6 +599,8 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 		if acc != nil {
 			res["plan_tier"] = acc.PlanTier
 			res["credits"] = acc.Credits
+			res["status"] = acc.Status
+			res["error_message"] = acc.ErrorMessage
 		}
 		if summary != nil {
 			res["quota"] = summary
@@ -1055,7 +1060,7 @@ func (s *Server) handleQuota(w http.ResponseWriter, r *http.Request) {
 		}
 		if refreshParam && store != nil {
 			if acc, _ := store.GetAccount(target); acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
-				if freshSum, errPoll := quota.PollAndCacheAccount(acc, store); errPoll == nil && freshSum != nil {
+				if freshSum, _ := quota.PollAndCacheAccount(acc, store); freshSum != nil {
 					writeJSON(w, *freshSum)
 					return
 				}
@@ -1068,7 +1073,7 @@ func (s *Server) handleQuota(w http.ResponseWriter, r *http.Request) {
 		}
 		if store != nil {
 			if acc, _ := store.GetAccount(target); acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
-				if freshSum, errPoll := quota.PollAndCacheAccount(acc, store); errPoll == nil && freshSum != nil {
+				if freshSum, _ := quota.PollAndCacheAccount(acc, store); freshSum != nil {
 					writeJSON(w, *freshSum)
 					return
 				}

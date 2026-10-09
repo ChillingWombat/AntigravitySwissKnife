@@ -13,11 +13,12 @@ import {
   Plus,
   Timer,
   Trash2,
+  ExternalLink,
 } from 'lucide-react'
 import type { AccountState, FleetQuotaSummary, RuleConfig, DiscoveredAccount } from '../types'
 import { normalizePlanTier, toAccountState } from '../types'
 import { TABLE_MIN_WIDTH } from '../utils/layoutTokens'
-import { getAccountTableDisplay } from '../utils/accountPresentation'
+import { getAccountTableDisplay, parseAccountErrorAlert } from '../utils/accountPresentation'
 import { CircularGauge } from '../components/CircularGauge'
 import { HorizontalQuotaBar } from '../components/HorizontalQuotaBar'
 import { AccountDetailModal } from '../components/AccountDetailModal'
@@ -137,6 +138,9 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const [isScanning, setIsScanning] = useState(false)
   const [switchFeedback, setSwitchFeedback] = useState<string | null>(null)
   const [errorDetailAccount, setErrorDetailAccount] = useState<AccountState | null>(null)
+  const [isVerifyingErrorAccount, setIsVerifyingErrorAccount] = useState(false)
+  const errorDetailFetchedAtRef = React.useRef<number>(0)
+  const errorDetailPollingRef = React.useRef<boolean>(false)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; account: AccountState } | null>(null)
 
   // Discovered Accounts Import Modal State
@@ -188,6 +192,92 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
     }
     return []
   }, [fleet?.accounts, directAccounts, activeAccountEmail, fleet?.active_account])
+
+  const pollErrorDetailAccount = React.useCallback(
+    async (targetEmail: string, updateUrl: boolean = false): Promise<string | null> => {
+      if (!targetEmail || errorDetailPollingRef.current) return null
+      errorDetailPollingRef.current = true
+      try {
+        const q = await api.refreshAccountQuota(targetEmail)
+        if (!q) return null
+        const hasError = Boolean(q.error_status || q.error_message)
+        if (!hasError && q.reset_horizon_text !== 'Not Polled' && !q.reset_horizon_text?.startsWith('Error')) {
+          setIsVerifyingErrorAccount(false)
+          setErrorDetailAccount((prev) =>
+            prev && prev.email.toLowerCase() === targetEmail.toLowerCase() ? null : prev
+          )
+          onRefresh()
+          return null
+        }
+        if (q.error_message) {
+          errorDetailFetchedAtRef.current = Date.now()
+          if (updateUrl) {
+            setErrorDetailAccount((prev) =>
+              prev && prev.email.toLowerCase() === targetEmail.toLowerCase()
+                ? {
+                    ...prev,
+                    error_message: q.error_message || prev.error_message,
+                    status: (q.error_status as any) || prev.status,
+                  }
+                : prev
+            )
+          }
+          return q.error_message
+        }
+        return null
+      } catch {
+        return null
+      } finally {
+        errorDetailPollingRef.current = false
+      }
+    },
+    [onRefresh]
+  )
+
+  useEffect(() => {
+    if (!errorDetailAccount?.email) {
+      setIsVerifyingErrorAccount(false)
+      return
+    }
+    if (errorDetailAccount.status?.toUpperCase() === 'BANNED') return
+    const targetEmail = errorDetailAccount.email
+    pollErrorDetailAccount(targetEmail, true)
+  }, [errorDetailAccount?.email, errorDetailAccount?.status, pollErrorDetailAccount])
+
+  useEffect(() => {
+    if (!errorDetailAccount?.email || errorDetailAccount.status?.toUpperCase() === 'BANNED') return
+    const targetEmail = errorDetailAccount.email
+    const checkRecovery = () => {
+      pollErrorDetailAccount(targetEmail, false)
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkRecovery()
+      }
+    }
+    window.addEventListener('focus', checkRecovery)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    const interval = setInterval(checkRecovery, isVerifyingErrorAccount ? 2500 : 4000)
+    return () => {
+      window.removeEventListener('focus', checkRecovery)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      clearInterval(interval)
+    }
+  }, [errorDetailAccount?.email, errorDetailAccount?.status, isVerifyingErrorAccount, pollErrorDetailAccount])
+
+  useEffect(() => {
+    if (!errorDetailAccount?.email) return
+    const matching = accounts.find((a) => a.email.toLowerCase() === errorDetailAccount.email.toLowerCase())
+    if (
+      matching &&
+      !matching.error_message &&
+      !matching.status?.toUpperCase().includes('ERROR') &&
+      !matching.status?.toUpperCase().includes('BANNED')
+    ) {
+      setIsVerifyingErrorAccount(false)
+      setErrorDetailAccount(null)
+    }
+  }, [accounts, errorDetailAccount?.email])
   const activeAccount = activeAccountEmail || fleet?.active_account || accounts.find((a) => a.is_active)?.email || ''
   const autoSwitchOn = rules?.auto_switch_enabled ?? false
   const threshold = rules?.auto_switch_threshold ?? 0.10
@@ -1167,26 +1257,102 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   ? `${errorDetailAccount.label} (${errorDetailAccount.email})`
                   : errorDetailAccount.email}
               </div>
-              <div
-                style={{
-                  backgroundColor:
-                    errorDetailAccount.status?.toUpperCase() === 'BANNED' ? '#fce8e6' : '#fef7e0',
-                  color:
-                    errorDetailAccount.status?.toUpperCase() === 'BANNED' ? '#c5221f' : '#b06000',
-                  padding: '12px 16px',
-                  borderRadius: '10px',
-                  fontSize: '12px',
-                  lineHeight: 1.5,
-                  wordBreak: 'break-word',
-                  fontFamily: 'monospace',
-                }}
-              >
-                {errorDetailAccount.error_message ||
-                  errorDetailAccount.status_reason ||
-                  (errorDetailAccount.status?.toUpperCase() === 'BANNED'
-                    ? 'This account has been flagged or suspended by Google Antigravity services. Quota requests cannot be serviced.'
-                    : 'Authentication failure or token expired. Please re-authenticate or update credentials.')}
-              </div>
+              {(() => {
+                const detailAlert = parseAccountErrorAlert(
+                  errorDetailAccount.error_message || errorDetailAccount.status_reason,
+                  errorDetailAccount.email
+                )
+                return (
+                  <div
+                    style={{
+                      backgroundColor:
+                        errorDetailAccount.status?.toUpperCase() === 'BANNED' ? '#fce8e6' : '#fef7e0',
+                      color:
+                        errorDetailAccount.status?.toUpperCase() === 'BANNED' ? '#c5221f' : '#b06000',
+                      padding: '12px 16px',
+                      borderRadius: '10px',
+                      fontSize: '12px',
+                      lineHeight: 1.5,
+                      wordBreak: 'break-word',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                    }}
+                  >
+                    <div style={{ fontFamily: 'monospace' }}>
+                      {errorDetailAccount.error_message || errorDetailAccount.status_reason
+                        ? detailAlert.summaryText
+                        : errorDetailAccount.status?.toUpperCase() === 'BANNED'
+                        ? 'This account has been flagged or suspended by Google Antigravity services. Quota requests cannot be serviced.'
+                        : 'Authentication failure or token expired. Please re-authenticate or update credentials.'}
+                    </div>
+                    {detailAlert.verificationUrl && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+                        <a
+                          href={detailAlert.verificationUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={async (e) => {
+                            setIsVerifyingErrorAccount(true)
+                            const isStale = Date.now() - errorDetailFetchedAtRef.current > 45_000
+                            const electronOpen = (window as any).electronAPI?.openExternal
+                            if (electronOpen || isStale) {
+                              e.preventDefault()
+                              let freshUrl = detailAlert.verificationUrl
+                              if (isStale) {
+                                const msg = await pollErrorDetailAccount(errorDetailAccount.email, true)
+                                if (!msg) return
+                                const parsed = parseAccountErrorAlert(msg, errorDetailAccount.email)
+                                if (parsed.verificationUrl) {
+                                  freshUrl = parsed.verificationUrl
+                                }
+                              }
+                              if (!freshUrl) return
+                              if (electronOpen) {
+                                electronOpen(freshUrl)
+                              } else {
+                                window.open(freshUrl, '_blank', 'noopener,noreferrer')
+                              }
+                            }
+                          }}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '5px 12px',
+                            borderRadius: '9999px',
+                            backgroundColor: '#1a73e8',
+                            color: '#ffffff',
+                            fontSize: '11.5px',
+                            fontWeight: 600,
+                            textDecoration: 'none',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          <ExternalLink size={12} />
+                          <span>Verify Account in Browser</span>
+                        </a>
+                        {isVerifyingErrorAccount && (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              fontSize: '11.5px',
+                              fontWeight: 500,
+                              color: '#1a73e8',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            <RotateCw size={12} className="spin" />
+                            <span>Waiting for browser verification...</span>
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>

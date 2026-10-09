@@ -220,6 +220,9 @@ func FetchProjectAndTier(accessToken string) (*ProjectContextResult, error) {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 
+		if resp.StatusCode == http.StatusUnauthorized {
+			return nil, fmt.Errorf("unauthorized access token")
+		}
 		if resp.StatusCode != http.StatusOK {
 			continue
 		}
@@ -638,6 +641,9 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 						Message:    msg,
 						ActionURL:  actionURL,
 					}
+					if reason == "VALIDATION_REQUIRED" || errStatus == "BANNED" || resp.StatusCode == http.StatusUnauthorized || errPayload.Error.Status == "UNAUTHENTICATED" {
+						return nil, lastAPIError
+					}
 				}
 				if resp.StatusCode == http.StatusForbidden && attempt == 0 {
 					continue // retry without project
@@ -994,6 +1000,28 @@ func DetectTierFromGoogleUserInfo(accessToken, email string) (string, error) {
 	return "", fmt.Errorf("could not detect tier from userinfo")
 }
 
+func populateVerificationAuthUser(rawURL, email string) string {
+	cleanURL := strings.TrimSpace(rawURL)
+	cleanEmail := strings.TrimSpace(email)
+	if cleanURL == "" || cleanEmail == "" {
+		return cleanURL
+	}
+	encodedEmail := url.QueryEscape(cleanEmail)
+	if strings.HasSuffix(cleanURL, "&authuser") || strings.HasSuffix(cleanURL, "?authuser") {
+		return cleanURL + "=" + encodedEmail
+	}
+	if strings.HasSuffix(cleanURL, "&authuser=") || strings.HasSuffix(cleanURL, "?authuser=") {
+		return cleanURL + encodedEmail
+	}
+	if strings.Contains(cleanURL, "&authuser=&") {
+		return strings.Replace(cleanURL, "&authuser=&", "&authuser="+encodedEmail+"&", 1)
+	}
+	if strings.Contains(cleanURL, "?authuser=&") {
+		return strings.Replace(cleanURL, "?authuser=&", "?authuser="+encodedEmail+"&", 1)
+	}
+	return cleanURL
+}
+
 // PollAccountLiveQuota queries Google CloudCode for real quota, tier, and credits, refreshing tokens if needed.
 func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	if acc == nil {
@@ -1002,9 +1030,13 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 
 	now := time.Now()
 	accessToken := acc.AccessToken
+	if !acc.TokenExpiry.IsZero() && now.After(acc.TokenExpiry) && acc.RefreshToken != "" {
+		accessToken = ""
+	}
 	project := "aicode-consumers"
 
 	var lastTokenRefreshErr error
+	tokenRefreshed := false
 
 	// Step 1: Discover Project Context & Membership Tier & Credits from loadCodeAssist
 	pCtx, err := FetchProjectAndTier(accessToken)
@@ -1014,6 +1046,7 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 		if refErr != nil {
 			lastTokenRefreshErr = refErr
 		} else if newTok != "" {
+			tokenRefreshed = true
 			acc.AccessToken = newTok
 			acc.TokenExpiry = time.Now().Add(55 * time.Minute)
 			accessToken = newTok
@@ -1040,12 +1073,13 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 
 	// Step 2: Query Live Quota Summary
 	breakdown, qErr := FetchLiveQuotaBreakdown(accessToken, project)
-	if qErr != nil && acc.RefreshToken != "" && accessToken != "" {
-		// Try refreshing token once if quota check failed
+	if qErr != nil && !tokenRefreshed && acc.RefreshToken != "" && accessToken != "" {
+		// Try refreshing token once if quota check failed and token wasn't just refreshed
 		newTok, newRefTok, refErr := RefreshGoogleTokenFull(acc.RefreshToken, "", "")
 		if refErr != nil {
 			lastTokenRefreshErr = refErr
 		} else if newTok != "" {
+			tokenRefreshed = true
 			acc.AccessToken = newTok
 			acc.TokenExpiry = time.Now().Add(55 * time.Minute)
 			accessToken = newTok
@@ -1053,6 +1087,13 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 				acc.RefreshToken = newRefTok
 			}
 			breakdown, qErr = FetchLiveQuotaBreakdown(accessToken, project)
+		}
+	}
+
+	var apiErr *QuotaAPIError
+	if qErr != nil {
+		if ae, ok := qErr.(*QuotaAPIError); ok {
+			apiErr = ae
 		}
 	}
 
@@ -1072,15 +1113,15 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 		}
 	}
 
-	// Step 3: Check model permissions if tier is still unconfirmed or Free
-	if tier == "" || tier == PlanTierFree {
+	// Step 3: Check model permissions if tier is still unconfirmed or Free (skip if upstream returned terminal QuotaAPIError)
+	if (tier == "" || tier == PlanTierFree) && apiErr == nil {
 		if modelTier, mErr := DetectTierFromAvailableModels(accessToken); mErr == nil && modelTier != "" && modelTier != PlanTierFree {
 			tier = modelTier
 		}
 	}
 
 	// Step 4: Check Google UserInfo (educational or enterprise domain)
-	if tier == "" || tier == PlanTierFree {
+	if (tier == "" || tier == PlanTierFree) && apiErr == nil {
 		if uTier, uErr := DetectTierFromGoogleUserInfo(accessToken, acc.Email); uErr == nil && uTier != "" && uTier != PlanTierFree {
 			tier = uTier
 		}
@@ -1134,6 +1175,15 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	}
 
 	if breakdown != nil {
+		acc.ErrorMessage = ""
+		if strings.EqualFold(acc.Status, "ERROR") {
+			if acc.IsActive {
+				acc.Status = "ACTIVE"
+			} else {
+				acc.Status = "STANDBY"
+			}
+		}
+
 		minFrac := breakdown.Quota5hGemini
 		if breakdown.QuotaWeeklyGemini < minFrac {
 			minFrac = breakdown.QuotaWeeklyGemini
@@ -1160,20 +1210,14 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 		return summary, nil
 	}
 
-	var apiErr *QuotaAPIError
-	if qErr != nil {
-		if ae, ok := qErr.(*QuotaAPIError); ok {
-			apiErr = ae
-		}
-	}
-
 	if apiErr != nil {
 		errMsg := apiErr.Message
 		if apiErr.Reason != "" && !strings.Contains(errMsg, apiErr.Reason) {
 			errMsg = fmt.Sprintf("%s (%s)", errMsg, apiErr.Reason)
 		}
 		if apiErr.ActionURL != "" {
-			errMsg = fmt.Sprintf("%s (Verification: %s)", errMsg, apiErr.ActionURL)
+			actionURL := populateVerificationAuthUser(apiErr.ActionURL, acc.Email)
+			errMsg = fmt.Sprintf("%s (Verification: %s)", errMsg, actionURL)
 		}
 		errStatus := apiErr.Status
 		if errStatus == "" {

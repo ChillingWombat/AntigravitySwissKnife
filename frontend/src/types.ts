@@ -43,6 +43,8 @@ export interface QuotaSummary {
   models: ModelQuota[]
   min_fraction: number
   overall_health: string
+  error_status?: string
+  error_message?: string
 }
 
 export const CANONICAL_PLAN_TIERS = [

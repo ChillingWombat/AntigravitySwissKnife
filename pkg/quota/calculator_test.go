@@ -906,5 +906,55 @@ func TestComputeEffectiveWeeklyAvailable_Boundary(t *testing.T) {
 	}
 }
 
+func TestBuildAccountQuotaStatesFromMap_RecoversStaleErrorStatus(t *testing.T) {
+	accs := []*keyring.Account{
+		{
+			Email:        "recovered@example.com",
+			Status:       "ERROR",
+			ErrorMessage: "stale error",
+			IsActive:     false,
+		},
+		{
+			Email:        "stillbroken@example.com",
+			Status:       "ERROR",
+			ErrorMessage: "Verify your account to continue. (VALIDATION_REQUIRED)",
+			IsActive:     false,
+		},
+	}
 
+	summaries := map[string]*QuotaSummary{
+		"recovered@example.com": {
+			AccountEmail:        "recovered@example.com",
+			Quota5hFraction:     0.85,
+			QuotaWeeklyFraction: 0.90,
+			ResetHorizonText:    "Resets in 4h 30m",
+			ErrorStatus:         "",
+			ErrorMessage:        "",
+		},
+		"stillbroken@example.com": {
+			AccountEmail:        "stillbroken@example.com",
+			Quota5hFraction:     0.0,
+			QuotaWeeklyFraction: 0.0,
+			ResetHorizonText:    "Error: VALIDATION_REQUIRED",
+			ErrorStatus:         "ERROR",
+			ErrorMessage:        "Verify your account to continue. (VALIDATION_REQUIRED)",
+		},
+	}
 
+	states := BuildAccountQuotaStatesFromMapWithThresholds(accs, summaries, 0.10, 0.05)
+	if len(states) != 2 {
+		t.Fatalf("expected 2 states, got %d", len(states))
+	}
+	if states[0].Status != "STANDBY" {
+		t.Errorf("expected recovered account status STANDBY, got %q", states[0].Status)
+	}
+	if states[0].ErrorMessage != "" {
+		t.Errorf("expected recovered account ErrorMessage cleared, got %q", states[0].ErrorMessage)
+	}
+	if states[1].Status != "ERROR" {
+		t.Errorf("expected stillbroken account status ERROR, got %q", states[1].Status)
+	}
+	if !strings.Contains(states[1].ErrorMessage, "VALIDATION_REQUIRED") {
+		t.Errorf("expected stillbroken account ErrorMessage preserved, got %q", states[1].ErrorMessage)
+	}
+}
