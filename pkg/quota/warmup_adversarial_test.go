@@ -135,7 +135,7 @@ func TestAdversarial_1TokenPayload_ExactJSONStructure(t *testing.T) {
 		t.Fatalf("Build1TokenKeepAliveJSON failed: %v", err)
 	}
 
-	expectedJSON := `{"contents":[{"parts":[{"text":"ping"}]}],"generationConfig":{"maxOutputTokens":1}}`
+	expectedJSON := `{"project":"aicode-consumers","model":"gemini-3-flash","request":{"contents":[{"role":"user","parts":[{"text":"ping"}]}],"generationConfig":{"maxOutputTokens":1}}}`
 	if string(rawJSON) != expectedJSON {
 		t.Errorf("Payload mismatch:\ngot:      %s\nexpected: %s", string(rawJSON), expectedJSON)
 	}
@@ -146,13 +146,25 @@ func TestAdversarial_1TokenPayload_ExactJSONStructure(t *testing.T) {
 		t.Fatalf("Failed to parse JSON map: %v", err)
 	}
 
-	if len(m) != 2 {
-		t.Errorf("expected exactly 2 top-level keys ('contents', 'generationConfig'), got %d: %v", len(m), m)
+	if len(m) != 3 {
+		t.Errorf("expected exactly 3 top-level keys ('project', 'model', 'request'), got %d: %v", len(m), m)
 	}
 
-	contents, ok := m["contents"].([]interface{})
+	if m["project"] != "aicode-consumers" {
+		t.Errorf("expected project 'aicode-consumers', got %v", m["project"])
+	}
+	if m["model"] != "gemini-3-flash" {
+		t.Errorf("expected model 'gemini-3-flash', got %v", m["model"])
+	}
+
+	reqObj, ok := m["request"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected request to be object, got %T", m["request"])
+	}
+
+	contents, ok := reqObj["contents"].([]interface{})
 	if !ok || len(contents) != 1 {
-		t.Fatalf("expected contents to be array of length 1, got %v", m["contents"])
+		t.Fatalf("expected contents to be array of length 1, got %v", reqObj["contents"])
 	}
 
 	contentObj, ok := contents[0].(map[string]interface{})
@@ -170,9 +182,9 @@ func TestAdversarial_1TokenPayload_ExactJSONStructure(t *testing.T) {
 		t.Errorf("expected part text 'ping', got %v", partObj)
 	}
 
-	genConfig, ok := m["generationConfig"].(map[string]interface{})
+	genConfig, ok := reqObj["generationConfig"].(map[string]interface{})
 	if !ok {
-		t.Fatalf("expected generationConfig object, got %T", m["generationConfig"])
+		t.Fatalf("expected generationConfig object, got %T", reqObj["generationConfig"])
 	}
 
 	if maxTokens, ok := genConfig["maxOutputTokens"].(float64); !ok || int(maxTokens) != 1 {

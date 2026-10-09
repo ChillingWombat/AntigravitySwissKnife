@@ -50,6 +50,9 @@ type Daemon struct {
 	quotaCacheMu   sync.RWMutex
 	isPollingFleet bool
 	pollingMu      sync.Mutex
+
+	ignitedAccounts map[string]time.Time
+	ignitedMu       sync.RWMutex
 }
 
 // NewDaemon initializes all subsystem stores and sets up JSON-RPC method handlers.
@@ -106,6 +109,7 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 		cancel:         cancel,
 		lastSwitchTime: time.Now(),
 		quotaCache:     quota.LoadQuotaCache(),
+		ignitedAccounts: make(map[string]time.Time),
 	}
 
 	d.registerRPCHandlers()
@@ -239,6 +243,7 @@ func (d *Daemon) triggerQuotaRefreshAsync() {
 		summaries := quota.PollFleetAccounts(accounts, d.Keyring)
 		if len(summaries) > 0 {
 			d.updateQuotaSummaries(summaries)
+			d.checkPostResetIgnitions()
 		}
 
 		if active != "" {
@@ -1752,18 +1757,30 @@ func (d *Daemon) pollStandbyAccounts(r *rand.Rand, jitterSec int) {
 			// 3. Delay window elapsed (now >= resetTime + postResetDelay): poll to verify reset
 			freshSum, _ := quota.PollAndCacheAccount(acc, d.Keyring)
 			if freshSum != nil {
-				d.setQuotaSummary(acc.Email, freshSum)
-				// If quota reset is confirmed (healthy / not exhausted), trigger 1-token ignition probe
 				if !freshSum.IsCooldown(thresh) && freshSum.OverallHealth != core.StatusExhausted {
-					if warmupEnabled {
-						_ = quota.IgniteAccountPostReset(acc, d.Keyring)
+					if warmupEnabled && d.shouldIgniteAccount(acc.Email, freshSum, thresh) {
+						if err := quota.IgniteAccountPostReset(acc, d.Keyring); err == nil {
+							d.recordIgnition(acc.Email)
+							if postSum, _ := quota.PollAndCacheAccount(acc, d.Keyring); postSum != nil {
+								freshSum = postSum
+							}
+						}
 					}
 				}
+				d.setQuotaSummary(acc.Email, freshSum)
 			}
 		} else {
 			// Normal standby account refresh (not in cooldown)
 			sum, _ := quota.PollAndCacheAccount(acc, d.Keyring)
 			if sum != nil {
+				if warmupEnabled && d.shouldIgniteAccount(acc.Email, sum, thresh) {
+					if err := quota.IgniteAccountPostReset(acc, d.Keyring); err == nil {
+						d.recordIgnition(acc.Email)
+						if postSum, _ := quota.PollAndCacheAccount(acc, d.Keyring); postSum != nil {
+							sum = postSum
+						}
+					}
+				}
 				d.setQuotaSummary(acc.Email, sum)
 			}
 		}
@@ -1782,7 +1799,8 @@ func (d *Daemon) pollStandbyAccounts(r *rand.Rand, jitterSec int) {
 }
 
 // checkPostResetIgnitions checks standby accounts in cooldown whose post-reset verification delay has elapsed,
-// verifies that their quota has reset, and triggers the 1-token ignition probe.
+// verifies that their quota has reset, triggers the 1-token ignition probe, and ensures standby accounts
+// with unanchored 5-hour rolling timers begin countdown immediately.
 func (d *Daemon) checkPostResetIgnitions() {
 	accounts := d.Keyring.ListAccounts()
 	active := d.Keyring.ActiveAccount()
@@ -1803,25 +1821,99 @@ func (d *Daemon) checkPostResetIgnitions() {
 			continue
 		}
 		cached := d.getQuotaSummary(acc.Email)
-		if cached == nil || !cached.IsCooldown(thresh) {
-			continue
-		}
-		resetTime := cached.GetResetTime()
-		if resetTime.IsZero() {
+		if cached == nil {
 			continue
 		}
 
-		// When now >= resetTime + postResetDelay, verify quota reset and ignite
-		if scheduler.ShouldTriggerPostResetIgnition(resetTime, now) {
-			freshSum, _ := quota.PollAndCacheAccount(acc, d.Keyring)
-			if freshSum != nil {
-				d.setQuotaSummary(acc.Email, freshSum)
-				if !freshSum.IsCooldown(thresh) && freshSum.OverallHealth != core.StatusExhausted {
-					if warmupEnabled {
-						_ = quota.IgniteAccountPostReset(acc, d.Keyring)
+		// Case 1: Account was in cooldown, resetTime has arrived + postResetDelay
+		if cached.IsCooldown(thresh) {
+			resetTime := cached.GetResetTime()
+			if resetTime.IsZero() {
+				continue
+			}
+
+			// When now >= resetTime + postResetDelay, verify quota reset and ignite
+			if scheduler.ShouldTriggerPostResetIgnition(resetTime, now) {
+				freshSum, _ := quota.PollAndCacheAccount(acc, d.Keyring)
+				if freshSum != nil {
+					if !freshSum.IsCooldown(thresh) && freshSum.OverallHealth != core.StatusExhausted {
+						if warmupEnabled && d.shouldIgniteAccount(acc.Email, freshSum, thresh) {
+							if err := quota.IgniteAccountPostReset(acc, d.Keyring); err == nil {
+								d.recordIgnition(acc.Email)
+								if postSum, _ := quota.PollAndCacheAccount(acc, d.Keyring); postSum != nil {
+									freshSum = postSum
+								}
+							}
+						}
 					}
+					d.setQuotaSummary(acc.Email, freshSum)
+				}
+			}
+			continue
+		}
+
+		// Case 2: Standby account is healthy / reset, but its 5h rolling timer has not been ignited yet!
+		if warmupEnabled && d.shouldIgniteAccount(acc.Email, cached, thresh) {
+			if err := quota.IgniteAccountPostReset(acc, d.Keyring); err == nil {
+				d.recordIgnition(acc.Email)
+				if postSum, _ := quota.PollAndCacheAccount(acc, d.Keyring); postSum != nil {
+					d.setQuotaSummary(acc.Email, postSum)
 				}
 			}
 		}
 	}
+}
+
+// shouldIgniteAccount checks if a standby account is eligible for a 1-token keep-alive probe
+// to anchor Google's 5-hour rolling reset window early.
+func (d *Daemon) shouldIgniteAccount(email string, qs *quota.QuotaSummary, thresh float64) bool {
+	if qs == nil {
+		return false
+	}
+	if thresh <= 0 {
+		thresh = core.DefaultAutoSwitchThresholdFraction
+	}
+	// Must not be exhausted or in cooldown
+	if qs.OverallHealth == core.StatusExhausted || qs.MinFraction <= thresh {
+		return false
+	}
+	// Must have 5h quota available to ignite (at least near 100%)
+	if qs.Quota5hFraction < 0.95 {
+		return false
+	}
+	// Weekly quota must not be depleted below threshold
+	if qs.QuotaWeeklyFraction > 0 && qs.QuotaWeeklyFraction <= thresh {
+		return false
+	}
+
+	d.ignitedMu.RLock()
+	lastIgnited, exists := d.ignitedAccounts[strings.ToLower(strings.TrimSpace(email))]
+	d.ignitedMu.RUnlock()
+
+	// If ignited within the last 4.5 hours, do not ignite again
+	if exists && time.Since(lastIgnited) < 4*time.Hour+30*time.Minute {
+		return false
+	}
+
+	// An account needs ignition if its 5h reset timer has NOT started rolling:
+	// When Google hasn't started the timer, ResetSeconds5h is >= 17700 (near 18000s = 5h)
+	// or the model reset time is >= now + 4h55m
+	if qs.ResetSeconds5h >= 17700 {
+		return true
+	}
+	rt := qs.GetResetTime()
+	if !rt.IsZero() && rt.After(time.Now().Add(4*time.Hour+55*time.Minute)) {
+		return true
+	}
+	return false
+}
+
+// recordIgnition records the timestamp an account was successfully ignited.
+func (d *Daemon) recordIgnition(email string) {
+	d.ignitedMu.Lock()
+	if d.ignitedAccounts == nil {
+		d.ignitedAccounts = make(map[string]time.Time)
+	}
+	d.ignitedAccounts[strings.ToLower(strings.TrimSpace(email))] = time.Now()
+	d.ignitedMu.Unlock()
 }

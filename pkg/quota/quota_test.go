@@ -40,7 +40,19 @@ func Test1TokenPayloadStructure(t *testing.T) {
 		t.Fatalf("unmarshal error: %v", err)
 	}
 
-	cfg, ok := parsed["generationConfig"].(map[string]interface{})
+	if parsed["project"] != "aicode-consumers" {
+		t.Errorf("expected project 'aicode-consumers', got %v", parsed["project"])
+	}
+	if parsed["model"] != "gemini-3-flash" {
+		t.Errorf("expected model 'gemini-3-flash', got %v", parsed["model"])
+	}
+
+	reqObj, ok := parsed["request"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("missing request object")
+	}
+
+	cfg, ok := reqObj["generationConfig"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("missing generationConfig")
 	}
@@ -144,10 +156,10 @@ func TestSend1TokenKeepAliveProbe_MockServer(t *testing.T) {
 	if err := json.Unmarshal(receivedBody, &parsed); err != nil {
 		t.Fatalf("failed to parse received payload: %v", err)
 	}
-	if len(parsed.Contents) == 0 || len(parsed.Contents[0].Parts) == 0 || parsed.Contents[0].Parts[0].Text != "ping" {
-		t.Errorf("expected text 'ping', got %+v", parsed.Contents)
+	if len(parsed.Request.Contents) == 0 || len(parsed.Request.Contents[0].Parts) == 0 || parsed.Request.Contents[0].Parts[0].Text != "ping" {
+		t.Errorf("expected text 'ping', got %+v", parsed.Request.Contents)
 	}
-	if parsed.GenerationConfig.MaxOutputTokens != 1 {
-		t.Errorf("expected maxOutputTokens: 1, got %d", parsed.GenerationConfig.MaxOutputTokens)
+	if parsed.Request.GenerationConfig.MaxOutputTokens != 1 {
+		t.Errorf("expected maxOutputTokens: 1, got %d", parsed.Request.GenerationConfig.MaxOutputTokens)
 	}
 }

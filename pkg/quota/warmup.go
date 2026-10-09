@@ -13,13 +13,21 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 )
 
-// OneTokenPayload creates the lightweight 1-token keep-alive request structure.
-type OneTokenPayload struct {
+// OneTokenSubRequest contains the inner generation payload for Cloud Code.
+type OneTokenSubRequest struct {
 	Contents         []ContentItem    `json:"contents"`
 	GenerationConfig GenerationConfig `json:"generationConfig"`
 }
 
+// OneTokenPayload creates the lightweight 1-token keep-alive request structure.
+type OneTokenPayload struct {
+	Project string              `json:"project"`
+	Model   string              `json:"model"`
+	Request OneTokenSubRequest  `json:"request"`
+}
+
 type ContentItem struct {
+	Role  string     `json:"role,omitempty"`
 	Parts []PartItem `json:"parts"`
 }
 
@@ -33,16 +41,32 @@ type GenerationConfig struct {
 
 // Build1TokenKeepAliveJSON serializes a minimal ping payload to activate the next horizon.
 func Build1TokenKeepAliveJSON() ([]byte, error) {
+	return Build1TokenKeepAliveJSONWithModelAndProject("gemini-3-flash", "aicode-consumers")
+}
+
+// Build1TokenKeepAliveJSONWithModelAndProject creates a keep-alive payload with custom model and project.
+func Build1TokenKeepAliveJSONWithModelAndProject(model, project string) ([]byte, error) {
+	if model == "" {
+		model = "gemini-3-flash"
+	}
+	if project == "" {
+		project = "aicode-consumers"
+	}
 	p := OneTokenPayload{
-		Contents: []ContentItem{
-			{
-				Parts: []PartItem{
-					{Text: "ping"},
+		Project: project,
+		Model:   model,
+		Request: OneTokenSubRequest{
+			Contents: []ContentItem{
+				{
+					Role: "user",
+					Parts: []PartItem{
+						{Text: "ping"},
+					},
 				},
 			},
-		},
-		GenerationConfig: GenerationConfig{
-			MaxOutputTokens: 1,
+			GenerationConfig: GenerationConfig{
+				MaxOutputTokens: 1,
+			},
 		},
 	}
 	return json.Marshal(p)
@@ -132,19 +156,25 @@ func (qs *QuotaSummary) IsCooldown(threshold float64) bool {
 
 // CloudCodeGenerateContentURLs defines Google endpoints for 1-token keep-alive probes.
 var CloudCodeGenerateContentURLs = []string{
-	"https://cloudcode-pa.googleapis.com/v1internal:generateContent",
 	"https://daily-cloudcode-pa.googleapis.com/v1internal:generateContent",
+	"https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+	"https://cloudcode-pa.googleapis.com/v1internal:generateContent",
+	"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:generateContent",
 	"https://cloudcodeassist-pa.googleapis.com/v1internal:generateContent",
 	"https://cloudaicompanion.googleapis.com/v1internal:generateContent",
-	"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:generateContent",
 }
 
 // Send1TokenKeepAliveProbe dispatches a 1-token keep-alive ping payload to ignite Google's 5-hour rolling timer.
 func Send1TokenKeepAliveProbe(accessToken string) error {
+	return Send1TokenKeepAliveProbeWithProject(accessToken, "aicode-consumers")
+}
+
+// Send1TokenKeepAliveProbeWithProject dispatches a 1-token keep-alive ping payload with a specified project.
+func Send1TokenKeepAliveProbeWithProject(accessToken string, project string) error {
 	if accessToken == "" {
 		return fmt.Errorf("empty access token")
 	}
-	payload, err := Build1TokenKeepAliveJSON()
+	payload, err := Build1TokenKeepAliveJSONWithModelAndProject("gemini-3-flash", project)
 	if err != nil {
 		return err
 	}
@@ -186,7 +216,7 @@ func IgniteAccountPostReset(acc *keyring.Account, store *keyring.Store) error {
 		return fmt.Errorf("nil account")
 	}
 	token := acc.AccessToken
-	if token == "" && acc.RefreshToken != "" {
+	if (token == "" || (!acc.TokenExpiry.IsZero() && time.Now().After(acc.TokenExpiry.Add(-2*time.Minute)))) && acc.RefreshToken != "" {
 		newTok, newRefTok, err := RefreshGoogleTokenFull(acc.RefreshToken, "", "")
 		if err == nil && newTok != "" {
 			token = newTok

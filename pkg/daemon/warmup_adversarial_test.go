@@ -225,3 +225,83 @@ func TestAdversarial_CheckPostResetIgnitions_SafetyAndExhaustion(t *testing.T) {
 
 	_ = healthySum
 }
+
+// TestAdversarial_ShouldIgniteAccount_StandbyUnanchored5HourWindow validates the
+// standby early-ignition eligibility rules:
+// 1. Triggers ignition for healthy standby accounts with unanchored 5h rolling timers (~5 hours).
+// 2. Suppresses duplicate probes once an account has been ignited within 4.5 hours.
+// 3. Suppresses probes if weekly quota is depleted or 5h quota is in cooldown.
+// 4. Suppresses probes if the 5h timer is already ticking down (< 4h 55m).
+func TestAdversarial_ShouldIgniteAccount_StandbyUnanchored5HourWindow(t *testing.T) {
+	d := &Daemon{
+		ignitedAccounts: make(map[string]time.Time),
+	}
+
+	email := "standby_ignite_test@example.com"
+	thresh := 0.05
+
+	// 1. Nil summary -> false
+	if d.shouldIgniteAccount(email, nil, thresh) {
+		t.Errorf("expected false for nil summary")
+	}
+
+	// 2. Cooldown / exhausted summary -> false
+	exhaustedSum := &quota.QuotaSummary{
+		OverallHealth:   core.StatusExhausted,
+		MinFraction:     0.02,
+		Quota5hFraction: 0.02,
+	}
+	if d.shouldIgniteAccount(email, exhaustedSum, thresh) {
+		t.Errorf("expected false for exhausted summary")
+	}
+
+	// 3. Weekly quota depleted below threshold -> false
+	weeklyExhaustedSum := &quota.QuotaSummary{
+		OverallHealth:       core.StatusWarning,
+		MinFraction:         0.03,
+		Quota5hFraction:     1.0,
+		QuotaWeeklyFraction: 0.03,
+		ResetSeconds5h:      18000,
+	}
+	if d.shouldIgniteAccount(email, weeklyExhaustedSum, thresh) {
+		t.Errorf("expected false when weekly quota is below threshold")
+	}
+
+	// 4. Healthy 100% account with unanchored 5h timer (18000s) -> TRUE
+	unanchoredSum := &quota.QuotaSummary{
+		OverallHealth:       core.StatusHealthy,
+		MinFraction:         1.0,
+		Quota5hFraction:     1.0,
+		QuotaWeeklyFraction: 0.50,
+		ResetSeconds5h:      18000,
+	}
+	if !d.shouldIgniteAccount(email, unanchoredSum, thresh) {
+		t.Errorf("expected true for healthy account with unanchored 5h timer (18000s)")
+	}
+
+	// 5. After ignition recorded -> FALSE (cooldown suppression)
+	d.recordIgnition(email)
+	if d.shouldIgniteAccount(email, unanchoredSum, thresh) {
+		t.Errorf("expected false immediately after ignition recorded")
+	}
+
+	// 6. Another account whose 5h timer is ALREADY ticking down (e.g. 3 hours left) -> FALSE
+	email2 := "already_ticking@example.com"
+	tickingSum := &quota.QuotaSummary{
+		OverallHealth:       core.StatusHealthy,
+		MinFraction:         0.999999,
+		Quota5hFraction:     0.999999,
+		QuotaWeeklyFraction: 0.50,
+		ResetSeconds5h:      10800, // 3 hours remaining
+		Models: []quota.ModelQuota{
+			{
+				ModelName: "Five Hour Limit Remaining",
+				ResetTime: time.Now().Add(3 * time.Hour),
+			},
+		},
+	}
+	if d.shouldIgniteAccount(email2, tickingSum, thresh) {
+		t.Errorf("expected false for account whose 5h timer is already ticking down (3h left)")
+	}
+}
+
