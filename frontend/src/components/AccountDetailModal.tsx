@@ -89,6 +89,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const headerDisplay = getAccountHeaderDisplay(isNewAccount, label, email)
 
   const lastVerificationUrlFetchedAtRef = useRef<number>(0)
+  const [isWaitingForVerification, setIsWaitingForVerification] = useState(false)
+  const isWaitingForVerificationRef = useRef<boolean>(false)
 
   const applyQuotaSummaryUpdate = (q: any, isLiveRefresh: boolean = false) => {
     if (!q) return
@@ -132,10 +134,22 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     try {
       const q = await api.refreshAccountQuota(targetEmail)
       if (q) {
-        const hadError = currentStatus === 'ERROR' || account.status === 'ERROR'
+        const hadError = (currentStatus || '').toUpperCase() === 'ERROR' || (account.status || '').toUpperCase() === 'ERROR'
+        const isRecovered =
+          !q.error_status &&
+          !q.error_message &&
+          q.reset_horizon_text !== 'Not Polled' &&
+          !q.reset_horizon_text?.startsWith('Error')
         applyQuotaSummaryUpdate(q, true)
         if (hadError || !q.error_message) {
           onSaved()
+        }
+        if (hadError && isRecovered) {
+          setIsWaitingForVerification(false)
+          if (isWaitingForVerificationRef.current) {
+            isWaitingForVerificationRef.current = false
+            onClose()
+          }
         }
       }
       return q
@@ -187,14 +201,25 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
   useEffect(() => {
     if (isNewAccount || (currentStatus || '').toUpperCase() !== 'ERROR') return
-    const onWindowFocus = () => {
-      if (Date.now() - lastVerificationUrlFetchedAtRef.current > 4_000 && !isRefreshingQuota) {
+    const checkRecovery = () => {
+      if (!isRefreshingQuota) {
         handleRefreshLiveQuota()
       }
     }
-    window.addEventListener('focus', onWindowFocus)
-    return () => window.removeEventListener('focus', onWindowFocus)
-  }, [isNewAccount, currentStatus, isRefreshingQuota, email, account.email])
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkRecovery()
+      }
+    }
+    window.addEventListener('focus', checkRecovery)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    const interval = setInterval(checkRecovery, isWaitingForVerification ? 2500 : 4000)
+    return () => {
+      window.removeEventListener('focus', checkRecovery)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      clearInterval(interval)
+    }
+  }, [isNewAccount, currentStatus, isRefreshingQuota, isWaitingForVerification, email, account.email])
 
   // Real-time derived 6-number verification code
   const [derivedCode, setDerivedCode] = useState<string | null>(null)
@@ -632,6 +657,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={async (e) => {
+                      setIsWaitingForVerification(true)
+                      isWaitingForVerificationRef.current = true
                       const isStale = Date.now() - lastVerificationUrlFetchedAtRef.current > 45_000
                       const electronOpen = (window as any).electronAPI?.openExternal
                       if (electronOpen || isStale) {
