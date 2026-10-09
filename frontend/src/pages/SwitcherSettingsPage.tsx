@@ -61,8 +61,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   )
   const [defaultGemini, setDefaultGemini] = useState<string>(initialRules?.default_gemini_model || 'gemini-3.8-flash-high')
   const [defaultCustom, setDefaultCustom] = useState<string>(initialRules?.default_custom_model || '')
-  const [defaultNonGemini, setDefaultNonGemini] = useState<string>(initialRules?.default_non_gemini_model || 'claude-opus-4-6')
-  const [geminiReasoningLevel, setGeminiReasoningLevel] = useState<string>(initialRules?.default_gemini_reasoning_level || 'high')
+  const [defaultNonGemini, setDefaultNonGemini] = useState<string>(initialRules?.default_non_gemini_model || 'claude-opus-4-6-thinking')
 
   // Dynamic available model lists (fetched automatically from running IDE / CloudCode)
   const [geminiModelOptions, setGeminiModelOptions] = useState<AvailableModelItem[]>([])
@@ -75,7 +74,12 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
 
   const [feedback, setFeedback] = useState<string | null>(null)
   const hydratedRef = useRef(false)
-  const lastPersistedPayloadRef = useRef<string | null>(null)
+  const lastSentPayloadRef = useRef<string | null>(null)
+  const onSavedRef = useRef(onSaved)
+
+  useEffect(() => {
+    onSavedRef.current = onSaved
+  }, [onSaved])
 
   // Account Export & Import States
   const [isExporting, setIsExporting] = useState<boolean>(false)
@@ -178,7 +182,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       })
       setShowPasteModal(false)
       setPasteText('')
-      onSaved()
+      onSavedRef.current()
     } catch (err: any) {
       setImportStatus({
         type: 'error',
@@ -256,9 +260,6 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     }
     if (initialRules.default_non_gemini_model) {
       setDefaultNonGemini(initialRules.default_non_gemini_model)
-    }
-    if (initialRules.default_gemini_reasoning_level) {
-      setGeminiReasoningLevel(initialRules.default_gemini_reasoning_level)
     }
     if (initialRules.auto_import_active_account !== undefined) {
       setAutoImportActive(initialRules.auto_import_active_account)
@@ -381,21 +382,22 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       default_gemini_model: defaultGemini,
       default_custom_model: effectiveCustomModel,
       default_non_gemini_model: defaultNonGemini,
-      default_gemini_reasoning_level: geminiReasoningLevel,
       auto_import_active_account: autoImportActive,
     }
     const serialized = JSON.stringify(payload)
-    if (lastPersistedPayloadRef.current === null) {
-      lastPersistedPayloadRef.current = serialized
+    if (lastSentPayloadRef.current === null) {
+      lastSentPayloadRef.current = serialized
       return
     }
-    if (serialized === lastPersistedPayloadRef.current) return
+    if (serialized === lastSentPayloadRef.current) return
     const timer = setTimeout(() => {
+      // Mark as sent synchronously so a value reverted while this save is in
+      // flight is detected as a change and persisted by the next debounce.
+      lastSentPayloadRef.current = serialized
       api.saveRules(payload)
         .then(() => {
-          lastPersistedPayloadRef.current = serialized
           setFeedback(null)
-          onSaved()
+          onSavedRef.current()
         })
         .catch((err: any) => {
           setFeedback(`Save error: ${err.message}`)
@@ -418,9 +420,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     defaultGemini,
     effectiveCustomModel,
     defaultNonGemini,
-    geminiReasoningLevel,
     autoImportActive,
-    onSaved,
   ])
 
   const commitThresholdPercent = (
@@ -916,20 +916,8 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <select
                 value={defaultGemini}
-                onChange={(e) => {
-                  const val = e.target.value
-                  setDefaultGemini(val)
-                  if (val.endsWith('-high') || val.includes('high')) {
-                    setGeminiReasoningLevel('high')
-                  } else if (val.endsWith('-medium') || val.includes('medium')) {
-                    setGeminiReasoningLevel('medium')
-                  } else if (val.endsWith('-low') || val.includes('low')) {
-                    setGeminiReasoningLevel('low')
-                  } else if (val.endsWith('-off') || val.includes('off')) {
-                    setGeminiReasoningLevel('off')
-                  }
-                }}
-                style={{ width: '220px' }}
+                onChange={(e) => setDefaultGemini(e.target.value)}
+                style={{ width: '260px' }}
                 aria-label="Default Gemini Model"
               >
                 {geminiModelOptions.length === 0 ? (
@@ -943,27 +931,6 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                     </option>
                   ))
                 )}
-              </select>
-
-              <select
-                value={geminiReasoningLevel}
-                onChange={(e) => {
-                  const lvl = e.target.value
-                  setGeminiReasoningLevel(lvl)
-                  const baseModel = defaultGemini.replace(/-(high|medium|low|off)$/, '')
-                  const candidate = `${baseModel}-${lvl}`
-                  if (geminiModelOptions.some((opt) => opt.id === candidate)) {
-                    setDefaultGemini(candidate)
-                  }
-                }}
-                style={{ width: '100px' }}
-                aria-label="Default Gemini Reasoning Level"
-                title="Reasoning Level for Gemini models"
-              >
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-                <option value="off">Off</option>
               </select>
             </div>
           </div>

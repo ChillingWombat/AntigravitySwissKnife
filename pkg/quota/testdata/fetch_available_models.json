@@ -1,0 +1,224 @@
+{
+  "agentModelSorts": [
+    {
+      "displayName": "Recommended",
+      "groups": [
+        {
+          "modelIds": [
+            "gemini-3.8-flash-high",
+            "gemini-3.8-flash-medium",
+            "gemini-3.8-flash-low",
+            "gemini-3.7-flash-high",
+            "gemini-3.7-flash-medium",
+            "gemini-3.7-flash-low",
+            "gemini-3.6-flash-high",
+            "gemini-3.6-flash-medium",
+            "gemini-3.6-flash-low",
+            "gemini-pro-agent",
+            "gemini-3.1-pro-low",
+            "claude-sonnet-4-6",
+            "claude-opus-4-6-thinking",
+            "gpt-oss-120b-medium"
+          ]
+        }
+      ]
+    }
+  ],
+  "audioTranscriptionModelIds": [
+    "models/proactive-observer-v10"
+  ],
+  "commandModelIds": [
+    "gemini-3-flash"
+  ],
+  "commitMessageModelIds": [
+    "gemini-3.5-flash-lite"
+  ],
+  "defaultAgentModelId": "gemini-3.8-flash-high",
+  "deprecatedModelIds": {
+    "gemini-3.1-pro-high": {
+      "newModelEnum": "MODEL_PLACEHOLDER_M16",
+      "newModelId": "gemini-pro-agent",
+      "oldModelEnum": "MODEL_PLACEHOLDER_M37"
+    }
+  },
+  "imageGenerationModelIds": [
+    "gemini-3.1-flash-image"
+  ],
+  "models": {
+    "chat_20706": {
+      "isInternal": true,
+      "modelProvider": "MODEL_PROVIDER_GOOGLE"
+    },
+    "chat_23310": {
+      "isInternal": true,
+      "modelProvider": "MODEL_PROVIDER_GOOGLE"
+    },
+    "claude-opus-4-6-thinking": {
+      "displayName": "Claude Opus 4.6 (Thinking)",
+      "modelProvider": "MODEL_PROVIDER_ANTHROPIC",
+      "supportsThinking": true
+    },
+    "claude-sonnet-4-6": {
+      "displayName": "Claude Sonnet 4.6 (Thinking)",
+      "modelProvider": "MODEL_PROVIDER_ANTHROPIC",
+      "supportsThinking": true
+    },
+    "gemini-2.5-flash": {
+      "displayName": "Gemini 3.5 Flash Lite",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-2.5-flash-lite": {
+      "displayName": "Gemini 3.5 Flash Lite",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-2.5-flash-thinking": {
+      "displayName": "Gemini 3.5 Flash Lite",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-2.5-pro": {
+      "displayName": "Gemini 2.5 Pro",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3-flash": {
+      "displayName": "Gemini 3 Flash",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3-flash-agent": {
+      "displayName": "Gemini 3.5 Flash (High)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3.1-flash-image": {
+      "displayName": "Gemini 3.1 Flash Image",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE"
+    },
+    "gemini-3.1-flash-lite": {
+      "displayName": "Gemini 3.1 Flash Lite",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE"
+    },
+    "gemini-3.1-pro-high": {
+      "displayName": "Gemini 3.1 Pro (High)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3.1-pro-low": {
+      "displayName": "Gemini 3.1 Pro (Low)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3.5-flash-extra-low": {
+      "displayName": "Gemini 3.5 Flash (Low)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3.5-flash-lite": {
+      "displayName": "Gemini 3.5 Flash Lite",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3.5-flash-low": {
+      "displayName": "Gemini 3.5 Flash (Medium)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3.6-flash-high": {
+      "displayName": "Gemini 3.6 Flash (High)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3.6-flash-low": {
+      "displayName": "Gemini 3.6 Flash (Low)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3.6-flash-medium": {
+      "displayName": "Gemini 3.6 Flash (Medium)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3.6-flash-tiered": {
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3.7-flash-high": {
+      "displayName": "Gemini 3.7 Flash (High)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3.7-flash-low": {
+      "displayName": "Gemini 3.7 Flash (Low)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3.7-flash-medium": {
+      "displayName": "Gemini 3.7 Flash (Medium)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3.7-flash-tiered": {
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3.8-flash-high": {
+      "displayName": "Gemini 3.8 Flash (High)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3.8-flash-low": {
+      "displayName": "Gemini 3.8 Flash (Low)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3.8-flash-medium": {
+      "displayName": "Gemini 3.8 Flash (Medium)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-3.8-flash-tiered": {
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gemini-pro-agent": {
+      "displayName": "Gemini 3.1 Pro (High)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true
+    },
+    "gpt-oss-120b-medium": {
+      "displayName": "GPT-OSS 120B (Medium)",
+      "modelProvider": "MODEL_PROVIDER_OPENAI",
+      "supportsThinking": true
+    },
+    "tab_flash_lite_preview": {
+      "modelProvider": "MODEL_PROVIDER_GOOGLE"
+    },
+    "tab_jump_flash_lite_preview": {
+      "modelProvider": "MODEL_PROVIDER_GOOGLE"
+    }
+  },
+  "mqueryModelIds": [
+    "gemini-3.5-flash-lite"
+  ],
+  "tabModelIds": [
+    "chat_20706",
+    "chat_23310"
+  ],
+  "tieredModelIds": {
+    "flash": [
+      "gemini-3.8-flash-tiered"
+    ],
+    "flashLite": [
+      "gemini-3.5-flash-lite"
+    ],
+    "pro": [
+      "gemini-3.1-pro-low"
+    ]
+  },
+  "webSearchModelIds": [
+    "gemini-3.1-flash-lite"
+  ]
+}

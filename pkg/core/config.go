@@ -77,7 +77,7 @@ func DefaultConfig() *Config {
 		ModelSourceHierarchy:       []string{"gemini", "custom", "non_gemini", "credits"},
 		DefaultGeminiModel:         "gemini-3.8-flash-high",
 		DefaultCustomModel:         "",
-		DefaultNonGeminiModel:      "claude-opus-4-6",
+		DefaultNonGeminiModel:      "claude-opus-4-6-thinking",
 		DefaultGeminiReasoningLevel: "high",
 		StorageMode:                "system_default",
 		AnonymousErrorReports:      true,

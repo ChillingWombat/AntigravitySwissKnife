@@ -1236,7 +1236,7 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		c, _ := core.LoadConfig()
 		geminiReasoning := "high"
 		defaultGemini := "gemini-3.8-flash-high"
-		defaultNonGemini := "claude-opus-4-6"
+		defaultNonGemini := "claude-opus-4-6-thinking"
 		if c != nil {
 			if c.DefaultGeminiReasoningLevel != "" {
 				geminiReasoning = c.DefaultGeminiReasoningLevel
@@ -1303,7 +1303,7 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			cfg["default_gemini_model"] = "gemini-3.8-flash-high"
 		}
 		if ngm, ok := cfg["default_non_gemini_model"].(string); !ok || ngm == "" {
-			cfg["default_non_gemini_model"] = "claude-opus-4-6"
+			cfg["default_non_gemini_model"] = "claude-opus-4-6-thinking"
 		}
 	}
 	writeJSON(w, cfg)

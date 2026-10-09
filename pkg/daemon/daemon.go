@@ -760,7 +760,7 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 		defaultNonGemini := d.Config.DefaultNonGeminiModel
 		if defaultNonGemini == "" {
-			defaultNonGemini = "claude-opus-4-6"
+			defaultNonGemini = "claude-opus-4-6-thinking"
 		}
 		switchMode := d.Config.SwitchMode
 		if switchMode == "" {
