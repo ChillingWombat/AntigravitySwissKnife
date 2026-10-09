@@ -266,6 +266,7 @@ func PollFleetAccounts(accounts []*keyring.Account, store *keyring.Store) map[st
 		wg.Add(1)
 		go func(targetAcc *keyring.Account) {
 			defer wg.Done()
+			wasError := strings.EqualFold(targetAcc.Status, "ERROR") || targetAcc.ErrorMessage != ""
 			qSummary, _ := PollAccountLiveQuota(targetAcc)
 			if qSummary != nil {
 				mu.Lock()
@@ -283,12 +284,15 @@ func PollFleetAccounts(accounts []*keyring.Account, store *keyring.Store) map[st
 					_ = store.UpdateAccountTokensAndMetadata(targetAcc.Email, targetAcc.AccessToken, targetAcc.RefreshToken, planTier, credits)
 					if qSummary.ErrorStatus != "" {
 						_ = store.UpdateAccountStatusWithError(targetAcc.Email, qSummary.ErrorStatus, qSummary.ErrorMessage)
-					} else if strings.EqualFold(targetAcc.Status, "ERROR") {
-						newStatus := "STANDBY"
-						if targetAcc.IsActive {
-							newStatus = "ACTIVE"
+					} else {
+						storedAcc, _ := store.GetAccount(targetAcc.Email)
+						if wasError || strings.EqualFold(targetAcc.Status, "ERROR") || (storedAcc != nil && (strings.EqualFold(storedAcc.Status, "ERROR") || storedAcc.ErrorMessage != "")) {
+							newStatus := "STANDBY"
+							if strings.EqualFold(store.ActiveAccount(), targetAcc.Email) {
+								newStatus = "ACTIVE"
+							}
+							_ = store.UpdateAccountStatusWithError(targetAcc.Email, newStatus, "")
 						}
-						_ = store.UpdateAccountStatusWithError(targetAcc.Email, newStatus, "")
 					}
 				}
 			}
@@ -308,6 +312,7 @@ func PollAndCacheAccount(acc *keyring.Account, store *keyring.Store) (*QuotaSumm
 	if acc == nil {
 		return nil, fmt.Errorf("nil account")
 	}
+	wasError := strings.EqualFold(acc.Status, "ERROR") || acc.ErrorMessage != ""
 	summary, err := PollAccountLiveQuota(acc)
 	if summary == nil {
 		return nil, err
@@ -324,12 +329,15 @@ func PollAndCacheAccount(acc *keyring.Account, store *keyring.Store) (*QuotaSumm
 		_ = store.UpdateAccountTokensAndMetadata(acc.Email, acc.AccessToken, acc.RefreshToken, planTier, credits)
 		if summary.ErrorStatus != "" {
 			_ = store.UpdateAccountStatusWithError(acc.Email, summary.ErrorStatus, summary.ErrorMessage)
-		} else if strings.EqualFold(acc.Status, "ERROR") {
-			newStatus := "STANDBY"
-			if acc.IsActive {
-				newStatus = "ACTIVE"
+		} else {
+			storedAcc, _ := store.GetAccount(acc.Email)
+			if wasError || strings.EqualFold(acc.Status, "ERROR") || (storedAcc != nil && (strings.EqualFold(storedAcc.Status, "ERROR") || storedAcc.ErrorMessage != "")) {
+				newStatus := "STANDBY"
+				if strings.EqualFold(store.ActiveAccount(), acc.Email) {
+					newStatus = "ACTIVE"
+				}
+				_ = store.UpdateAccountStatusWithError(acc.Email, newStatus, "")
 			}
-			_ = store.UpdateAccountStatusWithError(acc.Email, newStatus, "")
 		}
 	}
 	_ = SaveQuotaCache(map[string]*QuotaSummary{
@@ -446,9 +454,17 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 		if s != nil {
 			if s.ErrorStatus != "" {
 				status = strings.ToUpper(s.ErrorStatus)
+			} else if status == "ERROR" && s.ResetHorizonText != "Error" && s.ResetHorizonText != "Not Polled" {
+				if acc.IsActive {
+					status = "ACTIVE"
+				} else {
+					status = "STANDBY"
+				}
 			}
 			if s.ErrorMessage != "" {
 				errorMessage = s.ErrorMessage
+			} else if s.ErrorStatus == "" && s.ResetHorizonText != "Error" && s.ResetHorizonText != "Not Polled" {
+				errorMessage = ""
 			}
 			if s.PlanTier != "" {
 				tier = s.PlanTier

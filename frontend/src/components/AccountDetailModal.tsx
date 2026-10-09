@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail, Link } from 'lucide-react'
+import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail, Link, ExternalLink } from 'lucide-react'
 import type { AccountState } from '../types'
 import { renderPlanTierBadge } from '../pages/QuotaDashboardPage'
 import { HorizontalQuotaBar } from './HorizontalQuotaBar'
@@ -10,6 +10,7 @@ import {
   getAccountHeaderDisplay,
   resolveDefaultAlias,
   normalizeMfaSecret,
+  parseAccountErrorAlert,
   ACCOUNT_SETUP_TEXTS,
 } from '../utils/accountPresentation'
 
@@ -48,6 +49,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const oauthAbortControllerRef = useRef<AbortController | null>(null)
   const [currentStatus, setCurrentStatus] = useState<string>(account.status || (account.is_active ? 'ACTIVE' : 'STANDBY'))
   const [liveErrorMessage, setLiveErrorMessage] = useState<string | null>(account.error_message || null)
+  const [copiedVerificationUrl, setCopiedVerificationUrl] = useState(false)
   const [notes, setNotes] = useState(account.notes || '')
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -86,71 +88,113 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
   const headerDisplay = getAccountHeaderDisplay(isNewAccount, label, email)
 
-  const handleRefreshLiveQuota = async () => {
+  const lastVerificationUrlFetchedAtRef = useRef<number>(0)
+
+  const applyQuotaSummaryUpdate = (q: any, isLiveRefresh: boolean = false) => {
+    if (!q) return
+    if (q.quota_5h_fraction !== undefined) setLiveQuota5h(q.quota_5h_fraction)
+    if (q.quota_weekly_fraction !== undefined) setLiveQuotaWeekly(q.quota_weekly_fraction)
+    if (q.reset_horizon_text) setLiveResetHorizon(q.reset_horizon_text)
+    if (q.reset_horizon_weekly_text) setLiveResetHorizonWeekly(q.reset_horizon_weekly_text)
+    if (q.plan_tier) {
+      account.plan_tier = q.plan_tier
+      setCurrentPlanTier(q.plan_tier)
+    }
+    if (q.error_message) {
+      setLiveErrorMessage(q.error_message)
+      account.error_message = q.error_message
+      if (isLiveRefresh) {
+        lastVerificationUrlFetchedAtRef.current = Date.now()
+      }
+    } else {
+      setLiveErrorMessage(null)
+      account.error_message = ''
+    }
+    if (q.error_status) {
+      setCurrentStatus(q.error_status)
+      account.status = q.error_status
+    } else if (
+      (currentStatus === 'ERROR' || currentStatus === 'BANNED') &&
+      (!q.reset_horizon_text ||
+        (q.reset_horizon_text !== 'Not Polled' && !q.reset_horizon_text.startsWith('Error')))
+    ) {
+      const nextSt = account.is_active ? 'ACTIVE' : 'STANDBY'
+      setCurrentStatus(nextSt)
+      account.status = nextSt
+    }
+  }
+
+  const handleRefreshLiveQuota = async (): Promise<any> => {
     const targetEmail = email.trim() || account.email
-    if (!targetEmail) return
+    if (!targetEmail) return null
     setIsRefreshingQuota(true)
     setError(null)
     try {
       const q = await api.refreshAccountQuota(targetEmail)
       if (q) {
-        if (q.quota_5h_fraction !== undefined) setLiveQuota5h(q.quota_5h_fraction)
-        if (q.quota_weekly_fraction !== undefined) setLiveQuotaWeekly(q.quota_weekly_fraction)
-        if (q.reset_horizon_text) setLiveResetHorizon(q.reset_horizon_text)
-        if (q.reset_horizon_weekly_text) setLiveResetHorizonWeekly(q.reset_horizon_weekly_text)
-        if (q.plan_tier) {
-          account.plan_tier = q.plan_tier
-          setCurrentPlanTier(q.plan_tier)
-        }
-        if ((q as any).error_message) {
-          setLiveErrorMessage((q as any).error_message)
-          account.error_message = (q as any).error_message
-        } else {
-          setLiveErrorMessage(null)
-          account.error_message = ''
-        }
-        if ((q as any).error_status) {
-          setCurrentStatus((q as any).error_status)
-          account.status = (q as any).error_status
-        } else if (currentStatus === 'ERROR' || currentStatus === 'BANNED') {
-          const nextSt = account.is_active ? 'ACTIVE' : 'STANDBY'
-          setCurrentStatus(nextSt)
-          account.status = nextSt
+        const hadError = currentStatus === 'ERROR' || account.status === 'ERROR'
+        applyQuotaSummaryUpdate(q, true)
+        if (hadError || !q.error_message) {
+          onSaved()
         }
       }
+      return q
     } catch (err: any) {
       console.warn('Quota refresh warning:', err)
+      return null
     } finally {
       setIsRefreshingQuota(false)
     }
   }
 
+  const resolveFreshVerificationUrl = async (): Promise<string | null> => {
+    const targetEmail = email.trim() || account.email
+    const currentAlert = parseAccountErrorAlert(
+      liveErrorMessage || account.error_message || account.status_reason,
+      targetEmail
+    )
+    if (Date.now() - lastVerificationUrlFetchedAtRef.current <= 45_000 && currentAlert.verificationUrl) {
+      return currentAlert.verificationUrl
+    }
+    const q = await handleRefreshLiveQuota()
+    if (q && !(q as any).error_status && !(q as any).error_message) {
+      return null
+    }
+    const updatedAlert = parseAccountErrorAlert(
+      (q as any)?.error_message || liveErrorMessage || account.error_message || account.status_reason,
+      targetEmail
+    )
+    return updatedAlert.verificationUrl
+  }
+
   useEffect(() => {
     if (!isNewAccount && account.email && (account.refresh_token || account.access_token)) {
-      if (account.reset_horizon_text === 'Not Polled' || liveQuota5h === null) {
+      if (account.status?.toUpperCase() === 'ERROR') {
+        handleRefreshLiveQuota()
+      } else if (
+        account.reset_horizon_text === 'Not Polled' ||
+        liveQuota5h === null ||
+        (account.status?.toUpperCase() === 'BANNED' && !account.error_message)
+      ) {
         api.getQuotaSummary(account.email).then((q) => {
           if (q) {
-            if (q.quota_5h_fraction !== undefined) setLiveQuota5h(q.quota_5h_fraction)
-            if (q.quota_weekly_fraction !== undefined) setLiveQuotaWeekly(q.quota_weekly_fraction)
-            if (q.reset_horizon_text) setLiveResetHorizon(q.reset_horizon_text)
-            if (q.reset_horizon_weekly_text) setLiveResetHorizonWeekly(q.reset_horizon_weekly_text)
-            if (q.plan_tier) {
-              account.plan_tier = q.plan_tier
-              setCurrentPlanTier(q.plan_tier)
-            }
-            if ((q as any).error_message) {
-              setLiveErrorMessage((q as any).error_message)
-              account.error_message = (q as any).error_message
-            }
-            if ((q as any).error_status) {
-              setCurrentStatus((q as any).error_status)
-              account.status = (q as any).error_status
-            }
+            applyQuotaSummaryUpdate(q, false)
           }
         }).catch(() => {})
       }
     }
   }, [account.email])
+
+  useEffect(() => {
+    if (isNewAccount || (currentStatus || '').toUpperCase() !== 'ERROR') return
+    const onWindowFocus = () => {
+      if (Date.now() - lastVerificationUrlFetchedAtRef.current > 4_000 && !isRefreshingQuota) {
+        handleRefreshLiveQuota()
+      }
+    }
+    window.addEventListener('focus', onWindowFocus)
+    return () => window.removeEventListener('focus', onWindowFocus)
+  }, [isNewAccount, currentStatus, isRefreshingQuota, email, account.email])
 
   // Real-time derived 6-number verification code
   const [derivedCode, setDerivedCode] = useState<string | null>(null)
@@ -226,6 +270,57 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     } catch {}
   }
 
+  const persistExtractedOAuthIfExisting = async (
+    newRefreshToken: string,
+    newAccessToken?: string,
+    extractedEmail?: string
+  ) => {
+    const targetEmail = (email.trim() || account.email || extractedEmail || '').trim()
+    if (isNewAccount || !targetEmail) return
+    if (extractedEmail && extractedEmail.toLowerCase() !== targetEmail.toLowerCase()) return
+
+    try {
+      const finalLabel = resolveDefaultAlias(label, targetEmail)
+      const targetStatus =
+        currentStatus === 'ERROR' || currentStatus === 'BANNED'
+          ? account.is_active
+            ? 'ACTIVE'
+            : 'STANDBY'
+          : currentStatus || (account.is_active ? 'ACTIVE' : 'STANDBY')
+      const updateRes = await api.updateAccount({
+        email: targetEmail,
+        label: finalLabel,
+        plan_tier: currentPlanTier || account.plan_tier || '',
+        status: targetStatus,
+        priority: priority,
+        password: password,
+        notes: notes.trim(),
+        totp_secret: normalizeMfaSecret(totpSecret).toUpperCase(),
+        refresh_token: newRefreshToken.trim(),
+        access_token: newAccessToken?.trim() || undefined,
+        credits: account.credits !== undefined && account.credits !== null ? account.credits : 0,
+        enable_credit_overages: enableCreditOverages,
+        allow_claude_gpt: allowClaudeGpt,
+      })
+      if (updateRes?.quota) {
+        applyQuotaSummaryUpdate(updateRes.quota)
+      } else {
+        if ((updateRes as any)?.status) {
+          setCurrentStatus((updateRes as any).status)
+          account.status = (updateRes as any).status
+        }
+        if ((updateRes as any)?.error_message !== undefined) {
+          const msg = (updateRes as any).error_message || null
+          setLiveErrorMessage(msg)
+          account.error_message = msg || ''
+        }
+      }
+      onSaved()
+    } catch (err) {
+      console.warn('Auto-persist OAuth token warning:', err)
+    }
+  }
+
   const handleExtractGoogleOAuth = async () => {
     if (isExtractingOAuth) {
       await handleCancelGoogleOAuth()
@@ -255,6 +350,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         setOauthSuccessMsg(`Extracted refresh token successfully for ${res.email || email || account.email}`)
         setShowManualCallbackField(false)
         setManualCallbackUrl('')
+        await persistExtractedOAuthIfExisting(res.refresh_token, res.access_token, res.email)
       } else if (!controller.signal.aborted) {
         setError(res.error || 'Failed to extract OAuth refresh token from Google')
       }
@@ -302,6 +398,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           oauthAbortControllerRef.current = null
         }
         api.cancelGoogleOAuth().catch(() => {})
+        await persistExtractedOAuthIfExisting(res.refresh_token, res.access_token, res.email)
       } else {
         setError(res.error || 'Failed to extract refresh token from return URL')
       }
@@ -345,21 +442,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         allow_claude_gpt: allowClaudeGpt,
       })
       if (res && res.quota) {
-        const q = res.quota
-        if (q.quota_5h_fraction !== undefined) setLiveQuota5h(q.quota_5h_fraction)
-        if (q.quota_weekly_fraction !== undefined) setLiveQuotaWeekly(q.quota_weekly_fraction)
-        if (q.reset_horizon_text) setLiveResetHorizon(q.reset_horizon_text)
-        if (q.reset_horizon_weekly_text) setLiveResetHorizonWeekly(q.reset_horizon_weekly_text)
-        if (q.plan_tier) {
-          account.plan_tier = q.plan_tier
-          setCurrentPlanTier(q.plan_tier)
-        }
-        if ((q as any).error_message) {
-          account.error_message = (q as any).error_message
-        }
-        if ((q as any).error_status) {
-          account.status = (q as any).error_status
-        }
+        applyQuotaSummaryUpdate(res.quota)
       } else if (res && res.plan_tier) {
         account.plan_tier = res.plan_tier
         setCurrentPlanTier(res.plan_tier)
@@ -394,6 +477,10 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   }
 
   const st = (currentStatus || (account.is_active ? 'ACTIVE' : 'STANDBY')).toUpperCase()
+  const errorAlert = parseAccountErrorAlert(
+    liveErrorMessage || account.error_message || account.status_reason,
+    email.trim() || account.email
+  )
 
   return (
     <div
@@ -517,15 +604,116 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               marginBottom: '16px',
               display: 'flex',
               flexDirection: 'column',
-              gap: '6px',
+              gap: '8px',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }}>
               <ShieldAlert size={16} />
-              <span>Authentication / Quota Error</span>
+              <span>
+                {errorAlert.isValidationRequired
+                  ? 'Google Account Verification Required (VALIDATION_REQUIRED)'
+                  : 'Authentication / Quota Error'}
+              </span>
             </div>
-            <div style={{ fontSize: '11px', opacity: 0.95, paddingLeft: '24px', lineHeight: 1.4, wordBreak: 'break-word', fontFamily: 'monospace' }}>
-              {liveErrorMessage || account.error_message || account.status_reason || 'Authentication error or token expired. Verification or token re-extraction required.'}
+            <div style={{ fontSize: '11px', opacity: 0.95, paddingLeft: '24px', lineHeight: 1.45, wordBreak: 'break-word', fontFamily: 'monospace' }}>
+              {errorAlert.summaryText}
+            </div>
+            {errorAlert.isValidationRequired && (
+              <div style={{ fontSize: '11.5px', paddingLeft: '24px', lineHeight: 1.45, color: 'var(--text)' }}>
+                Google Cloud Code API requires a one-time security verification in the browser for{' '}
+                <strong>{email.trim() || account.email}</strong> (standard OAuth sign-in alone does not clear this challenge).
+              </div>
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', paddingLeft: '24px', marginTop: '2px' }}>
+              {errorAlert.verificationUrl && (
+                <>
+                  <a
+                    href={errorAlert.verificationUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={async (e) => {
+                      const isStale = Date.now() - lastVerificationUrlFetchedAtRef.current > 45_000
+                      const electronOpen = (window as any).electronAPI?.openExternal
+                      if (electronOpen || isStale) {
+                        e.preventDefault()
+                        const freshUrl = (await resolveFreshVerificationUrl()) || errorAlert.verificationUrl
+                        if (!freshUrl) return
+                        if (electronOpen) {
+                          electronOpen(freshUrl)
+                        } else {
+                          window.open(freshUrl, '_blank', 'noopener,noreferrer')
+                        }
+                      }
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '5px 12px',
+                      borderRadius: '9999px',
+                      backgroundColor: '#1a73e8',
+                      color: '#ffffff',
+                      fontSize: '11.5px',
+                      fontWeight: 600,
+                      textDecoration: 'none',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <ExternalLink size={12} />
+                    <span>Verify Account in Browser</span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const freshUrl = (await resolveFreshVerificationUrl()) || errorAlert.verificationUrl
+                      if (!freshUrl) return
+                      navigator.clipboard.writeText(freshUrl)
+                      setCopiedVerificationUrl(true)
+                      setTimeout(() => setCopiedVerificationUrl(false), 1800)
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '4px 10px',
+                      borderRadius: '9999px',
+                      backgroundColor: '#ffffff',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text)',
+                      fontSize: '11.5px',
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title="Copy verification URL to open in the browser profile signed into this Google account"
+                  >
+                    {copiedVerificationUrl ? <Check size={12} color="var(--green)" /> : <Copy size={12} />}
+                    <span>{copiedVerificationUrl ? 'Copied Link' : 'Copy Verification Link'}</span>
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={handleRefreshLiveQuota}
+                disabled={isRefreshingQuota}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  padding: '4px 10px',
+                  borderRadius: '9999px',
+                  backgroundColor: '#ffffff',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)',
+                  fontSize: '11.5px',
+                  fontWeight: 500,
+                  cursor: isRefreshingQuota ? 'wait' : 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <RefreshCw size={12} className={isRefreshingQuota ? 'spin' : ''} />
+                <span>{isRefreshingQuota ? 'Checking...' : 'Re-check Quota'}</span>
+              </button>
             </div>
           </div>
         )}

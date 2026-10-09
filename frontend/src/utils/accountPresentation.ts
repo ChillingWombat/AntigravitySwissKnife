@@ -120,3 +120,59 @@ export const ACCOUNT_SETUP_TEXTS = {
   MFA_SECRET_LABEL: 'MFA Secret Key:',
 } as const
 
+export interface AccountErrorAlertInfo {
+  summaryText: string
+  rawText: string
+  verificationUrl: string | null
+  isValidationRequired: boolean
+}
+
+/**
+ * Parses upstream account error messages (including VALIDATION_REQUIRED and embedded
+ * `(Verification: https://...)` challenge URLs) into structured UI alert details.
+ * If the Google verification URL ends with an empty `authuser` parameter and the
+ * account email is known, populates `authuser=<email>` so multi-account browsers
+ * target the right Google session.
+ */
+export function parseAccountErrorAlert(
+  raw?: string | null,
+  accountEmail?: string
+): AccountErrorAlertInfo {
+  const rawText = (raw || '').trim()
+  if (!rawText) {
+    return {
+      summaryText: 'Authentication error or token expired. Verification or token re-extraction required.',
+      rawText: '',
+      verificationUrl: null,
+      isValidationRequired: false,
+    }
+  }
+
+  let verificationUrl: string | null = null
+  let summaryText = rawText
+
+  const match = rawText.match(/\(Verification:\s*(https?:\/\/[^\s)]+)\)/i)
+  if (match && match[1]) {
+    let url = match[1].trim()
+    const cleanEmail = (accountEmail || '').trim()
+    if (cleanEmail) {
+      if (/([?&])authuser=(?=&|$)/i.test(url)) {
+        url = url.replace(/([?&])authuser=(?=&|$)/i, `$1authuser=${encodeURIComponent(cleanEmail)}`)
+      } else if (/([?&])authuser$/i.test(url)) {
+        url = url.replace(/([?&])authuser$/i, `$1authuser=${encodeURIComponent(cleanEmail)}`)
+      }
+    }
+    verificationUrl = url
+    summaryText = rawText.replace(match[0], '').trim()
+  }
+
+  const isValidationRequired =
+    /VALIDATION_REQUIRED/i.test(rawText) || Boolean(verificationUrl)
+
+  return {
+    summaryText: summaryText || rawText,
+    rawText,
+    verificationUrl,
+    isValidationRequired,
+  }
+}

@@ -13,11 +13,12 @@ import {
   Plus,
   Timer,
   Trash2,
+  ExternalLink,
 } from 'lucide-react'
 import type { AccountState, FleetQuotaSummary, RuleConfig, DiscoveredAccount } from '../types'
 import { normalizePlanTier, toAccountState } from '../types'
 import { TABLE_MIN_WIDTH } from '../utils/layoutTokens'
-import { getAccountTableDisplay } from '../utils/accountPresentation'
+import { getAccountTableDisplay, parseAccountErrorAlert } from '../utils/accountPresentation'
 import { CircularGauge } from '../components/CircularGauge'
 import { HorizontalQuotaBar } from '../components/HorizontalQuotaBar'
 import { AccountDetailModal } from '../components/AccountDetailModal'
@@ -1154,26 +1155,63 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   ? `${errorDetailAccount.label} (${errorDetailAccount.email})`
                   : errorDetailAccount.email}
               </div>
-              <div
-                style={{
-                  backgroundColor:
-                    errorDetailAccount.status?.toUpperCase() === 'BANNED' ? '#fce8e6' : '#fef7e0',
-                  color:
-                    errorDetailAccount.status?.toUpperCase() === 'BANNED' ? '#c5221f' : '#b06000',
-                  padding: '12px 16px',
-                  borderRadius: '10px',
-                  fontSize: '12px',
-                  lineHeight: 1.5,
-                  wordBreak: 'break-word',
-                  fontFamily: 'monospace',
-                }}
-              >
-                {errorDetailAccount.error_message ||
-                  errorDetailAccount.status_reason ||
-                  (errorDetailAccount.status?.toUpperCase() === 'BANNED'
-                    ? 'This account has been flagged or suspended by Google Antigravity services. Quota requests cannot be serviced.'
-                    : 'Authentication failure or token expired. Please re-authenticate or update credentials.')}
-              </div>
+              {(() => {
+                const detailAlert = parseAccountErrorAlert(
+                  errorDetailAccount.error_message || errorDetailAccount.status_reason,
+                  errorDetailAccount.email
+                )
+                return (
+                  <div
+                    style={{
+                      backgroundColor:
+                        errorDetailAccount.status?.toUpperCase() === 'BANNED' ? '#fce8e6' : '#fef7e0',
+                      color:
+                        errorDetailAccount.status?.toUpperCase() === 'BANNED' ? '#c5221f' : '#b06000',
+                      padding: '12px 16px',
+                      borderRadius: '10px',
+                      fontSize: '12px',
+                      lineHeight: 1.5,
+                      wordBreak: 'break-word',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                    }}
+                  >
+                    <div style={{ fontFamily: 'monospace' }}>
+                      {errorDetailAccount.error_message || errorDetailAccount.status_reason
+                        ? detailAlert.summaryText
+                        : errorDetailAccount.status?.toUpperCase() === 'BANNED'
+                        ? 'This account has been flagged or suspended by Google Antigravity services. Quota requests cannot be serviced.'
+                        : 'Authentication failure or token expired. Please re-authenticate or update credentials.'}
+                    </div>
+                    {detailAlert.verificationUrl && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+                        <a
+                          href={detailAlert.verificationUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '5px 12px',
+                            borderRadius: '9999px',
+                            backgroundColor: '#1a73e8',
+                            color: '#ffffff',
+                            fontSize: '11.5px',
+                            fontWeight: 600,
+                            textDecoration: 'none',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          <ExternalLink size={12} />
+                          <span>Verify Account in Browser</span>
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>

@@ -5,6 +5,7 @@ import {
   getAccountHeaderDisplay,
   resolveDefaultAlias,
   normalizeMfaSecret,
+  parseAccountErrorAlert,
   ACCOUNT_SETUP_TEXTS,
 } from './accountPresentation.ts'
 
@@ -271,6 +272,21 @@ describe('accountPresentation utility', () => {
       assert.ok(pageSrc.includes('api.switchAccount(acc.email, true)'), 'should trigger automatic relaunch on table switch')
       assert.ok(pageSrc.includes('api.switchAccount(target, true)'), 'should trigger automatic relaunch on context menu switch')
     })
+
+    it('parses VALIDATION_REQUIRED verification URLs and populates empty authuser parameter', () => {
+      const raw =
+        'Verify your account to continue. (VALIDATION_REQUIRED) (Verification: https://accounts.google.com/signin/continue?sarp=1&scc=1&continue=https://developers.google.com/gemini-code-assist/auth/auth_success_gemini&plt=AKgnsbs&flowName=GlifWebSignIn&authuser)'
+      const parsed = parseAccountErrorAlert(raw, 'joseantoniocarrarofalchi@gmail.com')
+      assert.strictEqual(parsed.isValidationRequired, true)
+      assert.strictEqual(parsed.summaryText, 'Verify your account to continue. (VALIDATION_REQUIRED)')
+      assert.strictEqual(
+        parsed.verificationUrl,
+        'https://accounts.google.com/signin/continue?sarp=1&scc=1&continue=https://developers.google.com/gemini-code-assist/auth/auth_success_gemini&plt=AKgnsbs&flowName=GlifWebSignIn&authuser=joseantoniocarrarofalchi%40gmail.com'
+      )
+
+      const fallback = parseAccountErrorAlert(null)
+      assert.strictEqual(fallback.isValidationRequired, false)
+      assert.strictEqual(fallback.verificationUrl, null)
+    })
   })
 })
-

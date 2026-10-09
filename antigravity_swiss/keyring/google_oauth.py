@@ -12,6 +12,7 @@ Implements loopback desktop authorization flow:
 from __future__ import annotations
 
 import base64
+import html
 import json
 import logging
 import threading
@@ -39,67 +40,30 @@ SUCCESS_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <title>Antigravity Swiss Knife - Login Successful</title>
-  <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background-color: #131314;
-      color: #e3e3e3;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-    }
-    .card {
-      background: #1e1f20;
-      border: 1px solid #3c4043;
-      border-radius: 16px;
-      padding: 36px 48px;
-      text-align: center;
-      max-width: 440px;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-    }
-    .icon {
-      width: 56px;
-      height: 56px;
-      margin: 0 auto 16px;
-      background: rgba(129, 201, 149, 0.15);
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #81c995;
-      font-size: 28px;
-    }
-    h2 {
-      margin: 0 0 8px;
-      color: #ffffff;
-      font-size: 20px;
-    }
-    p {
-      color: #9aa0a6;
-      font-size: 14px;
-      line-height: 1.5;
-      margin: 0 0 20px;
-    }
-    .badge {
-      display: inline-block;
-      padding: 6px 14px;
-      background: #282a2c;
-      border-radius: 12px;
-      font-family: monospace;
-      font-size: 13px;
-      color: #8ab4f8;
-    }
-  </style>
 </head>
-<body>
-  <div class="card">
-    <div class="icon">&#x2713;</div>
-    <h2>Authentication Successful</h2>
-    <p>Antigravity Swiss Knife has extracted your OAuth credentials. You may now close this browser tab and return to the application.</p>
-    <div class="badge">Session Connected</div>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background:#f8fafd; color:#1f1f1f; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;">
+  <div style="background:#ffffff; border:1px solid #dadce0; border-radius:12px; padding:36px 48px; text-align:center; max-width:440px; box-shadow: 0 1px 3px rgba(60,64,67,0.08), 0 4px 12px rgba(60,64,67,0.05);">
+    <div style="width:52px; height:52px; margin:0 auto 16px; background:#e8f0fe; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#1a73e8;">
+      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+    </div>
+    <h2 style="margin:0 0 8px; color:#1f1f1f; font-size:20px; font-weight:700;">Authentication Successful</h2>
+    <p style="color:#5f6368; font-size:14px; line-height:1.5; margin:0 0 16px;">Antigravity Swiss Knife has received and verified your credentials. You can safely close this browser window and return to the application.</p>
+    <p style="color:#5f6368; font-size:12px; margin:0 0 20px;">This tab will attempt to auto-close in <span id="countdown" style="font-weight:700; color:#1a73e8;">5</span> seconds.</p>
+    <button onclick="try{window.close();}catch(e){}try{window.open('','_self','');window.close();}catch(e){}" style="background:#1a73e8; color:#ffffff; border:none; border-radius:9999px; padding:10px 28px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; box-shadow:0 1px 2px rgba(26,115,232,0.2);">Close Window</button>
   </div>
+  <script>
+    let remaining = 5;
+    const countEl = document.getElementById('countdown');
+    const timer = setInterval(function() {
+      remaining--;
+      if (countEl) countEl.textContent = remaining;
+      if (remaining <= 0) {
+        clearInterval(timer);
+        try { window.close(); } catch(e) {}
+        try { window.open('', '_self', ''); window.close(); } catch(e) {}
+      }
+    }, 1000);
+  </script>
 </body>
 </html>
 """
@@ -112,8 +76,8 @@ ERROR_HTML = """<!DOCTYPE html>
   <style>
     body {{
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background-color: #131314;
-      color: #e3e3e3;
+      background-color: #f8fafd;
+      color: #1f1f1f;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -121,22 +85,27 @@ ERROR_HTML = """<!DOCTYPE html>
       margin: 0;
     }}
     .card {{
-      background: #1e1f20;
-      border: 1px solid #f28b82;
-      border-radius: 16px;
+      background: #ffffff;
+      border: 1px solid #dadce0;
+      border-radius: 12px;
       padding: 36px 48px;
       text-align: center;
       max-width: 440px;
+      box-shadow: 0 1px 3px rgba(60,64,67,0.08), 0 4px 12px rgba(60,64,67,0.05);
     }}
-    h2 {{ color: #f28b82; margin-top: 0; }}
-    p {{ color: #9aa0a6; font-size: 14px; }}
+    h2 {{ color: #d93025; margin: 0 0 8px; font-size: 20px; font-weight: 700; }}
+    p {{ color: #5f6368; font-size: 14px; line-height: 1.5; }}
   </style>
 </head>
 <body>
   <div class="card">
+    <div style="width:52px; height:52px; margin:0 auto 16px; background:#fce8e6; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#d93025;">
+      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#d93025" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
+    </div>
     <h2>Authentication Error</h2>
     <p>{error_msg}</p>
-    <p>Please return to Antigravity Swiss Knife and try again.</p>
+    <p style="margin:0 0 20px;">Please return to Antigravity Swiss Knife and try again.</p>
+    <button onclick="try{{window.close();}}catch(e){{}}try{{window.open('','_self','');window.close();}}catch(e){{}}" style="background:#1a73e8; color:#ffffff; border:none; border-radius:9999px; padding:10px 28px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; box-shadow:0 1px 2px rgba(26,115,232,0.2);">Close Window</button>
   </div>
 </body>
 </html>
@@ -227,7 +196,7 @@ class GoogleOAuthExtractor:
                     self.send_response(200)
                     self.send_header("Content-Type", "text/html; charset=utf-8")
                     self.end_headers()
-                    self.wfile.write(ERROR_HTML.format(error_msg=err_msg).encode("utf-8"))
+                    self.wfile.write(ERROR_HTML.format(error_msg=html.escape(err_msg)).encode("utf-8"))
                     extractor._done_event.set()
                     return
 
@@ -237,7 +206,7 @@ class GoogleOAuthExtractor:
                     self.send_response(400)
                     self.send_header("Content-Type", "text/html; charset=utf-8")
                     self.end_headers()
-                    self.wfile.write(ERROR_HTML.format(error_msg=extractor.error).encode("utf-8"))
+                    self.wfile.write(ERROR_HTML.format(error_msg=html.escape(extractor.error)).encode("utf-8"))
                     extractor._done_event.set()
                     return
 
@@ -286,7 +255,7 @@ class GoogleOAuthExtractor:
                     self.send_response(500)
                     self.send_header("Content-Type", "text/html; charset=utf-8")
                     self.end_headers()
-                    self.wfile.write(ERROR_HTML.format(error_msg=str(exc)).encode("utf-8"))
+                    self.wfile.write(ERROR_HTML.format(error_msg=html.escape(str(exc))).encode("utf-8"))
                 finally:
                     extractor._done_event.set()
 

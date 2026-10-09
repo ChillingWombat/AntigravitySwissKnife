@@ -56,6 +56,7 @@ type rawAccountItem struct {
 	Label                string  `json:"label"`
 	PlanTier             string  `json:"plan_tier,omitempty"`
 	Status               string  `json:"status,omitempty"`
+	ErrorMessage         string  `json:"error_message,omitempty"`
 	Priority             string  `json:"priority,omitempty"`
 	Notes                string  `json:"notes,omitempty"`
 	Password             string  `json:"password,omitempty"`
@@ -162,11 +163,17 @@ func (s *Store) load() error {
 					}
 				}
 
+				errMsg := ""
+				if status == "ERROR" || status == "BANNED" {
+					errMsg = item.ErrorMessage
+				}
+
 				acc := &Account{
 					Email:                em,
 					Label:                item.Label,
 					PlanTier:             item.PlanTier,
 					Status:               status,
+					ErrorMessage:         errMsg,
 					Priority:             priority,
 					Notes:                item.Notes,
 					Password:             password,
@@ -231,11 +238,17 @@ func (s *Store) load() error {
 				}
 			}
 
+			errMsg := ""
+			if status == "ERROR" || status == "BANNED" {
+				errMsg = item.ErrorMessage
+			}
+
 			acc := &Account{
 				Email:                item.Email,
 				Label:                item.Label,
 				PlanTier:             item.PlanTier,
 				Status:               status,
+				ErrorMessage:         errMsg,
 				Priority:             priority,
 				Notes:                item.Notes,
 				Password:             password,
@@ -271,6 +284,7 @@ func (s *Store) save() error {
 		Label                string  `json:"label"`
 		PlanTier             string  `json:"plan_tier,omitempty"`
 		Status               string  `json:"status,omitempty"`
+		ErrorMessage         string  `json:"error_message,omitempty"`
 		Priority             string  `json:"priority,omitempty"`
 		Notes                string  `json:"notes,omitempty"`
 		Password             string  `json:"password,omitempty"`
@@ -308,6 +322,9 @@ func (s *Store) save() error {
 			st = "ACTIVE"
 		}
 		acc.Status = st
+		if st != "ERROR" && st != "BANNED" {
+			acc.ErrorMessage = ""
+		}
 
 		encPassword := core.EncryptCredential(acc.Password)
 		encTOTP := core.EncryptCredential(acc.TOTPSecret)
@@ -330,6 +347,7 @@ func (s *Store) save() error {
 			Label:                acc.Label,
 			PlanTier:             acc.PlanTier,
 			Status:               st,
+			ErrorMessage:         acc.ErrorMessage,
 			Priority:             priority,
 			Notes:                acc.Notes,
 			Password:             encPassword,
@@ -623,6 +641,15 @@ func (s *Store) GetAccount(email string) (*Account, error) {
 
 	acc, exists := s.accounts[email]
 	if !exists {
+		for e, a := range s.accounts {
+			if strings.EqualFold(e, email) {
+				acc = a
+				exists = true
+				break
+			}
+		}
+	}
+	if !exists {
 		return nil, fmt.Errorf("%w: %s", core.ErrAccountNotFound, email)
 	}
 	copyAcc := *acc
@@ -680,9 +707,17 @@ func (s *Store) ImportAccount(email, refreshToken, accessToken, label, totpSecre
 			}
 			acc.RefreshToken = cleanToken
 		}
+		if strings.EqualFold(acc.Status, "ERROR") {
+			acc.Status = "STANDBY"
+			acc.ErrorMessage = ""
+		}
 	}
 	if accessToken != "" {
 		acc.AccessToken = strings.TrimSpace(accessToken)
+		if strings.EqualFold(acc.Status, "ERROR") {
+			acc.Status = "STANDBY"
+			acc.ErrorMessage = ""
+		}
 	}
 	if totpSecret != "" {
 		acc.TOTPSecret = totpSecret
@@ -833,6 +868,9 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 	}
 	if status != "" {
 		acc.Status = strings.ToUpper(status)
+		if acc.Status != "ERROR" && acc.Status != "BANNED" {
+			acc.ErrorMessage = ""
+		}
 	}
 	if priority != "" {
 		p := strings.Title(strings.ToLower(strings.TrimSpace(priority)))
@@ -854,6 +892,10 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 			if acc.RefreshToken != cleanToken {
 				acc.AccessToken = ""
 				acc.TokenExpiry = time.Time{}
+				if strings.EqualFold(acc.Status, "ERROR") {
+					acc.Status = "STANDBY"
+					acc.ErrorMessage = ""
+				}
 			}
 			acc.RefreshToken = cleanToken
 		}

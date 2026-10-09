@@ -99,3 +99,29 @@ func TestGoogleOAuthManager_ExchangeMockServer(t *testing.T) {
 	_ = receivedCode
 	_ = receivedRedirect
 }
+
+func TestGoogleOAuthCallbackHTML_LightThemeAndLucideIcon(t *testing.T) {
+	if !strings.Contains(oauthSuccessHTML, "background:#f8fafd;") || !strings.Contains(oauthSuccessHTML, "background:#ffffff;") {
+		t.Errorf("expected oauthSuccessHTML to use light theme backgrounds (#f8fafd and #ffffff)")
+	}
+	if strings.Contains(oauthSuccessHTML, "#090a0f") || strings.Contains(oauthSuccessHTML, "#12151f") {
+		t.Errorf("expected oauthSuccessHTML not to contain dark theme colors")
+	}
+	if strings.Contains(oauthSuccessHTML, "✓") {
+		t.Errorf("expected oauthSuccessHTML to replace unicode checkmark with Lucide SVG")
+	}
+	if !strings.Contains(oauthSuccessHTML, `<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>`) {
+		t.Errorf("expected oauthSuccessHTML to include Lucide check-circle SVG icon")
+	}
+	if !strings.Contains(oauthSuccessHTML, "background:#1a73e8;") || !strings.Contains(oauthSuccessHTML, "color:#1a73e8;") || !strings.Contains(oauthSuccessHTML, "white-space:nowrap;") {
+		t.Errorf("expected oauthSuccessHTML to use blue (#1a73e8) for button/accent color and white-space:nowrap")
+	}
+
+	errPage := string(renderOAuthErrorHTML("Authentication <Failed>", "access_denied: <script>alert(1)</script>"))
+	if !strings.Contains(errPage, "background:#f8fafd;") || !strings.Contains(errPage, "background:#1a73e8;") {
+		t.Errorf("expected renderOAuthErrorHTML to use light theme and blue button")
+	}
+	if strings.Contains(errPage, "<script>alert(1)</script>") || !strings.Contains(errPage, "&lt;script&gt;alert(1)&lt;/script&gt;") {
+		t.Errorf("expected renderOAuthErrorHTML to HTML-escape title and detail")
+	}
+}
