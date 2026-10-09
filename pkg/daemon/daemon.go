@@ -1602,10 +1602,15 @@ func (d *Daemon) schedulerLoop() {
 										_ = gui.NewInjector(0).CaptureActiveConversationPath()
 										go func() {
 											time.Sleep(200 * time.Millisecond)
-											_ = d.Shield.RelaunchHostIDE()
+											if err := d.Shield.RelaunchHostIDE(); err != nil {
+												log.Printf("[Daemon Auto-Switch] RelaunchHostIDE error: %v", err)
+											}
+											if d.Revival != nil && revIntent != nil {
+												time.Sleep(3 * time.Second)
+												_ = d.Revival.ExecutePostRelaunchRevival(revIntent)
+											}
 										}()
-									}
-									if d.Revival != nil && revIntent != nil {
+									} else if d.Revival != nil && revIntent != nil {
 										go func(it *revival.RevivalIntent) {
 											_ = d.Revival.ExecutePostRelaunchRevival(it)
 										}(revIntent)
@@ -1655,10 +1660,15 @@ func (d *Daemon) schedulerLoop() {
 									_ = gui.NewInjector(0).CaptureActiveConversationPath()
 									go func() {
 										time.Sleep(200 * time.Millisecond)
-										_ = d.Shield.RelaunchHostIDE()
+										if err := d.Shield.RelaunchHostIDE(); err != nil {
+											log.Printf("[Daemon Auto-Switch] RelaunchHostIDE error: %v", err)
+										}
+										if d.Revival != nil && revIntent != nil {
+											time.Sleep(3 * time.Second)
+											_ = d.Revival.ExecutePostRelaunchRevival(revIntent)
+										}
 									}()
-								}
-								if d.Revival != nil && revIntent != nil {
+								} else if d.Revival != nil && revIntent != nil {
 									go func(it *revival.RevivalIntent) {
 										_ = d.Revival.ExecutePostRelaunchRevival(it)
 									}(revIntent)

@@ -2517,6 +2517,9 @@ func TestConversationEndpoints(t *testing.T) {
 
 	baseURL := "http://" + srv.Addr()
 
+	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
+	validTestConvID := "c1111111-2222-3333-4444-555555555555"
+
 	// 1. GET /api/conversations/active (empty initially)
 	resp, err := http.Get(baseURL + "/api/conversations/active")
 	if err != nil || resp.StatusCode != http.StatusOK {
@@ -2526,10 +2529,10 @@ func TestConversationEndpoints(t *testing.T) {
 
 	// 2. Mock CDP target and script executor on engine
 	engine.CDPTrigger.TargetFinder = func(port int) (int, []gui.DevToolsTarget, error) {
-		return 9222, []gui.DevToolsTarget{
+		return 49999, []gui.DevToolsTarget{
 			{
-				URL:                  "https://127.0.0.1:41234/c/test-webgui-conv",
-				WebSocketDebuggerURL: "ws://127.0.0.1:9222/devtools/page/1",
+				URL:                  "https://127.0.0.1:41234/c/" + validTestConvID,
+				WebSocketDebuggerURL: "ws://127.0.0.1:49999/devtools/page/1",
 			},
 		}, nil
 	}
@@ -2540,7 +2543,7 @@ func TestConversationEndpoints(t *testing.T) {
 	// 3. POST /api/conversations/revive
 	revivePayload := map[string]interface{}{
 		"target_app":      "desktop",
-		"conversation_id": "test-webgui-conv",
+		"conversation_id": validTestConvID,
 		"prompt":          "Continue task execution",
 	}
 	rBytes, _ := json.Marshal(revivePayload)
@@ -2578,7 +2581,7 @@ func TestConversationEndpoints(t *testing.T) {
 
 	// 6. POST /api/conversations/ack
 	ackPayload := map[string]interface{}{
-		"cascade_id": "test-webgui-conv",
+		"cascade_id": validTestConvID,
 	}
 	aBytes, _ := json.Marshal(ackPayload)
 	ackResp, err := http.Post(baseURL+"/api/conversations/ack", "application/json", bytes.NewReader(aBytes))

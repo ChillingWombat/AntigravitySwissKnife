@@ -1118,7 +1118,40 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       } catch (_) {}
     }
 
+    function checkAndRecoverFromNonexistentConversation() {
+      const curPath = window.location.pathname || "/";
+      if (!curPath.startsWith("/c/")) return;
+      const curID = curPath.replace(/^\/c\//, "").split(/[?#]/)[0];
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+      const isNotFound = document.querySelector('[data-testid="not-found"]') ||
+                         Array.from(document.querySelectorAll("h1, h2, h3, p")).some(el =>
+                           el.textContent && (
+                             el.textContent.includes("Conversation not found") ||
+                             el.textContent.includes("This conversation could not be found")
+                           )
+                         );
+
+      if (!uuidRegex.test(curID) || isNotFound) {
+        const pinned = localStorage.getItem("antigravity_swiss_last_conversation_path") ||
+                       localStorage.getItem("antigravity_swiss_pinned_conversation_path");
+        if (pinned && pinned.startsWith("/c/")) {
+          const pinnedID = pinned.replace(/^\/c\//, "").split(/[?#]/)[0];
+          if (uuidRegex.test(pinnedID) && curID !== pinnedID) {
+            const now = Date.now();
+            if (!window.__swissLastRedirectTime || (now - window.__swissLastRedirectTime > 3000)) {
+              window.__swissLastRedirectTime = now;
+              console.warn("[SwissKnife] Redirecting from invalid/not-found conversation " + curPath + " to pinned: " + pinned);
+              window.location.assign(pinned);
+            }
+          }
+        }
+      }
+    }
+
     async function checkAndExecuteConversationRevival() {
+      checkAndRecoverFromNonexistentConversation();
+
       if (window.__swissRevivalDispatched || window.__swissCDPRevivalSent) {
         if (window.__swissRevivalInterval) {
           clearInterval(window.__swissRevivalInterval);
@@ -1159,6 +1192,15 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         const convID = pending.root_conversation_id || pending.cascade_id;
         if (!convID || pending.resumed || pending.status === "revived") return;
 
+        // Strictly validate convID: reject non-UUID stubs (test-webgui-conv, test, etc.)
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(convID)) {
+          console.warn("[SwissKnife AutoRevival] Rejecting invalid non-UUID intent:", convID);
+          try { localStorage.removeItem("antigravity_swiss_pending_continuation"); } catch (_) {}
+          await ackContinuation(convID);
+          return;
+        }
+
         try {
           if (sessionStorage.getItem("antigravity_swiss_revived_" + convID)) {
             window.__swissRevivalDispatched = true;
@@ -1171,16 +1213,43 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           }
         } catch (_) {}
 
-        // Check TTL
+        // Check TTL & creation timestamp
         const ttl = (pending.ttl_seconds || 90) * 1000;
-        const createdAt = pending.timestamp || (pending.created_at ? new Date(pending.created_at).getTime() : now);
-        if (now - createdAt > ttl) {
+        const createdAt = pending.timestamp ? Number(pending.timestamp) : (pending.created_at ? new Date(pending.created_at).getTime() : 0);
+        if (!createdAt || isNaN(createdAt) || (now - createdAt > ttl) || (createdAt > now + 60000)) {
           try { localStorage.removeItem("antigravity_swiss_pending_continuation"); } catch (_) {}
+          await ackContinuation(convID);
           return;
+        }
+
+        // Dedupe against pinned last conversation path: if path != pinned, drop stale intent
+        const pinnedPath = localStorage.getItem("antigravity_swiss_last_conversation_path");
+        if (pinnedPath && pinnedPath.startsWith("/c/")) {
+          const pinnedID = pinnedPath.replace(/^\/c\//, "").split(/[?#]/)[0];
+          if (uuidRegex.test(pinnedID) && convID !== pinnedID) {
+            console.warn("[SwissKnife AutoRevival] Dropping stale intent targeting " + convID + " (pinned is " + pinnedID + ")");
+            try { localStorage.removeItem("antigravity_swiss_pending_continuation"); } catch (_) {}
+            await ackContinuation(convID);
+            return;
+          }
         }
 
         const targetPath = "/c/" + convID;
         const curPath = window.location.pathname || "/";
+
+        // Never hijack an active conversation that is already rendered and healthy
+        if (curPath.startsWith("/c/")) {
+          const currentConvID = curPath.replace(/^\/c\//, "").split(/[?#]/)[0];
+          if (uuidRegex.test(currentConvID) && currentConvID !== convID) {
+            const hasMessagesOrEditor = Boolean(document.querySelector('[data-testid="conversation-view"], [data-testid="agent-input-box"]'));
+            if (hasMessagesOrEditor) {
+              console.warn("[SwissKnife AutoRevival] Current page is on active conversation " + currentConvID + "; refusing to navigate away to " + convID);
+              try { localStorage.removeItem("antigravity_swiss_pending_continuation"); } catch (_) {}
+              await ackContinuation(convID);
+              return;
+            }
+          }
+        }
 
         // 1. If not at the target conversation route, navigate
         if (!curPath.startsWith(targetPath)) {

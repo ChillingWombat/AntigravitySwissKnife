@@ -468,6 +468,36 @@ func IsUUID(s string) bool {
 	return uuidRegex.MatchString(strings.TrimSpace(s))
 }
 
+// ConversationExistsInDB verifies if the conversation identifier exists in conversation_summaries.db.
+func ConversationExistsInDB(id string) bool {
+	id = strings.TrimSpace(id)
+	id = strings.TrimPrefix(id, "/c/")
+	id = strings.TrimPrefix(id, "/battle/")
+	if id == "" {
+		return false
+	}
+	dbPath := filepath.Join(core.GetAntigravityDir(), "conversation_summaries.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return false
+		}
+		dbPath = filepath.Join(home, ".gemini", "antigravity", "conversation_summaries.db")
+		if _, err := os.Stat(dbPath); err != nil {
+			return false
+		}
+	}
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return false
+	}
+	defer db.Close()
+	_, _ = db.Exec("PRAGMA busy_timeout = 1000;")
+	var count int
+	err = db.QueryRow(`SELECT COUNT(*) FROM conversation_summaries WHERE conversation_id = ?`, id).Scan(&count)
+	return err == nil && count > 0
+}
+
 // IsValidConversationID checks if a conversation identifier is valid and not a test/internal stub.
 func IsValidConversationID(id string) bool {
 	id = strings.TrimSpace(id)
@@ -482,7 +512,8 @@ func IsValidConversationID(id string) bool {
 	id = strings.TrimSpace(id)
 
 	lower := strings.ToLower(id)
-	if lower == "_new" || lower == "test" || lower == "test-web" || lower == "test-webgui-conv" ||
+	if lower == "_new" || strings.HasPrefix(lower, "test") || strings.Contains(lower, "test-") ||
+		strings.Contains(lower, "test_") || strings.HasPrefix(lower, "mock") || strings.HasPrefix(lower, "stub") ||
 		lower == "undefined" || lower == "null" || lower == "index" || lower == "onboarding" ||
 		lower == "login" || lower == "settings" || strings.Contains(id, "/") {
 		return false
@@ -492,9 +523,13 @@ func IsValidConversationID(id string) bool {
 		return true
 	}
 
-	// Also allow alphanumeric-hyphen identifiers of length >= 6 (for test suites and custom IDs)
-	// while rejecting test-web stubs
-	if len(id) >= 6 && !strings.HasPrefix(lower, "test-web") {
+	if ConversationExistsInDB(id) {
+		return true
+	}
+
+	// Also allow alphanumeric-hyphen identifiers of length >= 6 (for test fixtures like conv-101)
+	// while strictly rejecting test stubs
+	if len(id) >= 6 && !strings.Contains(lower, "test") {
 		for _, r := range id {
 			if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
 				return false

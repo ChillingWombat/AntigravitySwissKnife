@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 )
 
 // Store manages disk persistence for pending conversation revival intents.
@@ -66,6 +68,10 @@ func (s *Store) SaveIntent(intent *RevivalIntent) error {
 		intent.Resumed = true
 	}
 
+	if !gui.IsValidConversationID(intent.RootConversationID) {
+		return fmt.Errorf("refusing to save revival intent: conversation ID %q is invalid", intent.RootConversationID)
+	}
+
 	if err := os.MkdirAll(s.dir, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
@@ -121,14 +127,41 @@ func (s *Store) LoadIntent() (*RevivalIntent, error) {
 		intent.CreatedAt = time.UnixMilli(intent.Timestamp)
 	}
 
+	// Reject invalid conversation ID
+	if !gui.IsValidConversationID(intent.RootConversationID) {
+		_ = os.Remove(s.filePath)
+		return nil, nil
+	}
+
 	// Check TTL expiration
 	ttl := intent.TTLSeconds
 	if ttl <= 0 {
 		ttl = 90
 	}
-	if !intent.CreatedAt.IsZero() && time.Since(intent.CreatedAt) > time.Duration(ttl)*time.Second {
+	if intent.CreatedAt.IsZero() {
+		if info, statErr := os.Stat(s.filePath); statErr == nil {
+			intent.CreatedAt = info.ModTime()
+		} else {
+			_ = os.Remove(s.filePath)
+			return nil, nil
+		}
+	}
+	if time.Since(intent.CreatedAt) > time.Duration(ttl)*time.Second {
 		// Stale intent
+		_ = os.Remove(s.filePath)
 		return nil, nil
+	}
+
+	// Dedupe against pinned conversation (in production config directory):
+	// If intent path does not match pinned last conversation path, and intent is older than 25s, drop it
+	if s.dir == core.GetConfigDir() {
+		if pinned := gui.LoadPinnedConversationPath(); gui.IsValidConversationPath(pinned) {
+			pinnedID := strings.TrimPrefix(pinned, "/c/")
+			if !strings.EqualFold(pinnedID, intent.RootConversationID) && time.Since(intent.CreatedAt) > 25*time.Second {
+				_ = os.Remove(s.filePath)
+				return nil, nil
+			}
+		}
 	}
 
 	return &intent, nil

@@ -5138,6 +5138,11 @@ func (s *Server) handleConversationsRevive(w http.ResponseWriter, r *http.Reques
 	}
 	_ = json.NewDecoder(r.Body).Decode(&p)
 
+	if p.ConversationID != "" && !gui.IsValidConversationID(p.ConversationID) {
+		http.Error(w, "invalid conversation_id", http.StatusBadRequest)
+		return
+	}
+
 	var res map[string]interface{}
 	var err error
 	if s.client != nil {

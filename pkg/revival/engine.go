@@ -37,6 +37,18 @@ func (e *Engine) CapturePreSwitchState(targetApp string) (*RevivalIntent, error)
 		return nil, err
 	}
 
+	if !gui.IsValidConversationID(session.ConversationID) {
+		if pinned := gui.LoadPinnedConversationPath(); gui.IsValidConversationPath(pinned) {
+			session.ConversationID = strings.TrimPrefix(pinned, "/c/")
+			session.TargetPath = pinned
+		} else if fromDB := gui.QueryLatestTopLevelConversationPath(); gui.IsValidConversationPath(fromDB) {
+			session.ConversationID = strings.TrimPrefix(fromDB, "/c/")
+			session.TargetPath = fromDB
+		} else {
+			return nil, fmt.Errorf("refusing to persist revival intent: captured conversation ID %q is invalid", session.ConversationID)
+		}
+	}
+
 	intentID := fmt.Sprintf("intent-%d", time.Now().UnixNano())
 	now := time.Now()
 
@@ -120,12 +132,18 @@ func (e *Engine) ExecutePostRelaunchRevival(intent *RevivalIntent) error {
 }
 
 func (e *Engine) executeDesktopRevival(intent *RevivalIntent) error {
+	if !gui.IsValidConversationID(intent.RootConversationID) {
+		return fmt.Errorf("invalid conversation ID for desktop revival: %s", intent.RootConversationID)
+	}
+
 	targetPath := "/c/" + strings.TrimPrefix(intent.RootConversationID, "/c/")
 
-	// Asynchronously ensure URL routing
-	go func() {
-		_ = gui.NewInjector(e.CDPTrigger.CustomPort).RestoreConversationPath(targetPath, 25*time.Second)
-	}()
+	// Asynchronously ensure URL routing only when not in test dry-run mode and target is valid
+	if os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" && gui.IsValidConversationPath(targetPath) {
+		go func() {
+			_ = gui.NewInjector(e.CDPTrigger.CustomPort).RestoreConversationPath(targetPath, 25*time.Second)
+		}()
+	}
 
 	prompt := strings.TrimSpace(intent.TriggerPrompt)
 	if prompt == "" {
@@ -190,6 +208,16 @@ func (e *Engine) ReviveConversation(targetApp string, conversationID string, for
 		conversationID = session.ConversationID
 	}
 
+	if !gui.IsValidConversationID(conversationID) {
+		if pinned := gui.LoadPinnedConversationPath(); gui.IsValidConversationPath(pinned) {
+			conversationID = strings.TrimPrefix(pinned, "/c/")
+		} else if fromDB := gui.QueryLatestTopLevelConversationPath(); gui.IsValidConversationPath(fromDB) {
+			conversationID = strings.TrimPrefix(fromDB, "/c/")
+		} else {
+			return fmt.Errorf("cannot revive invalid conversation ID: %s", conversationID)
+		}
+	}
+
 	prompt := forcePrompt
 	if prompt == "" {
 		prompt = DefaultTriggerPrompt
@@ -212,7 +240,9 @@ func (e *Engine) ReviveConversation(targetApp string, conversationID string, for
 		Resumed:            false,
 	}
 
-	_ = e.Store.SaveIntent(intent)
+	if err := e.Store.SaveIntent(intent); err != nil {
+		return err
+	}
 	return e.ExecutePostRelaunchRevival(intent)
 }
 
