@@ -105,8 +105,41 @@ func (s *Store) load() error {
 	cfg.PromptJumpBar.ShowTooltip = true
 	cfg.PromptJumpBar.SyncScroll = true
 
+	// Migrate legacy global extension toggles into the per-extension visibility map
+	migratedExtensions := normalizeExtensions(&cfg)
+
 	s.config = cfg
+	if migratedExtensions {
+		// Persist the normalized config once so the map is authoritative from now on
+		if err := s.save(); err != nil {
+			return fmt.Errorf("failed to persist normalized extensions map: %w", err)
+		}
+	}
 	return nil
+}
+
+// normalizeExtensions derives cfg.Extensions from the legacy global toggles when
+// the map is absent/empty, and forces the left sidebar into individual mode so
+// each extension gets its own tab button. Returns true when the config changed.
+func normalizeExtensions(cfg *EnhancementsConfig) bool {
+	if len(cfg.Extensions) > 0 {
+		return false
+	}
+	cfg.Extensions = DefaultExtensionVisibility()
+	if !cfg.LeftPanelExtensionsEnabled {
+		for id, vis := range cfg.Extensions {
+			vis.AuxPanel = false
+			cfg.Extensions[id] = vis
+		}
+	}
+	if !cfg.MainSectionExtensionsEnabled {
+		for id, vis := range cfg.Extensions {
+			vis.MainPage = false
+			cfg.Extensions[id] = vis
+		}
+	}
+	cfg.LeftPanelExtensionsMode = "individual"
+	return true
 }
 
 func (s *Store) save() error {
@@ -143,6 +176,15 @@ func (s *Store) UpdateConfig(newCfg EnhancementsConfig) error {
 
 	newCfg.PromptJumpBar.ShowTooltip = true
 	newCfg.PromptJumpBar.SyncScroll = true
+	if len(newCfg.Extensions) == 0 {
+		// Clients that predate the per-extension map must not wipe it: keep the
+		// stored map when present, otherwise derive it from the legacy toggles.
+		if len(s.config.Extensions) > 0 {
+			newCfg.Extensions = s.config.Extensions
+		} else {
+			normalizeExtensions(&newCfg)
+		}
+	}
 	s.config = newCfg
 	return s.save()
 }

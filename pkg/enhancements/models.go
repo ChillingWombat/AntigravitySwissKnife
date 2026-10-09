@@ -31,6 +31,27 @@ type OverviewPanelConfig struct {
 	AuxTabsFormat          string `json:"aux_tabs_format"`          // "icon" (default: compact icon-only matching native) or "icon_and_name"
 }
 
+// ExtensionVisibility controls where a Swiss Knife extension surfaces inside the IDE:
+// AuxPanel toggles the tab in the right auxiliary panel, MainPage toggles the
+// left-sidebar tab button that opens the extension on the main stage.
+type ExtensionVisibility struct {
+	AuxPanel bool `json:"aux_panel"`
+	MainPage bool `json:"main_page"`
+}
+
+// Extension IDs tracked by the visibility map (IDE-real extensions plus facades).
+var ExtensionIDs = []string{"browser", "files", "memos", "github", "mobile", "computer_use"}
+
+// DefaultExtensionVisibility returns the per-extension visibility map with every
+// known extension enabled in both the auxiliary panel and the main stage.
+func DefaultExtensionVisibility() map[string]ExtensionVisibility {
+	m := make(map[string]ExtensionVisibility, len(ExtensionIDs))
+	for _, id := range ExtensionIDs {
+		m[id] = ExtensionVisibility{AuxPanel: true, MainPage: true}
+	}
+	return m
+}
+
 // EnhancementsConfig holds configuration for usability improvements and add-on features.
 type EnhancementsConfig struct {
 	Version            string              `json:"version"`
@@ -40,8 +61,9 @@ type EnhancementsConfig struct {
 	ToolDensityMode    string              `json:"tool_density_mode"`    // "normal", "muted", "hidden"
 	BreakerLineEnabled         bool                `json:"breaker_line_enabled"`          // Breaker line between previous answer and new prompt
 	LeftPanelExtensionsEnabled bool                `json:"left_panel_extensions_enabled"` // Toggle button for extension in left sidebar (default: true)
-	LeftPanelExtensionsMode    string              `json:"left_panel_extensions_mode"`    // "single" (single Swiss Knife button) or "individual" (default: "single")
+	LeftPanelExtensionsMode    string              `json:"left_panel_extensions_mode"`    // "single" (single Swiss Knife button) or "individual" (default: "individual")
 	MainSectionExtensionsEnabled bool              `json:"main_section_extensions_enabled"` // Toggle to use extension in main section vs auxiliary panel (default: true)
+	Extensions                 map[string]ExtensionVisibility `json:"extensions,omitempty"` // Per-extension aux-panel/main-page visibility switches
 	DefaultNewProject          string              `json:"default_new_project"`           // "auto" (default: latest active) or predefined project name
 	ScrollToBottom             bool                `json:"scroll_to_bottom"`
 	TurnCounter                bool                `json:"turn_counter"`
@@ -79,8 +101,9 @@ func DefaultConfig() *EnhancementsConfig {
 		ToolDensityMode:            "muted",
 		BreakerLineEnabled:         true,
 		LeftPanelExtensionsEnabled: true,
-		LeftPanelExtensionsMode:    "single",
+		LeftPanelExtensionsMode:    "individual",
 		MainSectionExtensionsEnabled: true,
+		Extensions:                 DefaultExtensionVisibility(),
 		DefaultNewProject:          "auto",
 		ScrollToBottom:             true,
 		TurnCounter:                true,

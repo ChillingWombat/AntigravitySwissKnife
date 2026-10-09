@@ -7,14 +7,19 @@ import {
   Monitor,
   ExternalLink,
   CheckCircle2,
+  AlertTriangle,
   ArrowLeft,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { GithubIcon } from '../components/GithubIcon'
 import { api } from '../api'
 import { GitHubWorkspacePage } from './GitHubWorkspacePage'
+import type { EnhancementsConfig } from '../types'
 
 const IDE_PRESETS = ['code', 'cursor', 'windsurf', 'codium', 'zed']
+
+type ExtensionVisibility = { aux_panel: boolean; main_page: boolean }
+const DEFAULT_EXT_VIS: ExtensionVisibility = { aux_panel: true, main_page: true }
 
 export interface ExtensionsPageProps {
   activeTab?: number
@@ -28,25 +33,12 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
   scope,
   fallbackProject,
 }) => {
-  // --- 1. Extension Active Toggles (persisted in localStorage) ---
-  const [githubEnabled, setGithubEnabled] = useState<boolean>(() => {
-    return localStorage.getItem('antigravity_ext_github_enabled') !== 'false'
-  })
-  const [browserEnabled, setBrowserEnabled] = useState<boolean>(() => {
-    return localStorage.getItem('antigravity_ext_browser_enabled') !== 'false'
-  })
-  const [filesEnabled, setFilesEnabled] = useState<boolean>(() => {
-    return localStorage.getItem('antigravity_ext_files_enabled') !== 'false'
-  })
-  const [memosEnabled, setMemosEnabled] = useState<boolean>(() => {
-    return localStorage.getItem('antigravity_ext_memos_enabled') !== 'false'
-  })
-  const [mobileEnabled, setMobileEnabled] = useState<boolean>(() => {
-    return localStorage.getItem('antigravity_ext_mobile_enabled') !== 'false'
-  })
-  const [computerUseEnabled, setComputerUseEnabled] = useState<boolean>(() => {
-    return localStorage.getItem('antigravity_ext_computer_use_enabled') !== 'false'
-  })
+  // --- 1. Extension Visibility Switches (daemon-persisted EnhancementsConfig) ---
+  // aux_panel  = available in the IDE's right auxiliary panel
+  // main_page  = openable on the main stage via a left-sidebar tab button
+  const [enhConfig, setEnhConfig] = useState<EnhancementsConfig | null>(null)
+  const [extVisLocal, setExtVisLocal] = useState<Record<string, ExtensionVisibility>>({})
+  const [enhError, setEnhError] = useState<string | null>(null)
 
   // --- 2. Extension Specific Settings State ---
   // GitHub Workspace
@@ -58,9 +50,6 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
   // Preview Browser
   const [previewUrl, setPreviewUrl] = useState<string>(() => {
     return localStorage.getItem('antigravity_browser_default_url') || 'http://localhost:5173'
-  })
-  const [browserTarget, setBrowserTarget] = useState<'auxiliary' | 'main'>(() => {
-    return (localStorage.getItem('antigravity_browser_target') as 'auxiliary' | 'main') || 'auxiliary'
   })
 
   // File Explorer
@@ -115,9 +104,19 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
     setTimeout(() => setFeedback(null), 3000)
   }
 
-  // Load daemon-persisted settings (IDE + Quick Memos); keep localStorage fallbacks
-  // if the daemon is unreachable.
+  // Load daemon-persisted settings (extension visibility, IDE + Quick Memos);
+  // keep localStorage fallbacks if the daemon is unreachable.
   useEffect(() => {
+    api
+      .getEnhancements()
+      .then((cfg) => {
+        setEnhConfig(cfg)
+        setEnhError(null)
+      })
+      .catch(() =>
+        setEnhError('Enhancements daemon unreachable — visibility switches show defaults and will not persist')
+      )
+
     api
       .getPreferredIDE()
       .then((res) => {
@@ -204,12 +203,97 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
     cursor: 'pointer',
   })
 
-  const handleToggleExtension = (key: string, currentVal: boolean, setter: (v: boolean) => void) => {
-    const nextVal = !currentVal
-    setter(nextVal)
-    localStorage.setItem(key, String(nextVal))
-    showFeedback(`Extension status updated: ${nextVal ? 'Enabled' : 'Disabled'}`)
+  // Per-extension visibility: the EnhancementsConfig.extensions map is the
+  // source of truth (dashboard localStorage has no effect on the IDE).
+  const visFor = (id: string): ExtensionVisibility => {
+    const local = extVisLocal[id]
+    if (local) return local
+    const v = enhConfig?.extensions?.[id]
+    if (v) return { aux_panel: v.aux_panel !== false, main_page: v.main_page === true }
+    return DEFAULT_EXT_VIS
   }
+
+  const handleExtVisChange = async (id: string, field: 'aux_panel' | 'main_page', value: boolean) => {
+    const optimistic: ExtensionVisibility = { ...visFor(id), [field]: value }
+    setExtVisLocal((prev) => {
+      const cfgVis = enhConfig?.extensions?.[id]
+      const baseVis =
+        prev[id] ||
+        (cfgVis
+          ? { aux_panel: cfgVis.aux_panel !== false, main_page: cfgVis.main_page === true }
+          : DEFAULT_EXT_VIS)
+      return { ...prev, [id]: { ...baseVis, [field]: value } }
+    })
+    try {
+      let base = enhConfig
+      if (!base) {
+        base = await api.getEnhancements()
+        setEnhConfig(base)
+      }
+      const cur = base.extensions?.[id]
+      const next: ExtensionVisibility = {
+        aux_panel: field === 'aux_panel' ? value : cur ? cur.aux_panel !== false : optimistic.aux_panel,
+        main_page: field === 'main_page' ? value : cur ? cur.main_page === true : optimistic.main_page,
+      }
+      const updated: EnhancementsConfig = {
+        ...base,
+        extensions: { ...(base.extensions || {}), [id]: next },
+      }
+      const saved = await api.updateEnhancements(updated)
+      setEnhConfig(saved)
+      setEnhError(null)
+      setExtVisLocal((prev) => {
+        const copy = { ...prev }
+        delete copy[id]
+        return copy
+      })
+      showFeedback('Extension visibility updated')
+    } catch {
+      setEnhError('Daemon unreachable — extension visibility change was not saved')
+    }
+  }
+
+  const extSwitchLabelStyle: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    fontSize: '11.5px',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+  }
+
+  const renderExtSwitches = (id: string, name: string) => {
+    const vis = visFor(id)
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
+        <span style={extSwitchLabelStyle} title="Available in the IDE's right auxiliary panel">
+          <ToggleSwitch
+            size="sm"
+            checked={vis.aux_panel}
+            onChange={(v) => handleExtVisChange(id, 'aux_panel', v)}
+            ariaLabel={`${name} enabled`}
+          />
+          Enabled
+        </span>
+        <span style={extSwitchLabelStyle} title="Openable on the main stage via a left-sidebar tab button">
+          <ToggleSwitch
+            size="sm"
+            checked={vis.main_page}
+            onChange={(v) => handleExtVisChange(id, 'main_page', v)}
+            ariaLabel={`${name} main page`}
+          />
+          Main Page
+        </span>
+      </div>
+    )
+  }
+
+  const githubVis = visFor('github')
+  const browserVis = visFor('browser')
+  const filesVis = visFor('files')
+  const memosVis = visFor('memos')
+  const mobileVis = visFor('mobile')
+  const computerUseVis = visFor('computer_use')
 
   const getIDEName = (id: string) => {
     const map: Record<string, string> = {
@@ -280,6 +364,26 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
         </div>
       )}
 
+      {enhError && (
+        <div
+          style={{
+            padding: '8px 14px',
+            borderRadius: '8px',
+            backgroundColor: 'rgba(220, 38, 38, 0.08)',
+            border: '1px solid rgba(220, 38, 38, 0.25)',
+            color: '#dc2626',
+            fontSize: '11.5px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontWeight: 500,
+          }}
+        >
+          <AlertTriangle size={14} />
+          <span>{enhError}</span>
+        </div>
+      )}
+
       {/* Extension Gadgets Grid */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
@@ -300,14 +404,11 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                 Manage repository issues, pull requests, agent tasks, and Kanban boards with one-click direct jump into Antigravity conversations.
               </p>
             </div>
-            <ToggleSwitch
-              checked={githubEnabled}
-              onChange={() => handleToggleExtension('antigravity_ext_github_enabled', githubEnabled, setGithubEnabled)}
-            />
+            {renderExtSwitches('github', 'GitHub Workspace')}
           </div>
 
           {/* Extension Settings & Actions */}
-          {githubEnabled && (
+          {(githubVis.aux_panel || githubVis.main_page) && (
             <div style={{ marginTop: '4px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
@@ -384,14 +485,11 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                 Embeds a lightweight development browser inside Antigravity's auxiliary panel with port shortcuts (:5173, :3000, :8080) and live visual annotation.
               </p>
             </div>
-            <ToggleSwitch
-              checked={browserEnabled}
-              onChange={() => handleToggleExtension('antigravity_ext_browser_enabled', browserEnabled, setBrowserEnabled)}
-            />
+            {renderExtSwitches('browser', 'Preview Browser')}
           </div>
 
           {/* Extension Settings */}
-          {browserEnabled && (
+          {(browserVis.aux_panel || browserVis.main_page) && (
             <div style={{ marginTop: '4px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', minWidth: '100px' }}>
@@ -433,52 +531,6 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                   ))}
                 </div>
               </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', minWidth: '100px' }}>
-                  Open Target:
-                </span>
-                <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--tonal)', padding: '2px', borderRadius: '6px' }}>
-                  <button
-                    onClick={() => {
-                      setBrowserTarget('auxiliary')
-                      localStorage.setItem('antigravity_browser_target', 'auxiliary')
-                    }}
-                    style={{
-                      border: 'none',
-                      padding: '4px 10px',
-                      borderRadius: '5px',
-                      fontSize: '11.5px',
-                      fontWeight: browserTarget === 'auxiliary' ? 600 : 500,
-                      backgroundColor: browserTarget === 'auxiliary' ? '#ffffff' : 'transparent',
-                      color: browserTarget === 'auxiliary' ? 'var(--primary)' : 'var(--text-muted)',
-                      boxShadow: browserTarget === 'auxiliary' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Right Auxiliary Panel
-                  </button>
-                  <button
-                    onClick={() => {
-                      setBrowserTarget('main')
-                      localStorage.setItem('antigravity_browser_target', 'main')
-                    }}
-                    style={{
-                      border: 'none',
-                      padding: '4px 10px',
-                      borderRadius: '5px',
-                      fontSize: '11.5px',
-                      fontWeight: browserTarget === 'main' ? 600 : 500,
-                      backgroundColor: browserTarget === 'main' ? '#ffffff' : 'transparent',
-                      color: browserTarget === 'main' ? 'var(--primary)' : 'var(--text-muted)',
-                      boxShadow: browserTarget === 'main' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Main Chat Stage
-                  </button>
-                </div>
-              </div>
             </div>
           )}
         </div>
@@ -500,14 +552,11 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                 Lightweight in-panel file browser and editor allowing instant workspace navigation, file reveal, terminal launch, and code inspection.
               </p>
             </div>
-            <ToggleSwitch
-              checked={filesEnabled}
-              onChange={() => handleToggleExtension('antigravity_ext_files_enabled', filesEnabled, setFilesEnabled)}
-            />
+            {renderExtSwitches('files', 'Auxiliary File Explorer')}
           </div>
 
           {/* Extension Settings */}
-          {filesEnabled && (
+          {(filesVis.aux_panel || filesVis.main_page) && (
             <div style={{ marginTop: '4px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', minWidth: '100px' }}>
@@ -599,14 +648,11 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                 Rapid notepad for ephemeral text and speech-to-text audio memos with instant drag-and-drop into active Antigravity agent conversations.
               </p>
             </div>
-            <ToggleSwitch
-              checked={memosEnabled}
-              onChange={() => handleToggleExtension('antigravity_ext_memos_enabled', memosEnabled, setMemosEnabled)}
-            />
+            {renderExtSwitches('memos', 'Quick Memos')}
           </div>
 
           {/* Extension Settings (persisted via daemon /api/memos/config) */}
-          {memosEnabled && (
+          {(memosVis.aux_panel || memosVis.main_page) && (
             <div style={{ marginTop: '4px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {/* Row 1: Storage Location */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
@@ -692,14 +738,11 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                 Virtual mobile viewport emulation for testing responsive web designs, touch events, and mobile screen ratios directly within Antigravity.
               </p>
             </div>
-            <ToggleSwitch
-              checked={mobileEnabled}
-              onChange={() => handleToggleExtension('antigravity_ext_mobile_enabled', mobileEnabled, setMobileEnabled)}
-            />
+            {renderExtSwitches('mobile', 'Mobile Viewport Simulator')}
           </div>
 
           {/* Extension Settings */}
-          {mobileEnabled && (
+          {(mobileVis.aux_panel || mobileVis.main_page) && (
             <div style={{ marginTop: '4px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
@@ -760,14 +803,11 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                 OS-level execution enhancer optimizing Antigravity computer use with display coordinate scaling normalization, Wayland PipeWire capture, and accessibility grounding.
               </p>
             </div>
-            <ToggleSwitch
-              checked={computerUseEnabled}
-              onChange={() => handleToggleExtension('antigravity_ext_computer_use_enabled', computerUseEnabled, setComputerUseEnabled)}
-            />
+            {renderExtSwitches('computer_use', 'Computer Use Enhancer')}
           </div>
 
           {/* Extension Settings */}
-          {computerUseEnabled && (
+          {(computerUseVis.aux_panel || computerUseVis.main_page) && (
             <div style={{ marginTop: '4px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
               <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
                 <div>

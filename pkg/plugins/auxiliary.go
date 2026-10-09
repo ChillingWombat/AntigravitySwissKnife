@@ -678,6 +678,31 @@ div:has(> .shrink-0.flex.items-center.border-b),
   height: 100%;
   border-radius: 0;
 }
+/* Landscape orientation: swapped width/height for fixed device presets */
+.swiss-device-frame.swiss-landscape.frame-iphone-16-pro {
+  width: 896px;
+  height: 424px;
+}
+.swiss-device-frame.swiss-landscape.frame-iphone-16-pro .swiss-device-screen {
+  width: 874px;
+  height: 402px;
+}
+.swiss-device-frame.swiss-landscape.frame-pixel-9 {
+  width: 944px;
+  height: 432px;
+}
+.swiss-device-frame.swiss-landscape.frame-pixel-9 .swiss-device-screen {
+  width: 924px;
+  height: 412px;
+}
+.swiss-device-frame.swiss-landscape.frame-ipad {
+  width: 1208px;
+  height: 848px;
+}
+.swiss-device-frame.swiss-landscape.frame-ipad .swiss-device-screen {
+  width: 1180px;
+  height: 820px;
+}
 .swiss-device-home-bar {
   position: absolute;
   bottom: 8px;
@@ -1383,6 +1408,13 @@ func GenerateAuxiliaryPluginsScript() string {
     let lastAuxProject = null;
     let swissClipboard = { action: "copy", items: [] };
     let activeDevice = "responsive";
+    let deviceOrientation = "portrait";
+    try {
+      const savedOrientation = localStorage.getItem("antigravity_swiss_browser_orientation");
+      if (savedOrientation === "landscape" || savedOrientation === "portrait") {
+        deviceOrientation = savedOrientation;
+      }
+    } catch (_) {}
     let isDrawing = false;
     let drawTool = "none"; // "pen" | "rect" | "inspect" | "none"
     let drawStartX = 0, drawStartY = 0;
@@ -1555,6 +1587,7 @@ func GenerateAuxiliaryPluginsScript() string {
         setupAuxiliaryTabs();
       }
     };
+    window.setupAuxiliaryTabs = function() { setupAuxiliaryTabs(); };
 
     // 1. Auxiliary Panel Tab Injector Engine
     function setupAuxiliaryTabs() {
@@ -1581,8 +1614,27 @@ func GenerateAuxiliaryPluginsScript() string {
         tabHeader.setAttribute('data-swiss-aux-header', 'true');
       }
 
+      // Per-extension aux_panel switches (EnhancementsConfig.extensions) decide
+      // which Swiss tabs appear in the auxiliary panel. Legacy localStorage
+      // fallbacks apply only when no visibility map is available.
+      function isAuxExtensionVisible(id) {
+        try {
+          const cfg = window.__SWISS_ENH_CONFIG__;
+          if (cfg && cfg.extensions && typeof cfg.extensions === "object") {
+            const vis = cfg.extensions[id];
+            return !vis || vis.aux_panel !== false;
+          }
+        } catch (_) {}
+        try {
+          const disabledExts = JSON.parse(localStorage.getItem("antigravity_swiss_disabled_extensions") || "[]");
+          if (Array.isArray(disabledExts) && disabledExts.includes(id)) return false;
+          if (localStorage.getItem("antigravity_swiss_ext_" + id + "_enabled") === "false") return false;
+        } catch (_) {}
+        return true;
+      }
+
       // Define Swiss tabs with Antigravity-matching monochrome SVG stroke icons
-      const tabs = [
+      const allTabs = [
         {
           id: "browser",
           tabId: "swiss-browser",
@@ -1608,6 +1660,16 @@ func GenerateAuxiliaryPluginsScript() string {
           svg: '<svg class="swiss-aux-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>'
         },
       ];
+
+      // Honor per-extension aux_panel switches; drop tabs the user disabled.
+      const tabs = allTabs.filter(t => isAuxExtensionVisible(t.id));
+      if (tabs.length === 0) {
+        document.querySelectorAll(".swiss-aux-btn-group, .swiss-aux-tabs-divider, .swiss-aux-tabs-divider-left, .swiss-aux-tabs-divider-right").forEach(el => el.remove());
+        if (activeAuxTab !== null) {
+          switchAuxTab(null);
+        }
+        return;
+      }
 
       function getAuxTabFormat() {
         return localStorage.getItem("antigravity_swiss_aux_tab_format") ||
@@ -1644,6 +1706,9 @@ func GenerateAuxiliaryPluginsScript() string {
               e.stopPropagation();
               switchAuxTab(t.tabId);
             };
+          } else {
+            // Extension hidden by its aux_panel switch — drop the stale button.
+            btn.remove();
           }
         });
 
@@ -1985,6 +2050,10 @@ func GenerateAuxiliaryPluginsScript() string {
               <option value="iphone-16-pro">iPhone 16 Pro (402×874)</option>
               <option value="pixel-9">Pixel 9 (412×924)</option>
               <option value="ipad">iPad (820×1180)</option>
+            </select>
+            <select class="swiss-browser-btn" id="swiss-b-orientation" title="Device Orientation" style="outline:none;">
+              <option value="portrait">Portrait</option>
+              <option value="landscape">Landscape</option>
             </select>
             <select class="swiss-browser-btn" id="swiss-b-scale" title="Viewport Scale" style="outline:none;">
               <option value="fit" selected>Fit Screen</option>
@@ -2440,6 +2509,11 @@ func GenerateAuxiliaryPluginsScript() string {
           if (activeDevice === "iphone-16-pro" || activeDevice === "iphone16") { targetW = 424; targetH = 896; }
           else if (activeDevice === "pixel-9" || activeDevice === "pixel9") { targetW = 432; targetH = 944; }
           else if (activeDevice === "ipad") { targetW = 848; targetH = 1208; }
+          if (deviceOrientation === "landscape") {
+            const swapDim = targetW;
+            targetW = targetH;
+            targetH = swapDim;
+          }
 
           const factor = Math.min(1, Math.min(availW / targetW, availH / targetH));
           frameBox.style.transform = ` + "`" + `scale(${Math.max(0.2, factor.toFixed(3))})` + "`" + `;
@@ -2461,6 +2535,14 @@ func GenerateAuxiliaryPluginsScript() string {
       function applyDeviceFrame(device) {
         activeDevice = device;
         frameBox.className = "swiss-device-frame frame-" + device;
+        // Landscape swaps the fixed preset width/height via .swiss-landscape CSS
+        // overrides; "responsive" always fills the viewport and ignores it.
+        if (deviceOrientation === "landscape" && device !== "responsive") {
+          frameBox.classList.add("swiss-landscape");
+        }
+        if (orientSelect) {
+          orientSelect.disabled = device === "responsive";
+        }
         notch.className = "swiss-device-notch";
 
         if (device === "iphone-16-pro" || device === "iphone16") {
@@ -2484,6 +2566,21 @@ func GenerateAuxiliaryPluginsScript() string {
       devSelect.onchange = () => {
         applyDeviceFrame(devSelect.value);
       };
+
+      // Portrait | Landscape toggle for the fixed device presets
+      const orientSelect = toolbar.querySelector("#swiss-b-orientation");
+      if (orientSelect) {
+        orientSelect.value = deviceOrientation;
+        orientSelect.disabled = activeDevice === "responsive";
+        orientSelect.title = activeDevice === "responsive"
+          ? "Orientation applies to fixed device presets only"
+          : "Device Orientation";
+        orientSelect.onchange = () => {
+          deviceOrientation = orientSelect.value === "landscape" ? "landscape" : "portrait";
+          try { localStorage.setItem("antigravity_swiss_browser_orientation", deviceOrientation); } catch (_) {}
+          applyDeviceFrame(activeDevice);
+        };
+      }
 
       // Touch Emulation
       function setTouchEmulation(active) {
