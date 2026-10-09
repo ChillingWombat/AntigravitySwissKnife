@@ -1,18 +1,20 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   Globe,
   Folder,
-  StickyNote,
-  Tablet,
-  Crosshair,
+  FileText,
+  Smartphone,
+  Monitor,
   ExternalLink,
-  Terminal,
   CheckCircle2,
   ArrowLeft,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
+import { GithubIcon } from '../components/GithubIcon'
 import { api } from '../api'
 import { GitHubWorkspacePage } from './GitHubWorkspacePage'
+
+const IDE_PRESETS = ['code', 'cursor', 'windsurf', 'codium', 'zed']
 
 export interface ExtensionsPageProps {
   activeTab?: number
@@ -63,18 +65,27 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
 
   // File Explorer
   const [preferredIDE, setPreferredIDE] = useState<string>(() => {
-    return localStorage.getItem('antigravity_preferred_ide') || 'code'
+    return (
+      localStorage.getItem('antigravity_swiss_preferred_ide') ||
+      localStorage.getItem('antigravity_preferred_ide') ||
+      'code'
+    )
   })
+  const [ideCustomMode, setIdeCustomMode] = useState<boolean>(false)
+  const [customIDE, setCustomIDE] = useState<string>(() =>
+    IDE_PRESETS.includes(preferredIDE.toLowerCase()) ? '' : preferredIDE
+  )
+  const ideIsCustom = ideCustomMode || !IDE_PRESETS.includes(preferredIDE.toLowerCase())
 
-  // Quick Memos
+  // Quick Memos (daemon-persisted; localStorage seeds the first paint)
   const [memoStorageLocation, setMemoStorageLocation] = useState<'global' | 'project'>(() => {
     return (localStorage.getItem('antigravity_memo_storage_location') as 'global' | 'project') || 'global'
   })
-  const [memoSearchScope, setMemoSearchScope] = useState<'text' | 'all'>(() => {
-    return (localStorage.getItem('antigravity_memo_search_scope') as 'text' | 'all') || 'text'
-  })
   const [memoViewScope, setMemoViewScope] = useState<'all' | 'current'>(() => {
     return (localStorage.getItem('antigravity_memo_view_scope') as 'all' | 'current') || 'all'
+  })
+  const [memoSearchScope, setMemoSearchScope] = useState<'text' | 'all'>(() => {
+    return (localStorage.getItem('antigravity_memo_search_scope') as 'text' | 'all') || 'text'
   })
 
   // Mobile Simulator
@@ -84,7 +95,6 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
   const [showBezel, setShowBezel] = useState<boolean>(() => {
     return localStorage.getItem('antigravity_mobile_show_bezel') !== 'false'
   })
-  const [isLandscape, setIsLandscape] = useState<boolean>(false)
 
   // Computer Use Enhancer
   const [dpiNormalization, setDpiNormalization] = useState<boolean>(() => {
@@ -104,6 +114,95 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
     setFeedback(msg)
     setTimeout(() => setFeedback(null), 3000)
   }
+
+  // Load daemon-persisted settings (IDE + Quick Memos); keep localStorage fallbacks
+  // if the daemon is unreachable.
+  useEffect(() => {
+    api
+      .getPreferredIDE()
+      .then((res) => {
+        if (res?.success && res.preferred_ide) {
+          setPreferredIDE(res.preferred_ide)
+          if (!IDE_PRESETS.includes(res.preferred_ide.toLowerCase())) {
+            setCustomIDE(res.preferred_ide)
+          }
+          localStorage.setItem('antigravity_swiss_preferred_ide', res.preferred_ide)
+          localStorage.setItem('antigravity_preferred_ide', res.preferred_ide)
+        }
+      })
+      .catch(() => {})
+
+    api
+      .getMemoConfig()
+      .then((res) => {
+        const cfg = res?.config
+        if (!cfg) return
+        if (cfg.storage_location === 'global' || cfg.storage_location === 'project') {
+          setMemoStorageLocation(cfg.storage_location)
+          localStorage.setItem('antigravity_memo_storage_location', cfg.storage_location)
+        }
+        if (cfg.view_scope === 'all' || cfg.view_scope === 'current') {
+          setMemoViewScope(cfg.view_scope)
+          localStorage.setItem('antigravity_memo_view_scope', cfg.view_scope)
+        }
+        if (cfg.search_scope === 'text' || cfg.search_scope === 'all') {
+          setMemoSearchScope(cfg.search_scope)
+          localStorage.setItem('antigravity_memo_search_scope', cfg.search_scope)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  const handleSaveIDE = async (next: string) => {
+    const ide = next.trim()
+    if (!ide) return
+    setPreferredIDE(ide)
+    localStorage.setItem('antigravity_swiss_preferred_ide', ide)
+    // Legacy key still read first by the injected extension tab — keep both in sync.
+    localStorage.setItem('antigravity_preferred_ide', ide)
+    try {
+      await api.setPreferredIDE(ide)
+      showFeedback(`Preferred IDE set to ${getIDEName(ide)}`)
+    } catch {
+      showFeedback('Saved preferred IDE locally (daemon unreachable)')
+    }
+  }
+
+  const handleUpdateMemoConfig = (
+    patch: Partial<{
+      storage_location: 'global' | 'project'
+      view_scope: 'all' | 'current'
+      search_scope: 'text' | 'all'
+    }>
+  ) => {
+    const next = {
+      storage_location: patch.storage_location ?? memoStorageLocation,
+      view_scope: patch.view_scope ?? memoViewScope,
+      search_scope: patch.search_scope ?? memoSearchScope,
+    }
+    setMemoStorageLocation(next.storage_location)
+    setMemoViewScope(next.view_scope)
+    setMemoSearchScope(next.search_scope)
+    localStorage.setItem('antigravity_memo_storage_location', next.storage_location)
+    localStorage.setItem('antigravity_memo_view_scope', next.view_scope)
+    localStorage.setItem('antigravity_memo_search_scope', next.search_scope)
+    api
+      .updateMemoConfig(next)
+      .then((res) => showFeedback(res?.success ? 'Quick Memos settings saved' : 'Quick Memos settings saved locally'))
+      .catch(() => showFeedback('Quick Memos settings saved locally (daemon unreachable)'))
+  }
+
+  const segBtnStyle = (active: boolean): React.CSSProperties => ({
+    border: 'none',
+    padding: '4px 10px',
+    borderRadius: '5px',
+    fontSize: '11.5px',
+    fontWeight: active ? 600 : 500,
+    backgroundColor: active ? '#ffffff' : 'transparent',
+    color: active ? 'var(--primary)' : 'var(--text-muted)',
+    boxShadow: active ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+    cursor: 'pointer',
+  })
 
   const handleToggleExtension = (key: string, currentVal: boolean, setter: (v: boolean) => void) => {
     const nextVal = !currentVal
@@ -192,17 +291,10 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ padding: '6px', borderRadius: '8px', backgroundColor: 'var(--primary-container)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
-                  </svg>
-                </div>
+                <GithubIcon size={16} color="var(--text-muted)" />
                 <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
                   GitHub Workspace
                 </h3>
-                <span style={{ fontSize: '10.5px', fontWeight: 600, padding: '2px 7px', borderRadius: '10px', backgroundColor: githubEnabled ? '#dcfce7' : 'var(--tonal)', color: githubEnabled ? '#15803d' : 'var(--text-muted)' }}>
-                  {githubEnabled ? 'Enabled' : 'Disabled'}
-                </span>
               </div>
               <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
                 Manage repository issues, pull requests, agent tasks, and Kanban boards with one-click direct jump into Antigravity conversations.
@@ -283,15 +375,10 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ padding: '6px', borderRadius: '8px', backgroundColor: 'rgba(26, 115, 232, 0.1)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Globe size={16} />
-                </div>
+                <Globe size={16} color="var(--text-muted)" />
                 <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
                   Preview Browser
                 </h3>
-                <span style={{ fontSize: '10.5px', fontWeight: 600, padding: '2px 7px', borderRadius: '10px', backgroundColor: browserEnabled ? '#dcfce7' : 'var(--tonal)', color: browserEnabled ? '#15803d' : 'var(--text-muted)' }}>
-                  {browserEnabled ? 'Enabled' : 'Disabled'}
-                </span>
               </div>
               <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
                 Embeds a lightweight development browser inside Antigravity's auxiliary panel with port shortcuts (:5173, :3000, :8080) and live visual annotation.
@@ -404,15 +491,10 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ padding: '6px', borderRadius: '8px', backgroundColor: 'rgba(234, 134, 0, 0.1)', color: '#d97706', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Folder size={16} />
-                </div>
+                <Folder size={16} color="var(--text-muted)" />
                 <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
                   Auxiliary File Explorer
                 </h3>
-                <span style={{ fontSize: '10.5px', fontWeight: 600, padding: '2px 7px', borderRadius: '10px', backgroundColor: filesEnabled ? '#dcfce7' : 'var(--tonal)', color: filesEnabled ? '#15803d' : 'var(--text-muted)' }}>
-                  {filesEnabled ? 'Enabled' : 'Disabled'}
-                </span>
               </div>
               <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
                 Lightweight in-panel file browser and editor allowing instant workspace navigation, file reveal, terminal launch, and code inspection.
@@ -426,19 +508,23 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
 
           {/* Extension Settings */}
           {filesEnabled && (
-            <div style={{ marginTop: '4px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ marginTop: '4px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', minWidth: '100px' }}>
                   Preferred IDE:
                 </span>
                 <select
-                  value={preferredIDE}
+                  value={ideIsCustom ? 'custom' : preferredIDE.toLowerCase()}
                   onChange={(e) => {
-                    const next = e.target.value
-                    setPreferredIDE(next)
-                    localStorage.setItem('antigravity_preferred_ide', next)
-                    api.setPreferredIDE(next).catch(() => {})
-                    showFeedback(`Default IDE set to ${getIDEName(next)}`)
+                    if (e.target.value === 'custom') {
+                      setIdeCustomMode(true)
+                      if (!IDE_PRESETS.includes(preferredIDE.toLowerCase())) {
+                        setCustomIDE(preferredIDE)
+                      }
+                    } else {
+                      setIdeCustomMode(false)
+                      handleSaveIDE(e.target.value)
+                    }
                   }}
                   style={{
                     fontSize: '12px',
@@ -449,46 +535,49 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                     color: 'var(--text)',
                   }}
                 >
-                  <option value="code">VS Code (code)</option>
-                  <option value="cursor">Cursor (cursor)</option>
-                  <option value="windsurf">Windsurf (windsurf)</option>
-                  <option value="codium">VSCodium (codium)</option>
-                  <option value="zed">Zed (zed)</option>
+                  <option value="code">VS Code (`code`)</option>
+                  <option value="cursor">Cursor (`cursor`)</option>
+                  <option value="windsurf">Windsurf (`windsurf`)</option>
+                  <option value="codium">VSCodium (`codium`)</option>
+                  <option value="zed">Zed (`zed`)</option>
+                  <option value="custom">Custom Command / Binary</option>
                 </select>
               </div>
 
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  onClick={async () => {
-                    try {
-                      await api.revealFile('.')
-                      showFeedback('Project directory opened in system file manager')
-                    } catch (e: any) {
-                      console.error(e)
-                    }
-                  }}
-                  className="btn-pill-tonal"
-                  style={{ padding: '6px 12px', fontSize: '11.5px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-                >
-                  <Folder size={13} />
-                  <span>Reveal Folder</span>
-                </button>
-                <button
-                  onClick={async () => {
-                    try {
-                      await api.openTerminal('.')
-                      showFeedback('Terminal launched at project root')
-                    } catch (e: any) {
-                      console.error(e)
-                    }
-                  }}
-                  className="btn-pill-tonal"
-                  style={{ padding: '6px 12px', fontSize: '11.5px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-                >
-                  <Terminal size={13} />
-                  <span>Terminal</span>
-                </button>
-              </div>
+              {ideIsCustom && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', minWidth: '100px' }}>
+                    Command:
+                  </span>
+                  <input
+                    type="text"
+                    value={customIDE}
+                    onChange={(e) => setCustomIDE(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveIDE(customIDE)
+                    }}
+                    placeholder="e.g. code-insiders, fleet"
+                    style={{
+                      flex: 1,
+                      minWidth: '180px',
+                      maxWidth: '320px',
+                      fontSize: '12px',
+                      padding: '5px 10px',
+                      fontFamily: 'monospace',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      backgroundColor: 'var(--canvas)',
+                    }}
+                  />
+                  <button
+                    onClick={() => handleSaveIDE(customIDE)}
+                    className="btn-pill-primary"
+                    style={{ padding: '5px 12px', fontSize: '11.5px' }}
+                  >
+                    Save IDE
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -501,15 +590,10 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ padding: '6px', borderRadius: '8px', backgroundColor: 'rgba(5, 150, 105, 0.1)', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <StickyNote size={16} />
-                </div>
+                <FileText size={16} color="var(--text-muted)" />
                 <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
                   Quick Memos
                 </h3>
-                <span style={{ fontSize: '10.5px', fontWeight: 600, padding: '2px 7px', borderRadius: '10px', backgroundColor: memosEnabled ? '#dcfce7' : 'var(--tonal)', color: memosEnabled ? '#15803d' : 'var(--text-muted)' }}>
-                  {memosEnabled ? 'Enabled' : 'Disabled'}
-                </span>
               </div>
               <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
                 Rapid notepad for ephemeral text and speech-to-text audio memos with instant drag-and-drop into active Antigravity agent conversations.
@@ -521,85 +605,71 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
             />
           </div>
 
-          {/* Extension Settings */}
+          {/* Extension Settings (persisted via daemon /api/memos/config) */}
           {memosEnabled && (
-            <div style={{ marginTop: '4px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ marginTop: '4px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {/* Row 1: Storage Location */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', minWidth: '100px' }}>
-                  Storage:
+                  Storage Location:
                 </span>
-                <select
-                  value={memoStorageLocation}
-                  onChange={(e) => {
-                    const next = e.target.value as 'global' | 'project'
-                    setMemoStorageLocation(next)
-                    localStorage.setItem('antigravity_memo_storage_location', next)
-                    showFeedback(`Storage set to ${next === 'global' ? 'Global (~/.gemini)' : 'Current Project'}`)
-                  }}
-                  style={{
-                    flex: 1,
-                    fontSize: '12px',
-                    padding: '5px 10px',
-                    borderRadius: '6px',
-                    border: '1px solid var(--border)',
-                    backgroundColor: 'var(--canvas)',
-                  }}
-                >
-                  <option value="global">Global (~/.gemini/antigravity/memos.json)</option>
-                  <option value="project">Per-Project (.antigravity/memos.json)</option>
-                </select>
+                <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--tonal)', padding: '2px', borderRadius: '6px' }}>
+                  <button
+                    onClick={() => handleUpdateMemoConfig({ storage_location: 'global' })}
+                    style={segBtnStyle(memoStorageLocation === 'global')}
+                  >
+                    Global
+                  </button>
+                  <button
+                    onClick={() => handleUpdateMemoConfig({ storage_location: 'project' })}
+                    style={segBtnStyle(memoStorageLocation === 'project')}
+                  >
+                    Project
+                  </button>
+                </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', minWidth: '100px' }}>
-                  Search Scope:
-                </span>
-                <select
-                  value={memoSearchScope}
-                  onChange={(e) => {
-                    const next = e.target.value as 'text' | 'all'
-                    setMemoSearchScope(next)
-                    localStorage.setItem('antigravity_memo_search_scope', next)
-                    showFeedback(`Search scope updated to ${next === 'text' ? 'Text Only' : 'Text + Voice'}`)
-                  }}
-                  style={{
-                    flex: 1,
-                    fontSize: '12px',
-                    padding: '5px 10px',
-                    borderRadius: '6px',
-                    border: '1px solid var(--border)',
-                    backgroundColor: 'var(--canvas)',
-                  }}
-                >
-                  <option value="text">Text Only</option>
-                  <option value="all">Text + Voice Transcription</option>
-                </select>
-              </div>
+              {/* Row 2: View Scope + Search Scope side by side */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', minWidth: '100px' }}>
+                    View Scope:
+                  </span>
+                  <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--tonal)', padding: '2px', borderRadius: '6px' }}>
+                    <button
+                      onClick={() => handleUpdateMemoConfig({ view_scope: 'all' })}
+                      style={segBtnStyle(memoViewScope === 'all')}
+                    >
+                      All Projects
+                    </button>
+                    <button
+                      onClick={() => handleUpdateMemoConfig({ view_scope: 'current' })}
+                      style={segBtnStyle(memoViewScope === 'current')}
+                    >
+                      Current Project
+                    </button>
+                  </div>
+                </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', minWidth: '100px' }}>
-                  View Scope:
-                </span>
-                <select
-                  value={memoViewScope}
-                  onChange={(e) => {
-                    const next = e.target.value as 'all' | 'current'
-                    setMemoViewScope(next)
-                    localStorage.setItem('antigravity_memo_view_scope', next)
-                    showFeedback(`View scope updated to ${next === 'all' ? 'All Projects' : 'Current Project Only'}`)
-                  }}
-                  style={{
-                    flex: 1,
-                    fontSize: '12px',
-                    padding: '5px 10px',
-                    borderRadius: '6px',
-                    border: '1px solid var(--border)',
-                    backgroundColor: 'var(--canvas)',
-                  }}
-                >
-                  <option value="all">All Projects</option>
-                  <option value="current">Current Project Only</option>
-                </select>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', minWidth: '100px' }}>
+                    Search Scope:
+                  </span>
+                  <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--tonal)', padding: '2px', borderRadius: '6px' }}>
+                    <button
+                      onClick={() => handleUpdateMemoConfig({ search_scope: 'text' })}
+                      style={segBtnStyle(memoSearchScope === 'text')}
+                    >
+                      Text
+                    </button>
+                    <button
+                      onClick={() => handleUpdateMemoConfig({ search_scope: 'all' })}
+                      style={segBtnStyle(memoSearchScope === 'all')}
+                    >
+                      Semantic
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -613,15 +683,10 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ padding: '6px', borderRadius: '8px', backgroundColor: 'rgba(124, 58, 237, 0.1)', color: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Tablet size={16} />
-                </div>
+                <Smartphone size={16} color="var(--text-muted)" />
                 <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
                   Mobile Viewport Simulator
                 </h3>
-                <span style={{ fontSize: '10.5px', fontWeight: 600, padding: '2px 7px', borderRadius: '10px', backgroundColor: mobileEnabled ? '#dcfce7' : 'var(--tonal)', color: mobileEnabled ? '#15803d' : 'var(--text-muted)' }}>
-                  {mobileEnabled ? 'Enabled' : 'Disabled'}
-                </span>
               </div>
               <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
                 Virtual mobile viewport emulation for testing responsive web designs, touch events, and mobile screen ratios directly within Antigravity.
@@ -673,14 +738,6 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                   />
                   <span>Show Hardware Bezel</span>
                 </label>
-
-                <button
-                  onClick={() => setIsLandscape(!isLandscape)}
-                  className="btn-pill-tonal"
-                  style={{ padding: '4px 10px', fontSize: '11.5px' }}
-                >
-                  {isLandscape ? 'Portrait' : 'Landscape'}
-                </button>
               </div>
             </div>
           )}
@@ -694,15 +751,10 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ padding: '6px', borderRadius: '8px', backgroundColor: 'rgba(220, 38, 38, 0.1)', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Crosshair size={16} />
-                </div>
+                <Monitor size={16} color="var(--text-muted)" />
                 <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
                   Computer Use Enhancer
                 </h3>
-                <span style={{ fontSize: '10.5px', fontWeight: 600, padding: '2px 7px', borderRadius: '10px', backgroundColor: computerUseEnabled ? '#dcfce7' : 'var(--tonal)', color: computerUseEnabled ? '#15803d' : 'var(--text-muted)' }}>
-                  {computerUseEnabled ? 'Enabled' : 'Disabled'}
-                </span>
               </div>
               <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
                 OS-level execution enhancer optimizing Antigravity computer use with display coordinate scaling normalization, Wayland PipeWire capture, and accessibility grounding.
