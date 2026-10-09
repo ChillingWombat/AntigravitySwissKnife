@@ -1400,8 +1400,8 @@ func TestWebGUIAvailableModelsAndRules(t *testing.T) {
 	if cat.DefaultGemini != "gemini-3.8-flash" && cat.DefaultGemini != "gemini-3.8-flash-high" {
 		t.Errorf("expected default gemini 'gemini-3.8-flash' or 'gemini-3.8-flash-high', got '%s'", cat.DefaultGemini)
 	}
-	if cat.DefaultNonGemini != "claude-opus-4-6" {
-		t.Errorf("expected default non-gemini 'claude-opus-4-6', got '%s'", cat.DefaultNonGemini)
+	if cat.DefaultNonGemini != "claude-opus-4-6-thinking" {
+		t.Errorf("expected default non-gemini 'claude-opus-4-6-thinking', got '%s'", cat.DefaultNonGemini)
 	}
 	if len(cat.GeminiModels) == 0 {
 		t.Errorf("expected non-empty GeminiModels")
