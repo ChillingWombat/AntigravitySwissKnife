@@ -810,3 +810,25 @@ func TestCreateActionsCompatibility(t *testing.T) {
 		}
 	}
 }
+
+func TestGitHubExtensionScriptPerExtensionMainPage(t *testing.T) {
+	js := GenerateGitHubExtensionScript()
+
+	tokens := []string{
+		"swissExtVisibility",                    // extensions map handle in setupLeftNavTabs
+		"main_page",                             // per-extension main-page visibility key
+		"__SWISS_ENH_CONFIG__.extensions",       // reads EnhancementsConfig.extensions
+		"isMainSectionEnabled",                  // global main-section floor stays
+		"isLeftPanelEnabled",                    // global left-panel floor stays
+	}
+	for _, tok := range tokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected GitHub extension script to contain %q", tok)
+		}
+	}
+
+	// The extensions map must gate left-nav entries by main_page === true
+	if !strings.Contains(js, "vis.main_page === true") {
+		t.Errorf("expected left-nav extension list to filter by main_page === true")
+	}
+}

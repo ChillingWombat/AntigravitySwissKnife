@@ -4,14 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 )
-
-func init() {
-	DisableLiveCDPDiscovery = true
-}
 
 func TestGetAvailableModelCatalog_Defaults(t *testing.T) {
 	cat := GetAvailableModelCatalog(nil, true)
@@ -24,14 +21,14 @@ func TestGetAvailableModelCatalog_Defaults(t *testing.T) {
 	if cat.DefaultGemini != "gemini-3.8-flash-high" {
 		t.Errorf("expected default gemini 'gemini-3.8-flash-high', got '%s'", cat.DefaultGemini)
 	}
-	if cat.DefaultNonGemini != "claude-opus-4-6" {
-		t.Errorf("expected default non-gemini 'claude-opus-4-6', got '%s'", cat.DefaultNonGemini)
+	if cat.DefaultNonGemini != "claude-opus-4-6-thinking" {
+		t.Errorf("expected default non-gemini 'claude-opus-4-6-thinking', got '%s'", cat.DefaultNonGemini)
 	}
-	if len(cat.GeminiModels) == 0 {
-		t.Errorf("expected non-empty GeminiModels")
+	if len(cat.GeminiModels) != 11 {
+		t.Errorf("expected 11 baseline Gemini models, got %d", len(cat.GeminiModels))
 	}
-	if len(cat.NonGeminiModels) == 0 {
-		t.Errorf("expected non-empty NonGeminiModels")
+	if len(cat.NonGeminiModels) != 3 {
+		t.Errorf("expected 3 baseline Non-Gemini models, got %d", len(cat.NonGeminiModels))
 	}
 
 	// Verify first item of Gemini models is gemini-3.8-flash-high
@@ -39,45 +36,15 @@ func TestGetAvailableModelCatalog_Defaults(t *testing.T) {
 		t.Errorf("expected first Gemini model to be 'gemini-3.8-flash-high', got '%s'", cat.GeminiModels[0].ID)
 	}
 
-	// Verify first item of NonGemini models is claude-opus-4-6
-	if cat.NonGeminiModels[0].ID != "claude-opus-4-6" {
-		t.Errorf("expected first Non-Gemini model to be 'claude-opus-4-6', got '%s'", cat.NonGeminiModels[0].ID)
+	// Verify first item of NonGemini models is claude-sonnet-4-6 (picker order)
+	if cat.NonGeminiModels[0].ID != "claude-sonnet-4-6" {
+		t.Errorf("expected first Non-Gemini model to be 'claude-sonnet-4-6', got '%s'", cat.NonGeminiModels[0].ID)
 	}
 }
 
-func TestMergeLiveModels(t *testing.T) {
-	cat := &AvailableModelsCatalog{
-		GeminiModels:    DefaultBaseGeminiModels(),
-		NonGeminiModels: DefaultBaseNonGeminiModels(),
-	}
-	initialGeminiCount := len(cat.GeminiModels)
-	initialNonGeminiCount := len(cat.NonGeminiModels)
-
-	live := []ModelOption{
-		{
-			ID:          "gemini-ultra-4-0",
-			DisplayName: "Gemini Ultra 4.0",
-		},
-		{
-			ID:          "claude-4-sonnet",
-			DisplayName: "Claude 4 Sonnet",
-		},
-		{
-			ID:          "gemini-3.8-flash", // duplicate
-			DisplayName: "Gemini 3.8 Flash",
-		},
-	}
-
-	mergeLiveModels(cat, live)
-
-	if len(cat.GeminiModels) != initialGeminiCount+1 {
-		t.Errorf("expected %d gemini models, got %d", initialGeminiCount+1, len(cat.GeminiModels))
-	}
-	if len(cat.NonGeminiModels) != initialNonGeminiCount+1 {
-		t.Errorf("expected %d non-gemini models, got %d", initialNonGeminiCount+1, len(cat.NonGeminiModels))
-	}
-}
-
+// TestGetAvailableModelCatalog_LiveMock verifies a successful live fetch fully
+// replaces the baseline lists: models-map-only and tiered ids are not added,
+// and stale baseline ids are not re-added.
 func TestGetAvailableModelCatalog_LiveMock(t *testing.T) {
 	origModelsURLs := CloudCodeModelsURLs
 	defer func() { CloudCodeModelsURLs = origModelsURLs }()
@@ -85,25 +52,41 @@ func TestGetAvailableModelCatalog_LiveMock(t *testing.T) {
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"defaultAgentModelId": "gemini-3.8-flash",
+			"defaultAgentModelId": "gemini-3.8-flash-medium",
 			"tieredModelIds": map[string]interface{}{
-				"flash": []string{"gemini-3.8-flash", "gemini-2.5-flash"},
-				"pro":   []string{"gemini-3.8-pro", "gemini-experimental-2026"},
+				"flash": []string{"gemini-3.8-flash-tiered", "gemini-2.5-flash"},
+			},
+			"agentModelSorts": []map[string]interface{}{
+				{
+					"displayName": "Recommended",
+					"groups": []map[string]interface{}{
+						{
+							"modelIds": []string{
+								"gemini-3.8-flash-medium",
+								"claude-experimental-preview",
+							},
+						},
+					},
+				},
 			},
 			"models": map[string]interface{}{
-				"gemini-3.8-flash": map[string]interface{}{
-					"displayName":      "Gemini 3.8 Flash",
+				"gemini-3.8-flash-medium": map[string]interface{}{
+					"displayName":      "Gemini 3.8 Flash (Medium)",
 					"supportsThinking": true,
 					"recommended":      true,
+					"modelProvider":    "MODEL_PROVIDER_GOOGLE",
 				},
-				"claude-opus-4-6": map[string]interface{}{
-					"displayName":      "Claude Opus 4.6",
-					"supportsThinking": true,
-					"recommended":      true,
+				"gemini-3.8-flash-tiered": map[string]interface{}{
+					"modelProvider": "MODEL_PROVIDER_GOOGLE",
+				},
+				"gemini-2.5-flash": map[string]interface{}{
+					"displayName":   "Gemini 3.5 Flash Lite",
+					"modelProvider": "MODEL_PROVIDER_GOOGLE",
 				},
 				"claude-experimental-preview": map[string]interface{}{
 					"displayName":      "Claude Experimental Preview",
 					"supportsThinking": true,
+					"modelProvider":    "MODEL_PROVIDER_ANTHROPIC",
 				},
 			},
 		})
@@ -121,34 +104,34 @@ func TestGetAvailableModelCatalog_LiveMock(t *testing.T) {
 		t.Fatalf("expected successful catalog")
 	}
 
-	if cat.DefaultGemini != "gemini-3.8-flash" {
-		t.Errorf("expected default gemini 'gemini-3.8-flash', got '%s'", cat.DefaultGemini)
+	if cat.DefaultGemini != "gemini-3.8-flash-medium" {
+		t.Errorf("expected default gemini 'gemini-3.8-flash-medium', got '%s'", cat.DefaultGemini)
 	}
-	if cat.DefaultNonGemini != "claude-opus-4-6" {
-		t.Errorf("expected default non-gemini 'claude-opus-4-6', got '%s'", cat.DefaultNonGemini)
+	if cat.DefaultNonGemini != "claude-opus-4-6-thinking" {
+		t.Errorf("expected default non-gemini 'claude-opus-4-6-thinking', got '%s'", cat.DefaultNonGemini)
 	}
 
-	// Verify live-discovered models were merged
-	foundGeminiExp := false
+	// Live picker lists replace the baseline entirely.
+	if len(cat.GeminiModels) != 1 || cat.GeminiModels[0].ID != "gemini-3.8-flash-medium" {
+		ids := make([]string, 0, len(cat.GeminiModels))
+		for _, m := range cat.GeminiModels {
+			ids = append(ids, m.ID)
+		}
+		t.Errorf("expected GeminiModels replaced by picker list [gemini-3.8-flash-medium], got %v", ids)
+	}
+	if len(cat.NonGeminiModels) != 1 || cat.NonGeminiModels[0].ID != "claude-experimental-preview" {
+		ids := make([]string, 0, len(cat.NonGeminiModels))
+		for _, m := range cat.NonGeminiModels {
+			ids = append(ids, m.ID)
+		}
+		t.Errorf("expected NonGeminiModels replaced by picker list [claude-experimental-preview], got %v", ids)
+	}
+
+	// Stale baseline ids and non-picker ids must not leak back in.
 	for _, m := range cat.GeminiModels {
-		if m.ID == "gemini-experimental-2026" {
-			foundGeminiExp = true
-			break
+		if m.ID == "gemini-2.5-pro" || m.ID == "gemini-2.5-flash" || m.ID == "gemini-3.8-flash-tiered" {
+			t.Errorf("stale/non-picker id '%s' leaked into GeminiModels", m.ID)
 		}
-	}
-	if !foundGeminiExp {
-		t.Errorf("expected live-discovered 'gemini-experimental-2026' in GeminiModels")
-	}
-
-	foundClaudeExp := false
-	for _, m := range cat.NonGeminiModels {
-		if m.ID == "claude-experimental-preview" {
-			foundClaudeExp = true
-			break
-		}
-	}
-	if !foundClaudeExp {
-		t.Errorf("expected live-discovered 'claude-experimental-preview' in NonGeminiModels")
 	}
 }
 
@@ -172,8 +155,8 @@ func TestGetAvailableModelCatalog_NetworkFailureFallback(t *testing.T) {
 	if cat.DefaultGemini != "gemini-3.8-flash-high" {
 		t.Errorf("expected fallback default gemini 'gemini-3.8-flash-high', got '%s'", cat.DefaultGemini)
 	}
-	if cat.DefaultNonGemini != "claude-opus-4-6" {
-		t.Errorf("expected fallback default non-gemini 'claude-opus-4-6', got '%s'", cat.DefaultNonGemini)
+	if cat.DefaultNonGemini != "claude-opus-4-6-thinking" {
+		t.Errorf("expected fallback default non-gemini 'claude-opus-4-6-thinking', got '%s'", cat.DefaultNonGemini)
 	}
 	if len(cat.GeminiModels) == 0 || len(cat.NonGeminiModels) == 0 {
 		t.Errorf("expected non-empty baseline models on failure")
@@ -352,21 +335,122 @@ func TestGetAvailableModelCatalog_ExcludeInternalSubsystemsAndCategorize(t *test
 	}
 }
 
-func TestFetchModelsFromLiveAntigravity(t *testing.T) {
-	gemini, nonGemini, defaultAgent, err := FetchModelsFromLiveAntigravity()
+// TestGetAvailableModelCatalog_CloudCodePickerFixture feeds a trimmed real
+// CloudCode fetchAvailableModels response and asserts the picker catalog is
+// built exclusively from agentModelSorts[].groups[].modelIds, in order.
+func TestGetAvailableModelCatalog_CloudCodePickerFixture(t *testing.T) {
+	origModelsURLs := CloudCodeModelsURLs
+	defer func() { CloudCodeModelsURLs = origModelsURLs }()
+
+	fixture, err := os.ReadFile("testdata/fetch_available_models.json")
 	if err != nil {
-		t.Skipf("skipping live Antigravity IDE discovery: %v", err)
+		t.Fatalf("failed to read fixture: %v", err)
 	}
-	if len(gemini) == 0 {
-		t.Errorf("expected at least 1 live gemini model")
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(fixture)
+	}))
+	defer mockServer.Close()
+	CloudCodeModelsURLs = []string{mockServer.URL}
+
+	acc := &keyring.Account{
+		Email:       "tester@example.com",
+		AccessToken: "mock-valid-token",
 	}
-	t.Logf("Discovered live gemini models (%d): default=%s", len(gemini), defaultAgent)
-	for _, m := range gemini {
-		t.Logf("  [Gemini] ID=%s Name=%q Thinking=%v", m.ID, m.DisplayName, m.SupportsThinking)
+
+	cat := GetAvailableModelCatalog(acc, true)
+	if cat == nil || !cat.Success {
+		t.Fatalf("expected successful catalog")
 	}
-	t.Logf("Discovered live non-gemini models (%d):", len(nonGemini))
-	for _, m := range nonGemini {
-		t.Logf("  [Non-Gemini] ID=%s Name=%q Thinking=%v Provider=%s", m.ID, m.DisplayName, m.SupportsThinking, m.Provider)
+
+	wantGemini := []string{
+		"gemini-3.8-flash-high",
+		"gemini-3.8-flash-medium",
+		"gemini-3.8-flash-low",
+		"gemini-3.7-flash-high",
+		"gemini-3.7-flash-medium",
+		"gemini-3.7-flash-low",
+		"gemini-3.6-flash-high",
+		"gemini-3.6-flash-medium",
+		"gemini-3.6-flash-low",
+		"gemini-pro-agent",
+		"gemini-3.1-pro-low",
+	}
+	wantNonGemini := []string{
+		"claude-sonnet-4-6",
+		"claude-opus-4-6-thinking",
+		"gpt-oss-120b-medium",
+	}
+
+	gotGemini := make([]string, 0, len(cat.GeminiModels))
+	for _, m := range cat.GeminiModels {
+		gotGemini = append(gotGemini, m.ID)
+	}
+	if len(gotGemini) != len(wantGemini) {
+		t.Fatalf("expected %d gemini models, got %d: %v", len(wantGemini), len(gotGemini), gotGemini)
+	}
+	for i, id := range wantGemini {
+		if gotGemini[i] != id {
+			t.Fatalf("gemini model order mismatch at %d: want %v, got %v", i, wantGemini, gotGemini)
+		}
+	}
+
+	gotNonGemini := make([]string, 0, len(cat.NonGeminiModels))
+	for _, m := range cat.NonGeminiModels {
+		gotNonGemini = append(gotNonGemini, m.ID)
+	}
+	if len(gotNonGemini) != len(wantNonGemini) {
+		t.Fatalf("expected %d non-gemini models, got %d: %v", len(wantNonGemini), len(gotNonGemini), gotNonGemini)
+	}
+	for i, id := range wantNonGemini {
+		if gotNonGemini[i] != id {
+			t.Fatalf("non-gemini model order mismatch at %d: want %v, got %v", i, wantNonGemini, gotNonGemini)
+		}
+	}
+
+	if cat.DefaultGemini != "gemini-3.8-flash-high" {
+		t.Errorf("expected default gemini 'gemini-3.8-flash-high', got '%s'", cat.DefaultGemini)
+	}
+	if cat.DefaultNonGemini != "claude-opus-4-6-thinking" {
+		t.Errorf("expected default non-gemini 'claude-opus-4-6-thinking', got '%s'", cat.DefaultNonGemini)
+	}
+
+	// Internal, deprecated, and non-picker ids must not leak into the catalog.
+	forbidden := []string{
+		"chat_20706",
+		"chat_23310",
+		"tab_flash_lite_preview",
+		"tab_jump_flash_lite_preview",
+		"gemini-3.8-flash-tiered",
+		"gemini-3.7-flash-tiered",
+		"gemini-3.6-flash-tiered",
+		"gemini-3.1-pro-high",
+		"gemini-3-flash",
+		"gemini-3.1-flash-image",
+		"gemini-3.5-flash-lite",
+		"gemini-2.5-pro",
+		"gemini-2.5-flash",
+		"gemini-3-flash-agent",
+	}
+	for _, f := range forbidden {
+		for _, m := range cat.GeminiModels {
+			if m.ID == f {
+				t.Errorf("forbidden model '%s' leaked into GeminiModels", f)
+			}
+		}
+		for _, m := range cat.NonGeminiModels {
+			if m.ID == f {
+				t.Errorf("forbidden model '%s' leaked into NonGeminiModels", f)
+			}
+		}
+	}
+
+	// Spot-check display names from the models map.
+	if cat.GeminiModels[0].DisplayName != "Gemini 3.8 Flash (High)" {
+		t.Errorf("expected display name 'Gemini 3.8 Flash (High)', got '%s'", cat.GeminiModels[0].DisplayName)
+	}
+	if cat.NonGeminiModels[1].DisplayName != "Claude Opus 4.6 (Thinking)" {
+		t.Errorf("expected display name 'Claude Opus 4.6 (Thinking)', got '%s'", cat.NonGeminiModels[1].DisplayName)
 	}
 }
 

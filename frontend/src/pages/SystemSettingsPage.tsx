@@ -4,35 +4,21 @@ import {
   Copy,
   Check,
   RefreshCw,
-  Monitor,
-  Code,
-  Terminal,
   Lock,
   Eye,
   EyeOff,
   KeyRound,
   HardDrive,
-  Layers,
+
   Send,
   ExternalLink,
   Info,
-  Bug,
   FolderOpen,
   Trash2,
-  RotateCcw,
-  Star,
   AlertTriangle,
-  Globe,
-  Folder,
-  FileText,
-  Mic,
-  Bookmark,
-  Filter,
   Download,
   CheckCircle2,
   Clock,
-  Archive,
-  ShieldAlert,
 } from 'lucide-react'
 import type {
   SystemStatus,
@@ -41,9 +27,9 @@ import type {
   StorageInfo,
   PrivacySettings,
   DiagnosticResult,
-  VaultStatus,
 } from '../types'
 import { ToggleSwitch } from '../components/ToggleSwitch'
+import { GithubIcon } from '../components/GithubIcon'
 import { api } from '../api'
 import soloCanImg from '../assets/solo_can.png'
 
@@ -55,7 +41,7 @@ interface SystemSettingsPageProps {
 }
 
 export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
-  status,
+  status: _status,
   onRefresh,
   activeTab = 0,
   onTabChange: _onTabChange,
@@ -94,53 +80,12 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
     return localStorage.getItem('antigravity_close_to_tray_enabled') === 'true'
   })
 
-  // Preferred IDE state
-  const [preferredIDE, setPreferredIDE] = useState<string>(() => {
-    return localStorage.getItem('antigravity_preferred_ide') || 'code'
-  })
-  const [ideFeedback, setIdeFeedback] = useState<string | null>(null)
-  const [isSavingIDE, setIsSavingIDE] = useState<boolean>(false)
-
-  const handleSaveIDE = async (newIDE: string) => {
-    setIsSavingIDE(true)
-    setPreferredIDE(newIDE)
-    localStorage.setItem('antigravity_preferred_ide', newIDE)
-    try {
-      await api.setPreferredIDE(newIDE)
-      setIdeFeedback('Saved preferred IDE to configuration.')
-    } catch {
-      setIdeFeedback('Saved preferred IDE locally.')
-    } finally {
-      setIsSavingIDE(false)
-      setTimeout(() => setIdeFeedback(null), 3000)
-    }
-  }
-
   // Storage and Path state
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null)
   const [selectedStorageMode, setSelectedStorageMode] = useState<'system_default' | 'app_portable'>('system_default')
   const [migrateData, setMigrateData] = useState<boolean>(true)
   const [isSavingStorage, setIsSavingStorage] = useState<boolean>(false)
   const [storageFeedback, setStorageFeedback] = useState<{ text: string; isError: boolean } | null>(null)
-
-  // Conversation History Vault state
-  const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null)
-  const [isSyncingVault, setIsSyncingVault] = useState<boolean>(false)
-  const [isTogglingVault, setIsTogglingVault] = useState<boolean>(false)
-  const [vaultFeedback, setVaultFeedback] = useState<{ text: string; isError: boolean } | null>(null)
-
-  // Quick Memos Storage & Scope Settings state
-  const [memoStorageLocation, setMemoStorageLocation] = useState<'global' | 'project'>(() => {
-    return (localStorage.getItem('antigravity_memo_storage_location') as 'global' | 'project') || 'global'
-  })
-  const [memoViewScope, setMemoViewScope] = useState<'all' | 'current'>(() => {
-    return (localStorage.getItem('antigravity_memo_view_scope') as 'all' | 'current') || 'all'
-  })
-  const [memoSearchScope, setMemoSearchScope] = useState<'text' | 'all'>(() => {
-    return (localStorage.getItem('antigravity_memo_search_scope') as 'text' | 'all') || 'text'
-  })
-  const [memoConfigFeedback, setMemoConfigFeedback] = useState<{ text: string; isError: boolean } | null>(null)
-  const [isSavingMemoConfig, setIsSavingMemoConfig] = useState<boolean>(false)
 
   // 3 App Zones, Custom Paths & Per-Account Overrides state
   const [accounts, setAccounts] = useState<any[]>([])
@@ -366,49 +311,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
     }
   }
 
-  const loadVaultStatus = async () => {
-    try {
-      const res = await api.getVaultStatus()
-      setVaultStatus(res)
-    } catch (err: any) {
-      console.warn('Could not load vault status:', err)
-    }
-  }
-
-  const handleSyncVault = async () => {
-    setIsSyncingVault(true)
-    setVaultFeedback(null)
-    try {
-      const res = await api.syncVault()
-      setVaultFeedback({
-        text: res.message || `Shielded ${res.new_vaulted} new sessions; rescued ${res.rescued_count} pruned sessions.`,
-        isError: false,
-      })
-      await loadVaultStatus()
-    } catch (err: any) {
-      setVaultFeedback({ text: `Vault sync failed: ${err.message}`, isError: true })
-    } finally {
-      setIsSyncingVault(false)
-    }
-  }
-
-  const handleToggleVault = async (enable: boolean) => {
-    setIsTogglingVault(true)
-    setVaultFeedback(null)
-    try {
-      const res = await api.toggleVault(enable)
-      setVaultFeedback({
-        text: res.enabled ? 'Conversation Vault Shield enabled.' : 'Conversation Vault Shield disabled.',
-        isError: false,
-      })
-      await loadVaultStatus()
-    } catch (err: any) {
-      setVaultFeedback({ text: `Failed to toggle vault: ${err.message}`, isError: true })
-    } finally {
-      setIsTogglingVault(false)
-    }
-  }
-
   const loadPrivacySettings = async () => {
     try {
       const data = await api.getPrivacySettings()
@@ -422,68 +324,12 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
     }
   }
 
-  const loadMemoSettings = async () => {
-    try {
-      const res = await api.getMemoConfig()
-      if (res && res.success && res.config) {
-        const cfg = res.config
-        if (cfg.storage_location === 'global' || cfg.storage_location === 'project') {
-          setMemoStorageLocation(cfg.storage_location)
-          localStorage.setItem('antigravity_memo_storage_location', cfg.storage_location)
-        }
-        if (cfg.view_scope === 'all' || cfg.view_scope === 'current') {
-          setMemoViewScope(cfg.view_scope)
-          localStorage.setItem('antigravity_memo_view_scope', cfg.view_scope)
-        }
-        if (cfg.search_scope === 'text' || cfg.search_scope === 'all') {
-          setMemoSearchScope(cfg.search_scope)
-          localStorage.setItem('antigravity_memo_search_scope', cfg.search_scope)
-        }
-      }
-    } catch (err: any) {
-      console.error('Failed to load memo settings:', err)
-    }
-  }
-
-  const handleUpdateMemoConfig = async (
-    newStorage: 'global' | 'project',
-    newView: 'all' | 'current',
-    newSearch: 'text' | 'all'
-  ) => {
-    setMemoStorageLocation(newStorage)
-    setMemoViewScope(newView)
-    setMemoSearchScope(newSearch)
-    localStorage.setItem('antigravity_memo_storage_location', newStorage)
-    localStorage.setItem('antigravity_memo_view_scope', newView)
-    localStorage.setItem('antigravity_memo_search_scope', newSearch)
-    setIsSavingMemoConfig(true)
-    try {
-      const res = await api.updateMemoConfig({
-        storage_location: newStorage,
-        view_scope: newView,
-        search_scope: newSearch,
-      })
-      if (res && res.success) {
-        setMemoConfigFeedback({ text: 'Quick Memos settings updated and synchronized with backend.', isError: false })
-      } else {
-        setMemoConfigFeedback({ text: 'Settings updated locally.', isError: false })
-      }
-    } catch {
-      setMemoConfigFeedback({ text: 'Saved settings locally (backend unreachable).', isError: false })
-    } finally {
-      setIsSavingMemoConfig(false)
-      setTimeout(() => setMemoConfigFeedback(null), 3500)
-    }
-  }
-
   useEffect(() => {
     loadInstallations()
     loadAppRelease()
     loadPasswordSettings()
     loadStorageSettings()
-    loadVaultStatus()
     loadPrivacySettings()
-    loadMemoSettings()
   }, [])
 
   const handleSetPassword = async () => {
@@ -641,13 +487,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
       setCopiedReport(true)
       setTimeout(() => setCopiedReport(false), 1500)
     }
-  }
-
-  const handleRefreshAll = () => {
-    onRefresh()
-    loadInstallations()
-    loadStorageSettings()
-    loadPrivacySettings()
   }
 
   const handleOpenExternal = (url: string) => {
@@ -852,32 +691,27 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
     {
       key: 'config_dir',
       label: 'Configuration Directory:',
-      val: storageInfo?.current_paths?.config_dir || '~/.config/antigravity-swiss',
+      val: storageInfo?.current_paths?.config_dir || '—',
     },
     {
       key: 'credentials',
       label: 'Credentials / Accounts File:',
-      val: storageInfo?.current_paths?.credentials_path || '~/.config/antigravity-swiss/accounts.json',
+      val: storageInfo?.current_paths?.credentials_path || '—',
     },
     {
       key: 'temp_dir',
       label: 'Temp & Cache Directory:',
-      val: storageInfo?.current_paths?.temp_dir || '/tmp/antigravity-swiss',
+      val: storageInfo?.current_paths?.temp_dir || '—',
     },
     {
       key: 'socket',
       label: 'Daemon IPC Socket:',
-      val: storageInfo?.current_paths?.socket_path || '/run/user/1000/antigravity-swiss/daemon.sock',
+      val: storageInfo?.current_paths?.socket_path || '—',
     },
     {
       key: 'antigravity_bin',
       label: 'Antigravity Binary:',
-      val: installations?.desktop_app?.path || '/opt/Antigravity/antigravity',
-    },
-    {
-      key: 'antigravity_config',
-      label: 'Antigravity Host Config:',
-      val: '~/.config/Antigravity',
+      val: installations?.desktop_app?.path || '—',
     },
   ]
 
@@ -886,76 +720,11 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
       {/* Tab 0: General */}
       {currentTab === 0 && (
         <>
-          {/* Header Info Card */}
-          <div className="google-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                System & Process Overview
-              </div>
-              <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
-                Runtime diagnostics, IPC Unix domain sockets, and Antigravity process safety shield.
-              </div>
-              <div style={{ display: 'flex', gap: '16px', marginTop: '10px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                <span>
-                  <strong>Daemon:</strong> {status?.daemon_running ? 'Online' : 'Stopped'}
-                </span>
-                <span>
-                  <strong>Host Process:</strong> {status?.antigravity_running ? `Running (PID: ${status.antigravity_pid})` : 'Not running'}
-                </span>
-                <span>
-                  <strong>Active Account:</strong> {status?.active_account || 'None'}
-                </span>
-              </div>
-            </div>
-
-            <button onClick={handleRefreshAll} className="btn-pill-tonal">
-              <RefreshCw size={14} /> Refresh Diagnostics
-            </button>
-          </div>
-
-          {/* Safety Shield Card */}
-          <div className="google-card">
-            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '12px' }}>
-              Process Safety Shield & Protection
-            </div>
-
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                backgroundColor: 'var(--green-bg)',
-                border: '1px solid #ceead6',
-                borderRadius: '12px',
-                padding: '16px 20px',
-              }}
-            >
-              <ShieldCheck size={28} color="var(--green)" />
-              <div>
-                <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--green)' }}>
-                  Host Process Safety Shield: ACTIVE
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  Host Antigravity 2.0 PID {status?.antigravity_pid ? `(${status.antigravity_pid})` : ''} is protected against accidental termination signals.
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* System Startup & Desktop Integration Card */}
+          {/* System & Startup Card */}
           <div className="google-card">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <div>
-                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                  System Startup & Desktop Integration
-                </div>
-                <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
-                  Configure automatic background startup and minimize-to-tray behavior on system login.
-                </div>
-              </div>
-              <div className={`badge-chip ${startupEnabled ? 'badge-green' : 'badge-tonal'}`} style={{ fontSize: '12px', padding: '6px 14px' }}>
-                <Monitor size={14} />
-                <span>{startupEnabled ? 'Launch at Startup Active' : 'Manual Launch Only'}</span>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+                System & Startup
               </div>
             </div>
 
@@ -999,29 +768,9 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
           {/* App Access Password Protection Card */}
           <div className="google-card">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div
-                  style={{
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '8px',
-                    backgroundColor: isPasswordEnabled ? 'var(--primary-light)' : 'var(--canvas)',
-                    border: '1px solid var(--border)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: isPasswordEnabled ? 'var(--primary)' : 'var(--text-muted)',
-                  }}
-                >
-                  <Lock size={18} />
-                </div>
-                <div>
-                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                    App Access Password Protection
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    Require an entry password to unlock and use Antigravity Swiss Knife. Minimum 6 characters (numbers, letters, symbols).
-                  </div>
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+                  App Access Password Protection
                 </div>
               </div>
 
@@ -1179,114 +928,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
             </div>
           </div>
 
-          {/* Preferred IDE Workspace Integration Card */}
-          <div className="google-card">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div
-                  style={{
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '8px',
-                    backgroundColor: 'var(--primary-light)',
-                    border: '1px solid var(--border)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'var(--primary)',
-                  }}
-                >
-                  <Code size={18} />
-                </div>
-                <div>
-                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                    IDE Workspace Integration
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    Configure your preferred code editor or IDE when launching folders as workspaces from the File Explorer toolbar.
-                  </div>
-                </div>
-              </div>
-
-              <span className="badge-chip badge-green">
-                ACTIVE: {preferredIDE.toUpperCase()}
-              </span>
-            </div>
-
-            {ideFeedback && (
-              <div
-                style={{
-                  backgroundColor: 'var(--green-bg)',
-                  color: 'var(--green)',
-                  padding: '10px 14px',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                  marginBottom: '16px',
-                }}
-              >
-                {ideFeedback}
-              </div>
-            )}
-
-            <div
-              style={{
-                backgroundColor: 'var(--canvas)',
-                border: '1px solid var(--border)',
-                borderRadius: '12px',
-                padding: '16px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px',
-              }}
-            >
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
-                  Preferred IDE / Editor:
-                </label>
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', maxWidth: '450px' }}>
-                  <select
-                    value={['code', 'cursor', 'windsurf', 'codium', 'zed'].includes(preferredIDE.toLowerCase()) ? preferredIDE.toLowerCase() : 'custom'}
-                    onChange={(e) => {
-                      if (e.target.value !== 'custom') {
-                        handleSaveIDE(e.target.value)
-                      }
-                    }}
-                    style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', color: 'var(--text)', fontSize: '12px' }}
-                  >
-                    <option value="code">VS Code (`code`)</option>
-                    <option value="cursor">Cursor (`cursor`)</option>
-                    <option value="windsurf">Windsurf (`windsurf`)</option>
-                    <option value="codium">VSCodium (`codium`)</option>
-                    <option value="zed">Zed (`zed`)</option>
-                    <option value="custom">Custom Command / Binary</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
-                  Command Binary / Executable:
-                </label>
-                <div style={{ display: 'flex', gap: '10px', maxWidth: '450px' }}>
-                  <input
-                    type="text"
-                    value={preferredIDE}
-                    onChange={(e) => setPreferredIDE(e.target.value)}
-                    placeholder="e.g. code, cursor, windsurf, codium, zed"
-                    style={{ flex: 1 }}
-                  />
-                  <button
-                    onClick={() => handleSaveIDE(preferredIDE)}
-                    disabled={isSavingIDE}
-                    className="btn-pill-primary"
-                    style={{ fontSize: '11px', padding: '6px 14px' }}
-                  >
-                    {isSavingIDE ? 'Saving...' : 'Save IDE'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
         </>
       )}
 
@@ -1298,22 +939,11 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
               <div>
                 <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                  Data & Storage Location
+                  Data Storage
                 </div>
                 <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
                   Choose where to store application configuration, keyring credentials, and temporary cache.
                 </div>
-              </div>
-
-              <div className="badge-chip badge-tonal" style={{ fontSize: '11.5px', padding: '5px 12px' }}>
-                <Layers size={13} />
-                <span>
-                  {storageInfo?.app_execution_type === 'unzipped_folder'
-                    ? 'Unzipped Directory Runner'
-                    : storageInfo?.app_execution_type === 'standalone_binary'
-                    ? 'Standalone Binary File'
-                    : 'System Package'}
-                </span>
               </div>
             </div>
 
@@ -1463,421 +1093,11 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
             </div>
           </div>
 
-          {/* Conversation History Vault & Auto-Shield Card */}
-          <div className="google-card">
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '16px', gap: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                <Archive size={18} color="var(--primary)" style={{ marginTop: '2px', flexShrink: 0 }} />
-                <div>
-                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                    Conversation History Vault & Auto-Shield
-                  </div>
-                  <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
-                    Prevents Antigravity's 500-session limit from silently pruning older conversations. Preserves database files via zero-overhead hardlinks and rescues unlinked conversations back into the active workspace.
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {vaultStatus?.enabled !== false ? (
-                  <span className="badge-chip badge-green" style={{ fontSize: '11.5px', padding: '5px 12px' }}>
-                    <ShieldCheck size={13} />
-                    <span>Shield Active</span>
-                  </span>
-                ) : (
-                  <span className="badge-chip badge-tonal" style={{ fontSize: '11.5px', padding: '5px 12px' }}>
-                    <ShieldAlert size={13} />
-                    <span>Shield Paused</span>
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {vaultFeedback && (
-              <div
-                style={{
-                  backgroundColor: vaultFeedback.isError ? 'var(--red-bg)' : 'var(--green-bg)',
-                  color: vaultFeedback.isError ? 'var(--red)' : 'var(--green)',
-                  padding: '10px 14px',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                  marginBottom: '16px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
-              >
-                {vaultFeedback.isError ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
-                <span>{vaultFeedback.text}</span>
-              </div>
-            )}
-
-            {/* Metrics */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '18px' }}>
-              <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px' }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
-                  Live Sessions
-                </div>
-                <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
-                  {vaultStatus?.live_count ?? 0}
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  in ~/.gemini/conversations
-                </div>
-              </div>
-
-              <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px' }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
-                  Vaulted Inodes
-                </div>
-                <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--primary)', marginTop: '4px' }}>
-                  {vaultStatus?.vaulted_count ?? 0}
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  hardlinked in vault
-                </div>
-              </div>
-
-              <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px' }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
-                  Auto-Rescued
-                </div>
-                <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--green)', marginTop: '4px' }}>
-                  {vaultStatus?.rescued_count ?? 0}
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  restored on demand
-                </div>
-              </div>
-
-              <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px' }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
-                  Disk Overhead
-                </div>
-                <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
-                  0 B
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  shared filesystem inodes
-                </div>
-              </div>
-            </div>
-
-            {/* Toggle and Action Bar */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', color: 'var(--text)', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={vaultStatus?.enabled ?? true}
-                  disabled={isTogglingVault}
-                  onChange={(e) => handleToggleVault(e.target.checked)}
-                />
-                <span>Automatically sync and shield conversation databases against Antigravity background pruner</span>
-              </label>
-
-              <button
-                onClick={handleSyncVault}
-                disabled={isSyncingVault}
-                className="btn-pill-tonal"
-                style={{ padding: '7px 18px', fontSize: '12px' }}
-              >
-                <RefreshCw size={13} className={isSyncingVault ? 'animate-spin' : ''} />
-                <span>{isSyncingVault ? 'Syncing...' : 'Sync Vault Now'}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Quick Memos Storage & Scope Settings Card */}
-          <div className="google-card">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <div>
-                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                  Quick Memos Storage & Scope Settings
-                </div>
-                <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
-                  Configure workspace-specific vs. global storage persistence, view boundaries, and search scopes for Quick Memos.
-                </div>
-              </div>
-
-              <div className="badge-chip badge-tonal" style={{ fontSize: '11.5px', padding: '5px 12px' }}>
-                <Bookmark size={13} />
-                <span>{memoStorageLocation === 'project' ? 'Per-Project Storage' : 'Global Shared'}</span>
-              </div>
-            </div>
-
-            {memoConfigFeedback && (
-              <div
-                style={{
-                  backgroundColor: memoConfigFeedback.isError ? 'var(--red-bg)' : 'var(--green-bg)',
-                  color: memoConfigFeedback.isError ? 'var(--red)' : 'var(--green)',
-                  padding: '10px 14px',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                  marginBottom: '16px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
-              >
-                <Check size={14} />
-                <span>{memoConfigFeedback.text}</span>
-              </div>
-            )}
-
-            {/* 1. Storage Location */}
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '10px' }}>
-                Storage Location
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                {/* Global Shared Storage */}
-                <div
-                  onClick={() => handleUpdateMemoConfig('global', memoViewScope, memoSearchScope)}
-                  style={{
-                    border: memoStorageLocation === 'global' ? '2px solid var(--primary)' : '1px solid var(--border)',
-                    backgroundColor: memoStorageLocation === 'global' ? 'rgba(26, 115, 232, 0.04)' : 'var(--canvas)',
-                    borderRadius: '12px',
-                    padding: '16px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '10px',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Globe size={18} color={memoStorageLocation === 'global' ? 'var(--primary)' : 'var(--text-muted)'} />
-                      <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)' }}>
-                        Global Shared Storage
-                      </span>
-                    </div>
-                    <input
-                      type="radio"
-                      name="memo_storage_location"
-                      checked={memoStorageLocation === 'global'}
-                      onChange={() => handleUpdateMemoConfig('global', memoViewScope, memoSearchScope)}
-                      style={{ cursor: 'pointer' }}
-                    />
-                  </div>
-                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                    Shared across all workspaces in central app configuration directory (<code>~/.config/antigravity-swiss/memos.json</code>).
-                  </p>
-                </div>
-
-                {/* Per-Project Storage */}
-                <div
-                  onClick={() => handleUpdateMemoConfig('project', memoViewScope, memoSearchScope)}
-                  style={{
-                    border: memoStorageLocation === 'project' ? '2px solid var(--primary)' : '1px solid var(--border)',
-                    backgroundColor: memoStorageLocation === 'project' ? 'rgba(26, 115, 232, 0.04)' : 'var(--canvas)',
-                    borderRadius: '12px',
-                    padding: '16px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '10px',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Folder size={18} color={memoStorageLocation === 'project' ? 'var(--primary)' : 'var(--text-muted)'} />
-                      <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)' }}>
-                        Per-Project Storage
-                      </span>
-                    </div>
-                    <input
-                      type="radio"
-                      name="memo_storage_location"
-                      checked={memoStorageLocation === 'project'}
-                      onChange={() => handleUpdateMemoConfig('project', memoViewScope, memoSearchScope)}
-                      style={{ cursor: 'pointer' }}
-                    />
-                  </div>
-                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                    Stored in <code>.antigravity/memos.json</code> within each project's workspace directory.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* 2. View Scope */}
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '10px' }}>
-                View Scope
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                {/* All Projects */}
-                <div
-                  onClick={() => handleUpdateMemoConfig(memoStorageLocation, 'all', memoSearchScope)}
-                  style={{
-                    border: memoViewScope === 'all' ? '2px solid var(--primary)' : '1px solid var(--border)',
-                    backgroundColor: memoViewScope === 'all' ? 'rgba(26, 115, 232, 0.04)' : 'var(--canvas)',
-                    borderRadius: '12px',
-                    padding: '16px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '10px',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Layers size={18} color={memoViewScope === 'all' ? 'var(--primary)' : 'var(--text-muted)'} />
-                      <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)' }}>
-                        All Projects
-                      </span>
-                    </div>
-                    <input
-                      type="radio"
-                      name="memo_view_scope"
-                      checked={memoViewScope === 'all'}
-                      onChange={() => handleUpdateMemoConfig(memoStorageLocation, 'all', memoSearchScope)}
-                      style={{ cursor: 'pointer' }}
-                    />
-                  </div>
-                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                    Display all memos across all projects and global storage.
-                  </p>
-                </div>
-
-                {/* Current Project Only */}
-                <div
-                  onClick={() => handleUpdateMemoConfig(memoStorageLocation, 'current', memoSearchScope)}
-                  style={{
-                    border: memoViewScope === 'current' ? '2px solid var(--primary)' : '1px solid var(--border)',
-                    backgroundColor: memoViewScope === 'current' ? 'rgba(26, 115, 232, 0.04)' : 'var(--canvas)',
-                    borderRadius: '12px',
-                    padding: '16px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '10px',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Filter size={18} color={memoViewScope === 'current' ? 'var(--primary)' : 'var(--text-muted)'} />
-                      <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)' }}>
-                        Current Project Only
-                      </span>
-                    </div>
-                    <input
-                      type="radio"
-                      name="memo_view_scope"
-                      checked={memoViewScope === 'current'}
-                      onChange={() => handleUpdateMemoConfig(memoStorageLocation, 'current', memoSearchScope)}
-                      style={{ cursor: 'pointer' }}
-                    />
-                  </div>
-                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                    Restrict the memo view to the currently active project workspace.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* 3. Default Search Scope */}
-            <div style={{ marginBottom: '16px' }}>
-              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '10px' }}>
-                Default Search Scope
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                {/* Text Memos Only (Default) */}
-                <div
-                  onClick={() => handleUpdateMemoConfig(memoStorageLocation, memoViewScope, 'text')}
-                  style={{
-                    border: memoSearchScope === 'text' ? '2px solid var(--primary)' : '1px solid var(--border)',
-                    backgroundColor: memoSearchScope === 'text' ? 'rgba(26, 115, 232, 0.04)' : 'var(--canvas)',
-                    borderRadius: '12px',
-                    padding: '16px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '10px',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <FileText size={18} color={memoSearchScope === 'text' ? 'var(--primary)' : 'var(--text-muted)'} />
-                      <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)' }}>
-                        Text Memos Only (Default)
-                      </span>
-                    </div>
-                    <input
-                      type="radio"
-                      name="memo_search_scope"
-                      checked={memoSearchScope === 'text'}
-                      onChange={() => handleUpdateMemoConfig(memoStorageLocation, memoViewScope, 'text')}
-                      style={{ cursor: 'pointer' }}
-                    />
-                  </div>
-                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                    Search queries only match text memos.
-                  </p>
-                </div>
-
-                {/* Text and Voice Memos */}
-                <div
-                  onClick={() => handleUpdateMemoConfig(memoStorageLocation, memoViewScope, 'all')}
-                  style={{
-                    border: memoSearchScope === 'all' ? '2px solid var(--primary)' : '1px solid var(--border)',
-                    backgroundColor: memoSearchScope === 'all' ? 'rgba(26, 115, 232, 0.04)' : 'var(--canvas)',
-                    borderRadius: '12px',
-                    padding: '16px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '10px',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Mic size={18} color={memoSearchScope === 'all' ? 'var(--primary)' : 'var(--text-muted)'} />
-                      <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)' }}>
-                        Text and Voice Memos
-                      </span>
-                    </div>
-                    <input
-                      type="radio"
-                      name="memo_search_scope"
-                      checked={memoSearchScope === 'all'}
-                      onChange={() => handleUpdateMemoConfig(memoStorageLocation, memoViewScope, 'all')}
-                      style={{ cursor: 'pointer' }}
-                    />
-                  </div>
-                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                    Search queries match both text memos and transcribed voice memos.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Card Footer Info */}
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px', fontSize: '11px', color: 'var(--text-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                Active storage: <code>{memoStorageLocation === 'project' ? '<workspace>/.antigravity/memos.json' : '~/.config/antigravity-swiss/memos.json'}</code>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                {isSavingMemoConfig && <RefreshCw size={12} className="animate-spin" />}
-                <span>{isSavingMemoConfig ? 'Syncing...' : 'Synchronized with backend'}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* 3 Application Zones Card */}
+          {/* Application Executable Zones Card */}
           <div className="google-card">
             <div style={{ marginBottom: '16px' }}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                Application Executable Paths & Cache Management (3 Zones)
-              </div>
-              <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
-                Auto-detected host binaries, custom path overrides, per-account executable assignments, and isolated cache cleanup.
+                Application Executable Paths & Cache Management
               </div>
             </div>
 
@@ -1885,26 +1105,23 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               {[
                 {
                   appType: 'desktop' as const,
-                  title: 'Antigravity 2.0 Desktop App',
-                  icon: Monitor,
+                  title: 'Antigravity 2.0',
                   zone: storageInfo?.app_zones?.desktop,
                   placeholder: '/opt/Antigravity/antigravity or C:\\Program Files\\Antigravity\\...',
                 },
                 {
                   appType: 'agy' as const,
-                  title: 'agy CLI',
-                  icon: Terminal,
+                  title: 'Antigravity CLI',
                   zone: storageInfo?.app_zones?.agy,
                   placeholder: '~/.local/bin/agy or /usr/local/bin/agy',
                 },
                 {
                   appType: 'vscode' as const,
-                  title: 'VS Code Extension',
-                  icon: Code,
+                  title: 'Antigravity VS Code Extension',
                   zone: storageInfo?.app_zones?.vscode,
                   placeholder: '~/.vscode/extensions/...',
                 },
-              ].map(({ appType, title, icon: Icon, zone, placeholder }) => {
+              ].map(({ appType, title, zone, placeholder }) => {
                 const detectedPath = zone?.detected_path || 'Not detected'
                 const isInstalled = zone?.installed ?? false
                 const version = zone?.version || ''
@@ -1926,29 +1143,9 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                   >
                     {/* Zone Header */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <div
-                          style={{
-                            width: '32px',
-                            height: '32px',
-                            borderRadius: '8px',
-                            backgroundColor: 'rgba(26, 115, 232, 0.1)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                        >
-                          <Icon size={18} color="var(--primary)" />
-                        </div>
-                        <div>
-                          <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
-                            {title}
-                          </span>
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '8px' }}>
-                            ({appType.toUpperCase()})
-                          </span>
-                        </div>
-                      </div>
+                      <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
+                        {title}
+                      </span>
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {isInstalled ? (
@@ -2385,45 +1582,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                   Describe an issue and let your Antigravity agent diagnose runtime state and prepare an issue on our public GitHub repository.
                 </div>
               </div>
-
-              <div className="badge-chip badge-tonal" style={{ fontSize: '11.5px', padding: '5px 12px' }}>
-                <Bug size={13} />
-                <span>Public GitHub Bug Reporter</span>
-              </div>
-            </div>
-
-            {/* Pipeline Hierarchy Badges */}
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-                padding: '14px 16px',
-                backgroundColor: 'var(--canvas)',
-                borderRadius: '10px',
-                border: '1px solid var(--border)',
-                marginBottom: '16px',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11.5px', color: 'var(--text-muted)' }}>
-                <strong style={{ minWidth: '130px', color: 'var(--text)' }}>Agent Priority:</strong>
-                <span className="badge-chip badge-tonal">1. Antigravity 2.0</span>
-                <span>→</span>
-                <span className="badge-chip badge-tonal">2. agy CLI</span>
-                <span>→</span>
-                <span className="badge-chip badge-tonal">3. VS Code Extension</span>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11.5px', color: 'var(--text-muted)' }}>
-                <strong style={{ minWidth: '130px', color: 'var(--text)' }}>Account Resolution:</strong>
-                <span className="badge-chip badge-tonal">Active Account</span>
-                <span>→</span>
-                <span className="badge-chip badge-tonal">Enabled Keyring Account</span>
-                <span>→</span>
-                <span className="badge-chip badge-tonal">Enabled Custom Model</span>
-                <span>→</span>
-                <span className="badge-chip badge-tonal">Built-in Engine</span>
-              </div>
             </div>
 
             {/* Description Input */}
@@ -2575,21 +1733,14 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
         <>
           {/* Support & Community Appreciation Card */}
           <div className="google-card" style={{ backgroundColor: 'var(--surface)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-              <div>
-                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                  Support & Appreciation
-                </div>
-                <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)', marginTop: '2px' }}>
-                  Enjoying Antigravity Swiss Knife? Support the Project!
-                </div>
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>
+                Enjoying <span style={{ color: 'var(--primary)' }}>Antigravity Swiss Knife</span>?
+              </div>
+              <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>
+                Please Support the Project!
               </div>
             </div>
-
-            <p style={{ margin: '0 0 16px 0', fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              If Antigravity Swiss Knife streamlines your workflow, saves quota, and unlocks deeper agent orchestrations,
-              consider starring our GitHub repository or buying me a can of SOLO!
-            </p>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
               {/* Native Ko-fi "Buy me a SOLO (A$1)" Widget */}
@@ -2600,7 +1751,9 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
+                  justifyContent: 'center',
                   gap: '8px',
+                  width: '230px',
                   backgroundColor: '#fef9c3',
                   color: '#000000',
                   border: '1px solid #facc15',
@@ -2641,9 +1794,11 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                 className="btn-pill-tonal"
                 style={{
                   height: '42px',
+                  width: '230px',
                   padding: '0 20px',
                   display: 'inline-flex',
                   alignItems: 'center',
+                  justifyContent: 'center',
                   gap: '8px',
                   fontSize: '13px',
                   fontWeight: 600,
@@ -2651,56 +1806,10 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                   cursor: 'pointer',
                 }}
               >
-                <Star size={16} color="#f59e0b" fill="#f59e0b" />
+                <GithubIcon size={16} />
                 <span>Star on GitHub</span>
               </button>
             </div>
-          </div>
-
-          {/* Clean State Restore / Factory Reset Gadget */}
-          <div className="google-card" style={{ border: '1px solid #fce8e6' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <RotateCcw size={18} color="var(--red)" />
-                <div style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)' }}>
-                  Restore Antigravity Apps to Clean Unmodified State
-                </div>
-              </div>
-
-              <span className="badge-chip badge-red">Factory Restore</span>
-            </div>
-
-            <p style={{ margin: '0 0 14px 0', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Restore all Antigravity apps to an unmodified status by turning off all features and restoring backed-up files and code.
-              This removes custom executable overrides, disables injected customizations, and resets state safely.
-            </p>
-
-            {resetFeedback && (
-              <div
-                style={{
-                  backgroundColor: resetFeedback.isError ? 'var(--red-bg)' : 'var(--green-bg)',
-                  color: resetFeedback.isError ? 'var(--red)' : 'var(--green)',
-                  padding: '10px 14px',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                  marginBottom: '14px',
-                  fontWeight: 500,
-                }}
-              >
-                {resetFeedback.text}
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setShowResetConfirm(true)}
-              disabled={isResetting}
-              className="btn-pill-danger"
-              style={{ fontSize: '12.5px', padding: '8px 20px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-            >
-              <RotateCcw size={14} />
-              {isResetting ? 'Restoring...' : 'Restore All to Factory / Unmodified State'}
-            </button>
           </div>
 
           {/* Reset Confirmation Modal */}
@@ -2768,13 +1877,8 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
           {/* App Releases & System Updates Card */}
           <div className="google-card">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
-              <div>
-                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                  App Releases & System Updates
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  Antigravity Swiss Knife release channel ({appRelease?.platform || installations?.platform || 'linux'} / {appRelease?.arch || installations?.arch || 'amd64'})
-                </div>
+              <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>
+                App releases & system updates
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -2928,47 +2032,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               </div>
             </div>
 
-            {/* Release notes preview if available */}
-            {appRelease?.release_notes && (
-              <div
-                style={{
-                  border: '1px solid var(--border)',
-                  borderRadius: '10px',
-                  padding: '12px 16px',
-                  backgroundColor: 'var(--canvas)',
-                  marginBottom: '16px',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>
-                    Release Notes & Highlights ({appRelease.release_name || `v${appRelease.latest_version}`})
-                  </div>
-                  {appRelease.html_url && (
-                    <button
-                      type="button"
-                      onClick={() => handleOpenExternal(appRelease.html_url)}
-                      className="btn-pill-tonal"
-                      style={{ fontSize: '11px', padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                    >
-                      <ExternalLink size={11} /> View Release on GitHub
-                    </button>
-                  )}
-                </div>
-                <div
-                  style={{
-                    fontSize: '12px',
-                    color: 'var(--text-muted)',
-                    lineHeight: 1.5,
-                    maxHeight: '120px',
-                    overflowY: 'auto',
-                    whiteSpace: 'pre-wrap',
-                  }}
-                >
-                  {appRelease.release_notes}
-                </div>
-              </div>
-            )}
-
             {/* Automation Options: Auto Check & Upgrade */}
             <div
               style={{
@@ -2981,10 +2044,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                 gap: '14px',
               }}
             >
-              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                Release Automation & Background Options
-              </div>
-
               {/* Toggle 1: Auto-check */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
                 <div>
@@ -3056,6 +2115,47 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Clean State Restore / Factory Reset Gadget */}
+          <div className="google-card" style={{ border: '1px solid #fce8e6' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '10px' }}>
+              <div style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)' }}>
+                Restore Antigravity Apps to Clean Unmodified State
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowResetConfirm(true)}
+                disabled={isResetting}
+                className="btn-pill-danger"
+                style={{ fontSize: '12.5px', padding: '7px 18px', display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap', flexShrink: 0 }}
+              >
+                {isResetting ? 'Restoring...' : 'Restore Antigravity'}
+              </button>
+            </div>
+
+            <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              Restore all Antigravity apps to an unmodified status by turning off all features and restoring backed-up files and code.
+            </p>
+            <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              This removes custom executable overrides, disables injected customizations, and resets state safely.
+            </p>
+
+            {resetFeedback && (
+              <div
+                style={{
+                  backgroundColor: resetFeedback.isError ? 'var(--red-bg)' : 'var(--green-bg)',
+                  color: resetFeedback.isError ? 'var(--red)' : 'var(--green)',
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  marginTop: '14px',
+                  fontWeight: 500,
+                }}
+              >
+                {resetFeedback.text}
+              </div>
+            )}
           </div>
         </>
       )}

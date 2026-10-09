@@ -201,7 +201,7 @@ func (s *Store) ListSidecars() ([]SidecarTaskInfo, error) {
 		return nil, err
 	}
 
-	var results []SidecarTaskInfo
+	results := []SidecarTaskInfo{}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue

@@ -55,17 +55,21 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               const prevLeftEnabled = localStorage.getItem("antigravity_swiss_left_panel_enabled");
               const prevLeftMode = localStorage.getItem("antigravity_swiss_left_panel_mode");
               const prevMainSection = localStorage.getItem("antigravity_swiss_main_section_enabled");
+              const prevExtensions = localStorage.getItem("antigravity_swiss_ext_visibility");
               const newLeftEnabled = String(loaded.left_panel_extensions_enabled !== false);
               const newLeftMode = loaded.left_panel_extensions_mode || "single";
               const newMainSection = String(loaded.main_section_extensions_enabled !== false);
-              if (prevLeftEnabled !== newLeftEnabled || prevLeftMode !== newLeftMode || prevMainSection !== newMainSection) {
+              const newExtensions = JSON.stringify(loaded.extensions || null);
+              if (prevLeftEnabled !== newLeftEnabled || prevLeftMode !== newLeftMode || prevMainSection !== newMainSection || prevExtensions !== newExtensions) {
                 localStorage.setItem("antigravity_swiss_left_panel_enabled", newLeftEnabled);
                 localStorage.setItem("antigravity_swiss_left_panel_mode", newLeftMode);
                 localStorage.setItem("antigravity_swiss_main_section_enabled", newMainSection);
+                localStorage.setItem("antigravity_swiss_ext_visibility", newExtensions);
                 window.dispatchEvent(new CustomEvent("swiss-left-nav-config-updated", {
                   detail: { enabled: loaded.left_panel_extensions_enabled !== false, mode: newLeftMode, main_section_enabled: loaded.main_section_extensions_enabled !== false }
                 }));
                 if (typeof window.setupLeftNavTabs === "function") window.setupLeftNavTabs();
+                if (typeof window.setupAuxiliaryTabs === "function") window.setupAuxiliaryTabs();
               }
               applyEnhancementsStyles();
               renderPromptJumpBar();
@@ -180,7 +184,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           [data-testid="run-command-step"],
           [data-testid="subagent-node"],
           .thinking-collapsible {
-            opacity: 0.48 !important;
+            opacity: 0.5 !important;
             filter: grayscale(0.65) !important;
             transition: opacity 0.2s ease, filter 0.2s ease !important;
           }

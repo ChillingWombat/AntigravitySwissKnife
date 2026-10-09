@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom'
 import {
   DownloadCloud,
   Network,
-  Clock,
   RefreshCw,
   CheckCircle2,
   ArrowRight,
@@ -175,30 +174,6 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* Top Bar Right Contextual Actions via Portal */}
-      {portalTarget && activeTab === 0 &&
-        createPortal(
-          <button
-            onClick={() => loadCandidates(selectedSource)}
-            disabled={isScanning}
-            style={{
-              backgroundColor: '#ffffff',
-              border: '1px solid var(--border)',
-              borderRadius: '6px',
-              padding: '6px 14px',
-              fontSize: '12px',
-              fontWeight: 600,
-              color: 'var(--text)',
-              cursor: isScanning ? 'not-allowed' : 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-            }}
-          >
-            <RefreshCw size={13} className={isScanning ? 'animate-spin' : ''} />
-            <span>{isScanning ? 'Scanning...' : 'Rescan Sources'}</span>
-          </button>,
-          portalTarget
-        )}
 
       {portalTarget && activeTab === 1 &&
         createPortal(
@@ -259,15 +234,6 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
               padding: '20px',
             }}
           >
-            <div style={{ marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '15px', fontWeight: 700, margin: '0 0 4px 0', color: 'var(--text)' }}>
-                1. Select Source Agent & Project Matching Rules
-              </h3>
-              <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--text-muted)' }}>
-                Inspired by <code>dsh-chat-import</code>, this tool converts transcripts, tool outputs, and project structures into Antigravity 2.0 format.
-              </p>
-            </div>
-
             <div
               style={{
                 display: 'grid',
@@ -286,10 +252,11 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                   onChange={(e) => setSelectedSource(e.target.value as ChatImportSource)}
                   style={{
                     width: '100%',
-                    padding: '8px 12px',
+                    padding: '9px 12px',
                     borderRadius: '8px',
                     border: '1px solid var(--border)',
-                    fontSize: '13px',
+                    fontSize: '14px',
+                    fontWeight: 600,
                     backgroundColor: '#ffffff',
                     color: 'var(--text)',
                   }}
@@ -319,10 +286,11 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                   onChange={(e) => setProjectMatchMode(e.target.value as ProjectMatchOption)}
                   style={{
                     width: '100%',
-                    padding: '8px 12px',
+                    padding: '9px 12px',
                     borderRadius: '8px',
                     border: '1px solid var(--border)',
-                    fontSize: '13px',
+                    fontSize: '14px',
+                    fontWeight: 600,
                     backgroundColor: '#ffffff',
                     color: 'var(--text)',
                   }}
@@ -347,10 +315,10 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                       onClick={() => setImportSyncMode(mode)}
                       style={{
                         flex: 1,
-                        padding: '7px 10px',
+                        padding: '8px 10px',
                         borderRadius: '8px',
-                        fontSize: '12px',
-                        fontWeight: importSyncMode === mode ? 600 : 500,
+                        fontSize: '13px',
+                        fontWeight: importSyncMode === mode ? 700 : 600,
                         backgroundColor: importSyncMode === mode ? '#e8f0fe' : '#ffffff',
                         color: importSyncMode === mode ? 'var(--primary)' : 'var(--text-muted)',
                         border: `1px solid ${importSyncMode === mode ? 'var(--primary)' : 'var(--border)'}`,
@@ -431,23 +399,28 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                 </div>
               </div>
 
-              <div style={{ overflowX: 'auto' }}>
+              <div
+                style={{
+                  overflowX: 'auto',
+                  ...(candidates.length > 0 ? { height: '420px', overflowY: 'auto' } : {}),
+                }}
+              >
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>
-                      <th style={{ padding: '8px 10px', width: '30px' }}>
+                      <th style={{ padding: '8px 10px', width: '30px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>
                         <input
                           type="checkbox"
                           checked={candidates.length > 0 && candidates.every((c) => c.selected)}
                           onChange={(e) => setCandidates(candidates.map((c) => ({ ...c, selected: e.target.checked })))}
                         />
                       </th>
-                      <th style={{ padding: '8px 10px' }}>Conversation Title</th>
-                      <th style={{ padding: '8px 10px' }}>Source</th>
-                      <th style={{ padding: '8px 10px' }}>Turns & Tools</th>
-                      <th style={{ padding: '8px 10px' }}>Target Destination</th>
-                      <th style={{ padding: '8px 10px' }}>Match Status</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right' }}>Preview</th>
+                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>Conversation Title</th>
+                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>Source</th>
+                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>Turns & Tools</th>
+                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>Target Destination</th>
+                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>Match Status</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>Preview</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -598,8 +571,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
               padding: '20px',
             }}
           >
-            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Clock size={16} color="var(--primary)" />
+            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--text)' }}>
               Recent Migration History
             </h3>
             <div style={{ overflowX: 'auto' }}>

@@ -186,6 +186,7 @@ export interface FleetQuotaSummary {
   total_accounts: number
   active_account: string
   accounts: AccountState[]
+  refreshing?: boolean
 }
 
 export interface RuleConfig {
@@ -485,6 +486,7 @@ export interface EnhancementsConfig {
   left_panel_extensions_enabled?: boolean
   left_panel_extensions_mode?: 'single' | 'individual'
   main_section_extensions_enabled?: boolean
+  extensions?: Record<string, { aux_panel: boolean; main_page: boolean }>
   scroll_to_bottom: boolean
   turn_counter: boolean
   default_new_project?: string

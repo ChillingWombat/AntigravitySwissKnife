@@ -1257,6 +1257,47 @@ func TestBrowserViewToolbarLayout(t *testing.T) {
 	}
 }
 
+func TestAuxiliaryPerExtensionVisibilityAndOrientation(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	css := GenerateAuxiliaryPluginsCSS()
+
+	jsTokens := []string{
+		"isAuxExtensionVisible",                        // per-extension aux panel gate
+		"aux_panel",                                    // EnhancementsConfig.extensions visibility key
+		`id="swiss-b-orientation"`,                     // Portrait|Landscape control
+		"antigravity_swiss_browser_orientation",        // persisted IDE-side orientation key
+		"deviceOrientation",                            // orientation state variable
+		"swiss-landscape",                              // landscape class applied to device frame
+	}
+	for _, tok := range jsTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected auxiliary script to contain %q", tok)
+		}
+	}
+
+	cssTokens := []string{
+		".swiss-device-frame.swiss-landscape.frame-iphone-16-pro",
+		".swiss-device-frame.swiss-landscape.frame-pixel-9",
+		".swiss-device-frame.swiss-landscape.frame-ipad",
+	}
+	for _, tok := range cssTokens {
+		if !strings.Contains(css, tok) {
+			t.Errorf("expected auxiliary CSS to contain %q", tok)
+		}
+	}
+
+	// Orientation select must sit inside the device group between device and scale
+	idxDevice := strings.Index(js, `id="swiss-b-device"`)
+	idxOrient := strings.Index(js, `id="swiss-b-orientation"`)
+	idxScale := strings.Index(js, `id="swiss-b-scale"`)
+	if idxDevice == -1 || idxOrient == -1 || idxScale == -1 {
+		t.Fatalf("device group controls missing (device=%d, orientation=%d, scale=%d)", idxDevice, idxOrient, idxScale)
+	}
+	if !(idxDevice < idxOrient && idxOrient < idxScale) {
+		t.Errorf("expected device group order: device < orientation < scale, got %d < %d < %d", idxDevice, idxOrient, idxScale)
+	}
+}
+
 func TestBrowserViewQuickPortsManagement(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 	css := GenerateAuxiliaryPluginsCSS()

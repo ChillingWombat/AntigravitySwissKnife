@@ -768,7 +768,7 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 		defaultNonGemini := d.Config.DefaultNonGeminiModel
 		if defaultNonGemini == "" {
-			defaultNonGemini = "claude-opus-4-6"
+			defaultNonGemini = "claude-opus-4-6-thinking"
 		}
 		switchMode := d.Config.SwitchMode
 		if switchMode == "" {
@@ -1003,6 +1003,9 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 		states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, thresh, threshWeekly)
 		summary := quota.ComputeFleetSummary(states, active)
+		d.pollingMu.Lock()
+		summary.Refreshing = d.isPollingFleet
+		d.pollingMu.Unlock()
 		return summary, nil
 	})
 

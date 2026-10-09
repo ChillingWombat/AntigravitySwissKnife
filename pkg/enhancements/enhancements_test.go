@@ -49,14 +49,27 @@ func TestDefaultConfig(t *testing.T) {
 	if !cfg.LeftPanelExtensionsEnabled {
 		t.Errorf("expected LeftPanelExtensionsEnabled to be true by default")
 	}
-	if cfg.LeftPanelExtensionsMode != "single" {
-		t.Errorf("expected LeftPanelExtensionsMode to be 'single' by default, got %s", cfg.LeftPanelExtensionsMode)
+	if cfg.LeftPanelExtensionsMode != "individual" {
+		t.Errorf("expected LeftPanelExtensionsMode to be 'individual' by default, got %s", cfg.LeftPanelExtensionsMode)
 	}
 	if cfg.DefaultNewProject != "auto" {
 		t.Errorf("expected DefaultNewProject to be 'auto', got %s", cfg.DefaultNewProject)
 	}
 	if !cfg.OverviewPanel.ReplaceSeeAllTriangle {
 		t.Errorf("expected OverviewPanel.ReplaceSeeAllTriangle to be true by default")
+	}
+	if len(cfg.Extensions) != len(ExtensionIDs) {
+		t.Fatalf("expected Extensions map to cover %d ids, got %d", len(ExtensionIDs), len(cfg.Extensions))
+	}
+	for _, id := range ExtensionIDs {
+		vis, ok := cfg.Extensions[id]
+		if !ok {
+			t.Errorf("expected Extensions map to contain %q", id)
+			continue
+		}
+		if !vis.AuxPanel || !vis.MainPage {
+			t.Errorf("expected Extensions[%q] to default to {true, true}, got %+v", id, vis)
+		}
 	}
 }
 
@@ -440,8 +453,8 @@ func TestLeftPanelExtensions_StoreAndScript(t *testing.T) {
 	if !cfg.LeftPanelExtensionsEnabled {
 		t.Errorf("expected LeftPanelExtensionsEnabled to be true by default")
 	}
-	if cfg.LeftPanelExtensionsMode != "single" {
-		t.Errorf("expected LeftPanelExtensionsMode to be 'single' by default, got %s", cfg.LeftPanelExtensionsMode)
+	if cfg.LeftPanelExtensionsMode != "individual" {
+		t.Errorf("expected LeftPanelExtensionsMode to be 'individual' by default, got %s", cfg.LeftPanelExtensionsMode)
 	}
 
 	if err := store.ToggleLeftPanelExtensions(false); err != nil {
@@ -481,6 +494,160 @@ func TestLeftPanelExtensions_StoreAndScript(t *testing.T) {
 	}
 	if !strings.Contains(script, "swiss-left-nav-config-updated") {
 		t.Errorf("expected script to dispatch swiss-left-nav-config-updated event")
+	}
+}
+
+func TestExtensionsVisibility_LegacyMigration(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "enh-ext-migration-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	configPath := filepath.Join(tmpDir, "enhancements.json")
+
+	// Legacy config without an extensions map; both global toggles disabled.
+	legacy := `{
+  "version": "1.0.0",
+  "enabled": true,
+  "left_panel_extensions_enabled": false,
+  "left_panel_extensions_mode": "single",
+  "main_section_extensions_enabled": false
+}`
+	if err := os.WriteFile(configPath, []byte(legacy), 0644); err != nil {
+		t.Fatalf("failed to write legacy config: %v", err)
+	}
+
+	store, err := NewStore(configPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	cfg := store.GetConfig()
+	if len(cfg.Extensions) != len(ExtensionIDs) {
+		t.Fatalf("expected migrated Extensions map with %d entries, got %d", len(ExtensionIDs), len(cfg.Extensions))
+	}
+	for _, id := range ExtensionIDs {
+		vis, ok := cfg.Extensions[id]
+		if !ok {
+			t.Errorf("expected Extensions map to contain %q", id)
+			continue
+		}
+		if vis.AuxPanel {
+			t.Errorf("expected Extensions[%q].AuxPanel=false (left_panel_extensions_enabled was false)", id)
+		}
+		if vis.MainPage {
+			t.Errorf("expected Extensions[%q].MainPage=false (main_section_extensions_enabled was false)", id)
+		}
+	}
+	if cfg.LeftPanelExtensionsMode != "individual" {
+		t.Errorf("expected LeftPanelExtensionsMode forced to 'individual' after migration, got %s", cfg.LeftPanelExtensionsMode)
+	}
+
+	// The normalized config must be persisted once so the map is authoritative.
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("failed to re-read persisted config: %v", err)
+	}
+	if !strings.Contains(string(raw), `"extensions"`) {
+		t.Errorf("expected persisted enhancements.json to contain the extensions map")
+	}
+
+	// Reload: the persisted map must not be re-derived from legacy fields.
+	store2, err := NewStore(configPath)
+	if err != nil {
+		t.Fatalf("failed to reload store: %v", err)
+	}
+	if len(store2.GetConfig().Extensions) != len(ExtensionIDs) {
+		t.Errorf("expected reloaded store to keep the persisted extensions map")
+	}
+}
+
+func TestExtensionsVisibility_LegacyMigration_Enabled(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "enh-ext-migration-on-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	configPath := filepath.Join(tmpDir, "enhancements.json")
+
+	// Legacy config with global toggles enabled and no extensions map.
+	legacy := `{
+  "version": "1.0.0",
+  "enabled": true,
+  "left_panel_extensions_enabled": true,
+  "left_panel_extensions_mode": "single",
+  "main_section_extensions_enabled": true
+}`
+	if err := os.WriteFile(configPath, []byte(legacy), 0644); err != nil {
+		t.Fatalf("failed to write legacy config: %v", err)
+	}
+
+	store, err := NewStore(configPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	cfg := store.GetConfig()
+	for _, id := range ExtensionIDs {
+		vis, ok := cfg.Extensions[id]
+		if !ok {
+			t.Errorf("expected Extensions map to contain %q", id)
+			continue
+		}
+		if !vis.AuxPanel || !vis.MainPage {
+			t.Errorf("expected Extensions[%q] to be {true, true}, got %+v", id, vis)
+		}
+	}
+	if cfg.LeftPanelExtensionsMode != "individual" {
+		t.Errorf("expected LeftPanelExtensionsMode forced to 'individual', got %s", cfg.LeftPanelExtensionsMode)
+	}
+}
+
+func TestExtensionsVisibility_UpdatePreservesMap(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "enh-ext-update-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	configPath := filepath.Join(tmpDir, "enhancements.json")
+	store, err := NewStore(configPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	// Toggle one extension off through the map and persist.
+	cfg := store.GetConfig()
+	cfg.Extensions["github"] = ExtensionVisibility{AuxPanel: true, MainPage: false}
+	if err := store.UpdateConfig(cfg); err != nil {
+		t.Fatalf("failed to update config: %v", err)
+	}
+
+	// A subsequent UpdateConfig from a client without the extensions map must
+	// carry the stored map over instead of re-deriving it from legacy toggles.
+	stripped := store.GetConfig()
+	stripped.Extensions = nil
+	if err := store.UpdateConfig(stripped); err != nil {
+		t.Fatalf("failed to update config without extensions map: %v", err)
+	}
+	got := store.GetConfig().Extensions["github"]
+	if !got.AuxPanel || got.MainPage {
+		t.Errorf("expected stored extensions map to survive a legacy update, got %+v", got)
+	}
+}
+
+func TestGenerateEnhancementsScript_ExtensionsMap(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Extensions["browser"] = ExtensionVisibility{AuxPanel: false, MainPage: true}
+	script := GenerateEnhancementsScript(cfg)
+
+	if !strings.Contains(script, `"extensions"`) {
+		t.Errorf("expected injected __SWISS_ENH_CONFIG__ payload to carry the extensions map")
+	}
+	if !strings.Contains(script, `"aux_panel"`) || !strings.Contains(script, `"main_page"`) {
+		t.Errorf("expected injected config to serialize aux_panel/main_page keys")
 	}
 }
 

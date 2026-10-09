@@ -121,6 +121,7 @@ type FleetQuotaSummary struct {
 	TotalAccounts                 int                 `json:"total_accounts"`
 	ActiveAccount                 string              `json:"active_account"`
 	Accounts                      []AccountQuotaState `json:"accounts"`
+	Refreshing                    bool                `json:"refreshing,omitempty"`
 }
 
 // ComputeFleetSummary aggregates metrics across all managed accounts.

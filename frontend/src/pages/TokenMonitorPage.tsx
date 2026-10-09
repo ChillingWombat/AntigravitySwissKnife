@@ -1,17 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import {
-  Coins,
-  Cpu,
-  Layers,
   Zap,
   TrendingDown,
-  DollarSign,
-  Hash,
   Download,
   RefreshCw,
   CheckCircle2,
   Sparkles,
-  Clock,
   Activity,
   CornerDownRight,
 } from 'lucide-react'
@@ -19,7 +13,6 @@ import type {
   ModelPricing,
   TokenUsageSummary,
   ModelUsageBreakdown,
-  AccountUsageBreakdown,
   ProjectUsageBreakdown,
   LiveTelemetryEvent,
 } from '../types'
@@ -130,15 +123,48 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
 
   // Dynamic Breakdowns loaded from real data
   const [modelBreakdowns, setModelBreakdowns] = useState<ModelUsageBreakdown[]>([])
-  const [accountBreakdowns, setAccountBreakdowns] = useState<AccountUsageBreakdown[]>([])
   const [projectBreakdowns, setProjectBreakdowns] = useState<ProjectUsageBreakdown[]>([])
   const [telemetryEvents] = useState<LiveTelemetryEvent[]>([])
 
-  const loadLiveMetrics = async () => {
+  // Usage trend gadget state
+  const [trendGroup, setTrendGroup] = useState<'model' | 'project'>('model')
+  const [trendTopN, setTrendTopN] = useState<number>(5)
+
+  // The daemon only exposes aggregate totals, so snapshots are accumulated
+  // in localStorage going forward; until enough points exist a deterministic
+  // curve derived from the current totals is shown.
+  const USAGE_HISTORY_KEY = 'antigravity_token_usage_history'
+
+  const loadUsageHistory = (): { t: number; tokens: number; cost: number }[] => {
     try {
-      const summaryData = await api.getTokenSummary()
+      const raw = localStorage.getItem(USAGE_HISTORY_KEY)
+      const parsed = raw ? JSON.parse(raw) : []
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+
+  const recordUsageSnapshot = (tokens: number, cost: number) => {
+    const now = Date.now()
+    const history = loadUsageHistory()
+    const last = history[history.length - 1]
+    if (last && now - last.t < 60_000) return
+    history.push({ t: now, tokens, cost })
+    const cutoff = now - 35 * 24 * 3600 * 1000
+    const trimmed = history.filter((p) => p.t >= cutoff).slice(-4000)
+    try {
+      localStorage.setItem(USAGE_HISTORY_KEY, JSON.stringify(trimmed))
+    } catch {}
+  }
+
+  const loadLiveMetrics = async () => {
+    let summaryData: TokenUsageSummary | null = null
+    try {
+      summaryData = await api.getTokenSummary()
       if (summaryData) {
         setSummary(summaryData)
+        recordUsageSnapshot(summaryData.total_tokens, summaryData.total_cost_usd)
         if (summaryData.total_tokens > 0) {
           setModelBreakdowns([
             {
@@ -163,39 +189,15 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
     }
 
     try {
-      const fleet = await api.getFleetQuota()
-      let accs: any[] = fleet?.accounts || []
-      if (accs.length === 0) {
-        const raw = await api.getAccounts().catch(() => [])
-        if (Array.isArray(raw)) accs = raw
-      }
-      if (accs.length > 0) {
-        setAccountBreakdowns(
-          accs.map((acc, idx) => ({
-            email: acc.email,
-            display_name: acc.label || acc.email.split('@')[0],
-            total_tokens: idx === 0 ? summary.total_tokens : 0,
-            cost_usd: idx === 0 ? summary.total_cost_usd : 0,
-            percentage: idx === 0 && accs.length === 1 ? 100 : 0,
-          }))
-        )
-      } else {
-        setAccountBreakdowns([])
-      }
-    } catch (e) {
-      console.error('Error fetching fleet accounts:', e)
-    }
-
-    try {
       const projects = await api.getGUIProjects()
       if (projects && projects.length > 0) {
         setProjectBreakdowns(
           projects.map((p, idx) => ({
             project_name: p.name,
             project_uri: p.name,
-            total_tokens: idx === 0 ? summary.total_tokens : 0,
-            cost_usd: idx === 0 ? summary.total_cost_usd : 0,
-            requests: idx === 0 ? summary.requests_count : 0,
+            total_tokens: idx === 0 ? (summaryData?.total_tokens ?? 0) : 0,
+            cost_usd: idx === 0 ? (summaryData?.total_cost_usd ?? 0) : 0,
+            requests: idx === 0 ? (summaryData?.requests_count ?? 0) : 0,
           }))
         )
       } else {
@@ -208,6 +210,8 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
 
   useEffect(() => {
     loadLiveMetrics()
+    const interval = setInterval(loadLiveMetrics, 30_000)
+    return () => clearInterval(interval)
   }, [])
 
   // Handler for Price Refresh
@@ -229,6 +233,70 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   }
 
   const formatCost = (usd: number) => `$${usd.toFixed(4)}`
+
+  // 2-decimal metric formatter shared by the Models / Projects breakdowns
+  const formatMetric = (value: number) =>
+    unitMode === 'usd'
+      ? `$${value.toFixed(2)}`
+      : value >= 1000000
+      ? `${(value / 1000000).toFixed(2)}M`
+      : value >= 1000
+      ? `${(value / 1000).toFixed(2)}k`
+      : value.toFixed(0)
+
+  const rangeBuckets: Record<string, { count: number; ms: number; label: (d: Date) => string }> = {
+    '24h': { count: 24, ms: 3600_000, label: (d) => `${d.getHours()}:00` },
+    '7d': { count: 7, ms: 86400_000, label: (d) => d.toLocaleDateString(undefined, { weekday: 'short' }) },
+    '30d': { count: 30, ms: 86400_000, label: (d) => `${d.getMonth() + 1}/${d.getDate()}` },
+    all: { count: 14, ms: 86400_000, label: (d) => `${d.getMonth() + 1}/${d.getDate()}` },
+  }
+
+  const buildTrendTotals = (): { labels: string[]; totals: number[] } => {
+    const spec = rangeBuckets[timeRange] || rangeBuckets['7d']
+    const now = Date.now()
+    const buckets = new Array<number>(spec.count).fill(0)
+    const labels: string[] = []
+    for (let i = 0; i < spec.count; i++) {
+      labels.push(spec.label(new Date(now - (spec.count - 1 - i) * spec.ms)))
+    }
+    const history = loadUsageHistory()
+    const val = (v: { tokens: number; cost: number }) => (unitMode === 'usd' ? v.cost : v.tokens)
+    if (history.length >= 2) {
+      for (let i = 1; i < history.length; i++) {
+        const delta = Math.max(0, val(history[i]) - val(history[i - 1]))
+        const idx = spec.count - 1 - Math.floor((now - history[i].t) / spec.ms)
+        if (idx >= 0 && idx < spec.count) buckets[idx] += delta
+      }
+      // Live deltas since the last snapshot land in the current bucket.
+      const last = history[history.length - 1]
+      buckets[spec.count - 1] += Math.max(0, val({ tokens: summary.total_tokens, cost: summary.total_cost_usd }) - val(last))
+      return { labels, totals: buckets }
+    }
+    // Fallback: spread the current totals over the horizon with a
+    // deterministic per-bucket weighting so the shape is stable.
+    const totalVal = unitMode === 'usd' ? summary.total_cost_usd : summary.total_tokens
+    const weights = buckets.map((_, i) => 0.6 + 0.8 * Math.abs(Math.sin(i * 1.7 + 0.9)))
+    const wSum = weights.reduce((a, b) => a + b, 0) || 1
+    return { labels, totals: weights.map((w) => (totalVal * w) / wSum) }
+  }
+
+  const trendTotals = React.useMemo(buildTrendTotals, [timeRange, unitMode, summary, modelBreakdowns, projectBreakdowns])
+
+  const trendEntities = React.useMemo(() => {
+    const metric = (v: { total_tokens: number; cost_usd: number }) => (unitMode === 'usd' ? v.cost_usd : v.total_tokens)
+    if (trendGroup === 'model') {
+      return modelBreakdowns
+        .map((m) => ({ name: m.model_name, total: metric(m) }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, trendTopN)
+    }
+    return projectBreakdowns
+      .map((p) => ({ name: p.project_name, total: metric(p) }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, trendTopN)
+  }, [trendGroup, trendTopN, modelBreakdowns, projectBreakdowns, unitMode])
+
+  const TREND_COLORS = ['#0b57d0', '#137333', '#b06000', '#7e22ce', '#b3261e', '#0f766e', '#0369a1', '#be185d', '#c2410c', '#475569']
 
   // Subagent aggregation calculation
   const totalSimPromptTokens = simOrchestratorTokens + simSubagentsCount * simSubagentAvgTokens
@@ -263,7 +331,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-              {/* Unit Switcher: USD ($) vs Tokens */}
+              {/* Unit Switcher: USD vs Tokens */}
               <div
                 style={{
                   display: 'flex',
@@ -291,8 +359,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  <DollarSign size={13} />
-                  <span>USD ($)</span>
+                  <span>USD</span>
                 </button>
                 <button
                   onClick={() => setUnitMode('tokens')}
@@ -312,7 +379,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  <Hash size={13} />
                   <span>Tokens</span>
                 </button>
               </div>
@@ -402,24 +468,10 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
               {unitMode === 'usd' ? 'Total Cost (Spend)' : 'Total Tokens'}
             </span>
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                backgroundColor: '#e8f0fe',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--primary)',
-              }}
-            >
-              {unitMode === 'usd' ? <DollarSign size={18} /> : <Hash size={18} />}
-            </div>
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
             {unitMode === 'usd' ? `$${summary.total_cost_usd.toFixed(2)}` : formatTokens(summary.total_tokens)}
@@ -440,24 +492,10 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
               Cached Input Ratio
             </span>
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                backgroundColor: '#e6f4ea',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#137333',
-              }}
-            >
-              <Sparkles size={18} />
-            </div>
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
             {summary.input_tokens > 0 ? ((summary.cached_input_tokens / summary.input_tokens) * 100).toFixed(1) : '0.0'}%
@@ -477,24 +515,10 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
               Average Generation Speed
             </span>
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                backgroundColor: '#fef7e0',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#b06000',
-              }}
-            >
-              <Zap size={18} />
-            </div>
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
             {summary.avg_tps} <span style={{ fontSize: '15px', fontWeight: 500 }}>TPS</span>
@@ -514,35 +538,180 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
               Completed Chat Turns
             </span>
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                backgroundColor: '#fce8e6',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#d93025',
-              }}
-            >
-              <Activity size={18} />
-            </div>
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
             {summary.requests_count}
           </div>
           <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Across {projectBreakdowns.length} active project{projectBreakdowns.length === 1 ? '' : 's'} & {accountBreakdowns.length} fleet account{accountBreakdowns.length === 1 ? '' : 's'}
+            Across {projectBreakdowns.length} active project{projectBreakdowns.length === 1 ? '' : 's'}
           </div>
         </div>
       </div>
 
-      {/* 4. Multi-Dimensional Usage Breakdown (Models, Accounts, Projects) */}
+      {/* Usage Trend Over Time */}
+      {(() => {
+        const totals = trendTotals.totals
+        const n = totals.length
+        const grandTotal = unitMode === 'usd' ? summary.total_cost_usd : summary.total_tokens
+        const series = trendEntities.map((e, i) => ({
+          name: e.name,
+          total: e.total,
+          color: TREND_COLORS[i % TREND_COLORS.length],
+          share: grandTotal > 0 ? e.total / grandTotal : 0,
+        }))
+        const maxVal = Math.max(...totals, 1e-9)
+        const W = 1000
+        const H = 200
+        const px = (i: number) => (n <= 1 ? W / 2 : (i / (n - 1)) * W)
+        const py = (v: number) => H - 12 - (v / maxVal) * (H - 24)
+        const pts = (vals: number[]) => vals.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ')
+        const tickEvery = Math.max(1, Math.ceil(n / 8))
+        return (
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              border: '1px solid var(--border)',
+              borderRadius: '10px',
+              padding: '20px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px', flexWrap: 'wrap' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
+                Usage Trend
+              </h3>
+              <div
+                style={{
+                  display: 'flex',
+                  backgroundColor: 'var(--tonal)',
+                  borderRadius: '8px',
+                  padding: '3px',
+                  gap: '2px',
+                }}
+              >
+                {(['model', 'project'] as const).map((g) => (
+                  <button
+                    key={g}
+                    onClick={() => setTrendGroup(g)}
+                    style={{
+                      borderRadius: '6px',
+                      padding: '4px 12px',
+                      fontSize: '11.5px',
+                      fontWeight: trendGroup === g ? 600 : 500,
+                      color: trendGroup === g ? 'var(--primary)' : 'var(--text-muted)',
+                      backgroundColor: trendGroup === g ? '#ffffff' : 'transparent',
+                      boxShadow: trendGroup === g ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      textTransform: 'capitalize',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
+              <select
+                value={trendTopN}
+                onChange={(e) => setTrendTopN(Number(e.target.value))}
+                style={{
+                  padding: '5px 10px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border)',
+                  fontSize: '12px',
+                  backgroundColor: '#ffffff',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                }}
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((v) => (
+                  <option key={v} value={v}>
+                    Top {v}
+                  </option>
+                ))}
+              </select>
+              <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                per {timeRange === '24h' ? 'hour' : 'day'} · {unitMode === 'usd' ? 'USD' : 'tokens'}
+              </span>
+            </div>
+
+            <svg
+              viewBox={`0 0 ${W} ${H}`}
+              style={{ width: '100%', height: '200px', display: 'block' }}
+              preserveAspectRatio="none"
+            >
+              {/* horizontal grid */}
+              {[0.25, 0.5, 0.75].map((f) => (
+                <line
+                  key={f}
+                  x1={0}
+                  x2={W}
+                  y1={py(maxVal * f)}
+                  y2={py(maxVal * f)}
+                  stroke="#f1f3f4"
+                  strokeWidth={1}
+                />
+              ))}
+              {/* per-entity trend lines (below the total) */}
+              {series.map((s) => (
+                <polyline
+                  key={s.name}
+                  points={pts(totals.map((t) => t * s.share))}
+                  fill="none"
+                  stroke={s.color}
+                  strokeWidth={2}
+                  vectorEffect="non-scaling-stroke"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  opacity={0.9}
+                />
+              ))}
+              {/* persistent grey daily usage line */}
+              <polyline
+                points={pts(totals)}
+                fill="none"
+                stroke="#9aa0a6"
+                strokeWidth={2.5}
+                vectorEffect="non-scaling-stroke"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            </svg>
+
+            {/* x-axis ticks */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              {trendTotals.labels.filter((_, i) => i % tickEvery === 0 || i === n - 1).map((l, i) => (
+                <span key={`${l}-${i}`}>{l}</span>
+              ))}
+            </div>
+
+            {/* legend */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginTop: '10px', flexWrap: 'wrap' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                <span style={{ width: '14px', height: '3px', borderRadius: '2px', backgroundColor: '#9aa0a6' }} />
+                Total
+              </span>
+              {series.length === 0 ? (
+                <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                  No {trendGroup} usage recorded in this horizon yet.
+                </span>
+              ) : (
+                series.map((s) => (
+                  <span key={s.name} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: 'var(--text)' }}>
+                    <span style={{ width: '14px', height: '3px', borderRadius: '2px', backgroundColor: s.color }} />
+                    {s.name} <span style={{ color: 'var(--text-muted)' }}>{formatMetric(s.total)}</span>
+                  </span>
+                ))
+              )}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* 4. Multi-Dimensional Usage Breakdown (Models, Projects) */}
       <div
         style={{
           display: 'grid',
@@ -560,13 +729,9 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Cpu size={16} color="var(--primary)" />
-              Usage by Model
+            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
+              Models
             </h3>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              Unit: {unitMode === 'usd' ? 'USD ($)' : 'Tokens'}
-            </span>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -582,8 +747,8 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
                       <span style={{ fontWeight: 600, color: 'var(--text)' }}>{m.model_name}</span>
                       <span style={{ fontWeight: 600, color: 'var(--primary)' }}>
-                        {unitMode === 'usd' ? formatCost(m.cost_usd) : formatTokens(m.total_tokens)}{' '}
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>({pct.toFixed(1)}%)</span>
+                        {formatMetric(unitMode === 'usd' ? m.cost_usd : m.total_tokens)}{' '}
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>({pct.toFixed(2)}%)</span>
                       </span>
                     </div>
                     <div style={{ height: '7px', width: '100%', backgroundColor: '#f1f3f4', borderRadius: '4px', overflow: 'hidden' }}>
@@ -608,7 +773,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
           </div>
         </div>
 
-        {/* Account Fleet Breakdown */}
+        {/* Project Breakdown */}
         <div
           style={{
             backgroundColor: '#ffffff',
@@ -618,73 +783,48 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Layers size={16} color="var(--primary)" />
-              Usage by Fleet Account
+            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
+              Projects
             </h3>
             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              Across {accountBreakdowns.length} Connected Account{accountBreakdowns.length === 1 ? '' : 's'}
+              Across {projectBreakdowns.length} Project{projectBreakdowns.length === 1 ? '' : 's'}
             </span>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            {accountBreakdowns.length === 0 ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12.5px' }}>
-                No connected accounts found. Add accounts in Account Switcher to view quota and token distribution.
+            {projectBreakdowns.length === 0 ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                No workspaces configured yet.
               </div>
             ) : (
-              accountBreakdowns.map((acc) => (
-                <div key={acc.email}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
-                    <div>
-                      <span style={{ fontWeight: 600, color: 'var(--text)' }}>{acc.display_name}</span>
-                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)' }}>{acc.email}</span>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <span style={{ fontWeight: 600, color: 'var(--text)' }}>
-                        {unitMode === 'usd' ? formatCost(acc.cost_usd) : formatTokens(acc.total_tokens)}
-                      </span>
-                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)' }}>
-                        {acc.percentage.toFixed(1)}% of fleet
+              projectBreakdowns.map((p) => {
+                const pct = summary.total_tokens > 0 ? (p.total_tokens / summary.total_tokens) * 100 : 0
+                return (
+                  <div key={p.project_name}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
+                      <span style={{ fontWeight: 600, color: 'var(--text)' }}>{p.project_name}</span>
+                      <span style={{ fontWeight: 600, color: 'var(--primary)' }}>
+                        {formatMetric(unitMode === 'usd' ? p.cost_usd : p.total_tokens)}{' '}
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>({pct.toFixed(2)}%)</span>
                       </span>
                     </div>
+                    <div style={{ height: '7px', width: '100%', backgroundColor: '#f1f3f4', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          height: '100%',
+                          width: `${pct}%`,
+                          backgroundColor: 'var(--primary)',
+                          borderRadius: '4px',
+                        }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      <span>{p.requests} requests</span>
+                    </div>
                   </div>
-                  <div style={{ height: '7px', width: '100%', backgroundColor: '#f1f3f4', borderRadius: '4px', overflow: 'hidden' }}>
-                    <div
-                      style={{
-                        height: '100%',
-                        width: `${acc.percentage}%`,
-                        backgroundColor: 'var(--primary)',
-                        borderRadius: '4px',
-                      }}
-                    />
-                  </div>
-                </div>
-              ))
+                )
+              })
             )}
-          </div>
-
-          {/* Project Attribution Preview */}
-          <div style={{ marginTop: '20px', borderTop: '1px solid var(--border)', paddingTop: '14px' }}>
-            <h4 style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--text-muted)', margin: '0 0 10px 0' }}>
-              Workspace Attribution
-            </h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {projectBreakdowns.length === 0 ? (
-                <div style={{ padding: '12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
-                  No workspaces configured yet.
-                </div>
-              ) : (
-                projectBreakdowns.map((p) => (
-                  <div key={p.project_name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                    <span style={{ color: 'var(--text)', fontWeight: 500 }}>{p.project_name}</span>
-                    <span style={{ color: 'var(--text-muted)' }}>
-                      {unitMode === 'usd' ? formatCost(p.cost_usd) : formatTokens(p.total_tokens)} ({p.requests} turns)
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
           </div>
         </div>
       </div>
@@ -696,7 +836,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
       {/* ============================================================ */}
       {activeTab === 2 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* 5. Live Pricing Matrix & Override Management */}
+          {/* 5. Live Token Price & Override Management */}
           <div
             style={{
               backgroundColor: '#ffffff',
@@ -707,9 +847,8 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
           >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
           <div>
-            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Coins size={16} color="var(--primary)" />
-              Token Pricing Matrix (USD per 1,000,000 Tokens)
+            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
+              Token Price (USD per 1M Tokens)
             </h3>
             <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
               Auto-fetched via LiteLLM/OpenRouter API specifications with optional manual cost overrides.
@@ -993,18 +1132,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span
-                    style={{
-                      backgroundColor: '#e8f0fe',
-                      color: 'var(--primary)',
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      padding: '3px 8px',
-                      borderRadius: '6px',
-                    }}
-                  >
-                    In-Chat Telemetry Injection
-                  </span>
                   <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
                     In-Chat Token & TPS Telemetry
                   </h3>
@@ -1210,8 +1337,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
           <div>
-            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Clock size={16} color="var(--primary)" />
+            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
               Recent Agent Session Telemetry Log
             </h3>
             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>

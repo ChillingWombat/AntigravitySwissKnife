@@ -138,105 +138,117 @@ export const ArchivedProjectsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Action Toolbar */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '12px',
-          flexWrap: 'wrap',
-        }}
-      >
-        {archived.length > 0 ? (
+      {/* Archived Projects Card */}
+      <div className="google-card" style={{ padding: 0, overflow: 'hidden' }}>
+        {/* Card Header */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            flexWrap: 'wrap',
+            padding: '16px 20px',
+            borderBottom: '1px solid var(--border)',
+          }}
+        >
           <div
             style={{
-              position: 'relative',
-              flex: 1,
-              maxWidth: '380px',
+              fontSize: '11px',
+              fontWeight: 700,
+              color: 'var(--text-muted)',
+              letterSpacing: '0.8px',
+              textTransform: 'uppercase',
             }}
           >
-            <Search
-              size={15}
-              color="#94a3b8"
-              style={{ position: 'absolute', left: '12px', top: '11px', pointerEvents: 'none' }}
-            />
-            <input
-              type="text"
-              placeholder="Filter archived projects by name or path..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{
-                width: '100%',
-                height: '38px',
-                padding: '0 12px 0 36px',
-                borderRadius: '8px',
-                border: '1px solid #e2e8f0',
-                fontSize: '13px',
-                color: '#1e293b',
-                background: '#ffffff',
-                boxSizing: 'border-box',
-              }}
-            />
+            Archived Projects
           </div>
-        ) : (
-          <div />
-        )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {/* Archive Active Project Dropdown */}
+            {activeProjects.length > 0 && (
+              <div style={{ position: 'relative' }}>
+                <select
+                  value={selectedToArchive}
+                  onChange={(e) => {
+                    setSelectedToArchive(e.target.value)
+                    handleArchiveSelect(e.target.value)
+                  }}
+                  disabled={actionLoading !== null}
+                  style={{
+                    height: '36px',
+                    padding: '0 32px 0 12px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    color: 'var(--text)',
+                    cursor: 'pointer',
+                    appearance: 'none',
+                  }}
+                >
+                  <option value="">+ Archive an active project...</option>
+                  {activeProjects.map((p) => (
+                    <option key={p.name} value={p.name}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  size={14}
+                  color="var(--text-muted)"
+                  style={{ position: 'absolute', right: '12px', top: '11px', pointerEvents: 'none' }}
+                />
+              </div>
+            )}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginLeft: 'auto' }}>
-          {/* Archive Active Project Dropdown */}
-          {activeProjects.length > 0 && (
-            <div style={{ position: 'relative' }}>
-              <select
-                value={selectedToArchive}
-                onChange={(e) => {
-                  setSelectedToArchive(e.target.value)
-                  handleArchiveSelect(e.target.value)
-                }}
-                disabled={actionLoading !== null}
+            <button
+              onClick={loadData}
+              disabled={loading}
+              title="Refresh archived projects list"
+              className="btn-pill-tonal"
+              style={{ fontSize: '12px', padding: '7px 14px' }}
+            >
+              <RefreshCw size={13} className={loading ? 'spin' : ''} />
+              <span>Refresh</span>
+            </button>
+          </div>
+        </div>
+
+        {archived.length > 0 && (
+          <div style={{ padding: '14px 20px' }}>
+            <div
+              style={{
+                position: 'relative',
+                maxWidth: '380px',
+              }}
+            >
+              <Search
+                size={15}
+                color="#94a3b8"
+                style={{ position: 'absolute', left: '12px', top: '11px', pointerEvents: 'none' }}
+              />
+              <input
+                type="text"
+                placeholder="Filter archived projects by name or path..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
                 style={{
-                  height: '36px',
-                  padding: '0 32px 0 12px',
+                  width: '100%',
+                  height: '38px',
+                  padding: '0 12px 0 36px',
                   borderRadius: '8px',
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  color: 'var(--text)',
-                  cursor: 'pointer',
-                  appearance: 'none',
+                  border: '1px solid #e2e8f0',
+                  fontSize: '13px',
+                  color: '#1e293b',
+                  background: '#ffffff',
+                  boxSizing: 'border-box',
                 }}
-              >
-                <option value="">+ Archive an active project...</option>
-                {activeProjects.map((p) => (
-                  <option key={p.name} value={p.name}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                size={14}
-                color="var(--text-muted)"
-                style={{ position: 'absolute', right: '12px', top: '11px', pointerEvents: 'none' }}
               />
             </div>
-          )}
+          </div>
+        )}
 
-          <button
-            onClick={loadData}
-            disabled={loading}
-            title="Refresh archived projects list"
-            className="btn-pill-tonal"
-            style={{ fontSize: '12px', padding: '7px 14px' }}
-          >
-            <RefreshCw size={13} className={loading ? 'spin' : ''} />
-            <span>Refresh</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Table Container */}
-      <div className="google-card" style={{ padding: 0, overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: '48px', textAlign: 'center', color: '#64748b' }}>
             <RefreshCw size={24} className="spin" style={{ margin: '0 auto 12px' }} />
