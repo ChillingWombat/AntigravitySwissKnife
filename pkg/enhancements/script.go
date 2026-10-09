@@ -180,7 +180,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           [data-testid="run-command-step"],
           [data-testid="subagent-node"],
           .thinking-collapsible {
-            opacity: 0.48 !important;
+            opacity: 0.5 !important;
             filter: grayscale(0.65) !important;
             transition: opacity 0.2s ease, filter 0.2s ease !important;
           }

@@ -5,7 +5,6 @@ import {
   Save,
   Archive,
   Folder,
-  MessageSquare,
   Plus,
   MoreVertical,
   Layers,
@@ -13,7 +12,6 @@ import {
   CheckCircle2,
   FileText,
   Image,
-  Sliders,
   Globe,
   PanelLeft,
   LayoutGrid,
@@ -207,7 +205,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
       const res = await api.autoArchiveConversations(horizon)
       if (res.success) {
         setArchiveResult(res.message || `Archived ${res.archived_count} conversation(s)`)
-        setStatusMsg({ text: res.message, type: 'success' })
       } else {
         setArchiveResult(res.message || 'No stale conversations found')
       }
@@ -230,6 +227,11 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
         api.getGUIProjects().catch(() => []),
         api.getGUIConfig().catch(() => null),
       ])
+      // The overview-panel section no longer has an on/off switch — stored `false`
+      // would silently disable its styling, so normalize it back on.
+      if (data?.overview_panel && !data.overview_panel.enabled) {
+        data.overview_panel = { ...data.overview_panel, enabled: true }
+      }
       setConfig(data)
       setProjects((projList || []).map((p) => p.name))
       if (gData) setGuiConfig(gData)
@@ -539,116 +541,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 alignItems: 'stretch',
               }}
             >
-              {/* LEFT COLUMN: Line Width, Line Thickness, and Color Mode Settings */}
+              {/* LEFT COLUMN: Color Mode and Line Dimension Settings */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {/* Line Dimensions Settings (Width & Thickness) */}
-                <div
-                  style={{
-                    background: '#f8fafc',
-                    borderRadius: '10px',
-                    border: '1px solid #e2e8f0',
-                    padding: '16px 20px',
-                  }}
-                >
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b', marginBottom: '8px' }}>
-                    Line Geometry & Dimensions
-                  </div>
-                  <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#64748b' }}>
-                    Fine-tune dash line length and thickness for active and inactive prompts:
-                  </p>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
-                    {/* Line Width */}
-                    <div>
-                      <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
-                        Dash Width:
-                      </label>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          type="number"
-                          min="8"
-                          max="36"
-                          value={jb.dash_width || 14}
-                          onChange={(e) =>
-                            setConfig({
-                              ...config,
-                              prompt_jump_bar: { ...jb, dash_width: parseInt(e.target.value) || 14 },
-                            })
-                          }
-                          style={{
-                            width: '70px',
-                            padding: '5px 8px',
-                            borderRadius: '6px',
-                            border: '1px solid #cbd5e1',
-                            fontSize: '12.5px',
-                          }}
-                        />
-                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (default: 14)</span>
-                      </div>
-                    </div>
-
-                    {/* Active Line Thickness */}
-                    <div>
-                      <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
-                        Active Thickness:
-                      </label>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          type="number"
-                          min="1.5"
-                          max="8"
-                          step="0.5"
-                          value={jb.dash_thickness || 2.5}
-                          onChange={(e) =>
-                            setConfig({
-                              ...config,
-                              prompt_jump_bar: { ...jb, dash_thickness: parseFloat(e.target.value) || 2.5 },
-                            })
-                          }
-                          style={{
-                            width: '70px',
-                            padding: '5px 8px',
-                            borderRadius: '6px',
-                            border: '1px solid #cbd5e1',
-                            fontSize: '12.5px',
-                          }}
-                        />
-                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (default: 2.5)</span>
-                      </div>
-                    </div>
-
-                    {/* Inactive Line Thickness */}
-                    <div>
-                      <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
-                        Inactive Thickness:
-                      </label>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          type="number"
-                          min="1"
-                          max="4"
-                          step="0.5"
-                          value={jb.inactive_thickness || 1.5}
-                          onChange={(e) =>
-                            setConfig({
-                              ...config,
-                              prompt_jump_bar: { ...jb, inactive_thickness: parseFloat(e.target.value) || 1.5 },
-                            })
-                          }
-                          style={{
-                            width: '70px',
-                            padding: '5px 8px',
-                            borderRadius: '6px',
-                            border: '1px solid #cbd5e1',
-                            fontSize: '12.5px',
-                          }}
-                        />
-                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (default: 1.5)</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
                 {/* Color Mode Selection (User Request: removed default tag) */}
                 <div
                   style={{
@@ -887,6 +781,111 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     </div>
                   )}
                 </div>
+
+                {/* Line Dimensions Settings (Width & Thickness) */}
+                <div
+                  style={{
+                    background: '#f8fafc',
+                    borderRadius: '10px',
+                    border: '1px solid #e2e8f0',
+                    padding: '16px 20px',
+                  }}
+                >
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b', marginBottom: '14px' }}>
+                    Line Dimensions
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+                    {/* Line Width */}
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
+                        Dash Width:
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                          type="number"
+                          min="8"
+                          max="36"
+                          value={jb.dash_width || 14}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              prompt_jump_bar: { ...jb, dash_width: parseInt(e.target.value) || 14 },
+                            })
+                          }
+                          style={{
+                            width: '70px',
+                            padding: '5px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid #cbd5e1',
+                            fontSize: '12.5px',
+                          }}
+                        />
+                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (default: 14)</span>
+                      </div>
+                    </div>
+
+                    {/* Active Line Thickness */}
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
+                        Active Thickness:
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                          type="number"
+                          min="1.5"
+                          max="8"
+                          step="0.5"
+                          value={jb.dash_thickness || 2.5}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              prompt_jump_bar: { ...jb, dash_thickness: parseFloat(e.target.value) || 2.5 },
+                            })
+                          }
+                          style={{
+                            width: '70px',
+                            padding: '5px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid #cbd5e1',
+                            fontSize: '12.5px',
+                          }}
+                        />
+                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (default: 2.5)</span>
+                      </div>
+                    </div>
+
+                    {/* Inactive Line Thickness */}
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
+                        Inactive Thickness:
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                          type="number"
+                          min="1"
+                          max="4"
+                          step="0.5"
+                          value={jb.inactive_thickness || 1.5}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              prompt_jump_bar: { ...jb, inactive_thickness: parseFloat(e.target.value) || 1.5 },
+                            })
+                          }
+                          style={{
+                            width: '70px',
+                            padding: '5px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid #cbd5e1',
+                            fontSize: '12.5px',
+                          }}
+                        />
+                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (default: 1.5)</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* VERTICAL DIVIDER */}
@@ -910,9 +909,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>Interactive Gutter Preview</div>
-                  <span style={{ fontSize: '11px', color: '#64748b', backgroundColor: '#e2e8f0', padding: '2px 8px', borderRadius: '10px' }}>
-                    Live Sandbox
-                  </span>
                 </div>
 
                 <div
@@ -943,6 +939,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       const activeH = `${jb.dash_thickness || 2.5}px`
                       const inactiveH = `${jb.inactive_thickness || 1.5}px`
                       const h = isActive ? activeH : inactiveH
+                      const dashWidth = jb.dash_width || 14
                       const bg = isActive || isHovered ? activeColor : 'rgba(100, 116, 139, 0.42)'
                       return (
                         <div
@@ -951,13 +948,12 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           onMouseLeave={() => setPreviewHover(null)}
                           title={`Preview Prompt #${idx + 1}`}
                           style={{
-                            width: `${jb.dash_width || 14}px`,
+                            width: `${isHovered ? Math.max(22, dashWidth + 8) : dashWidth}px`,
                             height: h,
                             borderRadius: '2px',
                             background: bg,
                             cursor: 'pointer',
-                            transition: 'height 0.15s, background 0.15s, transform 0.1s',
-                            transform: isHovered ? 'scaleX(1.15)' : 'none',
+                            transition: 'width 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease',
                           }}
                         />
                       )
@@ -993,7 +989,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
             {
               id: 'muted',
               title: 'Greyed Out / Muted',
-              desc: 'Dims intermediate tool steps and thoughts with subtle grayscale & 48% opacity. Hovering reveals full content.',
+              desc: 'Dims intermediate tool steps and thoughts with subtle grayscale & 50% opacity. Hovering reveals full content.',
             },
             {
               id: 'hidden',
@@ -1164,18 +1160,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     <span style={{ fontSize: '13.5px', fontWeight: 600, color: leftPanelMode === 'single' ? '#1e3a8a' : '#1e293b' }}>
                       Single Tab Button (Swiss Knife)
                     </span>
-                    <span
-                      style={{
-                        fontSize: '11px',
-                        padding: '1px 6px',
-                        borderRadius: '4px',
-                        backgroundColor: leftPanelMode === 'single' ? '#dbeafe' : '#f1f5f9',
-                        color: leftPanelMode === 'single' ? '#1d4ed8' : '#64748b',
-                        fontWeight: 500,
-                      }}
-                    >
-                      Compact
-                    </span>
                   </div>
                   <p style={{ margin: 0, fontSize: '12.5px', color: '#64748b', lineHeight: 1.4 }}>
                     Single compact Swiss Knife tab in the sidebar. Keeps navigation minimal.
@@ -1221,18 +1205,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     <span style={{ fontSize: '13.5px', fontWeight: 600, color: leftPanelMode === 'individual' ? '#1e3a8a' : '#1e293b' }}>
                       Individual Extension Tabs
                     </span>
-                    <span
-                      style={{
-                        fontSize: '11px',
-                        padding: '1px 6px',
-                        borderRadius: '4px',
-                        backgroundColor: leftPanelMode === 'individual' ? '#dbeafe' : '#f1f5f9',
-                        color: leftPanelMode === 'individual' ? '#1d4ed8' : '#64748b',
-                        fontWeight: 500,
-                      }}
-                    >
-                      Direct Access
-                    </span>
                   </div>
                   <p style={{ margin: 0, fontSize: '12.5px', color: '#64748b', lineHeight: 1.4 }}>
                     Individual tabs for Browser, Files, Memos, and GitHub matching Antigravity native sidebar items.
@@ -1240,22 +1212,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 </div>
               </div>
 
-              {/* Informational Note */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  backgroundColor: '#f8fafc',
-                  border: '1px solid #e2e8f0',
-                  fontSize: '12px',
-                  color: '#64748b',
-                }}
-              >
-                <span>Proportions: Tab buttons match factory buttons (16px optical icon symbol, 13-14px font size, weight 400, 32px height). Universal Breaker Line Rule: Breaker lines do not expand the gap between tab buttons or sections (identical distance as if no breaker line was added).</span>
-              </div>
             </div>
 
             {/* Vertical Breaker */}
@@ -1443,51 +1399,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
         )}
       </div>
 
-      {/* Feature 4: Predefined Default Project for New Conversations */}
-      <div className="google-card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
-          <div>
-            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
-              Default Project for New Conversations
-            </h2>
-            <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)', maxWidth: '600px', lineHeight: 1.5 }}>
-              Set a default project for new chats (Ctrl+N / Cmd+N) instead of the current active project.
-            </p>
-          </div>
-
-          <div style={{ minWidth: '240px' }}>
-            <select
-              value={config.default_new_project || ''}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  default_new_project: e.target.value,
-                })
-              }
-              style={{
-                width: '100%',
-                height: '38px',
-                padding: '0 12px',
-                borderRadius: '8px',
-                border: '1.5px solid #cbd5e1',
-                background: '#f8fafc',
-                fontSize: '13px',
-                fontWeight: 600,
-                color: 'var(--text)',
-                cursor: 'pointer',
-              }}
-            >
-              <option value="">Auto (Follow Active Project)</option>
-              {projects.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
       {/* Feature 5: Project Colors & Active Conversation Tab Indicator */}
       {guiConfig && (
         <div className="google-card">
@@ -1496,9 +1407,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
                 Project Colors & Active Conversation Indicator
               </h2>
-              <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-                Set project accent colors and sidebar conversation highlight styles.
-              </p>
             </div>
 
             <ToggleSwitch
@@ -1518,9 +1426,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
                 {/* Mode Selection */}
                 <div>
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#1e293b', marginBottom: '8px' }}>
-                    Open Conversation Highlight Mode:
-                  </label>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {/* Mode 1: Accent Background / Fill */}
                     <div
@@ -1545,18 +1450,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         transition: 'all 0.15s',
                       }}
                     >
-                      <input
-                        type="radio"
-                        name="active_indicator"
-                        checked={guiConfig.active_conversation_indicator === 'background'}
-                        onChange={() =>
-                          setGuiConfig({
-                            ...guiConfig,
-                            active_conversation_indicator: 'background',
-                          })
-                        }
-                        style={{ marginTop: '2px', accentColor: '#0b57d0', cursor: 'pointer' }}
-                      />
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
@@ -1567,6 +1460,18 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           Fills the active conversation tab with a subtle project accent background tint.
                         </div>
                       </div>
+                      <input
+                        type="radio"
+                        name="active_indicator"
+                        checked={guiConfig.active_conversation_indicator === 'background'}
+                        onChange={() =>
+                          setGuiConfig({
+                            ...guiConfig,
+                            active_conversation_indicator: 'background',
+                          })
+                        }
+                        style={{ marginTop: '2px', accentColor: '#0b57d0', cursor: 'pointer', flexShrink: 0 }}
+                      />
                     </div>
 
                     {/* Mode 2: Border Outline */}
@@ -1592,18 +1497,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         transition: 'all 0.15s',
                       }}
                     >
-                      <input
-                        type="radio"
-                        name="active_indicator"
-                        checked={guiConfig.active_conversation_indicator === 'border'}
-                        onChange={() =>
-                          setGuiConfig({
-                            ...guiConfig,
-                            active_conversation_indicator: 'border',
-                          })
-                        }
-                        style={{ marginTop: '2px', accentColor: '#0b57d0', cursor: 'pointer' }}
-                      />
                       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
                         <div>
                           <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
@@ -1646,6 +1539,18 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           </div>
                         )}
                       </div>
+                      <input
+                        type="radio"
+                        name="active_indicator"
+                        checked={guiConfig.active_conversation_indicator === 'border'}
+                        onChange={() =>
+                          setGuiConfig({
+                            ...guiConfig,
+                            active_conversation_indicator: 'border',
+                          })
+                        }
+                        style={{ marginTop: '2px', accentColor: '#0b57d0', cursor: 'pointer', flexShrink: 0 }}
+                      />
                     </div>
 
                     {/* Mode 3: Left Accent Bar */}
@@ -1671,6 +1576,14 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         transition: 'all 0.15s',
                       }}
                     >
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
+                          Left Accent Bar
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px', lineHeight: 1.4 }}>
+                          Highlights the active conversation tab with a distinct 3px colored bar along its left edge.
+                        </div>
+                      </div>
                       <input
                         type="radio"
                         name="active_indicator"
@@ -1681,16 +1594,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                             active_conversation_indicator: 'left_bar',
                           })
                         }
-                        style={{ marginTop: '2px', accentColor: '#0b57d0', cursor: 'pointer' }}
+                        style={{ marginTop: '2px', accentColor: '#0b57d0', cursor: 'pointer', flexShrink: 0 }}
                       />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
-                          Left Accent Bar
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px', lineHeight: 1.4 }}>
-                          Highlights the active conversation tab with a distinct 3px colored bar along its left edge.
-                        </div>
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -1701,6 +1606,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     style={{
                       display: 'flex',
                       alignItems: 'center',
+                      justifyContent: 'space-between',
                       gap: '10px',
                       cursor: 'pointer',
                       fontSize: '13px',
@@ -1708,6 +1614,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       fontWeight: 500,
                     }}
                   >
+                    <span>Bold text on current open conversation tab</span>
                     <ToggleSwitch
                       size="sm"
                       checked={guiConfig.active_conversation_bold ?? false}
@@ -1718,9 +1625,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         })
                       }
                     />
-                    <span>Bold text on current open conversation tab</span>
                   </label>
-                  <p style={{ margin: '3px 0 0 42px', fontSize: '11px', color: '#64748b' }}>
+                  <p style={{ margin: '3px 0 0', fontSize: '11px', color: '#64748b' }}>
                     When unchecked, the open conversation tab title uses regular font weight matching ordinary tabs.
                   </p>
                 </div>
@@ -1849,7 +1755,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, overflow: 'hidden' }}>
-                      <MessageSquare size={13} style={{ color: projAccentTextColor, flexShrink: 0 }} />
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         Task Completion Check
                       </span>
@@ -1876,7 +1781,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, overflow: 'hidden' }}>
-                      <MessageSquare size={13} style={{ color: '#94a3b8', flexShrink: 0 }} />
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         Matching Font and UI ...
                       </span>
@@ -1903,7 +1807,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, overflow: 'hidden' }}>
-                      <MessageSquare size={13} style={{ color: '#94a3b8', flexShrink: 0 }} />
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         Antigravity Manager Pl...
                       </span>
@@ -1989,69 +1892,29 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   border: '1px solid var(--border, #e2e8f0)',
                   background: 'var(--card-bg, #ffffff)',
                   display: 'flex',
-                  flexDirection: 'column',
-                  gap: '12px',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '16px',
                 }}
               >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '16px',
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
-                      Divider Separation Below All Projects
-                    </div>
-                    <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
-                      Add horizontal divider lines in the natural gap below projects without contracted conversation tabs for balanced, consistent project separation.
-                    </p>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
+                    Divider Separation Below All Projects
                   </div>
-                  <ToggleSwitch
-                    checked={guiConfig.consistent_project_spacing ?? true}
-                    onChange={(checked) =>
-                      setGuiConfig({
-                        ...guiConfig,
-                        consistent_project_spacing: checked,
-                      })
-                    }
-                  />
+                  <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                    Add horizontal divider lines in the natural gap below projects without contracted conversation tabs for balanced, consistent project separation.
+                  </p>
                 </div>
-
-                {/* Sub-option: Horizontal Line at Middle of Project Gap */}
-                {(guiConfig.consistent_project_spacing ?? true) && (
-                  <div
-                    style={{
-                      paddingTop: '10px',
-                      borderTop: '1px solid var(--border, #f1f5f9)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '16px',
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
-                        Horizontal Line at Middle of Project Gap
-                      </div>
-                      <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
-                        Add a centered 1px horizontal divider line in the middle of the existing project gap.
-                      </p>
-                    </div>
-                    <ToggleSwitch
-                      size="sm"
-                      checked={guiConfig.consistent_project_spacing_line ?? true}
-                      onChange={(checked) =>
-                        setGuiConfig({
-                          ...guiConfig,
-                          consistent_project_spacing_line: checked,
-                        })
-                      }
-                    />
-                  </div>
-                )}
+                <ToggleSwitch
+                  checked={(guiConfig.consistent_project_spacing ?? true) && (guiConfig.consistent_project_spacing_line ?? true)}
+                  onChange={(checked) =>
+                    setGuiConfig({
+                      ...guiConfig,
+                      consistent_project_spacing: checked,
+                      consistent_project_spacing_line: checked,
+                    })
+                  }
+                />
               </div>
 
               {/* Horizontal Divider Line between Simplicity Zone and Fixed Number Zone */}
@@ -2408,10 +2271,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 </div>
               )}
 
-              <div style={{ fontSize: '11px', color: '#64748b', textAlign: 'center' }}>
-                {previewExpanded ? '▲ Expanded (click to collapse)' : '▼ Collapsed: 2 hidden tabs (click to expand)'}
-              </div>
-
               {/* Project 2: Uncontracted project demonstrating consistent bottom spacing */}
               <div
                 style={{
@@ -2490,28 +2349,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               </p>
             </div>
 
-            <ToggleSwitch
-              checked={guiConfig.auto_archive_conversations ?? true}
-              onChange={(checked) =>
-                setGuiConfig({
-                  ...guiConfig,
-                  auto_archive_conversations: checked,
-                })
-              }
-            />
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-              <div>
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                  Inactivity Time Horizon Cutoff
-                </label>
-                <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-                  Conversations inactive for longer than this duration will be archived.
-                </p>
-              </div>
-
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
               <select
                 value={guiConfig.auto_archive_horizon || '14d'}
                 onChange={(e) =>
@@ -2520,6 +2358,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     auto_archive_horizon: e.target.value as any,
                   })
                 }
+                title="Inactivity horizon — conversations inactive longer than this are archived"
                 style={{
                   height: '36px',
                   padding: '0 12px',
@@ -2530,7 +2369,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   fontWeight: 600,
                   color: 'var(--text)',
                   cursor: 'pointer',
-                  minWidth: '180px',
+                  minWidth: '140px',
                 }}
               >
                 <option value="3d">3 days</option>
@@ -2540,9 +2379,20 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 <option value="60d">60 days</option>
                 <option value="90d">90 days</option>
               </select>
+              <ToggleSwitch
+                checked={guiConfig.auto_archive_conversations ?? true}
+                onChange={(checked) =>
+                  setGuiConfig({
+                    ...guiConfig,
+                    auto_archive_conversations: checked,
+                  })
+                }
+              />
             </div>
+          </div>
 
-            <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
               <div>
                 <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
                   Manual Archival Trigger
@@ -2580,6 +2430,51 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
           </div>
         </div>
       )}
+
+      {/* Feature 4: Predefined Default Project for New Conversations */}
+      <div className="google-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+              Default Project for New Conversations
+            </h2>
+            <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)', maxWidth: '600px', lineHeight: 1.5 }}>
+              Set a default project for new chats (Ctrl+N / Cmd+N) instead of the current active project.
+            </p>
+          </div>
+
+          <div style={{ minWidth: '240px' }}>
+            <select
+              value={config.default_new_project || ''}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  default_new_project: e.target.value,
+                })
+              }
+              style={{
+                width: '100%',
+                height: '38px',
+                padding: '0 12px',
+                borderRadius: '8px',
+                border: '1.5px solid #cbd5e1',
+                background: '#f8fafc',
+                fontSize: '13px',
+                fontWeight: 600,
+                color: 'var(--text)',
+                cursor: 'pointer',
+              }}
+            >
+              <option value="">Auto (Follow Active Project)</option>
+              {projects.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
     </>
   )}
 
@@ -2598,22 +2493,9 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
         >
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Sliders size={18} color="var(--primary)" />
               <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
                 Extension Tab Switchers Format
               </h2>
-              <span
-                style={{
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  padding: '2px 8px',
-                  borderRadius: '12px',
-                  backgroundColor: '#e8f0fe',
-                  color: '#0b57d0',
-                }}
-              >
-                In-App UI
-              </span>
             </div>
             <p style={{ margin: '6px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
               Choose between icon-only or icon with label for auxiliary panel extension tabs.
@@ -2874,7 +2756,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
       </div>
 
       <div className="google-card">
-        {/* Header with Master Toggle on the Right */}
         <div
           style={{
             display: 'flex',
@@ -2887,67 +2768,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
             <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
               Overview Panel Section Division
             </h2>
-            <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-              Add clean borders, subtle dividers, and zebra striping to Antigravity's Overview panel sections.
-            </p>
           </div>
-
-          <ToggleSwitch
-            checked={op.enabled}
-            onChange={(checked) =>
-              setConfig({
-                ...config,
-                overview_panel: { ...op, enabled: checked },
-              })
-            }
-          />
         </div>
 
-        {op.enabled && (
-          <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '18px' }}>
-            {/* Top Quick Settings Row: Toggles on the right with vertical grey breaker lines */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                background: '#f8fafc',
-                borderRadius: '10px',
-                border: '1px solid #e2e8f0',
-                padding: '12px 16px',
-                marginBottom: '20px',
-              }}
-            >
-              {/* Switch 1: Replace See all / See less with refined divider */}
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '12px',
-                  fontSize: '13px',
-                  color: '#334155',
-                  cursor: 'pointer',
-                  flex: 1,
-                  minWidth: '280px',
-                  paddingRight: '16px',
-                }}
-              >
-                <span>Refined Expand/Contract Triangle (▾ / ▴)</span>
-                <ToggleSwitch
-                  size="sm"
-                  checked={op.replace_see_all_triangle}
-                  onChange={(checked) =>
-                    setConfig({
-                      ...config,
-                      overview_panel: { ...op, replace_see_all_triangle: checked },
-                    })
-                  }
-                />
-              </label>
-
-            </div>
-
+        <div>
             {/* 2-Column Layout: Settings on Left, Fixed Vertical Divider, Interactive Overview Preview on Right */}
             <div
               style={{
@@ -2959,6 +2783,40 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
             >
               {/* LEFT COLUMN: Section Division Modes & Detailed Controls */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* Switch 1: Replace See all / See less with refined divider */}
+                <div
+                  style={{
+                    background: '#f8fafc',
+                    borderRadius: '10px',
+                    border: '1px solid #e2e8f0',
+                    padding: '14px 16px',
+                  }}
+                >
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px',
+                      fontSize: '13px',
+                      color: '#334155',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <span>Refined Expand/Contract Triangle (▾ / ▴)</span>
+                    <ToggleSwitch
+                      size="sm"
+                      checked={op.replace_see_all_triangle}
+                      onChange={(checked) =>
+                        setConfig({
+                          ...config,
+                          overview_panel: { ...op, replace_see_all_triangle: checked },
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+
                 {/* Section Division Style Selection (2 Visual Option Cards) */}
                 <div
                   style={{
@@ -3302,7 +3160,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border, #e2e8f0)', paddingBottom: '10px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Sliders size={16} color="#0b57d0" />
                     <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>
                       Live Preview: Antigravity Overview Panel
                     </span>
@@ -3953,7 +3810,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               </div>
             </div>
           </div>
-        )}
       </div>
     </>
   )}
