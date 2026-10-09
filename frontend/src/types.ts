@@ -107,6 +107,16 @@ export function normalizePlanTier(raw?: string): string {
 
 export type SwitchMode = 'balanced' | 'max_tokens' | 'max_continuous'
 
+export type MultiAppSyncMode = 'shared' | 'individual'
+export type SubagentModelStrategy = 'default_custom_only' | 'auto_decide'
+export type TargetApp = 'all' | 'desktop' | 'agy' | 'vscode'
+
+export interface InstalledAppsStatus {
+  desktop: boolean
+  agy: boolean
+  vscode: boolean
+}
+
 export interface AccountState {
   email: string
   label?: string
@@ -115,6 +125,7 @@ export interface AccountState {
   notes?: string
   password?: string
   is_active: boolean
+  active_apps?: Array<'desktop' | 'agy' | 'vscode'>
   status: 'ACTIVE' | 'STANDBY' | 'COOLDOWN' | 'COOLING' | 'ERROR' | 'BANNED' | string
   quota_5h_current?: number
   quota_5h_available: number
@@ -173,6 +184,7 @@ export function toAccountState(acc: any, activeEmail?: string): AccountState {
     allow_claude_gpt: Boolean(acc.allow_claude_gpt),
     error_message: acc.error_message || '',
     status_reason: acc.status_reason || '',
+    active_apps: Array.isArray(acc.active_apps) ? acc.active_apps : [],
   }
 }
 
@@ -209,6 +221,10 @@ export interface RuleConfig {
   default_non_gemini_model?: string
   default_gemini_reasoning_level?: string
   auto_import_active_account?: boolean
+  multi_app_sync_mode?: MultiAppSyncMode
+  active_app_accounts?: Record<string, string>
+  subagent_model_strategy?: SubagentModelStrategy
+  installed_apps?: InstalledAppsStatus
 }
 
 export interface AvailableModelItem {
@@ -279,6 +295,12 @@ export interface CacheBreakdown {
   safe_to_delete: boolean
 }
 
+export interface CacheConfig {
+  auto_prune_enabled: boolean
+  prune_days: number
+  max_size_gb: number
+}
+
 export interface VaultStatus {
   enabled: boolean
   vault_dir: string
@@ -311,10 +333,16 @@ export interface QuotaResult {
   fraction: number | null
   has_percentage: boolean
   message?: string
+  input_price_per_m?: number | null
+  cached_input_price_per_m?: number | null
+  output_price_per_m?: number | null
+  price_source?: string
+  price_updated_at?: string
 }
 
 export interface CustomModel {
   id: string
+  internal_id?: number
   name: string
   display_name: string
   provider_type: ProviderType
@@ -322,11 +350,20 @@ export interface CustomModel {
   api_key?: string
   project_mappings: string[]
   quota_type: QuotaType
+  quota_manual_override?: boolean
   balance_value?: string
   quota_value?: string
   prepaid_balance: number
   total_budget: number
+  token_limit?: number
   quota_fraction: number | null
+  budget_cap_type?: 'none' | 'dollar' | 'percentage' | 'tokens'
+  budget_cap_value?: number | null
+  input_price_per_m?: number | null
+  cached_input_price_per_m?: number | null
+  output_price_per_m?: number | null
+  price_source?: string
+  price_updated_at?: string
   is_default: boolean
   context_window?: number
   supports_thinking?: boolean
@@ -339,6 +376,86 @@ export interface CustomModel {
   last_security_audit?: string
   created_at?: string
   updated_at?: string
+}
+
+export interface ModelPricingRecord {
+  internal_id: number
+  canonical_id: string
+  model_id?: string
+  model_name: string
+  name?: string
+  provider: string
+  classification: 'native' | 'custom'
+  custom_model_id?: string
+  is_outdated_native?: boolean
+  input_price_per_m: number | null
+  cached_input_price_per_m: number | null
+  output_price_per_m: number | null
+  source: string
+  updated_at: string
+}
+
+export interface TokenModelBreakdown {
+  internal_id?: number
+  canonical_id: string
+  model_id?: string
+  model_name: string
+  name?: string
+  provider: string
+  classification: 'native' | 'custom'
+  is_outdated_native?: boolean
+  input_tokens: number
+  cached_tokens: number
+  output_tokens: number
+  total_tokens: number
+  cost_usd: number | null
+  saved_usd: number | null
+  price_missing?: boolean
+  avg_tps: number
+  requests: number
+}
+
+export interface TokenProjectBreakdown {
+  project_name: string
+  workspace_path: string
+  total_tokens: number
+  cost_usd: number
+  saved_usd: number
+  cache_hit_ratio: number
+  last_active: string
+}
+
+export interface TokenTelemetryEvent {
+  id: string
+  timestamp: string
+  project: string
+  canonical_id: string
+  model_id?: string
+  model: string
+  classification: 'native' | 'custom'
+  input_tokens: number
+  cached_tokens: number
+  output_tokens: number
+  duration_ms: number
+  tps: number
+  cost_usd: number | null
+}
+
+export interface TokenSummaryResponse {
+  total_tokens: number
+  input_tokens: number
+  cached_input_tokens: number
+  output_tokens: number
+  total_cost_usd: number
+  saved_cost_usd: number
+  avg_tps: number
+  requests_count: number
+  unpriced_models?: string[]
+  model_breakdowns?: TokenModelBreakdown[]
+  project_breakdowns?: TokenProjectBreakdown[]
+  telemetry_events?: TokenTelemetryEvent[]
+  pricing_records?: ModelPricingRecord[]
+  models?: ModelPricingRecord[]
 }
 
 export interface SecurityAuditProbe {
@@ -382,8 +499,10 @@ export interface FetchModelsResponse {
 export interface CustomModelsConfig {
   version: string
   active_model_id?: string
+  next_internal_id?: number
   models: CustomModel[]
   project_binds: Record<string, string>
+  pricing_records?: ModelPricingRecord[]
 }
 
 export interface ProviderPreset {
@@ -418,6 +537,7 @@ export interface InstallationInfo {
 
 export interface SystemInstallations {
   desktop_app: InstallationInfo
+  agy_cli?: InstallationInfo
   vscode_extension: InstallationInfo
   platform: string
   arch: string
@@ -773,13 +893,13 @@ export interface FactoryResetResult {
 }
 
 export interface StorageInfo {
-  storage_mode: 'system_default' | 'app_portable'
+  storage_mode: 'system_default' | string
   current_paths: StoragePaths
   system_default_paths: StoragePaths
-  app_portable_paths: StoragePaths
+  app_portable_paths?: StoragePaths
   app_execution_type: string
   app_execution_detail: string
-  can_migrate: boolean
+  can_migrate?: boolean
   app_zones?: AppZonesInfo
 }
 

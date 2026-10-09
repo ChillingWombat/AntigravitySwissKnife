@@ -30,6 +30,7 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/process"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/revival"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/system"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/templates"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/totp"
@@ -52,10 +53,13 @@ type Server struct {
 	oauthMgr           *keyring.GoogleOAuthManager
 	githubService      *github.Service
 	vaultManager       *vault.Manager
+	revivalEngine      *revival.Engine
 	httpServer         *http.Server
 	addr               string
 	memoMu             sync.RWMutex
 	globalMemosPath    string
+	antigravityDataDir string
+	catalogFetcher     func(force bool) []custommodels.CatalogModelInput
 	knownWorkspaces    map[string]struct{}
 	quotaPollMu        sync.Mutex
 	quotaPolling       bool
@@ -91,9 +95,15 @@ func NewServer(addr string, socketPath string) *Server {
 		oauthMgr:           oauthMgr,
 		githubService:      ghService,
 		vaultManager:       vaultMgr,
+		revivalEngine:      revival.NewEngine("", 0),
 		addr:               addr,
 		knownWorkspaces:    make(map[string]struct{}),
 	}
+}
+
+// SetRevivalEngine replaces the revivalEngine on the server (useful for tests).
+func (s *Server) SetRevivalEngine(engine *revival.Engine) {
+	s.revivalEngine = engine
 }
 
 // SetVaultManager replaces the vaultManager on the server (useful for tests).
@@ -183,6 +193,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/fingerprint", s.handleFingerprint)
 	mux.HandleFunc("/api/cache/scan", s.handleCacheScan)
 	mux.HandleFunc("/api/cache/prune", s.handleCachePrune)
+	mux.HandleFunc("/api/cache/config", s.handleCacheConfig)
 	mux.HandleFunc("/api/quota", s.handleQuota)
 	mux.HandleFunc("/api/quota/fleet", s.handleFleetQuota)
 	mux.HandleFunc("/api/quota/refresh", s.handleQuotaRefresh)
@@ -212,8 +223,17 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/gui/desktop/install", s.handleGUIDesktopInstall)
 	mux.HandleFunc("/api/gui/desktop/restore", s.handleGUIDesktopRestore)
 	mux.HandleFunc("/api/gui/desktop/status", s.handleGUIDesktopStatus)
+	mux.HandleFunc("/api/gui/desktop/persistence", s.handleGUIDesktopPersistence)
 	mux.HandleFunc("/api/desktop/relaunch", s.handleDesktopRelaunch)
 	mux.HandleFunc("/api/gui/desktop/relaunch", s.handleDesktopRelaunch)
+
+	// Active Conversations & Subagent Revival
+	mux.HandleFunc("/api/conversations/active", s.handleConversationsActive)
+	mux.HandleFunc("/api/conversations/revive", s.handleConversationsRevive)
+	mux.HandleFunc("/api/conversations/status", s.handleConversationsStatus)
+	mux.HandleFunc("/api/conversations/ack", s.handleConversationsAck)
+	mux.HandleFunc("/api/session/continuation", s.handleConversationsStatus)
+	mux.HandleFunc("/api/session/continuation/ack", s.handleConversationsAck)
 
 
 	// System installations & updates
@@ -271,7 +291,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/settings/account_override", s.handleSettingsAccountOverride)
 	mux.HandleFunc("/api/settings/cache_clear", s.handleSettingsCacheClear)
 	mux.HandleFunc("/api/settings/privacy", s.handleSettingsPrivacy)
+	mux.HandleFunc("/api/settings/runtime-mode", s.handleSettingsRuntimeMode)
 	mux.HandleFunc("/api/settings/diagnose-issue", s.handleSettingsDiagnoseIssue)
+	mux.HandleFunc("/api/daemon/start", s.handleDaemonStart)
 	mux.HandleFunc("/api/system/factory_reset", s.handleSystemFactoryReset)
 
 	// Token & Cost Monitor
@@ -749,6 +771,7 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 	var p struct {
 		Email       string `json:"email"`
 		RelaunchIDE *bool  `json:"relaunch_ide"`
+		TargetApp   string `json:"target_app"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
@@ -757,10 +780,13 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 	shouldRelaunch := true
 	if p.RelaunchIDE != nil {
 		shouldRelaunch = *p.RelaunchIDE
+	} else if p.TargetApp != "" && p.TargetApp != "all" && p.TargetApp != "desktop" {
+		shouldRelaunch = false
 	}
 	reqPayload := map[string]interface{}{
 		"email":        p.Email,
 		"relaunch_ide": shouldRelaunch,
+		"target_app":   p.TargetApp,
 	}
 	var res map[string]interface{}
 	if err := s.client.Call("swiss.switchAccount", reqPayload, &res); err != nil {
@@ -769,36 +795,79 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, storeErr.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := store.SetActiveAccount(p.Email); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+		cfg, _ := core.LoadConfig()
+		targetApp := strings.ToLower(strings.TrimSpace(p.TargetApp))
+		isIndividual := cfg != nil && cfg.GetMultiAppSyncMode() == core.MultiAppSyncModeIndividual
+		isAll := targetApp == "" || targetApp == core.TargetAppAll || !isIndividual
+
+		if isAll || targetApp == core.TargetAppDesktop {
+			if err := store.SetActiveAccount(p.Email); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
+
+		if cfg != nil {
+			if isAll {
+				_ = cfg.SetActiveAppAccount("all", p.Email)
+			} else {
+				_ = cfg.SetActiveAppAccount(targetApp, p.Email)
+			}
+		}
+
+		var revIntent *revival.RevivalIntent
+		if s.revivalEngine != nil {
+			revIntent, _ = s.revivalEngine.CapturePreSwitchState(targetApp)
+		}
+
 		var allEmails []string
 		for _, a := range store.ListAccounts() {
 			allEmails = append(allEmails, a.Email)
 		}
 		if acc, _ := store.GetAccount(p.Email); acc != nil {
-			_ = keyring.SyncAllSurfaces(acc, allEmails, nil)
+			if isAll {
+				_ = keyring.SyncAllSurfaces(acc, allEmails, nil)
+			} else {
+				_ = keyring.SyncSurface(targetApp, acc, allEmails, nil)
+			}
 			if acc.AccessToken != "" {
 				_ = store.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
 			}
 			if !shouldRelaunch {
 				_, _ = gui.NewInjector(0).RefreshUserStatus()
+				if s.revivalEngine != nil && revIntent != nil {
+					go func(it *revival.RevivalIntent) {
+						_ = s.revivalEngine.ExecutePostRelaunchRevival(it)
+					}(revIntent)
+				}
 			}
 		}
 		if shouldRelaunch && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
 			_ = gui.NewInjector(0).CaptureActiveConversationPath()
 			go func() {
 				time.Sleep(200 * time.Millisecond)
-				_ = process.NewShield(0).RelaunchHostIDE()
+				shield := process.NewShield(0)
+				if s.revivalEngine != nil {
+					shield.SetRevivalEngine(s.revivalEngine)
+				}
+				_ = shield.RelaunchHostIDE()
 			}()
 		}
+		activeApps := make(map[string]string)
+		syncMode := core.MultiAppSyncModeShared
+		if cfg != nil {
+			syncMode = cfg.GetMultiAppSyncMode()
+			activeApps = cfg.GetActiveAppAccounts()
+		}
 		res = map[string]interface{}{
-			"switched":       true,
-			"account":        p.Email,
-			"success":        true,
-			"active_account": p.Email,
-			"relaunch_ide":   shouldRelaunch,
+			"switched":            true,
+			"account":             p.Email,
+			"success":             true,
+			"active_account":      p.Email,
+			"relaunch_ide":        shouldRelaunch,
+			"target_app":          p.TargetApp,
+			"multi_app_sync_mode": syncMode,
+			"active_app_accounts": activeApps,
 		}
 	} else {
 		if res == nil {
@@ -806,6 +875,9 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 		}
 		res["success"] = true
 		res["active_account"] = p.Email
+		if p.TargetApp != "" {
+			res["target_app"] = p.TargetApp
+		}
 		if shouldRelaunch {
 			res["relaunch_ide"] = true
 		}
@@ -999,14 +1071,28 @@ func (s *Server) handleFingerprint(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCacheScan(w http.ResponseWriter, r *http.Request) {
 	ageStr := r.URL.Query().Get("min_age_days")
-	age, _ := strconv.ParseFloat(ageStr, 64)
-	if age <= 0 {
-		age = 3.0
+	if ageStr == "" {
+		ageStr = r.URL.Query().Get("days")
 	}
+	age := 0.0
+	if ageStr != "" {
+		if parsed, err := strconv.ParseFloat(ageStr, 64); err == nil && parsed >= 0 {
+			age = parsed
+		}
+	}
+
+	maxSizeGB := 0.0
+	if sizeStr := r.URL.Query().Get("max_size_gb"); sizeStr != "" {
+		if parsed, err := strconv.ParseFloat(sizeStr, 64); err == nil && parsed >= 0 {
+			maxSizeGB = parsed
+		}
+	}
+
 	var bd cache.Breakdown
-	if err := s.client.Call("swiss.scanCache", map[string]float64{"min_age_days": age}, &bd); err != nil {
+	if err := s.client.Call("swiss.scanCache", map[string]float64{"min_age_days": age, "max_size_gb": maxSizeGB}, &bd); err != nil {
 		ins := cache.NewInspector("", "")
-		scan, errScan := ins.ScanBreakdown(age)
+		maxBytes := int64(maxSizeGB * 1024 * 1024 * 1024)
+		scan, errScan := ins.ScanBreakdownWithLimit(age, maxBytes)
 		if errScan != nil {
 			http.Error(w, errScan.Error(), http.StatusInternalServerError)
 			return
@@ -1022,11 +1108,40 @@ func (s *Server) handleCachePrune(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var opts cache.PruneOptions
-	_ = json.NewDecoder(r.Body).Decode(&opts)
-	if opts.MinAgeDays <= 0 {
-		opts.MinAgeDays = 3.0
+	var raw struct {
+		MinAgeDays      *float64 `json:"min_age_days"`
+		OlderThanDays   *float64 `json:"older_than_days"`
+		MaxSizeGB       *float64 `json:"max_size_gb"`
+		PruneScratch    bool     `json:"prune_scratch"`
+		PruneSteps      bool     `json:"prune_steps"`
+		PruneTasks      bool     `json:"prune_tasks"`
+		DryRun          bool     `json:"dry_run"`
+		ActiveCascadeID string   `json:"active_cascade_id"`
 	}
+	_ = json.NewDecoder(r.Body).Decode(&raw)
+
+	age := 0.0
+	if raw.MinAgeDays != nil {
+		age = *raw.MinAgeDays
+	} else if raw.OlderThanDays != nil {
+		age = *raw.OlderThanDays
+	}
+
+	maxSizeGB := 0.0
+	if raw.MaxSizeGB != nil && *raw.MaxSizeGB >= 0 {
+		maxSizeGB = *raw.MaxSizeGB
+	}
+
+	opts := cache.PruneOptions{
+		MinAgeDays:      age,
+		MaxSizeGB:       maxSizeGB,
+		PruneScratch:    raw.PruneScratch,
+		PruneSteps:      raw.PruneSteps,
+		PruneTasks:      raw.PruneTasks,
+		DryRun:          raw.DryRun,
+		ActiveCascadeID: raw.ActiveCascadeID,
+	}
+
 	var res cache.PruneResult
 	if err := s.client.Call("swiss.pruneCache", opts, &res); err != nil {
 		pruner := cache.NewPruner("")
@@ -1039,6 +1154,75 @@ func (s *Server) handleCachePrune(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, res)
+}
+
+func (s *Server) handleCacheConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		var res map[string]interface{}
+		if err := s.client.Call("swiss.getCacheConfig", nil, &res); err == nil && res != nil {
+			writeJSON(w, res)
+			return
+		}
+		cfg, _ := core.LoadConfig()
+		if cfg == nil {
+			cfg = core.DefaultConfig()
+		}
+		maxSize := cfg.AutoPruneMaxSizeGB
+		if maxSize < 0 {
+			maxSize = 0.0
+		}
+		writeJSON(w, map[string]interface{}{
+			"auto_prune_enabled": cfg.AutoPruneEnabled,
+			"prune_days":         cfg.AutoPruneMaxAgeDays,
+			"max_size_gb":        maxSize,
+		})
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var p struct {
+		AutoPruneEnabled *bool    `json:"auto_prune_enabled"`
+		PruneDays        *float64 `json:"prune_days"`
+		MaxSizeGB        *float64 `json:"max_size_gb"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	var res map[string]interface{}
+	if err := s.client.Call("swiss.setCacheConfig", p, &res); err == nil && res != nil {
+		writeJSON(w, res)
+		return
+	}
+
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		cfg = core.DefaultConfig()
+	}
+	if p.AutoPruneEnabled != nil {
+		cfg.AutoPruneEnabled = *p.AutoPruneEnabled
+	}
+	if p.PruneDays != nil && *p.PruneDays >= 0 {
+		cfg.AutoPruneMaxAgeDays = *p.PruneDays
+	}
+	if p.MaxSizeGB != nil && *p.MaxSizeGB >= 0 {
+		cfg.AutoPruneMaxSizeGB = *p.MaxSizeGB
+	}
+	if cfg.AutoPruneMaxSizeGB < 0 {
+		cfg.AutoPruneMaxSizeGB = 0.0
+	}
+	_ = cfg.Save()
+	writeJSON(w, map[string]interface{}{
+		"success":            true,
+		"auto_prune_enabled": cfg.AutoPruneEnabled,
+		"prune_days":         cfg.AutoPruneMaxAgeDays,
+		"max_size_gb":        cfg.AutoPruneMaxSizeGB,
+	})
 }
 
 func (s *Server) handleQuota(w http.ResponseWriter, r *http.Request) {
@@ -1099,6 +1283,7 @@ func (s *Server) handleFleetQuota(w http.ResponseWriter, r *http.Request) {
 		if store != nil {
 			thresh := core.DefaultAutoSwitchThresholdFraction
 			threshWeekly := core.DefaultAutoSwitchWeeklyThresholdFraction
+			switchMode := core.DefaultSwitchMode
 			autoImport := false
 			if c, errCfg := core.LoadConfig(); errCfg == nil {
 				if c.AutoSwitchThreshold > 0 {
@@ -1106,6 +1291,9 @@ func (s *Server) handleFleetQuota(w http.ResponseWriter, r *http.Request) {
 				}
 				if c.AutoSwitchWeeklyThreshold > 0 {
 					threshWeekly = c.AutoSwitchWeeklyThreshold
+				}
+				if c.SwitchMode != "" {
+					switchMode = c.SwitchMode
 				}
 				autoImport = c.AutoImportActiveAccount
 			}
@@ -1117,6 +1305,7 @@ func (s *Server) handleFleetQuota(w http.ResponseWriter, r *http.Request) {
 			accounts = store.ListAccounts()
 			active = store.ActiveAccount()
 			states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, nil, thresh, threshWeekly)
+			states = quota.SortAccountQuotaStatesWithThresholds(states, active, thresh, threshWeekly, "auto", switchMode)
 			summary = quota.ComputeFleetSummary(states, active)
 			summary.Refreshing = s.isQuotaPolling()
 			if len(quota.LoadQuotaCache()) == 0 && len(accounts) > 0 {
@@ -1215,8 +1404,12 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			if val, ok := p["warmup_enabled"].(bool); ok {
 				c.WarmupEnabled = val
 			}
-			if val, ok := p["warmup_lead_time_seconds"].(float64); ok {
+			if val, ok := p["post_reset_delay_seconds"].(float64); ok {
+				c.PostResetDelaySec = val
 				c.WarmupLeadTimeSec = val
+			} else if val, ok := p["warmup_lead_time_seconds"].(float64); ok {
+				c.WarmupLeadTimeSec = val
+				c.PostResetDelaySec = val
 			}
 			if val, ok := p["preferred_native_model"].(string); ok {
 				c.PreferredNativeModel = val
@@ -1238,6 +1431,19 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			}
 			if val, ok := p["default_gemini_model"].(string); ok {
 				c.DefaultGeminiModel = val
+				if _, hasExplicitLvl := p["default_gemini_reasoning_level"]; !hasExplicitLvl {
+					lowVal := strings.ToLower(strings.TrimSpace(val))
+					switch {
+					case strings.HasSuffix(lowVal, "-low"):
+						c.DefaultGeminiReasoningLevel = "low"
+					case strings.HasSuffix(lowVal, "-medium"):
+						c.DefaultGeminiReasoningLevel = "medium"
+					case strings.HasSuffix(lowVal, "-off"):
+						c.DefaultGeminiReasoningLevel = "off"
+					case strings.HasSuffix(lowVal, "-high") || lowVal == "gemini-pro-agent":
+						c.DefaultGeminiReasoningLevel = "high"
+					}
+				}
 			}
 			if val, ok := p["default_custom_model"].(string); ok {
 				c.DefaultCustomModel = val
@@ -1251,6 +1457,25 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			if val, ok := p["auto_import_active_account"].(bool); ok {
 				c.AutoImportActiveAccount = val
 			}
+			if val, ok := p["multi_app_sync_mode"].(string); ok {
+				c.MultiAppSyncMode = val
+				if c.MultiAppSyncMode != core.MultiAppSyncModeIndividual {
+					c.MultiAppSyncMode = core.MultiAppSyncModeShared
+				}
+			}
+			if val, ok := p["active_app_accounts"].(map[string]interface{}); ok {
+				if c.ActiveAppAccounts == nil {
+					c.ActiveAppAccounts = make(map[string]string)
+				}
+				for k, v := range val {
+					if s, ok := v.(string); ok {
+						c.ActiveAppAccounts[k] = s
+					}
+				}
+			}
+			if val, ok := p["subagent_model_strategy"].(string); ok {
+				c.SubagentModelStrategy = core.NormalizeSubagentModelStrategy(val)
+			}
 			if err := c.Save(); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -1259,6 +1484,16 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, res)
 		return
+	}
+
+	if s.systemDetector == nil {
+		s.systemDetector = system.NewDetector()
+	}
+	inst := s.systemDetector.DetectAll()
+	installedMap := map[string]bool{
+		"desktop": inst != nil && inst.DesktopApp.Installed,
+		"agy":     inst != nil && inst.AgyCLI.Installed,
+		"vscode":  inst != nil && inst.VSCodeExtension.Installed,
 	}
 
 	var cfg map[string]interface{}
@@ -1286,6 +1521,14 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		if c != nil && c.AutoSwitchWeeklyThreshold > 0 {
 			threshWeekly = c.AutoSwitchWeeklyThreshold
 		}
+		syncMode := core.MultiAppSyncModeShared
+		activeApps := make(map[string]string)
+		subagentStrategy := core.DefaultSubagentModelStrategy
+		if c != nil {
+			syncMode = c.GetMultiAppSyncMode()
+			activeApps = c.GetActiveAppAccounts()
+			subagentStrategy = c.GetSubagentModelStrategy()
+		}
 		cfg = map[string]interface{}{
 			"auto_switch_enabled":              c.AutoSwitchEnabled,
 			"auto_switch_threshold":            c.AutoSwitchThreshold,
@@ -1296,7 +1539,8 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			"standby_polling_interval_seconds": c.StandbyPollingIntervalSec,
 			"standby_random_jitter_seconds":    c.StandbyRandomJitterSec,
 			"warmup_enabled":                   c.WarmupEnabled,
-			"warmup_lead_time_seconds":         c.WarmupLeadTimeSec,
+			"warmup_lead_time_seconds":         c.GetPostResetDelaySec(),
+			"post_reset_delay_seconds":         c.GetPostResetDelaySec(),
 			"preferred_native_model":           c.PreferredNativeModel,
 			"allow_ai_credits_usage":           c.AllowAICreditsUsage,
 			"allow_non_gemini_native_models":   c.AllowNonGeminiNativeModels,
@@ -1306,6 +1550,10 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			"default_non_gemini_model":         defaultNonGemini,
 			"default_gemini_reasoning_level":   geminiReasoning,
 			"auto_import_active_account":       c.AutoImportActiveAccount,
+			"multi_app_sync_mode":              syncMode,
+			"active_app_accounts":              activeApps,
+			"subagent_model_strategy":          subagentStrategy,
+			"installed_apps":                   installedMap,
 		}
 	} else if cfg != nil {
 		if sm, ok := cfg["switch_mode"].(string); !ok || sm == "" {
@@ -1334,6 +1582,27 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		}
 		if ngm, ok := cfg["default_non_gemini_model"].(string); !ok || ngm == "" {
 			cfg["default_non_gemini_model"] = "claude-opus-4-6-thinking"
+		}
+		if _, ok := cfg["installed_apps"]; !ok {
+			cfg["installed_apps"] = installedMap
+		}
+		if _, ok := cfg["multi_app_sync_mode"]; !ok {
+			c, _ := core.LoadConfig()
+			if c != nil {
+				cfg["multi_app_sync_mode"] = c.GetMultiAppSyncMode()
+				cfg["active_app_accounts"] = c.GetActiveAppAccounts()
+			} else {
+				cfg["multi_app_sync_mode"] = core.MultiAppSyncModeShared
+				cfg["active_app_accounts"] = make(map[string]string)
+			}
+		}
+		if _, ok := cfg["subagent_model_strategy"]; !ok {
+			c, _ := core.LoadConfig()
+			if c != nil {
+				cfg["subagent_model_strategy"] = c.GetSubagentModelStrategy()
+			} else {
+				cfg["subagent_model_strategy"] = core.DefaultSubagentModelStrategy
+			}
 		}
 	}
 	writeJSON(w, cfg)
@@ -1890,6 +2159,64 @@ func (s *Server) handleGUIDesktopStatus(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, status)
 }
 
+func (s *Server) handleGUIDesktopPersistence(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		s.handleGUIDesktopStatus(w, r)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var p struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	var res map[string]interface{}
+	if err := s.client.Call("swiss.setDesktopPersistence", p, &res); err == nil && res != nil {
+		writeJSON(w, res)
+		return
+	}
+
+	cfg, err := core.LoadConfig()
+	if err != nil || cfg == nil {
+		cfg = core.DefaultConfig()
+	}
+	cfg.PersistentVisualEffects = p.Enabled
+	_ = cfg.Save()
+
+	if s.guiStore != nil {
+		var applyRes *gui.ApplyResult
+		var applyErr error
+		if p.Enabled {
+			applyRes, applyErr = s.guiStore.InstallDesktopLoader()
+		} else {
+			applyRes, applyErr = s.guiStore.UninstallDesktopLoader()
+		}
+		msg := ""
+		if applyRes != nil {
+			msg = applyRes.Message
+		} else if applyErr != nil {
+			msg = applyErr.Error()
+		}
+		writeJSON(w, map[string]interface{}{
+			"success":                   true,
+			"persistent_visual_effects": p.Enabled,
+			"installed":                 p.Enabled && applyRes != nil && applyRes.Success,
+			"message":                   msg,
+		})
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success":                   true,
+		"persistent_visual_effects": p.Enabled,
+	})
+}
+
 func (s *Server) handleDesktopRelaunch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -2046,16 +2373,44 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 			}
 			m.ID = fmt.Sprintf("%s-%s-%d", prefix, slug, time.Now().Unix())
 		}
-		// Auto-derive balance or quota through API
-		quotaRes := custommodels.DetectAndFetchQuota(m)
-		m.QuotaType = quotaRes.QuotaType
-		m.BalanceValue = quotaRes.BalanceValue
-		m.QuotaValue = quotaRes.QuotaValue
-		m.QuotaFraction = quotaRes.Fraction
+		// Auto-derive balance or quota unless manually overridden by user
+		if !m.QuotaManualOverride {
+			quotaRes := custommodels.DetectAndFetchQuota(m)
+			if quotaRes.QuotaType != custommodels.QuotaTypeNA || (m.QuotaType == "" || m.QuotaType == custommodels.QuotaTypeNA) {
+				m.QuotaType = quotaRes.QuotaType
+				m.BalanceValue = quotaRes.BalanceValue
+				m.QuotaValue = quotaRes.QuotaValue
+				m.QuotaFraction = quotaRes.Fraction
+			}
+		}
+
+		// Auto-derive token pricing (Provider -> 3rd-Party Backup -> null) unless manually overridden
+		nowShort := time.Now().Format("2006-01-02 15:04")
+		if m.PriceSource == custommodels.PriceSourceManual {
+			if m.InputPricePerM == nil && m.CachedInputPricePerM == nil && m.OutputPricePerM == nil {
+				m.PriceSource = custommodels.PriceSourceUnconfigured
+			}
+			m.PriceUpdatedAt = nowShort
+		} else if m.InputPricePerM != nil || m.CachedInputPricePerM != nil || m.OutputPricePerM != nil {
+			if m.PriceSource == "" {
+				m.PriceSource = custommodels.PriceSourceManual
+			}
+			m.PriceUpdatedAt = nowShort
+		} else {
+			inP, cacheP, outP, src := custommodels.FetchModelPricing(r.Context(), m.Name, string(m.ProviderType), m.BaseURL, m.APIKey)
+			m.InputPricePerM = inP
+			m.CachedInputPricePerM = cacheP
+			m.OutputPricePerM = outP
+			m.PriceSource = src
+			m.PriceUpdatedAt = nowShort
+		}
 
 		if err := s.customModelsStore.SaveModel(m); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
+		}
+		if saved, err := s.customModelsStore.GetModel(m.ID); err == nil && saved != nil {
+			m = *saved
 		}
 		writeJSON(w, map[string]interface{}{"success": true, "model": m})
 	case http.MethodDelete:
@@ -2187,6 +2542,11 @@ func (s *Server) handleCustomModelFetchQuota(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	res := custommodels.DetectAndFetchQuota(m)
+	inP, cacheP, outP, src := custommodels.FetchModelPricing(r.Context(), m.Name, string(m.ProviderType), m.BaseURL, m.APIKey)
+	res.InputPricePerM = inP
+	res.CachedInputPricePerM = cacheP
+	res.OutputPricePerM = outP
+	res.PriceSource = src
 	writeJSON(w, res)
 }
 
@@ -2204,15 +2564,26 @@ func (s *Server) handleCustomModelRefreshQuotas(w http.ResponseWriter, r *http.R
 		}
 	}
 	cfg := s.customModelsStore.GetConfig()
+	nowShort := time.Now().Format("2006-01-02 15:04")
 	for i := range cfg.Models {
 		quotaRes := custommodels.DetectAndFetchQuota(cfg.Models[i])
-		cfg.Models[i].QuotaType = quotaRes.QuotaType
-		cfg.Models[i].BalanceValue = quotaRes.BalanceValue
-		cfg.Models[i].QuotaValue = quotaRes.QuotaValue
-		cfg.Models[i].QuotaFraction = quotaRes.Fraction
+		if !cfg.Models[i].QuotaManualOverride || quotaRes.QuotaType != custommodels.QuotaTypeNA {
+			cfg.Models[i].QuotaType = quotaRes.QuotaType
+			cfg.Models[i].BalanceValue = quotaRes.BalanceValue
+			cfg.Models[i].QuotaValue = quotaRes.QuotaValue
+			cfg.Models[i].QuotaFraction = quotaRes.Fraction
+		}
+		if cfg.Models[i].PriceSource != custommodels.PriceSourceManual {
+			inP, cacheP, outP, src := custommodels.FetchModelPricing(r.Context(), cfg.Models[i].Name, string(cfg.Models[i].ProviderType), cfg.Models[i].BaseURL, cfg.Models[i].APIKey)
+			cfg.Models[i].InputPricePerM = inP
+			cfg.Models[i].CachedInputPricePerM = cacheP
+			cfg.Models[i].OutputPricePerM = outP
+			cfg.Models[i].PriceSource = src
+			cfg.Models[i].PriceUpdatedAt = nowShort
+		}
 		_ = s.customModelsStore.SaveModel(cfg.Models[i])
 	}
-	writeJSON(w, cfg)
+	writeJSON(w, s.customModelsStore.GetConfig())
 }
 
 // Enhancements handlers
@@ -2654,6 +3025,7 @@ func (s *Server) handleSettingsStorage(w http.ResponseWriter, r *http.Request) {
 
 		info, err := system.SwitchStorageMode(req.StorageMode, req.MigrateData, cfg)
 		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
 			writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
 			return
 		}
@@ -2666,6 +3038,83 @@ func (s *Server) handleSettingsStorage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+}
+
+func (s *Server) handleSettingsRuntimeMode(w http.ResponseWriter, r *http.Request) {
+	settingsPath := filepath.Join(core.GetConfigDir(), "desktop_settings.json")
+
+	if r.Method == http.MethodGet {
+		mode := "app"
+		if data, err := os.ReadFile(settingsPath); err == nil {
+			var parsed struct {
+				RuntimeMode string `json:"runtime_mode"`
+			}
+			if json.Unmarshal(data, &parsed) == nil && (parsed.RuntimeMode == "daemon" || parsed.RuntimeMode == "app") {
+				mode = parsed.RuntimeMode
+			}
+		}
+		writeJSON(w, map[string]interface{}{"runtime_mode": mode})
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		var req struct {
+			RuntimeMode string `json:"runtime_mode"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		mode := "app"
+		if req.RuntimeMode == "daemon" {
+			mode = "daemon"
+		}
+		var data map[string]interface{} = make(map[string]interface{})
+		if raw, err := os.ReadFile(settingsPath); err == nil {
+			_ = json.Unmarshal(raw, &data)
+		}
+		data["runtime_mode"] = mode
+		if b, err := json.MarshalIndent(data, "", "  "); err == nil {
+			_ = os.WriteFile(settingsPath, b, 0644)
+		}
+		writeJSON(w, map[string]interface{}{"success": true, "runtime_mode": mode})
+		return
+	}
+
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+}
+
+func (s *Server) handleDaemonStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var status map[string]interface{}
+	if err := s.client.Call("swiss.getStatus", nil, &status); err == nil {
+		writeJSON(w, map[string]interface{}{"success": true, "daemon_running": true, "message": "daemon already running"})
+		return
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		exe = "swiss"
+	}
+	cmd := exec.Command(exe, "daemon")
+	if err := cmd.Start(); err != nil {
+		http.Error(w, fmt.Sprintf("failed to spawn daemon: %v", err), http.StatusInternalServerError)
+		return
+	}
+	_ = cmd.Process.Release()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(150 * time.Millisecond)
+		if err := s.client.Call("swiss.getStatus", nil, &status); err == nil {
+			writeJSON(w, map[string]interface{}{"success": true, "daemon_running": true})
+			return
+		}
+	}
+	writeJSON(w, map[string]interface{}{"success": true, "daemon_running": false, "message": "daemon spawned, awaiting socket"})
 }
 
 func (s *Server) handleSettingsAppPath(w http.ResponseWriter, r *http.Request) {
@@ -2854,157 +3303,448 @@ func (s *Server) handleSettingsDiagnoseIssue(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, result)
 }
 
-func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
+func (s *Server) handleUtilitiesACP(w http.ResponseWriter, r *http.Request) {
+	type procEntry struct {
+		pid     int
+		comm    string
+		cmdline string
 	}
-
-	// Calculate real tokens by inspecting ~/.gemini/antigravity/brain/ session transcripts
-	home, _ := os.UserHomeDir()
-	brainDir := filepath.Join(home, ".gemini", "antigravity", "brain")
-	var totalPromptTokens int64 = 0
-	var totalOutputTokens int64 = 0
-	var totalCachedTokens int64 = 0
-	var totalTurns int = 0
-
-	if entries, err := os.ReadDir(brainDir); err == nil {
+	var procs []procEntry
+	if entries, err := os.ReadDir("/proc"); err == nil {
 		for _, entry := range entries {
 			if !entry.IsDir() {
 				continue
 			}
-			tPath := filepath.Join(brainDir, entry.Name(), ".system_generated", "logs", "transcript.jsonl")
-			info, err := os.Stat(tPath)
+			pid, err := strconv.Atoi(entry.Name())
+			if err != nil || pid <= 0 {
+				continue
+			}
+			cmdBytes, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
 			if err != nil {
 				continue
 			}
-			totalTurns++
-			// Roughly 1 token per 4 bytes of conversation history
-			promptEst := info.Size() / 4
-			cachedEst := int64(float64(promptEst) * 0.65)
-			outputEst := promptEst / 5
-
-			totalPromptTokens += promptEst
-			totalCachedTokens += cachedEst
-			totalOutputTokens += outputEst
+			cmdline := strings.ReplaceAll(string(cmdBytes), "\x00", " ")
+			commBytes, _ := os.ReadFile(filepath.Join("/proc", entry.Name(), "comm"))
+			comm := strings.TrimSpace(string(commBytes))
+			procs = append(procs, procEntry{
+				pid:     pid,
+				comm:    comm,
+				cmdline: cmdline,
+			})
 		}
 	}
 
-	totalTokens := totalPromptTokens + totalOutputTokens
-	// Standard Gemini 2.5 Pro blended rate ($1.25/1M prompt, $0.3125/1M cached, $5.00/1M output)
-	totalCost := float64(totalPromptTokens-totalCachedTokens)*(1.25/1000000.0) +
-		float64(totalCachedTokens)*(0.3125/1000000.0) +
-		float64(totalOutputTokens)*(5.0/1000000.0)
-	savedCost := float64(totalCachedTokens) * ((1.25 - 0.3125) / 1000000.0)
-
-	writeJSON(w, map[string]interface{}{
-		"total_tokens":        totalTokens,
-		"input_tokens":        totalPromptTokens,
-		"cached_input_tokens": totalCachedTokens,
-		"output_tokens":       totalOutputTokens,
-		"total_cost_usd":      totalCost,
-		"saved_cost_usd":      savedCost,
-		"avg_tps":             72.5,
-		"requests_count":      totalTurns,
-	})
-}
-
-func (s *Server) handleTokensPricing(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost {
-		writeJSON(w, map[string]interface{}{
-			"success":    true,
-			"updated_at": time.Now().Format("2006-01-02 15:04"),
-			"message":    "Token pricing overrides saved.",
-		})
-		return
-	}
-	writeJSON(w, map[string]interface{}{
-		"success":    true,
-		"updated_at": time.Now().Format("2006-01-02 15:04"),
-		"source":     "LiteLLM & OpenRouter indices",
-	})
-}
-
-func (s *Server) handleUtilitiesACP(w http.ResponseWriter, r *http.Request) {
-	// Discover running agent processes on Linux
-	checkAgent := func(pattern string) (bool, int) {
-		out, err := exec.Command("pgrep", "-f", pattern).Output()
-		if err != nil {
-			return false, 0
+	checkWithPgrep := func(exactNames []string, patterns []string) (bool, int) {
+		for _, name := range exactNames {
+			out, err := exec.Command("pgrep", "-x", name).Output()
+			if err == nil {
+				lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+				if len(lines) > 0 && lines[0] != "" {
+					if p, err := strconv.Atoi(lines[0]); err == nil && p > 0 {
+						return true, p
+					}
+				}
+			}
 		}
-		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-		if len(lines) > 0 && lines[0] != "" {
-			pid, _ := strconv.Atoi(lines[0])
-			return true, pid
+		for _, pattern := range patterns {
+			out, err := exec.Command("pgrep", "-f", pattern).Output()
+			if err == nil {
+				lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+				if len(lines) > 0 && lines[0] != "" {
+					if p, err := strconv.Atoi(lines[0]); err == nil && p > 0 {
+						return true, p
+					}
+				}
+			}
 		}
 		return false, 0
 	}
 
-	antigravityRunning, antigravityPID := checkAgent("antigravity")
-	claudeRunning, claudePID := checkAgent("claude")
-	cursorRunning, cursorPID := checkAgent("cursor")
-	windsurfRunning, windsurfPID := checkAgent("windsurf")
+	checkAntigravityIDE := func() (bool, int) {
+		if len(procs) > 0 {
+			var bestPID int
+			for _, p := range procs {
+				cmdLower := strings.ToLower(p.cmdline)
+				commLower := strings.ToLower(p.comm)
+				isAntigravity := (commLower == "antigravity" || strings.Contains(cmdLower, "/opt/antigravity/antigravity") || strings.Contains(cmdLower, "/antigravity.app/") || strings.HasSuffix(commLower, "antigravity.exe"))
+				if isAntigravity &&
+					!strings.Contains(cmdLower, "--type=") &&
+					!strings.Contains(cmdLower, "swiss") &&
+					!strings.Contains(cmdLower, "agy") &&
+					commLower != "agy" {
+					if bestPID == 0 || p.pid < bestPID {
+						bestPID = p.pid
+					}
+				}
+			}
+			if bestPID > 0 {
+				return true, bestPID
+			}
+		}
+		out, err := exec.Command("pgrep", "-x", "antigravity").Output()
+		if err == nil {
+			for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+				if pid, err := strconv.Atoi(line); err == nil && pid > 0 {
+					cmdBytes, _ := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+					sCmd := strings.ToLower(string(cmdBytes))
+					if !strings.Contains(sCmd, "--type=") && !strings.Contains(sCmd, "swiss") && !strings.Contains(sCmd, "agy") {
+						return true, pid
+					}
+				}
+			}
+		}
+		return false, 0
+	}
+
+	checkAgyCLI := func() (bool, int) {
+		if len(procs) > 0 {
+			for _, p := range procs {
+				cmdLower := strings.ToLower(p.cmdline)
+				commLower := strings.ToLower(p.comm)
+				if commLower == "agy" || commLower == "agy-run" || commLower == "agy_acp_server" ||
+					strings.Contains(cmdLower, "/bin/agy") || strings.Contains(cmdLower, "agy_acp_server") || strings.Contains(cmdLower, "bin/agy --hub") {
+					if !strings.Contains(cmdLower, "swiss") && !strings.Contains(cmdLower, "antigravity-swiss-knife") {
+						return true, p.pid
+					}
+				}
+			}
+		}
+		return checkWithPgrep([]string{"agy", "agy-run", "agy_acp_server"}, []string{"/bin/agy", "agy_acp_server"})
+	}
+
+	checkDevin := func() (bool, int) {
+		if len(procs) > 0 {
+			for _, p := range procs {
+				cmdLower := strings.ToLower(p.cmdline)
+				commLower := strings.ToLower(p.comm)
+				if commLower == "devin" || commLower == "devin-desktop" || commLower == "windsurf" ||
+					strings.Contains(cmdLower, "devin-desktop") || strings.Contains(cmdLower, "bin/devin") || strings.Contains(cmdLower, "bin/windsurf") {
+					if !strings.Contains(cmdLower, "swiss") && !strings.Contains(cmdLower, "--type=") {
+						return true, p.pid
+					}
+				}
+			}
+		}
+		return checkWithPgrep([]string{"devin", "devin-desktop", "windsurf"}, []string{"devin-desktop", "bin/devin", "bin/windsurf"})
+	}
+
+	checkOpenCode := func() (bool, int) {
+		if len(procs) > 0 {
+			for _, p := range procs {
+				cmdLower := strings.ToLower(p.cmdline)
+				commLower := strings.ToLower(p.comm)
+				if commLower == "opencode" || strings.Contains(cmdLower, "bin/opencode") || strings.Contains(cmdLower, "opencode acp") || strings.Contains(cmdLower, "opencode serve") {
+					if !strings.Contains(cmdLower, "swiss") {
+						return true, p.pid
+					}
+				}
+			}
+		}
+		return checkWithPgrep([]string{"opencode"}, []string{"bin/opencode", "opencode acp"})
+	}
+
+	checkDeepSeekHarness := func() (bool, int) {
+		if len(procs) > 0 {
+			for _, p := range procs {
+				cmdLower := strings.ToLower(p.cmdline)
+				commLower := strings.ToLower(p.comm)
+				if commLower == "dsh" || commLower == "deepseek" || commLower == "deepseek-harness" ||
+					strings.Contains(cmdLower, "deepseek-harness") || strings.Contains(cmdLower, "bin/dsh") || strings.Contains(cmdLower, "@deepseek-ai/dsh") {
+					if !strings.Contains(cmdLower, "swiss") {
+						return true, p.pid
+					}
+				}
+			}
+		}
+		return checkWithPgrep([]string{"dsh", "deepseek-harness"}, []string{"deepseek-harness", "bin/dsh"})
+	}
+
+	checkPi := func() (bool, int) {
+		if len(procs) > 0 {
+			for _, p := range procs {
+				cmdLower := strings.ToLower(p.cmdline)
+				commLower := strings.ToLower(p.comm)
+				if commLower == "pi" || commLower == "pi-acp" ||
+					strings.Contains(cmdLower, "pi --mode rpc") || strings.Contains(cmdLower, "pi-acp") || strings.Contains(cmdLower, "@earendil-works/pi-agent-core") {
+					if !strings.Contains(cmdLower, "pipewire") && !strings.Contains(cmdLower, "swiss") {
+						return true, p.pid
+					}
+				}
+			}
+		}
+		return checkWithPgrep([]string{"pi", "pi-acp"}, nil)
+	}
+
+	checkCodex := func() (bool, int) {
+		if len(procs) > 0 {
+			for _, p := range procs {
+				cmdLower := strings.ToLower(p.cmdline)
+				commLower := strings.ToLower(p.comm)
+				if commLower == "codex" || strings.Contains(cmdLower, "bin/codex") || strings.Contains(cmdLower, "codex app-server") || strings.Contains(cmdLower, "@openai/codex") {
+					if !strings.Contains(cmdLower, "codex-router") && !strings.Contains(cmdLower, "swiss") {
+						return true, p.pid
+					}
+				}
+			}
+		}
+		return checkWithPgrep([]string{"codex"}, []string{"bin/codex", "codex app-server"})
+	}
+
+	checkClaude := func() (bool, int) {
+		if len(procs) > 0 {
+			for _, p := range procs {
+				cmdLower := strings.ToLower(p.cmdline)
+				commLower := strings.ToLower(p.comm)
+				if commLower == "claude" || strings.Contains(cmdLower, "bin/claude") || strings.Contains(cmdLower, "@anthropic-ai/claude-code") {
+					if !strings.Contains(cmdLower, "swiss") {
+						return true, p.pid
+					}
+				}
+			}
+		}
+		return checkWithPgrep([]string{"claude"}, []string{"bin/claude"})
+	}
+
+	checkCursor := func() (bool, int) {
+		if len(procs) > 0 {
+			for _, p := range procs {
+				cmdLower := strings.ToLower(p.cmdline)
+				commLower := strings.ToLower(p.comm)
+				if commLower == "cursor" || strings.Contains(cmdLower, "/cursor") || strings.Contains(cmdLower, "cursor.app") {
+					if !strings.Contains(cmdLower, "--type=") && !strings.Contains(cmdLower, "swiss") {
+						return true, p.pid
+					}
+				}
+			}
+		}
+		return checkWithPgrep([]string{"cursor"}, []string{"/opt/Cursor/cursor"})
+	}
+
+	probeSocket := func(socketStr string) (bool, float64) {
+		start := time.Now()
+		if strings.HasPrefix(socketStr, "unix://") {
+			sockPath := strings.TrimPrefix(socketStr, "unix://")
+			if conn, err := net.DialTimeout("unix", sockPath, 20*time.Millisecond); err == nil {
+				conn.Close()
+				lat := float64(time.Since(start).Microseconds()) / 1000.0
+				if lat < 0.1 {
+					lat = 0.1
+				}
+				return true, lat
+			}
+		} else if strings.Contains(socketStr, ":") {
+			if conn, err := net.DialTimeout("tcp", socketStr, 20*time.Millisecond); err == nil {
+				conn.Close()
+				lat := float64(time.Since(start).Microseconds()) / 1000.0
+				if lat < 0.1 {
+					lat = 0.1
+				}
+				return true, lat
+			}
+		}
+		return false, 0
+	}
+
+	buildNode := func(id, name, nodeType, binPath, socketStr, version string, running bool, pid int, defaultSimLatency float64, defaultStatusWhenRunning string, tools []string) map[string]interface{} {
+		hasSocket, realLatency := false, 0.0
+		if running {
+			hasSocket, realLatency = probeSocket(socketStr)
+		}
+
+		status := "unreachable"
+		latency := 0.0
+		handshake := "Offline"
+
+		if running {
+			if hasSocket {
+				if defaultStatusWhenRunning == "active_hosting" {
+					status = "active_hosting"
+				} else {
+					status = "connected"
+				}
+				latency = realLatency
+			} else {
+				status = defaultStatusWhenRunning
+				latency = defaultSimLatency
+			}
+			handshake = "Just now"
+		}
+
+		return map[string]interface{}{
+			"id":              id,
+			"name":            name,
+			"type":            nodeType,
+			"binary_path":     binPath,
+			"pid":             pid,
+			"port_socket":     socketStr,
+			"acp_version":     version,
+			"status":          status,
+			"ping_latency_ms": latency,
+			"supported_tools": tools,
+			"last_handshake":  handshake,
+		}
+	}
+
+	homeDir := os.Getenv("HOME")
+	uid := os.Getuid()
+	runUserDir := fmt.Sprintf("/run/user/%d", uid)
+	if _, err := os.Stat(runUserDir); err != nil {
+		runUserDir = "/run/user/1000"
+	}
+
+	antigravityRunning, antigravityPID := checkAntigravityIDE()
+	agyRunning, agyPID := checkAgyCLI()
+	devinRunning, devinPID := checkDevin()
+	opencodeRunning, opencodePID := checkOpenCode()
+	dshRunning, dshPID := checkDeepSeekHarness()
+	piRunning, piPID := checkPi()
+	codexRunning, codexPID := checkCodex()
+	claudeRunning, claudePID := checkClaude()
+	cursorRunning, cursorPID := checkCursor()
 
 	agents := []map[string]interface{}{
-		{
-			"id":              "agent-antigravity",
-			"name":            "Google Antigravity 2.0",
-			"type":            "Desktop IDE & Agent Core",
-			"binary_path":     "/opt/Antigravity/antigravity",
-			"pid":             antigravityPID,
-			"port_socket":     "unix:///run/user/1000/antigravity-acp.sock",
-			"acp_version":     "v1.2.0-draft",
-			"status":          map[bool]string{true: "active_hosting", false: "unreachable"}[antigravityRunning],
-			"ping_latency_ms": 0.8,
-			"supported_tools": []string{"read_file", "write_file", "terminal", "mcp_proxy", "subagent_invoke"},
-			"last_handshake":  "Just now",
-		},
-		{
-			"id":              "agent-claude-code",
-			"name":            "Claude Code CLI",
-			"type":            "Terminal Agent Daemon",
-			"binary_path":     filepath.Join(os.Getenv("HOME"), ".local", "bin", "claude"),
-			"pid":             claudePID,
-			"port_socket":     "127.0.0.1:45124",
-			"acp_version":     "v1.1.4",
-			"status":          map[bool]string{true: "connected", false: "unreachable"}[claudeRunning],
-			"ping_latency_ms": map[bool]float64{true: 2.1, false: 0}[claudeRunning],
-			"supported_tools": []string{"bash", "glob", "grep", "file_edit"},
-			"last_handshake":  map[bool]string{true: "Just now", false: "Offline"}[claudeRunning],
-		},
-		{
-			"id":              "agent-cursor",
-			"name":            "Cursor Editor Agent",
-			"type":            "Editor Sidecar",
-			"binary_path":     "/opt/Cursor/cursor",
-			"pid":             cursorPID,
-			"port_socket":     "127.0.0.1:49200",
-			"acp_version":     "v1.0.8",
-			"status":          map[bool]string{true: "connected", false: "unreachable"}[cursorRunning],
-			"ping_latency_ms": map[bool]float64{true: 4.8, false: 0}[cursorRunning],
-			"supported_tools": []string{"lsp_diagnostics", "symbol_search", "diff_apply"},
-			"last_handshake":  map[bool]string{true: "Just now", false: "Offline"}[cursorRunning],
-		},
-		{
-			"id":              "agent-windsurf",
-			"name":            "Windsurf Cascade",
-			"type":            "IDE Cascade Engine",
-			"binary_path":     "/usr/bin/windsurf",
-			"pid":             windsurfPID,
-			"port_socket":     "unix:///run/user/1000/windsurf-acp.sock",
-			"acp_version":     "v1.0.5",
-			"status":          map[bool]string{true: "connected", false: "unreachable"}[windsurfRunning],
-			"ping_latency_ms": map[bool]float64{true: 3.2, false: 0}[windsurfRunning],
-			"supported_tools": []string{"cascade_tools", "terminal"},
-			"last_handshake":  map[bool]string{true: "Just now", false: "Offline"}[windsurfRunning],
-		},
+		buildNode(
+			"agent-antigravity",
+			"Google Antigravity 2.0",
+			"Desktop IDE & Agent Core",
+			"/opt/Antigravity/antigravity",
+			fmt.Sprintf("unix://%s/antigravity-acp.sock", runUserDir),
+			"v1.2.0-draft",
+			antigravityRunning,
+			antigravityPID,
+			0.8,
+			"active_hosting",
+			[]string{"read_file", "write_file", "terminal", "mcp_proxy", "subagent_invoke"},
+		),
+		buildNode(
+			"agent-antigravity-cli",
+			"Antigravity CLI (agy)",
+			"Terminal Agent Daemon",
+			filepath.Join(homeDir, ".local", "bin", "agy"),
+			"127.0.0.1:35779",
+			"v1.2.0-draft",
+			agyRunning,
+			agyPID,
+			1.4,
+			"connected",
+			[]string{"terminal", "bash", "file_ops", "headless_prompt", "subagent_mesh"},
+		),
+		buildNode(
+			"agent-devin",
+			"Devin",
+			"Autonomous Developer IDE",
+			"/usr/bin/devin-desktop",
+			fmt.Sprintf("unix://%s/devin-acp.sock", runUserDir),
+			"v1.2.0",
+			devinRunning,
+			devinPID,
+			2.2,
+			"connected",
+			[]string{"cascade_tools", "terminal", "diff_apply", "browser_eval"},
+		),
+		buildNode(
+			"agent-opencode",
+			"OpenCode",
+			"Editor & Agent Sidecar",
+			filepath.Join(homeDir, ".local", "bin", "opencode"),
+			"127.0.0.1:4096",
+			"v1.2.0",
+			opencodeRunning,
+			opencodePID,
+			1.8,
+			"connected",
+			[]string{"read_file", "write_file", "bash", "grep", "lsp_bridge", "subagent_spawn"},
+		),
+		buildNode(
+			"agent-deepseek-harness",
+			"DeepSeek Harness",
+			"Terminal Agent Harness",
+			filepath.Join(homeDir, ".local", "bin", "dsh"),
+			"127.0.0.1:43880",
+			"v1.1.8",
+			dshRunning,
+			dshPID,
+			2.5,
+			"connected",
+			[]string{"command_exec", "file_ops", "git_apply", "reasoning_stream"},
+		),
+		buildNode(
+			"agent-pi",
+			"Pi",
+			"Pi Agent Core",
+			filepath.Join(homeDir, ".local", "bin", "pi"),
+			"127.0.0.1:41888",
+			"v1.1.2",
+			piRunning,
+			piPID,
+			3.1,
+			"connected",
+			[]string{"chat_eval", "python_repl", "knowledge_query"},
+		),
+		buildNode(
+			"agent-codex",
+			"Codex",
+			"Codex Agent CLI",
+			filepath.Join(homeDir, ".config", "nvm", "versions", "node", "v24.16.0", "bin", "codex"),
+			"127.0.0.1:48080",
+			"v1.2.0-draft",
+			codexRunning,
+			codexPID,
+			1.9,
+			"connected",
+			[]string{"sandbox_exec", "git_apply", "review", "web_search"},
+		),
+		buildNode(
+			"agent-claude-code",
+			"Claude Code CLI",
+			"Terminal Agent Daemon",
+			filepath.Join(homeDir, ".local", "bin", "claude"),
+			"127.0.0.1:45124",
+			"v1.1.4",
+			claudeRunning,
+			claudePID,
+			2.1,
+			"connected",
+			[]string{"bash", "glob", "grep", "file_edit"},
+		),
+		buildNode(
+			"agent-cursor",
+			"Cursor Editor Agent",
+			"Editor Sidecar",
+			"/opt/Cursor/cursor",
+			"127.0.0.1:49200",
+			"v1.0.8",
+			cursorRunning,
+			cursorPID,
+			4.8,
+			"connected",
+			[]string{"lsp_diagnostics", "symbol_search", "diff_apply"},
+		),
+	}
+
+	requestedAgent := r.URL.Query().Get("agent")
+	if requestedAgent == "" {
+		requestedAgent = r.URL.Query().Get("id")
+	}
+	if requestedAgent == "agent-windsurf" {
+		requestedAgent = "agent-devin"
+	}
+
+	responseAgents := agents
+	if requestedAgent != "" {
+		responseAgents = make([]map[string]interface{}, 0)
+		for _, a := range agents {
+			if a["id"] == requestedAgent {
+				responseAgents = append(responseAgents, a)
+			}
+		}
 	}
 
 	writeJSON(w, map[string]interface{}{
 		"status":           "online",
 		"mesh_nodes":       len(agents),
 		"protocol_version": "v1.2.0-draft",
-		"agents":           agents,
+		"agents":           responseAgents,
 	})
 }
 
@@ -3143,6 +3883,20 @@ func (s *Server) handleCustomModelSecurityAudit(w http.ResponseWriter, r *http.R
 	}
 	auditor := custommodels.NewAuditor()
 	report := auditor.RunAudit(m)
+	if strings.TrimSpace(m.ID) != "" {
+		if s.customModelsStore == nil {
+			s.customModelsStore, _ = custommodels.NewStore("")
+		}
+		if s.customModelsStore != nil {
+			if existing, err := s.customModelsStore.GetModel(m.ID); err == nil && existing != nil {
+				existing.SecurityRiskLevel = report.RiskLevel
+				existing.SecurityAuditScore = report.RiskScore
+				existing.SecurityGrade = report.SecurityGrade
+				existing.LastSecurityAudit = report.AuditedAt
+				_ = s.customModelsStore.SaveModel(*existing)
+			}
+		}
+	}
 	writeJSON(w, report)
 }
 
@@ -4340,6 +5094,141 @@ func (s *Server) handleFilesIDEConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+}
+
+func (s *Server) handleConversationsActive(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	targetApp := r.URL.Query().Get("target_app")
+	if targetApp == "" {
+		targetApp = r.URL.Query().Get("app")
+	}
+
+	var info *revival.ActiveSessionInfo
+	if s.client != nil {
+		_ = s.client.Call("swiss.getActiveConversations", map[string]interface{}{"target_app": targetApp}, &info)
+	}
+	if info == nil && s.revivalEngine != nil {
+		detected, err := s.revivalEngine.Detector.Detect(targetApp)
+		if err == nil {
+			info = detected
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if info != nil {
+		_ = json.NewEncoder(w).Encode(info)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{})
+}
+
+func (s *Server) handleConversationsRevive(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var p struct {
+		TargetApp      string `json:"target_app"`
+		ConversationID string `json:"conversation_id"`
+		Prompt         string `json:"prompt"`
+		ForcePrompt    bool   `json:"force_prompt"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&p)
+
+	var res map[string]interface{}
+	var err error
+	if s.client != nil {
+		err = s.client.Call("swiss.reviveConversation", p, &res)
+	}
+	if err != nil || s.client == nil {
+		if s.revivalEngine != nil {
+			if reviveErr := s.revivalEngine.ReviveConversation(p.TargetApp, p.ConversationID, p.Prompt); reviveErr != nil {
+				http.Error(w, reviveErr.Error(), http.StatusInternalServerError)
+				return
+			}
+			res = map[string]interface{}{
+				"success": true,
+				"status":  "revived",
+				"method":  "cdp_nudge",
+			}
+		} else {
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			} else {
+				http.Error(w, "revival engine not available", http.StatusInternalServerError)
+			}
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (s *Server) handleConversationsStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var status *revival.RevivalStatus
+	if s.client != nil {
+		_ = s.client.Call("swiss.getRevivalStatus", nil, &status)
+	}
+	if status == nil && s.revivalEngine != nil {
+		sStatus, err := s.revivalEngine.GetRevivalStatus()
+		if err == nil {
+			status = sStatus
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if status == nil {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+		})
+		return
+	}
+
+	resp := map[string]interface{}{
+		"success":         status.Success,
+		"active_session":  status.ActiveSession,
+		"pending_intent":  status.PendingIntent,
+		"last_revived_at": status.LastRevivedAt,
+	}
+	if status.PendingIntent != nil {
+		resp["cascade_id"] = status.PendingIntent.RootConversationID
+		resp["prompt"] = status.PendingIntent.TriggerPrompt
+		resp["timestamp"] = status.PendingIntent.Timestamp
+		resp["resumed"] = status.PendingIntent.Resumed
+		resp["status"] = status.PendingIntent.Status
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleConversationsAck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var p struct {
+		CascadeID string `json:"cascade_id"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&p)
+
+	if s.client != nil {
+		var res map[string]interface{}
+		_ = s.client.Call("swiss.ackContinuation", p, &res)
+	}
+	if s.revivalEngine != nil {
+		_ = s.revivalEngine.AcknowledgeContinuation(p.CascadeID)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {

@@ -13,6 +13,8 @@ import {
   WORKSPACE_PADDING_X,
   WORKSPACE_CONTENT_MIN_WIDTH,
   TABLE_MIN_WIDTH,
+  MODEL_CARD_MIN_WIDTH,
+  MODEL_CARD_GRID_GAP,
   COMPONENT_TOKENS,
   PHI,
   SPACING,
@@ -170,5 +172,25 @@ describe('Layout Tokens & Golden Ratio Math', () => {
       TABLE_MIN_WIDTH <= WORKSPACE_CONTENT_MIN_WIDTH,
       `TABLE_MIN_WIDTH (${TABLE_MIN_WIDTH}) must fit within WORKSPACE_CONTENT_MIN_WIDTH (${WORKSPACE_CONTENT_MIN_WIDTH}) to eliminate horizontal scrollbar`
     )
+  })
+
+  it('ensures exactly 2 model cards per row in the fixed minimal window size', () => {
+    assert.ok(isGridAligned4(MODEL_CARD_MIN_WIDTH), 'MODEL_CARD_MIN_WIDTH must be divisible by 4')
+    assert.ok(isGridAligned4(MODEL_CARD_GRID_GAP), 'MODEL_CARD_GRID_GAP must be divisible by 4')
+
+    const colsWithoutScrollbar = Math.floor(
+      (WORKSPACE_CONTENT_MIN_WIDTH + MODEL_CARD_GRID_GAP) /
+        (MODEL_CARD_MIN_WIDTH + MODEL_CARD_GRID_GAP)
+    )
+    const colsWithScrollbar = Math.floor(
+      (WORKSPACE_CONTENT_MIN_WIDTH - 8 + MODEL_CARD_GRID_GAP) /
+        (MODEL_CARD_MIN_WIDTH + MODEL_CARD_GRID_GAP)
+    )
+    assert.equal(colsWithoutScrollbar, 2)
+    assert.equal(colsWithScrollbar, 2)
+
+    const cardExpandedWidth = (WORKSPACE_CONTENT_MIN_WIDTH - MODEL_CARD_GRID_GAP) / 2
+    assert.equal(cardExpandedWidth, 476)
+    assert.ok(isGridAligned4(cardExpandedWidth))
   })
 })

@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  Zap,
   Save,
   Archive,
   Folder,
@@ -15,10 +14,33 @@ import {
   Globe,
   Maximize2,
   X,
+  ChevronDown,
+  ChevronUp,
+  ChevronRight,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 import type { EnhancementsConfig, GUIConfig } from '../types'
+import {
+  OVERVIEW_PREVIEW_HEADER,
+  OVERVIEW_DIVISION_BADGE_LABELS,
+  DEMO_PROJECT_NAME,
+  SYNTHETIC_SUBAGENTS_COUNT,
+  SYNTHETIC_SUBAGENT,
+  SYNTHETIC_FILES_COUNT,
+  SYNTHETIC_FILES_TAG,
+  SYNTHETIC_VISIBLE_FILES,
+  SYNTHETIC_EXPANDED_FILES,
+  SYNTHETIC_ARTIFACTS_COUNT,
+  SYNTHETIC_ARTIFACT,
+  SYNTHETIC_UPLOADS_COUNT,
+  SYNTHETIC_VISIBLE_UPLOADS,
+  SYNTHETIC_EXPANDED_UPLOADS,
+  SYNTHETIC_TASKS_COUNT,
+  SYNTHETIC_TERMINALS_COUNT,
+  SYNTHETIC_GOALS,
+  SYNTHETIC_SKILLS,
+} from '../utils/overviewPreviewData'
 
 const PRESET_COLORS = [
   { name: 'Slate Black', hex: '#0f172a' },
@@ -171,7 +193,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
   })
 
   const baseTintOpacity = guiConfig?.tint_opacity ?? 0.15
-  const previewProjColor = guiConfig?.project_colors?.['Antigravity Swiss Knife'] || '#0b57d0'
+  const previewProjColor = guiConfig?.project_colors?.[DEMO_PROJECT_NAME] || guiConfig?.project_colors?.['Antigravity Swiss Knife'] || '#0b57d0'
   const parsedProjColor = parseColorWithAlpha(previewProjColor)
   const projColorLum = (0.2126 * parsedProjColor.r + 0.7152 * parsedProjColor.g + 0.0722 * parsedProjColor.b) / 255.0
   const projCardTextColor = projColorLum > 0.6 ? '#0f172a' : '#ffffff'
@@ -237,24 +259,9 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
     }
   }
 
-  const handleSave = async () => {
+  const handleSaveAndApply = async () => {
     try {
       setSaving(true)
-      const promises: Promise<any>[] = []
-      if (config) promises.push(api.updateEnhancements(config))
-      if (guiConfig) promises.push(api.updateGUIConfig(guiConfig))
-      await Promise.all(promises)
-      setStatusMsg({ text: 'Settings saved successfully', type: 'success' })
-      setTimeout(() => setStatusMsg(null), 3500)
-    } catch (err: any) {
-      setStatusMsg({ text: 'Failed to save settings: ' + err.message, type: 'error' })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleApplyLive = async () => {
-    try {
       setApplying(true)
       const promises: Promise<any>[] = []
       if (config) promises.push(api.updateEnhancements(config))
@@ -262,13 +269,14 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
       await Promise.all(promises)
       const res = await api.applyGUI().catch(() => api.applyEnhancements())
       setStatusMsg({
-        text: res.message || 'Successfully injected and applied enhancements live to Antigravity!',
+        text: res.message || 'Settings saved locally and applied to Antigravity!',
         type: 'success',
       })
       setTimeout(() => setStatusMsg(null), 4000)
     } catch (err: any) {
-      setStatusMsg({ text: 'Live injection error: ' + err.message, type: 'error' })
+      setStatusMsg({ text: 'Failed to save & apply settings: ' + err.message, type: 'error' })
     } finally {
+      setSaving(false)
       setApplying(false)
     }
   }
@@ -329,22 +337,13 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
         createPortal(
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
-              onClick={handleApplyLive}
-              disabled={applying}
-              className="btn-pill-tonal"
-              style={{ padding: '7px 16px', fontSize: '12px' }}
-            >
-              <Zap size={14} className={applying ? 'spin' : ''} />
-              <span>{applying ? 'Injecting...' : 'Apply Live in Antigravity'}</span>
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
+              onClick={handleSaveAndApply}
+              disabled={saving || applying}
               className="btn-pill-primary"
               style={{ padding: '7px 18px', fontSize: '12px' }}
             >
               <Save size={14} />
-              <span>{saving ? 'Saving...' : 'Save Settings'}</span>
+              <span>{saving || applying ? 'Saving & Applying...' : 'Save & Apply'}</span>
             </button>
           </div>,
           portalTarget
@@ -723,7 +722,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                             padding: '5px 8px',
                             borderRadius: '6px',
                             border: '1px solid #cbd5e1',
-                            fontSize: '12.5px',
+                            fontSize: '13px',
                           }}
                         />
                         <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (default: 14)</span>
@@ -753,7 +752,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                             padding: '5px 8px',
                             borderRadius: '6px',
                             border: '1px solid #cbd5e1',
-                            fontSize: '12.5px',
+                            fontSize: '13px',
                           }}
                         />
                         <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (default: 2.5)</span>
@@ -783,7 +782,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                             padding: '5px 8px',
                             borderRadius: '6px',
                             border: '1px solid #cbd5e1',
-                            fontSize: '12.5px',
+                            fontSize: '13px',
                           }}
                         />
                         <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (default: 1.5)</span>
@@ -1285,7 +1284,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, overflow: 'hidden' }}>
                       <Folder size={14} style={{ flexShrink: 0 }} />
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        Antigravity Swiss Knife
+                        {DEMO_PROJECT_NAME}
                       </span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, opacity: 0.9 }}>
@@ -1441,7 +1440,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     Simplicity Replacement for "See all" / "See less"
                   </div>
                   <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
-                    Replace raw text buttons with a sleek 1px divider and centered solid triangle (▾ / ▴).
+                    Replace 'See all' and 'See less' text buttons with a 1px divider and expand/collapse indicator.
                   </p>
                 </div>
                 <ToggleSwitch
@@ -1473,7 +1472,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     Divider Separation Below All Projects
                   </div>
                   <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
-                    Add horizontal divider lines in the natural gap below projects without contracted conversation tabs for balanced, consistent project separation.
+                    Add horizontal divider lines below uncontracted projects for consistent spacing.
                   </p>
                 </div>
                 <ToggleSwitch
@@ -1724,7 +1723,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 }}
               >
                 <span>Demo Workspace</span>
-                <span style={{ fontSize: '11px', opacity: 0.85 }}>▾</span>
+                <ChevronDown size={12} strokeWidth={2} style={{ opacity: 0.85 }} />
               </div>
 
               {/* Visible Sample Rows */}
@@ -1815,15 +1814,14 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       transition: 'all 0.18s ease',
                     }}
                   >
-                    <span
+                    <ChevronDown
+                      size={12}
+                      strokeWidth={2}
                       style={{
-                        display: 'inline-block',
                         transform: previewExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
                         transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                       }}
-                    >
-                      ▼
-                    </span>
+                    />
                   </div>
                 </div>
               ) : (
@@ -1854,11 +1852,11 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  marginTop: '14px',
+                  marginTop: '16px',
                 }}
               >
                 <span>Secondary Project (Uncontracted)</span>
-                <span style={{ fontSize: '11px', opacity: 0.85 }}>▾</span>
+                <ChevronDown size={12} strokeWidth={2} style={{ opacity: 0.85 }} />
               </div>
               <div
                 style={{
@@ -2374,7 +2372,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       cursor: 'pointer',
                     }}
                   >
-                    <span>Refined Expand/Contract Triangle (▾ / ▴)</span>
+                    <span>Refined Expand/Collapse Indicator</span>
                     <ToggleSwitch
                       size="sm"
                       checked={op.replace_see_all_triangle}
@@ -2729,10 +2727,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   top: '20px',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border, #e2e8f0)', paddingBottom: '10px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>
-                      Live Preview: Antigravity Overview Panel
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border, #e2e8f0)', paddingBottom: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b', whiteSpace: 'nowrap' }}>
+                      {OVERVIEW_PREVIEW_HEADER}
                     </span>
                   </div>
                   <span
@@ -2743,9 +2741,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       borderRadius: '12px',
                       backgroundColor: op.division_style === 'divider_line' ? '#e0f2fe' : '#dcfce7',
                       color: op.division_style === 'divider_line' ? '#0369a1' : '#15803d',
+                      whiteSpace: 'nowrap',
                     }}
                   >
-                    {op.division_style === 'divider_line' ? 'Divider Lines' : 'Border Zones (Whiter BG)'}
+                    {OVERVIEW_DIVISION_BADGE_LABELS[op.division_style]}
                   </span>
                 </div>
 
@@ -2916,7 +2915,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               gap: '4px',
                               borderRadius: '4px',
                               color: '#64748b',
-                              fontSize: '10.5px',
+                              fontSize: '11px',
                               fontWeight: 500,
                               whiteSpace: 'nowrap',
                               flexShrink: 0,
@@ -2934,7 +2933,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               gap: '4px',
                               borderRadius: '4px',
                               color: '#64748b',
-                              fontSize: '10.5px',
+                              fontSize: '11px',
                               fontWeight: 500,
                               whiteSpace: 'nowrap',
                               flexShrink: 0,
@@ -2952,7 +2951,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               gap: '4px',
                               borderRadius: '4px',
                               color: '#64748b',
-                              fontSize: '10.5px',
+                              fontSize: '11px',
                               fontWeight: 500,
                               whiteSpace: 'nowrap',
                               flexShrink: 0,
@@ -2970,7 +2969,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               gap: '4px',
                               borderRadius: '4px',
                               color: '#64748b',
-                              fontSize: '10.5px',
+                              fontSize: '11px',
                               fontWeight: 500,
                               whiteSpace: 'nowrap',
                               flexShrink: 0,
@@ -3000,17 +2999,17 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       {
                         id: 'subagents',
                         title: 'Subagents',
-                        count: 1,
+                        count: SYNTHETIC_SUBAGENTS_COUNT,
                         hasChevron: true,
                         renderContent: () => (
                           <div style={{ marginTop: '6px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', fontWeight: 500, color: '#1e293b' }}>
-                              <span>Comprehensive Requirements Investigator (2 subagents)</span>
-                              <span style={{ color: '#94a3b8' }}>›</span>
+                              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{SYNTHETIC_SUBAGENT.title}</span>
+                              <ChevronRight size={12} strokeWidth={2} color="#94a3b8" />
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
                               <CheckCircle2 size={12} color="#16a34a" />
-                              <span>Worked for 17m</span>
+                              <span>{SYNTHETIC_SUBAGENT.duration}</span>
                             </div>
                           </div>
                         ),
@@ -3018,47 +3017,33 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       {
                         id: 'files',
                         title: 'Files Changed',
-                        count: 33,
-                        tag: 'Uncommitted',
+                        count: SYNTHETIC_FILES_COUNT,
+                        tag: SYNTHETIC_FILES_TAG,
                         hasChevron: true,
                         renderContent: () => (
                           <div style={{ marginTop: '6px' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: '#334155' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span style={{ color: '#0284c7', fontSize: '11px', fontWeight: 700 }}>M↓</span>
-                                <span style={{ fontWeight: 500 }}>README.md</span>
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span style={{ color: '#059669', fontSize: '11px', fontWeight: 700 }}>Go</span>
-                                <span>main_test.go <span style={{ color: '#94a3b8', fontSize: '11px' }}>cmd/swiss</span></span>
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span style={{ color: '#6366f1', fontSize: '11px', fontWeight: 700 }}>TSX</span>
-                                <span>App.tsx <span style={{ color: '#94a3b8', fontSize: '11px' }}>frontend/src</span></span>
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span style={{ color: '#3b82f6', fontSize: '11px', fontWeight: 700 }}>TS</span>
-                                <span>api.ts <span style={{ color: '#94a3b8', fontSize: '11px' }}>frontend/src</span></span>
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span style={{ color: '#6366f1', fontSize: '11px', fontWeight: 700 }}>TSX</span>
-                                <span>AccountDetailModal.tsx <span style={{ color: '#94a3b8', fontSize: '11px' }}>frontend/src/components</span></span>
-                              </div>
+                              {SYNTHETIC_VISIBLE_FILES.map((f, i) => (
+                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <span style={{ color: f.extColor, fontSize: '11px', fontWeight: 700 }}>{f.extBadge}</span>
+                                  <span>
+                                    <span style={{ fontWeight: f.name === 'README.md' ? 500 : 400 }}>{f.name}</span>
+                                    {f.directory && <span style={{ color: '#94a3b8', fontSize: '11px' }}> {f.directory}</span>}
+                                  </span>
+                                </div>
+                              ))}
 
                               {overviewFilesExpanded && (
                                 <>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <span style={{ color: '#059669', fontSize: '11px', fontWeight: 700 }}>Go</span>
-                                    <span>models.go <span style={{ color: '#94a3b8', fontSize: '11px' }}>pkg/enhancements</span></span>
-                                  </div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <span style={{ color: '#059669', fontSize: '11px', fontWeight: 700 }}>Go</span>
-                                    <span>script.go <span style={{ color: '#94a3b8', fontSize: '11px' }}>pkg/enhancements</span></span>
-                                  </div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <span style={{ color: '#3b82f6', fontSize: '11px', fontWeight: 700 }}>TS</span>
-                                    <span>types.ts <span style={{ color: '#94a3b8', fontSize: '11px' }}>frontend/src</span></span>
-                                  </div>
+                                  {SYNTHETIC_EXPANDED_FILES.map((f, i) => (
+                                    <div key={`exp-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <span style={{ color: f.extColor, fontSize: '11px', fontWeight: 700 }}>{f.extBadge}</span>
+                                      <span>
+                                        <span>{f.name}</span>
+                                        {f.directory && <span style={{ color: '#94a3b8', fontSize: '11px' }}> {f.directory}</span>}
+                                      </span>
+                                    </div>
+                                  ))}
                                 </>
                               )}
                             </div>
@@ -3079,7 +3064,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                     userSelect: 'none',
                                     boxSizing: 'border-box',
                                   }}
-                                  title={overviewFilesExpanded ? 'Collapse files list' : 'Expand all 33 files'}
+                                  title={overviewFilesExpanded ? 'Collapse files list' : `Expand all ${SYNTHETIC_FILES_COUNT} files`}
                                 >
                                   <div
                                     style={{
@@ -3093,9 +3078,11 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                       transition: 'all 0.18s ease',
                                     }}
                                   >
-                                    <span style={{ fontSize: '8px', lineHeight: 1 }}>
-                                      {overviewFilesExpanded ? '▴' : '▾'}
-                                    </span>
+                                    {overviewFilesExpanded ? (
+                                      <ChevronUp size={10} strokeWidth={2} />
+                                    ) : (
+                                      <ChevronDown size={10} strokeWidth={2} />
+                                    )}
                                   </div>
                                 </div>
                               ) : (
@@ -3112,7 +3099,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                     textAlign: 'left',
                                   }}
                                 >
-                                  {overviewFilesExpanded ? 'See less' : 'See all (33)'}
+                                  {overviewFilesExpanded ? 'See less' : `See all (${SYNTHETIC_FILES_COUNT})`}
                                 </button>
                               )}
                             </div>
@@ -3122,45 +3109,37 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       {
                         id: 'artifacts',
                         title: 'Artifacts',
-                        count: 1,
+                        count: SYNTHETIC_ARTIFACTS_COUNT,
                         hasChevron: true,
                         renderContent: () => (
                           <div style={{ marginTop: '6px', fontSize: '12px', color: '#334155', display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <FileText size={13} color="#64748b" />
-                            <span>Prompt Draft</span>
+                            <span>{SYNTHETIC_ARTIFACT.title}</span>
                           </div>
                         ),
                       },
                       {
                         id: 'uploads',
                         title: 'Uploads',
-                        count: 14,
+                        count: SYNTHETIC_UPLOADS_COUNT,
                         hasChevron: true,
                         renderContent: () => (
                           <div style={{ marginTop: '6px' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: '#334155' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <Image size={13} color="#64748b" />
-                                <span>Media (Today 6:59 AM)</span>
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <Image size={13} color="#64748b" />
-                                <span>Media (Today 6:57 AM)</span>
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <Image size={13} color="#64748b" />
-                                <span>Media (Today 6:55 AM)</span>
-                              </div>
+                              {SYNTHETIC_VISIBLE_UPLOADS.map((u, i) => (
+                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <Image size={13} color="#64748b" />
+                                  <span>{u.label}</span>
+                                </div>
+                              ))}
                               {overviewUploadsExpanded && (
                                 <>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <Image size={13} color="#64748b" />
-                                    <span>Media (Today 6:54 AM)</span>
-                                  </div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <Image size={13} color="#64748b" />
-                                    <span>Media (Today 6:53 AM)</span>
-                                  </div>
+                                  {SYNTHETIC_EXPANDED_UPLOADS.map((u, i) => (
+                                    <div key={`exp-u-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <Image size={13} color="#64748b" />
+                                      <span>{u.label}</span>
+                                    </div>
+                                  ))}
                                 </>
                               )}
                             </div>
@@ -3180,7 +3159,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                     userSelect: 'none',
                                     boxSizing: 'border-box',
                                   }}
-                                  title={overviewUploadsExpanded ? 'Collapse uploads' : 'Expand all 14 uploads'}
+                                  title={overviewUploadsExpanded ? 'Collapse uploads' : `Expand all ${SYNTHETIC_UPLOADS_COUNT} uploads`}
                                 >
                                   <div
                                     style={{
@@ -3194,9 +3173,11 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                       transition: 'all 0.18s ease',
                                     }}
                                   >
-                                    <span style={{ fontSize: '8px', lineHeight: 1 }}>
-                                      {overviewUploadsExpanded ? '▴' : '▾'}
-                                    </span>
+                                    {overviewUploadsExpanded ? (
+                                      <ChevronUp size={10} strokeWidth={2} />
+                                    ) : (
+                                      <ChevronDown size={10} strokeWidth={2} />
+                                    )}
                                   </div>
                                 </div>
                               ) : (
@@ -3213,7 +3194,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                     textAlign: 'left',
                                   }}
                                 >
-                                  {overviewUploadsExpanded ? 'See less' : 'See all (14)'}
+                                  {overviewUploadsExpanded ? 'See less' : `See all (${SYNTHETIC_UPLOADS_COUNT})`}
                                 </button>
                               )}
                             </div>
@@ -3223,50 +3204,46 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       {
                         id: 'tasks',
                         title: 'Background Tasks',
-                        count: 0,
+                        count: SYNTHETIC_TASKS_COUNT,
                         hasChevron: false,
                         renderContent: () => null,
                       },
                       {
                         id: 'terminals',
                         title: 'Terminals',
-                        count: 0,
+                        count: SYNTHETIC_TERMINALS_COUNT,
                         hasChevron: false,
                         renderContent: () => null,
                       },
                       {
                         id: 'goals',
                         title: 'Goals',
-                        count: 2,
+                        count: SYNTHETIC_GOALS.length,
                         hasChevron: true,
                         renderContent: () => (
                           <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: '#334155' }}>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                              <CheckCircle2 size={13} color="#16a34a" style={{ marginTop: '2px', flexShrink: 0 }} />
-                              <span style={{ lineHeight: 1.3 }}>/teamwork-preview /wish-coding you need more then these 4 tickets...</span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <CheckCircle2 size={13} color="#16a34a" style={{ marginTop: '2px', flexShrink: 0 }} />
-                              <span style={{ lineHeight: 1.3 }}>/teamwork-preview add a new section, to be below the UI Enhancement sectio...</span>
-                            </div>
+                            {SYNTHETIC_GOALS.map((g, i) => (
+                              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                <CheckCircle2 size={13} color="#16a34a" style={{ marginTop: '2px', flexShrink: 0 }} />
+                                <span style={{ lineHeight: 1.3 }}>{g.text}</span>
+                              </div>
+                            ))}
                           </div>
                         ),
                       },
                       {
                         id: 'skills',
                         title: 'Skills Used',
-                        count: 2,
+                        count: SYNTHETIC_SKILLS.length,
                         hasChevron: true,
                         renderContent: () => (
                           <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: '#334155' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <FileText size={13} color="#64748b" />
-                              <span>antigravity-guide <span style={{ color: '#94a3b8', fontSize: '11px' }}>.../skills/antigravity_guide</span></span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <FileText size={13} color="#64748b" />
-                              <span>wish-coding <span style={{ color: '#94a3b8', fontSize: '11px' }}>.../skills/wish-coding</span></span>
-                            </div>
+                            {SYNTHETIC_SKILLS.map((s, i) => (
+                              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <FileText size={13} color="#64748b" />
+                                <span>{s.name} <span style={{ color: '#94a3b8', fontSize: '11px' }}>{s.path}</span></span>
+                              </div>
+                            ))}
                           </div>
                         ),
                       },
@@ -3330,11 +3307,17 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                   {sec.count}
                                 </span>
                                 {sec.hasChevron ? (
-                                  <span style={{ fontSize: '10px', color: '#94a3b8', transform: isCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }}>
-                                    ▼
-                                  </span>
+                                  <ChevronDown
+                                    size={11}
+                                    strokeWidth={2}
+                                    color="#94a3b8"
+                                    style={{
+                                      transform: isCollapsed ? 'rotate(-90deg)' : 'none',
+                                      transition: 'transform 0.15s',
+                                    }}
+                                  />
                                 ) : (
-                                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>›</span>
+                                  <ChevronRight size={12} strokeWidth={2} color="#94a3b8" />
                                 )}
                               </div>
 
@@ -3348,9 +3331,12 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                     background: '#f1f5f9',
                                     color: '#475569',
                                     border: '1px solid #e2e8f0',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
                                   }}
                                 >
-                                  {sec.tag} ▾
+                                  {sec.tag} <ChevronDown size={10} strokeWidth={2} />
                                 </span>
                               )}
                             </div>

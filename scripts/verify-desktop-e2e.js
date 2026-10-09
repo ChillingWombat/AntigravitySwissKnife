@@ -135,7 +135,7 @@ async function run() {
       throw new Error('External test daemon failed to become ready on port 8779');
     }
 
-    const dmExternal = new DaemonManager({ port: 8779, host: '127.0.0.1' });
+    const dmExternal = new DaemonManager({ port: 8779, host: '127.0.0.1', socketPath: tempSocketExt });
     await dmExternal.start();
 
     if (dmExternal.isManagedChild === false) {
@@ -260,6 +260,10 @@ async function run() {
     {
       name: 'Close to Tray Setting & IPC Persistence Verified',
       passed: stdout.includes('[E2E-TEST] CloseToTray IPC and persistence verified: OK'),
+    },
+    {
+      name: 'Runtime Mode Setting & IPC Persistence Verified',
+      passed: stdout.includes('[E2E-TEST] RuntimeMode IPC and persistence verified: OK'),
     },
     {
       name: 'Clean Exit Code 0',

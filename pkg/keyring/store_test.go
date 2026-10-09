@@ -215,21 +215,16 @@ func TestMultiSurfaceResolutionAndAutoImport(t *testing.T) {
 	// Add an unrelated account
 	_ = store.AddOrUpdateAccount(&Account{Email: "vault_account@google.com", Label: "Vault Account"})
 
-	// Reconcile with autoImport=false: since desktop_user is NOT in vault, no account must be active!
+	// Reconcile with autoImport=false: since desktop_user is NOT in vault, vault's active account is preserved
 	reconciled, err := store.ReconcileActiveAccount(false, []string{"vault_account@google.com"}, nil)
 	if err != nil {
 		t.Fatalf("ReconcileActiveAccount error: %v", err)
 	}
-	if reconciled != nil {
-		t.Errorf("expected nil reconciled account when autoImport=false, got %v", reconciled)
+	if reconciled == nil || reconciled.Email != "vault_account@google.com" {
+		t.Errorf("expected vault_account@google.com to be preserved when autoImport=false, got %v", reconciled)
 	}
-	if store.ActiveAccount() != "" {
-		t.Errorf("expected no active account when running account is unimported and autoImport=false, got %s", store.ActiveAccount())
-	}
-	for _, acc := range store.ListAccounts() {
-		if acc.IsActive {
-			t.Errorf("expected all vault accounts to be inactive, but %s was active", acc.Email)
-		}
+	if store.ActiveAccount() != "vault_account@google.com" {
+		t.Errorf("expected active account to remain vault_account@google.com when autoImport=false, got %s", store.ActiveAccount())
 	}
 
 	// 4. Test Store Reconcile with autoImport=true
@@ -620,8 +615,10 @@ func TestSyncStateVscdb(t *testing.T) {
 	idTokenWithPic := fmt.Sprintf("header.%s.sig", base64.RawURLEncoding.EncodeToString([]byte(claimsWithPic)))
 
 	testAcc := &Account{
-		Email:   "switched_user@gmail.com",
-		IDToken: idTokenWithPic,
+		Email:        "switched_user@gmail.com",
+		AccessToken:  "ya29.test_sync_token",
+		RefreshToken: "1//test_sync_refresh",
+		IDToken:      idTokenWithPic,
 	}
 
 	if err := SyncStateVscdb(testAcc); err != nil {
@@ -652,6 +649,15 @@ func TestSyncStateVscdb(t *testing.T) {
 	}
 	if valPic != "https://lh3.googleusercontent.com/a/test_avatar_123" {
 		t.Errorf("profileUrl not updated correctly:\nexpected: https://lh3.googleusercontent.com/a/test_avatar_123\ngot:      %s", valPic)
+	}
+
+	var valOAuth string
+	err = checkDB.QueryRow("SELECT value FROM ItemTable WHERE key='antigravityUnifiedStateSync.oauthToken'").Scan(&valOAuth)
+	if err != nil {
+		t.Fatalf("failed to query updated oauthToken: %v", err)
+	}
+	if valOAuth == "" {
+		t.Errorf("expected non-empty oauthToken in state.vscdb ItemTable")
 	}
 }
 
@@ -1013,5 +1019,57 @@ func TestEnsureFreshAccessToken_FailedRefreshClearsStaleExpiryAndAppStorageTos(t
 		t.Errorf("expected lastLoginIsGcpTos=\"false\", got %v", storageMap["jetski.onboarding.lastLoginIsGcpTos"])
 	}
 }
+
+func TestReconcileActiveAccount_DoesNotWipeActiveAccountWhenUnrecognizedDetected(t *testing.T) {
+	tmpDir := t.TempDir()
+	accPath := filepath.Join(tmpDir, "accounts.json")
+	store, err := NewStore(accPath)
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	acc := &Account{
+		Email:    "preserved-active@example.com",
+		Label:    "Primary Vault Account",
+		Status:   "ACTIVE",
+		IsActive: true,
+	}
+	if err := store.AddOrUpdateAccount(acc); err != nil {
+		t.Fatalf("AddOrUpdateAccount error: %v", err)
+	}
+	_ = store.SetActiveAccount("preserved-active@example.com")
+
+	if store.ActiveAccount() != "preserved-active@example.com" {
+		t.Fatalf("expected active account to be preserved-active@example.com, got %s", store.ActiveAccount())
+	}
+
+	// Mock environment where Antigravity detects an external unimported session
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	antigravityDir := filepath.Join(tmpHome, ".config", "Antigravity")
+	_ = os.MkdirAll(antigravityDir, 0755)
+	_ = os.WriteFile(filepath.Join(antigravityDir, "app_storage.json"), []byte(`{"jetski.onboarding.lastLoginUsername":"external-unimported@gmail.com"}`), 0644)
+	t.Setenv("ANTIGRAVITY_CONFIG_DIR", antigravityDir)
+
+	// Reconcile with autoImport = false
+	allEmails := []string{"preserved-active@example.com"}
+	reconciled, err := store.ReconcileActiveAccount(false, allEmails, nil)
+	if err != nil {
+		t.Fatalf("ReconcileActiveAccount returned error: %v", err)
+	}
+
+	// Crucial assertion: Active account in vault must NOT be wiped!
+	if store.ActiveAccount() != "preserved-active@example.com" {
+		t.Errorf("CRITICAL BUG: active account was wiped or changed! Expected 'preserved-active@example.com', got %q", store.ActiveAccount())
+	}
+	storedAcc, _ := store.GetAccount("preserved-active@example.com")
+	if storedAcc == nil || !storedAcc.IsActive {
+		t.Errorf("CRITICAL BUG: active account in store is nil or IsActive=false!")
+	}
+	if reconciled != nil && reconciled.Email != "preserved-active@example.com" {
+		t.Errorf("expected reconciled account to be preserved-active@example.com, got %v", reconciled)
+	}
+}
+
 
 

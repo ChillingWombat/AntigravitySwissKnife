@@ -21,6 +21,7 @@ class DaemonManager {
     this.port = options.port || 8765;
     this.host = options.host || '127.0.0.1';
     this.baseUrl = options.baseUrl || `http://${this.host}:${this.port}`;
+    this.socketPath = options.socketPath || null;
     this.child = null;
     this.isManagedChild = false;
     this.logBuffer = [];
@@ -93,6 +94,9 @@ class DaemonManager {
    * Resolves the Unix socket path used by the Go daemon.
    */
   getSocketPath() {
+    if (this.socketPath) {
+      return this.socketPath;
+    }
     if (process.env.ANTIGRAVITY_SWISS_SOCKET) {
       return process.env.ANTIGRAVITY_SWISS_SOCKET;
     }
@@ -174,8 +178,12 @@ class DaemonManager {
 
     // 3. Spawn child process
     let runCwd = path.resolve(__dirname, '..');
-    if (app && app.isPackaged && process.resourcesPath) {
-      runCwd = process.resourcesPath;
+    if (app && app.isPackaged) {
+      try {
+        runCwd = (typeof app.getPath === 'function' ? app.getPath('userData') : null) || os.homedir();
+      } catch {
+        runCwd = os.homedir();
+      }
     } else if (app && typeof app.getAppPath === 'function') {
       const p = app.getAppPath();
       runCwd = (p.endsWith('.asar') || p.includes('.asar')) ? (process.resourcesPath || path.dirname(p)) : p;
@@ -183,11 +191,16 @@ class DaemonManager {
     if (runCwd.startsWith('/tmp/.mount_') || process.env.APPIMAGE) {
       runCwd = os.homedir();
     }
+    if (!fs.existsSync(runCwd)) {
+      try {
+        fs.mkdirSync(runCwd, { recursive: true });
+      } catch {}
+    }
 
     this.child = spawn(binPath, ['daemon', '--web', '--addr', `${this.host}:${this.port}`], {
       cwd: runCwd,
       stdio: ['ignore', 'pipe', 'pipe'],
-      detached: false, // Ensures child process group is tied to Electron
+      detached: true, // Independent process group for clean detach in Daemon Mode
       windowsHide: true,
       env: { ...process.env },
     });
@@ -247,11 +260,65 @@ class DaemonManager {
   }
 
   /**
+   * Detaches the Go daemon child process so it continues running in background (Daemon Mode).
+   */
+  detach() {
+    if (!this.child) {
+      console.log('[DaemonManager] No managed child daemon to detach.');
+      return;
+    }
+
+    const child = this.child;
+    const pid = child.pid;
+    console.log(`[DaemonManager] Detaching Go daemon child process (PID: ${pid}) for background persistence...`);
+
+    child.removeAllListeners('exit');
+    child.removeAllListeners('error');
+    if (child.stdout) {
+      try { child.stdout.destroy(); } catch (_) {}
+    }
+    if (child.stderr) {
+      try { child.stderr.destroy(); } catch (_) {}
+    }
+
+    try {
+      child.unref();
+    } catch (err) {
+      console.warn(`[DaemonManager] child.unref() warning: ${err.message}`);
+    }
+
+    this.child = null;
+    this.isManagedChild = false;
+    console.log(`[DaemonManager] Go daemon (PID: ${pid}) detached successfully in background.`);
+  }
+
+  /**
    * Graceful termination on full application exit.
    */
-  async stop() {
+  async stop(options = {}) {
+    const force = Boolean(options && options.force);
     if (!this.isManagedChild || !this.child) {
-      console.log('[DaemonManager] No managed child daemon to terminate (external daemon preserved).');
+      if (force && process.env.TEST_DESKTOP_E2E !== '1') {
+        try {
+          const status = await this.checkStatus(600);
+          const pid = status?.daemon_pid || status?.pid;
+          if (pid && typeof pid === 'number') {
+            console.log(`[DaemonManager] Terminating adopted background Go daemon (PID: ${pid}) via SIGTERM...`);
+            try { process.kill(pid, 'SIGTERM'); } catch (_) {}
+            const deadline = Date.now() + 2000;
+            while (Date.now() < deadline) {
+              await new Promise((r) => setTimeout(r, 100));
+              const alive = await this.checkStatus(200);
+              if (!alive) break;
+            }
+          }
+        } catch (err) {
+          console.warn('[DaemonManager] Note stopping adopted daemon:', err.message);
+        }
+        this.cleanupSocket();
+      } else {
+        console.log('[DaemonManager] No managed child daemon to terminate (external daemon preserved).');
+      }
       return;
     }
 

@@ -8,18 +8,19 @@
  * standalone releases for Linux, Windows, and macOS into the gitignored
  * release/ directory.
  *
- * Supported commands:
- *   node scripts/build-release.js linux    # Package Linux release
- *   node scripts/build-release.js windows  # Package Windows release
- *   node scripts/build-release.js macos    # Package macOS release
- *   node scripts/build-release.js all      # Package releases for all 3 OS
- *   node scripts/build-release.js run      # Launch the local prod release
+ * Defaults to standard OS installer artifacts (Model 1):
+ *   - Linux: Debian package (.deb) installing into /opt/Antigravity Swiss Knife
+ *   - Windows: NSIS installer (.exe) installing into %LOCALAPPDATA%\Programs\Antigravity Swiss Knife
+ *   - macOS: Apple DMG (.dmg) installing into /Applications
+ *
+ * Developer options (--unpacked, --portable) allow fast local testing without installer generation.
  * ==============================================================================
  */
 
 const { execSync, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 const rootDir = path.resolve(__dirname, '..');
 const releaseDir = path.join(rootDir, 'release');
@@ -45,7 +46,7 @@ function run(cmd, cwd = rootDir, env = {}) {
 }
 
 function buildFrontend() {
-  log('Building latest production frontend bundle...');
+  log('Building production frontend bundle...');
   run('npm run build:frontend', rootDir);
 }
 
@@ -64,19 +65,54 @@ function buildGoBinary(goos, goarch, outputPath) {
 
 function createSymlinkOrCopy(src, dest) {
   try {
-    if (fs.existsSync(dest)) {
+    if (fs.existsSync(dest) || fs.lstatSync(dest).isSymbolicLink()) {
       try { fs.unlinkSync(dest); } catch {}
     }
     fs.symlinkSync(src, dest, 'dir');
   } catch {
-    // If symlink fails, leave as is
+    // Leave as is if symlink cannot be created
   }
 }
 
-function buildLinux() {
+function cleanStaleLinks() {
+  const rootSymlinks = [
+    path.join(rootDir, 'Antigravity-Swiss-Knife.AppImage'),
+    path.join(rootDir, 'antigravity-swiss-knife')
+  ];
+  for (const symlink of rootSymlinks) {
+    try {
+      if (fs.existsSync(symlink) || fs.lstatSync(symlink).isSymbolicLink()) {
+        fs.unlinkSync(symlink);
+      }
+    } catch {}
+  }
+
+  const linuxReleaseDir = path.join(releaseDir, 'linux');
+  if (fs.existsSync(linuxReleaseDir)) {
+    const staleLinuxLinks = [
+      path.join(linuxReleaseDir, 'antigravity-swiss-knife'),
+      path.join(linuxReleaseDir, 'Antigravity-Swiss-Knife.AppImage')
+    ];
+    for (const link of staleLinuxLinks) {
+      try {
+        if (fs.existsSync(link) || fs.lstatSync(link).isSymbolicLink()) {
+          fs.unlinkSync(link);
+        }
+      } catch {}
+    }
+  }
+}
+
+function buildLinux(options = {}) {
+  const modeLabel = options.unpacked
+    ? 'unpacked directory'
+    : options.portable
+      ? 'portable AppImage'
+      : 'Debian package (.deb)';
   log('====================================================');
-  log('Building Linux Production Release (amd64)');
+  log(`Building Linux Release (amd64) [${modeLabel}]`);
   log('====================================================');
+  cleanStaleLinks();
   buildFrontend();
 
   const linuxReleaseDir = path.join(releaseDir, 'linux');
@@ -89,27 +125,25 @@ function buildLinux() {
   fs.copyFileSync(goBin, releaseGoBin);
   fs.chmodSync(releaseGoBin, 0o755);
 
-  // 2. Package Electron App (unpacked dir + AppImage)
+  // 2. Package Electron App
   log('Packaging Electron application for Linux...');
-  run(`npx electron-builder --linux AppImage dir -c.directories.output="${linuxReleaseDir}"`, rootDir);
+  let builderArgs = '--linux deb';
+  if (options.unpacked) {
+    builderArgs = '--linux --dir';
+  } else if (options.portable) {
+    builderArgs = '--linux AppImage';
+  }
+  run(`npx electron-builder ${builderArgs} -c.directories.output="${linuxReleaseDir}"`, rootDir);
 
   const unpackedDir = path.join(linuxReleaseDir, 'linux-unpacked');
-  const appSymlink = path.join(linuxReleaseDir, 'app');
-  createSymlinkOrCopy('linux-unpacked', appSymlink);
-  const pkgJson = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
-  const appImageFile = `Antigravity-Swiss-Knife-${pkgJson.version}-x86_64.AppImage`;
-  const appImageLink = path.join(linuxReleaseDir, 'Antigravity-Swiss-Knife.AppImage');
-  if (fs.existsSync(path.join(linuxReleaseDir, appImageFile))) {
-    try {
-      if (fs.existsSync(appImageLink)) fs.unlinkSync(appImageLink);
-      fs.symlinkSync(appImageFile, appImageLink);
-    } catch {}
-  }
+  if (fs.existsSync(unpackedDir)) {
+    const appSymlink = path.join(linuxReleaseDir, 'app');
+    createSymlinkOrCopy('linux-unpacked', appSymlink);
 
-  // Ensure packaged daemon binary is executable
-  const packagedSwiss = path.join(unpackedDir, 'resources', 'bin', 'swiss');
-  if (fs.existsSync(packagedSwiss)) {
-    fs.chmodSync(packagedSwiss, 0o755);
+    const packagedSwiss = path.join(unpackedDir, 'resources', 'bin', 'swiss');
+    if (fs.existsSync(packagedSwiss)) {
+      fs.chmodSync(packagedSwiss, 0o755);
+    }
   }
 
   // 3. Generate launcher script
@@ -120,6 +154,9 @@ DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
 APP="\${DIR}/linux-unpacked/antigravity-swiss-knife"
 if [ ! -f "\${APP}" ]; then
   APP="\${DIR}/app/antigravity-swiss-knife"
+fi
+if [ ! -f "\${APP}" ] && [ -f "/opt/Antigravity Swiss Knife/antigravity-swiss-knife" ]; then
+  APP="/opt/Antigravity Swiss Knife/antigravity-swiss-knife"
 fi
 
 if [[ "$*" == *"--detached"* ]] || [[ "$*" == *"-d"* ]]; then
@@ -150,9 +187,14 @@ fi
   log('✓ Linux release build complete at: release/linux/');
 }
 
-function buildWindows() {
+function buildWindows(options = {}) {
+  const modeLabel = options.unpacked
+    ? 'unpacked directory'
+    : options.portable
+      ? 'portable executable'
+      : 'NSIS Setup.exe installer';
   log('====================================================');
-  log('Building Windows Production Release (amd64)');
+  log(`Building Windows Release (amd64) [${modeLabel}]`);
   log('====================================================');
   buildFrontend();
 
@@ -165,7 +207,7 @@ function buildWindows() {
   buildGoBinary('windows', 'amd64', goBinWin);
   fs.copyFileSync(goBinWin, releaseGoBinWin);
 
-  // Also keep a copy of bin/swiss for Linux host sanity
+  // Keep a copy of bin/swiss for Linux host sanity
   const fallbackSwiss = path.join(binDir, 'swiss');
   if (!fs.existsSync(fallbackSwiss)) {
     buildGoBinary('linux', 'amd64', fallbackSwiss);
@@ -173,25 +215,34 @@ function buildWindows() {
 
   // 2. Package Electron App for Windows
   log('Packaging Electron application for Windows...');
-  run(`npx electron-builder --win --dir -c.directories.output="${winReleaseDir}"`, rootDir);
+  let builderArgs = '--win nsis';
+  if (options.unpacked) {
+    builderArgs = '--win --dir';
+  } else if (options.portable) {
+    builderArgs = '--win portable';
+  }
+  run(`npx electron-builder ${builderArgs} -c.directories.output="${winReleaseDir}"`, rootDir);
 
   const winUnpackedDir = path.join(winReleaseDir, 'win-unpacked');
-  const appSymlink = path.join(winReleaseDir, 'app');
-  createSymlinkOrCopy('win-unpacked', appSymlink);
+  if (fs.existsSync(winUnpackedDir)) {
+    const appSymlink = path.join(winReleaseDir, 'app');
+    createSymlinkOrCopy('win-unpacked', appSymlink);
 
-  // 3. Ensure Windows daemon binary exists in packaged resources/bin/swiss.exe
-  const packagedWinBinDir = path.join(winUnpackedDir, 'resources', 'bin');
-  ensureDir(packagedWinBinDir);
-  fs.copyFileSync(goBinWin, path.join(packagedWinBinDir, 'swiss.exe'));
+    const packagedWinBinDir = path.join(winUnpackedDir, 'resources', 'bin');
+    ensureDir(packagedWinBinDir);
+    fs.copyFileSync(goBinWin, path.join(packagedWinBinDir, 'swiss.exe'));
+  }
 
-  // 4. Generate launcher batch file
+  // 3. Generate launcher batch file
   const runBat = path.join(winReleaseDir, 'run.bat');
   const runBatContent = `@echo off
 set DIR=%~dp0
 if exist "%DIR%win-unpacked\\Antigravity Swiss Knife.exe" (
   start "" "%DIR%win-unpacked\\Antigravity Swiss Knife.exe" %*
-) else (
+) else if exist "%DIR%app\\Antigravity Swiss Knife.exe" (
   start "" "%DIR%app\\Antigravity Swiss Knife.exe" %*
+) else (
+  start "" "%LOCALAPPDATA%\\Programs\\Antigravity Swiss Knife\\Antigravity Swiss Knife.exe" %*
 )
 `;
   fs.writeFileSync(runBat, runBatContent);
@@ -199,9 +250,14 @@ if exist "%DIR%win-unpacked\\Antigravity Swiss Knife.exe" (
   log('✓ Windows release build complete at: release/windows/');
 }
 
-function buildMacOS() {
+function buildMacOS(options = {}) {
+  const modeLabel = options.unpacked
+    ? 'unpacked directory'
+    : options.portable
+      ? 'portable zip'
+      : 'Apple DMG installer';
   log('====================================================');
-  log('Building macOS Production Release (arm64 & x64)');
+  log(`Building macOS Release (arm64 & x64) [${modeLabel}]`);
   log('====================================================');
   buildFrontend();
 
@@ -214,13 +270,18 @@ function buildMacOS() {
   buildGoBinary('darwin', 'arm64', releaseGoArm);
   buildGoBinary('darwin', 'amd64', releaseGoIntel);
 
-  // Prepare bin/swiss for packaging
   const goBinMac = path.join(binDir, 'swiss');
   buildGoBinary('darwin', 'arm64', goBinMac);
 
-  // 2. Package Electron App for macOS (both architectures)
+  // 2. Package Electron App for macOS
   log('Packaging Electron application for macOS (arm64 & x64)...');
-  run(`npx electron-builder --mac --x64 --arm64 --dir -c.directories.output="${macReleaseDir}"`, rootDir);
+  let builderArgs = '--mac dmg --x64 --arm64';
+  if (options.unpacked) {
+    builderArgs = '--mac --x64 --arm64 --dir';
+  } else if (options.portable) {
+    builderArgs = '--mac zip --x64 --arm64';
+  }
+  run(`npx electron-builder ${builderArgs} -c.directories.output="${macReleaseDir}"`, rootDir);
 
   const macIntelDir = path.join(macReleaseDir, 'mac');
   const macArmDir = path.join(macReleaseDir, 'mac-arm64');
@@ -228,11 +289,11 @@ function buildMacOS() {
 
   if (fs.existsSync(macArmDir)) {
     createSymlinkOrCopy('mac-arm64', appSymlink);
-  } else {
+  } else if (fs.existsSync(macIntelDir)) {
     createSymlinkOrCopy('mac', appSymlink);
   }
 
-  // Ensure arm64 Go binary inside mac-arm64 app
+  // Ensure binaries inside app bundles
   const armAppBin = path.join(
     macArmDir,
     'Antigravity Swiss Knife.app',
@@ -246,7 +307,6 @@ function buildMacOS() {
     fs.chmodSync(armAppBin, 0o755);
   }
 
-  // Ensure intel Go binary inside mac x64 app
   const intelAppBin = path.join(
     macIntelDir,
     'Antigravity Swiss Knife.app',
@@ -271,8 +331,8 @@ if [ "\${ARCH}" = "arm64" ] && [ -d "\${DIR}/mac-arm64/Antigravity Swiss Knife.a
   APP="\${DIR}/mac-arm64/Antigravity Swiss Knife.app"
 elif [ -d "\${DIR}/mac/Antigravity Swiss Knife.app" ]; then
   APP="\${DIR}/mac/Antigravity Swiss Knife.app"
-elif [ -d "\${DIR}/app/Antigravity Swiss Knife.app" ]; then
-  APP="\${DIR}/app/Antigravity Swiss Knife.app"
+elif [ -d "/Applications/Antigravity Swiss Knife.app" ]; then
+  APP="/Applications/Antigravity Swiss Knife.app"
 else
   APP="\${DIR}/mac-arm64/Antigravity Swiss Knife.app"
 fi
@@ -290,11 +350,23 @@ function runProdApp() {
   const platform = process.platform;
 
   if (platform === 'linux') {
-    const linuxApp = path.join(releaseDir, 'linux', 'linux-unpacked', 'antigravity-swiss-knife');
-    if (!fs.existsSync(linuxApp)) {
-      log('Linux release not built yet. Building Linux release first...');
-      buildLinux();
+    const installedApp = '/opt/Antigravity Swiss Knife/antigravity-swiss-knife';
+    const userApp = path.join(os.homedir(), '.local', 'share', 'antigravity-swiss-knife', 'app', 'antigravity-swiss-knife');
+    const unpackedApp = path.join(releaseDir, 'linux', 'linux-unpacked', 'antigravity-swiss-knife');
+
+    let linuxApp = null;
+    if (fs.existsSync(installedApp)) {
+      linuxApp = installedApp;
+    } else if (fs.existsSync(userApp)) {
+      linuxApp = userApp;
+    } else if (fs.existsSync(unpackedApp)) {
+      linuxApp = unpackedApp;
+    } else {
+      log('No installed or unpacked Linux build found. Building unpacked bundle first...');
+      buildLinux({ unpacked: true });
+      linuxApp = unpackedApp;
     }
+
     log(`Spawning detached process: ${linuxApp}`);
     const child = spawn(linuxApp, [], {
       detached: true,
@@ -303,17 +375,23 @@ function runProdApp() {
     child.unref();
     log(`✓ Production release application started (PID: ${child.pid}).`);
   } else if (platform === 'darwin') {
+    const installedApp = '/Applications/Antigravity Swiss Knife.app';
     const macArmApp = path.join(releaseDir, 'macos', 'mac-arm64', 'Antigravity Swiss Knife.app');
     const macIntelApp = path.join(releaseDir, 'macos', 'mac', 'Antigravity Swiss Knife.app');
-    let macApp = process.arch === 'arm64' ? macArmApp : macIntelApp;
-    if (!fs.existsSync(macApp)) {
-      macApp = fs.existsSync(macArmApp) ? macArmApp : macIntelApp;
-    }
-    if (!fs.existsSync(macApp)) {
-      log('macOS release not built yet. Building macOS release first...');
-      buildMacOS();
+
+    let macApp = null;
+    if (fs.existsSync(installedApp)) {
+      macApp = installedApp;
+    } else if (process.arch === 'arm64' && fs.existsSync(macArmApp)) {
+      macApp = macArmApp;
+    } else if (fs.existsSync(macIntelApp)) {
+      macApp = macIntelApp;
+    } else {
+      log('macOS release not built yet. Building unpacked bundle first...');
+      buildMacOS({ unpacked: true });
       macApp = process.arch === 'arm64' ? macArmApp : macIntelApp;
     }
+
     log(`Launching macOS application: ${macApp}`);
     const child = spawn('open', [macApp], {
       detached: true,
@@ -322,11 +400,25 @@ function runProdApp() {
     child.unref();
     log(`✓ Production release application started via open.`);
   } else if (platform === 'win32') {
-    const winApp = path.join(releaseDir, 'windows', 'win-unpacked', 'Antigravity Swiss Knife.exe');
-    if (!fs.existsSync(winApp)) {
-      log('Windows release not built yet. Building Windows release first...');
-      buildWindows();
+    const installedApp = path.join(
+      process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'),
+      'Programs',
+      'Antigravity Swiss Knife',
+      'Antigravity Swiss Knife.exe'
+    );
+    const winUnpacked = path.join(releaseDir, 'windows', 'win-unpacked', 'Antigravity Swiss Knife.exe');
+
+    let winApp = null;
+    if (fs.existsSync(installedApp)) {
+      winApp = installedApp;
+    } else if (fs.existsSync(winUnpacked)) {
+      winApp = winUnpacked;
+    } else {
+      log('Windows release not built yet. Building unpacked bundle first...');
+      buildWindows({ unpacked: true });
+      winApp = winUnpacked;
     }
+
     log(`Spawning detached process: ${winApp}`);
     const child = spawn(winApp, [], {
       detached: true,
@@ -339,28 +431,92 @@ function runProdApp() {
     process.exit(1);
   }
 
-  log('You can now switch Git branches or let agents work without interrupting this app.');
+  log('Application running in background.');
 }
 
-const target = (process.argv[2] || 'linux').toLowerCase();
+function printHelp() {
+  console.log(`
+Antigravity Swiss Knife - Cross-Platform Release Builder & Packager
 
-switch (target) {
+Usage:
+  node scripts/build-release.js [target] [options]
+
+Targets:
+  linux             Build Linux release (default: Debian .deb package)
+  windows, win      Build Windows release (default: NSIS Setup.exe installer)
+  macos, mac        Build macOS release (default: Apple DMG installer)
+  all               Build standard releases for all 3 operating systems
+  run               Launch the production release application
+  install-linux     Install the Linux release (system-wide or user-level)
+
+Options:
+  --unpacked, --dir Build unpacked directory bundle for local development/testing
+  --portable        Build standalone portable bundle (AppImage / portable exe / zip)
+  --help, -h        Show this help message
+
+Default Target Artifacts (Model 1 Standard Installers):
+  Linux:   Debian package (.deb) -> installs into /opt/Antigravity Swiss Knife
+  Windows: NSIS installer (.exe) -> installs into %LOCALAPPDATA%\\Programs\\Antigravity Swiss Knife
+  macOS:   Apple disk image (.dmg) -> installs into /Applications
+`);
+}
+
+function parseArgs(args) {
+  const options = {
+    target: 'linux',
+    unpacked: false,
+    portable: false,
+    help: false
+  };
+
+  const positional = [];
+
+  for (const arg of args) {
+    if (arg === '--help' || arg === '-h' || arg === 'help') {
+      options.help = true;
+    } else if (arg === '--unpacked' || arg === '--dir') {
+      options.unpacked = true;
+    } else if (arg === '--portable') {
+      options.portable = true;
+    } else if (arg.startsWith('-')) {
+      console.warn(`[Release] Warning: unrecognized flag ${arg}`);
+    } else {
+      positional.push(arg.toLowerCase());
+    }
+  }
+
+  if (positional.length > 0) {
+    options.target = positional[0];
+  }
+
+  return options;
+}
+
+const rawArgs = process.argv.slice(2);
+const options = parseArgs(rawArgs);
+
+if (options.help) {
+  printHelp();
+  process.exit(0);
+}
+
+switch (options.target) {
   case 'linux':
-    buildLinux();
+    buildLinux(options);
     break;
   case 'win':
   case 'windows':
-    buildWindows();
+    buildWindows(options);
     break;
   case 'mac':
   case 'macos':
   case 'darwin':
-    buildMacOS();
+    buildMacOS(options);
     break;
   case 'all':
-    buildLinux();
-    buildWindows();
-    buildMacOS();
+    buildLinux(options);
+    buildWindows(options);
+    buildMacOS(options);
     log('====================================================');
     log('✓ All 3 operating systems packaged in release/');
     log('====================================================');
@@ -368,8 +524,18 @@ switch (target) {
   case 'run':
     runProdApp();
     break;
+  case 'install-linux':
+  case 'install:linux': {
+    const installerScript = path.join(rootDir, 'scripts', 'install-linux.js');
+    if (fs.existsSync(installerScript)) {
+      run(`node "${installerScript}"`, rootDir);
+    } else {
+      log('scripts/install-linux.js not yet present. Run: npm run build:linux');
+    }
+    break;
+  }
   default:
-    console.error(`Unknown release target: ${target}`);
-    console.error('Supported targets: linux, windows, macos, all, run');
+    console.error(`Unknown release target: ${options.target}`);
+    printHelp();
     process.exit(1);
 }

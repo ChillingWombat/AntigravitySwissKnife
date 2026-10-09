@@ -23,7 +23,7 @@ export const App: React.FC = () => {
   const [systemSettingsTab, setSystemSettingsTab] = useState<number>(0) // 0: General, 1: Path & Storage, 2: Error & Privacy, 3: About
   const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Overview Panel
   const [availableProjects, setAvailableProjects] = useState<Array<{ name: string; color: string; order: number; is_archived: boolean }>>([])
-  const [utilitiesTab, setUtilitiesTab] = useState<number>(0) // 0: Importer, 1: ACP Inspector
+  const [utilitiesTab, setUtilitiesTab] = useState<number>(0) // 0: Cache Manager, 1: ACP Agent Mesh, 2: Chat & Project Importer
   const [tokenMonitorTab, setTokenMonitorTab] = useState<number>(0) // 0: Overview, 1: Telemetry & Logs, 2: Token Price
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [fleet, setFleet] = useState<FleetQuotaSummary | null>(null)
@@ -248,7 +248,7 @@ export const App: React.FC = () => {
                     gap: '2px',
                   }}
                 >
-                  {['Chat & Project Importer', 'ACP Agent Mesh', 'Cache Manager'].map((tab, idx) => {
+                  {['Storage Manager', 'ACP Agent Mesh', 'Chat & Project Importer'].map((tab, idx) => {
                     const isActive = utilitiesTab === idx
                     return (
                       <button

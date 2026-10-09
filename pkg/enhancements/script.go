@@ -1101,6 +1101,227 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       try { window.__swissEnhancementsObserver.disconnect(); } catch (_) {}
     }
 
+    /* === Active Conversation Auto-Revival & Continuation Handler === */
+    let autoRevivalInFlight = false;
+    let lastRevivalCheckTime = 0;
+
+    async function ackContinuation(cascadeId) {
+      try {
+        localStorage.removeItem("antigravity_swiss_pending_continuation");
+        if (typeof window !== "undefined" && window.fetch) {
+          await fetch("http://127.0.0.1:8765/api/conversations/ack", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ cascade_id: cascadeId })
+          });
+        }
+      } catch (_) {}
+    }
+
+    async function checkAndExecuteConversationRevival() {
+      if (window.__swissRevivalDispatched || window.__swissCDPRevivalSent) {
+        if (window.__swissRevivalInterval) {
+          clearInterval(window.__swissRevivalInterval);
+          window.__swissRevivalInterval = null;
+        }
+        return;
+      }
+      if (autoRevivalInFlight) return;
+      const now = Date.now();
+      if (now - lastRevivalCheckTime < 1500) return;
+      lastRevivalCheckTime = now;
+
+      try {
+        let pending = null;
+        try {
+          if (typeof window !== "undefined" && window.fetch) {
+            const res = await fetch("http://127.0.0.1:8765/api/conversations/status");
+            if (res.ok) {
+              const data = await res.json();
+              if (data && data.pending_intent) {
+                pending = data.pending_intent;
+              } else if (data && (data.cascade_id || data.root_conversation_id)) {
+                pending = data;
+              }
+            }
+          }
+        } catch (_) {}
+
+        if (!pending) {
+          try {
+            const raw = localStorage.getItem("antigravity_swiss_pending_continuation");
+            if (raw) pending = JSON.parse(raw);
+          } catch (_) {}
+        }
+
+        if (!pending) return;
+
+        const convID = pending.root_conversation_id || pending.cascade_id;
+        if (!convID || pending.resumed || pending.status === "revived") return;
+
+        try {
+          if (sessionStorage.getItem("antigravity_swiss_revived_" + convID)) {
+            window.__swissRevivalDispatched = true;
+            if (window.__swissRevivalInterval) {
+              clearInterval(window.__swissRevivalInterval);
+              window.__swissRevivalInterval = null;
+            }
+            await ackContinuation(convID);
+            return;
+          }
+        } catch (_) {}
+
+        // Check TTL
+        const ttl = (pending.ttl_seconds || 90) * 1000;
+        const createdAt = pending.timestamp || (pending.created_at ? new Date(pending.created_at).getTime() : now);
+        if (now - createdAt > ttl) {
+          try { localStorage.removeItem("antigravity_swiss_pending_continuation"); } catch (_) {}
+          return;
+        }
+
+        const targetPath = "/c/" + convID;
+        const curPath = window.location.pathname || "/";
+
+        // 1. If not at the target conversation route, navigate
+        if (!curPath.startsWith(targetPath)) {
+          if (curPath.startsWith("/onboarding")) {
+            window.location.assign(targetPath);
+            return;
+          }
+          window.history.replaceState(null, "", targetPath);
+          window.dispatchEvent(new PopStateEvent("popstate"));
+          return;
+        }
+
+        // 2. Verify conversation view and input editor are mounted
+        const convView = document.querySelector('[data-testid="conversation-view"]');
+        const editor = document.querySelector('[data-testid="agent-input-box"] [contenteditable="true"]') ||
+                       document.querySelector('[data-lexical-editor="true"][contenteditable="true"]') ||
+                       document.querySelector('.lexical-container [contenteditable="true"]') ||
+                       document.querySelector('[data-testid="chat-input-textarea"]') ||
+                       document.querySelector('textarea[placeholder*="Ask"]');
+        if (!convView || !editor) return;
+
+        // 3. Verify agent is not already generating, streaming, running subagents, or has queued messages
+        const isBusyOrQueued = Array.from(document.querySelectorAll("*")).some(el =>
+          el.children.length === 0 && (
+            el.textContent.includes("Queued Messages") ||
+            el.textContent.includes("Sends after agent finishes") ||
+            el.textContent.includes("subagents running") ||
+            el.textContent.includes("Running ...")
+          )
+        );
+        const cancelBtn = document.querySelector('[data-tooltip-id="input-send-button-cancel-tooltip"]');
+        const pendingSend = document.querySelector('[data-testid="send-button-pending"]');
+        const generating = document.querySelector('[data-testid="agent-generating"], [data-testid="stop-button"]');
+        if (isBusyOrQueued || cancelBtn || pendingSend || generating) {
+          window.__swissRevivalDispatched = true;
+          try { sessionStorage.setItem("antigravity_swiss_revived_" + convID, "true"); } catch (_) {}
+          if (window.__swissRevivalInterval) {
+            clearInterval(window.__swissRevivalInterval);
+            window.__swissRevivalInterval = null;
+          }
+          await ackContinuation(convID);
+          return;
+        }
+
+        // Check if trigger prompt is empty (idle conversation preserved across switch/restart)
+        const triggerPrompt = pending.trigger_prompt !== undefined ? pending.trigger_prompt : (pending.prompt !== undefined ? pending.prompt : "");
+        if (!triggerPrompt || triggerPrompt.trim() === '') {
+          window.__swissRevivalDispatched = true;
+          try { sessionStorage.setItem("antigravity_swiss_revived_" + convID, "true"); } catch (_) {}
+          if (window.__swissRevivalInterval) {
+            clearInterval(window.__swissRevivalInterval);
+            window.__swissRevivalInterval = null;
+          }
+          await ackContinuation(convID);
+          return;
+        }
+
+        // 4. Check if interactive questionnaire continue button is present
+        const interactBtn = document.querySelector('[data-testid="interaction-continue-button"]');
+        if (interactBtn && !interactBtn.disabled) {
+          window.__swissRevivalDispatched = true;
+          try { sessionStorage.setItem("antigravity_swiss_revived_" + convID, "true"); } catch (_) {}
+          if (window.__swissRevivalInterval) {
+            clearInterval(window.__swissRevivalInterval);
+            window.__swissRevivalInterval = null;
+          }
+          autoRevivalInFlight = true;
+          interactBtn.click();
+          await ackContinuation(convID);
+          autoRevivalInFlight = false;
+          return;
+        }
+
+        // 5. Inject prompt into editor and click send
+        autoRevivalInFlight = true;
+        window.__swissRevivalDispatched = true;
+        try { sessionStorage.setItem("antigravity_swiss_revived_" + convID, "true"); } catch (_) {}
+        if (window.__swissRevivalInterval) {
+          clearInterval(window.__swissRevivalInterval);
+          window.__swissRevivalInterval = null;
+        }
+
+        const promptText = triggerPrompt || "Please continue ongoing tasks and subagents.";
+
+        if (editor.isContentEditable) {
+          editor.focus();
+          document.execCommand("insertText", false, promptText);
+          editor.dispatchEvent(new Event("input", { bubbles: true }));
+        } else {
+          editor.focus();
+          editor.value = promptText;
+          editor.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+
+        (async () => {
+          try {
+            let sent = false;
+            for (let i = 0; i < 35; i++) {
+              const sendBtn = document.querySelector('[data-testid="send-button"]') ||
+                              document.querySelector('button[aria-label*="Send" i]') ||
+                              document.querySelector('.chat-input-toolbar button:last-child');
+              if (sendBtn && !sendBtn.disabled) {
+                sendBtn.click();
+                sent = true;
+                break;
+              }
+              await new Promise(r => setTimeout(r, 100));
+            }
+
+            if (!sent) {
+              const finalBtn = document.querySelector('[data-testid="send-button"]') ||
+                              document.querySelector('button[aria-label*="Send" i]') ||
+                              document.querySelector('.chat-input-toolbar button:last-child');
+              if (finalBtn) {
+                finalBtn.disabled = false;
+                finalBtn.click();
+                sent = true;
+              }
+            }
+
+            if (sent) {
+              await ackContinuation(convID);
+            }
+          } catch (err) {
+            console.warn("[SwissKnife AutoRevival] Send error:", err);
+          } finally {
+            autoRevivalInFlight = false;
+          }
+        })();
+
+      } catch (err) {
+        console.warn("[SwissKnife AutoRevival] Error:", err);
+        autoRevivalInFlight = false;
+      }
+    }
+
+    if (!window.__swissRevivalInterval) {
+      window.__swissRevivalInterval = setInterval(checkAndExecuteConversationRevival, 2500);
+      window.addEventListener("popstate", () => { setTimeout(checkAndExecuteConversationRevival, 300); }, { passive: true });
+    }
+
     const isSwissLeafElement = (n) =>
       n && n.nodeType === 1 && (
         (typeof n.id === "string" && n.id.startsWith("swiss-")) ||

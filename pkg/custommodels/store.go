@@ -57,6 +57,17 @@ func (s *Store) load() error {
 		cfg.ProjectBinds = make(map[string]string)
 	}
 	s.config = &cfg
+	for i := range s.config.Models {
+		if s.config.Models[i].InternalID <= 0 {
+			s.config.Models[i].InternalID = s.allocateInternalIDLocked()
+		}
+		s.syncCustomModelToPricingLocked(s.config.Models[i])
+	}
+	for i := range s.config.PricingRecords {
+		if s.config.PricingRecords[i].InternalID <= 0 {
+			s.config.PricingRecords[i].InternalID = s.allocateInternalIDLocked()
+		}
+	}
 	return nil
 }
 
@@ -86,7 +97,20 @@ func (s *Store) GetConfig() Config {
 	defer s.mu.RUnlock()
 
 	modelsCopy := make([]CustomModel, len(s.config.Models))
-	copy(modelsCopy, s.config.Models)
+	for i, m := range s.config.Models {
+		mCopy := m
+		mCopy.QuotaFraction = cloneFloatPtr(m.QuotaFraction)
+		mCopy.BudgetCapValue = cloneFloatPtr(m.BudgetCapValue)
+		mCopy.InputPricePerM = cloneFloatPtr(m.InputPricePerM)
+		mCopy.CachedInputPricePerM = cloneFloatPtr(m.CachedInputPricePerM)
+		mCopy.OutputPricePerM = cloneFloatPtr(m.OutputPricePerM)
+		modelsCopy[i] = mCopy
+	}
+
+	pricingCopy := s.listPricingRecordsLocked()
+
+	deletedCopy := make([]DeletedModelRecord, len(s.config.DeletedModels))
+	copy(deletedCopy, s.config.DeletedModels)
 
 	bindsCopy := make(map[string]string)
 	for k, v := range s.config.ProjectBinds {
@@ -94,10 +118,13 @@ func (s *Store) GetConfig() Config {
 	}
 
 	return Config{
-		Version:       s.config.Version,
-		ActiveModelID: s.config.ActiveModelID,
-		Models:        modelsCopy,
-		ProjectBinds:  bindsCopy,
+		Version:        s.config.Version,
+		ActiveModelID:  s.config.ActiveModelID,
+		NextInternalID: s.config.NextInternalID,
+		Models:         modelsCopy,
+		PricingRecords: pricingCopy,
+		DeletedModels:  deletedCopy,
+		ProjectBinds:   bindsCopy,
 	}
 }
 
@@ -107,7 +134,15 @@ func (s *Store) ListModels() []CustomModel {
 	defer s.mu.RUnlock()
 
 	res := make([]CustomModel, len(s.config.Models))
-	copy(res, s.config.Models)
+	for i, m := range s.config.Models {
+		mCopy := m
+		mCopy.QuotaFraction = cloneFloatPtr(m.QuotaFraction)
+		mCopy.BudgetCapValue = cloneFloatPtr(m.BudgetCapValue)
+		mCopy.InputPricePerM = cloneFloatPtr(m.InputPricePerM)
+		mCopy.CachedInputPricePerM = cloneFloatPtr(m.CachedInputPricePerM)
+		mCopy.OutputPricePerM = cloneFloatPtr(m.OutputPricePerM)
+		res[i] = mCopy
+	}
 	return res
 }
 
@@ -119,13 +154,18 @@ func (s *Store) GetModel(id string) (*CustomModel, error) {
 	for _, m := range s.config.Models {
 		if m.ID == id {
 			mCopy := m
+			mCopy.QuotaFraction = cloneFloatPtr(m.QuotaFraction)
+			mCopy.BudgetCapValue = cloneFloatPtr(m.BudgetCapValue)
+			mCopy.InputPricePerM = cloneFloatPtr(m.InputPricePerM)
+			mCopy.CachedInputPricePerM = cloneFloatPtr(m.CachedInputPricePerM)
+			mCopy.OutputPricePerM = cloneFloatPtr(m.OutputPricePerM)
 			return &mCopy, nil
 		}
 	}
 	return nil, fmt.Errorf("custom model with ID %q not found", id)
 }
 
-// SaveModel inserts or updates a custom model.
+// SaveModel inserts or updates a custom model and synchronizes its pricing record.
 func (s *Store) SaveModel(m CustomModel) error {
 	if strings.TrimSpace(m.ID) == "" {
 		slug := strings.ToLower(strings.TrimSpace(m.Name))
@@ -150,11 +190,24 @@ func (s *Store) SaveModel(m CustomModel) error {
 	defer s.mu.Unlock()
 
 	now := time.Now().UTC().Format(time.RFC3339)
+	nowShort := time.Now().Format("2006-01-02 15:04")
 	found := false
 	for i, existing := range s.config.Models {
 		if existing.ID == m.ID {
+			if existing.InternalID > 0 {
+				m.InternalID = existing.InternalID
+			} else if m.InternalID <= 0 {
+				m.InternalID = s.allocateInternalIDLocked()
+			}
 			m.CreatedAt = existing.CreatedAt
 			m.UpdatedAt = now
+			if m.PriceUpdatedAt == "" {
+				if existing.PriceUpdatedAt != "" {
+					m.PriceUpdatedAt = existing.PriceUpdatedAt
+				} else {
+					m.PriceUpdatedAt = nowShort
+				}
+			}
 			s.config.Models[i] = m
 			found = true
 			break
@@ -162,33 +215,59 @@ func (s *Store) SaveModel(m CustomModel) error {
 	}
 
 	if !found {
+		if m.InternalID <= 0 {
+			m.InternalID = s.allocateInternalIDLocked()
+		}
 		if m.CreatedAt == "" {
 			m.CreatedAt = now
 		}
 		m.UpdatedAt = now
+		if m.PriceUpdatedAt == "" {
+			m.PriceUpdatedAt = nowShort
+		}
 		s.config.Models = append(s.config.Models, m)
 	}
+
+	s.clearDeletedModelLocked(m.Name, m.ID)
+	s.syncCustomModelToPricingLocked(m)
 
 	return s.saveLocked()
 }
 
-// DeleteModel removes a custom model by ID.
+// DeleteModel removes a custom model by ID along with its pricing record and marks its usage deleted.
 func (s *Store) DeleteModel(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	var deleted *CustomModel
 	newModels := make([]CustomModel, 0, len(s.config.Models))
 	for _, m := range s.config.Models {
 		if m.ID != id {
 			newModels = append(newModels, m)
+		} else {
+			mCopy := m
+			deleted = &mCopy
 		}
 	}
 
-	if len(newModels) == len(s.config.Models) {
+	if deleted == nil {
 		return fmt.Errorf("model %q not found to delete", id)
 	}
 
 	s.config.Models = newModels
+
+	// Remove corresponding pricing record(s)
+	filteredPricing := make([]ModelPricingRecord, 0, len(s.config.PricingRecords))
+	for _, r := range s.config.PricingRecords {
+		if (deleted.InternalID > 0 && r.InternalID == deleted.InternalID) || (r.CustomModelID != "" && r.CustomModelID == id) {
+			continue
+		}
+		filteredPricing = append(filteredPricing, r)
+	}
+	s.config.PricingRecords = filteredPricing
+
+	// Record deletion so Token Monitor usage info is also purged
+	s.recordDeletedModelLocked(deleted.InternalID, deleted.Name, deleted.ID)
 
 	// Clean up binds
 	for p, boundID := range s.config.ProjectBinds {

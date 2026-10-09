@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import {
   Trash2,
-  ShieldCheck,
-  ShieldAlert,
   RefreshCw,
   AlertCircle,
   CheckCircle2,
@@ -12,9 +10,23 @@ import { ToggleSwitch } from '../components/ToggleSwitch'
 import type { CacheBreakdown, VaultStatus } from '../types'
 import { api } from '../api'
 
+const PRUNE_AGE_LABELS: Record<number, string> = {
+  3: '3 Days',
+  7: '7 Days',
+  14: '14 Days',
+  30: '30 Days',
+  90: '3 Months',
+  180: '6 Months',
+  365: '1 Year',
+  0: 'Unlimited',
+}
+
 export const BrainCachePage: React.FC = () => {
   const [breakdown, setBreakdown] = useState<CacheBreakdown | null>(null)
-  const [pruneDays, setPruneDays] = useState<number>(7)
+  const [pruneDays, setPruneDays] = useState<number>(0)
+  const [maxSizeGB, setMaxSizeGB] = useState<number>(0)
+  const [autoPrune, setAutoPrune] = useState<boolean>(false)
+  const [isTogglingAutoPrune, setIsTogglingAutoPrune] = useState<boolean>(false)
   const [isScanning, setIsScanning] = useState<boolean>(false)
   const [isPruning, setIsPruning] = useState<boolean>(false)
   const [feedback, setFeedback] = useState<{ text: string; isError: boolean } | null>(null)
@@ -26,17 +38,81 @@ export const BrainCachePage: React.FC = () => {
   const [isTogglingVault, setIsTogglingVault] = useState<boolean>(false)
   const [vaultFeedback, setVaultFeedback] = useState<{ text: string; isError: boolean } | null>(null)
 
-  const scanCache = async () => {
+  const scanCache = async (daysOverride?: number, sizeOverride?: number) => {
+    const targetDays = daysOverride !== undefined ? daysOverride : pruneDays
+    const targetSize = sizeOverride !== undefined ? sizeOverride : maxSizeGB
     setIsScanning(true)
     setFeedback(null)
     try {
-      const data = await api.scanCache(pruneDays)
+      const data = await api.scanCache(targetDays, targetSize)
       setBreakdown(data)
     } catch (err: any) {
       setFeedback({ text: `Scan error: ${err.message}`, isError: true })
     } finally {
       setIsScanning(false)
     }
+  }
+
+  const loadCacheConfigAndScan = async () => {
+    let initialDays = 0
+    let initialSize = 0
+    try {
+      const cfg = await api.getCacheConfig()
+      if (cfg) {
+        if (typeof cfg.auto_prune_enabled === 'boolean') {
+          setAutoPrune(cfg.auto_prune_enabled)
+        }
+        if (typeof cfg.prune_days === 'number' && cfg.prune_days >= 0) {
+          initialDays = cfg.prune_days
+          setPruneDays(cfg.prune_days)
+        }
+        if (typeof cfg.max_size_gb === 'number' && cfg.max_size_gb >= 0) {
+          initialSize = cfg.max_size_gb
+          setMaxSizeGB(cfg.max_size_gb)
+        }
+      }
+    } catch {
+      // Fallback to defaults (0 days, 0 GB, auto-prune off)
+    }
+    await scanCache(initialDays, initialSize)
+  }
+
+  const handleToggleAutoPrune = async (enabled: boolean) => {
+    setIsTogglingAutoPrune(true)
+    setFeedback(null)
+    try {
+      const res = await api.saveCacheConfig({
+        auto_prune_enabled: enabled,
+        prune_days: pruneDays,
+        max_size_gb: maxSizeGB,
+      })
+      setAutoPrune(res.auto_prune_enabled)
+      setFeedback({
+        text: res.auto_prune_enabled ? 'Auto-Prune enabled.' : 'Auto-Prune disabled.',
+        isError: false,
+      })
+    } catch (err: any) {
+      setFeedback({ text: `Failed to update Auto-Prune: ${err.message}`, isError: true })
+    } finally {
+      setIsTogglingAutoPrune(false)
+    }
+  }
+
+  const handlePruneDaysChange = async (days: number) => {
+    setPruneDays(days)
+    try {
+      await api.saveCacheConfig({ prune_days: days })
+    } catch {}
+    await scanCache(days, maxSizeGB)
+  }
+
+  const handleMaxSizeGBChange = async (val: number) => {
+    const safeVal = Number.isFinite(val) && val >= 0 ? val : 0
+    setMaxSizeGB(safeVal)
+    try {
+      await api.saveCacheConfig({ max_size_gb: safeVal })
+    } catch {}
+    await scanCache(pruneDays, safeVal)
   }
 
   const loadVaultStatus = async () => {
@@ -91,10 +167,10 @@ export const BrainCachePage: React.FC = () => {
     setIsPruning(true)
     setFeedback(null)
     try {
-      const res = await api.pruneCache(pruneDays)
+      const res = await api.pruneCache(pruneDays, maxSizeGB)
       const mb = (res.freed_bytes / (1024 * 1024)).toFixed(1)
       setFeedback({ text: `Reclaimed ${mb} MB across ${res.deleted_files} files safely.`, isError: false })
-      await scanCache()
+      await scanCache(pruneDays, maxSizeGB)
     } catch (err: any) {
       setFeedback({ text: `Prune error: ${err.message}`, isError: true })
     } finally {
@@ -103,7 +179,7 @@ export const BrainCachePage: React.FC = () => {
   }
 
   useEffect(() => {
-    scanCache()
+    loadCacheConfigAndScan()
     loadVaultStatus()
   }, [])
 
@@ -118,88 +194,20 @@ export const BrainCachePage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Storage Statistics Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
-        <div className="google-card">
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '6px' }}>
-            Total Antigravity Data
-          </div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)' }}>
-            {formatBytes(totalBytes)}
-          </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-            {breakdown?.total_files ?? 1420} indexed files
-          </div>
-        </div>
-
-        <div className="google-card">
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '6px' }}>
-            Reclaimable Stale Cache
-          </div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--primary)' }}>
-            {formatBytes(reclaimableBytes)}
-          </div>
-          <div style={{ fontSize: '12px', color: 'var(--green)', marginTop: '2px', fontWeight: 500 }}>
-            Safe for one-click prune
-          </div>
-        </div>
-
-        <div className="google-card">
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '6px' }}>
-            Conversation Vault Shield
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
-            {vaultStatus?.enabled !== false ? (
-              <span className="badge-chip badge-green" style={{ fontSize: '13px', padding: '6px 14px' }}>
-                <ShieldCheck size={16} /> SHIELD ACTIVE
-              </span>
-            ) : (
-              <span className="badge-chip badge-tonal" style={{ fontSize: '13px', padding: '6px 14px' }}>
-                <ShieldAlert size={16} /> SHIELD PAUSED
-              </span>
-            )}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-            {vaultStatus ? `${vaultStatus.vaulted_count} sessions protected` : 'Zero-loss protection for active chats'}
-          </div>
-        </div>
-      </div>
-
-      {feedback && (
-        <div
-          style={{
-            backgroundColor: feedback.isError ? '#fce8e6' : 'var(--green-bg)',
-            color: feedback.isError ? '#b3261e' : 'var(--green)',
-            padding: '12px 16px',
-            borderRadius: '12px',
-            fontSize: '13px',
-            fontWeight: 500,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          {feedback.isError ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
-          <span>{feedback.text}</span>
-        </div>
-      )}
-
-      {/* Conversation Vault Shield Card */}
+      {/* Main Gadget 1: Conversation Vault */}
       <div className="google-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
-                Conversation History Vault & Auto-Shield
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Prevents Antigravity's 500-session limit from silently pruning older conversations. Zero-overhead hardlink protection.
-              </div>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
+              Conversation Vault
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Protects conversations beyond Antigravity's 500-session limit using filesystem hardlinks.
             </div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12.5px', fontWeight: 600 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
               <span>Auto-Shield Active</span>
               <ToggleSwitch
                 checked={vaultStatus?.enabled ?? true}
@@ -230,7 +238,7 @@ export const BrainCachePage: React.FC = () => {
           </div>
         )}
 
-        {/* Vault Metrics Grid */}
+        {/* Vault Little Metric Gadgets */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '16px' }}>
           <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px' }}>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
@@ -299,13 +307,25 @@ export const BrainCachePage: React.FC = () => {
         >
           <Info size={16} color="var(--primary)" style={{ flexShrink: 0, marginTop: '2px' }} />
           <div>
-            Antigravity natively deletes SQLite conversation databases once total history exceeds 500 chats, causing missing trajectory errors and UI freezes. The Conversation Vault maintains filesystem hardlinks on Linux, macOS, and Windows. When Antigravity unlinks a database, its inode survives in the vault and is automatically restored upon access.
+            Antigravity deletes SQLite databases once chat history exceeds 500 sessions. The vault keeps filesystem hardlinks on Linux, macOS, and Windows. Pruned sessions restore automatically upon access; manual deletes inside Antigravity remove files from the vault.
           </div>
         </div>
 
-        {/* Vault Footer Action Bar */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
-          <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+        {/* Vault Setting & Action Gadget */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backgroundColor: 'var(--canvas)',
+            border: '1px solid var(--border)',
+            borderRadius: '8px',
+            padding: '12px 16px',
+            gap: '16px',
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
             Vault Directory: <code>{vaultStatus?.vault_dir || '~/.gemini/antigravity/vault/conversations'}</code>
             {vaultStatus?.last_sync_time && (
               <span style={{ marginLeft: '12px' }}>
@@ -317,57 +337,171 @@ export const BrainCachePage: React.FC = () => {
           <button
             onClick={handleSyncVault}
             disabled={isSyncingVault}
-            className="btn-pill-primary"
-            style={{ padding: '7px 18px', fontSize: '12px' }}
+            className="btn-pill-tonal"
+            style={{ padding: '8px 16px', fontSize: '12px', whiteSpace: 'nowrap' }}
           >
-            <RefreshCw size={13} className={isSyncingVault ? 'animate-spin' : ''} />
-            <span>{isSyncingVault ? 'Syncing...' : 'Sync Vault Now'}</span>
+            <RefreshCw size={14} className={isSyncingVault ? 'animate-spin' : ''} />
+            <span>{isSyncingVault ? 'Scanning...' : 'Scan Conversation'}</span>
           </button>
         </div>
       </div>
 
-      {/* Safe Pruning Options Card */}
+      {/* Main Gadget 2: Cache Manager */}
       <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
-          Safe Pruning Rules & Execution
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
+              Cache Manager
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Reclaims disk space from stale scratch files, step logs, and task outputs without touching active sessions.
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
+              <span>Auto-Prune</span>
+              <ToggleSwitch
+                checked={autoPrune}
+                disabled={isTogglingAutoPrune}
+                onChange={(checked) => handleToggleAutoPrune(checked)}
+              />
+            </label>
+          </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+        {feedback && (
+          <div
+            style={{
+              backgroundColor: feedback.isError ? '#fce8e6' : 'var(--green-bg)',
+              color: feedback.isError ? '#b3261e' : 'var(--green)',
+              padding: '10px 14px',
+              borderRadius: '8px',
+              fontSize: '12px',
+              fontWeight: 500,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              marginBottom: '16px',
+            }}
+          >
+            {feedback.isError ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />}
+            <span>{feedback.text}</span>
+          </div>
+        )}
+
+        {/* Cache Little Metric Gadgets */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              Total Antigravity Data
+            </div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
+              {formatBytes(totalBytes)}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              {breakdown?.total_files ?? 1420} indexed files
+            </div>
+          </div>
+
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              Reclaimable Stale Cache
+            </div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--primary)', marginTop: '4px' }}>
+              {formatBytes(reclaimableBytes)}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--green)', marginTop: '2px', fontWeight: 500 }}>
+              Safe for one-click prune
+            </div>
+          </div>
+        </div>
+
+        {/* Cache Setting & Action Gadget */}
+        <div
+          style={{
+            display: 'flex',
+            gap: '16px',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            backgroundColor: 'var(--canvas)',
+            border: '1px solid var(--border)',
+            borderRadius: '8px',
+            padding: '12px 14px',
+          }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text)' }}>
+            <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text)', whiteSpace: 'nowrap' }}>
               Prune Stale Artifacts Older Than:
             </span>
             <select
               value={pruneDays}
-              onChange={(e) => setPruneDays(Number(e.target.value))}
+              onChange={(e) => handlePruneDaysChange(Number(e.target.value))}
               style={{ width: '130px' }}
             >
               <option value={3}>3 Days</option>
               <option value={7}>7 Days</option>
               <option value={14}>14 Days</option>
               <option value={30}>30 Days</option>
+              <option value={90}>3 Months</option>
+              <option value={180}>6 Months</option>
+              <option value={365}>1 Year</option>
+              <option value={0}>Unlimited</option>
             </select>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+              Size Limit (GB):
+            </span>
+            <input
+              type="number"
+              min={0}
+              step={0.5}
+              value={maxSizeGB}
+              onChange={(e) => handleMaxSizeGBChange(Number(e.target.value))}
+              title={maxSizeGB === 0 ? '0 (Unlimited)' : `${maxSizeGB} GB`}
+              style={{
+                width: '88px',
+                color: maxSizeGB === 0 ? 'var(--text-subtle)' : 'var(--text)',
+                fontWeight: maxSizeGB === 0 ? 500 : 600,
+              }}
+            />
+            {maxSizeGB === 0 && (
+              <span
+                style={{
+                  fontSize: '12px',
+                  color: 'var(--text-subtle)',
+                  fontWeight: 500,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                (Unlimited)
+              </span>
+            )}
           </div>
 
           <div style={{ flex: 1 }} />
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <button
-              onClick={scanCache}
+              onClick={() => scanCache()}
               disabled={isScanning}
               className="btn-pill-tonal"
-              style={{ padding: '9px 18px' }}
+              style={{ padding: '8px 16px', fontSize: '12px', whiteSpace: 'nowrap' }}
             >
-              <RefreshCw size={14} className={isScanning ? 'animate-spin' : ''} /> {isScanning ? 'Scanning...' : 'Scan Storage'}
+              <RefreshCw size={14} className={isScanning ? 'animate-spin' : ''} />
+              <span>{isScanning ? 'Scanning...' : 'Scan Cache'}</span>
             </button>
 
             <button
               onClick={handlePrune}
               disabled={isPruning}
               className="btn-pill-primary"
-              style={{ padding: '9px 22px' }}
+              style={{ padding: '8px 16px', fontSize: '12px', whiteSpace: 'nowrap' }}
             >
-              <Trash2 size={15} /> {isPruning ? 'Pruning...' : 'Prune Cache Safely'}
+              <Trash2 size={14} />
+              <span>{isPruning ? 'Pruning...' : 'Prune Cache Safely'}</span>
             </button>
           </div>
         </div>
@@ -406,14 +540,30 @@ export const BrainCachePage: React.FC = () => {
               </h3>
             </div>
             <p style={{ margin: '0 0 20px', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Are you sure you want to prune cache files older than <strong>{pruneDays} days</strong>? Active sessions and project directories will remain protected.
+              {pruneDays === 0 && maxSizeGB === 0 ? (
+                <>
+                  Both age retention and size limit are set to <strong>Unlimited</strong>. Active sessions, project directories, and the Conversation Vault will remain protected.
+                </>
+              ) : pruneDays === 0 ? (
+                <>
+                  Are you sure you want to prune cache files exceeding the <strong>{maxSizeGB} GB</strong> size limit (with <strong>Unlimited</strong> age retention)? Active sessions, project directories, and the Conversation Vault will remain protected.
+                </>
+              ) : maxSizeGB === 0 ? (
+                <>
+                  Are you sure you want to prune cache files older than <strong>{PRUNE_AGE_LABELS[pruneDays] || `${pruneDays} Days`}</strong> (with <strong>Unlimited</strong> size limit)? Active sessions, project directories, and the Conversation Vault will remain protected.
+                </>
+              ) : (
+                <>
+                  Are you sure you want to prune cache files older than <strong>{PRUNE_AGE_LABELS[pruneDays] || `${pruneDays} Days`}</strong> or exceeding the <strong>{maxSizeGB} GB</strong> size limit? Active sessions, project directories, and the Conversation Vault will remain protected.
+                </>
+              )}
             </p>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button
                 type="button"
                 onClick={() => setShowPruneConfirm(false)}
                 className="btn-pill-tonal"
-                style={{ padding: '7px 16px', fontSize: '12px' }}
+                style={{ padding: '8px 16px', fontSize: '12px', whiteSpace: 'nowrap' }}
               >
                 Cancel
               </button>
@@ -422,7 +572,7 @@ export const BrainCachePage: React.FC = () => {
                 onClick={confirmPrune}
                 disabled={isPruning}
                 className="btn-pill-danger"
-                style={{ padding: '7px 18px', fontSize: '12px' }}
+                style={{ padding: '8px 16px', fontSize: '12px', whiteSpace: 'nowrap' }}
               >
                 {isPruning ? 'Pruning...' : 'Prune Safely'}
               </button>

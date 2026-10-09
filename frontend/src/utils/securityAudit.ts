@@ -332,7 +332,7 @@ export async function auditModelSecurity(model: CustomModel): Promise<SecurityAu
     risk_level: riskLevel,
     risk_score: riskScore,
     security_grade: securityGrade,
-    model_id: model.id,
+    model_id: (model.name || '').trim() || model.id,
     endpoint: model.base_url,
     provider_type: model.provider_type,
     audited_at: new Date().toISOString(),

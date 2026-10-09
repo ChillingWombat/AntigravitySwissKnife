@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/revival"
 )
 
 func TestShieldPreventsHostKill(t *testing.T) {
@@ -56,4 +57,28 @@ func TestIsProcessAlive(t *testing.T) {
 		t.Fatalf("expected negative PID to be reported as not alive")
 	}
 }
+
+func TestRelaunchHostIDE_ClosedIDEDoesNotSpawn(t *testing.T) {
+	shield := NewShield(0)
+	shield.SetProcessFinder(func() ([]ProcessInfo, error) {
+		return []ProcessInfo{}, nil
+	})
+	// When Antigravity is not running, RelaunchHostIDE must return nil without error and without launching
+	err := shield.RelaunchHostIDE()
+	if err != nil {
+		t.Fatalf("expected nil error when Antigravity is not running, got %v", err)
+	}
+}
+
+func TestShield_RevivalEngineCoordination(t *testing.T) {
+	shield := NewShield(0)
+	tmpDir := t.TempDir()
+	engine := revival.NewEngine(tmpDir, 9222)
+	shield.SetRevivalEngine(engine)
+
+	if shield.getRevivalEngine() != engine {
+		t.Fatalf("expected shield to return configured revival engine")
+	}
+}
+
 

@@ -3,6 +3,7 @@ package cache
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
@@ -20,7 +21,10 @@ type CategoryStats struct {
 type Breakdown struct {
 	BrainTotalBytes         int64                    `json:"brain_total_bytes"`
 	ConversationsTotalBytes int64                    `json:"conversations_total_bytes"`
+	TotalBytes              int64                    `json:"total_bytes"`
+	TotalFiles              int                      `json:"total_files"`
 	ReclaimableBytes        int64                    `json:"reclaimable_bytes"`
+	SafeToDelete            bool                     `json:"safe_to_delete"`
 	Categories              map[string]CategoryStats `json:"categories"`
 }
 
@@ -44,13 +48,28 @@ func NewInspector(brainDir, conversationsDir string) *Inspector {
 	}
 }
 
+type prunableCandidate struct {
+	size    int64
+	modTime time.Time
+}
+
 // ScanBreakdown walks the brain and conversations directories to calculate metrics.
 func (ins *Inspector) ScanBreakdown(minAgeDays float64) (*Breakdown, error) {
+	return ins.ScanBreakdownWithLimit(minAgeDays, 0)
+}
+
+// ScanBreakdownWithLimit walks the brain and conversations directories and computes reclaimable bytes using both age cutoff and max size limit.
+func (ins *Inspector) ScanBreakdownWithLimit(minAgeDays float64, maxSizeBytes int64) (*Breakdown, error) {
 	bd := &Breakdown{
-		Categories: make(map[string]CategoryStats),
+		Categories:   make(map[string]CategoryStats),
+		SafeToDelete: true,
 	}
 
-	cutoff := time.Now().Add(-time.Duration(minAgeDays*24) * time.Hour)
+	var cutoff time.Time
+	hasAgeCutoff := minAgeDays > 0
+	if hasAgeCutoff {
+		cutoff = time.Now().Add(-time.Duration(minAgeDays*24) * time.Hour)
+	}
 
 	// Categories to track
 	categories := map[string]*CategoryStats{
@@ -61,6 +80,8 @@ func (ins *Inspector) ScanBreakdown(minAgeDays float64) (*Breakdown, error) {
 		"other":         {Category: "other", Description: "Miscellaneous context files"},
 	}
 
+	var remainingPrunable []prunableCandidate
+
 	// Scan Brain directory
 	if err := filepath.Walk(ins.BrainDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
@@ -68,6 +89,7 @@ func (ins *Inspector) ScanBreakdown(minAgeDays float64) (*Breakdown, error) {
 		}
 		size := info.Size()
 		bd.BrainTotalBytes += size
+		bd.TotalFiles++
 
 		rel, _ := filepath.Rel(ins.BrainDir, path)
 		catKey := "other"
@@ -83,8 +105,15 @@ func (ins *Inspector) ScanBreakdown(minAgeDays float64) (*Breakdown, error) {
 		c.TotalBytes += size
 		c.FileCount++
 
-		if info.ModTime().Before(cutoff) && catKey != "other" {
-			bd.ReclaimableBytes += size
+		if catKey != "other" {
+			if hasAgeCutoff && info.ModTime().Before(cutoff) {
+				bd.ReclaimableBytes += size
+			} else {
+				remainingPrunable = append(remainingPrunable, prunableCandidate{
+					size:    size,
+					modTime: info.ModTime(),
+				})
+			}
 		}
 		return nil
 	}); err != nil && !os.IsNotExist(err) {
@@ -98,6 +127,7 @@ func (ins *Inspector) ScanBreakdown(minAgeDays float64) (*Breakdown, error) {
 		}
 		size := info.Size()
 		bd.ConversationsTotalBytes += size
+		bd.TotalFiles++
 
 		c := categories["conversations"]
 		c.TotalBytes += size
@@ -105,6 +135,24 @@ func (ins *Inspector) ScanBreakdown(minAgeDays float64) (*Breakdown, error) {
 		return nil
 	}); err != nil && !os.IsNotExist(err) {
 		return nil, err
+	}
+
+	bd.TotalBytes = bd.BrainTotalBytes + bd.ConversationsTotalBytes
+
+	if maxSizeBytes > 0 {
+		projectedRemaining := bd.TotalBytes - bd.ReclaimableBytes
+		if projectedRemaining > maxSizeBytes && len(remainingPrunable) > 0 {
+			sort.Slice(remainingPrunable, func(i, j int) bool {
+				return remainingPrunable[i].modTime.Before(remainingPrunable[j].modTime)
+			})
+			for _, cand := range remainingPrunable {
+				if projectedRemaining <= maxSizeBytes {
+					break
+				}
+				bd.ReclaimableBytes += cand.size
+				projectedRemaining -= cand.size
+			}
+		}
 	}
 
 	for k, v := range categories {

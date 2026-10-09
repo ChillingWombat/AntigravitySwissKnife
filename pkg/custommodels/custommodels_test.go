@@ -228,6 +228,9 @@ func TestTester_EndpointResponses(t *testing.T) {
 	if err != nil || !res.Success {
 		t.Errorf("expected successful test, got res=%+v, err=%v", res, err)
 	}
+	if strings.Contains(res.Message, "200") {
+		t.Errorf("expected success message not to include status code 200, got: %s", res.Message)
+	}
 
 	// 2. Auth error mock server
 	tsAuthFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -411,6 +414,29 @@ func TestDetectModelMetadata(t *testing.T) {
 	}
 }
 
+func TestAuditor_RunAuditUsesModelNameForModelID(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"PONG"},"finish_reason":"stop"}]}`))
+	}))
+	defer ts.Close()
+
+	auditor := NewAuditor()
+	report := auditor.RunAudit(CustomModel{
+		ID:           "openai-deepseek-chat-1759989123456",
+		Name:         "deepseek-chat",
+		DisplayName:  "DeepSeek V3",
+		ProviderType: ProviderOpenAI,
+		BaseURL:      ts.URL,
+		APIKey:       "sk-test",
+	})
+
+	if report.ModelID != "deepseek-chat" {
+		t.Errorf("expected report.ModelID to be clean model Name %q, got %q", "deepseek-chat", report.ModelID)
+	}
+}
+
 func containsSubstring(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || (len(s) > 0 && len(substr) > 0 && stringSearch(s, substr)))
 }
@@ -423,3 +449,237 @@ func stringSearch(s, substr string) bool {
 	}
 	return false
 }
+
+func TestFetchModelPricing_HierarchyAndNullFallback(t *testing.T) {
+	origOR := OpenRouterModelsURL
+	origLite := LiteLLMPricingURL
+	defer func() {
+		OpenRouterModelsURL = origOR
+		LiteLLMPricingURL = origLite
+		ResetThirdPartyPricingCache()
+	}()
+
+	// Mock 3rd-party backup server (OpenRouter format)
+	thirdPartyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"qwen/qwen-2.5-coder-32b","pricing":{"prompt":"0.0000002","completion":"0.0000006","input_cache_read":"0.00000005"}}]}`))
+	}))
+	defer thirdPartyServer.Close()
+
+	noOpLiteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer noOpLiteServer.Close()
+
+	OpenRouterModelsURL = thirdPartyServer.URL
+	LiteLLMPricingURL = noOpLiteServer.URL
+	ResetThirdPartyPricingCache()
+
+	// 1A. Live Provider Endpoint takes top priority
+	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"my-provider-model","input_price_per_m":1.75,"cached_input_price_per_m":0.40,"output_price_per_m":7.00}]}`))
+	}))
+	defer providerServer.Close()
+
+	inP, cacheP, outP, src := FetchModelPricing(t.Context(), "my-provider-model", "custom", providerServer.URL, "sk-test")
+	if src != PriceSourceProvider {
+		t.Fatalf("expected source %q from live provider endpoint, got %q", PriceSourceProvider, src)
+	}
+	if inP == nil || *inP != 1.75 || cacheP == nil || *cacheP != 0.40 || outP == nil || *outP != 7.00 {
+		t.Fatalf("unexpected provider prices: in=%v cache=%v out=%v", inP, cacheP, outP)
+	}
+
+	// 1B. Official Provider Specification (Google Gemini 3.8 Flash)
+	inP, cacheP, outP, src = FetchModelPricing(t.Context(), "gemini-3.8-flash", "gemini", "", "")
+	if src != PriceSourceProvider || inP == nil || outP == nil {
+		t.Fatalf("expected official provider pricing for gemini-3.8-flash, got src=%q in=%v out=%v", src, inP, outP)
+	}
+
+	// 2. 3rd-Party Backup when not in provider
+	inP, cacheP, outP, src = FetchModelPricing(t.Context(), "qwen-2.5-coder-32b", "custom", "", "")
+	if src != PriceSourceThirdParty {
+		t.Fatalf("expected source %q from 3rd-party backup, got %q", PriceSourceThirdParty, src)
+	}
+	if inP == nil || *inP < 0.19 || *inP > 0.21 || outP == nil || *outP < 0.59 || *outP > 0.61 {
+		t.Fatalf("unexpected 3rd-party prices: in=%v out=%v", inP, outP)
+	}
+
+	// 3. Unknown model -> null (nil pointers) and source "unconfigured"
+	inP, cacheP, outP, src = FetchModelPricing(t.Context(), "totally-nonexistent-private-model-xyz", "custom", "", "")
+	if src != PriceSourceUnconfigured {
+		t.Fatalf("expected source %q for unknown model, got %q", PriceSourceUnconfigured, src)
+	}
+	if inP != nil || cacheP != nil || outP != nil {
+		t.Fatalf("expected nil price pointers for unknown model, got in=%v cache=%v out=%v", inP, cacheP, outP)
+	}
+}
+
+func TestSyncPricingWithCatalog_ThinkingLevelDeduplicationAndOutdatedLifecycle(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	// Initial catalog has multiple thinking levels for Gemini 3.8 Flash and Gemini 3.1 Pro
+	initialCatalog := []CatalogModelInput{
+		{ID: "gemini-3.8-flash-high", DisplayName: "Gemini 3.8 Flash (High)", Provider: "Google"},
+		{ID: "gemini-3.8-flash-medium", DisplayName: "Gemini 3.8 Flash (Medium)", Provider: "Google"},
+		{ID: "gemini-3.8-flash-low", DisplayName: "Gemini 3.8 Flash (Low)", Provider: "Google"},
+		{ID: "gemini-pro-agent", DisplayName: "Gemini 3.1 Pro (High)", Provider: "Google"},
+		{ID: "gemini-3.1-pro-low", DisplayName: "Gemini 3.1 Pro (Low)", Provider: "Google"},
+	}
+
+	records := store.SyncPricingWithCatalog(t.Context(), initialCatalog, false)
+	if len(records) != 2 {
+		t.Fatalf("expected 2 deduplicated canonical models, got %d: %+v", len(records), records)
+	}
+	if records[0].ModelID != "gemini-3.8-flash" || records[0].Name != "Gemini 3.8 Flash" || records[0].Classification != ClassificationNative {
+		t.Errorf("unexpected first record: %+v", records[0])
+	}
+	if records[1].ModelID != "gemini-3.1-pro" || records[1].Name != "Gemini 3.1 Pro" || records[1].Classification != ClassificationNative {
+		t.Errorf("unexpected second record: %+v", records[1])
+	}
+	if records[0].InternalID <= 0 || records[1].InternalID <= records[0].InternalID {
+		t.Errorf("expected strictly increasing InternalIDs, got %d and %d", records[0].InternalID, records[1].InternalID)
+	}
+
+	// Subsequent catalog removes Gemini 3.1 Pro; it must NOT be deleted automatically,
+	// but reclassified as "custom" (IsOutdatedNative=true) in Token Monitor while not appearing in Custom Models list.
+	updatedCatalog := []CatalogModelInput{
+		{ID: "gemini-3.8-flash-high", DisplayName: "Gemini 3.8 Flash (High)", Provider: "Google"},
+	}
+	records2 := store.SyncPricingWithCatalog(t.Context(), updatedCatalog, false)
+	if len(records2) != 2 {
+		t.Fatalf("expected outdated native model to be retained (2 total), got %d", len(records2))
+	}
+	if records2[0].Classification != ClassificationNative || records2[0].IsOutdatedNative {
+		t.Errorf("expected gemini-3.8-flash to remain active native, got %+v", records2[0])
+	}
+	if records2[1].Classification != ClassificationCustom || !records2[1].IsOutdatedNative {
+		t.Errorf("expected gemini-3.1-pro to be reclassified as custom (outdated native), got %+v", records2[1])
+	}
+	if len(store.ListModels()) != 0 {
+		t.Errorf("outdated native model must not appear in Custom Models page list, got %d models", len(store.ListModels()))
+	}
+
+	// Active native model cannot be deleted
+	if err := store.DeletePricingModel(records2[0].InternalID, records2[0].ModelID); err == nil {
+		t.Errorf("expected error when attempting to delete active native model")
+	}
+
+	// Outdated native model (classified as custom) CAN be manually deleted in Token Monitor
+	if err := store.DeletePricingModel(records2[1].InternalID, records2[1].ModelID); err != nil {
+		t.Fatalf("expected outdated native model deletion to succeed, got: %v", err)
+	}
+	if !store.IsModelDeleted(records2[1].InternalID, "gemini-3.1-pro-low", "") {
+		t.Errorf("expected deleted outdated native model (and its thinking variants) to be marked deleted")
+	}
+	if len(store.ListPricingRecords()) != 1 {
+		t.Errorf("expected 1 pricing record remaining after deletion, got %d", len(store.ListPricingRecords()))
+	}
+}
+
+func TestSharedPriceDataAndMonotonicInternalID(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	inP := 0.50
+	cacheP := 0.10
+	outP := 2.00
+	capVal := 25.0
+
+	cm := CustomModel{
+		ID:                   "custom-ds-1",
+		Name:                 "deepseek-chat",
+		DisplayName:          "DeepSeek V3 Custom",
+		ProviderType:         ProviderOpenAI,
+		BaseURL:              "https://api.deepseek.com/v1",
+		QuotaType:            QuotaTypeBalance,
+		QuotaManualOverride:  true,
+		BalanceValue:         "$40.00",
+		BudgetCapType:        "dollar",
+		BudgetCapValue:       &capVal,
+		InputPricePerM:       &inP,
+		CachedInputPricePerM: &cacheP,
+		OutputPricePerM:      &outP,
+		PriceSource:          PriceSourceManual,
+		Enabled:              true,
+	}
+	if err := store.SaveModel(cm); err != nil {
+		t.Fatalf("SaveModel failed: %v", err)
+	}
+
+	saved, err := store.GetModel("custom-ds-1")
+	if err != nil || saved == nil {
+		t.Fatalf("GetModel failed: %v", err)
+	}
+	firstInternalID := saved.InternalID
+	if firstInternalID <= 0 {
+		t.Fatalf("expected positive InternalID, got %d", firstInternalID)
+	}
+	if saved.BudgetCapType != "dollar" || saved.BudgetCapValue == nil || *saved.BudgetCapValue != 25.0 {
+		t.Errorf("expected budget cap dollar=$25.0, got type=%q val=%v", saved.BudgetCapType, saved.BudgetCapValue)
+	}
+
+	// Verify PricingRecords has the exact same piece of data and InternalID
+	pRecs := store.ListPricingRecords()
+	if len(pRecs) != 1 {
+		t.Fatalf("expected 1 pricing record synced from SaveModel, got %d", len(pRecs))
+	}
+	if pRecs[0].InternalID != firstInternalID || *pRecs[0].InputPricePerM != 0.50 || pRecs[0].Source != PriceSourceManual {
+		t.Errorf("pricing record out of sync with custom model: %+v", pRecs[0])
+	}
+
+	// Update price from Token Price page -> must update CustomModel too
+	newIn := 0.75
+	newCache := 0.15
+	newOut := 3.00
+	_, err = store.UpdateModelPricing(UpdatePricingRequest{
+		InternalID:           firstInternalID,
+		ModelID:              "deepseek-chat",
+		InputPricePerM:       &newIn,
+		CachedInputPricePerM: &newCache,
+		OutputPricePerM:      &newOut,
+	})
+	if err != nil {
+		t.Fatalf("UpdateModelPricing failed: %v", err)
+	}
+
+	savedAfter, _ := store.GetModel("custom-ds-1")
+	if savedAfter.InputPricePerM == nil || *savedAfter.InputPricePerM != 0.75 || *savedAfter.OutputPricePerM != 3.00 {
+		t.Errorf("expected CustomModel price to reflect Token Price edit, got in=%v out=%v", savedAfter.InputPricePerM, savedAfter.OutputPricePerM)
+	}
+
+	// Delete CustomModel -> removes from PricingRecords and marks deleted
+	if err := store.DeleteModel("custom-ds-1"); err != nil {
+		t.Fatalf("DeleteModel failed: %v", err)
+	}
+	if len(store.ListPricingRecords()) != 0 {
+		t.Errorf("expected 0 pricing records after deleting custom model, got %d", len(store.ListPricingRecords()))
+	}
+	if !store.IsModelDeleted(firstInternalID, "deepseek-chat", "custom-ds-1") {
+		t.Errorf("expected deleted custom model to be marked deleted")
+	}
+
+	// Adding a new model must receive a strictly higher InternalID
+	cm2 := CustomModel{
+		ID:           "custom-ds-2",
+		Name:         "deepseek-reasoner",
+		ProviderType: ProviderOpenAI,
+		BaseURL:      "https://api.deepseek.com/v1",
+		Enabled:      true,
+	}
+	if err := store.SaveModel(cm2); err != nil {
+		t.Fatalf("SaveModel 2 failed: %v", err)
+	}
+	saved2, _ := store.GetModel("custom-ds-2")
+	if saved2.InternalID <= firstInternalID {
+		t.Errorf("expected strictly increasing InternalID > %d, got %d", firstInternalID, saved2.InternalID)
+	}
+}
+

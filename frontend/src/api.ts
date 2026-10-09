@@ -1,5 +1,6 @@
 import type {
   CacheBreakdown,
+  CacheConfig,
   VaultStatus,
   VaultSyncResult,
   CustomModel,
@@ -29,6 +30,10 @@ import type {
   StorageInfo,
   PrivacySettings,
   DiagnosticResult,
+  ModelPricingRecord,
+  TokenSummaryResponse,
+  TargetApp,
+  AcpAgentInstance,
 } from './types'
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
@@ -84,11 +89,18 @@ export const api = {
       body: JSON.stringify(accounts),
     }),
 
-  switchAccount: (email: string, relaunch_ide: boolean = true) =>
-    request<{ success: boolean; active_account: string; relaunch_ide?: boolean }>('/api/switch', {
+  switchAccount: (email: string, relaunch_ide: boolean = true, target_app?: TargetApp | string) =>
+    request<{
+      success: boolean
+      active_account: string
+      relaunch_ide?: boolean
+      target_app?: string
+      multi_app_sync_mode?: string
+      active_app_accounts?: Record<string, string>
+    }>('/api/switch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, relaunch_ide }),
+      body: JSON.stringify({ email, relaunch_ide, target_app }),
     }),
 
   relaunchHostIDE: () =>
@@ -254,13 +266,23 @@ export const api = {
       body: JSON.stringify(profile),
     }),
 
-  scanCache: (days = 7) => request<CacheBreakdown>(`/api/cache/scan?days=${days}`),
+  scanCache: (days = 0, maxSizeGB = 0) =>
+    request<CacheBreakdown>(`/api/cache/scan?days=${days}&max_size_gb=${maxSizeGB}`),
 
-  pruneCache: (days = 7) =>
+  pruneCache: (days = 0, maxSizeGB = 0) =>
     request<{ freed_bytes: number; deleted_files: number }>('/api/cache/prune', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ older_than_days: days, cascade_shield: true }),
+      body: JSON.stringify({ older_than_days: days, max_size_gb: maxSizeGB, cascade_shield: true }),
+    }),
+
+  getCacheConfig: () => request<CacheConfig>('/api/cache/config'),
+
+  saveCacheConfig: (cfg: Partial<CacheConfig>) =>
+    request<CacheConfig & { success: boolean }>('/api/cache/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg),
     }),
 
   getVaultStatus: () => request<VaultStatus>('/api/vault/status'),
@@ -447,6 +469,31 @@ export const api = {
 
   applyGUI: () =>
     request<{ success: boolean; message: string }>('/api/gui/apply', {
+      method: 'POST',
+    }),
+
+  getDesktopPersistenceStatus: () =>
+    request<{ installed: boolean; persistent_visual_effects: boolean; backup_exists: boolean }>('/api/gui/desktop/status'),
+
+  setDesktopPersistence: (enabled: boolean) =>
+    request<{ success: boolean; persistent_visual_effects: boolean; installed?: boolean; message?: string }>('/api/gui/desktop/persistence', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    }),
+
+  getRuntimeMode: () =>
+    request<{ runtime_mode: 'app' | 'daemon' }>('/api/settings/runtime-mode'),
+
+  setRuntimeMode: (runtime_mode: 'app' | 'daemon') =>
+    request<{ success: boolean; runtime_mode: 'app' | 'daemon' }>('/api/settings/runtime-mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ runtime_mode }),
+    }),
+
+  startDaemon: () =>
+    request<{ success: boolean; daemon_running?: boolean; message?: string }>('/api/daemon/start', {
       method: 'POST',
     }),
 
@@ -681,20 +728,47 @@ export const api = {
     }),
 
   getAcpMesh: () =>
-    request<{ status: string; mesh_nodes: number; protocol_version: string; agents: any[] }>('/api/utilities/acp'),
+    request<{ status: string; mesh_nodes: number; protocol_version: string; agents: AcpAgentInstance[] }>('/api/utilities/acp'),
 
-  // Real Token Analytics API
+  // Real Token Analytics & Pricing API
   getTokenSummary: () =>
-    request<{
-      total_tokens: number
-      input_tokens: number
-      cached_input_tokens: number
-      output_tokens: number
-      total_cost_usd: number
-      saved_cost_usd: number
-      avg_tps: number
-      requests_count: number
-    }>('/api/tokens/summary'),
+    request<TokenSummaryResponse>('/api/tokens/summary'),
+
+  getTokenPricing: (force?: boolean) =>
+    request<{ success: boolean; pricing_records: ModelPricingRecord[]; models?: ModelPricingRecord[]; timestamp: string }>(
+      force ? '/api/tokens/pricing?force=true' : '/api/tokens/pricing'
+    ),
+
+  updateTokenPricing: (data: {
+    internal_id?: number
+    canonical_id?: string
+    model_id?: string
+    input_price_per_m: number | null
+    cached_input_price_per_m: number | null
+    output_price_per_m: number | null
+  }) =>
+    request<{ success: boolean; pricing_record?: ModelPricingRecord; model?: ModelPricingRecord; models?: ModelPricingRecord[] }>('/api/tokens/pricing', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...data,
+        canonical_id: data.canonical_id || data.model_id,
+        model_id: data.model_id || data.canonical_id,
+      }),
+    }),
+
+  deleteTokenPricingModel: (params: { internal_id?: number; canonical_id?: string; model_id?: string }) => {
+    const qs = new URLSearchParams()
+    if (params.internal_id) qs.set('internal_id', String(params.internal_id))
+    const mId = params.canonical_id || params.model_id
+    if (mId) {
+      qs.set('canonical_id', mId)
+      qs.set('model_id', mId)
+    }
+    return request<{ success: boolean; deleted?: string; models?: ModelPricingRecord[] }>(`/api/tokens/pricing?${qs.toString()}`, {
+      method: 'DELETE',
+    })
+  },
 
   // GitHub Workspace & Task Tracking API
   getGitHubRepo: (workspacePath?: string) =>

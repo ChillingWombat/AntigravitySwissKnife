@@ -94,7 +94,8 @@ describe('testConnectionButton utility', () => {
     assert.equal(pres.state, 'success')
     assert.equal(pres.icon, 'check')
     assert.equal(pres.spinIcon, false)
-    assert.equal(pres.label, '200 OK (1876ms)')
+    assert.equal(pres.label, 'OK (1876ms)')
+    assert.ok(!pres.label.includes('200'))
     assert.equal(pres.disabled, false)
     assert.equal(pres.style.backgroundColor, 'var(--green-bg)')
     assert.equal(pres.style.color, 'var(--green)')
@@ -102,12 +103,13 @@ describe('testConnectionButton utility', () => {
     assert.equal(pres.style.minWidth, '160px')
     assert.equal(pres.style.maxWidth, '160px')
     assert.equal(pres.style.height, '32px')
-    assert.ok(pres.tooltip.includes('200 OK (1876ms)'))
+    assert.ok(pres.tooltip.includes('OK (1876ms)'))
+    assert.ok(!pres.tooltip.includes('200'))
     assert.ok(pres.tooltip.includes('Balance: $14.20'))
     assert.ok(pres.tooltip.toLowerCase().includes('re-test'))
   })
 
-  it('returns error presentation with status code or Test Failed, red styling, and remains clickable for re-testing', () => {
+  it('returns error presentation with Test Failed (without status code), red styling, and remains clickable for re-testing', () => {
     const httpError: TestResult = {
       success: false,
       status_code: 401,
@@ -124,7 +126,8 @@ describe('testConnectionButton utility', () => {
     assert.equal(presHttp.state, 'error')
     assert.equal(presHttp.icon, 'alert')
     assert.equal(presHttp.spinIcon, false)
-    assert.equal(presHttp.label, '401 Failed')
+    assert.equal(presHttp.label, 'Test Failed')
+    assert.ok(!presHttp.label.includes('401'))
     assert.equal(presHttp.disabled, false)
     assert.equal(presHttp.style.backgroundColor, 'var(--red-bg)')
     assert.equal(presHttp.style.color, 'var(--red)')

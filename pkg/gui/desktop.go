@@ -16,11 +16,12 @@ const SwissLoaderMarker = "// __SWISS_PRELOAD_LOADER__"
 
 // DesktopStatus reports the installation and backup status of the persistent loader in Antigravity resources.
 type DesktopStatus struct {
-	Installed    bool   `json:"installed"`
-	BackupExists bool   `json:"backup_exists"`
-	ResourcesDir string `json:"resources_dir"`
-	AsarPath     string `json:"asar_path"`
-	Error        string `json:"error,omitempty"`
+	Installed               bool   `json:"installed"`
+	PersistentVisualEffects bool   `json:"persistent_visual_effects"`
+	BackupExists            bool   `json:"backup_exists"`
+	ResourcesDir            string `json:"resources_dir"`
+	AsarPath                string `json:"asar_path"`
+	Error                   string `json:"error,omitempty"`
 }
 
 // DesktopManager handles permanent injection into Antigravity desktop resources and factory restoration.
@@ -53,10 +54,17 @@ func (dm *DesktopManager) GetStatus() DesktopStatus {
 	asarPath := filepath.Join(dm.resourcesDir, "app.asar")
 	backupPath := filepath.Join(dm.resourcesDir, "app.asar.factory_backup")
 
+	cfg, _ := core.LoadConfig()
+	persistent := true
+	if cfg != nil {
+		persistent = cfg.PersistentVisualEffects
+	}
+
 	status := DesktopStatus{
-		ResourcesDir: dm.resourcesDir,
-		AsarPath:     asarPath,
-		BackupExists: fileExists(backupPath),
+		PersistentVisualEffects: persistent,
+		ResourcesDir:            dm.resourcesDir,
+		AsarPath:                asarPath,
+		BackupExists:            fileExists(backupPath),
 	}
 
 	if !fileExists(asarPath) {
@@ -169,6 +177,46 @@ func (dm *DesktopManager) InstallDesktopLoader() (*ApplyResult, error) {
 		Success: true,
 		Message: "Successfully installed permanent desktop loader into Antigravity desktop app.",
 	}, nil
+}
+
+// UninstallDesktopLoader removes the permanent desktop loader from Antigravity's app.asar
+// (restoring from app.asar.factory_backup) without resetting saved GUI settings or clearing live CDP styles.
+func (dm *DesktopManager) UninstallDesktopLoader() (*ApplyResult, error) {
+	asarPath := filepath.Join(dm.resourcesDir, "app.asar")
+	backupPath := filepath.Join(dm.resourcesDir, "app.asar.factory_backup")
+
+	if fileExists(backupPath) {
+		if err := copyFile(backupPath, asarPath); err != nil {
+			return &ApplyResult{
+				Success: false,
+				Message: fmt.Sprintf("Failed to restore factory app.asar: %v", err),
+			}, fmt.Errorf("failed to restore factory app.asar: %w", err)
+		}
+		return &ApplyResult{
+			Success: true,
+			Message: "Disabled persistent visual effects in Antigravity desktop app.",
+		}, nil
+	}
+
+	if !fileExists(asarPath) {
+		return &ApplyResult{
+			Success: true,
+			Message: "Antigravity app.asar not present; persistent visual effects disabled.",
+		}, nil
+	}
+
+	data, err := os.ReadFile(asarPath)
+	if err == nil && !bytes.Contains(data, []byte(SwissLoaderMarker)) {
+		return &ApplyResult{
+			Success: true,
+			Message: "Persistent desktop loader is already uninstalled.",
+		}, nil
+	}
+
+	return &ApplyResult{
+		Success: false,
+		Message: "No factory backup found to uninstall permanent loader from.",
+	}, fmt.Errorf("factory backup not found at %s", backupPath)
 }
 
 // RestoreFactoryDefaults restores the pristine original app.asar from factory backup and resets GUI settings.

@@ -11,30 +11,23 @@ import {
   Folder,
   AlertTriangle,
   CheckCircle2,
-  ChevronDown,
 } from 'lucide-react'
 import { api } from '../api'
 import type { ArchivedProjectItem } from '../types'
 
 export const ArchivedProjectsPage: React.FC = () => {
   const [archived, setArchived] = useState<ArchivedProjectItem[]>([])
-  const [activeProjects, setActiveProjects] = useState<Array<{ name: string; color: string; is_archived: boolean }>>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusMsg, setStatusMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [deleteConfirmProject, setDeleteConfirmProject] = useState<ArchivedProjectItem | null>(null)
-  const [selectedToArchive, setSelectedToArchive] = useState('')
 
   const loadData = async () => {
     try {
       setLoading(true)
-      const [archivedList, allProjects] = await Promise.all([
-        api.getArchivedProjects(),
-        api.getGUIProjects().catch(() => []),
-      ])
+      const archivedList = await api.getArchivedProjects()
       setArchived(archivedList || [])
-      setActiveProjects((allProjects || []).filter((p) => !p.is_archived))
     } catch (err: any) {
       setStatusMsg({ text: 'Failed to load archived projects: ' + err.message, type: 'error' })
     } finally {
@@ -67,7 +60,7 @@ export const ArchivedProjectsPage: React.FC = () => {
     try {
       setActionLoading(`restore-${project.id}`)
       await api.restoreProject(project.name || project.id)
-      showToast(`Restored "${project.name}" back to the active Antigravity sidebar!`)
+      showToast(`Restored "${project.name}" to the Antigravity sidebar.`)
       await loadData()
     } catch (err: any) {
       showToast('Failed to restore project: ' + err.message, 'error')
@@ -91,20 +84,6 @@ export const ArchivedProjectsPage: React.FC = () => {
     }
   }
 
-  const handleArchiveSelect = async (name: string) => {
-    if (!name) return
-    try {
-      setActionLoading(`archive-new`)
-      await api.archiveProject(name)
-      showToast(`Archived project "${name}". It is now hidden from the Antigravity sidebar.`)
-      setSelectedToArchive('')
-      await loadData()
-    } catch (err: any) {
-      showToast('Failed to archive project: ' + err.message, 'error')
-    } finally {
-      setActionLoading(null)
-    }
-  }
 
   const filteredProjects = archived.filter((p) => {
     const q = searchQuery.toLowerCase().trim()
@@ -140,93 +119,28 @@ export const ArchivedProjectsPage: React.FC = () => {
 
       {/* Archived Projects Card */}
       <div className="google-card" style={{ padding: 0, overflow: 'hidden' }}>
-        {/* Card Header */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '12px',
-            flexWrap: 'wrap',
-            padding: '16px 20px',
-            borderBottom: '1px solid var(--border)',
-          }}
-        >
+        {archived.length > 0 && (
           <div
             style={{
-              fontSize: '11px',
-              fontWeight: 700,
-              color: 'var(--text-muted)',
-              letterSpacing: '0.8px',
-              textTransform: 'uppercase',
+              padding: '16px 20px',
+              borderBottom: '1px solid var(--border)',
             }}
           >
-            Archived Projects
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {/* Archive Active Project Dropdown */}
-            {activeProjects.length > 0 && (
-              <div style={{ position: 'relative' }}>
-                <select
-                  value={selectedToArchive}
-                  onChange={(e) => {
-                    setSelectedToArchive(e.target.value)
-                    handleArchiveSelect(e.target.value)
-                  }}
-                  disabled={actionLoading !== null}
-                  style={{
-                    height: '36px',
-                    padding: '0 32px 0 12px',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border)',
-                    background: 'var(--surface)',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    color: 'var(--text)',
-                    cursor: 'pointer',
-                    appearance: 'none',
-                  }}
-                >
-                  <option value="">+ Archive an active project...</option>
-                  {activeProjects.map((p) => (
-                    <option key={p.name} value={p.name}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown
-                  size={14}
-                  color="var(--text-muted)"
-                  style={{ position: 'absolute', right: '12px', top: '11px', pointerEvents: 'none' }}
-                />
-              </div>
-            )}
-
-            <button
-              onClick={loadData}
-              disabled={loading}
-              title="Refresh archived projects list"
-              className="btn-pill-tonal"
-              style={{ fontSize: '12px', padding: '7px 14px' }}
-            >
-              <RefreshCw size={13} className={loading ? 'spin' : ''} />
-              <span>Refresh</span>
-            </button>
-          </div>
-        </div>
-
-        {archived.length > 0 && (
-          <div style={{ padding: '14px 20px' }}>
             <div
               style={{
                 position: 'relative',
-                maxWidth: '380px',
+                maxWidth: '384px',
               }}
             >
               <Search
-                size={15}
-                color="#94a3b8"
-                style={{ position: 'absolute', left: '12px', top: '11px', pointerEvents: 'none' }}
+                size={16}
+                color="var(--text-muted)"
+                style={{
+                  position: 'absolute',
+                  left: '12px',
+                  top: '10px',
+                  pointerEvents: 'none',
+                }}
               />
               <input
                 type="text"
@@ -235,13 +149,13 @@ export const ArchivedProjectsPage: React.FC = () => {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 style={{
                   width: '100%',
-                  height: '38px',
+                  height: '36px',
                   padding: '0 12px 0 36px',
                   borderRadius: '8px',
-                  border: '1px solid #e2e8f0',
+                  border: '1px solid var(--border)',
                   fontSize: '13px',
-                  color: '#1e293b',
-                  background: '#ffffff',
+                  color: 'var(--text)',
+                  background: 'var(--surface, #ffffff)',
                   boxSizing: 'border-box',
                 }}
               />
@@ -284,16 +198,16 @@ export const ArchivedProjectsPage: React.FC = () => {
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                <th style={{ padding: '12px 18px', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                <th style={{ padding: '12px 18px', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.6px', whiteSpace: 'nowrap' }}>
                   Project Name
                 </th>
-                <th style={{ padding: '12px 18px', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                <th style={{ padding: '12px 18px', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.6px', whiteSpace: 'nowrap' }}>
                   Last Conversation
                 </th>
-                <th style={{ padding: '12px 18px', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                <th style={{ padding: '12px 18px', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.6px', whiteSpace: 'nowrap' }}>
                   Conversations
                 </th>
-                <th style={{ padding: '12px 18px', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.6px', textAlign: 'right' }}>
+                <th style={{ padding: '12px 18px', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.6px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                   Actions
                 </th>
               </tr>
@@ -356,6 +270,7 @@ export const ArchivedProjectsPage: React.FC = () => {
                           fontSize: '13px',
                           fontWeight: 500,
                           color: '#334155',
+                          whiteSpace: 'nowrap',
                         }}
                         title={p.last_active_time ? new Date(p.last_active_time).toLocaleString() : 'No activity recorded'}
                       >
@@ -366,7 +281,7 @@ export const ArchivedProjectsPage: React.FC = () => {
 
                   {/* Conversation Count */}
                   <td style={{ padding: '16px 18px' }}>
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 9px', borderRadius: '12px', background: '#f1f5f9', color: '#475569', fontSize: '12px', fontWeight: 600 }}>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '2px 8px', borderRadius: '12px', background: '#f1f5f9', color: '#475569', fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap' }}>
                       <MessageSquare size={12} />
                       <span>{p.conversation_count}</span>
                     </div>
@@ -383,7 +298,7 @@ export const ArchivedProjectsPage: React.FC = () => {
                         style={{
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '5px',
+                          gap: '6px',
                           padding: '6px 10px',
                           borderRadius: '6px',
                           border: '1px solid #d1d5db',
@@ -393,6 +308,7 @@ export const ArchivedProjectsPage: React.FC = () => {
                           color: '#374151',
                           cursor: 'pointer',
                           transition: 'background 0.12s',
+                          whiteSpace: 'nowrap',
                         }}
                         onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')}
                         onMouseLeave={(e) => (e.currentTarget.style.background = '#ffffff')}
@@ -409,7 +325,7 @@ export const ArchivedProjectsPage: React.FC = () => {
                         style={{
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '5px',
+                          gap: '6px',
                           padding: '6px 10px',
                           borderRadius: '6px',
                           border: '1px solid #bbf7d0',
@@ -419,6 +335,7 @@ export const ArchivedProjectsPage: React.FC = () => {
                           color: '#15803d',
                           cursor: 'pointer',
                           transition: 'background 0.12s',
+                          whiteSpace: 'nowrap',
                         }}
                         onMouseEnter={(e) => (e.currentTarget.style.background = '#dcfce7')}
                         onMouseLeave={(e) => (e.currentTarget.style.background = '#f0fdf4')}
@@ -435,7 +352,7 @@ export const ArchivedProjectsPage: React.FC = () => {
                         style={{
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '5px',
+                          gap: '6px',
                           padding: '6px 10px',
                           borderRadius: '6px',
                           border: '1px solid #fecaca',
@@ -445,6 +362,7 @@ export const ArchivedProjectsPage: React.FC = () => {
                           color: '#b91c1c',
                           cursor: 'pointer',
                           transition: 'background 0.12s',
+                          whiteSpace: 'nowrap',
                         }}
                         onMouseEnter={(e) => (e.currentTarget.style.background = '#fee2e2')}
                         onMouseLeave={(e) => (e.currentTarget.style.background = '#fef2f2')}

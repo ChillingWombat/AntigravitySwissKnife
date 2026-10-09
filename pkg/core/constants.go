@@ -1,9 +1,11 @@
 package core
 
 import (
+	"flag"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -17,6 +19,7 @@ const (
 	DefaultAutoSwitchThresholdFraction        = 0.05
 	DefaultAutoSwitchWeeklyThresholdFraction  = 0.05
 	DefaultWarmupLeadTimeSeconds              = 2.0
+	DefaultPostResetDelaySeconds              = 2.0
 	DefaultSocketTimeout                = 10 * time.Second
 	DefaultShutdownGracePeriod          = 3 * time.Second
 
@@ -26,6 +29,22 @@ const (
 	SwitchModeMaxContinuous      = "max_continuous"
 	DefaultSwitchMode            = SwitchModeBalanced
 	DefaultMinSwitchDwellSeconds = 600
+
+	// Multi-App Account Synchronization Modes
+	MultiAppSyncModeShared     = "shared"
+	MultiAppSyncModeIndividual = "individual"
+	DefaultMultiAppSyncMode    = MultiAppSyncModeShared
+
+	// Gemini Subagent Custom Model Strategies
+	SubagentModelStrategyDefaultCustomOnly = "default_custom_only"
+	SubagentModelStrategyAutoDecide        = "auto_decide"
+	DefaultSubagentModelStrategy           = SubagentModelStrategyDefaultCustomOnly
+
+	// Target Apps for Account Switching
+	TargetAppAll     = "all"
+	TargetAppDesktop = "desktop"
+	TargetAppCLI     = "agy"
+	TargetAppVSCode  = "vscode"
 
 
 	// Quota Health Statuses
@@ -234,6 +253,35 @@ func GetAntigravityBinaryPath() string {
 		}
 		return filepath.Join(GetAntigravityDesktopAppPath(), "antigravity")
 	}
+}
+
+// IsRunningTests returns true if the current execution is within a Go test runner.
+func IsRunningTests() bool {
+	if os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" {
+		return true
+	}
+	if flag.Lookup("test.v") != nil {
+		return true
+	}
+	if len(os.Args) > 0 && strings.HasSuffix(os.Args[0], ".test") {
+		return true
+	}
+	return false
+}
+
+// IsTestMockEmail filters out unit test fixtures and artificial mock accounts.
+func IsTestMockEmail(email string) bool {
+	norm := strings.ToLower(strings.TrimSpace(email))
+	if norm == "" {
+		return true
+	}
+	if norm == "target@gmail.com" || strings.HasSuffix(norm, "@example.com") || strings.HasSuffix(norm, ".test") || strings.HasSuffix(norm, "@mock.test") {
+		return true
+	}
+	if strings.HasPrefix(norm, "mock_") || strings.HasPrefix(norm, "test_") || strings.HasPrefix(norm, "test.") {
+		return true
+	}
+	return false
 }
 
 

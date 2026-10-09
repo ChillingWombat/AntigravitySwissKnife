@@ -502,7 +502,78 @@ func extractPictureFromIDToken(idToken string) string {
 	return ""
 }
 
-// SyncStateVscdb updates profileUrl and userStatus in Antigravity's state.vscdb SQLite storage if present.
+func protoMsgField(tag int, payload []byte) []byte {
+	var buf bytes.Buffer
+	buf.WriteByte(byte((tag << 3) | 2))
+	writeVarint(&buf, uint64(len(payload)))
+	buf.Write(payload)
+	return buf.Bytes()
+}
+
+func protoStrField(tag int, s string) []byte {
+	return protoMsgField(tag, []byte(s))
+}
+
+func protoVarintField(tag int, v uint64) []byte {
+	var buf bytes.Buffer
+	buf.WriteByte(byte((tag << 3) | 0))
+	writeVarint(&buf, v)
+	return buf.Bytes()
+}
+
+// buildOAuthTokenSentinel constructs the exact protobuf structure expected by
+// Antigravity for antigravityUnifiedStateSync.oauthToken in state.vscdb.
+func buildOAuthTokenSentinel(acc *Account) string {
+	if acc == nil || (acc.AccessToken == "" && acc.RefreshToken == "") {
+		return ""
+	}
+
+	expirySecs := uint64(time.Now().Add(1 * time.Hour).Unix())
+	if !acc.TokenExpiry.IsZero() {
+		expirySecs = uint64(acc.TokenExpiry.Unix())
+	}
+
+	// 1. Construct inner protobuf for token info:
+	// tag 1: string access_token
+	// tag 2: string "Bearer"
+	// tag 3: string refresh_token
+	// tag 4: message expiry (tag 1: varint expirySecs, tag 2: varint 0)
+	// tag 5: string id_token
+	var expBuf bytes.Buffer
+	expBuf.Write(protoVarintField(1, expirySecs))
+	expBuf.Write(protoVarintField(2, 0))
+
+	var inner bytes.Buffer
+	inner.Write(protoStrField(1, acc.AccessToken))
+	inner.Write(protoStrField(2, "Bearer"))
+	inner.Write(protoStrField(3, acc.RefreshToken))
+	inner.Write(protoMsgField(4, expBuf.Bytes()))
+	if acc.IDToken != "" {
+		inner.Write(protoStrField(5, acc.IDToken))
+	}
+
+	innerB64Str := base64.StdEncoding.EncodeToString(inner.Bytes())
+
+	// 2. Construct authStateWithContextSentinelKey message:
+	const authStateJSON = `{"state":"signedIn","context":{"project":"","showProjectError":false,"errorMessage":"","ineligibleMessage":"","verificationUrl":"","isGcpTos":false,"browserOpenFailed":false,"appealUrl":"","appealLinkText":""}}`
+	var authStateInner bytes.Buffer
+	authStateInner.Write(protoStrField(1, "authStateWithContextSentinelKey"))
+	authStateInner.Write(protoMsgField(2, protoStrField(1, authStateJSON)))
+
+	// 3. Construct oauthTokenInfoSentinelKey message:
+	var tokenInfoInner bytes.Buffer
+	tokenInfoInner.Write(protoStrField(1, "oauthTokenInfoSentinelKey"))
+	tokenInfoInner.Write(protoMsgField(2, protoStrField(1, innerB64Str)))
+
+	// 4. Combine into top-level repeated message
+	var top bytes.Buffer
+	top.Write(protoMsgField(1, authStateInner.Bytes()))
+	top.Write(protoMsgField(1, tokenInfoInner.Bytes()))
+
+	return base64.StdEncoding.EncodeToString(top.Bytes())
+}
+
+// SyncStateVscdb updates profileUrl, userStatus, and oauthToken in Antigravity's state.vscdb SQLite storage if present.
 func SyncStateVscdb(acc *Account) error {
 	if acc == nil {
 		return nil
@@ -542,6 +613,12 @@ func SyncStateVscdb(acc *Account) error {
 		_, _ = db.Exec("INSERT OR REPLACE INTO ItemTable(key, value) VALUES('antigravity.profileUrl', ?)", picture)
 	}
 
+	// 3. Update oauthToken to prevent UI-session hydration mismatch on relaunch
+	oauthSentinel := buildOAuthTokenSentinel(acc)
+	if oauthSentinel != "" {
+		_, _ = db.Exec("INSERT OR REPLACE INTO ItemTable(key, value) VALUES('antigravityUnifiedStateSync.oauthToken', ?)", oauthSentinel)
+	}
+
 	return nil
 }
 
@@ -574,3 +651,63 @@ func SyncAllSurfaces(acc *Account, allEmails []string, profileMgr *fingerprint.S
 
 	return nil
 }
+
+// SyncDesktopSurface synchronizes credentials for Antigravity 2.0 Desktop only.
+func SyncDesktopSurface(acc *Account, profileMgr *fingerprint.Store, allEmails ...[]string) error {
+	if acc == nil {
+		return fmt.Errorf("nil account")
+	}
+	_ = EnsureFreshAccessToken(acc)
+	_ = WriteSecretServiceToken(acc)
+	_ = SyncDesktopStandaloneToken(acc)
+	_ = SyncAppStorageLoginUser(acc.Email)
+	_ = SyncHardwareProfile(acc.Email, profileMgr)
+	_ = SyncStateVscdb(acc)
+	var emails []string
+	if len(allEmails) > 0 {
+		emails = allEmails[0]
+	}
+	_ = SyncGoogleAccountsJSON(acc.Email, emails)
+	_ = SyncOAuthCredsJSON(acc)
+	_ = SyncCloudAccountsActiveAccount("", acc.Email)
+	return nil
+}
+
+// SyncCLISurface synchronizes credentials for Antigravity CLI (agy) only.
+func SyncCLISurface(acc *Account, allEmails []string) error {
+	if acc == nil {
+		return fmt.Errorf("nil account")
+	}
+	_ = EnsureFreshAccessToken(acc)
+	_ = SyncCLIOAuthToken(acc)
+	_ = SyncGoogleAccountsJSON(acc.Email, allEmails)
+	_ = SyncOAuthCredsJSON(acc)
+	return nil
+}
+
+// SyncVSCodeSurface synchronizes credentials for VS Code Extension only.
+func SyncVSCodeSurface(acc *Account) error {
+	if acc == nil {
+		return fmt.Errorf("nil account")
+	}
+	_ = EnsureFreshAccessToken(acc)
+	_ = WriteSecretServiceToken(acc)
+	return nil
+}
+
+// SyncSurface routes to the appropriate surface sync based on targetApp.
+func SyncSurface(targetApp string, acc *Account, allEmails []string, profileMgr *fingerprint.Store) error {
+	switch strings.ToLower(strings.TrimSpace(targetApp)) {
+	case "desktop":
+		return SyncDesktopSurface(acc, profileMgr, allEmails)
+	case "agy":
+		return SyncCLISurface(acc, allEmails)
+	case "vscode":
+		return SyncVSCodeSurface(acc)
+	case "all", "":
+		return SyncAllSurfaces(acc, allEmails, profileMgr)
+	default:
+		return fmt.Errorf("unknown target app: %s", targetApp)
+	}
+}
+

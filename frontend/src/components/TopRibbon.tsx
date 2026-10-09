@@ -82,7 +82,7 @@ export const TopRibbon: React.FC<TopRibbonProps> = ({
           }}
           title={`Active runtime account: ${activeAccount}`}
         >
-          Current Account: {activeAccount}
+          {activeAccount}
         </span>
       ) : (
         <div

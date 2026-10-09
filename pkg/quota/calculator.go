@@ -46,6 +46,7 @@ type AccountQuotaState struct {
 	Password             string  `json:"password,omitempty"`
 	HasTOTP              bool    `json:"has_totp"`
 	TOTPSecret           string  `json:"totp_secret"`
+	AccessToken          string  `json:"access_token,omitempty"`
 	RefreshToken         string  `json:"refresh_token"`
 	Quota5hCurrent       float64 `json:"quota_5h_current"`
 	ResetSeconds         float64 `json:"reset_seconds"`
@@ -614,6 +615,20 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 			}
 		}
 
+		// Credential check: if account lacks a valid refresh token, it requires re-authentication.
+		if strings.TrimSpace(acc.RefreshToken) == "" && !core.IsRunningTests() {
+			if status != "BANNED" && status != "ERROR" {
+				status = "NEEDS_REAUTH"
+			}
+			if errorMessage == "" {
+				errorMessage = "Missing credentials / re-authentication required"
+			}
+		}
+
+		if strings.EqualFold(acc.Status, "NEEDS_REAUTH") {
+			status = "NEEDS_REAUTH"
+		}
+
 		results = append(results, AccountQuotaState{
 			Email:                  email,
 			Label:                  label,
@@ -628,6 +643,7 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 			Password:               acc.Password,
 			HasTOTP:                acc.HasTOTP,
 			TOTPSecret:             acc.TOTPSecret,
+			AccessToken:            acc.AccessToken,
 			RefreshToken:           acc.RefreshToken,
 			Quota5hCurrent:         cur5h,
 			ResetSeconds:           curSec,
@@ -1107,7 +1123,10 @@ func RankStandbyAccountsWithThresholds(accounts []AccountQuotaState, threshold5h
 			continue
 		}
 		st := strings.ToUpper(acc.Status)
-		if st == "BANNED" || st == "ERROR" || st == "COOLDOWN" || st == "COOLING" {
+		if st == "BANNED" || st == "ERROR" || st == "COOLDOWN" || st == "COOLING" || st == "NEEDS_REAUTH" {
+			continue
+		}
+		if strings.TrimSpace(acc.RefreshToken) == "" && !core.IsRunningTests() {
 			continue
 		}
 		if acc.Quota5hCurrent <= threshold5h {
@@ -1237,6 +1256,111 @@ func EvaluateAutoSwitchWithThresholds(accounts []AccountQuotaState, activeEmail 
 	}
 
 	return false, nil, "Active account quota is healthy"
+}
+
+// EvaluateAutoSwitchForApp evaluates auto-rotation for a specific application appType.
+// In individual mode:
+//   1. It first searches for a healthy standby account NOT in use by any app.
+//   2. Only if no unused standby accounts exist does it fall back to sharing an account with other apps.
+func EvaluateAutoSwitchForApp(
+	accounts []AccountQuotaState,
+	currentAppEmail string,
+	inUseEmails []string,
+	threshold5h, thresholdWeekly float64,
+	mode string,
+	activeDwellSec float64,
+) (bool, *AccountQuotaState, string) {
+	if threshold5h <= 0 {
+		threshold5h = core.DefaultAutoSwitchThresholdFraction
+	}
+	if thresholdWeekly <= 0 {
+		thresholdWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
+	}
+	m := NormalizeSwitchMode(mode)
+
+	// Identify the current app's active account
+	var active *AccountQuotaState
+	for i := range accounts {
+		if strings.EqualFold(accounts[i].Email, currentAppEmail) {
+			active = &accounts[i]
+			break
+		}
+	}
+	if active == nil {
+		return false, nil, "Active account for app not found"
+	}
+
+	// Verify quota breach
+	is5hBreached := active.Quota5hCurrent <= threshold5h
+	isWeeklyBreached := active.QuotaWeekly <= thresholdWeekly && !(active.EnableCreditOverages && active.Credits > 0)
+	if !is5hBreached && !isWeeklyBreached {
+		return false, nil, "Active account quota is healthy"
+	}
+
+	isEligible := func(acc AccountQuotaState) bool {
+		st := strings.ToUpper(acc.Status)
+		if st == "BANNED" || st == "ERROR" || st == "COOLDOWN" || st == "COOLING" || st == "NEEDS_REAUTH" {
+			return false
+		}
+		if strings.TrimSpace(acc.RefreshToken) == "" && !core.IsRunningTests() {
+			return false
+		}
+		if acc.Quota5hCurrent <= threshold5h {
+			return false
+		}
+		return acc.QuotaWeekly > thresholdWeekly || (acc.EnableCreditOverages && acc.Credits > 0)
+	}
+
+	// Build the set of emails currently in use across ANY app
+	inUseSet := make(map[string]bool)
+	for _, em := range inUseEmails {
+		if trimmed := strings.ToLower(strings.TrimSpace(em)); trimmed != "" {
+			inUseSet[trimmed] = true
+		}
+	}
+
+	// Phase 1: Standby accounts NOT in use by ANY app
+	var unusedCandidates []AccountQuotaState
+	for _, acc := range accounts {
+		norm := strings.ToLower(strings.TrimSpace(acc.Email))
+		if inUseSet[norm] {
+			continue // Currently active in this or another app
+		}
+		if isEligible(acc) {
+			unusedCandidates = append(unusedCandidates, acc)
+		}
+	}
+
+	if len(unusedCandidates) > 0 {
+		sort.Slice(unusedCandidates, func(i, j int) bool {
+			return CompareStandbyCandidates(unusedCandidates[i], unusedCandidates[j], threshold5h, m)
+		})
+		reason := fmt.Sprintf("App quota depleted; rotated to unused standby account (%s)", unusedCandidates[0].Email)
+		return true, &unusedCandidates[0], reason
+	}
+
+	// Phase 2: Fallback to sharing an account used by other apps (excluding currentAppEmail)
+	var sharedCandidates []AccountQuotaState
+	currNorm := strings.ToLower(strings.TrimSpace(currentAppEmail))
+	for _, acc := range accounts {
+		norm := strings.ToLower(strings.TrimSpace(acc.Email))
+		if norm == currNorm {
+			continue // Do not fall back to the depleted self
+		}
+		if isEligible(acc) {
+			sharedCandidates = append(sharedCandidates, acc)
+		}
+	}
+
+	if len(sharedCandidates) > 0 {
+		sort.Slice(sharedCandidates, func(i, j int) bool {
+			return CompareStandbyCandidates(sharedCandidates[i], sharedCandidates[j], threshold5h, m)
+		})
+		reason := fmt.Sprintf("No unused standby accounts available; falling back to shared account (%s)", sharedCandidates[0].Email)
+		return true, &sharedCandidates[0], reason
+	}
+
+	return false, nil, "No eligible standby or shared accounts available"
 }
 
 // SortAccountQuotaStates sorts all accounts for UI dashboard display in accordance with sortMode and switchMode (backwards-compatible).

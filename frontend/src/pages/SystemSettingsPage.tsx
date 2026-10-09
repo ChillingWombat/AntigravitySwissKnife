@@ -8,17 +8,17 @@ import {
   Eye,
   EyeOff,
   KeyRound,
-  HardDrive,
-
   Send,
   ExternalLink,
-  Info,
   FolderOpen,
   Trash2,
   AlertTriangle,
   Download,
   CheckCircle2,
   Clock,
+  AppWindow,
+  Server,
+  Play,
 } from 'lucide-react'
 import type {
   SystemStatus,
@@ -41,7 +41,7 @@ interface SystemSettingsPageProps {
 }
 
 export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
-  status: _status,
+  status,
   onRefresh,
   activeTab = 0,
   onTabChange: _onTabChange,
@@ -73,31 +73,34 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
   const [isSubmittingPassword, setIsSubmittingPassword] = useState(false)
 
   // Desktop System Startup state
+  const [runtimeMode, setRuntimeMode] = useState<'app' | 'daemon'>(() => {
+    const stored = localStorage.getItem('antigravity_runtime_mode')
+    return stored === 'daemon' ? 'daemon' : 'app'
+  })
+  const [savingRuntimeMode, setSavingRuntimeMode] = useState<boolean>(false)
+  const [isStartingDaemon, setIsStartingDaemon] = useState<boolean>(false)
+  const isDaemonLive = Boolean(status?.daemon_running)
   const [startupEnabled, setStartupEnabled] = useState<boolean>(() => {
     return localStorage.getItem('antigravity_startup_enabled') === 'true'
   })
   const [closeToTrayEnabled, setCloseToTrayEnabled] = useState<boolean>(() => {
-    return localStorage.getItem('antigravity_close_to_tray_enabled') === 'true'
+    const stored = localStorage.getItem('antigravity_close_to_tray_enabled')
+    return stored === null ? true : stored === 'true'
   })
+  const [persistentVisualEffects, setPersistentVisualEffects] = useState<boolean>(() => {
+    const stored = localStorage.getItem('antigravity_persistent_visual_effects')
+    return stored === null ? true : stored === 'true'
+  })
+  const [togglingPersistentVisual, setTogglingPersistentVisual] = useState<boolean>(false)
 
   // Storage and Path state
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null)
-  const [selectedStorageMode, setSelectedStorageMode] = useState<'system_default' | 'app_portable'>('system_default')
-  const [migrateData, setMigrateData] = useState<boolean>(true)
-  const [isSavingStorage, setIsSavingStorage] = useState<boolean>(false)
-  const [storageFeedback, setStorageFeedback] = useState<{ text: string; isError: boolean } | null>(null)
 
-  // 3 App Zones, Custom Paths & Per-Account Overrides state
-  const [accounts, setAccounts] = useState<any[]>([])
+  // 3 App Zones, Custom Paths & Cache Management state
   const [customPaths, setCustomPaths] = useState<Record<string, string>>({
     desktop: '',
     agy: '',
     vscode: '',
-  })
-  const [accountOverrideDrafts, setAccountOverrideDrafts] = useState<Record<string, { email: string; path: string }>>({
-    desktop: { email: '', path: '' },
-    agy: { email: '', path: '' },
-    vscode: { email: '', path: '' },
   })
   const [pathFeedback, setPathFeedback] = useState<Record<string, { text: string; isError: boolean }>>({})
   const [cacheClearFeedback, setCacheClearFeedback] = useState<Record<string, { text: string; isError: boolean; isClearing?: boolean }>>({})
@@ -146,7 +149,73 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
         })
         .catch((err: any) => console.warn('Could not read close to tray setting:', err))
     }
+    if (electronAPI?.getRuntimeModeSetting) {
+      electronAPI
+        .getRuntimeModeSetting()
+        .then((res: any) => {
+          if (res && (res.runtimeMode === 'daemon' || res.runtimeMode === 'app')) {
+            setRuntimeMode(res.runtimeMode)
+            localStorage.setItem('antigravity_runtime_mode', res.runtimeMode)
+          }
+        })
+        .catch((err: any) => console.warn('Could not read runtime mode setting from electron:', err))
+    }
+    api
+      .getRuntimeMode()
+      .then((res) => {
+        if (res && (res.runtime_mode === 'daemon' || res.runtime_mode === 'app')) {
+          setRuntimeMode(res.runtime_mode)
+          localStorage.setItem('antigravity_runtime_mode', res.runtime_mode)
+        }
+      })
+      .catch(() => {})
+    api
+      .getDesktopPersistenceStatus()
+      .then((res) => {
+        if (res && typeof res.persistent_visual_effects === 'boolean') {
+          setPersistentVisualEffects(res.persistent_visual_effects)
+          localStorage.setItem('antigravity_persistent_visual_effects', String(res.persistent_visual_effects))
+        }
+      })
+      .catch(() => {})
   }, [])
+
+  const handleSelectRuntimeMode = async (mode: 'app' | 'daemon') => {
+    if (runtimeMode === mode) return
+    setRuntimeMode(mode)
+    localStorage.setItem('antigravity_runtime_mode', mode)
+    setSavingRuntimeMode(true)
+    try {
+      const electronAPI = (window as any).electronAPI
+      if (electronAPI?.setRuntimeModeSetting) {
+        await electronAPI.setRuntimeModeSetting(mode)
+      }
+      await api.setRuntimeMode(mode)
+    } catch (err: any) {
+      console.warn('Failed to update runtime mode setting:', err)
+    } finally {
+      setSavingRuntimeMode(false)
+    }
+  }
+
+  const handleStartDaemon = async () => {
+    setIsStartingDaemon(true)
+    try {
+      const electronAPI = (window as any).electronAPI
+      if (electronAPI?.startDaemon) {
+        await electronAPI.startDaemon()
+      } else {
+        await api.startDaemon()
+      }
+      onRefresh()
+      setTimeout(onRefresh, 800)
+      setTimeout(onRefresh, 2000)
+    } catch (err: any) {
+      console.warn('Failed to start daemon:', err)
+    } finally {
+      setIsStartingDaemon(false)
+    }
+  }
 
   const handleToggleStartup = async (enabled: boolean) => {
     setStartupEnabled(enabled)
@@ -171,6 +240,23 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
       } catch (err: any) {
         console.warn('Failed to update close to tray setting:', err)
       }
+    }
+  }
+
+  const handleTogglePersistentVisualEffects = async (enabled: boolean) => {
+    setPersistentVisualEffects(enabled)
+    localStorage.setItem('antigravity_persistent_visual_effects', String(enabled))
+    try {
+      setTogglingPersistentVisual(true)
+      const res = await api.setDesktopPersistence(enabled)
+      if (res && typeof res.persistent_visual_effects === 'boolean') {
+        setPersistentVisualEffects(res.persistent_visual_effects)
+        localStorage.setItem('antigravity_persistent_visual_effects', String(res.persistent_visual_effects))
+      }
+    } catch (err: any) {
+      console.warn('Failed to update persistent visual effects setting:', err)
+    } finally {
+      setTogglingPersistentVisual(false)
     }
   }
 
@@ -287,9 +373,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
     try {
       const data = await api.getStorageSettings()
       setStorageInfo(data)
-      if (data && data.storage_mode) {
-        setSelectedStorageMode(data.storage_mode)
-      }
       if (data?.app_zones) {
         setCustomPaths({
           desktop: data.app_zones.desktop?.custom_path || '',
@@ -299,15 +382,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
       }
     } catch (err: any) {
       console.error('Failed to load storage settings:', err)
-    }
-
-    try {
-      const accList = await api.getAccounts()
-      if (Array.isArray(accList)) {
-        setAccounts(accList)
-      }
-    } catch (err: any) {
-      console.error('Failed to load accounts for path overrides:', err)
     }
   }
 
@@ -394,30 +468,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
     }
   }
 
-  const handleSaveStorageMode = async () => {
-    setIsSavingStorage(true)
-    setStorageFeedback(null)
-    try {
-      const res = await api.setStorageSettings({
-        storage_mode: selectedStorageMode,
-        migrate_data: migrateData,
-      })
-      if (res.success) {
-        setStorageInfo(res.storage)
-        setStorageFeedback({
-          text: `Storage mode switched to ${selectedStorageMode === 'app_portable' ? 'Portable (Store with App)' : 'System Standard Folders'}${migrateData ? ' with data migration completed.' : '.'}`,
-          isError: false,
-        })
-      } else {
-        setStorageFeedback({ text: res.error || 'Failed to update storage mode.', isError: true })
-      }
-    } catch (err: any) {
-      setStorageFeedback({ text: err.message || 'Failed to update storage mode.', isError: true })
-    } finally {
-      setIsSavingStorage(false)
-    }
-  }
-
   const handleSavePrivacyToggle = async (errorReports: boolean, telemetry: boolean) => {
     setAnonymousErrorReports(errorReports)
     setAnonymousTelemetry(telemetry)
@@ -498,7 +548,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
     }
   }
 
-  const handleBrowsePath = async (appType: 'desktop' | 'agy' | 'vscode', isAccountOverride: boolean = false) => {
+  const handleBrowsePath = async (appType: 'desktop' | 'agy' | 'vscode') => {
     const electronAPI = (window as any).electronAPI
     if (electronAPI?.selectPath) {
       const isDir = appType === 'vscode'
@@ -507,29 +557,13 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
         title: isDir ? `Select ${appType.toUpperCase()} Extension Directory` : `Select ${appType.toUpperCase()} Executable`,
       })
       if (selected) {
-        if (isAccountOverride) {
-          setAccountOverrideDrafts((prev) => ({
-            ...prev,
-            [appType]: { ...prev[appType], path: selected },
-          }))
-        } else {
-          setCustomPaths((prev) => ({ ...prev, [appType]: selected }))
-        }
+        setCustomPaths((prev) => ({ ...prev, [appType]: selected }))
       }
     } else {
-      const currentVal = isAccountOverride
-        ? accountOverrideDrafts[appType]?.path || ''
-        : customPaths[appType] || ''
+      const currentVal = customPaths[appType] || ''
       const promptVal = window.prompt(`Enter full path for ${appType}:`, currentVal)
       if (promptVal !== null) {
-        if (isAccountOverride) {
-          setAccountOverrideDrafts((prev) => ({
-            ...prev,
-            [appType]: { ...prev[appType], path: promptVal.trim() },
-          }))
-        } else {
-          setCustomPaths((prev) => ({ ...prev, [appType]: promptVal.trim() }))
-        }
+        setCustomPaths((prev) => ({ ...prev, [appType]: promptVal.trim() }))
       }
     }
   }
@@ -576,61 +610,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
       setPathFeedback((prev) => ({
         ...prev,
         [appType]: { text: err.message || 'Failed to reset path.', isError: true },
-      }))
-    }
-  }
-
-  const handleSaveAccountOverride = async (appType: string) => {
-    const draft = accountOverrideDrafts[appType]
-    if (!draft?.email || !draft?.path) {
-      setPathFeedback((prev) => ({
-        ...prev,
-        [appType]: { text: 'Select an account and specify an executable path.', isError: true },
-      }))
-      return
-    }
-    try {
-      const res = await api.saveAccountOverride(appType, draft.email, draft.path)
-      if (res.success && res.storage) {
-        setStorageInfo(res.storage)
-        setAccountOverrideDrafts((prev) => ({
-          ...prev,
-          [appType]: { email: '', path: '' },
-        }))
-        setPathFeedback((prev) => ({
-          ...prev,
-          [appType]: { text: `Override applied for ${draft.email}.`, isError: false },
-        }))
-        setTimeout(() => setPathFeedback((prev) => ({ ...prev, [appType]: { text: '', isError: false } })), 3000)
-      } else {
-        setPathFeedback((prev) => ({
-          ...prev,
-          [appType]: { text: res.error || 'Failed to set account override.', isError: true },
-        }))
-      }
-    } catch (err: any) {
-      setPathFeedback((prev) => ({
-        ...prev,
-        [appType]: { text: err.message || 'Failed to set account override.', isError: true },
-      }))
-    }
-  }
-
-  const handleRemoveAccountOverride = async (appType: string, email: string) => {
-    try {
-      const res = await api.saveAccountOverride(appType, email, '')
-      if (res.success && res.storage) {
-        setStorageInfo(res.storage)
-        setPathFeedback((prev) => ({
-          ...prev,
-          [appType]: { text: `Override removed for ${email}.`, isError: false },
-        }))
-        setTimeout(() => setPathFeedback((prev) => ({ ...prev, [appType]: { text: '', isError: false } })), 3000)
-      }
-    } catch (err: any) {
-      setPathFeedback((prev) => ({
-        ...prev,
-        [appType]: { text: err.message || 'Failed to remove override.', isError: true },
       }))
     }
   }
@@ -726,16 +705,126 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
                 System & Startup
               </div>
+
+              {!isDaemonLive && (
+                <button
+                  type="button"
+                  onClick={handleStartDaemon}
+                  disabled={isStartingDaemon}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '4px 12px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    backgroundColor: 'var(--yellow-bg, #fef7e0)',
+                    color: 'var(--yellow, #b06000)',
+                    border: '1px solid #f9ab00',
+                    cursor: isStartingDaemon ? 'wait' : 'pointer',
+                    transition: 'all 0.15s ease',
+                    whiteSpace: 'nowrap',
+                    boxShadow: 'var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.05))',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isStartingDaemon) e.currentTarget.style.backgroundColor = '#fde293'
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isStartingDaemon) e.currentTarget.style.backgroundColor = 'var(--yellow-bg, #fef7e0)'
+                  }}
+                >
+                  <Play size={12} fill="currentColor" />
+                  <span>{isStartingDaemon ? 'Starting Daemon...' : 'Start Daemon'}</span>
+                </button>
+              )}
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', backgroundColor: 'var(--canvas)', borderRadius: '10px' }}>
-              <div>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                  Launch at System Startup (Minimized to Tray)
+            {/* Runtime Lifecycle Mode (1x2 Grid) */}
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                Lifecycle Mode
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+                {/* App Only Mode */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => handleSelectRuntimeMode('app')}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleSelectRuntimeMode('app') }}
+                  style={{
+                    padding: '14px 16px',
+                    borderRadius: '8px',
+                    backgroundColor: runtimeMode === 'app' ? 'var(--accent-subtle, rgba(59, 130, 246, 0.08))' : 'var(--canvas)',
+                    border: runtimeMode === 'app' ? '1px solid var(--accent, #3b82f6)' : '1px solid var(--border, #e2e8f0)',
+                    cursor: savingRuntimeMode ? 'wait' : 'pointer',
+                    transition: 'all 0.15s ease',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <AppWindow size={16} color={runtimeMode === 'app' ? 'var(--accent, #3b82f6)' : 'var(--text-muted)'} />
+                        <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                          App Mode (Default)
+                        </span>
+                      </div>
+                      <span className={`badge-chip ${runtimeMode === 'app' ? 'badge-blue' : 'badge-neutral'}`} style={{ fontSize: '10px', padding: '2px 8px' }}>
+                        {runtimeMode === 'app' ? 'ACTIVE' : 'SELECT'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+                      Daemon runs while the desktop app is open. Closing the app stops background services.
+                    </div>
+                  </div>
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  Automatically starts the Antigravity companion silently in your system tray when you log into Windows, macOS, or Linux.
+
+                {/* Daemon Mode */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => handleSelectRuntimeMode('daemon')}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleSelectRuntimeMode('daemon') }}
+                  style={{
+                    padding: '14px 16px',
+                    borderRadius: '8px',
+                    backgroundColor: runtimeMode === 'daemon' ? 'var(--accent-subtle, rgba(59, 130, 246, 0.08))' : 'var(--canvas)',
+                    border: runtimeMode === 'daemon' ? '1px solid var(--accent, #3b82f6)' : '1px solid var(--border, #e2e8f0)',
+                    cursor: savingRuntimeMode ? 'wait' : 'pointer',
+                    transition: 'all 0.15s ease',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Server size={16} color={runtimeMode === 'daemon' ? 'var(--accent, #3b82f6)' : 'var(--text-muted)'} />
+                        <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                          Daemon Mode
+                        </span>
+                      </div>
+                      <span className={`badge-chip ${runtimeMode === 'daemon' ? 'badge-blue' : 'badge-neutral'}`} style={{ fontSize: '10px', padding: '2px 8px' }}>
+                        {runtimeMode === 'daemon' ? 'ACTIVE' : 'SELECT'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+                      Daemon runs continuously in the background. CLI and extensions remain connected when the window is closed.
+                    </div>
+                  </div>
                 </div>
+              </div>
+            </div>
+
+            <div style={{ height: '1px', backgroundColor: 'var(--border, #e2e8f0)', margin: '16px 0' }} />
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', backgroundColor: 'var(--canvas)', borderRadius: '8px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                Launch at System Startup (Minimized to Tray)
               </div>
 
               <ToggleSwitch
@@ -748,19 +837,34 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
             <div style={{ height: '1px', backgroundColor: 'var(--border, #e2e8f0)', margin: '12px 0' }} />
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', backgroundColor: 'var(--canvas)', borderRadius: '10px' }}>
-              <div>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                  Keep Running in Background When Closed
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  Minimizes to system tray and keeps the background daemon running when the window is closed. When disabled (default), closing the window completely terminates the desktop app and daemon.
-                </div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                Minimize to tray when close window
               </div>
 
               <ToggleSwitch
                 size="md"
                 checked={closeToTrayEnabled}
                 onChange={handleToggleCloseToTray}
+              />
+            </div>
+
+            <div style={{ height: '1px', backgroundColor: 'var(--border, #e2e8f0)', margin: '12px 0' }} />
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', backgroundColor: 'var(--canvas)', borderRadius: '10px' }}>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                  Persist Visual Effects in Antigravity UI
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  Keep pure visual UI modifications active in the Antigravity app even if the daemon is closed and the Antigravity app is restarted.
+                </div>
+              </div>
+
+              <ToggleSwitch
+                size="md"
+                checked={persistentVisualEffects}
+                onChange={handleTogglePersistentVisualEffects}
+                disabled={togglingPersistentVisual}
               />
             </div>
           </div>
@@ -934,165 +1038,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
       {/* Tab 1: Path & Storage */}
       {currentTab === 1 && (
         <>
-          {/* Storage Mode Selector Card */}
-          <div className="google-card">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <div>
-                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                  Data Storage
-                </div>
-                <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
-                  Choose where to store application configuration, keyring credentials, and temporary cache.
-                </div>
-              </div>
-            </div>
-
-            {/* Execution Detail Banner */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '12px 16px',
-                backgroundColor: 'var(--canvas)',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
-                marginBottom: '18px',
-                fontSize: '12px',
-                color: 'var(--text-muted)',
-              }}
-            >
-              <Info size={16} color="var(--primary)" style={{ flexShrink: 0 }} />
-              <div>
-                <strong>Detected Runtime Format:</strong> {storageInfo?.app_execution_detail || 'Standard executable runner.'}
-                <div style={{ fontSize: '11.5px', marginTop: '2px', color: 'var(--text-subtle)' }}>
-                  In portable mode, configuration and accounts are saved directly with the application in <code>./data/</code> without touching host system user directories.
-                </div>
-              </div>
-            </div>
-
-            {storageFeedback && (
-              <div
-                style={{
-                  backgroundColor: storageFeedback.isError ? 'var(--red-bg)' : 'var(--green-bg)',
-                  color: storageFeedback.isError ? 'var(--red)' : 'var(--green)',
-                  padding: '10px 14px',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                  marginBottom: '16px',
-                }}
-              >
-                {storageFeedback.text}
-              </div>
-            )}
-
-            {/* Options Grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '18px' }}>
-              {/* Option 1: System Default */}
-              <div
-                onClick={() => setSelectedStorageMode('system_default')}
-                style={{
-                  border: selectedStorageMode === 'system_default' ? '2px solid var(--primary)' : '1px solid var(--border)',
-                  backgroundColor: selectedStorageMode === 'system_default' ? 'rgba(26, 115, 232, 0.04)' : 'var(--canvas)',
-                  borderRadius: '12px',
-                  padding: '16px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '10px',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <HardDrive size={18} color={selectedStorageMode === 'system_default' ? 'var(--primary)' : 'var(--text-muted)'} />
-                    <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)' }}>
-                      System Relevant Default Folders
-                    </span>
-                  </div>
-                  <input
-                    type="radio"
-                    name="storage_mode"
-                    checked={selectedStorageMode === 'system_default'}
-                    onChange={() => setSelectedStorageMode('system_default')}
-                    style={{ cursor: 'pointer' }}
-                  />
-                </div>
-
-                <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                  Store configuration, credentials, and temp files in OS-standard user directories (e.g., <code>~/.config/antigravity-swiss</code> on Linux, <code>%APPDATA%</code> on Windows).
-                </p>
-
-                <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px', fontSize: '11px', color: 'var(--text-subtle)' }}>
-                  <div><strong>Config:</strong> {storageInfo?.system_default_paths?.config_dir || '~/.config/antigravity-swiss'}</div>
-                  <div style={{ marginTop: '2px' }}><strong>Temp:</strong> {storageInfo?.system_default_paths?.temp_dir || '/tmp/antigravity-swiss'}</div>
-                </div>
-              </div>
-
-              {/* Option 2: Store with App */}
-              <div
-                onClick={() => setSelectedStorageMode('app_portable')}
-                style={{
-                  border: selectedStorageMode === 'app_portable' ? '2px solid var(--primary)' : '1px solid var(--border)',
-                  backgroundColor: selectedStorageMode === 'app_portable' ? 'rgba(26, 115, 232, 0.04)' : 'var(--canvas)',
-                  borderRadius: '12px',
-                  padding: '16px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '10px',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <FolderOpen size={18} color={selectedStorageMode === 'app_portable' ? 'var(--primary)' : 'var(--text-muted)'} />
-                    <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)' }}>
-                      Store with the App (Portable Mode)
-                    </span>
-                  </div>
-                  <input
-                    type="radio"
-                    name="storage_mode"
-                    checked={selectedStorageMode === 'app_portable'}
-                    onChange={() => setSelectedStorageMode('app_portable')}
-                    style={{ cursor: 'pointer' }}
-                  />
-                </div>
-
-                <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                  Store data directly alongside the application files in <code>./data/</code>. Ideal for unzipped runner folders, portable USBs, or standalone binaries without touching host OS directories.
-                </p>
-
-                <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px', fontSize: '11px', color: 'var(--text-subtle)' }}>
-                  <div><strong>Config:</strong> {storageInfo?.app_portable_paths?.config_dir || '<app_dir>/data'}</div>
-                  <div style={{ marginTop: '2px' }}><strong>Temp:</strong> {storageInfo?.app_portable_paths?.temp_dir || '<app_dir>/data/temp'}</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Migration Toggle and Action */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', color: 'var(--text)', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={migrateData}
-                  onChange={(e) => setMigrateData(e.target.checked)}
-                />
-                <span>Migrate existing configuration and accounts (<code>accounts.json</code>) to newly selected location</span>
-              </label>
-
-              <button
-                onClick={handleSaveStorageMode}
-                disabled={isSavingStorage || selectedStorageMode === storageInfo?.storage_mode}
-                className="btn-pill-primary"
-                style={{ padding: '7px 20px', fontSize: '12.5px' }}
-              >
-                {isSavingStorage ? 'Applying...' : 'Apply Storage Setting'}
-              </button>
-            </div>
-          </div>
-
           {/* Application Executable Zones Card */}
           <div className="google-card">
             <div style={{ marginBottom: '16px' }}>
@@ -1128,21 +1073,19 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                 const currentVal = customPaths[appType] ?? (zone?.custom_path || '')
                 const feedback = pathFeedback[appType]
                 const cacheFeedback = cacheClearFeedback[appType]
-                const draft = accountOverrideDrafts[appType] || { email: '', path: '' }
-                const overrides = zone?.account_overrides || {}
 
                 return (
                   <div
                     key={appType}
                     style={{
                       border: '1px solid var(--border)',
-                      borderRadius: '12px',
-                      padding: '18px',
+                      borderRadius: '8px',
+                      padding: '16px',
                       backgroundColor: 'var(--canvas)',
                     }}
                   >
                     {/* Zone Header */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
                       <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
                         {title}
                       </span>
@@ -1161,7 +1104,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                           onClick={() => handleClearAppCache(appType)}
                           disabled={cacheFeedback?.isClearing}
                           className="btn-pill-tonal"
-                          style={{ padding: '5px 12px', fontSize: '11.5px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                          style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px', whiteSpace: 'nowrap' }}
                           title={`Clear cache for ${title}`}
                         >
                           <Trash2 size={12} />
@@ -1178,7 +1121,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                           color: cacheFeedback.isError ? 'var(--red)' : 'var(--green)',
                           padding: '7px 12px',
                           borderRadius: '6px',
-                          fontSize: '11.5px',
+                          fontSize: '12px',
                           marginBottom: '12px',
                           fontWeight: 500,
                         }}
@@ -1201,7 +1144,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                             flex: 1,
                             backgroundColor: '#ffffff',
                             fontFamily: 'monospace',
-                            fontSize: '11.5px',
+                            fontSize: '12px',
                             padding: '6px 10px',
                             borderRadius: '6px',
                             border: '1px solid var(--border)',
@@ -1223,7 +1166,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                     </div>
 
                     {/* Manual Executable Path Input */}
-                    <div style={{ marginBottom: '14px' }}>
+                    <div style={{ marginBottom: feedback && feedback.text ? '10px' : 0 }}>
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '4px' }}>
                         Manual Custom Executable / Path Override:
                       </div>
@@ -1237,7 +1180,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                             flex: 1,
                             backgroundColor: '#ffffff',
                             fontFamily: 'monospace',
-                            fontSize: '11.5px',
+                            fontSize: '12px',
                             padding: '6px 10px',
                             borderRadius: '6px',
                             border: '1px solid var(--border)',
@@ -1248,7 +1191,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                           type="button"
                           onClick={() => handleBrowsePath(appType)}
                           className="btn-pill-tonal"
-                          style={{ padding: '6px 12px', fontSize: '11.5px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                          style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px', whiteSpace: 'nowrap' }}
                           title="Open file/folder picker"
                         >
                           <FolderOpen size={13} />
@@ -1258,7 +1201,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                           type="button"
                           onClick={() => handleSaveAppPath(appType)}
                           className="btn-pill-primary"
-                          style={{ padding: '6px 14px', fontSize: '11.5px' }}
+                          style={{ padding: '6px 16px', fontSize: '12px', whiteSpace: 'nowrap' }}
                         >
                           Save Path
                         </button>
@@ -1267,7 +1210,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                             type="button"
                             onClick={() => handleResetAppPath(appType)}
                             className="btn-pill-tonal"
-                            style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--text-muted)' }}
+                            style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}
                             title="Reset to auto-detected default"
                           >
                             Reset
@@ -1280,7 +1223,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                     {feedback && feedback.text && (
                       <div
                         style={{
-                          fontSize: '11.5px',
+                          fontSize: '12px',
                           color: feedback.isError ? 'var(--red)' : 'var(--green)',
                           marginBottom: '12px',
                           fontWeight: 500,
@@ -1289,145 +1232,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                         {feedback.text}
                       </div>
                     )}
-
-                    {/* Per-Account Executable Override Section */}
-                    <div
-                      style={{
-                        borderTop: '1px solid var(--border)',
-                        paddingTop: '12px',
-                        marginTop: '12px',
-                      }}
-                    >
-                      <div style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
-                        Optional Executable Override Per Account
-                      </div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-subtle)', marginBottom: '8px' }}>
-                        Run this application using a specific binary or directory when switching to a selected account.
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-                        <select
-                          value={draft.email}
-                          onChange={(e) =>
-                            setAccountOverrideDrafts((prev) => ({
-                              ...prev,
-                              [appType]: { ...draft, email: e.target.value },
-                            }))
-                          }
-                          style={{
-                            minWidth: '180px',
-                            padding: '6px 10px',
-                            borderRadius: '6px',
-                            border: '1px solid var(--border)',
-                            backgroundColor: '#ffffff',
-                            fontSize: '11.5px',
-                            color: 'var(--text)',
-                          }}
-                        >
-                          <option value="">Select Account...</option>
-                          {accounts.map((acc: any) => {
-                            const email = acc.email || acc
-                            const label = acc.label ? ` (${acc.label})` : ''
-                            return (
-                              <option key={email} value={email}>
-                                {email}{label}
-                              </option>
-                            )
-                          })}
-                        </select>
-
-                        <input
-                          type="text"
-                          value={draft.path}
-                          onChange={(e) =>
-                            setAccountOverrideDrafts((prev) => ({
-                              ...prev,
-                              [appType]: { ...draft, path: e.target.value },
-                            }))
-                          }
-                          placeholder="Account executable path..."
-                          style={{
-                            flex: 1,
-                            backgroundColor: '#ffffff',
-                            fontFamily: 'monospace',
-                            fontSize: '11.5px',
-                            padding: '6px 10px',
-                            borderRadius: '6px',
-                            border: '1px solid var(--border)',
-                            color: 'var(--text)',
-                          }}
-                        />
-
-                        <button
-                          type="button"
-                          onClick={() => handleBrowsePath(appType, true)}
-                          className="btn-pill-tonal"
-                          style={{ padding: '6px 10px', fontSize: '11px' }}
-                          title="Browse for override binary"
-                        >
-                          <FolderOpen size={12} />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleSaveAccountOverride(appType)}
-                          disabled={!draft.email || !draft.path}
-                          className="btn-pill-tonal"
-                          style={{ padding: '6px 12px', fontSize: '11.5px', fontWeight: 600 }}
-                        >
-                          Set Override
-                        </button>
-                      </div>
-
-                      {/* Active Overrides Table/List */}
-                      {Object.keys(overrides).length > 0 && (
-                        <div
-                          style={{
-                            backgroundColor: '#ffffff',
-                            borderRadius: '6px',
-                            border: '1px solid var(--border)',
-                            padding: '8px 12px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '6px',
-                          }}
-                        >
-                          <div style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase' }}>
-                            Configured Account Overrides:
-                          </div>
-                          {Object.entries(overrides).map(([accEmail, accPath]) => (
-                            <div
-                              key={accEmail}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                fontSize: '11px',
-                                padding: '4px 0',
-                                borderBottom: '1px solid var(--border-subtle)',
-                              }}
-                            >
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                                <span style={{ fontWeight: 600, color: 'var(--primary)' }}>{accEmail}</span>
-                                <span style={{ color: 'var(--text-subtle)' }}>→</span>
-                                <span style={{ fontFamily: 'monospace', color: 'var(--text)', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                                  {accPath}
-                                </span>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveAccountOverride(appType, accEmail)}
-                                className="btn-pill-danger"
-                                style={{ padding: '3px 8px', fontSize: '10.5px' }}
-                                title="Remove override"
-                              >
-                                <Trash2 size={11} />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
                   </div>
                 )
               })}
@@ -1463,9 +1267,9 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                       flex: 1,
                       backgroundColor: 'var(--canvas)',
                       fontFamily: 'monospace',
-                      fontSize: '11.5px',
+                      fontSize: '12px',
                       color: 'var(--text)',
-                      padding: '7px 10px',
+                      padding: '8px 12px',
                     }}
                   />
 
@@ -1511,9 +1315,9 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               </div>
             )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {/* Error reporting toggle */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', backgroundColor: 'var(--canvas)', borderRadius: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', backgroundColor: 'var(--canvas)', borderRadius: '8px' }}>
                 <div>
                   <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
                     Auto-Send Anonymous Non-Sensitive Error Reports
@@ -1531,7 +1335,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               </div>
 
               {/* Telemetry toggle */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', backgroundColor: 'var(--canvas)', borderRadius: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', backgroundColor: 'var(--canvas)', borderRadius: '8px' }}>
                 <div>
                   <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
                     Auto-Send Anonymous Telemetry & Usage Analytics
@@ -1573,7 +1377,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
 
           {/* Issue Diagnosis & GitHub Reporter Gadget */}
           <div className="google-card">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
               <div>
                 <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
                   Agent Diagnostics & GitHub Issue Reporter
@@ -1585,7 +1389,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
             </div>
 
             {/* Description Input */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '14px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
               <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>
                 Short Description of Issue:
               </label>
@@ -1599,7 +1403,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                   padding: '10px 12px',
                   borderRadius: '8px',
                   border: '1px solid var(--border)',
-                  fontSize: '12.5px',
+                  fontSize: '13px',
                   fontFamily: 'inherit',
                   resize: 'vertical',
                   boxSizing: 'border-box',
@@ -1609,7 +1413,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
 
             {/* Diagnostic Options & Action */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <div style={{ display: 'flex', gap: '18px' }}>
+              <div style={{ display: 'flex', gap: '16px' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)', cursor: 'pointer' }}>
                   <input
                     type="checkbox"
@@ -1710,7 +1514,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                     border: '1px solid var(--border)',
                     borderRadius: '8px',
                     padding: '12px',
-                    fontSize: '11.5px',
+                    fontSize: '12px',
                     fontFamily: 'monospace',
                     color: 'var(--text)',
                     maxHeight: '260px',
@@ -1757,8 +1561,8 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                   backgroundColor: '#fef9c3',
                   color: '#000000',
                   border: '1px solid #facc15',
-                  borderRadius: '7px',
-                  padding: '4px 18px',
+                  borderRadius: '8px',
+                  padding: '4px 16px',
                   height: '42px',
                   fontWeight: 700,
                   fontSize: '14px',
@@ -1829,7 +1633,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               <div
                 style={{
                   backgroundColor: 'var(--surface)',
-                  borderRadius: '10px',
+                  borderRadius: '8px',
                   padding: '24px',
                   maxWidth: '480px',
                   width: '90%',
@@ -1856,7 +1660,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                     onClick={() => setShowResetConfirm(false)}
                     disabled={isResetting}
                     className="btn-pill-tonal"
-                    style={{ padding: '8px 16px', fontSize: '12.5px' }}
+                    style={{ padding: '8px 16px', fontSize: '13px' }}
                   >
                     Cancel
                   </button>
@@ -1865,7 +1669,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                     onClick={handleFactoryReset}
                     disabled={isResetting}
                     className="btn-pill-danger"
-                    style={{ padding: '8px 20px', fontSize: '12.5px' }}
+                    style={{ padding: '8px 16px', fontSize: '13px' }}
                   >
                     {isResetting ? 'Restoring...' : 'Yes, Restore to Clean State'}
                   </button>
@@ -1963,7 +1767,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               <div
                 style={{
                   border: '1px solid var(--border)',
-                  borderRadius: '10px',
+                  borderRadius: '8px',
                   padding: '14px 16px',
                   backgroundColor: 'var(--canvas)',
                 }}
@@ -1975,7 +1779,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                 <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text)' }}>
                   v{appRelease?.current_version || '2.0.0'}
                 </div>
-                <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
                   Active desktop runtime build
                 </div>
               </div>
@@ -1984,7 +1788,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               <div
                 style={{
                   border: '1px solid var(--border)',
-                  borderRadius: '10px',
+                  borderRadius: '8px',
                   padding: '14px 16px',
                   backgroundColor: 'var(--canvas)',
                 }}
@@ -2000,7 +1804,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                 <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text)' }}>
                   v{appRelease?.latest_version || appRelease?.current_version || '2.0.0'}
                 </div>
-                <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
                   {appRelease?.has_update
                     ? `New version available (${appRelease.release_name || 'v' + appRelease.latest_version})`
                     : 'Newest public release confirmed'}
@@ -2011,7 +1815,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               <div
                 style={{
                   border: '1px solid var(--border)',
-                  borderRadius: '10px',
+                  borderRadius: '8px',
                   padding: '14px 16px',
                   backgroundColor: 'var(--canvas)',
                 }}
@@ -2026,7 +1830,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                 <div style={{ fontSize: '13px', fontWeight: 600, color: appRelease?.has_update ? 'var(--yellow, #b06000)' : 'var(--green)' }}>
                   {appRelease?.status_message || 'Application is up to date.'}
                 </div>
-                <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
                   {appRelease?.last_checked ? `Last checked: ${appRelease.last_checked}` : 'Ready to verify'}
                 </div>
               </div>
@@ -2036,12 +1840,12 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
             <div
               style={{
                 border: '1px solid var(--border)',
-                borderRadius: '10px',
+                borderRadius: '8px',
                 padding: '16px',
                 backgroundColor: 'var(--canvas)',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '14px',
+                gap: '12px',
               }}
             >
               {/* Toggle 1: Auto-check */}
@@ -2086,7 +1890,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               System Environment & Runtime Architecture
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
               <div style={{ padding: '12px', backgroundColor: 'var(--canvas)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>PLATFORM</div>
                 <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
@@ -2120,7 +1924,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
           {/* Clean State Restore / Factory Reset Gadget */}
           <div className="google-card" style={{ border: '1px solid #fce8e6' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '10px' }}>
-              <div style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)' }}>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
                 Restore Antigravity Apps to Clean Unmodified State
               </div>
               <button
@@ -2128,14 +1932,14 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                 onClick={() => setShowResetConfirm(true)}
                 disabled={isResetting}
                 className="btn-pill-danger"
-                style={{ fontSize: '12.5px', padding: '7px 18px', display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap', flexShrink: 0 }}
+                style={{ fontSize: '13px', padding: '8px 16px', display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap', flexShrink: 0 }}
               >
                 {isResetting ? 'Restoring...' : 'Restore Antigravity'}
               </button>
             </div>
 
             <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Restore all Antigravity apps to an unmodified status by turning off all features and restoring backed-up files and code.
+              Restore all Antigravity apps to default state and disable all enhancements.
             </p>
             <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
               This removes custom executable overrides, disables injected customizations, and resets state safely.

@@ -182,7 +182,7 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		res.Success = true
-		res.Message = fmt.Sprintf("Success! Provider responded with %d OK in %dms.", resp.StatusCode, latency)
+		res.Message = fmt.Sprintf("Success! Provider responded with OK in %dms.", latency)
 		if quotaRes != nil && quotaRes.QuotaType == QuotaTypeBalance && quotaRes.BalanceValue != "" {
 			res.Message += fmt.Sprintf(" • Balance: %s", quotaRes.BalanceValue)
 		} else if quotaRes != nil && quotaRes.QuotaType == QuotaTypeQuota {
@@ -226,25 +226,25 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 
 	if resp.StatusCode == 401 || resp.StatusCode == 403 {
 		if errorDetail != "" {
-			res.Message = fmt.Sprintf("Authentication failed (%d): %s", resp.StatusCode, errorDetail)
+			res.Message = fmt.Sprintf("Authentication failed: %s", errorDetail)
 		} else {
-			res.Message = fmt.Sprintf("Authentication failed (%d Unauthorized/Forbidden). Please verify your API key.", resp.StatusCode)
+			res.Message = "Authentication failed (Unauthorized/Forbidden). Please verify your API key."
 		}
 	} else if resp.StatusCode == 404 {
 		if errorDetail != "" {
-			res.Message = fmt.Sprintf("Endpoint returned 404 Not Found: %s", errorDetail)
+			res.Message = fmt.Sprintf("Endpoint returned Not Found: %s", errorDetail)
 		} else {
-			res.Message = fmt.Sprintf("Endpoint returned 404 Not Found at %s. Check base URL or model name.", req.URL.Path)
+			res.Message = fmt.Sprintf("Endpoint returned Not Found at %s. Check base URL or model name.", req.URL.Path)
 		}
 	} else {
 		if errorDetail != "" {
-			res.Message = fmt.Sprintf("HTTP %d error: %s", resp.StatusCode, errorDetail)
+			res.Message = fmt.Sprintf("Request error: %s", errorDetail)
 		} else {
 			statusText := http.StatusText(resp.StatusCode)
 			if statusText == "" {
 				statusText = "Error"
 			}
-			res.Message = fmt.Sprintf("Endpoint returned HTTP %d %s in %dms.", resp.StatusCode, statusText, latency)
+			res.Message = fmt.Sprintf("Endpoint returned %s in %dms.", statusText, latency)
 		}
 	}
 

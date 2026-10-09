@@ -2,6 +2,9 @@ package quota
 
 import (
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -47,16 +50,104 @@ func Test1TokenPayloadStructure(t *testing.T) {
 }
 
 func TestWarmupSchedulerWindow(t *testing.T) {
-	ws := &WarmupScheduler{LeadTime: 2 * time.Second}
+	ws := &WarmupScheduler{PostResetDelay: 2 * time.Second}
 	reset := time.Now().Add(5 * time.Second)
 
-	// 5 seconds away -> should NOT trigger yet
-	if ws.ShouldTrigger(reset, time.Now()) {
-		t.Errorf("should not trigger 5s ahead of reset")
+	// In cooldown (5 seconds ahead of reset) -> ShouldSkipCooldownPolling MUST be true
+	if !ws.ShouldSkipCooldownPolling(reset, time.Now()) {
+		t.Errorf("expected ShouldSkipCooldownPolling to be true while now < reset")
 	}
 
-	// 1 second away -> SHOULD trigger
-	if !ws.ShouldTrigger(reset, reset.Add(-1*time.Second)) {
-		t.Errorf("should trigger within 2s lead time")
+	// Ahead of reset -> ShouldTriggerPostResetIgnition MUST be false
+	if ws.ShouldTriggerPostResetIgnition(reset, time.Now()) {
+		t.Errorf("should not trigger ignition before reset")
+	}
+
+	// 1 second after reset (within 2s delay) -> ShouldTriggerPostResetIgnition MUST be false
+	if ws.ShouldTriggerPostResetIgnition(reset, reset.Add(1*time.Second)) {
+		t.Errorf("should not trigger ignition before post-reset delay has elapsed")
+	}
+
+	// 2 seconds after reset (delay elapsed) -> ShouldTriggerPostResetIgnition MUST be true
+	if !ws.ShouldTriggerPostResetIgnition(reset, reset.Add(2*time.Second)) {
+		t.Errorf("should trigger ignition once post-reset delay elapsed")
+	}
+
+	// 3 seconds after reset -> ShouldTriggerPostResetIgnition MUST be true
+	if !ws.ShouldTriggerPostResetIgnition(reset, reset.Add(3*time.Second)) {
+		t.Errorf("should trigger ignition after post-reset delay elapsed")
+	}
+
+	// Cooldown skip should be false once reset time arrives
+	if ws.ShouldSkipCooldownPolling(reset, reset.Add(1*time.Second)) {
+		t.Errorf("expected ShouldSkipCooldownPolling to be false once reset time passed")
+	}
+}
+
+func TestWarmupScheduler_ZeroResetTimeAndAliases(t *testing.T) {
+	ws := &WarmupScheduler{LeadTime: 5 * time.Second} // verify LeadTime fallback alias
+	now := time.Now()
+
+	// Zero reset time
+	var zeroReset time.Time
+	if ws.ShouldSkipCooldownPolling(zeroReset, now) {
+		t.Errorf("zero reset time must not skip cooldown polling")
+	}
+	if ws.ShouldTriggerPostResetIgnition(zeroReset, now) {
+		t.Errorf("zero reset time must not trigger post-reset ignition")
+	}
+
+	// Verify LeadTime fallback when PostResetDelay is 0
+	if ws.GetDelay() != 5*time.Second {
+		t.Errorf("expected GetDelay to return 5s from LeadTime alias, got %v", ws.GetDelay())
+	}
+
+	ws.PostResetDelay = 10 * time.Second
+	if ws.GetDelay() != 10*time.Second {
+		t.Errorf("expected GetDelay to prioritize PostResetDelay (10s), got %v", ws.GetDelay())
+	}
+}
+
+func TestSend1TokenKeepAliveProbe_MockServer(t *testing.T) {
+	var receivedBody []byte
+	var receivedAuth string
+	var receivedContentType string
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuth = r.Header.Get("Authorization")
+		receivedContentType = r.Header.Get("Content-Type")
+		receivedBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"candidates":[]}`))
+	}))
+	defer mockServer.Close()
+
+	oldURLs := CloudCodeGenerateContentURLs
+	CloudCodeGenerateContentURLs = []string{mockServer.URL}
+	defer func() {
+		CloudCodeGenerateContentURLs = oldURLs
+	}()
+
+	err := Send1TokenKeepAliveProbe("mock-token-xyz")
+	if err != nil {
+		t.Fatalf("Send1TokenKeepAliveProbe error: %v", err)
+	}
+
+	if receivedAuth != "Bearer mock-token-xyz" {
+		t.Errorf("expected 'Bearer mock-token-xyz', got %q", receivedAuth)
+	}
+	if receivedContentType != "application/json" {
+		t.Errorf("expected 'application/json', got %q", receivedContentType)
+	}
+
+	var parsed OneTokenPayload
+	if err := json.Unmarshal(receivedBody, &parsed); err != nil {
+		t.Fatalf("failed to parse received payload: %v", err)
+	}
+	if len(parsed.Contents) == 0 || len(parsed.Contents[0].Parts) == 0 || parsed.Contents[0].Parts[0].Text != "ping" {
+		t.Errorf("expected text 'ping', got %+v", parsed.Contents)
+	}
+	if parsed.GenerationConfig.MaxOutputTokens != 1 {
+		t.Errorf("expected maxOutputTokens: 1, got %d", parsed.GenerationConfig.MaxOutputTokens)
 	}
 }

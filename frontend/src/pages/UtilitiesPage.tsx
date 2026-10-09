@@ -1,14 +1,21 @@
 import React, { useState, useEffect } from 'react'
-import { createPortal } from 'react-dom'
 import {
   DownloadCloud,
-  Network,
   RefreshCw,
   CheckCircle2,
   ArrowRight,
   Eye,
   Activity,
   X,
+  Monitor,
+  Terminal,
+  Bot,
+  Edit3,
+  Workflow,
+  Code2,
+  Cpu,
+  Radio,
+  TerminalSquare,
 } from 'lucide-react'
 import type {
   ChatImportSource,
@@ -20,6 +27,10 @@ import type {
 } from '../types'
 import { api } from '../api'
 import { BrainCachePage } from './BrainCachePage'
+import {
+  ACP_CARD_LAYOUT_TOKENS,
+  getAcpStatusPresentation,
+} from '../utils/acpPresentation'
 
 interface UtilitiesPageProps {
   initialTab?: number
@@ -34,12 +45,6 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
 }) => {
   const [internalActiveTab] = useState<number>(initialTab)
   const activeTab = controlledActiveTab !== undefined ? controlledActiveTab : internalActiveTab
-
-  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
-
-  useEffect(() => {
-    setPortalTarget(document.getElementById('top-bar-right'))
-  }, [])
 
   // --- 1. Chat Import State ---
   const [selectedSource, setSelectedSource] = useState<ChatImportSource>('opencode')
@@ -171,40 +176,102 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
     }
   }
 
+  const [pingingAgentId, setPingingAgentId] = useState<string | null>(null)
+
+  const handlePingSingleAgent = async (agent: AcpAgentInstance) => {
+    setPingingAgentId(agent.id)
+    try {
+      const res = await api.getAcpMesh()
+      if (res && res.agents) {
+        setAgentInstances(res.agents)
+        const updatedAgent = res.agents.find((a: any) => a.id === agent.id) || agent
+        const isOnline = updatedAgent.status !== 'unreachable'
+        setAcpFeedback(`ACP Handshake ping completed for ${agent.name}: ${isOnline ? 'Active & Healthy' : 'Offline'}`)
+        const log: AcpHandshakeLog = {
+          id: `log-${Date.now()}-${agent.id}`,
+          timestamp: new Date().toLocaleTimeString(),
+          from_agent: 'Antigravity 2.0',
+          to_agent: agent.name,
+          action: 'ACP_HELLO / DIRECT_PING',
+          payload_summary: isOnline
+            ? `Pinged ${agent.name} over socket ${agent.port_socket} (latency: ${updatedAgent.ping_latency_ms} ms)`
+            : `Attempted ping to ${agent.name} over socket ${agent.port_socket} — daemon unreachable`,
+          status: isOnline ? 'success' : 'warning',
+        }
+        setHandshakeLogs((prev) => [log, ...prev])
+      }
+    } catch (e: any) {
+      setAcpFeedback(`Ping ${agent.name} failed: ${e?.message || 'Network error'}`)
+    } finally {
+      setPingingAgentId(null)
+      setTimeout(() => setAcpFeedback(null), 4000)
+    }
+  }
+
+  const renderAgentAvatar = (id: string) => {
+    const iconProps = { size: 15, strokeWidth: 1.75 }
+    let icon = <Bot {...iconProps} />
+    switch (id) {
+      case 'agent-antigravity':
+        icon = <Monitor {...iconProps} />
+        break
+      case 'agent-antigravity-cli':
+        icon = <Terminal {...iconProps} />
+        break
+      case 'agent-devin':
+        icon = <Workflow {...iconProps} />
+        break
+      case 'agent-opencode':
+        icon = <Code2 {...iconProps} />
+        break
+      case 'agent-deepseek-harness':
+        icon = <Cpu {...iconProps} />
+        break
+      case 'agent-pi':
+        icon = <Radio {...iconProps} />
+        break
+      case 'agent-codex':
+        icon = <TerminalSquare {...iconProps} />
+        break
+      case 'agent-claude-code':
+        icon = <Bot {...iconProps} />
+        break
+      case 'agent-cursor':
+        icon = <Edit3 {...iconProps} />
+        break
+    }
+    return (
+      <div
+        style={{
+          width: ACP_CARD_LAYOUT_TOKENS.avatarSize,
+          height: ACP_CARD_LAYOUT_TOKENS.avatarSize,
+          borderRadius: ACP_CARD_LAYOUT_TOKENS.avatarBorderRadius,
+          backgroundColor: '#f1f3f4',
+          color: 'var(--text)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
+        {icon}
+      </div>
+    )
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Top Bar Right Contextual Actions via Portal */}
-
-      {portalTarget && activeTab === 1 &&
-        createPortal(
-          <button
-            onClick={handlePingAllAcp}
-            disabled={isPingingAll}
-            style={{
-              backgroundColor: 'var(--primary)',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '6px',
-              padding: '6px 14px',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: isPingingAll ? 'not-allowed' : 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
-            }}
-          >
-            <Activity size={13} className={isPingingAll ? 'animate-spin' : ''} />
-            <span>{isPingingAll ? 'Pinging Nodes...' : 'Ping All ACP Nodes'}</span>
-          </button>,
-          portalTarget
-        )}
-
       {/* ============================================================ */}
-      {/* TAB 0: AGENT CHAT & PROJECT IMPORTER */}
+      {/* TAB 0: CACHE MANAGER & CONVERSATION VAULT */}
       {/* ============================================================ */}
       {activeTab === 0 && (
+        <BrainCachePage />
+      )}
+
+      {/* ============================================================ */}
+      {/* TAB 2: AGENT CHAT & PROJECT IMPORTER */}
+      {/* ============================================================ */}
+      {activeTab === 2 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {importFeedback && (
             <div
@@ -267,7 +334,6 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                   <option value="pi">Pi Agent (~/.pi/agent)</option>
                   <option value="cursor">Cursor Composer / Agent (state.vscdb)</option>
                   <option value="chatgpt">ChatGPT Data Export (conversations.json)</option>
-                  <option value="windsurf">Windsurf / Codeium Cascade</option>
                   <option value="copilot">GitHub Copilot Workspace</option>
                   <option value="openwebui">Open-WebUI / Ollama Chat Export</option>
                   <option value="custom-file">Custom File / Folder (JSON, JSONL, DB, ZIP)</option>
@@ -787,108 +853,227 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                 No active agent daemons or ACP nodes discovered on this system.
               </div>
             ) : (
-              agentInstances.map((agent) => (
-                <div
-                  key={agent.id}
-                  style={{
-                    backgroundColor: '#ffffff',
-                    border: '1px solid var(--border)',
-                    borderRadius: '10px',
-                    padding: '18px',
-                    boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+              agentInstances.map((agent) => {
+                const statusPres = getAcpStatusPresentation(agent.status)
+                return (
+                  <div
+                    key={agent.id}
+                    style={{
+                      backgroundColor: '#ffffff',
+                      border: `${ACP_CARD_LAYOUT_TOKENS.cardBorderWidth} solid var(--border)`,
+                      borderRadius: ACP_CARD_LAYOUT_TOKENS.cardBorderRadius,
+                      padding: ACP_CARD_LAYOUT_TOKENS.cardPadding,
+                      boxShadow: ACP_CARD_LAYOUT_TOKENS.cardShadow,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      gap: '8px',
+                    }}
+                  >
                     <div>
-                      <h4 style={{ fontSize: '14.5px', fontWeight: 700, margin: '0 0 2px 0', color: 'var(--text)' }}>
-                        {agent.name}
-                      </h4>
-                      <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
-                        {agent.type} • PID {agent.pid || 'N/A'}
-                      </span>
-                    </div>
+                      {/* Card Header with Lucide Avatar & Status */}
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'flex-start',
+                          marginBottom: ACP_CARD_LAYOUT_TOKENS.headerMarginBottom,
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {renderAgentAvatar(agent.id)}
+                          <div>
+                            <h4
+                              style={{
+                                fontSize: '14px',
+                                fontWeight: 700,
+                                margin: '0 0 2px 0',
+                                color: 'var(--text)',
+                                whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
+                              }}
+                            >
+                              {agent.name}
+                            </h4>
+                            <span
+                              style={{
+                                fontSize: '11.5px',
+                                color: 'var(--text-muted)',
+                                whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
+                              }}
+                            >
+                              {agent.type} • PID {agent.pid || 'N/A'}
+                            </span>
+                          </div>
+                        </div>
 
-                    <span
-                      style={{
-                        padding: '3px 8px',
-                        borderRadius: '6px',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        backgroundColor:
-                          agent.status === 'active_hosting'
-                            ? '#e6f4ea'
-                            : agent.status === 'connected'
-                            ? '#e8f0fe'
-                            : agent.status === 'listening'
-                            ? '#fef7e0'
-                            : '#fce8e6',
-                        color:
-                          agent.status === 'active_hosting'
-                            ? '#137333'
-                            : agent.status === 'connected'
-                            ? 'var(--primary)'
-                            : agent.status === 'listening'
-                            ? '#b06000'
-                            : '#d93025',
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      {agent.status.replace('_', ' ')}
-                    </span>
-                  </div>
+                        <span
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            backgroundColor: statusPres.bg,
+                            color: statusPres.color,
+                            textTransform: 'uppercase',
+                            whiteSpace: statusPres.whiteSpace,
+                          }}
+                        >
+                          {statusPres.label}
+                        </span>
+                      </div>
 
-                  <div style={{ fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '12px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>Socket / Endpoint:</span>
-                      <span style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--text)' }}>{agent.port_socket}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>Protocol Version:</span>
-                      <span style={{ fontWeight: 600, color: 'var(--text)' }}>{agent.acp_version}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>Ping Latency:</span>
-                      <span style={{ fontWeight: 600, color: agent.ping_latency_ms < 3 ? '#137333' : '#b06000' }}>
-                        {agent.ping_latency_ms > 0 ? `${agent.ping_latency_ms} ms` : 'Unreachable'}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>Last Handshake:</span>
-                      <span style={{ color: 'var(--text)' }}>{agent.last_handshake}</span>
-                    </div>
-                  </div>
-
-                  {/* Shared Tools List */}
-                  <div style={{ borderTop: '1px solid #f1f3f4', paddingTop: '10px' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>
-                      Negotiated Tools Sharing ({agent.supported_tools.length})
-                    </span>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                      {agent.supported_tools.length > 0 ? (
-                        agent.supported_tools.map((t) => (
+                      {/* Card Body Metadata */}
+                      <div
+                        style={{
+                          fontSize: '12px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: ACP_CARD_LAYOUT_TOKENS.bodyGap,
+                          marginBottom: '8px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-muted)', whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
+                            Socket / Endpoint:
+                          </span>
                           <span
-                            key={t}
                             style={{
-                              backgroundColor: '#f1f3f4',
-                              borderRadius: '4px',
-                              padding: '1px 6px',
-                              fontSize: '10.5px',
                               fontFamily: 'monospace',
-                              color: '#3c4043',
+                              fontSize: '11px',
+                              color: 'var(--text)',
+                              whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
                             }}
                           >
-                            {t}
+                            {agent.port_socket}
                           </span>
-                        ))
-                      ) : (
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                          No tools shared
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-muted)', whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
+                            Protocol Version:
+                          </span>
+                          <span
+                            style={{
+                              fontWeight: 600,
+                              color: 'var(--text)',
+                              whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
+                            }}
+                          >
+                            {agent.acp_version}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-muted)', whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
+                            Ping Latency:
+                          </span>
+                          <span
+                            style={{
+                              fontWeight: 600,
+                              color: agent.ping_latency_ms > 0 && agent.ping_latency_ms < 3 ? '#137333' : '#b06000',
+                              whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
+                            }}
+                          >
+                            {agent.ping_latency_ms > 0 ? `${agent.ping_latency_ms} ms` : 'Unreachable'}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-muted)', whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
+                            Last Handshake:
+                          </span>
+                          <span style={{ color: 'var(--text)', whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
+                            {agent.last_handshake}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Shared Tools Tag List */}
+                      <div style={{ borderTop: '1px solid #f1f3f4', paddingTop: '8px' }}>
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            color: 'var(--text-muted)',
+                            display: 'block',
+                            marginBottom: '4px',
+                            whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
+                          }}
+                        >
+                          Negotiated Tools Sharing ({agent.supported_tools.length})
                         </span>
-                      )}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: ACP_CARD_LAYOUT_TOKENS.tagGap }}>
+                          {agent.supported_tools.length > 0 ? (
+                            agent.supported_tools.map((t) => (
+                              <span
+                                key={t}
+                                style={{
+                                  backgroundColor: '#f1f3f4',
+                                  borderRadius: '4px',
+                                  padding: '1px 6px',
+                                  fontSize: '10.5px',
+                                  fontFamily: 'monospace',
+                                  color: '#3c4043',
+                                  whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
+                                }}
+                              >
+                                {t}
+                              </span>
+                            ))
+                          ) : (
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                color: 'var(--text-muted)',
+                                fontStyle: 'italic',
+                                whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
+                              }}
+                            >
+                              No tools shared
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card Action Button: Ping {agent.name} */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        borderTop: '1px solid #f1f3f4',
+                        paddingTop: '8px',
+                        marginTop: '4px',
+                      }}
+                    >
+                      <button
+                        className="btn-pill-tonal"
+                        onClick={() => handlePingSingleAgent(agent)}
+                        disabled={pingingAgentId === agent.id}
+                        style={{
+                          height: ACP_CARD_LAYOUT_TOKENS.actionButtonHeight,
+                          padding: ACP_CARD_LAYOUT_TOKENS.actionButtonPadding,
+                          fontSize: ACP_CARD_LAYOUT_TOKENS.actionButtonFontSize,
+                          borderRadius: ACP_CARD_LAYOUT_TOKENS.actionButtonBorderRadius,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
+                          cursor: pingingAgentId === agent.id ? 'not-allowed' : 'pointer',
+                          border: '1px solid var(--border)',
+                          backgroundColor: '#f8f9fa',
+                          color: 'var(--text)',
+                        }}
+                      >
+                        <Activity
+                          size={12}
+                          className={pingingAgentId === agent.id ? 'animate-spin' : ''}
+                        />
+                        <span style={{ whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
+                          Ping {agent.name}
+                        </span>
+                      </button>
                     </div>
                   </div>
-                </div>
-              ))
+                )
+              })
             )}
           </div>
 
@@ -901,10 +1086,33 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
               padding: '20px',
             }}
           >
-            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Network size={16} color="var(--primary)" />
-              ACP Communication & Delegation Stream
-            </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
+                ACP Communication & Delegation Stream
+              </h3>
+              <button
+                onClick={handlePingAllAcp}
+                disabled={isPingingAll}
+                style={{
+                  backgroundColor: 'var(--primary)',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '6px 14px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: isPingingAll ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+                }}
+              >
+                <Activity size={13} className={isPingingAll ? 'animate-spin' : ''} />
+                <span>{isPingingAll ? 'Pinging Nodes...' : 'Ping All ACP Nodes'}</span>
+              </button>
+            </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {handshakeLogs.length === 0 ? (
@@ -943,13 +1151,6 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
             </div>
           </div>
         </div>
-      )}
-
-      {/* ============================================================ */}
-      {/* TAB 2: CACHE MANAGER & CONVERSATION VAULT */}
-      {/* ============================================================ */}
-      {activeTab === 2 && (
-        <BrainCachePage />
       )}
     </div>
   )

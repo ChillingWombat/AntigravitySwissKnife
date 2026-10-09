@@ -55,7 +55,7 @@ func printUsage() {
 }
 
 func main() {
-	signal.Ignore(syscall.SIGHUP)
+	signal.Ignore(syscall.SIGHUP, syscall.SIGPIPE)
 
 	if len(os.Args) < 2 {
 		printUsage()
@@ -195,6 +195,10 @@ func runDaemon(args []string) {
 	}
 
 	if err := d.Start(); err != nil {
+		if strings.Contains(err.Error(), "already running") {
+			fmt.Printf("Antigravity Swiss Knife Daemon is already running on %s. Exiting to preserve single instance.\n", *socketPath)
+			os.Exit(0)
+		}
 		fmt.Fprintf(os.Stderr, "Error starting daemon: %v\n", err)
 		os.Exit(1)
 	}
@@ -205,7 +209,9 @@ func runDaemon(args []string) {
 	if *withWeb {
 		webSrv = webgui.NewServer(*webAddr, *socketPath)
 		if err := webSrv.Start(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to start web GUI: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error: failed to start web GUI on %s: %v. Stopping daemon.\n", *webAddr, err)
+			_ = d.Stop()
+			os.Exit(1)
 		} else {
 			fmt.Printf("Web GUI listening on http://%s\n", *webAddr)
 		}
@@ -260,9 +266,9 @@ func runQuota(args []string) {
 		// Mock quota summary for standalone mode
 		now := time.Now()
 		models := []quota.ModelQuota{
-			{ModelName: "gemini-2.5-pro", Fraction: 0.85, ResetTime: now.Add(4 * time.Hour), ResetText: quota.FormatResetHorizon(now.Add(4*time.Hour), now), HealthStatus: core.StatusHealthy},
-			{ModelName: "gemini-2.5-flash", Fraction: 0.92, ResetTime: now.Add(2 * time.Hour), ResetText: quota.FormatResetHorizon(now.Add(2*time.Hour), now), HealthStatus: core.StatusHealthy},
-			{ModelName: "gemini-1.5-pro", Fraction: 0.45, ResetTime: now.Add(1 * time.Hour), ResetText: quota.FormatResetHorizon(now.Add(1*time.Hour), now), HealthStatus: core.StatusHealthy},
+			{ModelName: "gemini-3.8-flash", Fraction: 0.85, ResetTime: now.Add(4 * time.Hour), ResetText: quota.FormatResetHorizon(now.Add(4*time.Hour), now), HealthStatus: core.StatusHealthy},
+			{ModelName: "gemini-3.1-pro", Fraction: 0.92, ResetTime: now.Add(2 * time.Hour), ResetText: quota.FormatResetHorizon(now.Add(2*time.Hour), now), HealthStatus: core.StatusHealthy},
+			{ModelName: "claude-sonnet-4-6", Fraction: 0.45, ResetTime: now.Add(1 * time.Hour), ResetText: quota.FormatResetHorizon(now.Add(1*time.Hour), now), HealthStatus: core.StatusHealthy},
 		}
 		q = quota.QuotaSummary{
 			AccountEmail: "active",

@@ -1,6 +1,7 @@
 package process
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/revival"
 )
 
 var relaunchMu sync.Mutex
@@ -31,7 +33,9 @@ type ProcessInfo struct {
 
 // Shield safeguards the host Antigravity 2.0 from accidental termination.
 type Shield struct {
-	protectedPID int
+	protectedPID  int
+	processFinder func() ([]ProcessInfo, error)
+	revivalEngine *revival.Engine
 }
 
 // NewShield initializes a Shield. If protectedPID is 0, it reads from environment or detects host.
@@ -44,6 +48,30 @@ func NewShield(protectedPID int) *Shield {
 		}
 	}
 	return &Shield{protectedPID: protectedPID}
+}
+
+// SetRevivalEngine sets the revival engine instance for coordination during relaunches.
+func (s *Shield) SetRevivalEngine(engine *revival.Engine) {
+	s.revivalEngine = engine
+}
+
+func (s *Shield) getRevivalEngine() *revival.Engine {
+	if s.revivalEngine != nil {
+		return s.revivalEngine
+	}
+	return revival.NewEngine("", 0)
+}
+
+// SetProcessFinder overrides process discovery for tests or custom environments.
+func (s *Shield) SetProcessFinder(finder func() ([]ProcessInfo, error)) {
+	s.processFinder = finder
+}
+
+func (s *Shield) findAntigravityProcessesInternal() ([]ProcessInfo, error) {
+	if s.processFinder != nil {
+		return s.processFinder()
+	}
+	return s.FindAntigravityProcesses()
 }
 
 // ProtectedPID returns the currently protected host PID.
@@ -140,6 +168,23 @@ func (s *Shield) FindAntigravityProcesses() ([]ProcessInfo, error) {
 	return results, nil
 }
 
+// IsAntigravityRunning returns true if an Antigravity main application process is currently running.
+func (s *Shield) IsAntigravityRunning() bool {
+	procs, err := s.findAntigravityProcessesInternal()
+	if err != nil || len(procs) == 0 {
+		return false
+	}
+	for _, p := range procs {
+		lower := strings.ToLower(p.Cmdline)
+		if (p.Name == "antigravity" || strings.HasSuffix(p.Name, "antigravity")) &&
+			!strings.Contains(lower, "--type=") &&
+			!strings.Contains(lower, "swiss") {
+			return true
+		}
+	}
+	return false
+}
+
 // FindLanguageServerProcesses scans for active Antigravity language_server instances.
 func (s *Shield) FindLanguageServerProcesses() ([]ProcessInfo, error) {
 	entries, err := os.ReadDir("/proc")
@@ -210,14 +255,9 @@ func (s *Shield) RelaunchHostIDE() error {
 		return nil
 	}
 
-	relaunchMu.Lock()
-	defer relaunchMu.Unlock()
-
-	inj := gui.NewInjector(0)
-	resumePath := inj.CaptureActiveConversationPath()
-
-	procs, err := s.FindAntigravityProcesses()
-	if err == nil {
+	// Safeguard: Never kill or restart host IDE during unit test runs unless explicitly authorized
+	if flag.Lookup("test.v") != nil && os.Getenv("ANTIGRAVITY_ALLOW_TEST_RELAUNCH") != "1" {
+		procs, _ := s.findAntigravityProcessesInternal()
 		var mainPIDs []int
 		for _, p := range procs {
 			lower := strings.ToLower(p.Cmdline)
@@ -227,38 +267,68 @@ func (s *Shield) RelaunchHostIDE() error {
 				mainPIDs = append(mainPIDs, p.PID)
 			}
 		}
+		if len(mainPIDs) == 0 {
+			return nil
+		}
+		return nil
+	}
 
-		if len(mainPIDs) > 0 {
-			for _, pid := range mainPIDs {
-				if proc, findErr := os.FindProcess(pid); findErr == nil {
-					_ = proc.Signal(syscall.SIGTERM)
-				}
+	relaunchMu.Lock()
+	defer relaunchMu.Unlock()
+
+	inj := gui.NewInjector(0)
+	resumePath := inj.CaptureActiveConversationPath()
+
+	procs, err := s.findAntigravityProcessesInternal()
+	var mainPIDs []int
+	if err == nil {
+		for _, p := range procs {
+			lower := strings.ToLower(p.Cmdline)
+			if (p.Name == "antigravity" || strings.HasSuffix(p.Name, "antigravity")) &&
+				!strings.Contains(lower, "--type=") &&
+				!strings.Contains(lower, "swiss") {
+				mainPIDs = append(mainPIDs, p.PID)
 			}
-			// Poll for graceful exit up to 6.5 seconds (Electron before-quit waits up to 5s for language_server)
-			for i := 0; i < 65; i++ {
-				time.Sleep(100 * time.Millisecond)
-				anyAlive := false
-				for _, pid := range mainPIDs {
-					if isProcessAlive(pid) {
-						anyAlive = true
-						break
-					}
-				}
-				if !anyAlive {
-					break
-				}
-			}
-			// Force terminate any remaining main processes
-			for _, pid := range mainPIDs {
-				if isProcessAlive(pid) {
-					if proc, findErr := os.FindProcess(pid); findErr == nil {
-						_ = proc.Kill()
-					}
-				}
-			}
-			time.Sleep(300 * time.Millisecond)
 		}
 	}
+
+	// When Antigravity is NOT currently running (len(mainPIDs) == 0), do NOT spawn/launch Antigravity!
+	// Only restart/relaunch if Antigravity was actively running prior to switch.
+	if len(mainPIDs) == 0 {
+		return nil
+	}
+
+	revEngine := s.getRevivalEngine()
+	revIntent, _ := revEngine.CapturePreSwitchState("desktop")
+
+	for _, pid := range mainPIDs {
+		if proc, findErr := os.FindProcess(pid); findErr == nil {
+			_ = proc.Signal(syscall.SIGTERM)
+		}
+	}
+	// Poll for graceful exit up to 6.5 seconds (Electron before-quit waits up to 5s for language_server)
+	for i := 0; i < 65; i++ {
+		time.Sleep(100 * time.Millisecond)
+		anyAlive := false
+		for _, pid := range mainPIDs {
+			if isProcessAlive(pid) {
+				anyAlive = true
+				break
+			}
+		}
+		if !anyAlive {
+			break
+		}
+	}
+	// Force terminate any remaining main processes
+	for _, pid := range mainPIDs {
+		if isProcessAlive(pid) {
+			if proc, findErr := os.FindProcess(pid); findErr == nil {
+				_ = proc.Kill()
+			}
+		}
+	}
+	time.Sleep(300 * time.Millisecond)
 
 	// Ensure no orphaned language_server processes remain holding SQLite locks
 	if lsProcs, lsErr := s.FindLanguageServerProcesses(); lsErr == nil && len(lsProcs) > 0 {
@@ -322,7 +392,11 @@ func (s *Shield) RelaunchHostIDE() error {
 		_ = cmd.Wait()
 	}()
 
-	if resumePath != "" {
+	if revIntent != nil {
+		go func(it *revival.RevivalIntent) {
+			_ = revEngine.ExecutePostRelaunchRevival(it)
+		}(revIntent)
+	} else if resumePath != "" {
 		go func(target string) {
 			_ = gui.NewInjector(0).RestoreConversationPath(target, 30*time.Second)
 		}(resumePath)

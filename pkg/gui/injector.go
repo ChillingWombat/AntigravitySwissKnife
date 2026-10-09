@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -136,7 +137,7 @@ func (inj *Injector) ExecuteScript(wsURLStr string, expression string) (map[stri
 		return nil, fmt.Errorf("failed to connect to CDP websocket: %w", err)
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(6 * time.Second))
 
 	// WebSocket handshake
 	reqPath := u.Path
@@ -460,6 +461,51 @@ func (inj *Injector) GetLiveEmail() string {
 	return ""
 }
 
+var uuidRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// IsUUID checks if the string matches standard 36-char UUID format.
+func IsUUID(s string) bool {
+	return uuidRegex.MatchString(strings.TrimSpace(s))
+}
+
+// IsValidConversationID checks if a conversation identifier is valid and not a test/internal stub.
+func IsValidConversationID(id string) bool {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false
+	}
+	if idx := strings.IndexAny(id, "?#"); idx != -1 {
+		id = id[:idx]
+	}
+	id = strings.TrimPrefix(id, "/c/")
+	id = strings.TrimPrefix(id, "/battle/")
+	id = strings.TrimSpace(id)
+
+	lower := strings.ToLower(id)
+	if lower == "_new" || lower == "test" || lower == "test-web" || lower == "test-webgui-conv" ||
+		lower == "undefined" || lower == "null" || lower == "index" || lower == "onboarding" ||
+		lower == "login" || lower == "settings" || strings.Contains(id, "/") {
+		return false
+	}
+
+	if IsUUID(id) {
+		return true
+	}
+
+	// Also allow alphanumeric-hyphen identifiers of length >= 6 (for test suites and custom IDs)
+	// while rejecting test-web stubs
+	if len(id) >= 6 && !strings.HasPrefix(lower, "test-web") {
+		for _, r := range id {
+			if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+				return false
+			}
+		}
+		return true
+	}
+
+	return false
+}
+
 // IsValidConversationPath returns true if the relative path points to a real Antigravity conversation view.
 func IsValidConversationPath(p string) bool {
 	p = strings.TrimSpace(p)
@@ -472,11 +518,11 @@ func IsValidConversationPath(p string) bool {
 	}
 	if strings.HasPrefix(pathOnly, "/c/") {
 		rest := strings.TrimPrefix(pathOnly, "/c/")
-		return rest != "" && rest != "_new" && !strings.Contains(rest, "/")
+		return IsValidConversationID(rest)
 	}
 	if strings.HasPrefix(pathOnly, "/battle/") {
 		rest := strings.TrimPrefix(pathOnly, "/battle/")
-		return rest != "" && !strings.Contains(rest, "/")
+		return IsValidConversationID(rest)
 	}
 	return false
 }
@@ -526,16 +572,79 @@ func LoadLastConversationPath() string {
 	return ""
 }
 
+// LoadPinnedConversationPath inspects app_storage.json layout and pinned keys for the authoritative conversation.
+func LoadPinnedConversationPath() string {
+	storagePath := filepath.Join(core.GetAntigravityHostConfigDir(), "app_storage.json")
+	data, err := os.ReadFile(storagePath)
+	if err != nil {
+		return ""
+	}
+	var rawMap map[string]interface{}
+	if err := json.Unmarshal(data, &rawMap); err != nil {
+		return ""
+	}
+
+	// 1. Check pinned_conversations_order
+	if pinnedRaw, ok := rawMap["pinned_conversations_order"].(string); ok && pinnedRaw != "" {
+		var pinned []string
+		if err := json.Unmarshal([]byte(pinnedRaw), &pinned); err == nil && len(pinned) > 0 {
+			for _, p := range pinned {
+				p = strings.TrimSpace(p)
+				if IsValidConversationID(p) {
+					return "/c/" + p
+				}
+			}
+		}
+	}
+
+	// 2. Check layout keys: antigravity-multi-conversation-layout-v3-<cascadeId>
+	const layoutPrefix = "antigravity-multi-conversation-layout-v3-"
+	var candidates []string
+	for k := range rawMap {
+		if strings.HasPrefix(k, layoutPrefix) && k != layoutPrefix+"index" {
+			convID := strings.TrimSpace(strings.TrimPrefix(k, layoutPrefix))
+			if IsValidConversationID(convID) {
+				candidates = append(candidates, convID)
+			}
+		}
+	}
+
+	if len(candidates) == 1 {
+		return "/c/" + candidates[0]
+	} else if len(candidates) > 1 {
+		// Prefer candidate matching latest in conversation_summaries.db
+		if latest := QueryLatestTopLevelConversationPath(); latest != "" {
+			for _, c := range candidates {
+				if latest == "/c/"+c || strings.HasPrefix(latest, "/c/"+c) {
+					return latest
+				}
+			}
+		}
+		// Prefer standard UUID if mixed with non-UUID
+		for _, c := range candidates {
+			if IsUUID(c) {
+				return "/c/" + c
+			}
+		}
+		return "/c/" + candidates[0]
+	}
+
+	return ""
+}
+
 // QueryLatestTopLevelConversationPath queries ~/.gemini/antigravity/conversation_summaries.db
 // for the most recently modified top-level conversation.
 func QueryLatestTopLevelConversationPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return ""
-	}
-	dbPath := filepath.Join(home, ".gemini", "antigravity", "conversation_summaries.db")
+	dbPath := filepath.Join(core.GetAntigravityDir(), "conversation_summaries.db")
 	if _, err := os.Stat(dbPath); err != nil {
-		return ""
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return ""
+		}
+		dbPath = filepath.Join(home, ".gemini", "antigravity", "conversation_summaries.db")
+		if _, err := os.Stat(dbPath); err != nil {
+			return ""
+		}
 	}
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -547,7 +656,7 @@ func QueryLatestTopLevelConversationPath() string {
 	var convID string
 	err = db.QueryRow(`SELECT conversation_id FROM conversation_summaries WHERE parent_conversation_id = '' AND nesting_depth = 0 ORDER BY last_modified_time DESC LIMIT 1`).Scan(&convID)
 	convID = strings.TrimSpace(convID)
-	if err != nil || convID == "" {
+	if err != nil || convID == "" || !IsValidConversationID(convID) {
 		return ""
 	}
 	candidate := "/c/" + convID
@@ -557,19 +666,30 @@ func QueryLatestTopLevelConversationPath() string {
 	return candidate
 }
 
-// CaptureActiveConversationPath inspects the live Antigravity renderer URL via CDP,
-// falling back to conversation_summaries.db and app_storage.json, and saves the result.
+// CaptureActiveConversationPath inspects the pinned app_storage keys and database first,
+// falling back to live CDP only when necessary, and saves the verified result.
 func (inj *Injector) CaptureActiveConversationPath() string {
+	// 1. Authoritative pinned conversation from app_storage.json
+	if pinned := LoadPinnedConversationPath(); IsValidConversationPath(pinned) {
+		SaveLastConversationPath(pinned)
+		return pinned
+	}
+
+	// 2. Authoritative top-level conversation from conversation_summaries.db
+	if fromDB := QueryLatestTopLevelConversationPath(); IsValidConversationPath(fromDB) {
+		SaveLastConversationPath(fromDB)
+		return fromDB
+	}
+
+	// 3. Saved last conversation path in app_storage.json
+	if saved := LoadLastConversationPath(); IsValidConversationPath(saved) {
+		return saved
+	}
+
+	// 4. Live CDP fallback (strictly verified, never accepts onboarding or test stubs)
 	if port, err := inj.FindDevToolsPort(); err == nil && port > 0 {
 		if pages, err := inj.GetPageTargets(port); err == nil {
 			for _, page := range pages {
-				if u, err := url.Parse(page.URL); err == nil {
-					reqURI := u.RequestURI()
-					if IsValidConversationPath(reqURI) {
-						SaveLastConversationPath(reqURI)
-						return reqURI
-					}
-				}
 				if page.WebSocketDebuggerURL != "" {
 					res, err := inj.ExecuteScript(page.WebSocketDebuggerURL, `window.location.pathname + window.location.search`)
 					if err == nil && res != nil {
@@ -579,16 +699,18 @@ func (inj *Injector) CaptureActiveConversationPath() string {
 						}
 					}
 				}
+				if u, err := url.Parse(page.URL); err == nil {
+					reqURI := u.RequestURI()
+					if IsValidConversationPath(reqURI) {
+						SaveLastConversationPath(reqURI)
+						return reqURI
+					}
+				}
 			}
 		}
 	}
 
-	if fromDB := QueryLatestTopLevelConversationPath(); IsValidConversationPath(fromDB) {
-		SaveLastConversationPath(fromDB)
-		return fromDB
-	}
-
-	return LoadLastConversationPath()
+	return ""
 }
 
 // RestoreConversationPath polls the newly launched Antigravity renderer via CDP
@@ -615,7 +737,12 @@ func (inj *Injector) RestoreConversationPath(targetPath string, maxWait time.Dur
 
 			if (!viewReady) {
 				const now = Date.now();
-				if (curPath !== targetPathOnly) {
+				if (curPath.startsWith("/onboarding")) {
+					if (!window.__swissLastOnboardingNudge || (now - window.__swissLastOnboardingNudge) > 1500) {
+						window.__swissLastOnboardingNudge = now;
+						window.location.assign(targetPath);
+					}
+				} else if (curPath !== targetPathOnly) {
 					window.__swissLastRestoreNudge = now;
 					window.history.replaceState(window.history.state, "", targetPath);
 				} else if (hasShell && (!window.__swissLastRestoreNudge || (now - window.__swissLastRestoreNudge) > 1200)) {

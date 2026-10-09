@@ -958,3 +958,173 @@ func TestBuildAccountQuotaStatesFromMap_RecoversStaleErrorStatus(t *testing.T) {
 		t.Errorf("expected stillbroken account ErrorMessage preserved, got %q", states[1].ErrorMessage)
 	}
 }
+
+func TestEvaluateAutoSwitchForApp_UnusedStandbyPriority(t *testing.T) {
+	// 3 accounts:
+	// acc1: low quota (3%), currently used by desktop
+	// acc2: healthy quota (80%), currently used by agy
+	// acc3: healthy quota (70%), standby and unused by ANY app
+	accounts := []AccountQuotaState{
+		{
+			Email:             "acc1@google.com",
+			Status:            "ACTIVE",
+			Quota5hCurrent:    0.03,
+			Quota5hAvailable:  0.03,
+			QuotaWeekly:       0.80,
+			PlanTier:          "Free",
+			Priority:          "High",
+		},
+		{
+			Email:             "acc2@google.com",
+			Status:            "STANDBY",
+			Quota5hCurrent:    0.80,
+			Quota5hAvailable:  0.80,
+			QuotaWeekly:       0.90,
+			PlanTier:          "Free",
+			Priority:          "High",
+		},
+		{
+			Email:             "acc3@google.com",
+			Status:            "STANDBY",
+			Quota5hCurrent:    0.70,
+			Quota5hAvailable:  0.70,
+			QuotaWeekly:       0.85,
+			PlanTier:          "Free",
+			Priority:          "High",
+		},
+	}
+
+	inUseEmails := []string{"acc1@google.com", "acc2@google.com"} // acc1 used by desktop, acc2 used by agy
+
+	shouldSwitch, nextAcc, reason := EvaluateAutoSwitchForApp(
+		accounts,
+		"acc1@google.com",
+		inUseEmails,
+		0.05,
+		0.05,
+		"balanced",
+		120.0,
+	)
+
+	if !shouldSwitch {
+		t.Fatalf("expected shouldSwitch to be true, got false")
+	}
+	if nextAcc == nil {
+		t.Fatalf("expected nextAcc to be non-nil")
+	}
+	// Crucial check: acc3 MUST be chosen over acc2 because acc3 is NOT in use by any app!
+	if nextAcc.Email != "acc3@google.com" {
+		t.Errorf("expected unused standby acc3@google.com to be chosen, got %s (reason: %s)", nextAcc.Email, reason)
+	}
+}
+
+func TestEvaluateAutoSwitchForApp_FallbackToShared(t *testing.T) {
+	// 2 accounts:
+	// acc1: low quota (2%), used by desktop
+	// acc2: healthy quota (85%), used by agy
+	// No other accounts available.
+	accounts := []AccountQuotaState{
+		{
+			Email:             "acc1@google.com",
+			Status:            "ACTIVE",
+			Quota5hCurrent:    0.02,
+			Quota5hAvailable:  0.02,
+			QuotaWeekly:       0.80,
+			PlanTier:          "Free",
+			Priority:          "High",
+		},
+		{
+			Email:             "acc2@google.com",
+			Status:            "STANDBY",
+			Quota5hCurrent:    0.85,
+			Quota5hAvailable:  0.85,
+			QuotaWeekly:       0.90,
+			PlanTier:          "Free",
+			Priority:          "High",
+		},
+	}
+
+	inUseEmails := []string{"acc1@google.com", "acc2@google.com"}
+
+	shouldSwitch, nextAcc, reason := EvaluateAutoSwitchForApp(
+		accounts,
+		"acc1@google.com",
+		inUseEmails,
+		0.05,
+		0.05,
+		"balanced",
+		120.0,
+	)
+
+	if !shouldSwitch {
+		t.Fatalf("expected shouldSwitch to be true, got false")
+	}
+	if nextAcc == nil {
+		t.Fatalf("expected nextAcc to be non-nil")
+	}
+	// Fallback to acc2 since no unused standby account exists
+	if nextAcc.Email != "acc2@google.com" {
+		t.Errorf("expected fallback to acc2@google.com, got %s (reason: %s)", nextAcc.Email, reason)
+	}
+}
+
+func TestEvaluateAutoSwitch_ExcludesNeedsReauth(t *testing.T) {
+	accounts := []AccountQuotaState{
+		{
+			Email:            "active@google.com",
+			IsActive:         true,
+			Status:           "ACTIVE",
+			Quota5hCurrent:   0.02, // Depleted
+			Quota5hAvailable: 0.02,
+			QuotaWeekly:      0.50,
+			PlanTier:         "Pro",
+		},
+		{
+			Email:            "credential_less@google.com",
+			IsActive:         false,
+			Status:           "NEEDS_REAUTH",
+			Quota5hCurrent:   1.00, // 100% quota but no credentials!
+			Quota5hAvailable: 1.00,
+			QuotaWeekly:      1.00,
+			PlanTier:         "Pro",
+		},
+		{
+			Email:            "healthy_backup@google.com",
+			IsActive:         false,
+			Status:           "STANDBY",
+			Quota5hCurrent:   0.60,
+			Quota5hAvailable: 0.60,
+			QuotaWeekly:      0.80,
+			PlanTier:         "Pro",
+		},
+	}
+
+	// 1. In RankStandbyAccountsWithThresholds, credential_less must be strictly excluded
+	ranked := RankStandbyAccountsWithThresholds(accounts, 0.05, 0.05, "balanced")
+	if len(ranked) != 1 {
+		t.Fatalf("expected exactly 1 eligible standby candidate, got %d", len(ranked))
+	}
+	if ranked[0].Email != "healthy_backup@google.com" {
+		t.Errorf("expected candidate to be healthy_backup@google.com, got %s", ranked[0].Email)
+	}
+
+	// 2. In EvaluateAutoSwitchWithThresholds, auto-switch must choose healthy_backup
+	shouldSwitch, nextAcc, reason := EvaluateAutoSwitchWithThresholds(accounts, "active@google.com", 0.05, 0.05, "balanced", 100.0)
+	if !shouldSwitch {
+		t.Fatalf("expected shouldSwitch=true, got false")
+	}
+	if nextAcc == nil || nextAcc.Email != "healthy_backup@google.com" {
+		t.Errorf("expected nextAcc=healthy_backup@google.com, got %v (reason: %s)", nextAcc, reason)
+	}
+
+	// 3. In EvaluateAutoSwitchForApp, credential_less must never be selected
+	shouldSwitchApp, nextAccApp, reasonApp := EvaluateAutoSwitchForApp(accounts, "active@google.com", []string{"active@google.com"}, 0.05, 0.05, "balanced", 100.0)
+	if !shouldSwitchApp {
+		t.Fatalf("expected shouldSwitchApp=true, got false")
+	}
+	if nextAccApp == nil || nextAccApp.Email != "healthy_backup@google.com" {
+		t.Errorf("expected nextAccApp=healthy_backup@google.com, got %v (reason: %s)", nextAccApp, reasonApp)
+	}
+}
+
+

@@ -111,6 +111,19 @@ exports.default = async function afterPack(context) {
       'bin',
       'swiss'
     );
+    if (!fs.existsSync(srcBin)) {
+      try {
+        const goarch = isArm64 ? 'arm64' : 'amd64';
+        fs.mkdirSync(path.dirname(srcBin), { recursive: true });
+        execFileSync('go', ['build', '-ldflags=-s -w', '-o', srcBin, './cmd/swiss'], {
+          cwd: rootDir,
+          env: { ...process.env, CGO_ENABLED: '0', GOOS: 'darwin', GOARCH: goarch }
+        });
+        fs.chmodSync(srcBin, 0o755);
+      } catch (err) {
+        console.warn(`[afterPack] Could not compile ${archBinName}: ${err.message}`);
+      }
+    }
     if (fs.existsSync(srcBin) && fs.existsSync(path.dirname(appBin))) {
       fs.copyFileSync(srcBin, appBin);
       fs.chmodSync(appBin, 0o755);
@@ -121,6 +134,17 @@ exports.default = async function afterPack(context) {
   } else if (electronPlatformName === 'win32') {
     const rootDir = path.resolve(__dirname, '..');
     const srcWinBin = path.join(rootDir, 'bin', 'swiss.exe');
+    if (!fs.existsSync(srcWinBin)) {
+      try {
+        fs.mkdirSync(path.dirname(srcWinBin), { recursive: true });
+        execFileSync('go', ['build', '-ldflags=-s -w', '-o', srcWinBin, './cmd/swiss'], {
+          cwd: rootDir,
+          env: { ...process.env, CGO_ENABLED: '0', GOOS: 'windows', GOARCH: 'amd64' }
+        });
+      } catch (err) {
+        console.warn(`[afterPack] Could not compile windows swiss.exe: ${err.message}`);
+      }
+    }
     const destWinBinDir = path.join(appOutDir, 'resources', 'bin');
     const destWinBin = path.join(destWinBinDir, 'swiss.exe');
     if (fs.existsSync(srcWinBin)) {

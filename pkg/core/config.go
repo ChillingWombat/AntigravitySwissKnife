@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -20,6 +21,7 @@ type Config struct {
 	StandbyRandomJitterSec     int      `json:"standby_random_jitter_seconds"`
 	WarmupEnabled              bool     `json:"warmup_enabled"`
 	WarmupLeadTimeSec          float64  `json:"warmup_lead_time_seconds"`
+	PostResetDelaySec          float64  `json:"post_reset_delay_seconds,omitempty"`
 	PreferredNativeModel       string   `json:"preferred_native_model,omitempty"`
 	AllowAICreditsUsage        bool     `json:"allow_ai_credits_usage"`
 	AllowNonGeminiNativeModels bool     `json:"allow_non_gemini_native_models"`
@@ -46,6 +48,13 @@ type Config struct {
 	Memo                       MemoConfig                   `json:"memo"`
 	PreferredIDE               string                       `json:"preferred_ide,omitempty"`
 	ConversationVaultEnabled   bool                         `json:"conversation_vault_enabled"`
+	AutoPruneEnabled           bool                         `json:"auto_prune_enabled"`
+	AutoPruneMaxAgeDays        float64                      `json:"auto_prune_max_age_days"`
+	AutoPruneMaxSizeGB         float64                      `json:"auto_prune_max_size_gb"`
+	PersistentVisualEffects    bool                         `json:"persistent_visual_effects"`
+	MultiAppSyncMode           string                       `json:"multi_app_sync_mode"`
+	ActiveAppAccounts          map[string]string            `json:"active_app_accounts,omitempty"`
+	SubagentModelStrategy      string                       `json:"subagent_model_strategy"`
 
 	mu sync.RWMutex `json:"-"`
 }
@@ -71,6 +80,7 @@ func DefaultConfig() *Config {
 		StandbyRandomJitterSec:     30,  // up to 30s jitter gap
 		WarmupEnabled:              true,
 		WarmupLeadTimeSec:          DefaultWarmupLeadTimeSeconds,
+		PostResetDelaySec:          DefaultPostResetDelaySeconds,
 		PreferredNativeModel:       "gemini",
 		AllowAICreditsUsage:        false,
 		AllowNonGeminiNativeModels: false,
@@ -85,6 +95,13 @@ func DefaultConfig() *Config {
 		AutoCheckUpdates:           true,
 		AutoUpgrade:                false,
 		ConversationVaultEnabled:   true,
+		AutoPruneEnabled:           false,
+		AutoPruneMaxAgeDays:        0.0,
+		AutoPruneMaxSizeGB:         0.0,
+		PersistentVisualEffects:    true,
+		MultiAppSyncMode:           DefaultMultiAppSyncMode,
+		ActiveAppAccounts:          make(map[string]string),
+		SubagentModelStrategy:      DefaultSubagentModelStrategy,
 		Memo: MemoConfig{
 			StorageLocation: "global",
 			ViewScope:       "all",
@@ -117,6 +134,12 @@ func LoadConfig() (*Config, error) {
 	if cfg.AutoSwitchWeeklyThreshold <= 0 {
 		cfg.AutoSwitchWeeklyThreshold = DefaultAutoSwitchWeeklyThresholdFraction
 	}
+	if cfg.AutoPruneMaxSizeGB < 0 {
+		cfg.AutoPruneMaxSizeGB = 0.0
+	}
+	if cfg.AutoPruneMaxAgeDays < 0 {
+		cfg.AutoPruneMaxAgeDays = 0.0
+	}
 	if cfg.Memo.StorageLocation == "" {
 		cfg.Memo.StorageLocation = "global"
 	}
@@ -125,6 +148,26 @@ func LoadConfig() (*Config, error) {
 	}
 	if cfg.Memo.SearchScope == "" {
 		cfg.Memo.SearchScope = "text"
+	}
+	if cfg.StorageMode != "system_default" {
+		cfg.StorageMode = "system_default"
+	}
+	if cfg.MultiAppSyncMode != MultiAppSyncModeIndividual {
+		cfg.MultiAppSyncMode = MultiAppSyncModeShared
+	}
+	if cfg.ActiveAppAccounts == nil {
+		cfg.ActiveAppAccounts = make(map[string]string)
+	}
+	cfg.SubagentModelStrategy = NormalizeSubagentModelStrategy(cfg.SubagentModelStrategy)
+	if cfg.PostResetDelaySec <= 0 && cfg.WarmupLeadTimeSec > 0 {
+		cfg.PostResetDelaySec = cfg.WarmupLeadTimeSec
+	}
+	if cfg.WarmupLeadTimeSec <= 0 && cfg.PostResetDelaySec > 0 {
+		cfg.WarmupLeadTimeSec = cfg.PostResetDelaySec
+	}
+	if cfg.PostResetDelaySec <= 0 {
+		cfg.PostResetDelaySec = DefaultPostResetDelaySeconds
+		cfg.WarmupLeadTimeSec = DefaultWarmupLeadTimeSeconds
 	}
 	return cfg, nil
 }
@@ -293,6 +336,133 @@ func (c *Config) SetPreferredIDE(ide string) error {
 	c.mu.Unlock()
 	return c.Save()
 }
+
+// GetPostResetDelaySec returns the delay in seconds after a scheduled reset before verifying quota reset and igniting the 5-hour rolling timer.
+func (c *Config) GetPostResetDelaySec() float64 {
+	if c == nil {
+		return DefaultPostResetDelaySeconds
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.PostResetDelaySec > 0 {
+		return c.PostResetDelaySec
+	}
+	if c.WarmupLeadTimeSec > 0 {
+		return c.WarmupLeadTimeSec
+	}
+	return DefaultPostResetDelaySeconds
+}
+
+// GetMultiAppSyncMode returns the multi-app synchronization mode ("shared" | "individual").
+func (c *Config) GetMultiAppSyncMode() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.MultiAppSyncMode != MultiAppSyncModeIndividual {
+		return MultiAppSyncModeShared
+	}
+	return c.MultiAppSyncMode
+}
+
+// SetMultiAppSyncMode updates and persists the multi-app synchronization mode.
+func (c *Config) SetMultiAppSyncMode(mode string) error {
+	c.mu.Lock()
+	if mode != MultiAppSyncModeIndividual {
+		mode = MultiAppSyncModeShared
+	}
+	c.MultiAppSyncMode = mode
+	c.mu.Unlock()
+	return c.Save()
+}
+
+// GetActiveAppAccount returns the active account for a specific application.
+// In shared mode, it falls back to the overall active account.
+func (c *Config) GetActiveAppAccount(appType string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.MultiAppSyncMode == MultiAppSyncModeIndividual && c.ActiveAppAccounts != nil {
+		normApp := strings.ToLower(strings.TrimSpace(appType))
+		if em, ok := c.ActiveAppAccounts[normApp]; ok && em != "" {
+			return em
+		}
+	}
+	return c.ActiveAccount
+}
+
+// GetActiveAppAccounts returns a copy of the active app accounts map.
+func (c *Config) GetActiveAppAccounts() map[string]string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	res := make(map[string]string)
+	if c.ActiveAppAccounts != nil {
+		for k, v := range c.ActiveAppAccounts {
+			res[k] = v
+		}
+	}
+	// Fallback/fill for installed apps in shared mode
+	if c.MultiAppSyncMode != MultiAppSyncModeIndividual && c.ActiveAccount != "" {
+		if res[TargetAppDesktop] == "" {
+			res[TargetAppDesktop] = c.ActiveAccount
+		}
+		if res[TargetAppCLI] == "" {
+			res[TargetAppCLI] = c.ActiveAccount
+		}
+		if res[TargetAppVSCode] == "" {
+			res[TargetAppVSCode] = c.ActiveAccount
+		}
+	}
+	return res
+}
+
+// SetActiveAppAccount sets the active account for an app and persists the config.
+func (c *Config) SetActiveAppAccount(appType, email string) error {
+	c.mu.Lock()
+	if c.ActiveAppAccounts == nil {
+		c.ActiveAppAccounts = make(map[string]string)
+	}
+	normApp := strings.ToLower(strings.TrimSpace(appType))
+	if normApp == "" || normApp == TargetAppAll || c.MultiAppSyncMode != MultiAppSyncModeIndividual {
+		c.ActiveAccount = email
+		c.ActiveAppAccounts[TargetAppDesktop] = email
+		c.ActiveAppAccounts[TargetAppCLI] = email
+		c.ActiveAppAccounts[TargetAppVSCode] = email
+	} else {
+		c.ActiveAppAccounts[normApp] = email
+		if normApp == TargetAppDesktop {
+			c.ActiveAccount = email
+		}
+	}
+	c.mu.Unlock()
+	return c.Save()
+}
+
+// NormalizeSubagentModelStrategy validates and defaults the subagent model strategy.
+func NormalizeSubagentModelStrategy(strategy string) string {
+	switch strings.ToLower(strings.TrimSpace(strategy)) {
+	case SubagentModelStrategyAutoDecide, "auto", "autodecide":
+		return SubagentModelStrategyAutoDecide
+	default:
+		return SubagentModelStrategyDefaultCustomOnly
+	}
+}
+
+// GetSubagentModelStrategy returns the configured subagent model strategy in a thread-safe manner.
+func (c *Config) GetSubagentModelStrategy() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.SubagentModelStrategy == "" {
+		return DefaultSubagentModelStrategy
+	}
+	return c.SubagentModelStrategy
+}
+
+// SetSubagentModelStrategy updates and persists the subagent model strategy in a thread-safe manner.
+func (c *Config) SetSubagentModelStrategy(strategy string) error {
+	c.mu.Lock()
+	c.SubagentModelStrategy = NormalizeSubagentModelStrategy(strategy)
+	c.mu.Unlock()
+	return c.Save()
+}
+
 
 
 

@@ -10,7 +10,7 @@
     "desktop": "electron . --no-sandbox",
     "desktop:dev": "npm run build:frontend && electron . --no-sandbox",
     "desktop:minimized": "electron . --no-sandbox --minimized",
-    "test": "npm test --prefix frontend && go test ./pkg/...",
+    "test": "node --test electron/tray-account-menu.test.js && npm test --prefix frontend && go test ./pkg/...",
     "frontend:build": "npm run build:frontend",
     "go:build": "npm run build:go",
     "pack": "npm run build && electron-builder --dir",
@@ -18,12 +18,18 @@
     "dist:linux": "npm run build && electron-builder --linux",
     "dist:win": "npm run build && electron-builder --win",
     "dist:mac": "npm run build && electron-builder --mac",
+    "install:linux": "node scripts/install-linux.js",
+    "pack:linux": "node scripts/build-release.js linux --unpacked",
+    "pack:win": "node scripts/build-release.js windows --unpacked",
+    "pack:mac": "node scripts/build-release.js macos --unpacked",
     "release": "node scripts/build-release.js all",
     "release:linux": "node scripts/build-release.js linux",
     "release:win": "node scripts/build-release.js windows",
     "release:mac": "node scripts/build-release.js macos",
     "app:prod": "node scripts/build-release.js run",
-    "worktree": "bash scripts/worktree.sh"
+    "worktree": "bash scripts/worktree.sh",
+    "verify:packaging": "node scripts/verify-crossplatform-packaging.js",
+    "verify:release": "node scripts/verify-release-pipeline.js"
   },
   "build": {
     "appId": "com.antigravity.swiss-knife",
@@ -39,12 +45,16 @@
     ],
     "linux": {
       "target": [
-        "AppImage",
         "deb"
       ],
       "artifactName": "Antigravity-Swiss-Knife-${version}-x86_64.${ext}",
       "category": "Development",
       "icon": "assets/logo.png",
+      "synopsis": "Desktop companion and daemon for Google Antigravity",
+      "description": "Antigravity Swiss Knife is a standalone desktop application companion and daemon for Google Antigravity 2.0.",
+      "desktop": {
+        "StartupWMClass": "antigravity-swiss-knife"
+      },
       "extraResources": [
         {
           "from": "bin/swiss",
@@ -52,9 +62,20 @@
         }
       ]
     },
+    "deb": {
+      "packageName": "antigravity-swiss-knife",
+      "packageCategory": "devel",
+      "priority": "optional",
+      "depends": [
+        "libnotify4",
+        "libxtst6",
+        "libnss3",
+        "libasound2 | libasound2t64"
+      ]
+    },
     "win": {
       "target": [
-        "portable"
+        "nsis"
       ],
       "signAndEditExecutable": false,
       "icon": "assets/logo.png",
@@ -65,13 +86,18 @@
         }
       ]
     },
-    "portable": {
-      "artifactName": "Antigravity Swiss Knife.${ext}"
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Antigravity Swiss Knife",
+      "artifactName": "Antigravity-Swiss-Knife-Setup-${version}.${ext}"
     },
     "mac": {
       "target": [
-        "dmg",
-        "zip"
+        "dmg"
       ],
       "category": "public.app-category.developer-tools",
       "icon": "assets/logo.png",
@@ -79,6 +105,21 @@
         {
           "from": "bin/swiss",
           "to": "bin/swiss"
+        }
+      ]
+    },
+    "dmg": {
+      "artifactName": "Antigravity-Swiss-Knife-${version}-${arch}.${ext}",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
         }
       ]
     }

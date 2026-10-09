@@ -74,6 +74,7 @@ button {
   cursor: pointer;
   font-family: inherit;
   transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
 input, select, textarea {
@@ -99,12 +100,13 @@ input:focus, select:focus, textarea:focus {
   background-color: var(--primary);
   color: #ffffff;
   border-radius: 20px;
-  padding: 8px 18px;
+  padding: 8px 16px;
   font-size: 13px;
   font-weight: 500;
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  white-space: nowrap;
 }
 .btn-pill-primary:hover {
   background-color: var(--primary-hover);
@@ -115,12 +117,13 @@ input:focus, select:focus, textarea:focus {
   background-color: var(--tonal);
   color: var(--on-primary-container);
   border-radius: 20px;
-  padding: 8px 18px;
+  padding: 8px 16px;
   font-size: 13px;
   font-weight: 500;
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  white-space: nowrap;
 }
 .btn-pill-tonal:hover {
   background-color: var(--tonal-hover);
@@ -131,12 +134,13 @@ input:focus, select:focus, textarea:focus {
   color: var(--text);
   border: 1px solid var(--text-subtle);
   border-radius: 20px;
-  padding: 7px 16px;
+  padding: 8px 16px;
   font-size: 13px;
   font-weight: 500;
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  white-space: nowrap;
 }
 .btn-pill-outlined:hover {
   background-color: rgba(0, 0, 0, 0.04);
@@ -148,12 +152,13 @@ input:focus, select:focus, textarea:focus {
   color: var(--red);
   border: 1px solid #fad2cf;
   border-radius: 20px;
-  padding: 7px 16px;
+  padding: 8px 16px;
   font-size: 13px;
   font-weight: 500;
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  white-space: nowrap;
 }
 .btn-pill-danger:hover {
   background-color: #fad2cf;
@@ -163,7 +168,7 @@ input:focus, select:focus, textarea:focus {
 .google-card {
   background-color: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 20px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
@@ -173,11 +178,12 @@ input:focus, select:focus, textarea:focus {
 .badge-chip {
   display: inline-flex;
   align-items: center;
-  padding: 3px 10px;
+  padding: 4px 8px;
   border-radius: 12px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.3px;
+  white-space: nowrap;
 }
 .badge-green {
   background-color: var(--green-bg);
@@ -226,5 +232,16 @@ input:focus, select:focus, textarea:focus {
 .spinning,
 .animate-spin {
   animation: spin 1s linear infinite;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 

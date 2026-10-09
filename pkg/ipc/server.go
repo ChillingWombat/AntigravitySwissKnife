@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // HandlerFunc is the signature for JSON-RPC method handlers.
@@ -47,8 +48,16 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to create socket directory: %w", err)
 	}
 
-	// Clean up stale socket file if present
-	_ = os.Remove(s.socketPath)
+	// Check if an existing daemon is already actively listening on socketPath
+	if _, err := os.Stat(s.socketPath); err == nil {
+		conn, dialErr := net.DialTimeout("unix", s.socketPath, 300*time.Millisecond)
+		if dialErr == nil {
+			_ = conn.Close()
+			return fmt.Errorf("daemon is already running and actively listening on socket: %s", s.socketPath)
+		}
+		// Socket file exists but no process is responding - clean up stale socket file
+		_ = os.Remove(s.socketPath)
+	}
 
 	l, err := net.Listen("unix", s.socketPath)
 	if err != nil {

@@ -4,6 +4,16 @@ const http = require('http');
 const fs = require('fs');
 const os = require('os');
 const { DaemonManager } = require('./daemon-manager');
+const {
+  isAccountExcludedFromSwitchMenu,
+  rankAndFilterAccountsForTray,
+  buildSwitchMenuItems,
+  formatQuotaPercentage,
+  formatQuotaInfo,
+  resolveActiveAccount,
+  resolveActiveAccountAlias,
+  buildTrayMenuTemplate,
+} = require('./tray-account-menu');
 
 // Ensure Chromium sandbox switches are applied on Linux before initialization
 if (process.platform === 'linux' && app && app.commandLine) {
@@ -11,7 +21,7 @@ if (process.platform === 'linux' && app && app.commandLine) {
   app.commandLine.appendSwitch('disable-setuid-sandbox');
 }
 
-// Desktop background & close behavior settings (defaults to OFF: quit app & stop daemon on window close)
+// Desktop background & close behavior settings (defaults to ON: minimize to system tray on window close)
 function getCloseToTraySetting() {
   try {
     const configDir = path.join(os.homedir(), '.config', 'antigravity-swiss');
@@ -25,7 +35,7 @@ function getCloseToTraySetting() {
   } catch (err) {
     console.warn('[Settings] Failed to read desktop_settings.json:', err.message);
   }
-  return false; // Default: false (OFF) - do not run in background when closed
+  return true; // Default: true (ON) - minimize to system tray when closed
 }
 
 function setCloseToTraySetting(enabled) {
@@ -45,6 +55,54 @@ function setCloseToTraySetting(enabled) {
   } catch (err) {
     console.error('[Settings] Failed to write desktop_settings.json:', err.message);
     return false;
+  }
+}
+
+// Desktop runtime mode setting ('app' | 'daemon', defaults to 'app')
+function getRuntimeModeSetting() {
+  try {
+    const configDir = path.join(os.homedir(), '.config', 'antigravity-swiss');
+    const settingsPath = path.join(configDir, 'desktop_settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const data = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      if (data.runtime_mode === 'daemon' || data.runtime_mode === 'app') {
+        return data.runtime_mode;
+      }
+    }
+  } catch (err) {
+    console.warn('[Settings] Failed to read desktop_settings.json runtime_mode:', err.message);
+  }
+  return 'app'; // Default: 'app' (App Only mode)
+}
+
+function setRuntimeModeSetting(mode) {
+  try {
+    const configDir = path.join(os.homedir(), '.config', 'antigravity-swiss');
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true });
+    }
+    const settingsPath = path.join(configDir, 'desktop_settings.json');
+    let data = {};
+    if (fs.existsSync(settingsPath)) {
+      try { data = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch (_) {}
+    }
+    data.runtime_mode = mode === 'daemon' ? 'daemon' : 'app';
+    fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf8');
+    return true;
+  } catch (err) {
+    console.error('[Settings] Failed to write desktop_settings.json runtime_mode:', err.message);
+    return false;
+  }
+}
+
+// Teardown routing depending on runtime mode
+async function teardownDaemonForAppExit() {
+  const mode = getRuntimeModeSetting();
+  console.log(`[App] Teardown daemon for app exit. Runtime mode: ${mode}`);
+  if (mode === 'daemon') {
+    daemonManager.detach();
+  } else {
+    await daemonManager.stop({ force: true });
   }
 }
 
@@ -95,8 +153,32 @@ function getIconPath() {
   return undefined;
 }
 
+function switchAccountViaHttp(email) {
+  try {
+    const req = http.request(`${DAEMON_URL}/api/switch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 2000,
+    }, (res) => {
+      res.on('data', () => {});
+      res.on('end', () => {
+        setTimeout(updateTrayMenu, 500);
+      });
+    });
+    req.on('error', (err) => {
+      console.error('[Tray] Switch account request error:', err);
+    });
+    req.write(JSON.stringify({ email }));
+    req.end();
+  } catch (err) {
+    console.error('[Tray] Switch account failed:', err);
+  }
+}
+
 async function updateTrayMenu() {
-  if (!tray) return;
+  if (!tray || (typeof tray.isDestroyed === 'function' && tray.isDestroyed())) {
+    return;
+  }
 
   let activeAccount = 'Not Logged In';
   let accountsList = [];
@@ -108,93 +190,130 @@ async function updateTrayMenu() {
     }
   } catch {}
 
-  // Fetch accounts for quick switch
+  // Fetch accounts from fleet quota endpoint (includes real-time quota state, error status, and ranking)
+  let fleetFetched = false;
   try {
-    const accRes = await new Promise((resolve) => {
-      http.get(`${DAEMON_URL}/api/accounts`, { timeout: 800 }, (res) => {
+    const fleetRes = await new Promise((resolve) => {
+      http.get(`${DAEMON_URL}/api/quota/fleet`, { timeout: 800 }, (res) => {
         let body = '';
         res.on('data', (c) => { body += c; });
         res.on('end', () => {
-          try { resolve(JSON.parse(body)); } catch { resolve([]); }
+          try { resolve(JSON.parse(body)); } catch { resolve(null); }
         });
-      }).on('error', () => resolve([]));
+      }).on('error', () => resolve(null));
     });
-    if (Array.isArray(accRes)) {
-      accountsList = accRes;
-    } else if (accRes && Array.isArray(accRes.accounts)) {
-      accountsList = accRes.accounts;
+
+    if (fleetRes && Array.isArray(fleetRes.accounts)) {
+      accountsList = fleetRes.accounts;
+      if (fleetRes.active_account) {
+        activeAccount = fleetRes.active_account;
+      }
+      fleetFetched = true;
     }
   } catch {}
 
-  const switchMenuItems = accountsList.map((acc) => {
-    const email = acc.email || acc;
-    const isCurrent = email === activeAccount;
-    return {
-      label: isCurrent ? `✓ ${email}` : email,
-      enabled: !isCurrent,
-      click: async () => {
-        try {
-          const req = http.request(`${DAEMON_URL}/api/switch`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 2000,
+  // Fallback to /api/accounts if fleet endpoint was unavailable or returned empty
+  if (!fleetFetched || accountsList.length === 0) {
+    try {
+      const accRes = await new Promise((resolve) => {
+        http.get(`${DAEMON_URL}/api/accounts`, { timeout: 800 }, (res) => {
+          let body = '';
+          res.on('data', (c) => { body += c; });
+          res.on('end', () => {
+            try { resolve(JSON.parse(body)); } catch { resolve([]); }
           });
-          req.write(JSON.stringify({ email }));
-          req.end();
-          setTimeout(updateTrayMenu, 1000);
-        } catch (err) {
-          console.error('[Tray] Switch account failed:', err);
+        }).on('error', () => resolve([]));
+      });
+      if (Array.isArray(accRes)) {
+        accountsList = accRes;
+      } else if (accRes && Array.isArray(accRes.accounts)) {
+        accountsList = accRes.accounts;
+      }
+    } catch {}
+  }
+
+  let activeAcc = resolveActiveAccount(accountsList, activeAccount);
+  if (activeAcc && activeAcc.email && (activeAccount === 'Not Logged In' || !activeAccount)) {
+    activeAccount = activeAcc.email;
+  }
+  const activeAlias = resolveActiveAccountAlias(accountsList, activeAccount);
+
+  // If active account has no quota data yet, try quick query to /api/quota
+  if (activeAccount && activeAccount !== 'Not Logged In' && (!activeAcc || activeAcc.quota_5h_current === undefined || activeAcc.quota_weekly === undefined)) {
+    try {
+      const singleQuota = await new Promise((resolve) => {
+        http.get(`${DAEMON_URL}/api/quota?email=${encodeURIComponent(activeAccount)}`, { timeout: 400 }, (res) => {
+          let body = '';
+          res.on('data', (c) => { body += c; });
+          res.on('end', () => {
+            try { resolve(JSON.parse(body)); } catch { resolve(null); }
+          });
+        }).on('error', () => resolve(null));
+      });
+      if (singleQuota) {
+        if (!activeAcc) {
+          activeAcc = { email: activeAccount };
         }
-      },
-    };
+        if (typeof singleQuota.quota_5h_fraction === 'number') {
+          activeAcc.quota_5h_current = singleQuota.quota_5h_fraction;
+        } else if (typeof singleQuota.quota_5h_current === 'number') {
+          activeAcc.quota_5h_current = singleQuota.quota_5h_current;
+        } else if (typeof singleQuota.min_fraction === 'number') {
+          activeAcc.quota_5h_current = singleQuota.min_fraction;
+        }
+
+        if (typeof singleQuota.quota_weekly_fraction === 'number') {
+          activeAcc.quota_weekly = singleQuota.quota_weekly_fraction;
+        } else if (typeof singleQuota.quota_weekly === 'number') {
+          activeAcc.quota_weekly = singleQuota.quota_weekly;
+        }
+      }
+    } catch {}
+  }
+
+  const quotaText = formatQuotaInfo(activeAcc);
+
+  const switchMenuItems = buildSwitchMenuItems(accountsList, activeAccount, (email) => {
+    switchAccountViaHttp(email);
+  }, 0.10, 0.05, fleetFetched);
+
+  const template = buildTrayMenuTemplate({
+    activeAlias,
+    quotaInfo: quotaText,
+    switchMenuItems,
+    accountsCount: accountsList.length,
+    onOpenDashboard: () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        if (!mainWindow.isVisible()) mainWindow.show();
+        mainWindow.focus();
+      }
+    },
+    onSystemSettings: () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        if (!mainWindow.isVisible()) mainWindow.show();
+        mainWindow.focus();
+        mainWindow.webContents.send('desktop:navigate', 2);
+      }
+    },
+    onQuit: async () => {
+      isQuitting = true;
+      await teardownDaemonForAppExit();
+      app.quit();
+    },
   });
 
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: 'Antigravity Swiss Knife',
-      enabled: false,
-    },
-    {
-      label: 'Open Dashboard',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.focus();
-        }
-      },
-    },
-    { type: 'separator' },
-    {
-      label: `Active: ${activeAccount}`,
-      enabled: false,
-    },
-    {
-      label: 'Quick Account Switch',
-      submenu: switchMenuItems.length > 0 ? switchMenuItems : [{ label: 'No accounts configured', enabled: false }],
-    },
-    { type: 'separator' },
-    {
-      label: 'System Settings',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.focus();
-          mainWindow.webContents.send('desktop:navigate', 2);
-        }
-      },
-    },
-    { type: 'separator' },
-    {
-      label: 'Quit Antigravity Swiss Knife',
-      click: async () => {
-        isQuitting = true;
-        await daemonManager.stop();
-        app.quit();
-      },
-    },
-  ]);
+  if (!tray || (typeof tray.isDestroyed === 'function' && tray.isDestroyed())) {
+    return;
+  }
 
-  tray.setContextMenu(contextMenu);
+  try {
+    const contextMenu = Menu.buildFromTemplate(template);
+    tray.setContextMenu(contextMenu);
+  } catch (err) {
+    console.error('[Tray] Error setting context menu:', err);
+  }
 }
 
 function createTray() {
@@ -269,7 +388,7 @@ async function createWindow() {
   mainWindow.on('enter-full-screen', () => mainWindow.setAspectRatio(0));
   mainWindow.on('leave-full-screen', () => mainWindow.setAspectRatio(16 / 9));
 
-  // Intercept window close ('X'): default is to quit app & stop daemon unless close_to_tray is manually enabled
+  // Intercept window close ('X'): default is to minimize to system tray unless close_to_tray is disabled
   mainWindow.on('close', async (event) => {
     if (!isQuitting) {
       const closeToTray = getCloseToTraySetting();
@@ -286,9 +405,9 @@ async function createWindow() {
         event.preventDefault();
         isQuitting = true;
         try {
-          await daemonManager.stop();
+          await teardownDaemonForAppExit();
         } catch (err) {
-          console.error('[App] Error stopping daemon on window close:', err);
+          console.error('[App] Error tearing down daemon on window close:', err);
         } finally {
           app.quit();
         }
@@ -376,6 +495,30 @@ function registerIpcHandlers() {
     return { success, closeToTray: isEnabled };
   });
 
+  ipcMain.handle('desktop:get-runtime-mode-setting', async () => {
+    return { runtimeMode: getRuntimeModeSetting() };
+  });
+
+  ipcMain.handle('desktop:set-runtime-mode-setting', async (_event, mode) => {
+    const targetMode = typeof mode === 'object' && mode !== null
+      ? (mode.runtimeMode || mode.runtime_mode || 'app')
+      : (mode === 'daemon' ? 'daemon' : 'app');
+    const success = setRuntimeModeSetting(targetMode);
+    return { success, runtimeMode: targetMode };
+  });
+
+  ipcMain.handle('desktop:start-daemon', async () => {
+    try {
+      console.log('[IPC] Manual Start Daemon requested...');
+      await daemonManager.start();
+      const status = await daemonManager.checkStatus(2000);
+      return { success: true, status };
+    } catch (err) {
+      console.error('[IPC] start-daemon failed:', err);
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('desktop:notify', async (_event, { title, body }) => {
     if (Notification.isSupported()) {
       new Notification({ title, body, icon: getIconPath() }).show();
@@ -408,6 +551,42 @@ function registerIpcHandlers() {
     } catch (err) {
       console.error('Failed to open dialog:', err);
       return null;
+    }
+  });
+
+  ipcMain.handle('desktop:launch-antigravity', async () => {
+    try {
+      const res = await fetch(`${DAEMON_URL}/api/desktop/relaunch`, { method: 'POST' });
+      return await res.json();
+    } catch (err) {
+      console.warn('[Electron] Failed to trigger relaunch via daemon, attempting fallback:', err.message);
+      try {
+        const { spawn } = require('child_process');
+        let cmd = 'antigravity';
+        let args = [];
+        if (process.platform === 'darwin') {
+          cmd = 'open';
+          args = ['-a', 'Antigravity'];
+        } else if (process.platform === 'linux') {
+          const candidates = [
+            '/usr/bin/antigravity',
+            '/usr/local/bin/antigravity',
+            path.join(os.homedir(), '.local', 'bin', 'antigravity'),
+            path.join(os.homedir(), '.antigravity', 'bin', 'antigravity')
+          ];
+          for (const cand of candidates) {
+            if (fs.existsSync(cand)) {
+              cmd = cand;
+              break;
+            }
+          }
+        }
+        const child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
+        child.unref();
+        return { success: true, message: 'Antigravity process launched' };
+      } catch (spawnErr) {
+        return { success: false, error: spawnErr.message };
+      }
     }
   });
 }
@@ -480,17 +659,35 @@ async function runE2eVerification() {
       console.log('[E2E-TEST] Testing closeToTray setting...');
       const initClose = getCloseToTraySetting();
       console.log('[E2E-TEST] Initial closeToTray:', initClose);
-      setCloseToTraySetting(true);
-      if (getCloseToTraySetting() !== true) {
-        console.error('[E2E-TEST] Failed to set closeToTray to true');
-        process.exit(1);
-      }
       setCloseToTraySetting(false);
       if (getCloseToTraySetting() !== false) {
         console.error('[E2E-TEST] Failed to set closeToTray to false');
         process.exit(1);
       }
+      setCloseToTraySetting(true);
+      if (getCloseToTraySetting() !== true) {
+        console.error('[E2E-TEST] Failed to set closeToTray to true');
+        process.exit(1);
+      }
+      setCloseToTraySetting(initClose);
       console.log('[E2E-TEST] CloseToTray IPC and persistence verified: OK');
+
+      // Test runtimeMode setting persistence & IPC logic
+      console.log('[E2E-TEST] Testing runtimeMode setting...');
+      const initMode = getRuntimeModeSetting();
+      console.log('[E2E-TEST] Initial runtimeMode:', initMode);
+      setRuntimeModeSetting('daemon');
+      if (getRuntimeModeSetting() !== 'daemon') {
+        console.error('[E2E-TEST] Failed to set runtimeMode to daemon');
+        process.exit(1);
+      }
+      setRuntimeModeSetting('app');
+      if (getRuntimeModeSetting() !== 'app') {
+        console.error('[E2E-TEST] Failed to set runtimeMode to app');
+        process.exit(1);
+      }
+      setRuntimeModeSetting(initMode);
+      console.log('[E2E-TEST] RuntimeMode IPC and persistence verified: OK');
 
       console.log('[E2E-TEST] All E2E desktop assertions passed! Initiating graceful shutdown...');
       isQuitting = true;
@@ -536,7 +733,7 @@ app.on('before-quit', async (event) => {
     if (!isStoppingDaemon) {
       isStoppingDaemon = true;
       try {
-        await daemonManager.stop();
+        await teardownDaemonForAppExit();
       } catch (err) {
         console.error('[App] Error during daemon stop on before-quit:', err);
       } finally {
@@ -548,11 +745,11 @@ app.on('before-quit', async (event) => {
 
 app.on('window-all-closed', async () => {
   const closeToTray = getCloseToTraySetting();
-  if (!closeToTray || isQuitting || process.platform === 'darwin') {
+  if (!closeToTray || isQuitting) {
     if (!isStoppingDaemon) {
       isStoppingDaemon = true;
       try {
-        await daemonManager.stop();
+        await teardownDaemonForAppExit();
       } catch (err) {}
     }
     app.quit();
@@ -566,7 +763,7 @@ const handleExitSignal = async (signal) => {
   isStoppingDaemon = true;
   isQuitting = true;
   try {
-    await daemonManager.stop();
+    await teardownDaemonForAppExit();
   } catch (err) {
     console.error(`[App] Error stopping daemon on ${signal}:`, err);
   } finally {
@@ -584,7 +781,7 @@ if (process.platform !== 'win32') {
 process.on('uncaughtException', async (err) => {
   console.error('[App] Uncaught exception in main process:', err);
   try {
-    await daemonManager.stop();
+    await teardownDaemonForAppExit();
   } catch {}
   process.exit(1);
 });
@@ -600,6 +797,18 @@ module.exports = {
   registerIpcHandlers,
   getCloseToTraySetting,
   setCloseToTraySetting,
+  getRuntimeModeSetting,
+  setRuntimeModeSetting,
+  teardownDaemonForAppExit,
+  isAccountExcludedFromSwitchMenu,
+  rankAndFilterAccountsForTray,
+  buildSwitchMenuItems,
+  formatQuotaPercentage,
+  formatQuotaInfo,
+  resolveActiveAccount,
+  resolveActiveAccountAlias,
+  buildTrayMenuTemplate,
+  switchAccountViaHttp,
   getMainWindow: () => mainWindow,
   getTray: () => tray,
   DAEMON_URL,

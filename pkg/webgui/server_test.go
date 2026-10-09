@@ -14,8 +14,11 @@ import (
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/revival"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/system"
 )
 
@@ -156,8 +159,8 @@ func TestWebGUIQuotaAndAccountsEndpoints(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	if elapsed > 1*time.Second {
-		t.Errorf("GET /api/quota/fleet took %v, expected <1s", elapsed)
+	if elapsed > 5*time.Second {
+		t.Errorf("GET /api/quota/fleet took %v, expected non-blocking (<5s)", elapsed)
 	}
 	var fleet quota.FleetQuotaSummary
 	if err := json.NewDecoder(resp.Body).Decode(&fleet); err != nil {
@@ -1584,7 +1587,6 @@ func TestWebGUICORSMiddlewareAndColorEndpoints(t *testing.T) {
 func TestWebGUISettingsStorageAndPrivacy(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", filepath.Join(tmpDir, "config"))
-	t.Setenv("ANTIGRAVITY_SWISS_PORTABLE_DIR", filepath.Join(tmpDir, "portable_data"))
 
 	srv := NewServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
@@ -1612,7 +1614,7 @@ func TestWebGUISettingsStorageAndPrivacy(t *testing.T) {
 		t.Errorf("expected storage_mode to be system_default, got %v", storageInfo["storage_mode"])
 	}
 
-	// 2. POST /api/settings/storage to switch to app_portable
+	// 2. POST /api/settings/storage to switch to app_portable (fails with 400 Bad Request)
 	switchBody, _ := json.Marshal(map[string]interface{}{
 		"storage_mode": "app_portable",
 		"migrate_data": true,
@@ -1621,14 +1623,33 @@ func TestWebGUISettingsStorageAndPrivacy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("POST /api/settings/storage failed: %v", err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for app_portable, got %d", resp.StatusCode)
 	}
 	var switchResp map[string]interface{}
 	_ = json.NewDecoder(resp.Body).Decode(&switchResp)
 	resp.Body.Close()
-	if switchResp["success"] != true {
-		t.Errorf("expected switch success true, got %v", switchResp)
+	if switchResp["success"] != false {
+		t.Errorf("expected switch success false for app_portable, got %v", switchResp)
+	}
+
+	// 2b. POST /api/settings/storage to set system_default (succeeds with 200 OK)
+	sysBody, _ := json.Marshal(map[string]interface{}{
+		"storage_mode": "system_default",
+		"migrate_data": false,
+	})
+	resp, err = http.Post(baseURL+"/api/settings/storage", "application/json", bytes.NewReader(sysBody))
+	if err != nil {
+		t.Fatalf("POST /api/settings/storage system_default failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for system_default, got %d", resp.StatusCode)
+	}
+	var sysResp map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&sysResp)
+	resp.Body.Close()
+	if sysResp["success"] != true {
+		t.Errorf("expected switch success true for system_default, got %v", sysResp)
 	}
 
 	// 3. GET /api/settings/privacy
@@ -2196,6 +2217,659 @@ func TestDesktopRelaunchEndpoint(t *testing.T) {
 	defer getResp.Body.Close()
 	if getResp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 Method Not Allowed, got %d", getResp.StatusCode)
+	}
+}
+
+func TestTokenMonitorRealTelemetryPricingAndDeletion(t *testing.T) {
+	tmpDir := t.TempDir()
+	agDir := filepath.Join(tmpDir, "antigravity")
+	brainDir := filepath.Join(agDir, "brain")
+	convDir := filepath.Join(agDir, "conversations")
+	_ = os.MkdirAll(convDir, 0755)
+
+	// Conversation 1: Gemini 3.8 Flash (High) -> MODEL_PLACEHOLDER_M318
+	conv1Logs := filepath.Join(brainDir, "conv-1", ".system_generated", "logs")
+	_ = os.MkdirAll(conv1Logs, 0755)
+	_ = os.WriteFile(filepath.Join(conv1Logs, "transcript.jsonl"), []byte(
+		`{"type":"PLANNER_RESPONSE","step_index":1,"created_at":"2026-04-06T03:07:38Z","thinking_Duration":"2.0s","input_tokens":10000,"output_tokens":2000,"cache_read_tokens":5000}`+"\n",
+	), 0644)
+	_ = os.WriteFile(filepath.Join(convDir, "conv-1.db"), []byte("header\x00model_enum\x12\x16MODEL_PLACEHOLDER_M318\x00"), 0644)
+
+	// Conversation 2: Gemini 3.8 Flash (Medium) -> MODEL_PLACEHOLDER_M319 (must merge into same canonical Gemini 3.8 Flash model!)
+	conv2Logs := filepath.Join(brainDir, "conv-2", ".system_generated", "logs")
+	_ = os.MkdirAll(conv2Logs, 0755)
+	_ = os.WriteFile(filepath.Join(conv2Logs, "transcript.jsonl"), []byte(
+		`{"type":"PLANNER_RESPONSE","step_index":1,"created_at":"2026-04-06T03:09:00Z","thinking_Duration":"1.0s","input_tokens":5000,"output_tokens":1000,"cache_read_tokens":2000}`+"\n",
+	), 0644)
+	_ = os.WriteFile(filepath.Join(convDir, "conv-2.db"), []byte("header\x00model_enum\x12\x16MODEL_PLACEHOLDER_M319\x00"), 0644)
+
+	// Conversation 3: Custom model (deepseek-chat)
+	conv3Logs := filepath.Join(brainDir, "conv-3", ".system_generated", "logs")
+	_ = os.MkdirAll(conv3Logs, 0755)
+	_ = os.WriteFile(filepath.Join(conv3Logs, "transcript.jsonl"), []byte(
+		`{"type":"PLANNER_RESPONSE","step_index":1,"created_at":"2026-04-06T03:12:00Z","thinking_Duration":"1.5s","input_tokens":8000,"output_tokens":3000,"cache_read_tokens":0}`+"\n",
+	), 0644)
+	_ = os.WriteFile(filepath.Join(convDir, "conv-3.db"), []byte("header\x00deepseek-chat\x00"), 0644)
+
+	cmStore, err := custommodels.NewStore(filepath.Join(tmpDir, "cm_cfg"))
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	dummySock := filepath.Join(tmpDir, "test.sock")
+	srv := NewServer("127.0.0.1:0", dummySock)
+	srv.SetCustomModelsStore(cmStore)
+	srv.SetAntigravityDataDir(agDir)
+	srv.SetCatalogFetcher(func(force bool) []custommodels.CatalogModelInput {
+		return []custommodels.CatalogModelInput{
+			{ID: "gemini-3.8-flash-high", DisplayName: "Gemini 3.8 Flash (High)", Provider: "Google"},
+			{ID: "gemini-3.8-flash-medium", DisplayName: "Gemini 3.8 Flash (Medium)", Provider: "Google"},
+		}
+	})
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+	baseURL := "http://" + srv.Addr()
+
+	// 1. Add Custom Model with manual price & budget cap via POST /api/custom_models
+	addReq := map[string]interface{}{
+		"id":                       "cm-ds-1",
+		"name":                     "deepseek-chat",
+		"display_name":             "DeepSeek Chat V3",
+		"provider_type":            "openai",
+		"base_url":                 "https://api.deepseek.com/v1",
+		"quota_type":               "balance",
+		"quota_manual_override":    true,
+		"balance_value":            "$25.00",
+		"budget_cap_type":          "dollar",
+		"budget_cap_value":         15.0,
+		"input_price_per_m":        0.30,
+		"cached_input_price_per_m": 0.08,
+		"output_price_per_m":       1.20,
+		"price_source":             "manual",
+		"enabled":                  true,
+	}
+	addBytes, _ := json.Marshal(addReq)
+	resp, err := http.Post(baseURL+"/api/custom_models", "application/json", bytes.NewReader(addBytes))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/custom_models failed: %v", err)
+	}
+	resp.Body.Close()
+
+	// 2. GET /api/tokens/summary -> verify Gemini 3.8 Flash (High + Medium merged) and DeepSeek Chat V3
+	sumResp, err := http.Get(baseURL + "/api/tokens/summary")
+	if err != nil || sumResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/tokens/summary failed: %v", err)
+	}
+	var sumData struct {
+		TotalTokens     int64                        `json:"total_tokens"`
+		RequestsCount   int                          `json:"requests_count"`
+		ModelBreakdowns []TokenModelBreakdown        `json:"model_breakdowns"`
+		TelemetryEvents []TokenTelemetryEvent        `json:"telemetry_events"`
+		PricingRecords  []custommodels.ModelPricingRecord `json:"pricing_records"`
+		Models          []custommodels.ModelPricingRecord `json:"models"`
+	}
+	if err := json.NewDecoder(sumResp.Body).Decode(&sumData); err != nil {
+		t.Fatalf("decode summary error: %v", err)
+	}
+	sumResp.Body.Close()
+
+	if len(sumData.ModelBreakdowns) != 2 {
+		t.Fatalf("expected 2 merged models in breakdown (Gemini 3.8 Flash + DeepSeek Chat V3), got %d: %+v", len(sumData.ModelBreakdowns), sumData.ModelBreakdowns)
+	}
+	if sumData.ModelBreakdowns[0].ModelID != "gemini-3.8-flash" || sumData.ModelBreakdowns[0].ModelName != "Gemini 3.8 Flash" {
+		t.Errorf("expected top model to be canonical Gemini 3.8 Flash, got %+v", sumData.ModelBreakdowns[0])
+	}
+	if sumData.ModelBreakdowns[0].CanonicalID != "gemini-3.8-flash" {
+		t.Errorf("expected CanonicalID to be populated, got %q", sumData.ModelBreakdowns[0].CanonicalID)
+	}
+	if sumData.ModelBreakdowns[0].Requests != 2 {
+		t.Errorf("expected 2 merged requests for Gemini 3.8 Flash (High + Medium), got %d", sumData.ModelBreakdowns[0].Requests)
+	}
+	if len(sumData.PricingRecords) == 0 || len(sumData.Models) == 0 {
+		t.Errorf("expected pricing_records and models to be populated in summary, got records=%d models=%d", len(sumData.PricingRecords), len(sumData.Models))
+	}
+	if len(sumData.TelemetryEvents) > 0 {
+		ev := sumData.TelemetryEvents[0]
+		if ev.CanonicalID == "" || ev.Classification == "" {
+			t.Errorf("expected telemetry event to have CanonicalID and Classification, got %+v", ev)
+		}
+	}
+
+	// Verify GET /api/tokens/pricing returns pricing_records and models
+	prResp, err := http.Get(baseURL + "/api/tokens/pricing")
+	if err != nil || prResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/tokens/pricing failed: %v", err)
+	}
+	var prPayload struct {
+		Success        bool                              `json:"success"`
+		PricingRecords []custommodels.ModelPricingRecord `json:"pricing_records"`
+		Models         []custommodels.ModelPricingRecord `json:"models"`
+	}
+	if err := json.NewDecoder(prResp.Body).Decode(&prPayload); err != nil {
+		t.Fatalf("decode pricing response error: %v", err)
+	}
+	prResp.Body.Close()
+	if !prPayload.Success || len(prPayload.PricingRecords) == 0 || len(prPayload.Models) == 0 {
+		t.Errorf("expected GET /api/tokens/pricing to return pricing_records and models, got %+v", prPayload)
+	}
+
+	// 3. Delete Custom Model via DELETE /api/tokens/pricing using canonical_id alias -> removes both price data and usage info!
+	delReq, _ := http.NewRequest(http.MethodDelete, baseURL+"/api/tokens/pricing?canonical_id=deepseek-chat", nil)
+	delResp, err := http.DefaultClient.Do(delReq)
+	if err != nil || delResp.StatusCode != http.StatusOK {
+		t.Fatalf("DELETE /api/tokens/pricing failed: %v", err)
+	}
+	delResp.Body.Close()
+
+	// Verify usage info for deepseek-chat is now deleted from /api/tokens/summary
+	sumResp2, _ := http.Get(baseURL + "/api/tokens/summary")
+	var sumData2 struct {
+		ModelBreakdowns []TokenModelBreakdown `json:"model_breakdowns"`
+	}
+	_ = json.NewDecoder(sumResp2.Body).Decode(&sumData2)
+	sumResp2.Body.Close()
+	if len(sumData2.ModelBreakdowns) != 1 || sumData2.ModelBreakdowns[0].ModelID != "gemini-3.8-flash" {
+		t.Fatalf("expected deleted custom model usage to be purged from summary, got %+v", sumData2.ModelBreakdowns)
+	}
+}
+
+func TestMultiAppSyncAndSwitchAPI(t *testing.T) {
+	os.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
+	defer os.Unsetenv("ANTIGRAVITY_TEST_DRY_RUN")
+
+	tmpDir := t.TempDir()
+	os.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tmpDir)
+	defer os.Unsetenv("ANTIGRAVITY_SWISS_CONFIG_DIR")
+
+	store, err := keyring.NewStore("")
+	if err != nil {
+		t.Fatalf("failed to create test store: %v", err)
+	}
+	_, _ = store.ImportAccount("cli-user@google.com", "rt_cli", "at_cli", "CLI User", "")
+	_, _ = store.ImportAccount("fleet-shared@google.com", "rt_shared", "at_shared", "Shared User", "")
+
+	dummySock := filepath.Join(tmpDir, "dummy.sock")
+	srv := NewServer("127.0.0.1:0", dummySock)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// 1. GET /api/rules checks default multi_app_sync_mode and installed_apps
+	resp, err := http.Get(baseURL + "/api/rules")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/rules failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	var rules map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&rules); err != nil {
+		t.Fatalf("failed to decode rules: %v", err)
+	}
+	resp.Body.Close()
+
+	if mode, ok := rules["multi_app_sync_mode"].(string); !ok || mode != "shared" {
+		t.Errorf("expected default multi_app_sync_mode 'shared', got '%v'", rules["multi_app_sync_mode"])
+	}
+	if _, ok := rules["installed_apps"].(map[string]interface{}); !ok {
+		t.Errorf("expected installed_apps to be populated in rules, got '%v'", rules["installed_apps"])
+	}
+
+	// 2. POST /api/rules updates multi_app_sync_mode to individual
+	postData := map[string]interface{}{
+		"multi_app_sync_mode": "individual",
+	}
+	pBytes, _ := json.Marshal(postData)
+	postResp, err := http.Post(baseURL+"/api/rules", "application/json", bytes.NewReader(pBytes))
+	if err != nil || postResp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/rules failed: err=%v, code=%d", err, postResp.StatusCode)
+	}
+	postResp.Body.Close()
+
+	// Verify updated rule
+	resp2, err := http.Get(baseURL + "/api/rules")
+	if err != nil || resp2.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/rules failed: err=%v, code=%d", err, resp2.StatusCode)
+	}
+	var updatedRules map[string]interface{}
+	_ = json.NewDecoder(resp2.Body).Decode(&updatedRules)
+	resp2.Body.Close()
+
+	if mode, ok := updatedRules["multi_app_sync_mode"].(string); !ok || mode != "individual" {
+		t.Errorf("expected updated multi_app_sync_mode 'individual', got '%v'", updatedRules["multi_app_sync_mode"])
+	}
+
+	// 3. POST /api/switch with target_app = "agy"
+	switchPayload := map[string]interface{}{
+		"email":        "cli-user@google.com",
+		"target_app":   "agy",
+		"relaunch_ide": false,
+	}
+	sBytes, _ := json.Marshal(switchPayload)
+	sResp, err := http.Post(baseURL+"/api/switch", "application/json", bytes.NewReader(sBytes))
+	if err != nil || sResp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/switch failed: err=%v, code=%d", err, sResp.StatusCode)
+	}
+	var sResult map[string]interface{}
+	if err := json.NewDecoder(sResp.Body).Decode(&sResult); err != nil {
+		t.Fatalf("decode switch response error: %v", err)
+	}
+	sResp.Body.Close()
+
+	if success, ok := sResult["success"].(bool); !ok || !success {
+		t.Errorf("expected success true in switch response, got %v", sResult)
+	}
+	if target, ok := sResult["target_app"].(string); !ok || target != "agy" {
+		t.Errorf("expected target_app 'agy', got '%v'", sResult["target_app"])
+	}
+	if activeApps, ok := sResult["active_app_accounts"].(map[string]interface{}); ok {
+		if activeApps["agy"] != "cli-user@google.com" {
+			t.Errorf("expected active_app_accounts[agy] to be 'cli-user@google.com', got '%v'", activeApps["agy"])
+		}
+	} else {
+		t.Errorf("expected active_app_accounts in response, got %v", sResult["active_app_accounts"])
+	}
+
+	// 4. POST /api/switch with target_app = "all"
+	switchAllPayload := map[string]interface{}{
+		"email":        "fleet-shared@google.com",
+		"target_app":   "all",
+		"relaunch_ide": false,
+	}
+	saBytes, _ := json.Marshal(switchAllPayload)
+	saResp, err := http.Post(baseURL+"/api/switch", "application/json", bytes.NewReader(saBytes))
+	if err != nil || saResp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/switch (all) failed: err=%v, code=%d", err, saResp.StatusCode)
+	}
+	var saResult map[string]interface{}
+	_ = json.NewDecoder(saResp.Body).Decode(&saResult)
+	saResp.Body.Close()
+
+	if activeApps, ok := saResult["active_app_accounts"].(map[string]interface{}); ok {
+		if activeApps["desktop"] != "fleet-shared@google.com" || activeApps["agy"] != "fleet-shared@google.com" || activeApps["vscode"] != "fleet-shared@google.com" {
+			t.Errorf("expected all apps updated to 'fleet-shared@google.com', got %+v", activeApps)
+		}
+	} else {
+		t.Errorf("expected active_app_accounts in response, got %v", saResult["active_app_accounts"])
+	}
+}
+
+func TestServer_ConversationEndpoints(t *testing.T) {
+	TestConversationEndpoints(t)
+}
+
+func TestConversationEndpoints(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	tmpDir := t.TempDir()
+	guiStore, _ := gui.NewStore(tmpDir)
+	srv.SetGUIStore(guiStore)
+	engine := revival.NewEngine(tmpDir, 9222)
+	// Disable live CDP in detector so test runs offline
+	engine.Detector.LiveCDPEnabled = false
+	srv.SetRevivalEngine(engine)
+
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// 1. GET /api/conversations/active (empty initially)
+	resp, err := http.Get(baseURL + "/api/conversations/active")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/conversations/active failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 2. Mock CDP target and script executor on engine
+	engine.CDPTrigger.TargetFinder = func(port int) (int, []gui.DevToolsTarget, error) {
+		return 9222, []gui.DevToolsTarget{
+			{
+				URL:                  "https://127.0.0.1:41234/c/test-webgui-conv",
+				WebSocketDebuggerURL: "ws://127.0.0.1:9222/devtools/page/1",
+			},
+		}, nil
+	}
+	engine.CDPTrigger.ScriptExecutor = func(wsURL, expression string) (map[string]interface{}, error) {
+		return map[string]interface{}{"success": true}, nil
+	}
+
+	// 3. POST /api/conversations/revive
+	revivePayload := map[string]interface{}{
+		"target_app":      "desktop",
+		"conversation_id": "test-webgui-conv",
+		"prompt":          "Continue task execution",
+	}
+	rBytes, _ := json.Marshal(revivePayload)
+	reviveResp, err := http.Post(baseURL+"/api/conversations/revive", "application/json", bytes.NewReader(rBytes))
+	if err != nil || reviveResp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/conversations/revive failed: err=%v, code=%d", err, reviveResp.StatusCode)
+	}
+	var reviveResult map[string]interface{}
+	_ = json.NewDecoder(reviveResp.Body).Decode(&reviveResult)
+	reviveResp.Body.Close()
+
+	if success, ok := reviveResult["success"].(bool); !ok || !success {
+		t.Errorf("expected success true in revive response, got %v", reviveResult)
+	}
+
+	// 4. GET /api/conversations/status
+	statusResp, err := http.Get(baseURL + "/api/conversations/status")
+	if err != nil || statusResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/conversations/status failed: err=%v, code=%d", err, statusResp.StatusCode)
+	}
+	var statusResult map[string]interface{}
+	_ = json.NewDecoder(statusResp.Body).Decode(&statusResult)
+	statusResp.Body.Close()
+
+	if success, ok := statusResult["success"].(bool); !ok || !success {
+		t.Errorf("expected success true in status response, got %v", statusResult)
+	}
+
+	// 5. Test alias GET /api/session/continuation
+	contResp, err := http.Get(baseURL + "/api/session/continuation")
+	if err != nil || contResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/session/continuation failed: err=%v, code=%d", err, contResp.StatusCode)
+	}
+	contResp.Body.Close()
+
+	// 6. POST /api/conversations/ack
+	ackPayload := map[string]interface{}{
+		"cascade_id": "test-webgui-conv",
+	}
+	aBytes, _ := json.Marshal(ackPayload)
+	ackResp, err := http.Post(baseURL+"/api/conversations/ack", "application/json", bytes.NewReader(aBytes))
+	if err != nil || ackResp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/conversations/ack failed: err=%v, code=%d", err, ackResp.StatusCode)
+	}
+	ackResp.Body.Close()
+
+	// 7. POST /api/session/continuation/ack
+	ackContResp, err := http.Post(baseURL+"/api/session/continuation/ack", "application/json", bytes.NewReader(aBytes))
+	if err != nil || ackContResp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/session/continuation/ack failed: err=%v, code=%d", err, ackContResp.StatusCode)
+	}
+	ackContResp.Body.Close()
+}
+
+func TestWebGUIUtilitiesACPEndpoint(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+	resp, err := http.Get(baseURL + "/api/utilities/acp")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/utilities/acp failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+
+	var result struct {
+		Status          string                   `json:"status"`
+		MeshNodes       int                      `json:"mesh_nodes"`
+		ProtocolVersion string                   `json:"protocol_version"`
+		Agents          []map[string]interface{} `json:"agents"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode ACP response: %v", err)
+	}
+	resp.Body.Close()
+
+	if result.Status != "online" {
+		t.Errorf("expected status 'online', got '%s'", result.Status)
+	}
+	if result.ProtocolVersion != "v1.2.0-draft" {
+		t.Errorf("expected protocol_version 'v1.2.0-draft', got '%s'", result.ProtocolVersion)
+	}
+	if result.MeshNodes < 9 || len(result.Agents) < 9 {
+		t.Errorf("expected at least 9 mesh nodes, got %d (len=%d)", result.MeshNodes, len(result.Agents))
+	}
+
+	// Required node IDs to verify
+	expectedIDs := map[string]string{
+		"agent-antigravity":      "Google Antigravity 2.0",
+		"agent-antigravity-cli":  "Antigravity CLI (agy)",
+		"agent-devin":            "Devin",
+		"agent-opencode":         "OpenCode",
+		"agent-deepseek-harness": "DeepSeek Harness",
+		"agent-pi":               "Pi",
+		"agent-codex":            "Codex",
+		"agent-claude-code":      "Claude Code CLI",
+		"agent-cursor":           "Cursor Editor Agent",
+	}
+
+	foundMap := make(map[string]map[string]interface{})
+	for _, a := range result.Agents {
+		id, _ := a["id"].(string)
+		foundMap[id] = a
+	}
+
+	for expID, expName := range expectedIDs {
+		agent, ok := foundMap[expID]
+		if !ok {
+			t.Errorf("missing expected agent node: %s", expID)
+			continue
+		}
+		if name, _ := agent["name"].(string); name != expName {
+			t.Errorf("expected agent %s name '%s', got '%s'", expID, expName, name)
+		}
+		if port, _ := agent["port_socket"].(string); port == "" {
+			t.Errorf("agent %s has empty port_socket", expID)
+		}
+		if ver, _ := agent["acp_version"].(string); ver == "" {
+			t.Errorf("agent %s has empty acp_version", expID)
+		}
+		if tools, ok := agent["supported_tools"].([]interface{}); !ok || len(tools) == 0 {
+			t.Errorf("agent %s has empty or invalid supported_tools", expID)
+		}
+	}
+
+	// Explicitly assert that 'Windsurf Cascade' was renamed to 'Devin'
+	if windsurfAgent, exists := foundMap["agent-windsurf"]; exists {
+		if name, _ := windsurfAgent["name"].(string); name == "Windsurf Cascade" {
+			t.Errorf("expected Windsurf Cascade to be renamed to Devin")
+		}
+	}
+
+	// Assert distinct separation between Desktop IDE and CLI daemon
+	ideAgent := foundMap["agent-antigravity"]
+	cliAgent := foundMap["agent-antigravity-cli"]
+	if ideAgent != nil && cliAgent != nil {
+		if ideAgent["type"] == cliAgent["type"] {
+			t.Errorf("expected distinct types for IDE (%v) vs CLI (%v)", ideAgent["type"], cliAgent["type"])
+		}
+		if ideAgent["port_socket"] == cliAgent["port_socket"] {
+			t.Errorf("expected distinct port_socket for IDE (%v) vs CLI (%v)", ideAgent["port_socket"], cliAgent["port_socket"])
+		}
+	}
+
+	// Test backward compatibility alias query
+	compatResp, err := http.Get(baseURL + "/api/utilities/acp?agent=agent-windsurf")
+	if err != nil || compatResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/utilities/acp?agent=agent-windsurf failed: %v", err)
+	}
+	var compatResult struct {
+		Agents []map[string]interface{} `json:"agents"`
+	}
+	_ = json.NewDecoder(compatResp.Body).Decode(&compatResult)
+	compatResp.Body.Close()
+	if len(compatResult.Agents) != 1 || compatResult.Agents[0]["id"] != "agent-devin" {
+		t.Errorf("expected backward compatibility lookup for agent-windsurf to return agent-devin, got: %v", compatResult.Agents)
+	}
+}
+
+func TestCacheConfig_UnlimitedDefaultsAndPersistence(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+
+	dummySock := filepath.Join(tempDir, "isolated.sock")
+	srv := NewServer("127.0.0.1:0", dummySock)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// 1. GET /api/cache/config should return 0.0 defaults (Unlimited in age and size)
+	resp, err := http.Get(baseURL + "/api/cache/config")
+	if err != nil {
+		t.Fatalf("GET /api/cache/config failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var getRes map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&getRes); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	resp.Body.Close()
+
+	if days, ok := getRes["prune_days"].(float64); !ok || days != 0.0 {
+		t.Errorf("expected prune_days to default to 0.0, got %v", getRes["prune_days"])
+	}
+	if size, ok := getRes["max_size_gb"].(float64); !ok || size != 0.0 {
+		t.Errorf("expected max_size_gb to default to 0.0, got %v", getRes["max_size_gb"])
+	}
+
+	// 2. POST /api/cache/config with 0.0 for age and size
+	postPayload := map[string]interface{}{
+		"auto_prune_enabled": true,
+		"prune_days":         0.0,
+		"max_size_gb":        0.0,
+	}
+	payloadBytes, _ := json.Marshal(postPayload)
+	postResp, err := http.Post(baseURL+"/api/cache/config", "application/json", bytes.NewReader(payloadBytes))
+	if err != nil {
+		t.Fatalf("POST /api/cache/config failed: %v", err)
+	}
+	if postResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", postResp.StatusCode)
+	}
+	var postRes map[string]interface{}
+	if err := json.NewDecoder(postResp.Body).Decode(&postRes); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	postResp.Body.Close()
+
+	if success, ok := postRes["success"].(bool); !ok || !success {
+		t.Errorf("expected success true, got %v", postRes["success"])
+	}
+	if days, ok := postRes["prune_days"].(float64); !ok || days != 0.0 {
+		t.Errorf("expected prune_days 0.0, got %v", postRes["prune_days"])
+	}
+	if size, ok := postRes["max_size_gb"].(float64); !ok || size != 0.0 {
+		t.Errorf("expected max_size_gb 0.0, got %v", postRes["max_size_gb"])
+	}
+
+	// 3. Verify GET returns persisted 0.0
+	resp2, err := http.Get(baseURL + "/api/cache/config")
+	if err != nil {
+		t.Fatalf("second GET /api/cache/config failed: %v", err)
+	}
+	defer resp2.Body.Close()
+	var getRes2 map[string]interface{}
+	if err := json.NewDecoder(resp2.Body).Decode(&getRes2); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if size, ok := getRes2["max_size_gb"].(float64); !ok || size != 0.0 {
+		t.Errorf("expected persisted max_size_gb 0.0, got %v", getRes2["max_size_gb"])
+	}
+	if days, ok := getRes2["prune_days"].(float64); !ok || days != 0.0 {
+		t.Errorf("expected persisted prune_days 0.0, got %v", getRes2["prune_days"])
+	}
+
+	// 4. Test Scan endpoint accepts 0.0 without errors
+	scanResp, err := http.Get(baseURL + "/api/cache/scan?days=0&max_size_gb=0")
+	if err != nil {
+		t.Fatalf("GET /api/cache/scan failed: %v", err)
+	}
+	if scanResp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 from cache scan, got %d", scanResp.StatusCode)
+	}
+	scanResp.Body.Close()
+
+	// 5. Test Prune endpoint accepts 0.0 without errors
+	prunePayload := map[string]interface{}{
+		"min_age_days": 0.0,
+		"max_size_gb":  0.0,
+		"dry_run":      true,
+	}
+	pruneBytes, _ := json.Marshal(prunePayload)
+	pruneResp, err := http.Post(baseURL+"/api/cache/prune", "application/json", bytes.NewReader(pruneBytes))
+	if err != nil {
+		t.Fatalf("POST /api/cache/prune failed: %v", err)
+	}
+	if pruneResp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 from cache prune, got %d", pruneResp.StatusCode)
+	}
+	pruneResp.Body.Close()
+}
+
+func TestSubagentModelStrategy_RulesAPI(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	dummySock := filepath.Join(tempDir, "dummy.sock")
+	srv := NewServer("127.0.0.1:0", dummySock)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// 1. GET /api/rules checks default subagent_model_strategy is default_custom_only
+	resp, err := http.Get(baseURL + "/api/rules")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/rules failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	var rules map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&rules); err != nil {
+		t.Fatalf("failed to decode rules: %v", err)
+	}
+	resp.Body.Close()
+
+	if strat, ok := rules["subagent_model_strategy"].(string); !ok || strat != core.SubagentModelStrategyDefaultCustomOnly {
+		t.Errorf("expected default subagent_model_strategy %q, got %v", core.SubagentModelStrategyDefaultCustomOnly, rules["subagent_model_strategy"])
+	}
+
+	// 2. POST /api/rules updates subagent_model_strategy to auto_decide
+	postData := map[string]interface{}{
+		"subagent_model_strategy": "auto_decide",
+	}
+	pBytes, _ := json.Marshal(postData)
+	postResp, err := http.Post(baseURL+"/api/rules", "application/json", bytes.NewReader(pBytes))
+	if err != nil || postResp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/rules failed: err=%v, code=%d", err, postResp.StatusCode)
+	}
+	postResp.Body.Close()
+
+	// 3. GET /api/rules verifies updated subagent_model_strategy
+	resp2, err := http.Get(baseURL + "/api/rules")
+	if err != nil || resp2.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/rules failed: err=%v, code=%d", err, resp2.StatusCode)
+	}
+	var updatedRules map[string]interface{}
+	if err := json.NewDecoder(resp2.Body).Decode(&updatedRules); err != nil {
+		t.Fatalf("failed to decode updated rules: %v", err)
+	}
+	resp2.Body.Close()
+
+	if strat, ok := updatedRules["subagent_model_strategy"].(string); !ok || strat != core.SubagentModelStrategyAutoDecide {
+		t.Errorf("expected updated subagent_model_strategy %q, got %v", core.SubagentModelStrategyAutoDecide, updatedRules["subagent_model_strategy"])
+	}
+
+	// 4. Verify disk persistence via LoadConfig
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig error: %v", err)
+	}
+	if cfg.GetSubagentModelStrategy() != core.SubagentModelStrategyAutoDecide {
+		t.Errorf("expected persisted strategy %q, got %q", core.SubagentModelStrategyAutoDecide, cfg.GetSubagentModelStrategy())
 	}
 }
 

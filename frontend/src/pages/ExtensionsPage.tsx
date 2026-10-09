@@ -193,14 +193,15 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
 
   const segBtnStyle = (active: boolean): React.CSSProperties => ({
     border: 'none',
-    padding: '4px 10px',
-    borderRadius: '5px',
-    fontSize: '11.5px',
+    padding: '4px 8px',
+    borderRadius: '6px',
+    fontSize: '12px',
     fontWeight: active ? 600 : 500,
     backgroundColor: active ? '#ffffff' : 'transparent',
     color: active ? 'var(--primary)' : 'var(--text-muted)',
     boxShadow: active ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
     cursor: 'pointer',
+    whiteSpace: 'nowrap',
   })
 
   // Per-extension visibility: the EnhancementsConfig.extensions map is the
@@ -257,9 +258,10 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
     display: 'inline-flex',
     alignItems: 'center',
     gap: '6px',
-    fontSize: '11.5px',
+    fontSize: '12px',
     fontWeight: 600,
     color: 'var(--text-muted)',
+    whiteSpace: 'nowrap',
   }
 
   const renderExtSwitches = (id: string, name: string) => {
@@ -372,7 +374,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
             backgroundColor: 'rgba(220, 38, 38, 0.08)',
             border: '1px solid rgba(220, 38, 38, 0.25)',
             color: '#dc2626',
-            fontSize: '11.5px',
+            fontSize: '12px',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
@@ -400,7 +402,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                   GitHub Workspace
                 </h3>
               </div>
-              <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
+              <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
                 Manage repository issues, pull requests, agent tasks, and Kanban boards with one-click direct jump into Antigravity conversations.
               </p>
             </div>
@@ -422,14 +424,15 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                     }}
                     style={{
                       border: 'none',
-                      padding: '4px 10px',
-                      borderRadius: '5px',
-                      fontSize: '11.5px',
+                      padding: '4px 8px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
                       fontWeight: workspaceDefaultView === 'kanban' ? 600 : 500,
                       backgroundColor: workspaceDefaultView === 'kanban' ? '#ffffff' : 'transparent',
                       color: workspaceDefaultView === 'kanban' ? 'var(--primary)' : 'var(--text-muted)',
                       boxShadow: workspaceDefaultView === 'kanban' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
                       cursor: 'pointer',
+                      whiteSpace: 'nowrap',
                     }}
                   >
                     Kanban Board
@@ -441,14 +444,15 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                     }}
                     style={{
                       border: 'none',
-                      padding: '4px 10px',
-                      borderRadius: '5px',
-                      fontSize: '11.5px',
+                      padding: '4px 8px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
                       fontWeight: workspaceDefaultView === 'list' ? 600 : 500,
                       backgroundColor: workspaceDefaultView === 'list' ? '#ffffff' : 'transparent',
                       color: workspaceDefaultView === 'list' ? 'var(--primary)' : 'var(--text-muted)',
                       boxShadow: workspaceDefaultView === 'list' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
                       cursor: 'pointer',
+                      whiteSpace: 'nowrap',
                     }}
                   >
                     List View
@@ -459,7 +463,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
               <button
                 onClick={() => setShowWorkspaceModal(true)}
                 className="btn-pill-primary"
-                style={{ padding: '6px 14px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                style={{ padding: '6px 14px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
               >
                 <ExternalLink size={13} />
                 <span>Open Full Workspace</span>
@@ -481,7 +485,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                   Preview Browser
                 </h3>
               </div>
-              <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
+              <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
                 Embeds a lightweight development browser inside Antigravity's auxiliary panel with port shortcuts (:5173, :3000, :8080) and live visual annotation.
               </p>
             </div>
@@ -524,7 +528,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                         localStorage.setItem('antigravity_browser_default_url', url)
                       }}
                       className="btn-pill-tonal"
-                      style={{ padding: '3px 8px', fontSize: '11px', fontWeight: 600 }}
+                      style={{ padding: '3px 8px', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap' }}
                     >
                       :{port}
                     </button>
@@ -548,7 +552,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                   Auxiliary File Explorer
                 </h3>
               </div>
-              <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
+              <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
                 Lightweight in-panel file browser and editor allowing instant workspace navigation, file reveal, terminal launch, and code inspection.
               </p>
             </div>
@@ -621,7 +625,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                   <button
                     onClick={() => handleSaveIDE(customIDE)}
                     className="btn-pill-primary"
-                    style={{ padding: '5px 12px', fontSize: '11.5px' }}
+                    style={{ padding: '6px 12px', fontSize: '12px', whiteSpace: 'nowrap' }}
                   >
                     Save IDE
                   </button>
@@ -644,7 +648,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                   Quick Memos
                 </h3>
               </div>
-              <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
+              <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
                 Rapid notepad for ephemeral text and speech-to-text audio memos with instant drag-and-drop into active Antigravity agent conversations.
               </p>
             </div>
@@ -734,7 +738,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                   Mobile Viewport Simulator
                 </h3>
               </div>
-              <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
+              <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
                 Virtual mobile viewport emulation for testing responsive web designs, touch events, and mobile screen ratios directly within Antigravity.
               </p>
             </div>
@@ -770,7 +774,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   <span>Show Hardware Bezel</span>
                   <ToggleSwitch
                     size="sm"
@@ -799,7 +803,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                   Computer Use Enhancer
                 </h3>
               </div>
-              <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
+              <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
                 OS-level execution enhancer optimizing Antigravity computer use with display coordinate scaling normalization, Wayland PipeWire capture, and accessibility grounding.
               </p>
             </div>
@@ -812,7 +816,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
               <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
                 <div>
                   <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>DPI Normalizer</div>
-                  <div style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>Calibrate HiDPI 125%/150% scaling offsets</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Calibrate HiDPI 125%/150% scaling offsets</div>
                 </div>
                 <ToggleSwitch
                   size="sm"
@@ -827,7 +831,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
               <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
                 <div>
                   <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>Wayland PipeWire Stream</div>
-                  <div style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>Capture via desktop portal PipeWire</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Capture via desktop portal PipeWire</div>
                 </div>
                 <ToggleSwitch
                   size="sm"
@@ -842,7 +846,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
               <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
                 <div>
                   <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>Accessibility Grounding</div>
-                  <div style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>Query OS accessibility tree to save tokens</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Query OS accessibility tree to save tokens</div>
                 </div>
                 <ToggleSwitch
                   size="sm"

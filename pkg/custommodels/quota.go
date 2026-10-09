@@ -13,14 +13,18 @@ import (
 	"time"
 )
 
-// QuotaResult represents the auto-derived balance or quota details for a model.
+// QuotaResult represents the auto-derived balance, quota, and pricing details for a model.
 type QuotaResult struct {
-	QuotaType     QuotaType `json:"quota_type"`     // "na", "balance", "quota"
-	BalanceValue  string    `json:"balance_value"`  // e.g. "$12.34" or "¥10.00"
-	QuotaValue    string    `json:"quota_value"`    // e.g. "250,000 tokens" or "$10.00"
-	Fraction      *float64  `json:"fraction"`       // 0.0 to 1.0; nil if untracked/none
-	HasPercentage bool      `json:"has_percentage"`
-	Message       string    `json:"message"`
+	QuotaType            QuotaType `json:"quota_type"`     // "na", "balance", "quota"
+	BalanceValue         string    `json:"balance_value"`  // e.g. "$12.34" or "¥10.00"
+	QuotaValue           string    `json:"quota_value"`    // e.g. "250,000 tokens" or "$10.00"
+	Fraction             *float64  `json:"fraction"`       // 0.0 to 1.0; nil if untracked/none
+	HasPercentage        bool      `json:"has_percentage"`
+	Message              string    `json:"message"`
+	InputPricePerM       *float64  `json:"input_price_per_m"`
+	CachedInputPricePerM *float64  `json:"cached_input_price_per_m"`
+	OutputPricePerM      *float64  `json:"output_price_per_m"`
+	PriceSource          string    `json:"price_source,omitempty"`
 }
 
 // ProviderQuotaRegistryEntry defines a known provider's balance/quota endpoint spec.

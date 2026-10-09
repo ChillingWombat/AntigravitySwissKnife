@@ -13,6 +13,7 @@ import (
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/fingerprint"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/process"
 )
 
 // Store manages account inventory and atomic credentials swapping.
@@ -267,8 +268,18 @@ func (s *Store) load() error {
 		}
 	}
 
-	if s.activeEmail != "" && s.accounts[s.activeEmail] == nil {
-		s.activeEmail = ""
+	if s.activeEmail != "" {
+		found := false
+		for em := range s.accounts {
+			if strings.EqualFold(em, s.activeEmail) {
+				s.activeEmail = em
+				found = true
+				break
+			}
+		}
+		if !found {
+			s.activeEmail = ""
+		}
 	}
 	return nil
 }
@@ -321,8 +332,14 @@ func (s *Store) save() error {
 		} else if acc.IsActive && st == "STANDBY" {
 			st = "ACTIVE"
 		}
+		if strings.TrimSpace(acc.RefreshToken) == "" && st != "BANNED" && st != "ERROR" && !core.IsRunningTests() {
+			st = "NEEDS_REAUTH"
+			if acc.ErrorMessage == "" {
+				acc.ErrorMessage = "Missing credentials / re-authentication required"
+			}
+		}
 		acc.Status = st
-		if st != "ERROR" && st != "BANNED" {
+		if st != "ERROR" && st != "BANNED" && st != "NEEDS_REAUTH" {
 			acc.ErrorMessage = ""
 		}
 
@@ -355,7 +372,7 @@ func (s *Store) save() error {
 			Credits:              acc.Credits,
 			EnableCreditOverages: acc.EnableCreditOverages,
 			AllowClaudeGPT:       acc.AllowClaudeGPT,
-			IsHealthy:            st != "ERROR" && st != "BANNED",
+			IsHealthy:            st != "ERROR" && st != "BANNED" && st != "NEEDS_REAUTH" && (strings.TrimSpace(acc.RefreshToken) != "" || core.IsRunningTests()),
 			TokenExpiry:          expiryStr,
 		}
 		ea.Credential.AccessToken = encAccess
@@ -785,13 +802,16 @@ func (s *Store) SetActiveAccount(email string) error {
 	if st == "BANNED" {
 		return fmt.Errorf("account %s is banned and cannot be switched on", email)
 	}
+	if strings.TrimSpace(target.RefreshToken) == "" && !core.IsRunningTests() {
+		return fmt.Errorf("account %s has no credentials and requires re-authentication", email)
+	}
 
 	s.activeEmail = target.Email
 	s.lastManualSwitchTime = time.Now()
 	for _, a := range s.accounts {
 		if strings.EqualFold(a.Email, target.Email) {
 			a.IsActive = true
-			if a.Status != "BANNED" && a.Status != "ERROR" {
+			if a.Status != "BANNED" && a.Status != "ERROR" && a.Status != "NEEDS_REAUTH" {
 				a.Status = "ACTIVE"
 			}
 		} else {
@@ -1168,11 +1188,26 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 		return nil, nil
 	}
 
-	// In-flight manual switch latch: if an account switch occurred within the last 12 seconds,
+	// In-flight manual/auto switch latch: if an account switch occurred within the last 12 seconds,
 	// protect s.activeEmail from being reverted by a stale in-memory session while the IDE respawns.
 	if !s.lastManualSwitchTime.IsZero() && time.Since(s.lastManualSwitchTime) < 12*time.Second {
 		if s.activeEmail != "" && !strings.EqualFold(detectedEmail, s.activeEmail) {
 			if curAcc, ok := s.accounts[s.activeEmail]; ok {
+				return curAcc, nil
+			}
+		}
+	}
+
+	// When Antigravity host IDE is closed (not actively running), the active account set in the vault
+	// (e.g. by auto-switch or manual switch) must NOT be reverted back to stale on-disk file artifacts.
+	// Only reconcile away from s.activeEmail if Antigravity is actually running and reporting a live user.
+	if s.activeEmail != "" && !strings.EqualFold(detectedEmail, s.activeEmail) {
+		isHostRunning := process.NewShield(0).IsAntigravityRunning()
+		if !isHostRunning {
+			if curAcc, ok := s.accounts[s.activeEmail]; ok {
+				// Re-synchronize on-disk surfaces to the vault's active account so when Antigravity launches,
+				// it opens cleanly with this active account.
+				_ = SyncAllSurfaces(curAcc, allEmails, profileMgr)
 				return curAcc, nil
 			}
 		}
@@ -1232,15 +1267,14 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 
 	// Account is NOT in vault!
 	if !autoImport {
-		// "if the account running in antigravity has not been imported to our app, then no account should be treated as active."
-		s.activeEmail = ""
-		for _, a := range s.accounts {
-			a.IsActive = false
-			if a.Status == "ACTIVE" {
-				a.Status = "STANDBY"
+		// Never wipe s.activeEmail or set accounts inactive; preserve current vault active account
+		// so Antigravity never opens in a logged-out state.
+		if s.activeEmail != "" {
+			if curr, ok := s.accounts[s.activeEmail]; ok && curr != nil {
+				copyAcc := *curr
+				return &copyAcc, nil
 			}
 		}
-		_ = s.save()
 		return nil, nil
 	}
 

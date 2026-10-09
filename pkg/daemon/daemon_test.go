@@ -128,6 +128,9 @@ func TestDaemonFullLifecycleAndRPC(t *testing.T) {
 	if len(fleetResp.Accounts) != 2 {
 		t.Errorf("expected 2 account states in fleet, got %d", len(fleetResp.Accounts))
 	}
+	if fleetResp.Accounts[0].Email != "standby@example.com" {
+		t.Errorf("expected active account standby@example.com to rank #1 in fleet, got %s", fleetResp.Accounts[0].Email)
+	}
 
 	// 6. Test swiss.refreshFleetQuota (async trigger)
 	var refreshResp map[string]interface{}

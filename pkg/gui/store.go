@@ -143,11 +143,22 @@ func (s *Store) writePersistentFiles(cfg *Config) error {
 	}
 	_ = os.MkdirAll(configDir, 0755)
 
-	css := GenerateCSS(cfg)
-	script := GenerateScriptWithCustomModels(cfg, nil)
-
 	cssPath := filepath.Join(configDir, "persistent_styles.css")
 	jsPath := filepath.Join(configDir, "persistent_script.js")
+
+	if rawCore, err := os.ReadFile(filepath.Join(configDir, "config.json")); err == nil {
+		var parsed map[string]interface{}
+		if json.Unmarshal(rawCore, &parsed) == nil {
+			if pve, ok := parsed["persistent_visual_effects"].(bool); ok && !pve {
+				_ = os.Remove(cssPath)
+				_ = os.Remove(jsPath)
+				return nil
+			}
+		}
+	}
+
+	css := GenerateCSS(cfg)
+	script := GenerateScriptWithCustomModels(cfg, nil)
 
 	if err := os.WriteFile(cssPath, []byte(css), 0644); err != nil {
 		return err
@@ -553,10 +564,81 @@ func (s *Store) Apply() (*ApplyResult, error) {
 	return s.injector.ApplyConfig(&cfg)
 }
 
+// DeactivateOnDaemonStop removes injected extensions from live Antigravity windows via CDP,
+// and if keepVisualEffects is false, also removes all live visual styling.
+func (s *Store) DeactivateOnDaemonStop(keepVisualEffects bool) error {
+	if s.injector == nil {
+		return nil
+	}
+	port, err := s.injector.FindDevToolsPort()
+	if err != nil {
+		return nil // Antigravity is not running
+	}
+
+	pages, err := s.injector.GetPageTargets(port)
+	if err != nil || len(pages) == 0 {
+		return nil
+	}
+
+	deactScript := `(() => {
+		try {
+			if (typeof window.setSwissDaemonOnline === "function") {
+				window.setSwissDaemonOnline(false);
+			}
+			const g = document.getElementById("swiss-left-nav-group");
+			if (g) g.remove();
+			document.querySelectorAll(".swiss-aux-btn-group, .swiss-aux-tabs-divider, .swiss-aux-tabs-divider-left, .swiss-aux-tabs-divider-right").forEach(el => el.remove());
+			const st = document.getElementById("swiss-main-stage-container");
+			if (st) st.style.display = "none";
+			const aux = document.getElementById("swiss-aux-container");
+			if (aux) aux.style.display = "none";
+		} catch (_) {}
+		return true;
+	})()`
+
+	if !keepVisualEffects {
+		deactScript += `
+		;(() => {
+			try {
+				if (window.__swissObserverInstance) {
+					window.__swissObserverInstance.disconnect();
+					window.__swissObserverInstance = null;
+				}
+				if (window.__swissIntervalId) {
+					clearInterval(window.__swissIntervalId);
+					window.__swissIntervalId = null;
+				}
+				const s = document.getElementById("antigravity-swiss-styles");
+				if (s) s.remove();
+				const dc = document.getElementById("antigravity-swiss-dynamic-colors");
+				if (dc) dc.remove();
+				document.querySelectorAll("[data-swiss-project]").forEach(el => el.removeAttribute("data-swiss-project"));
+				document.querySelectorAll(".swiss-convo-tabs-divider, .swiss-project-bottom-spacer, .swiss-project-spacer-line").forEach(el => el.remove());
+			} catch (_) {}
+			return true;
+		})()`
+	}
+
+	for _, page := range pages {
+		_, _ = s.injector.ExecuteScript(page.WebSocketDebuggerURL, deactScript)
+	}
+	return nil
+}
+
 // InstallDesktopLoader installs the permanent desktop loader in Antigravity resources.
 func (s *Store) InstallDesktopLoader() (*ApplyResult, error) {
 	_ = s.SyncPersistentFiles()
 	return s.desktopManager.InstallDesktopLoader()
+}
+
+// UninstallDesktopLoader removes the permanent desktop loader from Antigravity resources without wiping settings.
+func (s *Store) UninstallDesktopLoader() (*ApplyResult, error) {
+	configDir := filepath.Dir(s.configPath)
+	if configDir != "" {
+		_ = os.Remove(filepath.Join(configDir, "persistent_styles.css"))
+		_ = os.Remove(filepath.Join(configDir, "persistent_script.js"))
+	}
+	return s.desktopManager.UninstallDesktopLoader()
 }
 
 // RestoreFactoryDefaults restores the factory original app.asar and resets configuration.

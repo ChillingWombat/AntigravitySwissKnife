@@ -17,9 +17,14 @@ import {
   Scale,
   Sigma,
   Infinity as InfinityIcon,
+  Share2,
+  Split,
+  Bot,
+  Cpu,
+  Sliders,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
-import type { RuleConfig, AvailableModelItem, SwitchMode } from '../types'
+import type { RuleConfig, AvailableModelItem, SwitchMode, MultiAppSyncMode, InstalledAppsStatus, SubagentModelStrategy } from '../types'
 import { api } from '../api'
 import { resolveEffectiveCustomModel } from '../utils/modelFilter'
 import {
@@ -51,7 +56,17 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   const [standbyPollingInterval, setStandbyPollingInterval] = useState<number>(initialRules?.standby_polling_interval_seconds ?? 900)
   const [standbyRandomJitter, setStandbyRandomJitter] = useState<number>(initialRules?.standby_random_jitter_seconds ?? 30)
   const [warmupEnabled, setWarmupEnabled] = useState<boolean>(initialRules?.warmup_enabled ?? true)
-  const [warmupLeadTime, setWarmupLeadTime] = useState<number>(initialRules?.warmup_lead_time_seconds ?? 2.0)
+  const [warmupLeadTime, setWarmupLeadTime] = useState<number>((initialRules as any)?.post_reset_delay_seconds ?? initialRules?.warmup_lead_time_seconds ?? 2.0)
+
+  // Multi-App Synchronization Mode
+  const [multiAppSyncMode, setMultiAppSyncMode] = useState<MultiAppSyncMode>(
+    initialRules?.multi_app_sync_mode || 'shared'
+  )
+  const [installedApps, setInstalledApps] = useState<InstalledAppsStatus>(
+    initialRules?.installed_apps || { desktop: true, agy: false, vscode: false }
+  )
+  const installedCount = [installedApps.desktop, installedApps.agy, installedApps.vscode].filter(Boolean).length
+  const isSingleAppOrLess = installedCount <= 1
 
   // New Model Source Hierarchy & Model Defaults
   const [allowAICredits, setAllowAICredits] = useState<boolean>(initialRules?.allow_ai_credits_usage ?? false)
@@ -62,6 +77,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   const [defaultGemini, setDefaultGemini] = useState<string>(initialRules?.default_gemini_model || 'gemini-3.8-flash-high')
   const [defaultCustom, setDefaultCustom] = useState<string>(initialRules?.default_custom_model || '')
   const [defaultNonGemini, setDefaultNonGemini] = useState<string>(initialRules?.default_non_gemini_model || 'claude-opus-4-6-thinking')
+  const [subagentStrategy, setSubagentStrategy] = useState<SubagentModelStrategy>(
+    initialRules?.subagent_model_strategy || 'default_custom_only'
+  )
 
   // Dynamic available model lists (fetched automatically from running IDE / CloudCode)
   const [geminiModelOptions, setGeminiModelOptions] = useState<AvailableModelItem[]>([])
@@ -244,7 +262,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       setStandbyRandomJitter(initialRules.standby_random_jitter_seconds)
     }
     setWarmupEnabled(initialRules.warmup_enabled)
-    setWarmupLeadTime(initialRules.warmup_lead_time_seconds)
+    setWarmupLeadTime((initialRules as any)?.post_reset_delay_seconds ?? initialRules.warmup_lead_time_seconds ?? 2.0)
     if (initialRules.allow_ai_credits_usage !== undefined) {
       setAllowAICredits(initialRules.allow_ai_credits_usage)
     }
@@ -264,7 +282,30 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     if (initialRules.auto_import_active_account !== undefined) {
       setAutoImportActive(initialRules.auto_import_active_account)
     }
+    if (initialRules.multi_app_sync_mode) {
+      setMultiAppSyncMode(initialRules.multi_app_sync_mode)
+    }
+    if (initialRules.installed_apps) {
+      setInstalledApps(initialRules.installed_apps)
+    }
+    if (initialRules.subagent_model_strategy) {
+      setSubagentStrategy(initialRules.subagent_model_strategy)
+    }
   }, [initialRules])
+
+  useEffect(() => {
+    if (!initialRules?.installed_apps) {
+      api.getInstallations().then((inst) => {
+        if (inst) {
+          setInstalledApps({
+            desktop: Boolean(inst.desktop_app?.installed),
+            agy: Boolean(inst.agy_cli?.installed),
+            vscode: Boolean(inst.vscode_extension?.installed),
+          })
+        }
+      }).catch(() => {})
+    }
+  }, [initialRules?.installed_apps])
 
   const fetchAvailableModels = async (force: boolean = false) => {
     setIsFetchingModels(true)
@@ -376,6 +417,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       standby_random_jitter_seconds: standbyRandomJitter,
       warmup_enabled: warmupEnabled,
       warmup_lead_time_seconds: warmupLeadTime,
+      post_reset_delay_seconds: warmupLeadTime,
       allow_ai_credits_usage: allowAICredits,
       allow_non_gemini_native_models: allowNonGemini,
       model_source_hierarchy: hierarchy,
@@ -383,6 +425,8 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       default_custom_model: effectiveCustomModel,
       default_non_gemini_model: defaultNonGemini,
       auto_import_active_account: autoImportActive,
+      multi_app_sync_mode: isSingleAppOrLess ? 'shared' : multiAppSyncMode,
+      subagent_model_strategy: subagentStrategy,
     }
     const serialized = JSON.stringify(payload)
     if (lastSentPayloadRef.current === null) {
@@ -421,6 +465,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     effectiveCustomModel,
     defaultNonGemini,
     autoImportActive,
+    multiAppSyncMode,
+    isSingleAppOrLess,
+    subagentStrategy,
   ])
 
   const commitThresholdPercent = (
@@ -480,7 +527,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               Account Switch Mode:
             </div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '12px' }}>
-              Configure how the rotation engine prioritizes candidate accounts and evaluates switch triggers.
+              Configure rotation triggers and candidate account priority.
             </div>
 
             <div
@@ -514,7 +561,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                   </div>
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-                  Rotates only when active quota drops to exhaustion threshold. Standby accounts ranked by balanced composite score across 5h and weekly quota.
+                  Rotates when active quota hits the threshold. Ranks standby accounts by combined 5-hour and weekly quota.
                 </div>
               </div>
 
@@ -542,7 +589,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                   </div>
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-                  Maximizes aggregate tokens across staggered windows. Switches at threshold or proactively after ≥10m of use if an idle 100% reset clock can be ignited.
+                  Maximizes total tokens across rolling windows. Switches at threshold or after 10+ minutes when an idle account reset clock can start.
                 </div>
               </div>
 
@@ -570,7 +617,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                   </div>
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-                  Maximizes continuous working time without switching. Prioritizes highest available 5h quota (Ultra 20X before Pro). Tie-breaks with reset countdowns.
+                  Maximizes continuous session duration. Prioritizes highest 5-hour quota and breaks ties using reset countdowns.
                 </div>
               </div>
             </div>
@@ -699,6 +746,113 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
         </div>
       </div>
 
+      {/* Section 1b: Multi-App Account Synchronization Mode */}
+      <div className="google-card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+          <Share2 size={16} style={{ color: 'var(--primary)' }} />
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+            Multi-App Account Synchronization Mode
+          </div>
+        </div>
+        <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          Sync active accounts across all Antigravity apps or manage each app independently.
+        </p>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: '12px',
+          }}
+        >
+          {/* Option 1: Shared Mode (Default) */}
+          <div
+            onClick={() => setMultiAppSyncMode('shared')}
+            style={{
+              border: multiAppSyncMode === 'shared' ? '2px solid var(--primary)' : '1px solid var(--border)',
+              backgroundColor: multiAppSyncMode === 'shared' ? 'var(--primary-light, rgba(11, 87, 208, 0.04))' : 'var(--surface)',
+              borderRadius: '8px',
+              padding: '14px',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Share2 size={15} color={multiAppSyncMode === 'shared' ? 'var(--primary)' : 'var(--text-muted)'} />
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                  Shared Mode (Default)
+                </span>
+              </div>
+              {multiAppSyncMode === 'shared' && (
+                <CheckCircle2 size={14} color="var(--primary)" />
+              )}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+              Desktop, CLI, and Extension share the same active account. Account switches rotate all apps together.
+            </div>
+          </div>
+
+          {/* Option 2: Individual / Different Accounts Mode */}
+          <div
+            onClick={() => {
+              if (isSingleAppOrLess) return
+              setMultiAppSyncMode('individual')
+            }}
+            title={isSingleAppOrLess ? `Disabled: At least 2 Antigravity applications must be installed to use individual mode (currently detected: ${installedCount}).` : undefined}
+            style={{
+              border: multiAppSyncMode === 'individual' && !isSingleAppOrLess ? '2px solid var(--primary)' : '1px solid var(--border)',
+              backgroundColor: multiAppSyncMode === 'individual' && !isSingleAppOrLess ? 'var(--primary-light, rgba(11, 87, 208, 0.04))' : 'var(--surface)',
+              borderRadius: '8px',
+              padding: '14px',
+              cursor: isSingleAppOrLess ? 'not-allowed' : 'pointer',
+              opacity: isSingleAppOrLess ? 0.5 : 1,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Split size={15} color={multiAppSyncMode === 'individual' && !isSingleAppOrLess ? 'var(--primary)' : 'var(--text-muted)'} />
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                  Individual Accounts Mode
+                </span>
+              </div>
+              {multiAppSyncMode === 'individual' && !isSingleAppOrLess && (
+                <CheckCircle2 size={14} color="var(--primary)" />
+              )}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+              Each app maintains its own active account. Automatic rotation assigns separate standby accounts to avoid collisions.
+            </div>
+            {isSingleAppOrLess && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  marginTop: '4px',
+                  padding: '6px 8px',
+                  backgroundColor: 'rgba(217, 48, 37, 0.06)',
+                  border: '1px solid rgba(217, 48, 37, 0.2)',
+                  borderRadius: '4px',
+                  fontSize: '11px',
+                  color: '#d93025',
+                }}
+              >
+                <AlertCircle size={12} style={{ flexShrink: 0 }} />
+                <span>Requires at least 2 installed Antigravity apps ({installedCount} detected).</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Section 2: Model Source Hierarchy & Failover Priority */}
       <div className="google-card">
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
@@ -756,8 +910,8 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   padding: '12px 16px',
-                  borderRadius: '10px',
-                  border: isOver ? '2px dashed var(--primary)' : '1.5px solid var(--border)',
+                  borderRadius: '8px',
+                  border: isOver ? '2px dashed var(--primary)' : '1px solid var(--border)',
                   background: isDragging ? 'var(--tonal)' : 'var(--canvas)',
                   opacity: isDragging ? 0.5 : 1,
                   cursor: 'grab',
@@ -913,26 +1067,24 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                 The preferred Google Gemini model assigned for new conversations and default execution.
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <select
-                value={defaultGemini}
-                onChange={(e) => setDefaultGemini(e.target.value)}
-                style={{ width: '260px' }}
-                aria-label="Default Gemini Model"
-              >
-                {geminiModelOptions.length === 0 ? (
-                  <option value={defaultGemini}>
-                    {isFetchingModels ? 'Fetching live models...' : (defaultGemini || 'No Gemini models found')}
+            <select
+              value={defaultGemini}
+              onChange={(e) => setDefaultGemini(e.target.value)}
+              style={{ width: '180px', minWidth: '180px', maxWidth: '180px', boxSizing: 'border-box', flexShrink: 0 }}
+              aria-label="Default Gemini Model"
+            >
+              {geminiModelOptions.length === 0 ? (
+                <option value={defaultGemini}>
+                  {isFetchingModels ? 'Fetching live models...' : (defaultGemini || 'No Gemini models found')}
+                </option>
+              ) : (
+                geminiModelOptions.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.display_name}
                   </option>
-                ) : (
-                  geminiModelOptions.map((opt) => (
-                    <option key={opt.id} value={opt.id}>
-                      {opt.display_name}
-                    </option>
-                  ))
-                )}
-              </select>
-            </div>
+                ))
+              )}
+            </select>
           </div>
 
           {/* Default Custom Model */}
@@ -950,7 +1102,11 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               onChange={(e) => setDefaultCustom(e.target.value)}
               disabled={customModelOptions.length === 0}
               style={{
-                width: '240px',
+                width: '180px',
+                minWidth: '180px',
+                maxWidth: '180px',
+                boxSizing: 'border-box',
+                flexShrink: 0,
                 cursor: customModelOptions.length === 0 ? 'not-allowed' : 'pointer',
                 opacity: customModelOptions.length === 0 ? 0.6 : 1,
                 backgroundColor: customModelOptions.length === 0 ? 'var(--canvas)' : undefined,
@@ -978,13 +1134,13 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                 Default Non-Gemini Native Model:
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                The fallback third-party native model to utilize when non-Gemini routing is enabled.
+                Fallback third-party model used when non-Gemini routing is enabled.
               </div>
             </div>
             <select
               value={defaultNonGemini}
               onChange={(e) => setDefaultNonGemini(e.target.value)}
-              style={{ width: '240px' }}
+              style={{ width: '180px', minWidth: '180px', maxWidth: '180px', boxSizing: 'border-box', flexShrink: 0 }}
               aria-label="Default Non-Gemini Native Model"
             >
               {nonGeminiModelOptions.length === 0 ? (
@@ -999,6 +1155,89 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                 ))
               )}
             </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Section 4b: Gemini Subagent Custom Models */}
+      <div className="google-card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+          <Bot size={16} style={{ color: 'var(--primary)' }} />
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+            Gemini Subagent Custom Models
+          </div>
+        </div>
+        <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          Configure how Gemini subagents use custom models.
+        </p>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: '12px',
+          }}
+        >
+          {/* Option A: Default custom model only */}
+          <div
+            onClick={() => setSubagentStrategy('default_custom_only')}
+            style={{
+              border: subagentStrategy === 'default_custom_only' ? '2px solid var(--primary)' : '1px solid var(--border)',
+              backgroundColor: subagentStrategy === 'default_custom_only' ? 'var(--primary-light, rgba(11, 87, 208, 0.04))' : 'var(--surface)',
+              borderRadius: '8px',
+              padding: '14px',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Cpu size={15} color={subagentStrategy === 'default_custom_only' ? 'var(--primary)' : 'var(--text-muted)'} />
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                  Default custom model only
+                </span>
+              </div>
+              {subagentStrategy === 'default_custom_only' && (
+                <CheckCircle2 size={14} color="var(--primary)" />
+              )}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+              Directs all Gemini subagent workloads to the configured Default Custom Model without dynamic model switching.
+            </div>
+          </div>
+
+          {/* Option B: Auto-decide based on ability, performance, and price */}
+          <div
+            onClick={() => setSubagentStrategy('auto_decide')}
+            style={{
+              border: subagentStrategy === 'auto_decide' ? '2px solid var(--primary)' : '1px solid var(--border)',
+              backgroundColor: subagentStrategy === 'auto_decide' ? 'var(--primary-light, rgba(11, 87, 208, 0.04))' : 'var(--surface)',
+              borderRadius: '8px',
+              padding: '14px',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Sliders size={15} color={subagentStrategy === 'auto_decide' ? 'var(--primary)' : 'var(--text-muted)'} />
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                  Auto-decide based on ability, performance, and price
+                </span>
+              </div>
+              {subagentStrategy === 'auto_decide' && (
+                <CheckCircle2 size={14} color="var(--primary)" />
+              )}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+              Evaluates task requirements, context size, model latency, and token price across enabled custom models to select the most cost-effective candidate.
+            </div>
           </div>
         </div>
       </div>
@@ -1029,17 +1268,17 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
             <div>
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                Warmup Lead Time:
+                Post-Reset Verification Delay:
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Seconds before scheduled reset time to prepare rotation candidate.
+                Delay after scheduled reset time before verifying quota reset and igniting the 5-hour rolling timer.
               </div>
             </div>
             <input
               type="number"
               step={0.5}
               min={0.5}
-              max={10.0}
+              max={60.0}
               value={warmupLeadTime}
               onChange={(e) => setWarmupLeadTime(Number(e.target.value))}
               style={{ width: '100px', textAlign: 'center' }}

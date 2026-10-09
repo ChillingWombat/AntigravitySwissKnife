@@ -55,8 +55,12 @@ func NewAuditor() *Auditor {
 
 // RunAudit performs the 6-probe comprehensive security analysis.
 func (a *Auditor) RunAudit(model CustomModel) *SecurityAuditReport {
+	modelID := strings.TrimSpace(model.Name)
+	if modelID == "" {
+		modelID = model.ID
+	}
 	report := &SecurityAuditReport{
-		ModelID:      model.ID,
+		ModelID:      modelID,
 		Endpoint:     model.BaseURL,
 		ProviderType: string(model.ProviderType),
 		AuditedAt:    time.Now().UTC().Format(time.RFC3339),

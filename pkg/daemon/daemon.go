@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -19,6 +20,8 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/process"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/revival"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/system"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/totp"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/vault"
 )
@@ -30,6 +33,7 @@ type Daemon struct {
 	Profiles  *fingerprint.Store
 	GUIStore  *gui.Store
 	Shield    *process.Shield
+	Revival   *revival.Engine
 	Inspector *cache.Inspector
 	Pruner    *cache.Pruner
 	TOTP      *totp.Engine
@@ -69,6 +73,8 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 	}
 
 	shield := process.NewShield(cfg.AntigravityProtectedPID)
+	revEngine := revival.NewEngine("", 0)
+	shield.SetRevivalEngine(revEngine)
 	inspector := cache.NewInspector("", "")
 	pruner := cache.NewPruner("")
 	totpEngine := totp.NewEngine()
@@ -90,6 +96,7 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 		Profiles:       fpStore,
 		GUIStore:       guiStore,
 		Shield:         shield,
+		Revival:        revEngine,
 		Inspector:      inspector,
 		Pruner:         pruner,
 		TOTP:           totpEngine,
@@ -123,6 +130,19 @@ func (d *Daemon) getQuotaSummaries() map[string]*quota.QuotaSummary {
 		res[k] = v
 	}
 	return res
+}
+
+func (d *Daemon) getQuotaSummary(email string) *quota.QuotaSummary {
+	if email == "" {
+		return nil
+	}
+	norm := strings.ToLower(strings.TrimSpace(email))
+	d.quotaCacheMu.RLock()
+	defer d.quotaCacheMu.RUnlock()
+	if d.quotaCache == nil {
+		return nil
+	}
+	return d.quotaCache[norm]
 }
 
 func (d *Daemon) setQuotaSummary(email string, sum *quota.QuotaSummary) {
@@ -493,13 +513,26 @@ func (d *Daemon) registerRPCHandlers() {
 		var p struct {
 			Email       string `json:"email"`
 			RelaunchIDE *bool  `json:"relaunch_ide"`
+			TargetApp   string `json:"target_app"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil || p.Email == "" {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: "missing required 'email' parameter"}
 		}
 
-		if err := d.Keyring.SetActiveAccount(p.Email); err != nil {
-			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
+		targetApp := strings.ToLower(strings.TrimSpace(p.TargetApp))
+		isIndividual := d.Config.GetMultiAppSyncMode() == core.MultiAppSyncModeIndividual
+		isAll := targetApp == "" || targetApp == core.TargetAppAll || !isIndividual
+
+		if isAll || targetApp == core.TargetAppDesktop {
+			if err := d.Keyring.SetActiveAccount(p.Email); err != nil {
+				return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
+			}
+		}
+
+		if isAll {
+			_ = d.Config.SetActiveAppAccount("all", p.Email)
+		} else {
+			_ = d.Config.SetActiveAppAccount(targetApp, p.Email)
 		}
 
 		d.mu.Lock()
@@ -515,18 +548,34 @@ func (d *Daemon) registerRPCHandlers() {
 		shouldRelaunch := true
 		if p.RelaunchIDE != nil {
 			shouldRelaunch = *p.RelaunchIDE
+		} else if !isAll && targetApp != core.TargetAppDesktop {
+			shouldRelaunch = false
 		}
 
-		// Synchronize across Antigravity 2.0 Desktop, Antigravity CLI (agy), and VS Code extension
+		var revivalIntent *revival.RevivalIntent
+		if d.Revival != nil {
+			revivalIntent, _ = d.Revival.CapturePreSwitchState(targetApp)
+		}
+
+		// Synchronize across relevant surfaces
 		if acc, _ := d.Keyring.GetAccount(p.Email); acc != nil {
-			_ = keyring.SyncAllSurfaces(acc, allEmails, d.Profiles)
+			if isAll {
+				_ = keyring.SyncAllSurfaces(acc, allEmails, d.Profiles)
+			} else {
+				_ = keyring.SyncSurface(targetApp, acc, allEmails, d.Profiles)
+			}
 			_ = d.Keyring.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
 			if !shouldRelaunch {
 				_, _ = gui.NewInjector(0).RefreshUserStatus()
 			}
+			if d.Revival != nil && revivalIntent != nil {
+				go func(it *revival.RevivalIntent) {
+					_ = d.Revival.ExecutePostRelaunchRevival(it)
+				}(revivalIntent)
+			}
 		}
 
-		if shouldRelaunch && d.Shield != nil && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+		if shouldRelaunch && d.Shield != nil && d.Shield.IsAntigravityRunning() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
 			_ = gui.NewInjector(0).CaptureActiveConversationPath()
 			go func() {
 				time.Sleep(200 * time.Millisecond)
@@ -535,11 +584,14 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 
 		return map[string]interface{}{
-			"switched":       true,
-			"account":        p.Email,
-			"success":        true,
-			"active_account": p.Email,
-			"relaunch_ide":   shouldRelaunch,
+			"switched":            true,
+			"account":             p.Email,
+			"success":             true,
+			"active_account":      p.Email,
+			"relaunch_ide":        shouldRelaunch,
+			"target_app":          p.TargetApp,
+			"multi_app_sync_mode": d.Config.GetMultiAppSyncMode(),
+			"active_app_accounts": d.Config.GetActiveAppAccounts(),
 		}, nil
 	}
 	d.Server.Register("swiss.switchAccount", switchHandler)
@@ -566,6 +618,82 @@ func (d *Daemon) registerRPCHandlers() {
 	}
 	d.Server.Register("swiss.relaunchIDE", relaunchHandler)
 	d.Server.Register("desktop.relaunch", relaunchHandler)
+
+	// Active Conversations & Subagent State Detection
+	getActiveConversationsHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+		targetApp := ""
+		if len(params) > 0 {
+			var p struct {
+				TargetApp string `json:"target_app"`
+			}
+			_ = json.Unmarshal(params, &p)
+			targetApp = p.TargetApp
+		}
+		if d.Revival == nil {
+			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: "revival engine not initialized"}
+		}
+		info, err := d.Revival.Detector.Detect(targetApp)
+		if err != nil {
+			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
+		}
+		return info, nil
+	}
+	d.Server.Register("swiss.getActiveConversations", getActiveConversationsHandler)
+	d.Server.Register("conversations.getActive", getActiveConversationsHandler)
+
+	// Conversation Revival Trigger
+	reviveConversationHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+		var p struct {
+			TargetApp      string `json:"target_app"`
+			ConversationID string `json:"conversation_id"`
+			Prompt         string `json:"prompt"`
+		}
+		if len(params) > 0 {
+			_ = json.Unmarshal(params, &p)
+		}
+		if d.Revival == nil {
+			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: "revival engine not initialized"}
+		}
+		if err := d.Revival.ReviveConversation(p.TargetApp, p.ConversationID, p.Prompt); err != nil {
+			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
+		}
+		return map[string]interface{}{"success": true, "status": "revived"}, nil
+	}
+	d.Server.Register("swiss.reviveConversation", reviveConversationHandler)
+	d.Server.Register("conversations.revive", reviveConversationHandler)
+
+	// Revival Status Query
+	getRevivalStatusHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+		if d.Revival == nil {
+			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: "revival engine not initialized"}
+		}
+		status, err := d.Revival.GetRevivalStatus()
+		if err != nil {
+			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
+		}
+		return status, nil
+	}
+	d.Server.Register("swiss.getRevivalStatus", getRevivalStatusHandler)
+	d.Server.Register("conversations.getStatus", getRevivalStatusHandler)
+
+	// Acknowledge Continuation
+	ackContinuationHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+		var p struct {
+			CascadeID string `json:"cascade_id"`
+		}
+		if len(params) > 0 {
+			_ = json.Unmarshal(params, &p)
+		}
+		if d.Revival == nil {
+			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: "revival engine not initialized"}
+		}
+		if err := d.Revival.AcknowledgeContinuation(p.CascadeID); err != nil {
+			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
+		}
+		return map[string]interface{}{"success": true}, nil
+	}
+	d.Server.Register("swiss.ackContinuation", ackContinuationHandler)
+	d.Server.Register("conversations.ack", ackContinuationHandler)
 
 	// 4. Set TOTP Secret
 	d.Server.Register("swiss.setTOTPSecret", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
@@ -707,14 +835,21 @@ func (d *Daemon) registerRPCHandlers() {
 	// 8. Cache: Scan
 	d.Server.Register("swiss.scanCache", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		var p struct {
-			MinAgeDays float64 `json:"min_age_days"`
+			MinAgeDays *float64 `json:"min_age_days"`
+			MaxSizeGB  float64  `json:"max_size_gb"`
 		}
 		_ = json.Unmarshal(params, &p)
-		if p.MinAgeDays <= 0 {
-			p.MinAgeDays = 3.0
+		age := 0.0
+		if p.MinAgeDays != nil {
+			age = *p.MinAgeDays
 		}
 
-		bd, err := d.Inspector.ScanBreakdown(p.MinAgeDays)
+		maxBytes := int64(0)
+		if p.MaxSizeGB > 0 {
+			maxBytes = int64(p.MaxSizeGB * 1024 * 1024 * 1024)
+		}
+
+		bd, err := d.Inspector.ScanBreakdownWithLimit(age, maxBytes)
 		if err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
@@ -725,7 +860,8 @@ func (d *Daemon) registerRPCHandlers() {
 	d.Server.Register("swiss.pruneCache", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		var opts cache.PruneOptions
 		if err := json.Unmarshal(params, &opts); err != nil {
-			opts.MinAgeDays = 3.0
+			opts.MinAgeDays = 0.0
+			opts.MaxSizeGB = 0.0
 			opts.PruneScratch = true
 			opts.PruneSteps = true
 			opts.PruneTasks = true
@@ -735,6 +871,54 @@ func (d *Daemon) registerRPCHandlers() {
 		if err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
+		return res, nil
+	})
+
+	// 9b. Cache Config: Get & Set
+	d.Server.Register("swiss.getCacheConfig", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+		d.mu.RLock()
+		defer d.mu.RUnlock()
+		maxSize := d.Config.AutoPruneMaxSizeGB
+		if maxSize < 0 {
+			maxSize = 0.0
+		}
+		return map[string]interface{}{
+			"auto_prune_enabled": d.Config.AutoPruneEnabled,
+			"prune_days":         d.Config.AutoPruneMaxAgeDays,
+			"max_size_gb":        maxSize,
+		}, nil
+	})
+
+	d.Server.Register("swiss.setCacheConfig", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+		var p struct {
+			AutoPruneEnabled *bool    `json:"auto_prune_enabled"`
+			PruneDays        *float64 `json:"prune_days"`
+			MaxSizeGB        *float64 `json:"max_size_gb"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: err.Error()}
+		}
+		d.mu.Lock()
+		if p.AutoPruneEnabled != nil {
+			d.Config.AutoPruneEnabled = *p.AutoPruneEnabled
+		}
+		if p.PruneDays != nil && *p.PruneDays >= 0 {
+			d.Config.AutoPruneMaxAgeDays = *p.PruneDays
+		}
+		if p.MaxSizeGB != nil && *p.MaxSizeGB >= 0 {
+			d.Config.AutoPruneMaxSizeGB = *p.MaxSizeGB
+		}
+		if d.Config.AutoPruneMaxSizeGB < 0 {
+			d.Config.AutoPruneMaxSizeGB = 0.0
+		}
+		_ = d.Config.Save()
+		res := map[string]interface{}{
+			"success":            true,
+			"auto_prune_enabled": d.Config.AutoPruneEnabled,
+			"prune_days":         d.Config.AutoPruneMaxAgeDays,
+			"max_size_gb":        d.Config.AutoPruneMaxSizeGB,
+		}
+		d.mu.Unlock()
 		return res, nil
 	})
 
@@ -780,6 +964,13 @@ func (d *Daemon) registerRPCHandlers() {
 		if threshWeekly <= 0 {
 			threshWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
 		}
+		inst := system.NewDetector().DetectAll()
+		installedMap := map[string]bool{
+			"desktop": inst != nil && inst.DesktopApp.Installed,
+			"agy":     inst != nil && inst.AgyCLI.Installed,
+			"vscode":  inst != nil && inst.VSCodeExtension.Installed,
+		}
+
 		return map[string]interface{}{
 			"auto_switch_enabled":              d.Config.AutoSwitchEnabled,
 			"auto_switch_threshold":            d.Config.AutoSwitchThreshold,
@@ -790,7 +981,8 @@ func (d *Daemon) registerRPCHandlers() {
 			"standby_polling_interval_seconds": standbyPoll,
 			"standby_random_jitter_seconds":    jitter,
 			"warmup_enabled":                   d.Config.WarmupEnabled,
-			"warmup_lead_time_seconds":         d.Config.WarmupLeadTimeSec,
+			"warmup_lead_time_seconds":         d.Config.GetPostResetDelaySec(),
+			"post_reset_delay_seconds":         d.Config.GetPostResetDelaySec(),
 			"preferred_native_model":           prefNative,
 			"allow_ai_credits_usage":           d.Config.AllowAICreditsUsage,
 			"allow_non_gemini_native_models":   d.Config.AllowNonGeminiNativeModels,
@@ -800,6 +992,10 @@ func (d *Daemon) registerRPCHandlers() {
 			"default_non_gemini_model":         defaultNonGemini,
 			"default_gemini_reasoning_level":   geminiReasoning,
 			"auto_import_active_account":       d.Config.AutoImportActiveAccount,
+			"multi_app_sync_mode":              d.Config.GetMultiAppSyncMode(),
+			"active_app_accounts":              d.Config.GetActiveAppAccounts(),
+			"subagent_model_strategy":          d.Config.GetSubagentModelStrategy(),
+			"installed_apps":                   installedMap,
 		}, nil
 	}
 	d.Server.Register("swiss.getRuleConfig", getRuleConfigHandler)
@@ -808,25 +1004,29 @@ func (d *Daemon) registerRPCHandlers() {
 	// 11. Rule Config: Set
 	setRuleConfigHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		var p struct {
-			AutoSwitchEnabled           *bool     `json:"auto_switch_enabled"`
-			AutoSwitchThreshold         *float64  `json:"auto_switch_threshold"`
-			AutoSwitchWeeklyThreshold   *float64  `json:"auto_switch_weekly_threshold"`
-			SwitchMode                  *string   `json:"switch_mode"`
-			PollingIntervalSec          *int      `json:"polling_interval_seconds"`
-			ActivePollingIntervalSec    *int      `json:"active_polling_interval_seconds"`
-			StandbyPollingIntervalSec   *int      `json:"standby_polling_interval_seconds"`
-			StandbyRandomJitterSec      *int      `json:"standby_random_jitter_seconds"`
-			WarmupEnabled               *bool     `json:"warmup_enabled"`
-			WarmupLeadTimeSec           *float64  `json:"warmup_lead_time_seconds"`
-			PreferredNativeModel        *string   `json:"preferred_native_model"`
-			AllowAICreditsUsage         *bool     `json:"allow_ai_credits_usage"`
-			AllowNonGeminiNativeModels  *bool     `json:"allow_non_gemini_native_models"`
-			ModelSourceHierarchy        *[]string `json:"model_source_hierarchy"`
-			DefaultGeminiModel          *string   `json:"default_gemini_model"`
-			DefaultCustomModel          *string   `json:"default_custom_model"`
-			DefaultNonGeminiModel       *string   `json:"default_non_gemini_model"`
-			DefaultGeminiReasoningLevel *string   `json:"default_gemini_reasoning_level"`
-			AutoImportActiveAccount     *bool     `json:"auto_import_active_account"`
+			AutoSwitchEnabled           *bool              `json:"auto_switch_enabled"`
+			AutoSwitchThreshold         *float64           `json:"auto_switch_threshold"`
+			AutoSwitchWeeklyThreshold   *float64           `json:"auto_switch_weekly_threshold"`
+			SwitchMode                  *string            `json:"switch_mode"`
+			PollingIntervalSec          *int               `json:"polling_interval_seconds"`
+			ActivePollingIntervalSec    *int               `json:"active_polling_interval_seconds"`
+			StandbyPollingIntervalSec   *int               `json:"standby_polling_interval_seconds"`
+			StandbyRandomJitterSec      *int               `json:"standby_random_jitter_seconds"`
+			WarmupEnabled               *bool              `json:"warmup_enabled"`
+			WarmupLeadTimeSec           *float64           `json:"warmup_lead_time_seconds"`
+			PostResetDelaySec           *float64           `json:"post_reset_delay_seconds"`
+			PreferredNativeModel        *string            `json:"preferred_native_model"`
+			AllowAICreditsUsage         *bool              `json:"allow_ai_credits_usage"`
+			AllowNonGeminiNativeModels  *bool              `json:"allow_non_gemini_native_models"`
+			ModelSourceHierarchy        *[]string          `json:"model_source_hierarchy"`
+			DefaultGeminiModel          *string            `json:"default_gemini_model"`
+			DefaultCustomModel          *string            `json:"default_custom_model"`
+			DefaultNonGeminiModel       *string            `json:"default_non_gemini_model"`
+			DefaultGeminiReasoningLevel *string            `json:"default_gemini_reasoning_level"`
+			AutoImportActiveAccount     *bool              `json:"auto_import_active_account"`
+			MultiAppSyncMode            *string            `json:"multi_app_sync_mode"`
+			ActiveAppAccounts           *map[string]string `json:"active_app_accounts"`
+			SubagentModelStrategy       *string            `json:"subagent_model_strategy"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: err.Error()}
@@ -861,8 +1061,12 @@ func (d *Daemon) registerRPCHandlers() {
 		if p.WarmupEnabled != nil {
 			d.Config.WarmupEnabled = *p.WarmupEnabled
 		}
-		if p.WarmupLeadTimeSec != nil {
+		if p.PostResetDelaySec != nil {
+			d.Config.PostResetDelaySec = *p.PostResetDelaySec
+			d.Config.WarmupLeadTimeSec = *p.PostResetDelaySec
+		} else if p.WarmupLeadTimeSec != nil {
 			d.Config.WarmupLeadTimeSec = *p.WarmupLeadTimeSec
+			d.Config.PostResetDelaySec = *p.WarmupLeadTimeSec
 		}
 		if p.PreferredNativeModel != nil {
 			d.Config.PreferredNativeModel = *p.PreferredNativeModel
@@ -890,6 +1094,17 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 		if p.AutoImportActiveAccount != nil {
 			d.Config.AutoImportActiveAccount = *p.AutoImportActiveAccount
+		}
+		if p.MultiAppSyncMode != nil {
+			_ = d.Config.SetMultiAppSyncMode(*p.MultiAppSyncMode)
+		}
+		if p.ActiveAppAccounts != nil {
+			for k, v := range *p.ActiveAppAccounts {
+				_ = d.Config.SetActiveAppAccount(k, v)
+			}
+		}
+		if p.SubagentModelStrategy != nil {
+			_ = d.Config.SetSubagentModelStrategy(*p.SubagentModelStrategy)
 		}
 		_ = d.Config.Save()
 		d.mu.Unlock()
@@ -994,6 +1209,7 @@ func (d *Daemon) registerRPCHandlers() {
 		d.mu.RLock()
 		thresh := d.Config.AutoSwitchThreshold
 		threshWeekly := d.Config.AutoSwitchWeeklyThreshold
+		switchMode := d.Config.SwitchMode
 		d.mu.RUnlock()
 		if thresh <= 0 {
 			thresh = core.DefaultAutoSwitchThresholdFraction
@@ -1001,7 +1217,11 @@ func (d *Daemon) registerRPCHandlers() {
 		if threshWeekly <= 0 {
 			threshWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
 		}
+		if switchMode == "" {
+			switchMode = core.DefaultSwitchMode
+		}
 		states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, thresh, threshWeekly)
+		states = quota.SortAccountQuotaStatesWithThresholds(states, active, thresh, threshWeekly, "auto", switchMode)
 		summary := quota.ComputeFleetSummary(states, active)
 		d.pollingMu.Lock()
 		summary.Refreshing = d.isPollingFleet
@@ -1108,11 +1328,49 @@ func (d *Daemon) registerRPCHandlers() {
 	})
 
 	d.Server.Register("swiss.installDesktopLoader", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+		d.mu.Lock()
+		d.Config.PersistentVisualEffects = true
+		_ = d.Config.Save()
+		d.mu.Unlock()
 		res, err := d.GUIStore.InstallDesktopLoader()
 		if err != nil && res == nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
 		return res, nil
+	})
+
+	d.Server.Register("swiss.setDesktopPersistence", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+		var p struct {
+			Enabled bool `json:"enabled"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: err.Error()}
+		}
+		d.mu.Lock()
+		d.Config.PersistentVisualEffects = p.Enabled
+		_ = d.Config.Save()
+		d.mu.Unlock()
+
+		var res *gui.ApplyResult
+		var err error
+		if p.Enabled {
+			res, err = d.GUIStore.InstallDesktopLoader()
+		} else {
+			res, err = d.GUIStore.UninstallDesktopLoader()
+		}
+		if err != nil && res == nil {
+			return map[string]interface{}{
+				"success":                   true,
+				"persistent_visual_effects": p.Enabled,
+				"message":                   err.Error(),
+			}, nil
+		}
+		return map[string]interface{}{
+			"success":                   true,
+			"persistent_visual_effects": p.Enabled,
+			"installed":                 p.Enabled && res != nil && res.Success,
+			"message":                   res.Message,
+		}, nil
 	})
 
 	d.Server.Register("swiss.restoreFactoryDefaults", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
@@ -1124,7 +1382,11 @@ func (d *Daemon) registerRPCHandlers() {
 	})
 
 	d.Server.Register("swiss.getDesktopStatus", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
-		return d.GUIStore.GetDesktopStatus(), nil
+		st := d.GUIStore.GetDesktopStatus()
+		d.mu.RLock()
+		st.PersistentVisualEffects = d.Config.PersistentVisualEffects
+		d.mu.RUnlock()
+		return st, nil
 	})
 }
 
@@ -1132,6 +1394,12 @@ func (d *Daemon) registerRPCHandlers() {
 func (d *Daemon) Start() error {
 	if err := d.Server.Start(); err != nil {
 		return err
+	}
+	if d.GUIStore != nil {
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			_, _ = d.GUIStore.Apply()
+		}()
 	}
 	d.wg.Add(1)
 	go d.schedulerLoop()
@@ -1141,6 +1409,12 @@ func (d *Daemon) Start() error {
 // Stop gracefully shuts down all services.
 func (d *Daemon) Stop() error {
 	d.cancel()
+	if d.GUIStore != nil {
+		d.mu.RLock()
+		keepVisual := d.Config.PersistentVisualEffects
+		d.mu.RUnlock()
+		_ = d.GUIStore.DeactivateOnDaemonStop(keepVisual)
+	}
 	_ = d.Server.Stop()
 	d.wg.Wait()
 	return nil
@@ -1195,9 +1469,21 @@ func (d *Daemon) schedulerLoop() {
 		case <-vaultTicker.C:
 			d.mu.RLock()
 			vaultOn := d.Config.ConversationVaultEnabled
+			autoPruneOn := d.Config.AutoPruneEnabled
+			pruneAge := d.Config.AutoPruneMaxAgeDays
+			pruneMaxGB := d.Config.AutoPruneMaxSizeGB
 			d.mu.RUnlock()
 			if vaultOn && d.Vault != nil {
 				_, _ = d.Vault.Sync()
+			}
+			if autoPruneOn && d.Pruner != nil {
+				_, _ = d.Pruner.Prune(cache.PruneOptions{
+					MinAgeDays:   pruneAge,
+					MaxSizeGB:    pruneMaxGB,
+					PruneScratch: true,
+					PruneSteps:   true,
+					PruneTasks:   true,
+				})
 			}
 
 		case <-activeTicker.C:
@@ -1210,107 +1496,319 @@ func (d *Daemon) schedulerLoop() {
 			_, _ = d.Keyring.ReconcileActiveAccount(d.Config.AutoImportActiveAccount, tickEmails, d.Profiles)
 			active := d.Keyring.ActiveAccount()
 			if active != "" {
-				if acc, _ := d.Keyring.GetAccount(active); acc != nil {
-					oldTok := acc.AccessToken
-					sum, err := quota.PollAndCacheAccount(acc, d.Keyring)
-					if sum != nil {
-						d.setQuotaSummary(active, sum)
+				accounts := d.Keyring.ListAccounts()
+				var allEmails []string
+				for _, a := range accounts {
+					allEmails = append(allEmails, a.Email)
+				}
+
+				d.mu.RLock()
+				autoSwitch := d.Config.AutoSwitchEnabled
+				thresh := d.Config.AutoSwitchThreshold
+				threshWeekly := d.Config.AutoSwitchWeeklyThreshold
+				if thresh <= 0 {
+					thresh = core.DefaultAutoSwitchThresholdFraction
+				}
+				if threshWeekly <= 0 {
+					threshWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
+				}
+				switchMode := d.Config.SwitchMode
+				lastSw := d.lastSwitchTime
+				syncMode := d.Config.GetMultiAppSyncMode()
+				d.mu.RUnlock()
+
+				var activeDwellSec float64
+				if !lastSw.IsZero() {
+					activeDwellSec = time.Since(lastSw).Seconds()
+				}
+
+				// Collect accounts needing refresh
+				emailsToPoll := []string{active}
+				if syncMode == core.MultiAppSyncModeIndividual {
+					for _, app := range []string{core.TargetAppDesktop, core.TargetAppCLI, core.TargetAppVSCode} {
+						if em := d.Config.GetActiveAppAccount(app); em != "" && em != active {
+							emailsToPoll = append(emailsToPoll, em)
+						}
 					}
-					if err == nil && sum != nil {
-						tokenChanged := (acc.AccessToken != "" && acc.AccessToken != oldTok)
-						if tokenChanged {
+				}
+
+				var primarySum *quota.QuotaSummary
+				for _, em := range emailsToPoll {
+					if acc, _ := d.Keyring.GetAccount(em); acc != nil {
+						oldTok := acc.AccessToken
+						sum, err := quota.PollAndCacheAccount(acc, d.Keyring)
+						if sum != nil {
+							d.setQuotaSummary(em, sum)
+							if em == active {
+								primarySum = sum
+							}
+						}
+						if err == nil && sum != nil && acc.AccessToken != "" && acc.AccessToken != oldTok {
 							d.syncActiveAccountSurfaces(acc)
 						}
+					}
+				}
 
-						d.mu.RLock()
-						autoSwitch := d.Config.AutoSwitchEnabled
-						thresh := d.Config.AutoSwitchThreshold
-						threshWeekly := d.Config.AutoSwitchWeeklyThreshold
-						if thresh <= 0 {
-							thresh = core.DefaultAutoSwitchThresholdFraction
-						}
-						if threshWeekly <= 0 {
-							threshWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
-						}
-						switchMode := d.Config.SwitchMode
-						lastSw := d.lastSwitchTime
-						d.mu.RUnlock()
+				if autoSwitch && primarySum != nil {
+					states := quota.BuildAccountQuotaStatesWithThresholds(accounts, primarySum, thresh, threshWeekly)
 
-						if autoSwitch {
-							accounts := d.Keyring.ListAccounts()
-							states := quota.BuildAccountQuotaStatesWithThresholds(accounts, sum, thresh, threshWeekly)
-							var activeDwellSec float64
-							if !lastSw.IsZero() {
-								activeDwellSec = time.Since(lastSw).Seconds()
+					if syncMode == core.MultiAppSyncModeIndividual {
+						// Per-app rotation
+						inUseEmails := make([]string, 0)
+						for _, app := range []string{core.TargetAppDesktop, core.TargetAppCLI, core.TargetAppVSCode} {
+							if em := d.Config.GetActiveAppAccount(app); em != "" {
+								inUseEmails = append(inUseEmails, em)
 							}
-							shouldSwitch, successor, _ := quota.EvaluateAutoSwitchWithThresholds(states, active, thresh, threshWeekly, switchMode, activeDwellSec)
-							if shouldSwitch && successor != nil && successor.Email != active {
-								_ = d.Keyring.SetActiveAccount(successor.Email)
+						}
+
+						for _, app := range []string{core.TargetAppDesktop, core.TargetAppCLI, core.TargetAppVSCode} {
+							appEmail := d.Config.GetActiveAppAccount(app)
+							if appEmail == "" {
+								continue
+							}
+							shouldSwitch, successor, _ := quota.EvaluateAutoSwitchForApp(states, appEmail, inUseEmails, thresh, threshWeekly, switchMode, activeDwellSec)
+							if shouldSwitch && successor != nil && successor.Email != appEmail {
+								cAcc, _ := d.Keyring.GetAccount(successor.Email)
+								if cAcc == nil || strings.TrimSpace(cAcc.RefreshToken) == "" {
+									continue
+								}
+
+								_ = d.Config.SetActiveAppAccount(app, successor.Email)
+								if app == core.TargetAppDesktop {
+									_ = d.Keyring.SetActiveAccount(successor.Email)
+									if !strings.EqualFold(d.Keyring.ActiveAccount(), successor.Email) {
+										_ = d.Keyring.SetActiveAccount(successor.Email)
+									}
+									if !strings.EqualFold(d.Keyring.ActiveAccount(), successor.Email) {
+										log.Printf("[Daemon Auto-Switch] Alert: failed to activate successor %s (current: %s); aborting switch", successor.Email, d.Keyring.ActiveAccount())
+										continue
+									}
+								}
 								d.mu.Lock()
 								d.lastSwitchTime = time.Now()
 								d.mu.Unlock()
-								var allEmails []string
-								for _, a := range accounts {
-									allEmails = append(allEmails, a.Email)
+
+								var revIntent *revival.RevivalIntent
+								if d.Revival != nil {
+									revIntent, _ = d.Revival.CapturePreSwitchState(app)
 								}
+
 								if cAcc, _ := d.Keyring.GetAccount(successor.Email); cAcc != nil {
-									_ = keyring.SyncAllSurfaces(cAcc, allEmails, d.Profiles)
+									_ = keyring.SyncSurface(app, cAcc, allEmails, d.Profiles)
 									if cAcc.AccessToken != "" {
 										_ = d.Keyring.UpdateAccountTokensWithExpiry(cAcc.Email, cAcc.AccessToken, cAcc.RefreshToken, cAcc.TokenExpiry)
 									}
-									if d.Shield != nil && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+									if app == core.TargetAppDesktop && d.Shield != nil && d.Shield.IsAntigravityRunning() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
 										_ = gui.NewInjector(0).CaptureActiveConversationPath()
 										go func() {
 											time.Sleep(200 * time.Millisecond)
 											_ = d.Shield.RelaunchHostIDE()
 										}()
 									}
+									if d.Revival != nil && revIntent != nil {
+										go func(it *revival.RevivalIntent) {
+											_ = d.Revival.ExecutePostRelaunchRevival(it)
+										}(revIntent)
+									}
+								}
+								for idx, em := range inUseEmails {
+									if em == appEmail {
+										inUseEmails[idx] = successor.Email
+										break
+									}
+								}
+							}
+						}
+					} else {
+						// Shared mode rotation
+						shouldSwitch, successor, _ := quota.EvaluateAutoSwitchWithThresholds(states, active, thresh, threshWeekly, switchMode, activeDwellSec)
+						if shouldSwitch && successor != nil && successor.Email != active {
+							cAcc, _ := d.Keyring.GetAccount(successor.Email)
+							if cAcc == nil || strings.TrimSpace(cAcc.RefreshToken) == "" {
+								continue
+							}
+
+							_ = d.Keyring.SetActiveAccount(successor.Email)
+							if !strings.EqualFold(d.Keyring.ActiveAccount(), successor.Email) {
+								_ = d.Keyring.SetActiveAccount(successor.Email)
+							}
+							if !strings.EqualFold(d.Keyring.ActiveAccount(), successor.Email) {
+								log.Printf("[Daemon Auto-Switch] Alert: failed to activate successor %s (current: %s); aborting switch", successor.Email, d.Keyring.ActiveAccount())
+								continue
+							}
+							_ = d.Config.SetActiveAppAccount("all", successor.Email)
+							d.mu.Lock()
+							d.lastSwitchTime = time.Now()
+							d.mu.Unlock()
+
+							var revIntent *revival.RevivalIntent
+							if d.Revival != nil {
+								revIntent, _ = d.Revival.CapturePreSwitchState(core.TargetAppDesktop)
+							}
+
+							if cAcc, _ := d.Keyring.GetAccount(successor.Email); cAcc != nil {
+								_ = keyring.SyncAllSurfaces(cAcc, allEmails, d.Profiles)
+								if cAcc.AccessToken != "" {
+									_ = d.Keyring.UpdateAccountTokensWithExpiry(cAcc.Email, cAcc.AccessToken, cAcc.RefreshToken, cAcc.TokenExpiry)
+								}
+								if d.Shield != nil && d.Shield.IsAntigravityRunning() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+									_ = gui.NewInjector(0).CaptureActiveConversationPath()
+									go func() {
+										time.Sleep(200 * time.Millisecond)
+										_ = d.Shield.RelaunchHostIDE()
+									}()
+								}
+								if d.Revival != nil && revIntent != nil {
+									go func(it *revival.RevivalIntent) {
+										_ = d.Revival.ExecutePostRelaunchRevival(it)
+									}(revIntent)
 								}
 							}
 						}
 					}
 				}
+				d.checkPostResetIgnitions()
 			}
 
 		case <-standbyTicker.C:
-			// 2. Infrequently refresh standby accounts in random order with random time gaps (e.g. roughly every 15m)
-			accounts := d.Keyring.ListAccounts()
-			active := d.Keyring.ActiveAccount()
+			// 2. Infrequently refresh standby accounts with cooldown skip and post-reset ignition
+			d.pollStandbyAccounts(r, jitterSec)
+		}
+	}
+}
 
-			var standby []*keyring.Account
-			for _, acc := range accounts {
-				if acc.Email != active && acc.Status != "BANNED" {
-					standby = append(standby, acc)
-				}
+// pollStandbyAccounts executes background polling for standby accounts.
+// If an account is in cooldown with a known reset horizon (now < resetTime), automatic background polling is skipped
+// to eliminate unnecessary network traffic and rate limit pressure.
+// When now >= resetTime + postResetDelay, the account is polled to verify quota reset.
+// If quota reset is confirmed (healthy / not exhausted), a 1-token keep-alive probe is triggered to start Google's 5-hour rolling timer.
+func (d *Daemon) pollStandbyAccounts(r *rand.Rand, jitterSec int) {
+	accounts := d.Keyring.ListAccounts()
+	active := d.Keyring.ActiveAccount()
+
+	var standby []*keyring.Account
+	for _, acc := range accounts {
+		if acc.Email != active && acc.Status != "BANNED" {
+			standby = append(standby, acc)
+		}
+	}
+
+	if len(standby) == 0 {
+		return
+	}
+
+	if r != nil && len(standby) > 1 {
+		r.Shuffle(len(standby), func(i, j int) {
+			standby[i], standby[j] = standby[j], standby[i]
+		})
+	}
+
+	d.mu.RLock()
+	warmupEnabled := d.Config.WarmupEnabled
+	postResetDelaySec := d.Config.GetPostResetDelaySec()
+	thresh := d.Config.AutoSwitchThreshold
+	d.mu.RUnlock()
+
+	scheduler := &quota.WarmupScheduler{
+		PostResetDelay: time.Duration(postResetDelaySec * float64(time.Second)),
+	}
+
+	for _, acc := range standby {
+		select {
+		case <-d.ctx.Done():
+			return
+		default:
+		}
+
+		now := time.Now()
+		cached := d.getQuotaSummary(acc.Email)
+		var resetTime time.Time
+		if cached != nil {
+			resetTime = cached.GetResetTime()
+		}
+
+		// Check if standby account is in cooldown with a known reset horizon
+		if cached != nil && cached.IsCooldown(thresh) && !resetTime.IsZero() {
+			// 1. If in cooldown (now < resetTime), skip automatic background polling
+			if scheduler.ShouldSkipCooldownPolling(resetTime, now) {
+				continue
 			}
 
-			if len(standby) > 0 {
-				// Randomize standby accounts order
-				r.Shuffle(len(standby), func(i, j int) {
-					standby[i], standby[j] = standby[j], standby[i]
-				})
+			// 2. If resetTime has passed but post-reset verification delay has not elapsed, wait
+			if !scheduler.ShouldTriggerPostResetIgnition(resetTime, now) {
+				continue
+			}
 
-				for _, acc := range standby {
-					select {
-					case <-d.ctx.Done():
-						return
-					default:
+			// 3. Delay window elapsed (now >= resetTime + postResetDelay): poll to verify reset
+			freshSum, _ := quota.PollAndCacheAccount(acc, d.Keyring)
+			if freshSum != nil {
+				d.setQuotaSummary(acc.Email, freshSum)
+				// If quota reset is confirmed (healthy / not exhausted), trigger 1-token ignition probe
+				if !freshSum.IsCooldown(thresh) && freshSum.OverallHealth != core.StatusExhausted {
+					if warmupEnabled {
+						_ = quota.IgniteAccountPostReset(acc, d.Keyring)
 					}
+				}
+			}
+		} else {
+			// Normal standby account refresh (not in cooldown)
+			sum, _ := quota.PollAndCacheAccount(acc, d.Keyring)
+			if sum != nil {
+				d.setQuotaSummary(acc.Email, sum)
+			}
+		}
 
-					sum, _ := quota.PollAndCacheAccount(acc, d.Keyring)
-					if sum != nil {
-						d.setQuotaSummary(acc.Email, sum)
-					}
+		// Add random time gap between polled standby accounts (5 to jitterSec seconds)
+		gap := 5
+		if jitterSec > 5 && r != nil {
+			gap = 5 + r.Intn(jitterSec-5)
+		}
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-time.After(time.Duration(gap) * time.Second):
+		}
+	}
+}
 
-					// Add random time gap between standby accounts (5 to jitterSec seconds)
-					gap := 5
-					if jitterSec > 5 {
-						gap = 5 + r.Intn(jitterSec-5)
-					}
-					select {
-					case <-d.ctx.Done():
-						return
-					case <-time.After(time.Duration(gap) * time.Second):
+// checkPostResetIgnitions checks standby accounts in cooldown whose post-reset verification delay has elapsed,
+// verifies that their quota has reset, and triggers the 1-token ignition probe.
+func (d *Daemon) checkPostResetIgnitions() {
+	accounts := d.Keyring.ListAccounts()
+	active := d.Keyring.ActiveAccount()
+
+	d.mu.RLock()
+	warmupEnabled := d.Config.WarmupEnabled
+	postResetDelaySec := d.Config.GetPostResetDelaySec()
+	thresh := d.Config.AutoSwitchThreshold
+	d.mu.RUnlock()
+
+	scheduler := &quota.WarmupScheduler{
+		PostResetDelay: time.Duration(postResetDelaySec * float64(time.Second)),
+	}
+
+	now := time.Now()
+	for _, acc := range accounts {
+		if acc.Email == active || acc.Status == "BANNED" {
+			continue
+		}
+		cached := d.getQuotaSummary(acc.Email)
+		if cached == nil || !cached.IsCooldown(thresh) {
+			continue
+		}
+		resetTime := cached.GetResetTime()
+		if resetTime.IsZero() {
+			continue
+		}
+
+		// When now >= resetTime + postResetDelay, verify quota reset and ignite
+		if scheduler.ShouldTriggerPostResetIgnition(resetTime, now) {
+			freshSum, _ := quota.PollAndCacheAccount(acc, d.Keyring)
+			if freshSum != nil {
+				d.setQuotaSummary(acc.Email, freshSum)
+				if !freshSum.IsCooldown(thresh) && freshSum.OverallHealth != core.StatusExhausted {
+					if warmupEnabled {
+						_ = quota.IgniteAccountPostReset(acc, d.Keyring)
 					}
 				}
 			}

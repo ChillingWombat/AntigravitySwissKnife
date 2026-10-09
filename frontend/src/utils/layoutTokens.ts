@@ -24,6 +24,8 @@ export const WORKSPACE_ASPECT_RATIO = 1016 / 612 // 1.6601307189542483
 export const WORKSPACE_PADDING_X = 24 // 6 * 4
 export const WORKSPACE_CONTENT_MIN_WIDTH = 968 // WORKSPACE_MIN_WIDTH - (WORKSPACE_PADDING_X * 2) = 1016 - 48 = 968
 export const TABLE_MIN_WIDTH = 880 // 220 * 4 (Fits cleanly inside WORKSPACE_CONTENT_MIN_WIDTH 968px)
+export const MODEL_CARD_MIN_WIDTH = 420 // 105 * 4 (Ensures 2 model cards per row at minimal window size)
+export const MODEL_CARD_GRID_GAP = 16 // 4 * 4
 
 // Component & Gadget Sizing Tokens (Multiples of 4)
 export const COMPONENT_TOKENS = {

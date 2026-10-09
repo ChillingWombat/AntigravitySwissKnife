@@ -2,7 +2,6 @@ package system
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -158,29 +157,6 @@ func GetStorageInfo(cfg *core.Config) *StorageInfo {
 	execType, execDetail := DetectAppExecutionType()
 
 	sysPaths := GetStoragePaths(core.GetConfigDir(), false)
-	portablePaths := GetStoragePaths(ResolvePortableDataDir(), true)
-
-	mode := cfg.StorageMode
-	if mode != "app_portable" {
-		mode = "system_default"
-	}
-
-	curPaths := sysPaths
-	if mode == "app_portable" {
-		curPaths = portablePaths
-	}
-
-	// Check if source config or accounts file exists for migration
-	canMigrate := false
-	if mode == "system_default" {
-		if pathExists(sysPaths.CredentialsPath) || pathExists(filepath.Join(sysPaths.ConfigDir, "config.json")) {
-			canMigrate = true
-		}
-	} else {
-		if pathExists(portablePaths.CredentialsPath) || pathExists(filepath.Join(portablePaths.ConfigDir, "config.json")) {
-			canMigrate = true
-		}
-	}
 
 	// Assemble 3 application zones: Desktop, agy CLI, and VS Code Extension
 	detector := NewDetector()
@@ -253,13 +229,13 @@ func GetStorageInfo(cfg *core.Config) *StorageInfo {
 	}
 
 	return &StorageInfo{
-		StorageMode:        mode,
-		CurrentPaths:       curPaths,
+		StorageMode:        "system_default",
+		CurrentPaths:       sysPaths,
 		SystemDefaultPaths: sysPaths,
-		AppPortablePaths:   portablePaths,
+		AppPortablePaths:   sysPaths,
 		AppExecutionType:   execType,
 		AppExecutionDetail: execDetail,
-		CanMigrate:         canMigrate,
+		CanMigrate:         false,
 		AppZones: AppZonesInfo{
 			Desktop: desktopZone,
 			Agy:     agyZone,
@@ -362,73 +338,18 @@ func formatBytes(b int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
-// SwitchStorageMode updates storage mode and optionally migrates existing credentials and configuration.
+// SwitchStorageMode validates storage mode and locks persistence to system_default.
+// Portable storage mode (app_portable) has been removed and is rejected.
 func SwitchStorageMode(newMode string, migrateData bool, cfg *core.Config) (*StorageInfo, error) {
-	if newMode != "system_default" && newMode != "app_portable" {
-		return nil, fmt.Errorf("invalid storage mode %q: must be 'system_default' or 'app_portable'", newMode)
-	}
-
-	info := GetStorageInfo(cfg)
-	var srcDir, dstDir string
-
 	if newMode == "app_portable" {
-		srcDir = info.SystemDefaultPaths.ConfigDir
-		dstDir = info.AppPortablePaths.ConfigDir
-	} else {
-		srcDir = info.AppPortablePaths.ConfigDir
-		dstDir = info.SystemDefaultPaths.ConfigDir
+		return nil, fmt.Errorf("portable storage mode is deprecated and removed; storage is permanently locked to system_default")
+	}
+	if newMode != "system_default" {
+		return nil, fmt.Errorf("invalid storage mode %q: must be 'system_default'", newMode)
 	}
 
-	// Ensure destination directory exists
-	if err := os.MkdirAll(dstDir, 0700); err != nil {
-		return nil, fmt.Errorf("failed to create destination storage directory: %w", err)
-	}
-
-	if newMode == "app_portable" {
-		// Ensure portable temp directory exists
-		_ = os.MkdirAll(info.AppPortablePaths.TempDir, 0700)
-	}
-
-	if migrateData && srcDir != "" && dstDir != "" && srcDir != dstDir {
-		filesToCopy := []string{"accounts.json", "config.json", "rules.json", "gui_config.json"}
-		for _, file := range filesToCopy {
-			srcFile := filepath.Join(srcDir, file)
-			if pathExists(srcFile) {
-				dstFile := filepath.Join(dstDir, file)
-				if err := copyFile(srcFile, dstFile); err != nil {
-					return nil, fmt.Errorf("failed migrating %s: %w", file, err)
-				}
-			}
-		}
-	}
-
-	// Update and persist config with new storage mode
-	cfg.StorageMode = newMode
+	cfg.StorageMode = "system_default"
 	_ = cfg.Save()
 
 	return GetStorageInfo(cfg), nil
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	// Ensure parent directory
-	if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
-		return err
-	}
-
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	if _, err = io.Copy(out, in); err != nil {
-		return err
-	}
-	return out.Sync()
 }

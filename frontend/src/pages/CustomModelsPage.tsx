@@ -13,15 +13,19 @@ import {
   EyeOff,
   Zap,
   Loader2,
-  Info,
   Shield,
   ShieldCheck,
+  ShieldAlert,
+  ChevronDown,
+  ChevronRight,
+  Coins,
 } from 'lucide-react'
 import type {
   CustomModel,
   CustomModelsConfig,
   ModelInfo,
   ProviderType,
+  QuotaType,
   TestResult,
   SecurityAuditReport,
 } from '../types'
@@ -39,7 +43,11 @@ import {
   extractContextWindow,
   detectThinkingLevels,
 } from '../utils/modelExtraction'
-import { getTestConnectionButtonPresentation } from '../utils/testConnectionButton'
+import {
+  getTestConnectionButtonPresentation,
+  sanitizeConnectionErrorMessage,
+} from '../utils/testConnectionButton'
+import { MODEL_CARD_MIN_WIDTH, MODEL_CARD_GRID_GAP } from '../utils/layoutTokens'
 import { api } from '../api'
 
 const inferProviderType = (url: string): ProviderType => {
@@ -61,8 +69,9 @@ export const CustomModelsPage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true)
   const [feedback, setFeedback] = useState<string | null>(null)
 
-  // Card quick test states
+  // Card quick test & audit states
   const [testingModelId, setTestingModelId] = useState<string | null>(null)
+  const [auditingModelId, setAuditingModelId] = useState<string | null>(null)
   const [cardTestResults, setCardTestResults] = useState<Record<string, TestResult>>({})
 
   // Modal State
@@ -87,6 +96,21 @@ export const CustomModelsPage: React.FC = () => {
   // Reasoning / Thinking Configuration
   const [thinkingLevels, setThinkingLevels] = useState<string[]>(['low', 'medium', 'high'])
   const [thinkingLevel, setThinkingLevel] = useState<string>('high')
+
+  // Foldable Quota & Price Section States
+  const [isQuotaPriceOpen, setIsQuotaPriceOpen] = useState<boolean>(true)
+  const [quotaType, setQuotaType] = useState<QuotaType>('na')
+  const [quotaManualOverride, setQuotaManualOverride] = useState<boolean>(false)
+  const [balanceValue, setBalanceValue] = useState<string>('')
+  const [quotaValue, setQuotaValue] = useState<string>('')
+  const [quotaFraction, setQuotaFraction] = useState<number | null>(null)
+  const [inputPricePerM, setInputPricePerM] = useState<number | null>(null)
+  const [cachedInputPricePerM, setCachedInputPricePerM] = useState<number | null>(null)
+  const [outputPricePerM, setOutputPricePerM] = useState<number | null>(null)
+  const [priceSource, setPriceSource] = useState<string>('unconfigured')
+  const [isFetchingQuotaPrice, setIsFetchingQuotaPrice] = useState<boolean>(false)
+  const [budgetCapType, setBudgetCapType] = useState<'none' | 'dollar' | 'percentage' | 'tokens'>('none')
+  const [budgetCapValue, setBudgetCapValue] = useState<number | null>(null)
 
   // Model Fetching States
   const [fetchingModels, setFetchingModels] = useState<boolean>(false)
@@ -168,6 +192,18 @@ export const CustomModelsPage: React.FC = () => {
     setNotes('')
     setThinkingLevels(['low', 'medium', 'high'])
     setThinkingLevel('high')
+    setIsQuotaPriceOpen(true)
+    setQuotaType('na')
+    setQuotaManualOverride(false)
+    setBalanceValue('')
+    setQuotaValue('')
+    setQuotaFraction(null)
+    setInputPricePerM(null)
+    setCachedInputPricePerM(null)
+    setOutputPricePerM(null)
+    setPriceSource('unconfigured')
+    setBudgetCapType('none')
+    setBudgetCapValue(null)
     setFetchedModels([])
     setFetchFeedback(null)
     setShowModelDropdown(false)
@@ -195,6 +231,18 @@ export const CustomModelsPage: React.FC = () => {
     const rawLevels = (model.thinking_levels || ['low', 'medium', 'high']).filter((l) => l.toLowerCase() !== 'off')
     setThinkingLevels(rawLevels.length > 0 ? rawLevels : ['low', 'medium', 'high'])
     setThinkingLevel(isThinking ? (model.thinking_level || 'high') : '')
+    setIsQuotaPriceOpen(true)
+    setQuotaType(model.quota_type || 'na')
+    setQuotaManualOverride(!!model.quota_manual_override)
+    setBalanceValue(model.balance_value || '')
+    setQuotaValue(model.quota_value || '')
+    setQuotaFraction(model.quota_fraction ?? null)
+    setInputPricePerM(model.input_price_per_m !== undefined ? model.input_price_per_m : null)
+    setCachedInputPricePerM(model.cached_input_price_per_m !== undefined ? model.cached_input_price_per_m : null)
+    setOutputPricePerM(model.output_price_per_m !== undefined ? model.output_price_per_m : null)
+    setPriceSource(model.price_source || 'unconfigured')
+    setBudgetCapType(model.budget_cap_type || 'none')
+    setBudgetCapValue(model.budget_cap_value !== undefined ? model.budget_cap_value : null)
     setFetchedModels([])
     setFetchFeedback(null)
     setShowModelDropdown(false)
@@ -205,7 +253,7 @@ export const CustomModelsPage: React.FC = () => {
       setModalAuditResult({
         risk_level: model.security_risk_level,
         risk_score: model.security_audit_score ?? (model.security_risk_level === 'low' ? 5 : model.security_risk_level === 'medium' ? 30 : 65),
-        model_id: model.id,
+        model_id: model.name?.trim() || model.id,
         endpoint: model.base_url,
         provider_type: model.provider_type,
         audited_at: model.last_security_audit || new Date().toISOString(),
@@ -325,6 +373,22 @@ export const CustomModelsPage: React.FC = () => {
     try {
       const res = await api.testCustomModel(draftModel)
       setModalTestResult(res)
+      if (res.quota_result) {
+        if (!quotaManualOverride) {
+          if (res.quota_result.quota_type) setQuotaType(res.quota_result.quota_type)
+          if (res.quota_result.balance_value) setBalanceValue(res.quota_result.balance_value)
+          if (res.quota_result.quota_value) setQuotaValue(res.quota_result.quota_value)
+          if (res.quota_result.fraction !== null && res.quota_result.fraction !== undefined) {
+            setQuotaFraction(res.quota_result.fraction)
+          }
+        }
+        if (res.quota_result.input_price_per_m !== undefined) {
+          setInputPricePerM(res.quota_result.input_price_per_m)
+          setCachedInputPricePerM(res.quota_result.cached_input_price_per_m ?? null)
+          setOutputPricePerM(res.quota_result.output_price_per_m ?? null)
+          setPriceSource(res.quota_result.price_source || (res.quota_result.input_price_per_m !== null ? 'provider' : 'unconfigured'))
+        }
+      }
     } catch (err: any) {
       const message = err.message || 'Request failed'
       setModalTestResult({
@@ -334,9 +398,57 @@ export const CustomModelsPage: React.FC = () => {
         message,
         endpoint: draftModel.base_url,
       })
-      setModalError(`Test request failed: ${message}`)
+      setModalError(`Test request failed: ${sanitizeConnectionErrorMessage(message)}`)
     } finally {
       setModalTesting(false)
+    }
+  }
+
+  const handleAutoFetchQuotaPrice = async () => {
+    if (!baseUrl.trim() && !modelName.trim()) {
+      setModalError('Please enter an Endpoint URL or Model Identifier before fetching quota & price.')
+      return
+    }
+    setIsFetchingQuotaPrice(true)
+    setModalError(null)
+    const effectiveProvider = providerType || (baseUrl.trim() ? inferProviderType(baseUrl.trim()) : 'custom')
+    const draftModel: CustomModel = {
+      id: editingModel?.id || 'draft-quota',
+      name: modelName.trim() || 'custom-model',
+      display_name: displayName.trim() || modelName.trim() || 'Custom Model',
+      provider_type: effectiveProvider,
+      base_url: baseUrl.trim(),
+      api_key: apiKey.trim(),
+      project_mappings: ['*'],
+      quota_type: quotaType,
+      prepaid_balance: 0,
+      total_budget: 0,
+      quota_fraction: null,
+      is_default: isDefault,
+      enabled: enabled,
+    }
+    try {
+      const res = await api.fetchCustomModelQuota(draftModel)
+      if (res) {
+        if (!quotaManualOverride) {
+          if (res.quota_type) setQuotaType(res.quota_type)
+          if (res.balance_value) setBalanceValue(res.balance_value)
+          if (res.quota_value) setQuotaValue(res.quota_value)
+          if (res.fraction !== null && res.fraction !== undefined) {
+            setQuotaFraction(res.fraction)
+          }
+        }
+        if (res.input_price_per_m !== undefined) {
+          setInputPricePerM(res.input_price_per_m)
+          setCachedInputPricePerM(res.cached_input_price_per_m ?? null)
+          setOutputPricePerM(res.output_price_per_m ?? null)
+          setPriceSource(res.price_source || (res.input_price_per_m !== null ? 'provider' : 'unconfigured'))
+        }
+      }
+    } catch (err: any) {
+      setModalError(`Failed to auto-fetch quota & price: ${err.message || 'Network error'}`)
+    } finally {
+      setIsFetchingQuotaPrice(false)
     }
   }
 
@@ -348,6 +460,12 @@ export const CustomModelsPage: React.FC = () => {
     if (!baseUrl.trim()) {
       setModalError('Endpoint URL is required.')
       return
+    }
+    if (budgetCapType !== 'none') {
+      if (budgetCapValue === null || budgetCapValue === undefined || isNaN(budgetCapValue) || budgetCapValue <= 0) {
+        setModalError('Please enter a positive value for the budget/usage cap.')
+        return
+      }
     }
 
     setModalSaving(true)
@@ -375,18 +493,26 @@ export const CustomModelsPage: React.FC = () => {
       id:
         editingModel?.id ||
         `${effectiveProvider}-${modelName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`,
+      internal_id: editingModel?.internal_id,
       name: modelName.trim(),
       display_name: displayName.trim() || modelName.trim(),
       provider_type: effectiveProvider,
       base_url: baseUrl.trim(),
       api_key: apiKey.trim(),
       project_mappings: mappings.length > 0 ? mappings : ['*'],
-      quota_type: editingModel?.quota_type || 'na',
-      balance_value: editingModel?.balance_value,
-      quota_value: editingModel?.quota_value,
+      quota_type: quotaType,
+      quota_manual_override: quotaManualOverride,
+      balance_value: balanceValue.trim() || undefined,
+      quota_value: quotaValue.trim() || undefined,
       prepaid_balance: editingModel?.prepaid_balance || 0,
       total_budget: editingModel?.total_budget || 0,
-      quota_fraction: editingModel?.quota_fraction ?? null,
+      quota_fraction: quotaFraction,
+      budget_cap_type: budgetCapType,
+      budget_cap_value: budgetCapValue,
+      input_price_per_m: inputPricePerM,
+      cached_input_price_per_m: cachedInputPricePerM,
+      output_price_per_m: outputPricePerM,
+      price_source: priceSource,
       is_default: isDefault,
       enabled: enabled,
       context_window: Number(contextWindow) || 1048576,
@@ -493,6 +619,33 @@ export const CustomModelsPage: React.FC = () => {
       }))
     } finally {
       setTestingModelId(null)
+    }
+  }
+
+  const handleCardAudit = async (model: CustomModel) => {
+    setAuditingModelId(model.id)
+    try {
+      const rep = await auditModelSecurity(model)
+      setConfig((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          models: prev.models.map((item) =>
+            item.id === model.id
+              ? {
+                  ...item,
+                  security_risk_level: rep.risk_level,
+                  security_audit_score: rep.risk_score,
+                  last_security_audit: rep.audited_at,
+                }
+              : item
+          ),
+        }
+      })
+      setActiveReportForView(rep)
+      setIsReportModalOpen(true)
+    } finally {
+      setAuditingModelId(null)
     }
   }
 
@@ -655,10 +808,17 @@ export const CustomModelsPage: React.FC = () => {
           </button>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: `repeat(auto-fill, minmax(${MODEL_CARD_MIN_WIDTH}px, 1fr))`,
+            gap: `${MODEL_CARD_GRID_GAP}px`,
+          }}
+        >
           {filteredModels.map((m) => {
             const testResult = cardTestResults[m.id]
             const isTesting = testingModelId === m.id
+            const isAuditing = auditingModelId === m.id
 
             // Quota Gauge calculation
             let gaugePct: number | null = null
@@ -769,6 +929,72 @@ export const CustomModelsPage: React.FC = () => {
                         ))}
                       </div>
 
+                      {/* Budget Cap & Token Price Badges */}
+                      {((m.budget_cap_type && m.budget_cap_type !== 'none' && m.budget_cap_value !== null && m.budget_cap_value !== undefined) || (m.input_price_per_m !== undefined)) && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
+                          {m.budget_cap_type && m.budget_cap_type !== 'none' && m.budget_cap_value !== null && m.budget_cap_value !== undefined && (
+                            <span
+                              style={{
+                                backgroundColor: '#fef3c7',
+                                color: '#b45309',
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              <span>
+                                Cap:{' '}
+                                {m.budget_cap_type === 'dollar'
+                                  ? `$${m.budget_cap_value}`
+                                  : m.budget_cap_type === 'percentage'
+                                  ? `${m.budget_cap_value}%`
+                                  : `${
+                                      m.budget_cap_value >= 1_000_000
+                                        ? `${(m.budget_cap_value / 1_000_000).toFixed(m.budget_cap_value % 1_000_000 === 0 ? 0 : 1)}M`
+                                        : m.budget_cap_value >= 1_000
+                                        ? `${(m.budget_cap_value / 1_000).toFixed(m.budget_cap_value % 1_000 === 0 ? 0 : 1)}k`
+                                        : m.budget_cap_value
+                                    } tokens`}
+                              </span>
+                            </span>
+                          )}
+                          {m.input_price_per_m !== null && m.input_price_per_m !== undefined ? (
+                            <span
+                              style={{
+                                backgroundColor: '#f1f3f4',
+                                color: 'var(--text-muted)',
+                                fontSize: '10px',
+                                fontWeight: 500,
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              ${m.input_price_per_m.toFixed(2)} / ${(m.output_price_per_m ?? 0).toFixed(2)} per 1M
+                            </span>
+                          ) : m.price_source === 'unconfigured' || m.input_price_per_m === null ? (
+                            <span
+                              style={{
+                                backgroundColor: '#fef3c7',
+                                color: '#b45309',
+                                fontSize: '10px',
+                                fontWeight: 500,
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              Price null
+                            </span>
+                          ) : null}
+                        </div>
+                      )}
+
                       {m.notes && (
                         <div
                           style={{
@@ -817,8 +1043,8 @@ export const CustomModelsPage: React.FC = () => {
                       {testResult.success ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
                       <span>
                         {testResult.success
-                          ? `Connection verified: ${testResult.status_code} OK (${testResult.latency_ms}ms)`
-                          : `Test failed: ${testResult.message}`}
+                          ? `Connection verified: OK (${testResult.latency_ms}ms)`
+                          : `Test failed: ${sanitizeConnectionErrorMessage(testResult.message)}`}
                       </span>
                     </div>
                   )}
@@ -833,33 +1059,38 @@ export const CustomModelsPage: React.FC = () => {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: '8px',
+                    flexWrap: 'nowrap',
+                    gap: '16px',
+                    width: '100%',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'nowrap', flexShrink: 0 }}>
                     <button
                       onClick={() => handleCardTest(m)}
                       disabled={isTesting}
                       className="btn-pill-tonal"
-                      style={{ padding: '5px 12px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                      style={{
+                        padding: '5px 12px',
+                        fontSize: '11px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        whiteSpace: 'nowrap',
+                      }}
                     >
                       {isTesting ? <Loader2 size={12} className="spin" /> : <Zap size={12} />}
-                      {isTesting ? 'Testing...' : 'Test Connection'}
+                      <span>{isTesting ? 'Testing...' : 'Test Connection'}</span>
                     </button>
 
                     {m.security_risk_level ? (
                       <button
-                        onClick={async () => {
-                          const rep = await auditModelSecurity(m)
-                          setActiveReportForView(rep)
-                          setIsReportModalOpen(true)
-                        }}
+                        onClick={() => handleCardAudit(m)}
+                        disabled={isAuditing}
                         style={{
-                          padding: '3px 8px',
-                          borderRadius: '12px',
-                          fontSize: '10px',
-                          fontWeight: 700,
+                          padding: '5px 12px',
+                          borderRadius: '20px',
+                          fontSize: '11px',
+                          fontWeight: 600,
                           backgroundColor:
                             m.security_risk_level === 'low'
                               ? '#e6f4ea'
@@ -879,43 +1110,62 @@ export const CustomModelsPage: React.FC = () => {
                               ? '#feefc3'
                               : '#fad2cf'
                           }`,
-                          cursor: 'pointer',
+                          cursor: isAuditing ? 'default' : 'pointer',
                           display: 'inline-flex',
                           alignItems: 'center',
-                          gap: '4px',
+                          gap: '5px',
+                          whiteSpace: 'nowrap',
                         }}
                         title="Click to view Security Audit Report"
                       >
-                        <ShieldCheck size={11} />
-                        <span>{m.security_risk_level.toUpperCase()} RISK</span>
+                        {isAuditing ? (
+                          <Loader2 size={12} className="spin" />
+                        ) : m.security_risk_level === 'low' ? (
+                          <ShieldCheck size={12} />
+                        ) : (
+                          <ShieldAlert size={12} />
+                        )}
+                        <span>{isAuditing ? 'Auditing...' : `${m.security_risk_level.toUpperCase()} RISK`}</span>
                       </button>
                     ) : (
                       <button
-                        onClick={async () => {
-                          const rep = await auditModelSecurity(m)
-                          setActiveReportForView(rep)
-                          setIsReportModalOpen(true)
-                        }}
+                        onClick={() => handleCardAudit(m)}
+                        disabled={isAuditing}
                         className="btn-pill-tonal"
-                        style={{ padding: '4px 8px', fontSize: '10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                        style={{
+                          padding: '5px 12px',
+                          fontSize: '11px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          whiteSpace: 'nowrap',
+                        }}
                         title="Run security audit on this relay endpoint"
                       >
-                        <Shield size={11} />
-                        <span>Audit API</span>
+                        {isAuditing ? <Loader2 size={12} className="spin" /> : <Shield size={12} />}
+                        <span>{isAuditing ? 'Auditing...' : 'Audit API'}</span>
                       </button>
                     )}
                     {/* Edit button moved to right of Audit API button */}
                     <button
                       onClick={() => openEditModal(m)}
                       className="btn-pill-tonal"
-                      style={{ padding: '5px 12px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                      style={{
+                        padding: '5px 12px',
+                        fontSize: '11px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        whiteSpace: 'nowrap',
+                      }}
                     >
-                      <Edit2 size={12} /> Edit
+                      <Edit2 size={12} />
+                      <span>Edit</span>
                     </button>
                   </div>
 
-                  {/* Toggle button at bottom right */}
-                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                  {/* Toggle button at right end */}
+                  <div style={{ display: 'flex', alignItems: 'center', marginLeft: 'auto', flexShrink: 0 }}>
                     <ToggleSwitch
                       size="sm"
                       checked={m.enabled}
@@ -1354,33 +1604,399 @@ export const CustomModelsPage: React.FC = () => {
                 />
               </div>
 
-              {/* Configuration Notes Section */}
+              {/* Foldable Quota & Price Section */}
               <div
                 style={{
-                  backgroundColor: 'var(--canvas)',
                   border: '1px solid var(--border)',
                   borderRadius: '8px',
-                  padding: '12px 16px',
-                  fontSize: '11px',
-                  color: 'var(--text-muted)',
-                  lineHeight: 1.5,
+                  backgroundColor: '#ffffff',
+                  overflow: 'hidden',
+                  marginTop: '4px',
                 }}
               >
-                <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Info size={13} style={{ color: 'var(--primary)' }} />
-                  <span>Configuration Notes & Balance Tracking</span>
+                {/* Foldable Header */}
+                <div
+                  onClick={() => setIsQuotaPriceOpen(!isQuotaPriceOpen)}
+                  style={{
+                    padding: '10px 14px',
+                    backgroundColor: 'var(--canvas)',
+                    borderBottom: isQuotaPriceOpen ? '1px solid var(--border)' : 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                    gap: '10px',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {isQuotaPriceOpen ? <ChevronDown size={15} color="var(--text-muted)" /> : <ChevronRight size={15} color="var(--text-muted)" />}
+                    <Coins size={15} color="var(--primary)" />
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
+                      Quota & Price
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '10px',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: quotaType === 'balance' ? '#e6f4ea' : quotaType === 'quota' ? '#e8f0fe' : '#f1f3f4',
+                        color: quotaType === 'balance' ? '#137333' : quotaType === 'quota' ? 'var(--primary)' : 'var(--text-muted)',
+                        fontWeight: 600,
+                        textTransform: 'capitalize',
+                      }}
+                    >
+                      {quotaType === 'balance' ? 'Balance' : quotaType === 'quota' ? 'Quota' : 'Untracked'}
+                    </span>
+                    {budgetCapType !== 'none' && budgetCapValue !== null && (
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: '#fef3c7',
+                          color: '#b45309',
+                          fontWeight: 600,
+                        }}
+                      >
+                        Cap: {budgetCapType === 'dollar' ? `$${budgetCapValue}` : budgetCapType === 'percentage' ? `${budgetCapValue}%` : `${budgetCapValue} tok`}
+                      </span>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleAutoFetchQuotaPrice()
+                    }}
+                    disabled={isFetchingQuotaPrice}
+                    className="btn-pill-tonal"
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      backgroundColor: '#ffffff',
+                      border: '1px solid var(--border)',
+                      cursor: isFetchingQuotaPrice ? 'not-allowed' : 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <RefreshCw size={12} className={isFetchingQuotaPrice ? 'spin' : ''} />
+                    <span>{isFetchingQuotaPrice ? 'Fetching...' : 'Auto-Fetch Quota & Price'}</span>
+                  </button>
                 </div>
-                <ul style={{ margin: 0, paddingLeft: '16px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                  <li>
-                    <strong>Auto-Derived Balance & Quota:</strong> Available balance or rate-limit quotas are automatically queried via API from recognized providers (e.g. OpenRouter, DeepSeek, SiliconFlow, Moonshot/Kimi, Together AI, OneAPI/NewAPI) upon save and testing.
-                  </li>
-                  <li>
-                    <strong>Untracked (N/A):</strong> If the entered Base URL is not in our recognized dictionary or the provider endpoint returns no quota value, tracking defaults to <em>N/A</em> and displays as <em>Untracked</em>.
-                  </li>
-                  <li>
-                    <strong>Manual Activation:</strong> Save the model first. Then toggle the active switch on the model's card in the main list to enable it for Antigravity tasks.
-                  </li>
-                </ul>
+
+                {/* Foldable Content Body */}
+                {isQuotaPriceOpen && (
+                  <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {/* A. Fee Charging Mode */}
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                          Fee Charging Mode:
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: 'pointer', color: 'var(--text)' }}>
+                          <span>Manual Override</span>
+                          <ToggleSwitch
+                            size="sm"
+                            checked={quotaManualOverride}
+                            onChange={(checked) => setQuotaManualOverride(checked)}
+                          />
+                        </label>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
+                        {[
+                          { id: 'balance' as QuotaType, label: 'Balance Mode' },
+                          { id: 'quota' as QuotaType, label: 'Quota Mode' },
+                          { id: 'na' as QuotaType, label: 'Untracked / N/A' },
+                        ].map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => setQuotaType(m.id)}
+                            style={{
+                              flex: 1,
+                              padding: '6px 8px',
+                              borderRadius: '6px',
+                              fontSize: '11.5px',
+                              fontWeight: quotaType === m.id ? 600 : 500,
+                              color: quotaType === m.id ? 'var(--primary)' : 'var(--text-muted)',
+                              backgroundColor: quotaType === m.id ? '#e8f0fe' : '#ffffff',
+                              border: quotaType === m.id ? '1px solid var(--primary)' : '1px solid var(--border)',
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {m.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {quotaType === 'balance' && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', backgroundColor: 'var(--canvas)', padding: '10px', borderRadius: '6px' }}>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '3px' }}>
+                              Current Balance:
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="e.g. $12.50 or ¥50.00"
+                              value={balanceValue}
+                              onChange={(e) => setBalanceValue(e.target.value)}
+                              style={{ width: '100%', fontSize: '12px', padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '3px' }}>
+                              Remaining Fraction (0-100%):
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              placeholder="e.g. 75"
+                              value={quotaFraction !== null && quotaFraction !== undefined ? Math.round(quotaFraction * 100) : ''}
+                              onChange={(e) => {
+                                const v = e.target.value.trim()
+                                setQuotaFraction(v === '' ? null : Math.max(0, Math.min(100, Number(v))) / 100)
+                              }}
+                              style={{ width: '100%', fontSize: '12px', padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {quotaType === 'quota' && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', backgroundColor: 'var(--canvas)', padding: '10px', borderRadius: '6px' }}>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '3px' }}>
+                              Quota Level / Tier:
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Tier 1 (500 RPM)"
+                              value={quotaValue}
+                              onChange={(e) => setQuotaValue(e.target.value)}
+                              style={{ width: '100%', fontSize: '12px', padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '3px' }}>
+                              Remaining Fraction (0-100%):
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              placeholder="e.g. 80"
+                              value={quotaFraction !== null && quotaFraction !== undefined ? Math.round(quotaFraction * 100) : ''}
+                              onChange={(e) => {
+                                const v = e.target.value.trim()
+                                setQuotaFraction(v === '' ? null : Math.max(0, Math.min(100, Number(v))) / 100)
+                              }}
+                              style={{ width: '100%', fontSize: '12px', padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {quotaType === 'na' && (
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', padding: '6px 8px', backgroundColor: 'var(--canvas)', borderRadius: '6px' }}>
+                          Untracked: No automated quota or prepaid balance queries will be executed for this model.
+                        </div>
+                      )}
+                    </div>
+
+                    {/* B. Token Pricing (Shared with Token Monitor) */}
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                          Token Pricing ($/1M Tokens)
+                        </label>
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            padding: '2px 8px',
+                            borderRadius: '10px',
+                            backgroundColor:
+                              priceSource === 'provider'
+                                ? '#e6f4ea'
+                                : priceSource === 'third_party' || priceSource === 'api'
+                                ? '#e8f0fe'
+                                : priceSource === 'manual'
+                                ? '#f3e8ff'
+                                : '#fef3c7',
+                            color:
+                              priceSource === 'provider'
+                                ? '#137333'
+                                : priceSource === 'third_party' || priceSource === 'api'
+                                ? 'var(--primary)'
+                                : priceSource === 'manual'
+                                ? '#7e22ce'
+                                : '#b45309',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {priceSource === 'provider'
+                            ? 'Provider Official'
+                            : priceSource === 'third_party' || priceSource === 'api'
+                            ? '3rd-Party Backup'
+                            : priceSource === 'manual'
+                            ? 'Manual Override'
+                            : 'Null — Manual Entry Required'}
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '3px' }}>
+                            Prompt Input ($/1M):
+                          </label>
+                          <input
+                            type="number"
+                            step="0.001"
+                            placeholder="null"
+                            value={inputPricePerM === null || inputPricePerM === undefined ? '' : inputPricePerM}
+                            onChange={(e) => {
+                              const raw = e.target.value.trim()
+                              const v = raw === '' ? null : parseFloat(raw)
+                              setInputPricePerM(v !== null && !Number.isNaN(v) ? v : null)
+                              setPriceSource('manual')
+                            }}
+                            style={{ width: '100%', fontSize: '12px', padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '3px' }}>
+                            Cached Input ($/1M):
+                          </label>
+                          <input
+                            type="number"
+                            step="0.0001"
+                            placeholder="null"
+                            value={cachedInputPricePerM === null || cachedInputPricePerM === undefined ? '' : cachedInputPricePerM}
+                            onChange={(e) => {
+                              const raw = e.target.value.trim()
+                              const v = raw === '' ? null : parseFloat(raw)
+                              setCachedInputPricePerM(v !== null && !Number.isNaN(v) ? v : null)
+                              setPriceSource('manual')
+                            }}
+                            style={{ width: '100%', fontSize: '12px', padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '3px' }}>
+                            Output ($/1M):
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            placeholder="null"
+                            value={outputPricePerM === null || outputPricePerM === undefined ? '' : outputPricePerM}
+                            onChange={(e) => {
+                              const raw = e.target.value.trim()
+                              const v = raw === '' ? null : parseFloat(raw)
+                              setOutputPricePerM(v !== null && !Number.isNaN(v) ? v : null)
+                              setPriceSource('manual')
+                            }}
+                            style={{ width: '100%', fontSize: '12px', padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* C. Model Budget / Usage Cap */}
+                    <div>
+                      <div style={{ marginBottom: '8px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                          Model Budget / Usage Cap:
+                        </label>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                          Set a consumption cap for this model. Options adapt to the selected fee mode and price configuration.
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', flexWrap: 'wrap' }}>
+                        {[
+                          { id: 'none' as const, label: 'No Cap', available: true },
+                          {
+                            id: 'dollar' as const,
+                            label: 'Dollar Spend Cap ($)',
+                            available: quotaType === 'balance' || inputPricePerM !== null || outputPricePerM !== null,
+                          },
+                          {
+                            id: 'percentage' as const,
+                            label: 'Usage Cap (%)',
+                            available: quotaType === 'quota' || quotaType === 'balance',
+                          },
+                          { id: 'tokens' as const, label: 'Token Count Cap', available: true },
+                        ].map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            disabled={!c.available}
+                            onClick={() => {
+                              setBudgetCapType(c.id)
+                              if (c.id === 'none') setBudgetCapValue(null)
+                            }}
+                            style={{
+                              padding: '5px 10px',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: budgetCapType === c.id ? 600 : 500,
+                              color: !c.available
+                                ? 'var(--text-subtle)'
+                                : budgetCapType === c.id
+                                ? 'var(--primary)'
+                                : 'var(--text)',
+                              backgroundColor: budgetCapType === c.id ? '#e8f0fe' : '#ffffff',
+                              border: budgetCapType === c.id ? '1px solid var(--primary)' : '1px solid var(--border)',
+                              cursor: c.available ? 'pointer' : 'not-allowed',
+                              opacity: c.available ? 1 : 0.45,
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {c.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {budgetCapType !== 'none' && (
+                        <div style={{ backgroundColor: 'var(--canvas)', padding: '10px', borderRadius: '6px' }}>
+                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '3px' }}>
+                            Cap Value {budgetCapType === 'dollar' ? '($ USD)' : budgetCapType === 'percentage' ? '(%)' : '(Tokens)'}:
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            step={budgetCapType === 'dollar' ? '1' : budgetCapType === 'percentage' ? '1' : '10000'}
+                            placeholder={
+                              budgetCapType === 'dollar'
+                                ? 'e.g. 25.00'
+                                : budgetCapType === 'percentage'
+                                ? 'e.g. 85'
+                                : 'e.g. 1000000'
+                            }
+                            value={budgetCapValue !== null && budgetCapValue !== undefined ? budgetCapValue : ''}
+                            onChange={(e) => {
+                              const raw = e.target.value.trim()
+                              const v = raw === '' ? null : parseFloat(raw)
+                              setBudgetCapValue(v !== null && !Number.isNaN(v) ? v : null)
+                            }}
+                            style={{ width: '100%', fontSize: '12px', padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

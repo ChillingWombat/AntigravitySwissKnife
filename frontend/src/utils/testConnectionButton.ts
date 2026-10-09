@@ -38,6 +38,27 @@ const LOCKED_GEOMETRY = {
   height: `${TEST_BUTTON_HEIGHT_PX}px`,
 } as const
 
+export function sanitizeConnectionErrorMessage(msg?: string): string {
+  if (!msg) return 'Connection test failed'
+  const cleaned = msg
+    .replace(/\bHTTP\s+[1-5]\d\d(?:\s+[A-Za-z]+)?\b/gi, (match) => {
+      const parts = match.split(/\s+/)
+      return parts.length > 2 ? parts.slice(2).join(' ') : ''
+    })
+    .replace(/\bwith\s+status(?:\s+code)?\s+[1-5]\d\d\b/gi, '')
+    .replace(/\bstatus(?:\s+code)?\s+[1-5]\d\d\b/gi, '')
+    .replace(/\b[1-5]\d\d\s+(?:OK|Unauthorized|Forbidden|Not Found|Internal Server Error|Bad Request|Failed)\b/gi, (match) => {
+      return match.replace(/^[1-5]\d\d\s+/, '')
+    })
+    .replace(/\b[1-5]\d\d\b/g, '')
+    .replace(/\(\s*\)/g, '')
+    .replace(/\s*:\s*(?=:|$)/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+
+  return cleaned || 'Connection test failed'
+}
+
 export function getTestConnectionButtonPresentation({
   isTesting,
   testResult,
@@ -70,7 +91,7 @@ export function getTestConnectionButtonPresentation({
       testResult.status_code < 300
 
     if (isSuccess) {
-      const label = `${testResult.status_code} OK (${testResult.latency_ms}ms)`
+      const label = `OK (${testResult.latency_ms}ms)`
       const quotaSuffix = testResult.quota_result?.balance_value
         ? ` • Balance: ${testResult.quota_result.balance_value}`
         : testResult.quota_result?.quota_value
@@ -96,15 +117,13 @@ export function getTestConnectionButtonPresentation({
       }
     }
 
-    const label =
-      testResult.status_code > 0
-        ? `${testResult.status_code} Failed`
-        : 'Test Failed'
+    const label = 'Test Failed'
+    const cleanMsg = sanitizeConnectionErrorMessage(testResult.message)
 
     return {
       state: 'error',
       label,
-      tooltip: `Failed: ${testResult.message} (Click to re-test)`,
+      tooltip: `Failed: ${cleanMsg} (Click to re-test)`,
       disabled: !hasUrl,
       icon: 'alert',
       spinIcon: false,

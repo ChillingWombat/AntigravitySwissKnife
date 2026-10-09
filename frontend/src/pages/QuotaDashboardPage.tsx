@@ -14,8 +14,13 @@ import {
   Timer,
   Trash2,
   ExternalLink,
+  ChevronDown,
+  Monitor,
+  Terminal,
+  Puzzle,
+  Layers,
 } from 'lucide-react'
-import type { AccountState, FleetQuotaSummary, RuleConfig, DiscoveredAccount } from '../types'
+import type { AccountState, FleetQuotaSummary, RuleConfig, DiscoveredAccount, TargetApp } from '../types'
 import { normalizePlanTier, toAccountState } from '../types'
 import { TABLE_MIN_WIDTH } from '../utils/layoutTokens'
 import { getAccountTableDisplay, parseAccountErrorAlert } from '../utils/accountPresentation'
@@ -24,6 +29,7 @@ import { HorizontalQuotaBar } from '../components/HorizontalQuotaBar'
 import { AccountDetailModal } from '../components/AccountDetailModal'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
+import antigravityLogo from '../assets/antigravity_logo.png'
 
 import { sortAccounts, type SortMode } from '../utils/accountSorting'
 
@@ -149,12 +155,49 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const [selectedDiscoveredEmails, setSelectedDiscoveredEmails] = useState<Set<string>>(new Set())
   const [isImportingDiscovered, setIsImportingDiscovered] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isLogoHovered, setIsLogoHovered] = useState(false)
+  const [isLaunchingIDE, setIsLaunchingIDE] = useState(false)
 
   const mountedRef = useRef(true)
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
   }, [])
+
+  const handleLaunchAntigravity = async () => {
+    if (isLaunchingIDE) return
+    try {
+      setIsLaunchingIDE(true)
+      setSwitchFeedback('Launching Antigravity 2.0...')
+      const electronAPI = (window as any).electronAPI
+      let res: any
+      if (electronAPI?.launchAntigravity) {
+        res = await electronAPI.launchAntigravity()
+      } else {
+        res = await api.relaunchHostIDE()
+      }
+      if (res && res.success === false) {
+        throw new Error(res.error || res.message || 'Launch request failed')
+      }
+      setTimeout(() => {
+        if (mountedRef.current) {
+          setSwitchFeedback('Antigravity 2.0 launch command dispatched')
+        }
+      }, 1000)
+    } catch (err: any) {
+      console.warn('Could not launch Antigravity:', err)
+      if (mountedRef.current) {
+        setSwitchFeedback('Could not launch Antigravity: ' + (err.message || 'Error'))
+      }
+    } finally {
+      setTimeout(() => {
+        if (mountedRef.current) {
+          setIsLaunchingIDE(false)
+          setSwitchFeedback(null)
+        }
+      }, 3500)
+    }
+  }
 
   const handleRefreshClick = async () => {
     if (isRefreshing) return
@@ -282,6 +325,65 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const autoSwitchOn = rules?.auto_switch_enabled ?? false
   const threshold = rules?.auto_switch_threshold ?? 0.10
   const thresholdWeekly = rules?.auto_switch_weekly_threshold ?? 0.05
+
+  const [switchMenuEmail, setSwitchMenuEmail] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!switchMenuEmail) return
+    const handleOutside = () => setSwitchMenuEmail(null)
+    window.addEventListener('click', handleOutside)
+    return () => window.removeEventListener('click', handleOutside)
+  }, [switchMenuEmail])
+
+  const isIndividualMode = rules?.multi_app_sync_mode === 'individual'
+  const activeAppMap = rules?.active_app_accounts || {}
+  const installed = rules?.installed_apps || { desktop: true, agy: true, vscode: true }
+
+  interface InstalledAppItem {
+    key: 'desktop' | 'agy' | 'vscode'
+    target: TargetApp
+    label: string
+    shortLabel: string
+    icon: React.ReactNode
+  }
+
+  const installedAppsList: InstalledAppItem[] = []
+  if (installed.desktop) {
+    installedAppsList.push({
+      key: 'desktop',
+      target: 'desktop',
+      label: 'AGY 2.0',
+      shortLabel: '2.0',
+      icon: <Monitor size={12} />,
+    })
+  }
+  if (installed.agy) {
+    installedAppsList.push({
+      key: 'agy',
+      target: 'agy',
+      label: 'AGY CLI',
+      shortLabel: 'CLI',
+      icon: <Terminal size={12} />,
+    })
+  }
+  if (installed.vscode) {
+    installedAppsList.push({
+      key: 'vscode',
+      target: 'vscode',
+      label: 'AGY EXT',
+      shortLabel: 'EXT',
+      icon: <Puzzle size={12} />,
+    })
+  }
+  if (installedAppsList.length === 0) {
+    installedAppsList.push({
+      key: 'desktop',
+      target: 'desktop',
+      label: 'AGY 2.0',
+      shortLabel: '2.0',
+      icon: <Monitor size={12} />,
+    })
+  }
 
   const sortedAccounts = sortAccounts(accounts, activeAccount, threshold, sortMode, rules?.switch_mode, thresholdWeekly)
 
@@ -492,47 +594,142 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
             )}
           </div>
 
-          {/* Action Row: Scan Local Accounts & Add Account */}
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '16px', flexWrap: 'wrap' }}>
-            <button
-              onClick={handleScanLocalAccounts}
-              disabled={isScanning}
-              className="btn-pill-outlined"
-              style={{
-                width: '172px',
-                padding: '7px 16px',
-                fontSize: '12px',
-                fontWeight: 600,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                whiteSpace: 'nowrap',
-              }}
-              title="Scan machine for local Antigravity/Google accounts"
-            >
-              <Search size={14} />
-              {isScanning ? 'Scanning...' : 'Scan Local Accounts'}
-            </button>
+          {/* Action Row: Scan Local Accounts, Add Account, and Launch Antigravity Logo Button */}
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: '16px', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                onClick={handleScanLocalAccounts}
+                disabled={isScanning}
+                className="btn-pill-outlined"
+                style={{
+                  width: '172px',
+                  height: '32px',
+                  padding: '7px 16px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                  boxSizing: 'border-box',
+                }}
+                title="Scan system for local Antigravity and Google accounts."
+              >
+                <Search size={14} />
+                {isScanning ? 'Scanning...' : 'Scan Local Accounts'}
+              </button>
 
-            <button
-              onClick={handleAddNewAccount}
-              className="btn-pill-primary"
-              style={{
-                width: '172px',
-                padding: '7px 16px',
-                fontSize: '12px',
-                fontWeight: 600,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                whiteSpace: 'nowrap',
-              }}
-              title="Manually configure and add a new account"
-            >
-              <Plus size={14} /> Add Account
-            </button>
+              <button
+                onClick={handleAddNewAccount}
+                className="btn-pill-primary"
+                style={{
+                  width: '172px',
+                  height: '32px',
+                  padding: '8px 16px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                  boxSizing: 'border-box',
+                }}
+                title="Add and configure an account manually."
+              >
+                <Plus size={14} /> Add Account
+              </button>
+            </div>
+
+            {/* Antigravity 2.0 Launch Logo Button pinned at bottom-right corner */}
+            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', marginLeft: 'auto', alignSelf: 'flex-end' }}>
+              <button
+                type="button"
+                id="btnLaunchAntigravity"
+                onClick={handleLaunchAntigravity}
+                onMouseEnter={() => setIsLogoHovered(true)}
+                onMouseLeave={() => setIsLogoHovered(false)}
+                onFocus={() => setIsLogoHovered(true)}
+                onBlur={() => setIsLogoHovered(false)}
+                disabled={isLaunchingIDE}
+                title="Launch Antigravity 2.0"
+                aria-label="Launch Antigravity 2.0"
+                style={{
+                  background: 'none',
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  outline: 'none',
+                  padding: 0,
+                  margin: 0,
+                  height: '32px',
+                  width: '32px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: isLaunchingIDE ? 'wait' : 'pointer',
+                  boxShadow: 'none',
+                  transform: isLaunchingIDE ? 'scale(0.95)' : isLogoHovered ? 'scale(1.12)' : 'scale(1)',
+                  filter: isLogoHovered
+                    ? 'drop-shadow(0 2px 6px rgba(66, 133, 244, 0.38)) brightness(1.08)'
+                    : 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.06))',
+                  transition: 'transform 0.18s cubic-bezier(0.2, 0, 0, 1), filter 0.18s cubic-bezier(0.2, 0, 0, 1), opacity 0.18s ease',
+                  opacity: isLaunchingIDE ? 0.6 : 1,
+                }}
+              >
+                <img
+                  src={antigravityLogo}
+                  alt="Antigravity 2.0"
+                  style={{
+                    height: '20px',
+                    width: 'auto',
+                    aspectRatio: '200 / 184',
+                    display: 'block',
+                    objectFit: 'contain',
+                    pointerEvents: 'none',
+                    userSelect: 'none',
+                  }}
+                />
+              </button>
+
+              {/* Hover Tooltip: Launch Antigravity 2.0 */}
+              {isLogoHovered && (
+                <div
+                  role="tooltip"
+                  style={{
+                    position: 'absolute',
+                    bottom: 'calc(100% + 8px)',
+                    right: 0,
+                    backgroundColor: 'rgba(32, 33, 36, 0.95)',
+                    color: '#ffffff',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    whiteSpace: 'nowrap',
+                    pointerEvents: 'none',
+                    zIndex: 50,
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.25)',
+                    animation: 'fadeIn 0.15s ease',
+                  }}
+                >
+                  {isLaunchingIDE ? 'Launching Antigravity 2.0...' : 'Launch Antigravity 2.0'}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      right: '11px',
+                      width: 0,
+                      height: 0,
+                      borderLeft: '5px solid transparent',
+                      borderRight: '5px solid transparent',
+                      borderTop: '5px solid rgba(32, 33, 36, 0.95)',
+                    }}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -853,17 +1050,47 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   {sortMode === 'priority' && <ArrowUpDown size={11} />}
                 </div>
               </th>
-              <th style={{ width: '92px', minWidth: '92px', padding: '12px 16px', textAlign: 'center', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              <th style={{ width: '130px', minWidth: '130px', padding: '12px 16px', textAlign: 'center', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Action
               </th>
             </tr>
           </thead>
           <tbody>
             {sortedAccounts.map((acc, index) => {
-              const isActive = activeAccount ? acc.email.toLowerCase() === activeAccount.toLowerCase() : Boolean(acc.is_active)
+              const accEmailLower = acc.email.toLowerCase()
+              const usingApps = isIndividualMode
+                ? installedAppsList.filter((app) => {
+                    if (activeAppMap[app.key]) {
+                      return activeAppMap[app.key].toLowerCase() === accEmailLower
+                    }
+                    if (acc.active_apps && acc.active_apps.length > 0) {
+                      return acc.active_apps.includes(app.key)
+                    }
+                    return accEmailLower === activeAccount.toLowerCase()
+                  })
+                : []
+
+              const isRowActive = isIndividualMode
+                ? usingApps.length > 0
+                : (activeAccount ? accEmailLower === activeAccount.toLowerCase() : Boolean(acc.is_active))
+
+              let activeBadgeText = 'Active'
+              if (isIndividualMode && usingApps.length > 0) {
+                if (usingApps.length === installedAppsList.length) {
+                  activeBadgeText = 'All'
+                } else if (usingApps.length === 1) {
+                  activeBadgeText = usingApps[0].label
+                } else if (usingApps.length === 2) {
+                  activeBadgeText = `${usingApps[0].shortLabel} & ${usingApps[1].shortLabel}`
+                } else {
+                  activeBadgeText = usingApps.map((u) => u.shortLabel).join(' & ')
+                }
+              }
+
+              const isActive = isRowActive
               const current5h = acc.quota_5h_current ?? acc.quota_5h_available ?? 0
-              const isHealthy = current5h > threshold && (acc.quota_weekly ?? 0) > thresholdWeekly
-              const isNextSwitch = autoSwitchOn && sortMode === 'auto' && !isActive && !acc.status?.toUpperCase().includes('BANNED') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('COOLDOWN') && !acc.status?.toUpperCase().includes('COOLING') && index === 1 && isHealthy
+              const isHealthy = current5h > threshold && (acc.quota_weekly ?? 0) > thresholdWeekly && !acc.status?.toUpperCase().includes('NEEDS_REAUTH')
+              const isNextSwitch = autoSwitchOn && sortMode === 'auto' && !isActive && !acc.status?.toUpperCase().includes('BANNED') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('COOLDOWN') && !acc.status?.toUpperCase().includes('COOLING') && !acc.status?.toUpperCase().includes('NEEDS_REAUTH') && index === 1 && isHealthy
               return (
                 <tr
                   key={acc.email}
@@ -1082,68 +1309,157 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                       >
                         <AlertCircle size={12} /> ERROR
                       </button>
-                    ) : isActive ? (
-                      !isHealthy ? (
-                        <span
-                          className="badge-chip"
-                          style={{
-                            fontSize: '11px',
-                            padding: '4px 10px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            color: '#b06000',
-                            backgroundColor: '#fef7e0',
-                            border: '1px solid #feefc3',
-                            fontWeight: 600,
-                          }}
-                          title={
-                            (acc.quota_weekly ?? 0) <= thresholdWeekly
-                              ? 'Active account 7-day (weekly) quota is depleted below threshold'
-                              : 'Active account 5-hour quota is depleted below threshold'
-                          }
-                        >
-                          <AlertTriangle size={12} />{' '}
-                          {(acc.quota_weekly ?? 0) <= thresholdWeekly
-                            ? 'Active (Weekly Low)'
-                            : 'Active (Quota Low)'}
-                        </span>
-                      ) : (
-                        <span
-                          className="badge-chip badge-green"
-                          style={{
-                            fontSize: '11px',
-                            padding: '4px 10px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                          }}
-                        >
-                          <CheckCircle2 size={12} /> Active
-                        </span>
-                      )
-                    ) : (
-                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                        {(acc.status?.toUpperCase() === 'COOLDOWN' || acc.status?.toUpperCase() === 'COOLING') ? (
-                          <span
-                            className="badge-chip"
-                            style={{
-                              fontSize: '11px',
-                              padding: '3px 8px',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              color: '#1a73e8',
-                              backgroundColor: '#e8f0fe',
-                              border: '1px solid #d2e3fc',
-                              fontWeight: 600,
-                              cursor: 'default',
-                            }}
-                            title="Quota exhausted below threshold; cooling until reset."
-                          >
-                            <Timer size={11} /> Cooling
-                          </span>
-                        ) : (
+                    ) : acc.status?.toUpperCase() === 'NEEDS_REAUTH' ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setErrorDetailAccount(acc)
+                        }}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: '12px',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          color: '#b06000',
+                          backgroundColor: '#fef7e0',
+                          border: '1px solid #feefc3',
+                          cursor: 'pointer',
+                        }}
+                        title="Stored credentials missing or expired. Re-authenticate account to use."
+                      >
+                        <AlertCircle size={12} /> NEEDS REAUTH
+                      </button>
+                    ) : (() => {
+                      const renderSwitchControl = () => {
+                        if (isIndividualMode) {
+                          const isMenuOpen = switchMenuEmail === acc.email
+                          return (
+                            <div style={{ position: 'relative', display: 'inline-block' }}>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setSwitchMenuEmail((prev) => (prev === acc.email ? null : acc.email))
+                                }}
+                                className="btn-pill-tonal"
+                                style={{
+                                  padding: '4px 10px',
+                                  fontSize: '11px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  whiteSpace: 'nowrap',
+                                }}
+                                title="Select target application to switch"
+                              >
+                                <ArrowRightLeft size={11} /> Switch <ChevronDown size={10} />
+                              </button>
+                              {isMenuOpen && (
+                                <div
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{
+                                    position: 'absolute',
+                                    right: 0,
+                                    top: 'calc(100% + 4px)',
+                                    backgroundColor: 'var(--surface)',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: '6px',
+                                    boxShadow: '0 4px 14px rgba(0,0,0,0.12)',
+                                    zIndex: 50,
+                                    minWidth: '130px',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    padding: '4px',
+                                    gap: '2px',
+                                  }}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation()
+                                      setSwitchMenuEmail(null)
+                                      try {
+                                        await api.switchAccount(acc.email, true, 'all')
+                                        setSwitchFeedback(null)
+                                        onRefresh()
+                                        setTimeout(onRefresh, 3000)
+                                      } catch (err: any) {
+                                        setSwitchFeedback('Switch failed: ' + err.message)
+                                      }
+                                    }}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '6px',
+                                      padding: '6px 10px',
+                                      borderRadius: '4px',
+                                      border: 'none',
+                                      backgroundColor: 'transparent',
+                                      color: 'var(--text)',
+                                      fontSize: '11px',
+                                      fontWeight: 600,
+                                      cursor: 'pointer',
+                                      textAlign: 'left',
+                                      width: '100%',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal, rgba(0,0,0,0.05))')}
+                                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                                  >
+                                    <Layers size={12} color="var(--primary)" />
+                                    <span>All</span>
+                                  </button>
+                                  <div style={{ height: '1px', backgroundColor: 'var(--border)', margin: '2px 0' }} />
+                                  {installedAppsList.map((app) => (
+                                    <button
+                                      key={app.target}
+                                      type="button"
+                                      onClick={async (e) => {
+                                        e.stopPropagation()
+                                        setSwitchMenuEmail(null)
+                                        try {
+                                          const shouldRelaunch = app.target === 'desktop'
+                                          await api.switchAccount(acc.email, shouldRelaunch, app.target)
+                                          setSwitchFeedback(null)
+                                          onRefresh()
+                                          setTimeout(onRefresh, 3000)
+                                        } catch (err: any) {
+                                          setSwitchFeedback('Switch failed: ' + err.message)
+                                        }
+                                      }}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        padding: '6px 10px',
+                                        borderRadius: '4px',
+                                        border: 'none',
+                                        backgroundColor: 'transparent',
+                                        color: 'var(--text)',
+                                        fontSize: '11px',
+                                        fontWeight: 500,
+                                        cursor: 'pointer',
+                                        textAlign: 'left',
+                                        width: '100%',
+                                        whiteSpace: 'nowrap',
+                                      }}
+                                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal, rgba(0,0,0,0.05))')}
+                                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                                    >
+                                      {app.icon}
+                                      <span>{app.label}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        }
+
+                        return (
                           <button
                             onClick={async (e) => {
                               e.stopPropagation()
@@ -1163,17 +1479,99 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                               display: 'inline-flex',
                               alignItems: 'center',
                               gap: '4px',
+                              whiteSpace: 'nowrap',
                             }}
                           >
                             <ArrowRightLeft size={11} /> Switch
                           </button>
-                        )}
-                      </div>
-                    )}
+                        )
+                      }
+
+                      if (isRowActive) {
+                        return (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                            {!isHealthy ? (
+                              <span
+                                className="badge-chip"
+                                style={{
+                                  fontSize: '11px',
+                                  padding: '4px 10px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  color: '#b06000',
+                                  backgroundColor: '#fef7e0',
+                                  border: '1px solid #feefc3',
+                                  fontWeight: 600,
+                                }}
+                                title={
+                                  (acc.quota_weekly ?? 0) <= thresholdWeekly
+                                    ? 'Active account 7-day (weekly) quota is depleted below threshold'
+                                    : 'Active account 5-hour quota is depleted below threshold'
+                                }
+                              >
+                                <AlertTriangle size={12} />{' '}
+                                {isIndividualMode
+                                  ? `${activeBadgeText} (${(acc.quota_weekly ?? 0) <= thresholdWeekly ? 'Weekly Low' : 'Quota Low'})`
+                                  : ((acc.quota_weekly ?? 0) <= thresholdWeekly ? 'Active (Weekly Low)' : 'Active (Quota Low)')}
+                              </span>
+                            ) : (
+                              <span
+                                className="badge-chip badge-green"
+                                style={{
+                                  fontSize: '11px',
+                                  padding: '4px 10px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                }}
+                              >
+                                <CheckCircle2 size={12} /> {isIndividualMode ? activeBadgeText : 'Active'}
+                              </span>
+                            )}
+                            {isIndividualMode && usingApps.length < installedAppsList.length && renderSwitchControl()}
+                          </div>
+                        )
+                      }
+
+                      return (
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                          {(acc.status?.toUpperCase() === 'COOLDOWN' || acc.status?.toUpperCase() === 'COOLING') ? (
+                            <span
+                              className="badge-chip"
+                              style={{
+                                fontSize: '11px',
+                                padding: '3px 8px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                color: '#1a73e8',
+                                backgroundColor: '#e8f0fe',
+                                border: '1px solid #d2e3fc',
+                                fontWeight: 600,
+                                cursor: 'default',
+                              }}
+                              title="Quota exhausted below threshold; cooling until reset."
+                            >
+                              <Timer size={11} /> Cooling
+                            </span>
+                          ) : (
+                            renderSwitchControl()
+                          )}
+                        </div>
+                      )
+                    })()}
                   </td>
                 </tr>
               )
             })}
+            {sortedAccounts.length === 0 && (
+              <tr>
+                <td colSpan={6} style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-muted)', fontSize: '13px' }}>
+                  No accounts configured. Scan local accounts or click Add Account to begin.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
         </div>
@@ -1319,11 +1717,11 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '6px',
-                            padding: '5px 12px',
+                            padding: '6px 12px',
                             borderRadius: '9999px',
                             backgroundColor: '#1a73e8',
                             color: '#ffffff',
-                            fontSize: '11.5px',
+                            fontSize: '12px',
                             fontWeight: 600,
                             textDecoration: 'none',
                             whiteSpace: 'nowrap',
@@ -1338,7 +1736,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                               display: 'inline-flex',
                               alignItems: 'center',
                               gap: '6px',
-                              fontSize: '11.5px',
+                              fontSize: '12px',
                               fontWeight: 500,
                               color: '#1a73e8',
                               whiteSpace: 'nowrap',
@@ -1430,39 +1828,105 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           >
             <Edit2 size={13} /> Edit Account Details
           </button>
-          {!contextMenu.account.is_active &&
-            contextMenu.account.email !== activeAccount &&
-            contextMenu.account.status?.trim().toUpperCase() !== 'BANNED' &&
-            contextMenu.account.status?.trim().toUpperCase() !== 'COOLDOWN' &&
-            contextMenu.account.status?.trim().toUpperCase() !== 'COOLING' && (
-            <button
-              onClick={async () => {
-                const target = contextMenu.account.email
-                setContextMenu(null)
-                try {
-                  await api.switchAccount(target, true)
-                  setSwitchFeedback(null)
-                  onRefresh()
-                  setTimeout(onRefresh, 3000)
-                } catch (err: any) {
-                  setSwitchFeedback('Switch failed: ' + err.message)
-                }
-              }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                width: '100%',
-                padding: '8px 16px',
-                fontSize: '12px',
-                textAlign: 'left',
-                color: 'var(--primary)',
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-            >
-              <ArrowRightLeft size={13} /> Switch to this Account
-            </button>
+          {!contextMenu.account.status?.trim().toUpperCase().includes('BANNED') &&
+            !contextMenu.account.status?.trim().toUpperCase().includes('COOLDOWN') &&
+            !contextMenu.account.status?.trim().toUpperCase().includes('COOLING') && (
+            isIndividualMode ? (
+              <>
+                <button
+                  onClick={async () => {
+                    const target = contextMenu.account.email
+                    setContextMenu(null)
+                    try {
+                      await api.switchAccount(target, true, 'all')
+                      setSwitchFeedback(null)
+                      onRefresh()
+                      setTimeout(onRefresh, 3000)
+                    } catch (err: any) {
+                      setSwitchFeedback('Switch failed: ' + err.message)
+                    }
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    width: '100%',
+                    padding: '8px 16px',
+                    fontSize: '12px',
+                    textAlign: 'left',
+                    color: 'var(--primary)',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  <Layers size={13} /> Switch All to this Account
+                </button>
+                {installedAppsList.map((app) => (
+                  <button
+                    key={app.target}
+                    onClick={async () => {
+                      const target = contextMenu.account.email
+                      setContextMenu(null)
+                      try {
+                        const shouldRelaunch = app.target === 'desktop'
+                        await api.switchAccount(target, shouldRelaunch, app.target)
+                        setSwitchFeedback(null)
+                        onRefresh()
+                        setTimeout(onRefresh, 3000)
+                      } catch (err: any) {
+                        setSwitchFeedback('Switch failed: ' + err.message)
+                      }
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      width: '100%',
+                      padding: '8px 16px',
+                      fontSize: '12px',
+                      textAlign: 'left',
+                      color: 'var(--text)',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    {app.icon} Switch {app.label} to this Account
+                  </button>
+                ))}
+              </>
+            ) : (
+              !contextMenu.account.is_active &&
+              contextMenu.account.email !== activeAccount && (
+                <button
+                  onClick={async () => {
+                    const target = contextMenu.account.email
+                    setContextMenu(null)
+                    try {
+                      await api.switchAccount(target, true)
+                      setSwitchFeedback(null)
+                      onRefresh()
+                      setTimeout(onRefresh, 3000)
+                    } catch (err: any) {
+                      setSwitchFeedback('Switch failed: ' + err.message)
+                    }
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    width: '100%',
+                    padding: '8px 16px',
+                    fontSize: '12px',
+                    textAlign: 'left',
+                    color: 'var(--primary)',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  <ArrowRightLeft size={13} /> Switch to this Account
+                </button>
+              )
+            )
           )}
           <button
             onClick={() => {
@@ -1617,7 +2081,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                       justifyContent: 'space-between',
                       padding: '10px 16px',
                       borderRadius: '8px',
-                      border: `1.5px solid ${isSelected ? 'var(--primary)' : 'var(--border)'}`,
+                      border: `1px solid ${isSelected ? 'var(--primary)' : 'var(--border)'}`,
                       backgroundColor: isSelected ? 'rgba(26, 115, 232, 0.04)' : 'var(--card-bg, #ffffff)',
                       cursor: 'pointer',
                       transition: 'all 0.15s ease',

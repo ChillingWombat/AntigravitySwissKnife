@@ -34,40 +34,53 @@ const (
 
 // CustomModel defines a third-party or local LLM configured in Antigravity.
 type CustomModel struct {
-	ID               string       `json:"id"`
-	Name             string       `json:"name"`
-	DisplayName      string       `json:"display_name"`
-	ProviderType     ProviderType `json:"provider_type"`
-	BaseURL          string       `json:"base_url"`
-	APIKey           string       `json:"api_key,omitempty"`
-	ProjectMappings  []string     `json:"project_mappings"` // Specific projects or ["*"] for all
-	QuotaType        QuotaType    `json:"quota_type"`
-	BalanceValue     string       `json:"balance_value,omitempty"` // Formatted fiat e.g. "$12.34" or "¥10.00"
-	QuotaValue       string       `json:"quota_value,omitempty"`   // Formatted value e.g. "250,000 tokens" or "$10.00"
-	PrepaidBalance   float64      `json:"prepaid_balance"`         // Funds remaining in USD
-	TotalBudget      float64      `json:"total_budget"`            // Total initial/prepaid budget in USD
-	QuotaFraction    *float64     `json:"quota_fraction"`          // 0.0 to 1.0; nil if untracked/none
-	IsDefault        bool         `json:"is_default"`
-	ContextWindow    int          `json:"context_window,omitempty"`
-	SupportsThinking bool         `json:"supports_thinking,omitempty"`
-	ThinkingLevels   []string     `json:"thinking_levels,omitempty"` // e.g. ["off", "low", "medium", "high"]
-	ThinkingLevel    string       `json:"thinking_level,omitempty"`  // Active level e.g. "medium", "off"
-	Enabled          bool         `json:"enabled"`
-	Notes              string       `json:"notes,omitempty"` // User notes or description
-	SecurityRiskLevel  string       `json:"security_risk_level,omitempty"`
-	SecurityAuditScore int          `json:"security_audit_score,omitempty"`
-	SecurityGrade      string       `json:"security_grade,omitempty"`
-	LastSecurityAudit  string       `json:"last_security_audit,omitempty"`
-	CreatedAt          string       `json:"created_at,omitempty"`
-	UpdatedAt          string       `json:"updated_at,omitempty"`
+	InternalID           int64        `json:"internal_id,omitempty"`
+	ID                   string       `json:"id"`
+	Name                 string       `json:"name"`
+	DisplayName          string       `json:"display_name"`
+	ProviderType         ProviderType `json:"provider_type"`
+	BaseURL              string       `json:"base_url"`
+	APIKey               string       `json:"api_key,omitempty"`
+	ProjectMappings      []string     `json:"project_mappings"` // Specific projects or ["*"] for all
+	QuotaType            QuotaType    `json:"quota_type"`
+	QuotaManualOverride  bool         `json:"quota_manual_override,omitempty"`
+	BalanceValue         string       `json:"balance_value,omitempty"` // Formatted fiat e.g. "$12.34" or "¥10.00"
+	QuotaValue           string       `json:"quota_value,omitempty"`   // Formatted value e.g. "250,000 tokens" or "$10.00"
+	PrepaidBalance       float64      `json:"prepaid_balance"`         // Funds remaining in USD
+	TotalBudget          float64      `json:"total_budget"`            // Total initial/prepaid budget in USD
+	TokenLimit           int64        `json:"token_limit,omitempty"`   // Total token quota limit when quota_type is "quota"
+	QuotaFraction        *float64     `json:"quota_fraction"`          // 0.0 to 1.0; nil if untracked/none
+	BudgetCapType        string       `json:"budget_cap_type,omitempty"`  // "none", "dollar", "percentage", "tokens"
+	BudgetCapValue       *float64     `json:"budget_cap_value"`           // Cap threshold in USD, %, or tokens
+	InputPricePerM       *float64     `json:"input_price_per_m"`
+	CachedInputPricePerM *float64     `json:"cached_input_price_per_m"`
+	OutputPricePerM      *float64     `json:"output_price_per_m"`
+	PriceSource          string       `json:"price_source,omitempty"`
+	PriceUpdatedAt       string       `json:"price_updated_at,omitempty"`
+	IsDefault            bool         `json:"is_default"`
+	ContextWindow        int          `json:"context_window,omitempty"`
+	SupportsThinking     bool         `json:"supports_thinking,omitempty"`
+	ThinkingLevels       []string     `json:"thinking_levels,omitempty"` // e.g. ["off", "low", "medium", "high"]
+	ThinkingLevel        string       `json:"thinking_level,omitempty"`  // Active level e.g. "medium", "off"
+	Enabled              bool         `json:"enabled"`
+	Notes                string       `json:"notes,omitempty"` // User notes or description
+	SecurityRiskLevel    string       `json:"security_risk_level,omitempty"`
+	SecurityAuditScore   int          `json:"security_audit_score,omitempty"`
+	SecurityGrade        string       `json:"security_grade,omitempty"`
+	LastSecurityAudit    string       `json:"last_security_audit,omitempty"`
+	CreatedAt            string       `json:"created_at,omitempty"`
+	UpdatedAt            string       `json:"updated_at,omitempty"`
 }
 
 // Config holds the full custom models configuration file structure.
 type Config struct {
-	Version       string            `json:"version"`
-	ActiveModelID string            `json:"active_model_id,omitempty"`
-	Models        []CustomModel     `json:"models"`
-	ProjectBinds  map[string]string `json:"project_binds"` // project name -> model ID
+	Version        string               `json:"version"`
+	ActiveModelID  string               `json:"active_model_id,omitempty"`
+	NextInternalID int64                `json:"next_internal_id,omitempty"`
+	Models         []CustomModel        `json:"models"`
+	PricingRecords []ModelPricingRecord `json:"pricing_records,omitempty"`
+	DeletedModels  []DeletedModelRecord `json:"deleted_models,omitempty"`
+	ProjectBinds   map[string]string    `json:"project_binds"` // project name -> model ID
 }
 
 // Validate checks model fields for completeness and validity.
@@ -96,6 +109,17 @@ func (m *CustomModel) Validate() error {
 		m.QuotaType = QuotaTypeBalance
 	} else if m.QuotaType == QuotaQuotaBased {
 		m.QuotaType = QuotaTypeQuota
+	}
+	switch strings.ToLower(strings.TrimSpace(m.BudgetCapType)) {
+	case "dollar", "usd", "cost":
+		m.BudgetCapType = "dollar"
+	case "percentage", "percent", "%":
+		m.BudgetCapType = "percentage"
+	case "tokens", "token":
+		m.BudgetCapType = "tokens"
+	default:
+		m.BudgetCapType = "none"
+		m.BudgetCapValue = nil
 	}
 	if len(m.ProjectMappings) == 0 {
 		m.ProjectMappings = []string{"*"}
