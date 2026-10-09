@@ -6,9 +6,9 @@ import {
   RefreshCw,
   AlertCircle,
   CheckCircle2,
-  Archive,
   Info,
 } from 'lucide-react'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 import type { CacheBreakdown, VaultStatus } from '../types'
 import { api } from '../api'
 
@@ -188,7 +188,6 @@ export const BrainCachePage: React.FC = () => {
       <div className="google-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Archive size={20} color="var(--primary)" />
             <div>
               <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
                 Conversation History Vault & Auto-Shield
@@ -201,13 +200,12 @@ export const BrainCachePage: React.FC = () => {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12.5px', fontWeight: 600 }}>
-              <input
-                type="checkbox"
+              <span>Auto-Shield Active</span>
+              <ToggleSwitch
                 checked={vaultStatus?.enabled ?? true}
                 disabled={isTogglingVault}
-                onChange={(e) => handleToggleVault(e.target.checked)}
+                onChange={(checked) => handleToggleVault(checked)}
               />
-              <span>Auto-Shield Active</span>
             </label>
           </div>
         </div>

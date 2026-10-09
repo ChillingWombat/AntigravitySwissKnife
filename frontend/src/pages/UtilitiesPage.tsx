@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom'
 import {
   DownloadCloud,
   Network,
-  Clock,
   RefreshCw,
   CheckCircle2,
   ArrowRight,
@@ -431,23 +430,28 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                 </div>
               </div>
 
-              <div style={{ overflowX: 'auto' }}>
+              <div
+                style={{
+                  overflowX: 'auto',
+                  ...(candidates.length > 0 ? { height: '420px', overflowY: 'auto' } : {}),
+                }}
+              >
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>
-                      <th style={{ padding: '8px 10px', width: '30px' }}>
+                      <th style={{ padding: '8px 10px', width: '30px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>
                         <input
                           type="checkbox"
                           checked={candidates.length > 0 && candidates.every((c) => c.selected)}
                           onChange={(e) => setCandidates(candidates.map((c) => ({ ...c, selected: e.target.checked })))}
                         />
                       </th>
-                      <th style={{ padding: '8px 10px' }}>Conversation Title</th>
-                      <th style={{ padding: '8px 10px' }}>Source</th>
-                      <th style={{ padding: '8px 10px' }}>Turns & Tools</th>
-                      <th style={{ padding: '8px 10px' }}>Target Destination</th>
-                      <th style={{ padding: '8px 10px' }}>Match Status</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right' }}>Preview</th>
+                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>Conversation Title</th>
+                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>Source</th>
+                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>Turns & Tools</th>
+                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>Target Destination</th>
+                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>Match Status</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>Preview</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -598,8 +602,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
               padding: '20px',
             }}
           >
-            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Clock size={16} color="var(--primary)" />
+            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--text)' }}>
               Recent Migration History
             </h3>
             <div style={{ overflowX: 'auto' }}>
