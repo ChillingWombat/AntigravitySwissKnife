@@ -1322,12 +1322,12 @@ export const CustomModelsPage: React.FC = () => {
               {/* Toggles */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer' }}>
+                  <span>Set as default custom model</span>
                   <ToggleSwitch
                     size="sm"
                     checked={isDefault}
                     onChange={(checked) => setIsDefault(checked)}
                   />
-                  <span>Set as default custom model</span>
                 </label>
               </div>
 

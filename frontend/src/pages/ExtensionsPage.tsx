@@ -267,22 +267,22 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
         <span style={extSwitchLabelStyle} title="Available in the IDE's right auxiliary panel">
+          Enabled
           <ToggleSwitch
             size="sm"
             checked={vis.aux_panel}
             onChange={(v) => handleExtVisChange(id, 'aux_panel', v)}
             ariaLabel={`${name} enabled`}
           />
-          Enabled
         </span>
         <span style={extSwitchLabelStyle} title="Openable on the main stage via a left-sidebar tab button">
+          Main Page
           <ToggleSwitch
             size="sm"
             checked={vis.main_page}
             onChange={(v) => handleExtVisChange(id, 'main_page', v)}
             ariaLabel={`${name} main page`}
           />
-          Main Page
         </span>
       </div>
     )
@@ -771,6 +771,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
+                  <span>Show Hardware Bezel</span>
                   <ToggleSwitch
                     size="sm"
                     checked={showBezel}
@@ -779,7 +780,6 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                       localStorage.setItem('antigravity_mobile_show_bezel', String(val))
                     }}
                   />
-                  <span>Show Hardware Bezel</span>
                 </label>
               </div>
             </div>

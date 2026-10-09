@@ -184,6 +184,7 @@ export interface FleetQuotaSummary {
   total_accounts: number
   active_account: string
   accounts: AccountState[]
+  refreshing?: boolean
 }
 
 export interface RuleConfig {

@@ -57,6 +57,8 @@ type Server struct {
 	memoMu             sync.RWMutex
 	globalMemosPath    string
 	knownWorkspaces    map[string]struct{}
+	quotaPollMu        sync.Mutex
+	quotaPolling       bool
 }
 
 // NewServer initializes the web UI server.
@@ -1111,10 +1113,9 @@ func (s *Server) handleFleetQuota(w http.ResponseWriter, r *http.Request) {
 			active = store.ActiveAccount()
 			states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, nil, thresh, threshWeekly)
 			summary = quota.ComputeFleetSummary(states, active)
+			summary.Refreshing = s.isQuotaPolling()
 			if len(quota.LoadQuotaCache()) == 0 && len(accounts) > 0 {
-				go func() {
-					_ = quota.PollFleetAccounts(accounts, store)
-				}()
+				s.pollFleetFallback(accounts, store)
 			}
 		} else {
 			summary = quota.ComputeFleetSummary(nil, "")
@@ -1132,15 +1133,39 @@ func (s *Server) handleQuotaRefresh(w http.ResponseWriter, r *http.Request) {
 	if err := s.client.Call("swiss.refreshFleetQuota", nil, &res); err != nil {
 		store, _ := keyring.NewStore("")
 		if store != nil {
-			go func() {
-				accs := store.ListAccounts()
-				_ = quota.PollFleetAccounts(accs, store)
-			}()
+			s.pollFleetFallback(store.ListAccounts(), store)
 		}
 		writeJSON(w, map[string]interface{}{"status": "refresh_triggered_fallback"})
 		return
 	}
 	writeJSON(w, res)
+}
+
+// isQuotaPolling reports whether the standalone (daemonless) fleet poll is running.
+func (s *Server) isQuotaPolling() bool {
+	s.quotaPollMu.Lock()
+	defer s.quotaPollMu.Unlock()
+	return s.quotaPolling
+}
+
+// pollFleetFallback runs a fleet quota poll when the daemon IPC client is unavailable,
+// tracking progress so /api/quota/fleet can report refreshing=true meanwhile.
+func (s *Server) pollFleetFallback(accounts []*keyring.Account, store *keyring.Store) {
+	s.quotaPollMu.Lock()
+	if s.quotaPolling {
+		s.quotaPollMu.Unlock()
+		return
+	}
+	s.quotaPolling = true
+	s.quotaPollMu.Unlock()
+	go func() {
+		defer func() {
+			s.quotaPollMu.Lock()
+			s.quotaPolling = false
+			s.quotaPollMu.Unlock()
+		}()
+		_ = quota.PollFleetAccounts(accounts, store)
+	}()
 }
 
 func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {

@@ -9,7 +9,7 @@ import {
   EyeOff,
   KeyRound,
   HardDrive,
-  Layers,
+
   Send,
   ExternalLink,
   Info,
@@ -41,7 +41,7 @@ interface SystemSettingsPageProps {
 }
 
 export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
-  status,
+  status: _status,
   onRefresh,
   activeTab = 0,
   onTabChange: _onTabChange,
@@ -489,13 +489,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
     }
   }
 
-  const handleRefreshAll = () => {
-    onRefresh()
-    loadInstallations()
-    loadStorageSettings()
-    loadPrivacySettings()
-  }
-
   const handleOpenExternal = (url: string) => {
     const electronAPI = (window as any).electronAPI
     if (electronAPI?.openExternal) {
@@ -727,38 +720,11 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
       {/* Tab 0: General */}
       {currentTab === 0 && (
         <>
-          {/* Header Info Card */}
-          <div className="google-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                System & Process Overview
-              </div>
-              <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
-                Runtime diagnostics, IPC Unix domain sockets, and Antigravity process safety shield.
-              </div>
-              <div style={{ display: 'flex', gap: '16px', marginTop: '10px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                <span>
-                  <strong>Daemon:</strong> {status?.daemon_running ? 'Online' : 'Stopped'}
-                </span>
-                <span>
-                  <strong>Host Process:</strong> {status?.antigravity_running ? `Running (PID: ${status.antigravity_pid})` : 'Not running'}
-                </span>
-                <span>
-                  <strong>Active Account:</strong> {status?.active_account || 'None'}
-                </span>
-              </div>
-            </div>
-
-            <button onClick={handleRefreshAll} className="btn-pill-tonal">
-              <RefreshCw size={14} /> Refresh Diagnostics
-            </button>
-          </div>
-
-          {/* System Startup & Desktop Integration Card */}
+          {/* System & Startup Card */}
           <div className="google-card">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                System Startup & Desktop Integration
+                System & Startup
               </div>
             </div>
 
@@ -805,9 +771,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               <div>
                 <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
                   App Access Password Protection
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  Require an entry password to unlock and use Antigravity Swiss Knife. Minimum 6 characters (numbers, letters, symbols).
                 </div>
               </div>
 
@@ -976,22 +939,11 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
               <div>
                 <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                  Data & Storage Location
+                  Data Storage
                 </div>
                 <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
                   Choose where to store application configuration, keyring credentials, and temporary cache.
                 </div>
-              </div>
-
-              <div className="badge-chip badge-tonal" style={{ fontSize: '11.5px', padding: '5px 12px' }}>
-                <Layers size={13} />
-                <span>
-                  {storageInfo?.app_execution_type === 'unzipped_folder'
-                    ? 'Unzipped Directory Runner'
-                    : storageInfo?.app_execution_type === 'standalone_binary'
-                    ? 'Standalone Binary File'
-                    : 'System Package'}
-                </span>
               </div>
             </div>
 
@@ -1781,19 +1733,14 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
         <>
           {/* Support & Community Appreciation Card */}
           <div className="google-card" style={{ backgroundColor: 'var(--surface)' }}>
-            <div style={{ marginBottom: '12px' }}>
+            <div style={{ marginBottom: '16px' }}>
               <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>
-                Enjoying Antigravity Swiss Knife?
+                Enjoying <span style={{ color: 'var(--primary)' }}>Antigravity Swiss Knife</span>?
               </div>
               <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>
-                Support the Project!
+                Please Support the Project!
               </div>
             </div>
-
-            <p style={{ margin: '0 0 16px 0', fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              If Antigravity Swiss Knife streamlines your workflow, saves quota, and unlocks deeper agent orchestrations,
-              consider starring our GitHub repository or buying me a can of SOLO!
-            </p>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
               {/* Native Ko-fi "Buy me a SOLO (A$1)" Widget */}
@@ -1863,46 +1810,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                 <span>Star on GitHub</span>
               </button>
             </div>
-          </div>
-
-          {/* Clean State Restore / Factory Reset Gadget */}
-          <div className="google-card" style={{ border: '1px solid #fce8e6' }}>
-            <div style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)', marginBottom: '10px' }}>
-              Restore Antigravity Apps to Clean Unmodified State
-            </div>
-
-            <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Restore all Antigravity apps to an unmodified status by turning off all features and restoring backed-up files and code.
-            </p>
-            <p style={{ margin: '0 0 14px 0', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              This removes custom executable overrides, disables injected customizations, and resets state safely.
-            </p>
-
-            {resetFeedback && (
-              <div
-                style={{
-                  backgroundColor: resetFeedback.isError ? 'var(--red-bg)' : 'var(--green-bg)',
-                  color: resetFeedback.isError ? 'var(--red)' : 'var(--green)',
-                  padding: '10px 14px',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                  marginBottom: '14px',
-                  fontWeight: 500,
-                }}
-              >
-                {resetFeedback.text}
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setShowResetConfirm(true)}
-              disabled={isResetting}
-              className="btn-pill-danger"
-              style={{ fontSize: '12.5px', padding: '8px 20px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-            >
-              {isResetting ? 'Restoring...' : 'Restore All to Factory / Unmodified State'}
-            </button>
           </div>
 
           {/* Reset Confirmation Modal */}
@@ -2208,6 +2115,47 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Clean State Restore / Factory Reset Gadget */}
+          <div className="google-card" style={{ border: '1px solid #fce8e6' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '10px' }}>
+              <div style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text)' }}>
+                Restore Antigravity Apps to Clean Unmodified State
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowResetConfirm(true)}
+                disabled={isResetting}
+                className="btn-pill-danger"
+                style={{ fontSize: '12.5px', padding: '7px 18px', display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap', flexShrink: 0 }}
+              >
+                {isResetting ? 'Restoring...' : 'Restore Antigravity'}
+              </button>
+            </div>
+
+            <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              Restore all Antigravity apps to an unmodified status by turning off all features and restoring backed-up files and code.
+            </p>
+            <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              This removes custom executable overrides, disables injected customizations, and resets state safely.
+            </p>
+
+            {resetFeedback && (
+              <div
+                style={{
+                  backgroundColor: resetFeedback.isError ? 'var(--red-bg)' : 'var(--green-bg)',
+                  color: resetFeedback.isError ? 'var(--red)' : 'var(--green)',
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  marginTop: '14px',
+                  fontWeight: 500,
+                }}
+              >
+                {resetFeedback.text}
+              </div>
+            )}
           </div>
         </>
       )}

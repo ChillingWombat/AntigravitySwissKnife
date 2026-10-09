@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
   RotateCw,
   CheckCircle2,
@@ -146,13 +146,29 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const [isImportingDiscovered, setIsImportingDiscovered] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
-  const handleRefreshClick = () => {
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
+
+  const handleRefreshClick = async () => {
+    if (isRefreshing) return
     setIsRefreshing(true)
     try {
-      api.refreshFleetQuota().catch(() => {})
-      onRefresh()
+      await api.refreshFleetQuota().catch(() => {})
+      // Fleet refresh runs async on the daemon; poll until it reports done.
+      const deadline = Date.now() + 120_000
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 1500))
+        if (!mountedRef.current) return
+        if (Date.now() > deadline) break
+        const f = await api.getFleetQuota().catch(() => null)
+        if (f && !f.refreshing) break
+      }
+      if (mountedRef.current) onRefresh()
     } finally {
-      setTimeout(() => setIsRefreshing(false), 500)
+      if (mountedRef.current) setIsRefreshing(false)
     }
   }
 
@@ -482,10 +498,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               >
                 <RotateCw
                   size={13}
-                  style={{
-                    transition: 'transform 0.5s ease',
-                    transform: isRefreshing ? 'rotate(360deg)' : 'none',
-                  }}
+                  className={isRefreshing ? 'animate-spin' : ''}
                 />
               </button>
             </div>

@@ -995,6 +995,9 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 		states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, thresh, threshWeekly)
 		summary := quota.ComputeFleetSummary(states, active)
+		d.pollingMu.Lock()
+		summary.Refreshing = d.isPollingFleet
+		d.pollingMu.Unlock()
 		return summary, nil
 	})
 

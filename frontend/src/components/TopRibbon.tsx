@@ -1,5 +1,4 @@
 import React from 'react'
-import { CheckCircle2 } from 'lucide-react'
 
 interface TopRibbonProps {
   currentTab: number
@@ -65,29 +64,26 @@ export const TopRibbon: React.FC<TopRibbonProps> = ({
         })}
       </div>
 
-      {/* Active Account Pill at the right end of the top tab switcher bar */}
+      {/* Active account as plain text at the right end of the top tab switcher bar */}
       {activeAccount ? (
-        <div
+        <span
           style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '7px',
-            fontSize: '12px',
-            fontWeight: 600,
+            display: 'inline-block',
+            fontSize: '13px',
+            fontWeight: 500,
             color: 'var(--primary)',
-            backgroundColor: 'rgba(26, 115, 232, 0.08)',
-            padding: '6px 14px',
+            border: '1px solid var(--primary)',
             borderRadius: '6px',
-            border: '1px solid rgba(26, 115, 232, 0.22)',
+            padding: '4px 10px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
             maxWidth: '320px',
           }}
           title={`Active runtime account: ${activeAccount}`}
         >
-          <CheckCircle2 size={14} color="#1a73e8" style={{ flexShrink: 0 }} />
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            Active: {activeAccount}
-          </span>
-        </div>
+          Current Account: {activeAccount}
+        </span>
       ) : (
         <div
           style={{

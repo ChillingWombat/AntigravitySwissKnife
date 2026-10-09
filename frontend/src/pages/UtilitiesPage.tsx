@@ -174,30 +174,6 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* Top Bar Right Contextual Actions via Portal */}
-      {portalTarget && activeTab === 0 &&
-        createPortal(
-          <button
-            onClick={() => loadCandidates(selectedSource)}
-            disabled={isScanning}
-            style={{
-              backgroundColor: '#ffffff',
-              border: '1px solid var(--border)',
-              borderRadius: '6px',
-              padding: '6px 14px',
-              fontSize: '12px',
-              fontWeight: 600,
-              color: 'var(--text)',
-              cursor: isScanning ? 'not-allowed' : 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-            }}
-          >
-            <RefreshCw size={13} className={isScanning ? 'animate-spin' : ''} />
-            <span>{isScanning ? 'Scanning...' : 'Rescan Sources'}</span>
-          </button>,
-          portalTarget
-        )}
 
       {portalTarget && activeTab === 1 &&
         createPortal(
@@ -258,15 +234,6 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
               padding: '20px',
             }}
           >
-            <div style={{ marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '15px', fontWeight: 700, margin: '0 0 4px 0', color: 'var(--text)' }}>
-                1. Select Source Agent & Project Matching Rules
-              </h3>
-              <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--text-muted)' }}>
-                Inspired by <code>dsh-chat-import</code>, this tool converts transcripts, tool outputs, and project structures into Antigravity 2.0 format.
-              </p>
-            </div>
-
             <div
               style={{
                 display: 'grid',
@@ -285,10 +252,11 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                   onChange={(e) => setSelectedSource(e.target.value as ChatImportSource)}
                   style={{
                     width: '100%',
-                    padding: '8px 12px',
+                    padding: '9px 12px',
                     borderRadius: '8px',
                     border: '1px solid var(--border)',
-                    fontSize: '13px',
+                    fontSize: '14px',
+                    fontWeight: 600,
                     backgroundColor: '#ffffff',
                     color: 'var(--text)',
                   }}
@@ -318,10 +286,11 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                   onChange={(e) => setProjectMatchMode(e.target.value as ProjectMatchOption)}
                   style={{
                     width: '100%',
-                    padding: '8px 12px',
+                    padding: '9px 12px',
                     borderRadius: '8px',
                     border: '1px solid var(--border)',
-                    fontSize: '13px',
+                    fontSize: '14px',
+                    fontWeight: 600,
                     backgroundColor: '#ffffff',
                     color: 'var(--text)',
                   }}
@@ -346,10 +315,10 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                       onClick={() => setImportSyncMode(mode)}
                       style={{
                         flex: 1,
-                        padding: '7px 10px',
+                        padding: '8px 10px',
                         borderRadius: '8px',
-                        fontSize: '12px',
-                        fontWeight: importSyncMode === mode ? 600 : 500,
+                        fontSize: '13px',
+                        fontWeight: importSyncMode === mode ? 700 : 600,
                         backgroundColor: importSyncMode === mode ? '#e8f0fe' : '#ffffff',
                         color: importSyncMode === mode ? 'var(--primary)' : 'var(--text-muted)',
                         border: `1px solid ${importSyncMode === mode ? 'var(--primary)' : 'var(--border)'}`,
