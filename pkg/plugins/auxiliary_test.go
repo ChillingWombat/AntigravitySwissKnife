@@ -2290,3 +2290,38 @@ func TestPreviewBrowser_MultilineCommentTextarea(t *testing.T) {
 		t.Fatalf("expected textarea CSS with min-height and resize")
 	}
 }
+
+func TestPreviewBrowser_ElementAnnotationEraserAndClearLabel(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	if !strings.Contains(js, `id="swiss-element-annotation-close"`) {
+		t.Fatalf("expected swiss-element-annotation-close button in script")
+	}
+	// Check for Lucide eraser SVG path in element popover clear button
+	if !strings.Contains(js, `m7 21-4.3-4.3`) {
+		t.Fatalf("expected Lucide eraser SVG path in element annotation clear button")
+	}
+	if !strings.Contains(js, `<span>Clear</span>`) {
+		t.Fatalf("expected <span>Clear</span> inside clear button")
+	}
+}
+
+func TestPreviewBrowser_NoCommentRepopulationAndCleanReset(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	if !strings.Contains(js, `input.value = "";`) {
+		t.Fatalf("expected input.value to be explicitly cleared on annotation box render")
+	}
+	if !strings.Contains(js, `userComment = "";`) {
+		t.Fatalf("expected userComment reset in script")
+	}
+}
+
+func TestPreviewBrowser_TouchEmulationVisualFeedbackAndDragScroll(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	if !strings.Contains(js, `swiss-touch-cursor`) {
+		t.Fatalf("expected swiss-touch-cursor visual touch element in script")
+	}
+	if !strings.Contains(js, `scrollBy`) {
+		t.Fatalf("expected scrollBy mobile drag scroll in script")
+	}
+}
+

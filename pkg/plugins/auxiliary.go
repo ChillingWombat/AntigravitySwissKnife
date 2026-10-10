@@ -562,18 +562,24 @@ div:has(> .shrink-0.flex.items-center.border-b),
   background: #1557b0;
 }
 .swiss-browser-btn.active {
-  background: rgba(234, 67, 53, 0.15) !important;
-  color: #ea4335 !important;
+  background: #ea4335 !important;
+  color: #ffffff !important;
   border-color: #ea4335 !important;
-  box-shadow: 0 0 0 1px #ea4335, inset 0 1px 2px rgba(234, 67, 53, 0.15) !important;
+  box-shadow: 0 0 0 2px rgba(234, 67, 53, 0.35) !important;
   font-weight: 600;
 }
+.swiss-browser-btn.active svg {
+  stroke: #ffffff !important;
+}
 :is(.dark, [data-theme="dark"]) .swiss-browser-btn.active {
-  background: rgba(234, 67, 53, 0.25) !important;
-  color: #f87171 !important;
-  border-color: #f87171 !important;
-  box-shadow: 0 0 0 1px #f87171, inset 0 1px 2px rgba(0, 0, 0, 0.3) !important;
+  background: #ea4335 !important;
+  color: #ffffff !important;
+  border-color: #ea4335 !important;
+  box-shadow: 0 0 0 2px rgba(234, 67, 53, 0.45) !important;
   font-weight: 600;
+}
+:is(.dark, [data-theme="dark"]) .swiss-browser-btn.active svg {
+  stroke: #ffffff !important;
 }
 #swiss-b-touch.active {
   background: rgba(26, 115, 232, 0.15) !important;
@@ -817,20 +823,34 @@ div:has(> .shrink-0.flex.items-center.border-b),
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
   border-radius: 4px;
-  border: none;
-  background: transparent;
-  color: var(--text-muted, #94a3b8);
+  border: 1px solid var(--border, #cbd5e1);
+  background: var(--surface, #f8fafd);
+  color: var(--text-muted, #64748b);
   cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
   transition: all 0.15s;
-  padding: 0;
   flex-shrink: 0;
+  white-space: nowrap;
 }
 .swiss-element-annotation-close:hover {
-  background: rgba(234, 67, 53, 0.15);
+  background: rgba(234, 67, 53, 0.1);
   color: #ea4335;
+  border-color: rgba(234, 67, 53, 0.3);
+}
+:is(.dark, [data-theme="dark"]) .swiss-element-annotation-close {
+  background: var(--surface, #1e293b);
+  border-color: var(--border, #334155);
+  color: #94a3b8;
+}
+:is(.dark, [data-theme="dark"]) .swiss-element-annotation-close:hover {
+  background: rgba(234, 67, 53, 0.2);
+  color: #f87171;
+  border-color: rgba(234, 67, 53, 0.4);
 }
 .swiss-element-annotation-body {
   display: flex;
@@ -841,8 +861,9 @@ div:has(> .shrink-0.flex.items-center.border-b),
   width: 100%;
   box-sizing: border-box;
   min-height: 72px;
+  height: 110px;
   resize: vertical;
-  padding: 6px 8px;
+  padding: 8px 10px;
   border-radius: 4px;
   border: 1px solid var(--border, #cbd5e1);
   background: var(--canvas, #ffffff);
@@ -1288,7 +1309,7 @@ div:has(> .shrink-0.flex.items-center.border-b),
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 8px;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-  width: 380px;
+  width: 460px;
   max-width: 100%;
   padding: 16px;
   display: flex;
@@ -1325,6 +1346,11 @@ div:has(> .shrink-0.flex.items-center.border-b),
   color: var(--text, #1e293b);
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
+}
+textarea.swiss-prompt-input {
+  min-height: 120px;
+  resize: vertical;
+  line-height: 1.4;
 }
 .swiss-prompt-input:focus {
   border-color: #1a73e8;
@@ -2628,14 +2654,24 @@ func GenerateAuxiliaryPluginsScript() string {
 
       function injectTouchEmulation(browserEl, enabled) {
         const code = ` + "`" + `(() => {
+          let touchCursor = document.getElementById('swiss-touch-cursor');
+          if (!touchCursor) {
+            touchCursor = document.createElement('div');
+            touchCursor.id = 'swiss-touch-cursor';
+            touchCursor.style.cssText = 'position:fixed;width:24px;height:24px;border-radius:50%;background:rgba(26,115,232,0.25);border:2px solid #1a73e8;pointer-events:none;z-index:2147483647;transform:translate(-50%,-50%);display:none;transition:transform 0.08s, background 0.08s;';
+            document.body.appendChild(touchCursor);
+          }
+
           if (window.__swissTouchInstalled) {
             window.__swissTouchEnabled = ${enabled};
+            if (touchCursor) touchCursor.style.display = ${enabled} ? 'block' : 'none';
             return;
           }
           window.__swissTouchInstalled = true;
           window.__swissTouchEnabled = ${enabled};
           let isTouching = false;
           let id = 1;
+          let lastY = 0;
 
           function createTouch(e) {
             return new Touch({
@@ -2671,16 +2707,33 @@ func GenerateAuxiliaryPluginsScript() string {
           document.addEventListener('mousedown', (e) => {
             if (!window.__swissTouchEnabled || e.button !== 0) return;
             isTouching = true;
+            lastY = e.clientY;
             id++;
+            if (touchCursor) {
+              touchCursor.style.transform = 'translate(-50%,-50%) scale(0.85)';
+              touchCursor.style.background = 'rgba(26,115,232,0.45)';
+            }
             emit('touchstart', e);
           }, true);
 
           document.addEventListener('mousemove', (e) => {
+            if (touchCursor) {
+              touchCursor.style.display = window.__swissTouchEnabled ? 'block' : 'none';
+              touchCursor.style.left = e.clientX + 'px';
+              touchCursor.style.top = e.clientY + 'px';
+            }
             if (!window.__swissTouchEnabled || !isTouching) return;
+            const deltaY = lastY - e.clientY;
+            lastY = e.clientY;
+            window.scrollBy({ top: deltaY, behavior: 'instant' });
             emit('touchmove', e);
           }, true);
 
           document.addEventListener('mouseup', (e) => {
+            if (touchCursor) {
+              touchCursor.style.transform = 'translate(-50%,-50%) scale(1)';
+              touchCursor.style.background = 'rgba(26,115,232,0.25)';
+            }
             if (!window.__swissTouchEnabled || !isTouching) return;
             isTouching = false;
             emit('touchend', e);
@@ -2721,6 +2774,7 @@ func GenerateAuxiliaryPluginsScript() string {
           toggleDOMInspector(false);
         }
         drawTool = "none";
+        isDrawing = false;
         penBtn.classList.remove("active");
         rectBtn.classList.remove("active");
         inspectBtn.classList.remove("active");
@@ -2733,7 +2787,11 @@ func GenerateAuxiliaryPluginsScript() string {
       }
 
       function setDrawTool(tool) {
-        drawTool = (drawTool === tool) ? "none" : tool;
+        const nextTool = (drawTool === tool) ? "none" : tool;
+        if (drawTool === "inspect") {
+          toggleDOMInspector(false);
+        }
+        drawTool = nextTool;
         penBtn.classList.toggle("active", drawTool === "pen");
         rectBtn.classList.toggle("active", drawTool === "rect");
         inspectBtn.classList.toggle("active", drawTool === "inspect");
@@ -2794,6 +2852,9 @@ func GenerateAuxiliaryPluginsScript() string {
       canvas.onmousedown = (e) => {
         if (drawTool === "none" || drawTool === "inspect") return;
         isDrawing = true;
+        userComment = "";
+        lastSelectedElement = null;
+        lastAnnotatedRegion = null;
         const coords = getCanvasCoords(e);
         drawStartX = coords.x;
         drawStartY = coords.y;
@@ -2969,7 +3030,7 @@ func GenerateAuxiliaryPluginsScript() string {
             overlay.style.position = 'fixed';
             overlay.style.pointerEvents = 'none';
             overlay.style.border = '2px solid #ea4335';
-            overlay.style.backgroundColor = 'rgba(234, 67, 53, 0.15)';
+            overlay.style.backgroundColor = 'transparent'; /* Transparent inner field rather than light red rgba(234, 67, 53, 0.15) */
             overlay.style.zIndex = '2147483647';
             overlay.style.boxSizing = 'border-box';
             overlay.style.transition = 'all 0.05s ease-out';
@@ -2977,18 +3038,7 @@ func GenerateAuxiliaryPluginsScript() string {
 
             const tagBadge = document.createElement('div');
             tagBadge.id = 'swiss-dom-inspect-badge';
-            tagBadge.style.position = 'absolute';
-            tagBadge.style.top = '-22px';
-            tagBadge.style.left = '0';
-            tagBadge.style.backgroundColor = '#ea4335';
-            tagBadge.style.color = '#ffffff';
-            tagBadge.style.fontFamily = 'monospace';
-            tagBadge.style.fontSize = '11px';
-            tagBadge.style.fontWeight = 'bold';
-            tagBadge.style.padding = '2px 6px';
-            tagBadge.style.borderRadius = '3px';
-            tagBadge.style.whiteSpace = 'nowrap';
-            tagBadge.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
+            tagBadge.style.display = 'none';
             overlay.appendChild(tagBadge);
             document.body.appendChild(overlay);
           }
@@ -3027,8 +3077,6 @@ func GenerateAuxiliaryPluginsScript() string {
             overlay.style.left = rect.left + 'px';
             overlay.style.width = rect.width + 'px';
             overlay.style.height = rect.height + 'px';
-            const badge = overlay.querySelector('#swiss-dom-inspect-badge');
-            if (badge) badge.textContent = getCssSelector(el);
           }
 
           function handleClick(e) {
@@ -3099,11 +3147,12 @@ func GenerateAuxiliaryPluginsScript() string {
         const box = document.createElement("div");
         box.id = "swiss-element-annotation-box";
         box.className = "swiss-element-annotation-box";
+        userComment = "";
 
         const screenW = screen.clientWidth || 400;
         const screenH = screen.clientHeight || 600;
-        const boxW = 380;
-        const boxH = 130;
+        const boxW = 460;
+        const boxH = 180;
         let left = Math.max(8, Math.min(result.rect.x, screenW - boxW - 8));
         let top = result.rect.y + result.rect.height + 8;
         if (top + boxH > screenH) {
@@ -3123,12 +3172,15 @@ func GenerateAuxiliaryPluginsScript() string {
           '</span>' +
           '<button class="swiss-element-annotation-close" id="swiss-element-annotation-close" title="Clear annotation & unselect element">' +
             '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-              '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>' +
+              '<path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/>' +
+              '<path d="M22 21H7"/>' +
+              '<path d="m5 11 9 9"/>' +
             '</svg>' +
+            '<span>Clear</span>' +
           '</button>' +
         '</div>' +
         '<div class="swiss-element-annotation-body">' +
-          '<textarea class="swiss-element-annotation-input" id="swiss-element-annotation-input" rows="3" placeholder="Enter detailed annotation notes or prompt for chat..."></textarea>' +
+          '<textarea class="swiss-element-annotation-input" id="swiss-element-annotation-input" rows="5" placeholder="Enter detailed annotation notes or paragraph for chat..."></textarea>' +
           '<div class="swiss-element-annotation-actions">' +
             '<button class="swiss-element-annotation-send" id="swiss-element-annotation-send" title="Send element annotation to chat">' +
               '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
@@ -3144,6 +3196,7 @@ func GenerateAuxiliaryPluginsScript() string {
         const input = box.querySelector("#swiss-element-annotation-input");
         const closeBtn = box.querySelector("#swiss-element-annotation-close");
         const sendBtn = box.querySelector("#swiss-element-annotation-send");
+        input.value = "";
 
         input.oninput = () => {
           userComment = input.value.trim();
@@ -3186,12 +3239,6 @@ func GenerateAuxiliaryPluginsScript() string {
         ctx.strokeStyle = "#ea4335";
         ctx.lineWidth = 2;
         ctx.strokeRect(result.rect.x, result.rect.y, result.rect.width, result.rect.height);
-
-        ctx.fillStyle = "#ea4335";
-        ctx.fillRect(result.rect.x, Math.max(0, result.rect.y - 18), Math.min(180, result.selector.length * 8 + 8), 18);
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "bold 10px monospace";
-        ctx.fillText(result.selector.slice(0, 22), result.rect.x + 4, Math.max(12, result.rect.y - 5));
 
         exitInspectTool();
         renderElementAnnotationBox(result);
@@ -3314,6 +3361,11 @@ func GenerateAuxiliaryPluginsScript() string {
               e.stopPropagation();
               if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
               exitInspectTool();
+            } else if (e.key === "Escape" || e.key === "Esc" || e.keyCode === 27 || e.which === 27) {
+              e.preventDefault();
+              e.stopPropagation();
+              if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+              exitAllTools();
             }
           }, true);
         }
@@ -3326,23 +3378,21 @@ func GenerateAuxiliaryPluginsScript() string {
         if (annotInput && annotInput.value.trim()) {
           comment = annotInput.value.trim();
           userComment = comment;
-        }
-
-        if (lastSelectedElement) {
-          comment = comment || userComment || "Review UI alignment and inspected element markup.";
-          userComment = comment;
-        } else {
+        } else if (!lastSelectedElement && (!lastAnnotatedRegion || (lastAnnotatedRegion.width <= 5 && lastAnnotatedRegion.height <= 5))) {
           comment = await showSwissPrompt(
             "Add comment to attach with this preview snapshot to Antigravity chat:",
             "",
             {
               multiline: true,
-              rows: 4,
+              rows: 6,
               placeholder: "Write a detailed note or paragraph for chat...",
               confirmText: "Send to Chat"
             }
           );
           if (comment === null) return;
+          userComment = comment;
+        } else {
+          comment = annotInput ? annotInput.value.trim() : "";
           userComment = comment;
         }
 
@@ -3403,20 +3453,6 @@ func GenerateAuxiliaryPluginsScript() string {
           }
 
           const file = new File([blob], "annotation.png", { type: "image/png" });
-
-          const fileInput = document.querySelector('input[type="file"]') ||
-                            document.querySelector('[type="file"]') ||
-                            Array.from(document.querySelectorAll('input')).find(i => i.type === "file") ||
-                            document.querySelector('.chat-input-toolbar input[type="file"]') ||
-                            document.querySelector('input[type="file"][accept*="image"]');
-          if (fileInput) {
-            try {
-              const dt = new DataTransfer();
-              dt.items.add(file);
-              fileInput.files = dt.files;
-              fileInput.dispatchEvent(new Event("change", { bubbles: true }));
-            } catch (_) {}
-          }
 
           let promptText = "";
           if (lastSelectedElement && (lastSelectedElement.selector || lastSelectedElement.outerHTML)) {
@@ -3482,6 +3518,24 @@ func GenerateAuxiliaryPluginsScript() string {
             insertTextToChatInput(promptText);
           }
 
+          // 2. Attach screenshot file to fileInput after 120ms to allow React/Lexical state to commit text first
+          setTimeout(() => {
+            const fileInput = document.querySelector('input[type="file"]') ||
+                              document.querySelector('[type="file"]') ||
+                              Array.from(document.querySelectorAll('input')).find(i => i.type === "file") ||
+                              document.querySelector('.chat-input-toolbar input[type="file"]') ||
+                              document.querySelector('input[type="file"][accept*="image"]');
+            if (fileInput) {
+              try {
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                fileInput.files = dt.files;
+                fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+              } catch (_) {}
+            }
+          }, 120);
+
+          // 3. Robust verification and retry: ensure the prompt text is in the chat input
           setTimeout(() => {
             const curInput = document.querySelector('[data-testid="agent-input-box"] [contenteditable="true"]') ||
                              document.querySelector('[data-testid="chat-input-textarea"]') ||
@@ -3495,7 +3549,22 @@ func GenerateAuxiliaryPluginsScript() string {
                 insertTextToChatInput(promptText);
               }
             }
-          }, 100);
+          }, 250);
+
+          setTimeout(() => {
+            const curInput = document.querySelector('[data-testid="agent-input-box"] [contenteditable="true"]') ||
+                             document.querySelector('[data-testid="chat-input-textarea"]') ||
+                             document.querySelector('[data-lexical-editor="true"]') ||
+                             document.querySelector('.lexical-container [contenteditable="true"]') ||
+                             document.querySelector('textarea[placeholder*="Ask"]') ||
+                             document.querySelector('textarea');
+            if (curInput) {
+              const textInInput = curInput.isContentEditable ? (curInput.innerText || "") : (curInput.value || "");
+              if (!textInInput.includes("[Preview Browser")) {
+                insertTextToChatInput(promptText);
+              }
+            }
+          }, 600);
 
           attachChatAnnotationChip(lastSelectedElement, userComment);
 
