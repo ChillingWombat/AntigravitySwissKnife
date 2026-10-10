@@ -4,19 +4,33 @@
 
 <h1 align="center">Antigravity Swiss Knife</h1>
 
-Cross-platform desktop companion and background daemon for Google Antigravity.
+<p align="center">
+  Cross-platform desktop companion and background daemon for Google Antigravity.
+</p>
 
-[Features](#key-features)  • [Quick Start](#quick-start)  •  [GUI](#gui-examples)  •  [FAQ](#frequently-asked-questions)  •  [Wiki](#documentation-wiki)  •  [License](#license)
+<p align="center">
+  <a href="#overview">Overview</a> &nbsp;•&nbsp;
+  <a href="#key-features">Features</a> &nbsp;•&nbsp;
+  <a href="#quick-start">Quick Start</a> &nbsp;•&nbsp;
+  <a href="#gui-examples">GUI Examples</a> &nbsp;•&nbsp;
+  <a href="#frequently-asked-questions">FAQ</a> &nbsp;•&nbsp;
+  <a href="#documentation-wiki">Wiki</a> &nbsp;•&nbsp;
+  <a href="#license">License</a>
+</p>
 
 ---
 
-Antigravity Swiss Knife is a cross-platform desktop companion and background daemon for Google Antigravity 2.0, the `agy` command-line utility, and the Antigravity VS Code Extension across Linux, Windows, and macOS. It operates 100% locally with zero network proxying to adhere strictly to Google Cloud Terms of Service.
+## Overview
+
+Antigravity Swiss Knife is a cross-platform desktop companion and background daemon for Google Antigravity 2.0, CLI  and VS Code Extension.  It operates 100% locally and adhere strictly to Google Cloud Terms of Service.
 
 As a new open-source project in active development, community feedback is warmly encouraged. Please feel free to raise issues, report bugs, or suggest feature ideas in our GitHub repository to help shape upcoming releases.
 
 ## Key Features
 
-![key_features](./images/key_features.png)
+<p align="center">
+  <img src="./images/key_features.png" alt="Antigravity Swiss Knife Key Features" width="100%" />
+</p>
 
 ## Quick Start
 
@@ -59,7 +73,9 @@ To run only the headless companion daemon:
 
 ## GUI Examples
 
-![Antigravity Swiss Knife Interface](./images/features.png)
+<p align="center">
+  <img src="./images/dashboard.png" alt="Antigravity Swiss Knife Interface" width="100%" />
+</p>
 
 ## Frequently Asked Questions
 

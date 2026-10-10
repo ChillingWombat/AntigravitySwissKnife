@@ -60,6 +60,7 @@ func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string,
 
 	targetPath := "/c/" + strings.TrimPrefix(cascadeID, "/c/")
 	deadline := time.Now().Add(timeout)
+	intentKey := fmt.Sprintf("cdp-%s-%d", cascadeID, time.Now().UnixMilli())
 
 	script := fmt.Sprintf(`(async () => {
 		try {
@@ -77,8 +78,10 @@ func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string,
 				return { status: "navigating", ready: false, success: false };
 			}
 
-			// 1.5. Prevent duplicate trigger loops if already dispatched
-			if (window.__swissCDPRevivalSent || window.__swissRevivalDispatched) {
+			// 1.5. Prevent duplicate trigger loops for the exact same intent
+			window.__swissDispatchedIntents = window.__swissDispatchedIntents || {};
+			const intentKey = %q;
+			if (window.__swissDispatchedIntents[intentKey]) {
 				return { status: "already_sent", ready: true, success: true };
 			}
 
@@ -92,55 +95,68 @@ func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string,
 				return { status: "waiting_for_editor", ready: false, success: false };
 			}
 
-			// 3. Check if agent is already actively generating, subagents are running, or messages are queued
+			// 3. Check if agent is already actively generating or messages are queued
 			const isBusyOrQueued = Array.from(document.querySelectorAll("*")).some(el =>
 				el.children.length === 0 && (
 					el.textContent.includes("Queued Messages") ||
-					el.textContent.includes("Sends after agent finishes") ||
-					el.textContent.includes("subagents running") ||
-					el.textContent.includes("Running ...")
+					el.textContent.includes("Sends after agent finishes")
 				)
 			);
-			const generating = isBusyOrQueued ||
-							   document.querySelector('[data-tooltip-id="input-send-button-cancel-tooltip"]') ||
-							   document.querySelector('[data-testid="send-button-pending"]') ||
+			const cancelBtn = document.querySelector('[data-tooltip-id="input-send-button-cancel-tooltip"]');
+			const pendingSend = document.querySelector('[data-testid="send-button-pending"]');
+			const generating = isBusyOrQueued || cancelBtn || pendingSend ||
 							   document.querySelector('[data-testid="agent-generating"]') ||
 							   document.querySelector('[data-testid="stop-button"]');
 			if (generating) {
-				window.__swissCDPRevivalSent = true;
-				window.__swissRevivalDispatched = true;
-				return { status: "already_running_or_queued", ready: true, success: true };
+				// Wait for agent to finish generating before injecting continuation prompt
+				return { status: "waiting_for_agent_idle", ready: false, success: false };
 			}
 
 			// 4. Check if interactive questionnaire continue button is present
 			const interactBtn = document.querySelector('[data-testid="interaction-continue-button"]');
 			if (interactBtn && !interactBtn.disabled) {
-				window.__swissCDPRevivalSent = true;
-				window.__swissRevivalDispatched = true;
+				window.__swissDispatchedIntents[intentKey] = Date.now();
 				interactBtn.click();
 				return { status: "clicked_interaction_continue", ready: true, success: true };
 			}
 
 			// 5. Inject continuation prompt into Lexical editor
-			window.__swissCDPRevivalSent = true;
-			window.__swissRevivalDispatched = true;
 			const promptText = %q;
 			if (editor.isContentEditable) {
 				editor.focus();
+				const sel = window.getSelection();
+				if (sel) {
+					const range = document.createRange();
+					range.selectNodeContents(editor);
+					range.collapse(false);
+					sel.removeAllRanges();
+					sel.addRange(range);
+				}
 				document.execCommand("insertText", false, promptText);
-				editor.dispatchEvent(new Event("input", { bubbles: true }));
+				try {
+					editor.dispatchEvent(new InputEvent("beforeinput", {
+						inputType: "insertText",
+						data: promptText,
+						bubbles: true,
+						cancelable: true
+					}));
+				} catch (_) {}
+				editor.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
 			} else {
 				editor.focus();
 				editor.value = promptText;
 				editor.dispatchEvent(new Event("input", { bubbles: true }));
+				editor.dispatchEvent(new Event("change", { bubbles: true }));
 			}
 
 			// 6. Wait/poll until send button is enabled (Lexical enables it async after processing input)
 			for (let i = 0; i < 35; i++) {
 				const sendBtn = document.querySelector('[data-testid="send-button"]') ||
+								document.querySelector('[data-tooltip-id*="send-tooltip"]') ||
 								document.querySelector('button[aria-label*="Send" i]') ||
 								document.querySelector('.chat-input-toolbar button:last-child');
-				if (sendBtn && !sendBtn.disabled) {
+				if (sendBtn && !sendBtn.disabled && !sendBtn.matches('[data-tooltip-id="input-send-button-cancel-tooltip"]')) {
+					window.__swissDispatchedIntents[intentKey] = Date.now();
 					sendBtn.click();
 					return { status: "clicked_send_button", ready: true, success: true };
 				}
@@ -149,10 +165,12 @@ func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string,
 
 			// 7. If send button is present, enable and click directly
 			const finalBtn = document.querySelector('[data-testid="send-button"]') ||
+							document.querySelector('[data-tooltip-id*="send-tooltip"]') ||
 							document.querySelector('button[aria-label*="Send" i]') ||
 							document.querySelector('.chat-input-toolbar button:last-child');
-			if (finalBtn) {
+			if (finalBtn && !finalBtn.matches('[data-tooltip-id="input-send-button-cancel-tooltip"]')) {
 				finalBtn.disabled = false;
+				window.__swissDispatchedIntents[intentKey] = Date.now();
 				finalBtn.click();
 				return { status: "clicked_send_button_forced", ready: true, success: true };
 			}
@@ -161,7 +179,7 @@ func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string,
 		} catch (err) {
 			return { status: "error", error: String(err), ready: false, success: false };
 		}
-	})()`, targetPath, prompt)
+	})()`, targetPath, intentKey, prompt)
 
 	for time.Now().Before(deadline) {
 		_, targets, err := c.TargetFinder(c.CustomPort)

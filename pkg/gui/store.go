@@ -64,6 +64,12 @@ func (s *Store) load() error {
 	}
 	var raw map[string]interface{}
 	if err := json.Unmarshal(data, &raw); err == nil {
+		if _, ok := raw["enabled"]; !ok {
+			cfg.Enabled = true
+		}
+		if _, ok := raw["color_styling_enabled"]; !ok {
+			cfg.ColorStylingEnabled = true
+		}
 		if _, ok := raw["active_conversation_bold"]; !ok {
 			cfg.ActiveConversationBold = false
 		}

@@ -1152,13 +1152,6 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     async function checkAndExecuteConversationRevival() {
       checkAndRecoverFromNonexistentConversation();
 
-      if (window.__swissRevivalDispatched || window.__swissCDPRevivalSent) {
-        if (window.__swissRevivalInterval) {
-          clearInterval(window.__swissRevivalInterval);
-          window.__swissRevivalInterval = null;
-        }
-        return;
-      }
       if (autoRevivalInFlight) return;
       const now = Date.now();
       if (now - lastRevivalCheckTime < 1500) return;
@@ -1192,6 +1185,12 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         const convID = pending.root_conversation_id || pending.cascade_id;
         if (!convID || pending.resumed || pending.status === "revived") return;
 
+        const intentKey = pending.intent_id || (convID + "_" + (pending.timestamp || pending.created_at || "0"));
+        window.__swissDispatchedIntents = window.__swissDispatchedIntents || {};
+        if (window.__swissDispatchedIntents[intentKey]) {
+          return;
+        }
+
         // Strictly validate convID: reject non-UUID stubs (test-webgui-conv, test, etc.)
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         if (!uuidRegex.test(convID)) {
@@ -1202,12 +1201,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         }
 
         try {
-          if (sessionStorage.getItem("antigravity_swiss_revived_" + convID)) {
-            window.__swissRevivalDispatched = true;
-            if (window.__swissRevivalInterval) {
-              clearInterval(window.__swissRevivalInterval);
-              window.__swissRevivalInterval = null;
-            }
+          if (sessionStorage.getItem("antigravity_swiss_revived_intent_" + intentKey)) {
+            window.__swissDispatchedIntents[intentKey] = Date.now();
             await ackContinuation(convID);
             return;
           }
@@ -1271,38 +1266,27 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
                        document.querySelector('textarea[placeholder*="Ask"]');
         if (!convView || !editor) return;
 
-        // 3. Verify agent is not already generating, streaming, running subagents, or has queued messages
+        // 3. Verify agent is not actively generating or has queued messages
         const isBusyOrQueued = Array.from(document.querySelectorAll("*")).some(el =>
           el.children.length === 0 && (
             el.textContent.includes("Queued Messages") ||
-            el.textContent.includes("Sends after agent finishes") ||
-            el.textContent.includes("subagents running") ||
-            el.textContent.includes("Running ...")
+            el.textContent.includes("Sends after agent finishes")
           )
         );
         const cancelBtn = document.querySelector('[data-tooltip-id="input-send-button-cancel-tooltip"]');
         const pendingSend = document.querySelector('[data-testid="send-button-pending"]');
         const generating = document.querySelector('[data-testid="agent-generating"], [data-testid="stop-button"]');
         if (isBusyOrQueued || cancelBtn || pendingSend || generating) {
-          window.__swissRevivalDispatched = true;
-          try { sessionStorage.setItem("antigravity_swiss_revived_" + convID, "true"); } catch (_) {}
-          if (window.__swissRevivalInterval) {
-            clearInterval(window.__swissRevivalInterval);
-            window.__swissRevivalInterval = null;
-          }
-          await ackContinuation(convID);
+          // Conversation is currently in progress; wait for it to become idle.
+          // Do not ack or clear interval!
           return;
         }
 
         // Check if trigger prompt is empty (idle conversation preserved across switch/restart)
         const triggerPrompt = pending.trigger_prompt !== undefined ? pending.trigger_prompt : (pending.prompt !== undefined ? pending.prompt : "");
         if (!triggerPrompt || triggerPrompt.trim() === '') {
-          window.__swissRevivalDispatched = true;
-          try { sessionStorage.setItem("antigravity_swiss_revived_" + convID, "true"); } catch (_) {}
-          if (window.__swissRevivalInterval) {
-            clearInterval(window.__swissRevivalInterval);
-            window.__swissRevivalInterval = null;
-          }
+          window.__swissDispatchedIntents[intentKey] = Date.now();
+          try { sessionStorage.setItem("antigravity_swiss_revived_intent_" + intentKey, "true"); } catch (_) {}
           await ackContinuation(convID);
           return;
         }
@@ -1310,12 +1294,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         // 4. Check if interactive questionnaire continue button is present
         const interactBtn = document.querySelector('[data-testid="interaction-continue-button"]');
         if (interactBtn && !interactBtn.disabled) {
-          window.__swissRevivalDispatched = true;
-          try { sessionStorage.setItem("antigravity_swiss_revived_" + convID, "true"); } catch (_) {}
-          if (window.__swissRevivalInterval) {
-            clearInterval(window.__swissRevivalInterval);
-            window.__swissRevivalInterval = null;
-          }
+          window.__swissDispatchedIntents[intentKey] = Date.now();
+          try { sessionStorage.setItem("antigravity_swiss_revived_intent_" + intentKey, "true"); } catch (_) {}
           autoRevivalInFlight = true;
           interactBtn.click();
           await ackContinuation(convID);
@@ -1325,23 +1305,33 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
         // 5. Inject prompt into editor and click send
         autoRevivalInFlight = true;
-        window.__swissRevivalDispatched = true;
-        try { sessionStorage.setItem("antigravity_swiss_revived_" + convID, "true"); } catch (_) {}
-        if (window.__swissRevivalInterval) {
-          clearInterval(window.__swissRevivalInterval);
-          window.__swissRevivalInterval = null;
-        }
-
         const promptText = triggerPrompt || "Please continue ongoing tasks and subagents.";
 
         if (editor.isContentEditable) {
           editor.focus();
+          const sel = window.getSelection();
+          if (sel) {
+            const range = document.createRange();
+            range.selectNodeContents(editor);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
           document.execCommand("insertText", false, promptText);
-          editor.dispatchEvent(new Event("input", { bubbles: true }));
+          try {
+            editor.dispatchEvent(new InputEvent("beforeinput", {
+              inputType: "insertText",
+              data: promptText,
+              bubbles: true,
+              cancelable: true
+            }));
+          } catch (_) {}
+          editor.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
         } else {
           editor.focus();
           editor.value = promptText;
           editor.dispatchEvent(new Event("input", { bubbles: true }));
+          editor.dispatchEvent(new Event("change", { bubbles: true }));
         }
 
         (async () => {
@@ -1349,9 +1339,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             let sent = false;
             for (let i = 0; i < 35; i++) {
               const sendBtn = document.querySelector('[data-testid="send-button"]') ||
+                              document.querySelector('[data-tooltip-id*="send-tooltip"]') ||
                               document.querySelector('button[aria-label*="Send" i]') ||
                               document.querySelector('.chat-input-toolbar button:last-child');
-              if (sendBtn && !sendBtn.disabled) {
+              if (sendBtn && !sendBtn.disabled && !sendBtn.matches('[data-tooltip-id="input-send-button-cancel-tooltip"]')) {
                 sendBtn.click();
                 sent = true;
                 break;
@@ -1361,9 +1352,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
             if (!sent) {
               const finalBtn = document.querySelector('[data-testid="send-button"]') ||
+                              document.querySelector('[data-tooltip-id*="send-tooltip"]') ||
                               document.querySelector('button[aria-label*="Send" i]') ||
                               document.querySelector('.chat-input-toolbar button:last-child');
-              if (finalBtn) {
+              if (finalBtn && !finalBtn.matches('[data-tooltip-id="input-send-button-cancel-tooltip"]')) {
                 finalBtn.disabled = false;
                 finalBtn.click();
                 sent = true;
@@ -1371,6 +1363,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             }
 
             if (sent) {
+              window.__swissDispatchedIntents[intentKey] = Date.now();
+              try { sessionStorage.setItem("antigravity_swiss_revived_intent_" + intentKey, "true"); } catch (_) {}
               await ackContinuation(convID);
             }
           } catch (err) {

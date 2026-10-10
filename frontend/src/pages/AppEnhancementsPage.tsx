@@ -250,7 +250,16 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
       }
       setConfig(data)
       setProjects((projList || []).map((p) => p.name))
-      if (gData) setGuiConfig(gData)
+      if (gData) {
+        setGuiConfig({
+          ...gData,
+          enabled: gData.enabled ?? true,
+          color_styling_enabled: gData.color_styling_enabled ?? true,
+          replace_see_all_triangle: gData.replace_see_all_triangle ?? true,
+          consistent_project_spacing: gData.consistent_project_spacing ?? true,
+          consistent_project_spacing_line: gData.consistent_project_spacing_line ?? true,
+        })
+      }
     } catch (err: any) {
       setStatusMsg({ text: 'Failed to load enhancements config: ' + err.message, type: 'error' })
     } finally {
@@ -979,17 +988,18 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
             </div>
 
             <ToggleSwitch
-              checked={guiConfig.color_styling_enabled}
+              checked={guiConfig.color_styling_enabled ?? true}
               onChange={(checked) =>
                 setGuiConfig({
                   ...guiConfig,
                   color_styling_enabled: checked,
+                  enabled: checked,
                 })
               }
             />
           </div>
 
-          {guiConfig.color_styling_enabled && (
+          {(guiConfig.color_styling_enabled ?? true) && (
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 1px 360px', gap: '24px 12px', alignItems: 'stretch', marginTop: '16px' }}>
               {/* Settings Controls */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
