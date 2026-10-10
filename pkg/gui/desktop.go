@@ -324,8 +324,39 @@ func copyFile(src, dst string) error {
 	return os.Rename(tmpName, dst)
 }
 
+func findNpxExecutable() string {
+	if p, err := exec.LookPath("npx"); err == nil {
+		return p
+	}
+	home := os.Getenv("HOME")
+	if home != "" {
+		globs := []string{
+			filepath.Join(home, ".config", "nvm", "versions", "node", "*", "bin", "npx"),
+			filepath.Join(home, ".nvm", "versions", "node", "*", "bin", "npx"),
+			filepath.Join(home, ".local", "share", "fnm", "current", "bin", "npx"),
+			filepath.Join(home, ".volta", "bin", "npx"),
+			filepath.Join(home, ".local", "bin", "npx"),
+		}
+		for _, pattern := range globs {
+			if matches, _ := filepath.Glob(pattern); len(matches) > 0 {
+				return matches[len(matches)-1]
+			}
+		}
+	}
+	for _, cand := range []string{"/usr/local/bin/npx", "/usr/bin/npx", "/bin/npx"} {
+		if fileExists(cand) {
+			return cand
+		}
+	}
+	return "npx"
+}
+
 func runAsarExtract(asarPath, destDir string) error {
-	cmd := exec.Command("npx", "--yes", "@electron/asar", "extract", asarPath, destDir)
+	npxBin := findNpxExecutable()
+	cmd := exec.Command(npxBin, "--yes", "@electron/asar", "extract", asarPath, destDir)
+	if dir := filepath.Dir(npxBin); dir != "" {
+		cmd.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
+	}
 	var errBuf bytes.Buffer
 	cmd.Stderr = &errBuf
 	if err := cmd.Run(); err != nil {
@@ -335,7 +366,11 @@ func runAsarExtract(asarPath, destDir string) error {
 }
 
 func runAsarPack(srcDir, destAsar string) error {
-	cmd := exec.Command("npx", "--yes", "@electron/asar", "pack", srcDir, destAsar, "--unpack-dir", "node_modules/chrome-devtools-mcp")
+	npxBin := findNpxExecutable()
+	cmd := exec.Command(npxBin, "--yes", "@electron/asar", "pack", srcDir, destAsar, "--unpack-dir", "node_modules/chrome-devtools-mcp")
+	if dir := filepath.Dir(npxBin); dir != "" {
+		cmd.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
+	}
 	var errBuf bytes.Buffer
 	cmd.Stderr = &errBuf
 	if err := cmd.Run(); err != nil {

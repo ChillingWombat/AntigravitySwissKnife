@@ -198,7 +198,7 @@ func (at *AgentTracker) ListWorkspaceTasks(workspacePath string) ([]AgentTaskSum
 			title = workItem
 		}
 
-		if boundIssue == 0 && len(workingIssues) > 0 {
+		if boundIssue == 0 && len(workingIssues) == 1 {
 			boundIssue = workingIssues[0]
 		} else if boundIssue > 0 && len(workingIssues) == 0 {
 			workingIssues = []int{boundIssue}
@@ -629,7 +629,7 @@ var (
 
 	issueRegexStrict = regexp.MustCompile(`(?i)(?:issue\s*#?|issues/|issue:)\s*(\d+)`)
 	prRegexStrict    = regexp.MustCompile(`(?i)(?:pr\s*#?|pull/|pull\s+request\s*#?|pr:)\s*(\d+)`)
-	genericNumRegex  = regexp.MustCompile(`(?:#)(\d+)`)
+	fixesRegex       = regexp.MustCompile(`(?i)(?:fixes|fixed|closes|closed|resolves|resolved)\s*#(\d+)`)
 	branchRefRegex   = regexp.MustCompile(`(?i)(?:feature|wip|fix|bugfix)/(?:[a-zA-Z0-9_-]+/)?(?:issue-|pr-)?(\d+)-`)
 	commitRefRegex   = regexp.MustCompile(`\(#(\d+)\)`)
 )
@@ -749,26 +749,14 @@ func extractTaskAndWorkItemsFromTranscript(convID string, extraPrompt string) (s
 		}
 		for _, m := range commitRefRegex.FindAllStringSubmatch(text, -1) {
 			if len(m) > 1 {
-				if num, err := strconv.Atoi(m[1]); err == nil && num > 0 && num < 1000 {
+				if num, err := strconv.Atoi(m[1]); err == nil && num > 0 && num < 10000 {
 					issueSet[num] = true
 				}
 			}
 		}
-		for _, m := range genericNumRegex.FindAllStringSubmatch(text, -1) {
+		for _, m := range fixesRegex.FindAllStringSubmatch(text, -1) {
 			if len(m) > 1 {
-				if num, err := strconv.Atoi(m[1]); err == nil && num > 0 && num < 1000 {
-					idx := strings.Index(text, m[0])
-					if idx > 0 {
-						start := idx - 10
-						if start < 0 {
-							start = 0
-						}
-						prefix := strings.ToLower(text[start:idx])
-						if strings.Contains(prefix, "pr") || strings.Contains(prefix, "pull") {
-							prSet[num] = true
-							continue
-						}
-					}
+				if num, err := strconv.Atoi(m[1]); err == nil && num > 0 && num < 10000 {
 					issueSet[num] = true
 				}
 			}
@@ -781,25 +769,19 @@ func extractTaskAndWorkItemsFromTranscript(convID string, extraPrompt string) (s
 
 	if err == nil {
 		lines := strings.Split(string(data), "\n")
-		for i, line := range lines {
-			if i > 80 {
-				break
-			}
+		for _, line := range lines {
 			trimmed := strings.TrimSpace(line)
 			if trimmed == "" {
 				continue
 			}
 			var step struct {
-				Content   string `json:"content"`
-				Role      string `json:"role"`
-				Type      string `json:"type"`
-				ToolCalls []struct {
-					Name string                 `json:"name"`
-					Args map[string]interface{} `json:"args"`
-				} `json:"tool_calls"`
+				Content string `json:"content"`
+				Role    string `json:"role"`
+				Type    string `json:"type"`
 			}
 			if err := json.Unmarshal([]byte(trimmed), &step); err == nil {
-				if step.Content != "" {
+				isUserInput := step.Type == "USER_INPUT" || step.Role == "user"
+				if isUserInput && step.Content != "" {
 					c := step.Content
 					if idx := strings.Index(c, "content="); idx != -1 {
 						c = c[idx+len("content="):]
@@ -813,13 +795,6 @@ func extractTaskAndWorkItemsFromTranscript(convID string, extraPrompt string) (s
 						workItem = strings.TrimSpace(firstLine)
 					}
 					scanText(step.Content)
-				}
-				for _, tc := range step.ToolCalls {
-					if tc.Args != nil {
-						if b, err := json.Marshal(tc.Args); err == nil {
-							scanText(string(b))
-						}
-					}
 				}
 			}
 		}

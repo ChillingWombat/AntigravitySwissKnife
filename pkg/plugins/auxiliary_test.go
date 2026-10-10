@@ -808,15 +808,18 @@ func TestGenerateAuxiliaryPluginsScript_MemoViewAndTelemetryBadge(t *testing.T) 
 		}
 	}
 
-	// In-chat telemetry badge checks
+	// In-chat real telemetry metrics checks (Requirement 3.3)
 	telemetryChecks := []string{
-		`<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>`,
-		`tokens (Prompt:`,
-		`swiss-telemetry-badge`,
+		`swiss-inchat-metrics`,
+		`Input Tokens:`,
+		`Output Tokens:`,
+		`Cache Hit Ratio:`,
+		`Generation Speed:`,
+		`/api/tokens/chat-metrics`,
 	}
 	for _, token := range telemetryChecks {
 		if !strings.Contains(js, token) {
-			t.Errorf("expected script to contain telemetry badge token %q", token)
+			t.Errorf("expected script to contain in-chat telemetry metric token %q", token)
 		}
 	}
 

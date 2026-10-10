@@ -772,10 +772,19 @@ func (inj *Injector) RestoreConversationPath(targetPath string, maxWait time.Dur
 
 			if (!viewReady) {
 				const now = Date.now();
-				if (curPath.startsWith("/onboarding")) {
+				const convId = targetPathOnly.replace(/^\/c\//, "");
+				const link = document.querySelector('a[href*="' + convId + '"]');
+				if (link && typeof link.click === "function") {
+					window.__swissLastRestoreNudge = now;
+					link.click();
+				} else if (curPath.startsWith("/onboarding")) {
 					if (!window.__swissLastOnboardingNudge || (now - window.__swissLastOnboardingNudge) > 1500) {
 						window.__swissLastOnboardingNudge = now;
-						window.location.assign(targetPath);
+						if (window.location && typeof window.location.assign === "function") {
+							window.location.assign(targetPath);
+						} else {
+							window.history.replaceState(window.history.state, "", targetPath);
+						}
 					}
 				} else if (curPath !== targetPathOnly) {
 					window.__swissLastRestoreNudge = now;

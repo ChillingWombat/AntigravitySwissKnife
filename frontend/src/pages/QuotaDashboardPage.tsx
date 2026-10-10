@@ -176,7 +176,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
       if (electronAPI?.launchAntigravity) {
         res = await electronAPI.launchAntigravity()
       } else {
-        res = await api.relaunchHostIDE()
+        res = await api.launchHostIDE()
       }
       if (res && res.success === false) {
         throw new Error(res.error || res.message || 'Launch request failed')

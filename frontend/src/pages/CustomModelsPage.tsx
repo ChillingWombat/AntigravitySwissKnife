@@ -92,6 +92,12 @@ export const CustomModelsPage: React.FC = () => {
   const [baseUrl, setBaseUrl] = useState<string>('')
   const [apiKey, setApiKey] = useState<string>('')
   const [customQuotaEndpoint, setCustomQuotaEndpoint] = useState<string>('')
+  const [isFetchingCustomQuota, setIsFetchingCustomQuota] = useState<boolean>(false)
+  const [customQuotaFeedback, setCustomQuotaFeedback] = useState<{
+    type: 'loading' | 'success' | 'error'
+    message: string
+    latencyMs?: number
+  } | null>(null)
   const [isDefault, setIsDefault] = useState<boolean>(false)
   const [enabled, setEnabled] = useState<boolean>(true)
   const [contextWindow, setContextWindow] = useState<number>(1048576)
@@ -207,6 +213,8 @@ export const CustomModelsPage: React.FC = () => {
     setBaseUrl('')
     setApiKey('')
     setCustomQuotaEndpoint('')
+    setIsFetchingCustomQuota(false)
+    setCustomQuotaFeedback(null)
     setIsDefault((config?.models?.length ?? 0) === 0)
     setEnabled(false)
     setContextWindow(1048576)
@@ -244,6 +252,8 @@ export const CustomModelsPage: React.FC = () => {
     setBaseUrl(model.base_url)
     setApiKey(model.api_key || '')
     setCustomQuotaEndpoint(model.custom_quota_endpoint || '')
+    setIsFetchingCustomQuota(false)
+    setCustomQuotaFeedback(null)
     setIsDefault(isModelDefault(model))
     setEnabled(model.enabled)
     setContextWindow(model.context_window || 1048576)
@@ -499,6 +509,110 @@ export const CustomModelsPage: React.FC = () => {
       setModalError(`Failed to auto-fetch quota & price: ${err.message || 'Network error'}`)
     } finally {
       setIsFetchingQuotaPrice(false)
+    }
+  }
+
+  const handleFetchCustomQuotaEndpoint = async () => {
+    const ep = customQuotaEndpoint.trim()
+    if (!ep) {
+      setCustomQuotaFeedback({
+        type: 'error',
+        message: 'Please enter a custom quota endpoint URL first.',
+      })
+      return
+    }
+
+    setIsFetchingCustomQuota(true)
+    setCustomQuotaFeedback({
+      type: 'loading',
+      message: 'Probing endpoint...',
+    })
+
+    const startTime = performance.now()
+    const effectiveProvider = providerType || (baseUrl.trim() ? inferProviderType(baseUrl.trim()) : 'custom')
+    const draftModel: CustomModel = {
+      id: editingModel?.id || 'draft-quota',
+      name: modelName.trim() || 'custom-model',
+      display_name: displayName.trim() || modelName.trim() || 'Custom Model',
+      provider_type: effectiveProvider,
+      base_url: baseUrl.trim() || ep,
+      api_key: apiKey.trim(),
+      custom_quota_endpoint: ep,
+      project_mappings: ['*'],
+      quota_type: quotaType,
+      prepaid_balance: 0,
+      total_budget: 0,
+      quota_fraction: null,
+      is_default: isDefault,
+      enabled: enabled,
+    }
+
+    try {
+      const res = await api.fetchCustomModelQuota(draftModel)
+      const latencyMs = Math.round(performance.now() - startTime)
+      if (res) {
+        if (!quotaManualOverride) {
+          const normType = normalizeQuotaType(res.quota_type)
+          setQuotaType(normType)
+          if (normType === 'na') {
+            setBalanceValue('')
+            setQuotaValue('')
+            setQuotaFraction(null)
+          } else {
+            if (res.balance_value) setBalanceValue(res.balance_value)
+            if (res.quota_value) setQuotaValue(res.quota_value)
+            if (res.fraction !== null && res.fraction !== undefined) {
+              setQuotaFraction(res.fraction)
+            }
+          }
+        }
+        if (res.input_price_per_m !== undefined && res.input_price_per_m !== null) {
+          setInputPricePerM(res.input_price_per_m)
+          setCachedInputPricePerM(res.cached_input_price_per_m ?? null)
+          setOutputPricePerM(res.output_price_per_m ?? null)
+          setPriceSource(res.price_source || 'provider')
+        }
+
+        const isSuccess =
+          res.quota_type !== 'na' ||
+          !!res.balance_value ||
+          !!res.quota_value ||
+          (res.fraction !== null && res.fraction !== undefined)
+
+        if (isSuccess) {
+          const summary = res.balance_value
+            ? `Balance: ${res.balance_value}`
+            : res.quota_value
+            ? `Quota: ${res.quota_value}`
+            : res.message || 'Usage info retrieved successfully.'
+          setCustomQuotaFeedback({
+            type: 'success',
+            message: summary,
+            latencyMs,
+          })
+        } else {
+          setCustomQuotaFeedback({
+            type: 'error',
+            message: res.message || 'No quota or balance metrics discovered at endpoint.',
+            latencyMs,
+          })
+        }
+      } else {
+        setCustomQuotaFeedback({
+          type: 'error',
+          message: 'No response from quota probe.',
+          latencyMs,
+        })
+      }
+    } catch (err: any) {
+      const latencyMs = Math.round(performance.now() - startTime)
+      setCustomQuotaFeedback({
+        type: 'error',
+        message: err?.message || 'Connection failed',
+        latencyMs,
+      })
+    } finally {
+      setIsFetchingCustomQuota(false)
     }
   }
 
@@ -1927,24 +2041,112 @@ export const CustomModelsPage: React.FC = () => {
 
                       {/* Custom Quota Endpoint */}
                       <div style={{ marginTop: '10px' }}>
-                        <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '3px' }}>
+                        <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
                           Custom Quota Endpoint (optional):
                         </label>
-                        <input
-                          type="text"
-                          placeholder="e.g. https://api.example.com/v1/usage or https://api.example.com/dashboard/billing/subscription"
-                          value={customQuotaEndpoint}
-                          onChange={(e) => setCustomQuotaEndpoint(e.target.value)}
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <input
+                            type="text"
+                            placeholder="e.g. https://api.example.com/v1/usage or https://api.example.com/dashboard/billing/subscription"
+                            value={customQuotaEndpoint}
+                            onChange={(e) => {
+                              setCustomQuotaEndpoint(e.target.value)
+                              if (customQuotaFeedback) setCustomQuotaFeedback(null)
+                            }}
+                            style={{
+                              flex: 1,
+                              fontSize: '12px',
+                              padding: '6px 8px',
+                              borderRadius: '4px',
+                              border: '1px solid var(--border)',
+                              fontFamily: 'monospace',
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={handleFetchCustomQuotaEndpoint}
+                            disabled={isFetchingCustomQuota || !customQuotaEndpoint.trim()}
+                            className="btn-pill-tonal"
+                            style={{
+                              height: '30px',
+                              padding: '0 12px',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              whiteSpace: 'nowrap',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              cursor: isFetchingCustomQuota || !customQuotaEndpoint.trim() ? 'not-allowed' : 'pointer',
+                              opacity: !customQuotaEndpoint.trim() ? 0.6 : 1,
+                              flexShrink: 0,
+                              borderRadius: '4px',
+                              border: '1px solid var(--border)',
+                              backgroundColor: '#f8f9fa',
+                              color: 'var(--text)',
+                            }}
+                          >
+                            {isFetchingCustomQuota ? (
+                              <>
+                                <Loader2 size={13} className="animate-spin" />
+                                <span>Fetching...</span>
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw size={13} />
+                                <span>Fetch</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                        {/* Inline loading / status feedback without disruptive layout shift */}
+                        <div
                           style={{
-                            width: '100%',
-                            fontSize: '12px',
-                            padding: '6px 8px',
-                            borderRadius: '4px',
-                            border: '1px solid var(--border)',
-                            fontFamily: 'monospace',
-                            boxSizing: 'border-box',
+                            minHeight: '20px',
+                            marginTop: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            fontSize: '11px',
                           }}
-                        />
+                        >
+                          {customQuotaFeedback ? (
+                            <div
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                color:
+                                  customQuotaFeedback.type === 'success'
+                                    ? '#137333'
+                                    : customQuotaFeedback.type === 'error'
+                                    ? '#d93025'
+                                    : 'var(--text-muted)',
+                                fontWeight: 500,
+                              }}
+                            >
+                              {customQuotaFeedback.type === 'loading' && (
+                                <Loader2 size={12} className="animate-spin" />
+                              )}
+                              {customQuotaFeedback.type === 'success' && (
+                                <CheckCircle2 size={12} color="#137333" />
+                              )}
+                              {customQuotaFeedback.type === 'error' && (
+                                <AlertCircle size={12} color="#d93025" />
+                              )}
+                              <span>
+                                {customQuotaFeedback.type === 'success' && customQuotaFeedback.latencyMs !== undefined
+                                  ? `Success (${customQuotaFeedback.latencyMs}ms): ${customQuotaFeedback.message}`
+                                  : customQuotaFeedback.type === 'error' && customQuotaFeedback.latencyMs !== undefined
+                                  ? `Failed (${customQuotaFeedback.latencyMs}ms): ${customQuotaFeedback.message}`
+                                  : customQuotaFeedback.message}
+                              </span>
+                            </div>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)' }}>
+                              Direct JSON endpoint returning balance, credits, or remaining quota.
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
 

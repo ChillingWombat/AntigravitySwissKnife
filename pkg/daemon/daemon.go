@@ -627,6 +627,28 @@ func (d *Daemon) registerRPCHandlers() {
 	d.Server.Register("swiss.relaunchIDE", relaunchHandler)
 	d.Server.Register("desktop.relaunch", relaunchHandler)
 
+	// Host IDE Launch (if not running)
+	launchHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+		if d.Shield == nil {
+			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: "shield manager not initialized"}
+		}
+		if os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" {
+			return map[string]interface{}{
+				"success": true,
+				"message": "Antigravity host IDE launch skipped (dry run)",
+			}, nil
+		}
+		if err := d.Shield.LaunchHostIDE(); err != nil {
+			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
+		}
+		return map[string]interface{}{
+			"success": true,
+			"message": "Antigravity host IDE launch initiated",
+		}, nil
+	}
+	d.Server.Register("swiss.launchIDE", launchHandler)
+	d.Server.Register("desktop.launch", launchHandler)
+
 	// Active Conversations & Subagent State Detection
 	getActiveConversationsHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		targetApp := ""

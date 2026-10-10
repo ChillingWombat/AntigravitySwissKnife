@@ -132,7 +132,7 @@ describe('Launch Antigravity 2.0 Button in Switcher Status Gadget', () => {
       'Button must be disabled while launch request is in flight'
     )
     assert.ok(
-      pageSrc.includes('api.relaunchHostIDE()') || pageSrc.includes('electronAPI?.launchAntigravity'),
+      pageSrc.includes('api.launchHostIDE()') || pageSrc.includes('api.relaunchHostIDE()') || pageSrc.includes('electronAPI?.launchAntigravity'),
       'Must call launch Antigravity API'
     )
     assert.ok(

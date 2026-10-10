@@ -556,7 +556,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('desktop:launch-antigravity', async () => {
     try {
-      const res = await fetch(`${DAEMON_URL}/api/desktop/relaunch`, { method: 'POST' });
+      const res = await fetch(`${DAEMON_URL}/api/desktop/launch`, { method: 'POST' });
       return await res.json();
     } catch (err) {
       console.warn('[Electron] Failed to trigger relaunch via daemon, attempting fallback:', err.message);

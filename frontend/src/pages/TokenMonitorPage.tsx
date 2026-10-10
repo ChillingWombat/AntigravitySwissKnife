@@ -1,12 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
-  Zap,
   Download,
   RefreshCw,
   CheckCircle2,
-  Sparkles,
-  Activity,
-  CornerDownRight,
   Trash2,
 } from 'lucide-react'
 import type {
@@ -61,11 +57,15 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   const [isSavingPricing, setIsSavingPricing] = useState(false)
   const [isIoHovered, setIsIoHovered] = useState(false)
 
-  // Subagent Aggregation Simulator interactive state
-  const [simOrchestratorTokens, setSimOrchestratorTokens] = useState(4200)
-  const [simSubagentsCount, setSimSubagentsCount] = useState(2)
-  const [simSubagentAvgTokens, setSimSubagentAvgTokens] = useState(6500)
-  const [simCachedRatio, setSimCachedRatio] = useState(65) // 65%
+  // In-Chat Telemetry Display settings state
+  const [chatTelemetryInputTokens, setChatTelemetryInputTokens] = useState<boolean>(true)
+  const [chatTelemetryOutputTokens, setChatTelemetryOutputTokens] = useState<boolean>(true)
+  const [chatTelemetryCacheHitRatio, setChatTelemetryCacheHitRatio] = useState<boolean>(true)
+  const [chatTelemetryGenerationSpeed, setChatTelemetryGenerationSpeed] = useState<boolean>(true)
+  const [chatTelemetryScope, setChatTelemetryScope] = useState<'aggregated' | 'main_only'>('aggregated')
+
+  // Telemetry Log filter state (All, Main Agent, Sub-Agents)
+  const [logFilter, setLogFilter] = useState<'all' | 'main' | 'subagents'>('all')
 
   // Real Token Usage Summary
   const [summary, setSummary] = useState<TokenSummaryResponse>({
@@ -128,11 +128,20 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
 
   const loadLiveMetrics = async () => {
     try {
-      const [summaryData, rulesData, customModelsData] = await Promise.all([
+      const [summaryData, rulesData, customModelsData, guiConfigData] = await Promise.all([
         api.getTokenSummary().catch(() => null),
         api.getRules().catch(() => null),
         api.getCustomModels().catch(() => null),
+        api.getGUIConfig().catch(() => null),
       ])
+
+      if (guiConfigData) {
+        if (guiConfigData.chat_telemetry_input_tokens !== undefined) setChatTelemetryInputTokens(guiConfigData.chat_telemetry_input_tokens)
+        if (guiConfigData.chat_telemetry_output_tokens !== undefined) setChatTelemetryOutputTokens(guiConfigData.chat_telemetry_output_tokens)
+        if (guiConfigData.chat_telemetry_cache_hit_ratio !== undefined) setChatTelemetryCacheHitRatio(guiConfigData.chat_telemetry_cache_hit_ratio)
+        if (guiConfigData.chat_telemetry_generation_speed !== undefined) setChatTelemetryGenerationSpeed(guiConfigData.chat_telemetry_generation_speed)
+        if (guiConfigData.chat_telemetry_scope !== undefined) setChatTelemetryScope(guiConfigData.chat_telemetry_scope)
+      }
 
       if (rulesData) {
         if (rulesData.default_gemini_model) {
@@ -173,6 +182,41 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
     const interval = setInterval(loadLiveMetrics, 30_000)
     return () => clearInterval(interval)
   }, [])
+
+  const handleUpdateTelemetrySetting = async (key: string, value: any) => {
+    try {
+      const updates: any = {}
+      if (key === 'input') {
+        setChatTelemetryInputTokens(value)
+        updates.chat_telemetry_input_tokens = value
+      } else if (key === 'output') {
+        setChatTelemetryOutputTokens(value)
+        updates.chat_telemetry_output_tokens = value
+      } else if (key === 'cache') {
+        setChatTelemetryCacheHitRatio(value)
+        updates.chat_telemetry_cache_hit_ratio = value
+      } else if (key === 'speed') {
+        setChatTelemetryGenerationSpeed(value)
+        updates.chat_telemetry_generation_speed = value
+      } else if (key === 'scope') {
+        setChatTelemetryScope(value)
+        updates.chat_telemetry_scope = value
+      }
+      await api.updateGUIConfig(updates)
+    } catch (err) {
+      console.warn('Failed to update in-chat telemetry setting:', err)
+    }
+  }
+
+  const filteredTelemetryEvents = useMemo(() => {
+    if (logFilter === 'main') {
+      return telemetryEvents.filter(e => !e.is_subagent)
+    }
+    if (logFilter === 'subagents') {
+      return telemetryEvents.filter(e => Boolean(e.is_subagent))
+    }
+    return telemetryEvents
+  }, [telemetryEvents, logFilter])
 
   // Handler for Price Refresh (Provider -> 3rd-Party Backup -> Null)
   const handleAutoFetchPrices = async () => {
@@ -307,19 +351,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   }, [trendGroup, trendTopN, modelBreakdowns, projectBreakdowns, unitMode])
 
   const TREND_COLORS = ['#0b57d0', '#137333', '#b06000', '#7e22ce', '#b3261e', '#0f766e', '#0369a1', '#be185d', '#c2410c', '#475569']
-
-  // Subagent aggregation calculation
-  const totalSimPromptTokens = simOrchestratorTokens + simSubagentsCount * simSubagentAvgTokens
-  const totalSimCachedTokens = Math.round(totalSimPromptTokens * (simCachedRatio / 100))
-  const totalSimOutputTokens = Math.round(1800 * (1 + simSubagentsCount * 0.8))
-  const totalSimTokens = totalSimPromptTokens + totalSimOutputTokens
-  const simCostWithCache =
-    (totalSimPromptTokens - totalSimCachedTokens) * (1.25 / 1000000) +
-    totalSimCachedTokens * (0.3125 / 1000000) +
-    totalSimOutputTokens * (5.0 / 1000000)
-  const simCostWithoutCache =
-    totalSimPromptTokens * (1.25 / 1000000) + totalSimOutputTokens * (5.0 / 1000000)
-  const simSavedCost = simCostWithoutCache - simCostWithCache
 
   // Input vs Output Cost breakdown calculation
   const { totalInputCost, totalOutputCost } = useMemo(() => {
@@ -1466,7 +1497,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
       {/* ============================================================ */}
       {activeTab === 1 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* 3. In-Chat Response Token & TPS Display Simulator (Multi-Agent Subagent Aggregator) */}
+          {/* In-Chat Telemetry Display Settings Gadget */}
           <div
             style={{
               backgroundColor: '#ffffff',
@@ -1475,284 +1506,376 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
               padding: '20px',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
-                    In-Chat Token & TPS Telemetry
-                  </h3>
-                </div>
-                <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-                  Injects real-time token and TPS telemetry below response bubbles. Aggregates concurrent subagent tokens automatically.
-                </p>
-              </div>
+            <div style={{ marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
+                In-Chat Telemetry Display
+              </h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
+                Configure real-time per-chat metrics shown at the bottom action row of each assistant response alongside timestamp and copy controls.
+              </p>
             </div>
 
-            {/* Interactive Controls for Simulator */}
+            {/* 2x2 Layout of Metric Toggle Subsections */}
             <div
               style={{
-                backgroundColor: 'var(--tonal)',
-                borderRadius: '8px',
-                padding: '16px',
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                gap: '16px',
+                gridTemplateColumns: 'repeat(2, 1fr)',
+                gap: '12px',
                 marginBottom: '16px',
               }}
             >
-              <div>
-                <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-                  Orchestrator Prompt Tokens: {simOrchestratorTokens.toLocaleString()}
-                </label>
-                <input
-                  type="range"
-                  min={1000}
-                  max={15000}
-                  step={500}
-                  value={simOrchestratorTokens}
-                  onChange={(e) => setSimOrchestratorTokens(Number(e.target.value))}
-                  style={{ width: '100%', accentColor: 'var(--primary)' }}
-                />
+              {/* 1. Input Tokens */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '12px 14px',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  backgroundColor: '#fafafa',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                    Input Tokens
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    Prompt and cached context token volume
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleUpdateTelemetrySetting('input', !chatTelemetryInputTokens)}
+                  style={{
+                    padding: '4px 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '4px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: chatTelemetryInputTokens ? 'var(--primary)' : '#ffffff',
+                    color: chatTelemetryInputTokens ? '#ffffff' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {chatTelemetryInputTokens ? 'Enabled' : 'Disabled'}
+                </button>
               </div>
 
-              <div>
-                <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-                  Subagents Spawned: {simSubagentsCount} agents
-                </label>
-                <input
-                  type="range"
-                  min={0}
-                  max={5}
-                  step={1}
-                  value={simSubagentsCount}
-                  onChange={(e) => setSimSubagentsCount(Number(e.target.value))}
-                  style={{ width: '100%', accentColor: 'var(--primary)' }}
-                />
+              {/* 2. Output Tokens */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '12px 14px',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  backgroundColor: '#fafafa',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                    Output Tokens
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    Generated completion token count
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleUpdateTelemetrySetting('output', !chatTelemetryOutputTokens)}
+                  style={{
+                    padding: '4px 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '4px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: chatTelemetryOutputTokens ? 'var(--primary)' : '#ffffff',
+                    color: chatTelemetryOutputTokens ? '#ffffff' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {chatTelemetryOutputTokens ? 'Enabled' : 'Disabled'}
+                </button>
               </div>
 
-              <div>
-                <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-                  Avg Subagent Tokens: {simSubagentAvgTokens.toLocaleString()}
-                </label>
-                <input
-                  type="range"
-                  min={2000}
-                  max={20000}
-                  step={1000}
-                  value={simSubagentAvgTokens}
-                  onChange={(e) => setSimSubagentAvgTokens(Number(e.target.value))}
-                  style={{ width: '100%', accentColor: 'var(--primary)' }}
-                />
+              {/* 3. Cache Hit Ratio */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '12px 14px',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  backgroundColor: '#fafafa',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                    Cache Hit Ratio
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    Prompt caching efficiency percentage
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleUpdateTelemetrySetting('cache', !chatTelemetryCacheHitRatio)}
+                  style={{
+                    padding: '4px 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '4px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: chatTelemetryCacheHitRatio ? 'var(--primary)' : '#ffffff',
+                    color: chatTelemetryCacheHitRatio ? '#ffffff' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {chatTelemetryCacheHitRatio ? 'Enabled' : 'Disabled'}
+                </button>
               </div>
 
-              <div>
-                <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-                  Prompt Cache Hit Ratio: {simCachedRatio}%
-                </label>
-                <input
-                  type="range"
-                  min={0}
-                  max={95}
-                  step={5}
-                  value={simCachedRatio}
-                  onChange={(e) => setSimCachedRatio(Number(e.target.value))}
-                  style={{ width: '100%', accentColor: '#137333' }}
-                />
+              {/* 4. Generation Speed */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '12px 14px',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  backgroundColor: '#fafafa',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                    Generation Speed
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    Tokens per second (TPS) output throughput
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleUpdateTelemetrySetting('speed', !chatTelemetryGenerationSpeed)}
+                  style={{
+                    padding: '4px 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '4px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: chatTelemetryGenerationSpeed ? 'var(--primary)' : '#ffffff',
+                    color: chatTelemetryGenerationSpeed ? '#ffffff' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {chatTelemetryGenerationSpeed ? 'Enabled' : 'Disabled'}
+                </button>
               </div>
             </div>
 
-            {/* Live In-Chat Message Preview */}
+            {/* Scope Switcher: Aggregated vs Main Agent Only */}
             <div
               style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '14px 16px',
                 border: '1px solid var(--border)',
-                borderRadius: '12px',
+                borderRadius: '6px',
                 backgroundColor: '#ffffff',
-                padding: '16px',
               }}
             >
-              {/* Agent Message Header */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-                <div
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                  Main Conversation Metrics Scope
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  Choose whether metrics in the main chat reflect the main agent only or aggregate usage from concurrent subagents.
+                </div>
+              </div>
+              <div style={{ display: 'inline-flex', borderRadius: '6px', border: '1px solid var(--border)', overflow: 'hidden' }}>
+                <button
+                  type="button"
+                  onClick={() => handleUpdateTelemetrySetting('scope', 'aggregated')}
                   style={{
-                    width: '26px',
-                    height: '26px',
-                    borderRadius: '50%',
-                    backgroundColor: 'var(--primary)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#ffffff',
-                    fontSize: '13px',
-                    fontWeight: 700,
+                    padding: '6px 14px',
+                    fontSize: '12px',
+                    fontWeight: chatTelemetryScope === 'aggregated' ? 700 : 500,
+                    backgroundColor: chatTelemetryScope === 'aggregated' ? 'var(--primary)' : '#ffffff',
+                    color: chatTelemetryScope === 'aggregated' ? '#ffffff' : 'var(--text-muted)',
+                    border: 'none',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
                   }}
                 >
-                  <Sparkles size={14} color="#ffffff" />
-                </div>
-                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                  Antigravity Agent ({modelBreakdowns[0]?.model_name || modelBreakdowns[0]?.name || sortedPricingList[0]?.model_name || sortedPricingList[0]?.name || 'Active Model'})
-                </span>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                  Project: {projectBreakdowns[0]?.project_name || 'Antigravity Swiss Knife'}
-                </span>
-              </div>
-
-              {/* Response Text Content */}
-              <div style={{ fontSize: '13px', lineHeight: 1.5, color: 'var(--text)', marginBottom: '16px' }}>
-                I have analyzed your request and refactored the auxiliary panels to include the new Feature Plugins and Token Monitor sections.
-                {simSubagentsCount > 0 && (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                    <CornerDownRight size={11} style={{ fontStyle: 'normal', flexShrink: 0 }} />
-                    <span>Orchestrated {simSubagentsCount} parallel subagents (`code-review`, `research`) to verify API signatures and sandbox isolation.</span>
-                  </span>
-                )}
-              </div>
-
-              {/* THE INJECTED TELEMETRY FOOTER BADGE */}
-              <div
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: '12px',
-                  backgroundColor: '#f8f9fa',
-                  border: '1px solid #e0e0e0',
-                  borderRadius: '8px',
-                  padding: '6px 12px',
-                  fontSize: '12px',
-                  color: '#3c4043',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600, color: 'var(--primary)' }}>
-                  <Zap size={13} />
-                  <span>{formatTokens(totalSimTokens)} tokens</span>
-                </div>
-
-                <span style={{ color: '#dadce0' }}>•</span>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <span>Prompt: <b>{formatTokens(totalSimPromptTokens)}</b></span>
-                  <span style={{ color: '#137333', fontSize: '11px' }}>
-                    (Cached: {formatTokens(totalSimCachedTokens)} / {simCachedRatio}%)
-                  </span>
-                  <span>| Output: <b>{formatTokens(totalSimOutputTokens)}</b></span>
-                </div>
-
-                <span style={{ color: '#dadce0' }}>•</span>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#b06000' }}>
-                  <Activity size={13} />
-                  <span><b>{summary.avg_tps > 0 ? summary.avg_tps : 76.2} TPS</b></span>
-                </div>
-
-                <span style={{ color: '#dadce0' }}>•</span>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <span>Cost: <b>{formatCost(simCostWithCache)}</b></span>
-                  <span style={{ color: '#137333', fontSize: '11px' }}>(saved {formatCost(simSavedCost)})</span>
-                </div>
-
-                {simSubagentsCount > 0 && (
-                  <>
-                    <span style={{ color: '#dadce0' }}>•</span>
-                    <span
-                      style={{
-                        backgroundColor: '#e8f0fe',
-                        color: 'var(--primary)',
-                        borderRadius: '4px',
-                        padding: '1px 6px',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                      }}
-                    >
-                      Aggregated 1 Parent + {simSubagentsCount} Subagents
-                    </span>
-                  </>
-                )}
+                  Aggregated (Main + Sub-agents)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleUpdateTelemetrySetting('scope', 'main_only')}
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: '12px',
+                    fontWeight: chatTelemetryScope === 'main_only' ? 700 : 500,
+                    backgroundColor: chatTelemetryScope === 'main_only' ? 'var(--primary)' : '#ffffff',
+                    color: chatTelemetryScope === 'main_only' ? '#ffffff' : 'var(--text-muted)',
+                    border: 'none',
+                    borderLeft: '1px solid var(--border)',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Main Agent Only
+                </button>
               </div>
             </div>
           </div>
 
           {/* 6. Live Telemetry Stream Log */}
           <div
-        style={{
-          backgroundColor: '#ffffff',
-          border: '1px solid var(--border)',
-          borderRadius: '8px',
-          padding: '20px',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <div>
-            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
-              Recent Agent Session Telemetry Log
-            </h3>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              Real-time audit log of executed chat turns extracted from local session transcripts.
-            </span>
-          </div>
-          <button
-            onClick={() => {
-              const csvContent =
-                'data:text/csv;charset=utf-8,' +
-                ['Timestamp,TurnID,Project,Model,Type,Input,Cached,Output,TPS,Cost']
-                  .concat(
-                    telemetryEvents.map(
-                      (e) =>
-                        `${e.timestamp},${e.id},${e.project},${e.model},${e.classification},${e.input_tokens},${e.cached_tokens},${e.output_tokens},${e.tps},${e.cost_usd ?? 'null'}`
-                    )
-                  )
-                  .join('\n')
-              const encodedUri = encodeURI(csvContent)
-              const link = document.createElement('a')
-              link.setAttribute('href', encodedUri)
-              link.setAttribute('download', `antigravity_token_audit_${Date.now()}.csv`)
-              document.body.appendChild(link)
-              link.click()
-              document.body.removeChild(link)
-            }}
             style={{
               backgroundColor: '#ffffff',
               border: '1px solid var(--border)',
-              borderRadius: '6px',
-              padding: '6px 14px',
-              fontSize: '12px',
-              fontWeight: 600,
-              color: 'var(--text)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              whiteSpace: 'nowrap',
+              borderRadius: '8px',
+              padding: '20px',
             }}
           >
-            <Download size={14} />
-            Export CSV
-          </button>
-        </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
+                  Recent Agent Session Telemetry Log
+                </h3>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Real-time audit log of executed chat turns extracted from local session transcripts.
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {/* Switch button filter: All, Main Agent, Sub-Agents */}
+                <div style={{ display: 'inline-flex', borderRadius: '6px', border: '1px solid var(--border)', overflow: 'hidden' }}>
+                  <button
+                    type="button"
+                    onClick={() => setLogFilter('all')}
+                    style={{
+                      padding: '5px 12px',
+                      fontSize: '12px',
+                      fontWeight: logFilter === 'all' ? 700 : 500,
+                      backgroundColor: logFilter === 'all' ? 'var(--primary)' : '#ffffff',
+                      color: logFilter === 'all' ? '#ffffff' : 'var(--text-muted)',
+                      border: 'none',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLogFilter('main')}
+                    style={{
+                      padding: '5px 12px',
+                      fontSize: '12px',
+                      fontWeight: logFilter === 'main' ? 700 : 500,
+                      backgroundColor: logFilter === 'main' ? 'var(--primary)' : '#ffffff',
+                      color: logFilter === 'main' ? '#ffffff' : 'var(--text-muted)',
+                      border: 'none',
+                      borderLeft: '1px solid var(--border)',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Main Agent
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLogFilter('subagents')}
+                    style={{
+                      padding: '5px 12px',
+                      fontSize: '12px',
+                      fontWeight: logFilter === 'subagents' ? 700 : 500,
+                      backgroundColor: logFilter === 'subagents' ? 'var(--primary)' : '#ffffff',
+                      color: logFilter === 'subagents' ? '#ffffff' : 'var(--text-muted)',
+                      border: 'none',
+                      borderLeft: '1px solid var(--border)',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Sub-Agents
+                  </button>
+                </div>
 
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>
-                <th style={{ padding: '8px 12px' }}>Time</th>
-                <th style={{ padding: '8px 12px' }}>Session / Project</th>
-                <th style={{ padding: '8px 12px' }}>Model</th>
-                <th style={{ padding: '8px 12px' }}>Tokens (In / Cache / Out)</th>
-                <th style={{ padding: '8px 12px' }}>Speed</th>
-                <th style={{ padding: '8px 12px' }}>Cost</th>
-                <th style={{ padding: '8px 12px' }}>Type</th>
-                <th style={{ padding: '8px 12px' }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {telemetryEvents.length === 0 ? (
-                <tr>
-                  <td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                    No live telemetry sessions recorded. When queries execute, token counts and TPS are logged here.
-                  </td>
-                </tr>
-              ) : (
-                telemetryEvents.map((ev) => (
+                <button
+                  onClick={() => {
+                    const csvContent =
+                      'data:text/csv;charset=utf-8,' +
+                      ['Timestamp,TurnID,Project,Model,Type,Input,Cached,Output,TPS,Cost']
+                        .concat(
+                          filteredTelemetryEvents.map(
+                            (e) =>
+                              `${e.timestamp},${e.id},${e.project},${e.model},${e.classification},${e.input_tokens},${e.cached_tokens},${e.output_tokens},${e.tps},${e.cost_usd ?? 'null'}`
+                          )
+                        )
+                        .join('\n')
+                    const encodedUri = encodeURI(csvContent)
+                    const link = document.createElement('a')
+                    link.setAttribute('href', encodedUri)
+                    link.setAttribute('download', `antigravity_token_audit_${Date.now()}.csv`)
+                    document.body.appendChild(link)
+                    link.click()
+                    document.body.removeChild(link)
+                  }}
+                  style={{
+                    backgroundColor: '#ffffff',
+                    border: '1px solid var(--border)',
+                    borderRadius: '6px',
+                    padding: '6px 14px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: 'var(--text)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <Download size={14} />
+                  Export CSV
+                </button>
+              </div>
+            </div>
+
+            <div style={{ maxHeight: '420px', overflowY: 'auto', overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                    <th style={{ padding: '8px 12px' }}>Time</th>
+                    <th style={{ padding: '8px 12px' }}>Session / Project</th>
+                    <th style={{ padding: '8px 12px' }}>Model</th>
+                    <th style={{ padding: '8px 12px' }}>Tokens (In / Cache / Out)</th>
+                    <th style={{ padding: '8px 12px' }}>Speed</th>
+                    <th style={{ padding: '8px 12px' }}>Cost</th>
+                    <th style={{ padding: '8px 12px' }}>Type</th>
+                    <th style={{ padding: '8px 12px' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTelemetryEvents.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                        No live telemetry sessions recorded for the selected filter.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredTelemetryEvents.map((ev) => (
                   <tr key={ev.id} style={{ borderBottom: '1px solid #f1f3f4' }}>
                     <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>{ev.timestamp}</td>
                     <td style={{ padding: '10px 12px' }}>

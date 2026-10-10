@@ -226,6 +226,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/gui/desktop/persistence", s.handleGUIDesktopPersistence)
 	mux.HandleFunc("/api/desktop/relaunch", s.handleDesktopRelaunch)
 	mux.HandleFunc("/api/gui/desktop/relaunch", s.handleDesktopRelaunch)
+	mux.HandleFunc("/api/desktop/launch", s.handleDesktopLaunch)
+	mux.HandleFunc("/api/gui/desktop/launch", s.handleDesktopLaunch)
 
 	// Active Conversations & Subagent Revival
 	mux.HandleFunc("/api/conversations/active", s.handleConversationsActive)
@@ -299,11 +301,15 @@ func (s *Server) Start() error {
 	// Token & Cost Monitor
 	mux.HandleFunc("/api/tokens/summary", s.handleTokensSummary)
 	mux.HandleFunc("/api/tokens/pricing", s.handleTokensPricing)
+	mux.HandleFunc("/api/tokens/chat-metrics", s.handleTokensChatMetrics)
 
-	// Utilities & Interoperability (Chat Import & ACP Mesh)
+	// Utilities & Interoperability (Chat Import, ACP Mesh & Computer Use)
 	mux.HandleFunc("/api/utilities/acp", s.handleUtilitiesACP)
 	mux.HandleFunc("/api/utilities/import", s.handleUtilitiesImport)
 	mux.HandleFunc("/api/utilities/import/scan", s.handleUtilitiesImportScan)
+	mux.HandleFunc("/api/system/computer-use", s.handleSystemComputerUse)
+	mux.HandleFunc("/api/system/computer-use/calibrate", s.handleSystemComputerUseCalibrate)
+	mux.HandleFunc("/api/system/computer-use/config", s.handleSystemComputerUseConfig)
 
 	// Quick Memos API
 	mux.HandleFunc("/api/memos", s.handleMemos)
@@ -2265,6 +2271,32 @@ func (s *Server) handleDesktopRelaunch(w http.ResponseWriter, r *http.Request) {
 		res = map[string]interface{}{
 			"success": true,
 			"message": "Antigravity host IDE relaunch initiated",
+		}
+	}
+	writeJSON(w, res)
+}
+
+func (s *Server) handleDesktopLaunch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" {
+		writeJSON(w, map[string]interface{}{
+			"success": true,
+			"message": "Antigravity host IDE launch skipped (dry run)",
+		})
+		return
+	}
+	var res map[string]interface{}
+	if err := s.client.Call("swiss.launchIDE", map[string]interface{}{}, &res); err != nil {
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			_ = process.NewShield(0).LaunchHostIDE()
+		}()
+		res = map[string]interface{}{
+			"success": true,
+			"message": "Antigravity host IDE launch initiated",
 		}
 	}
 	writeJSON(w, res)
@@ -5279,6 +5311,56 @@ func (s *Server) handleConversationsAck(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func (s *Server) handleSystemComputerUse(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	status := system.DetectHostComputerUse()
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"data":    status,
+	})
+}
+
+func (s *Server) handleSystemComputerUseCalibrate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		TargetOS string `json:"target_os"`
+		InputX   int    `json:"input_x"`
+		InputY   int    `json:"input_y"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	res := system.CalibrateDisplayCoordinates(req.TargetOS, req.InputX, req.InputY)
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"data":    res,
+	})
+}
+
+func (s *Server) handleSystemComputerUseConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var settings system.OSComputerUseSettings
+	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+		http.Error(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+	if err := system.SaveComputerUseSettings(settings); err != nil {
+		http.Error(w, fmt.Sprintf("failed to save settings: %v", err), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success":  true,
+		"settings": settings,
+	})
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {

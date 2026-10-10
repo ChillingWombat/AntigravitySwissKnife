@@ -262,3 +262,33 @@ func TestResolveProjectPath(t *testing.T) {
 	}
 }
 
+func TestExtractTaskAndWorkItemsFromTranscript(t *testing.T) {
+	tmpDir := t.TempDir()
+	brainDir := filepath.Join(tmpDir, ".gemini", "antigravity", "brain", "test-conv", ".system_generated", "logs")
+	if err := os.MkdirAll(brainDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	transcriptContent := `{"type":"USER_INPUT","role":"user","content":"Please resolve issue #42 and check PR #15 before merging. Also see # 1. Introduction and color #aabbcc"}
+{"type":"MODEL_RESPONSE","role":"assistant","content":"I looked at #55, #60, and #999 in the backlog."}
+`
+	if err := os.WriteFile(filepath.Join(brainDir, "transcript.jsonl"), []byte(transcriptContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	workItem, issues, prs := extractTaskAndWorkItemsFromTranscript("test-conv", "Prompt mentioning fixes #42")
+	if workItem == "" {
+		t.Errorf("expected workItem extracted from user input")
+	}
+	if len(issues) != 1 || issues[0] != 42 {
+		t.Errorf("expected only issue 42, got %v", issues)
+	}
+	if len(prs) != 1 || prs[0] != 15 {
+		t.Errorf("expected only pr 15, got %v", prs)
+	}
+}
+

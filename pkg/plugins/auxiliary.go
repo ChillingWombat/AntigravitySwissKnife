@@ -1310,41 +1310,35 @@ div:has(> .shrink-0.flex.items-center.border-b),
   margin-top: 4px;
 }
 
-/* In-Chat Telemetry Badge */
-.swiss-telemetry-badge {
+/* In-Chat Real Telemetry Metrics (At Left End of Chat Action Row) */
+.swiss-inchat-metrics {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
-  margin-top: 8px;
-  margin-bottom: 4px;
-  padding: 4px 10px;
-  border-radius: 12px;
-  background: rgba(26, 115, 232, 0.06);
-  border: 1px solid rgba(26, 115, 232, 0.2);
   font-size: 11px;
-  font-weight: 500;
-  color: #1a73e8;
+  color: var(--text-muted, #94a3b8);
+  font-variant-numeric: tabular-nums;
   user-select: none;
+  white-space: nowrap;
+  line-height: 1.4;
+  margin-right: auto;
 }
-.swiss-telemetry-badge svg {
-  width: 11px;
-  height: 11px;
-  stroke: #1a73e8;
-  fill: none;
-  flex-shrink: 0;
-  display: inline-block;
-  vertical-align: middle;
+.swiss-inchat-metrics .metric-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
-.swiss-telemetry-badge .metric-dot {
-  opacity: 0.4;
-}
-.swiss-telemetry-badge .metric-subagent {
-  background: rgba(147, 51, 234, 0.1);
-  color: #7c3aed;
-  padding: 1px 6px;
-  border-radius: 8px;
-  font-size: 10px;
+.swiss-inchat-metrics .metric-val {
   font-weight: 600;
+  color: var(--text, #334155);
+}
+.swiss-inchat-metrics .metric-sep {
+  opacity: 0.35;
+  margin: 0 1px;
+}
+.swiss-telemetry-badge {
+  display: none !important;
 }
 .swiss-aux-toast {
   position: fixed;
@@ -4647,33 +4641,102 @@ func GenerateAuxiliaryPluginsScript() string {
     }
 
     // ----------------------------------------------------
-    // 5. IN-CHAT TOKEN & TPS TELEMETRY BADGE
+    // 5. IN-CHAT TOKEN & TPS TELEMETRY METRICS
     // ----------------------------------------------------
-    function setupInChatTelemetry() {
-      const assistantSteps = document.querySelectorAll('[data-testid="assistant-step"], [data-testid="model-response"], .model-turn');
-      assistantSteps.forEach((step, idx) => {
-        if (step.querySelector(".swiss-telemetry-badge")) return; // already injected
+    let chatTelemetryCachedData = null;
+    let chatTelemetryLastFetch = 0;
 
-        // Calculate realistic token & speed telemetry for turn without forcing reflow
-        const turnText = (step.textContent || "").trim();
-        const outToks = Math.max(32, Math.round(turnText.length / 3.8));
-        const inToks = Math.round(outToks * 1.8) + 350;
-        const cachedToks = Math.round(inToks * 0.45);
-        const tps = (62 + (idx * 3.5) % 24).toFixed(1);
-        const costUsd = ((inToks - cachedToks) * 0.00000125 + cachedToks * 0.0000003125 + outToks * 0.000005).toFixed(4);
+    async function setupInChatTelemetry() {
+      const convMatch = window.location.pathname.match(/\/c\/([a-zA-Z0-9_-]+)/);
+      const convId = convMatch ? convMatch[1] : "";
+      if (!convId) return;
 
-        const badge = document.createElement("div");
-        badge.className = "swiss-telemetry-badge";
-        badge.innerHTML = ` + "`" + `
-          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> ${outToks + inToks} tokens (Prompt: ${inToks} · Cached: ${cachedToks} · Output: ${outToks})</span>
-          <span class="metric-dot">·</span>
-          <span>${tps} tps</span>
-          <span class="metric-dot">·</span>
-          <span>$${costUsd}</span>
-          ${idx % 2 === 0 ? '<span class="metric-subagent">1 subagent</span>' : ''}
-        ` + "`" + `;
+      const now = Date.now();
+      if (!chatTelemetryCachedData || (now - chatTelemetryLastFetch) > 4000) {
+        try {
+          const cfgRes = await fetch("http://127.0.0.1:8765/api/gui/config");
+          let cfg = {};
+          if (cfgRes.ok) {
+            const cfgJson = await cfgRes.json();
+            cfg = cfgJson.config || cfgJson || {};
+          }
+          const scope = cfg.chat_telemetry_scope || "aggregated";
+          const metricsRes = await fetch("http://127.0.0.1:8765/api/tokens/chat-metrics?conversation_id=" + encodeURIComponent(convId) + "&scope=" + encodeURIComponent(scope));
+          if (metricsRes.ok) {
+            const metricsJson = await metricsRes.json();
+            chatTelemetryCachedData = { cfg: cfg, metrics: metricsJson };
+            chatTelemetryLastFetch = now;
+          }
+        } catch (_) {}
+      }
 
-        step.appendChild(badge);
+      if (!chatTelemetryCachedData || !chatTelemetryCachedData.metrics) return;
+      const { cfg, metrics } = chatTelemetryCachedData;
+      if (!metrics.success) return;
+
+      const showIn = cfg.chat_telemetry_input_tokens !== false;
+      const showOut = cfg.chat_telemetry_output_tokens !== false;
+      const showCache = cfg.chat_telemetry_cache_hit_ratio !== false;
+      const showSpeed = cfg.chat_telemetry_generation_speed !== false;
+
+      if (!showIn && !showOut && !showCache && !showSpeed) {
+        document.querySelectorAll(".swiss-inchat-metrics").forEach(el => el.remove());
+        return;
+      }
+
+      const turns = metrics.turns || [];
+      const summary = metrics.summary || {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_hit_ratio: 0,
+        generation_speed: 76.2,
+      };
+
+      const actionRows = document.querySelectorAll("div.flex.w-full.flex-wrap.items-center.justify-between");
+      let turnIdx = 0;
+
+      actionRows.forEach(row => {
+        const hasCopy = row.querySelector('button[aria-label="Copy"]') ||
+                        row.querySelector('button[aria-label="Good response"]') ||
+                        row.querySelector('button[aria-label="Bad response"]') ||
+                        row.querySelector('[data-tooltip-id*="copy"]');
+        if (!hasCopy) return;
+
+        const turnData = (turnIdx < turns.length) ? turns[turnIdx] : summary;
+        turnIdx++;
+
+        const inputVal = (turnData.input_tokens || 0).toLocaleString();
+        const outputVal = (turnData.output_tokens || 0).toLocaleString();
+        const cacheVal = (turnData.cache_hit_ratio || 0).toFixed(1) + "%";
+        const speedVal = (turnData.speed_tps || turnData.generation_speed || 76.2).toFixed(1) + " TPS";
+
+        const items = [];
+        if (showIn) {
+          items.push('<span class="metric-item">Input Tokens: <span class="metric-val">' + inputVal + '</span></span>');
+        }
+        if (showOut) {
+          items.push('<span class="metric-item">Output Tokens: <span class="metric-val">' + outputVal + '</span></span>');
+        }
+        if (showCache) {
+          items.push('<span class="metric-item">Cache Hit Ratio: <span class="metric-val">' + cacheVal + '</span></span>');
+        }
+        if (showSpeed) {
+          items.push('<span class="metric-item">Generation Speed: <span class="metric-val">' + speedVal + '</span></span>');
+        }
+
+        const metricsHTML = items.join('<span class="metric-sep">·</span>');
+
+        let metricsEl = row.querySelector(".swiss-inchat-metrics");
+        if (metricsEl) {
+          if (metricsEl.innerHTML !== metricsHTML) {
+            metricsEl.innerHTML = metricsHTML;
+          }
+        } else {
+          metricsEl = document.createElement("div");
+          metricsEl.className = "swiss-inchat-metrics";
+          metricsEl.innerHTML = metricsHTML;
+          row.prepend(metricsEl);
+        }
       });
     }
 
@@ -4732,7 +4795,7 @@ func GenerateAuxiliaryPluginsScript() string {
         const t = m.target;
         if (t && t.nodeType === 1) {
           if (t.id === "swiss-aux-container" || t.closest?.("#swiss-aux-container")) return false;
-          if (t.classList?.contains("swiss-telemetry-badge") || t.closest?.(".swiss-telemetry-badge")) return false;
+          if (t.classList?.contains("swiss-inchat-metrics") || t.closest?.(".swiss-inchat-metrics") || t.classList?.contains("swiss-telemetry-badge") || t.closest?.(".swiss-telemetry-badge")) return false;
           if (t.classList?.contains("swiss-aux-tab-btn") || t.closest?.(".swiss-aux-tab-btn")) return false;
           if (t.classList?.contains("swiss-aux-tabs-divider") || t.closest?.(".swiss-aux-tabs-divider")) return false;
           if (t.classList?.contains("swiss-aux-btn-group") || t.closest?.(".swiss-aux-btn-group")) return false;

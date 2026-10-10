@@ -454,6 +454,16 @@ export interface TokenTelemetryEvent {
   duration_ms: number
   tps: number
   cost_usd: number | null
+  is_subagent?: boolean
+  agent_role?: string
+}
+
+export interface ChatTelemetrySettings {
+  showInputTokens: boolean
+  showOutputTokens: boolean
+  showCacheHitRatio: boolean
+  showGenerationSpeed: boolean
+  scope: 'aggregated' | 'main_only'
 }
 
 export interface TokenSummaryResponse {
@@ -731,6 +741,11 @@ export interface GUIConfig {
   auto_archive_conversations: boolean
   auto_archive_horizon: '3d' | '7d' | '14d' | '30d' | '60d' | '90d'
   auto_inject: boolean
+  chat_telemetry_input_tokens?: boolean
+  chat_telemetry_output_tokens?: boolean
+  chat_telemetry_cache_hit_ratio?: boolean
+  chat_telemetry_generation_speed?: boolean
+  chat_telemetry_scope?: 'aggregated' | 'main_only'
 }
 
 // Token Monitor types
@@ -1002,16 +1017,49 @@ export interface KanbanBoard {
   columns: KanbanColumn[]
 }
 
-export interface MoveKanbanCardRequest {
-  workspace_path?: string
-  card_id: string
-  card_type: string
-  number: number
-  source_column: string
-  target_column: string
-  project_number?: number
-  project_item_id?: string
+export interface PlatformComputerUseSpec {
+  os: string
+  display_pipeline: string
+  screen_capture_backend: string
+  grounding_backend: string
+  dpi_scaling_factor: number
+  display_resolution: string
+  coordinate_orientation: string
+  status: string
+  diagnostics: Record<string, string>
 }
 
+export interface OSComputerUseSettings {
+  wayland_pipewire: boolean
+  accessibility_grounding: boolean
+  linux_dpi_normalizer: boolean
+  per_monitor_v2_dpi: boolean
+  windows_graphics_capture: boolean
+  ui_automation_grounding: boolean
+  screen_capture_kit: boolean
+  quartz_retina_normalizer: boolean
+  ax_accessibility_grounding: boolean
+}
 
+export interface ComputerUseStatus {
+  current_os: string
+  host_spec: PlatformComputerUseSpec
+  profiles: Record<string, PlatformComputerUseSpec>
+  settings: OSComputerUseSettings
+  config_file: string
+}
 
+export interface CalibrationResult {
+  os: string
+  physical_width: number
+  physical_height: number
+  logical_width: number
+  logical_height: number
+  scale_factor: number
+  offset_target_x: number
+  offset_target_y: number
+  corrected_target_x: number
+  corrected_target_y: number
+  accuracy_percent: number
+  calibrated_at: string
+}

@@ -3,35 +3,25 @@ import {
   DownloadCloud,
   RefreshCw,
   CheckCircle2,
-  ArrowRight,
   Eye,
   Activity,
   X,
   Monitor,
-  Terminal,
-  Bot,
-  Edit3,
-  Workflow,
-  Code2,
-  Cpu,
-  Radio,
-  TerminalSquare,
+  Crosshair,
 } from 'lucide-react'
 import type {
   ChatImportSource,
   ProjectMatchOption,
   ImportCandidate,
   ImportHistoryItem,
-  AcpAgentInstance,
-  AcpHandshakeLog,
+  ComputerUseStatus,
+  OSComputerUseSettings,
+  CalibrationResult,
 } from '../types'
 import { api } from '../api'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { BrainCachePage } from './BrainCachePage'
-import {
-  ACP_CARD_LAYOUT_TOKENS,
-  getAcpStatusPresentation,
-} from '../utils/acpPresentation'
+import { ACPAgentMeshPage } from './ACPAgentMeshPage'
 
 interface UtilitiesPageProps {
   initialTab?: number
@@ -48,15 +38,24 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
   const activeTab = controlledActiveTab !== undefined ? controlledActiveTab : internalActiveTab
 
   // --- Computer Use Enhancer State ---
-  const [dpiNormalization, setDpiNormalization] = useState<boolean>(() => {
-    return localStorage.getItem('antigravity_comp_dpi_norm') !== 'false'
+  const [compUseStatus, setCompUseStatus] = useState<ComputerUseStatus | null>(null)
+  const [compUseLoading, setCompUseLoading] = useState(false)
+  const [selectedPlatformOS, setSelectedPlatformOS] = useState<'linux' | 'windows' | 'darwin'>('linux')
+  const [compSettings, setCompSettings] = useState<OSComputerUseSettings>({
+    wayland_pipewire: true,
+    accessibility_grounding: true,
+    linux_dpi_normalizer: true,
+    per_monitor_v2_dpi: true,
+    windows_graphics_capture: true,
+    ui_automation_grounding: true,
+    screen_capture_kit: true,
+    quartz_retina_normalizer: true,
+    ax_accessibility_grounding: true,
   })
-  const [waylandPipeWire, setWaylandPipeWire] = useState<boolean>(() => {
-    return localStorage.getItem('antigravity_comp_wayland_pipewire') !== 'false'
-  })
-  const [accessibilityGrounding, setAccessibilityGrounding] = useState<boolean>(() => {
-    return localStorage.getItem('antigravity_comp_accessibility_grounding') !== 'false'
-  })
+  const [calibX, setCalibX] = useState<number>(960)
+  const [calibY, setCalibY] = useState<number>(540)
+  const [isCalibrating, setIsCalibrating] = useState(false)
+  const [calibResult, setCalibResult] = useState<CalibrationResult | null>(null)
 
   // --- 1. Chat Import State ---
   const [selectedSource, setSelectedSource] = useState<ChatImportSource>('opencode')
@@ -81,12 +80,6 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
     }
   })
 
-  // --- 2. ACP Inspector State ---
-  const [isPingingAll, setIsPingingAll] = useState(false)
-  const [acpFeedback, setAcpFeedback] = useState<string | null>(null)
-  const [agentInstances, setAgentInstances] = useState<AcpAgentInstance[]>([])
-  const [handshakeLogs, setHandshakeLogs] = useState<AcpHandshakeLog[]>([])
-
   const loadCandidates = async (src: string) => {
     setIsScanning(true)
     try {
@@ -104,24 +97,62 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
     }
   }
 
-  const loadAcpMesh = async () => {
-    try {
-      const res = await api.getAcpMesh()
-      if (res && res.agents) {
-        setAgentInstances(res.agents)
-      }
-    } catch (e) {
-      console.error('Error fetching ACP mesh:', e)
-    }
-  }
-
   useEffect(() => {
     loadCandidates(selectedSource)
   }, [selectedSource])
 
+  const loadComputerUseStatus = async () => {
+    setCompUseLoading(true)
+    try {
+      const res = await api.getComputerUseStatus()
+      if (res && res.data) {
+        setCompUseStatus(res.data)
+        if (res.data.settings) {
+          setCompSettings(res.data.settings)
+        }
+        if (res.data.current_os) {
+          const detected = res.data.current_os.toLowerCase()
+          if (detected === 'windows') setSelectedPlatformOS('windows')
+          else if (detected === 'darwin') setSelectedPlatformOS('darwin')
+          else setSelectedPlatformOS('linux')
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching computer use status:', e)
+    } finally {
+      setCompUseLoading(false)
+    }
+  }
+
   useEffect(() => {
-    loadAcpMesh()
-  }, [])
+    if (activeTab === 3) {
+      loadComputerUseStatus()
+    }
+  }, [activeTab])
+
+  const handleToggleCompSetting = async (key: keyof OSComputerUseSettings, val: boolean) => {
+    const updated = { ...compSettings, [key]: val }
+    setCompSettings(updated)
+    try {
+      await api.saveComputerUseSettings(updated)
+    } catch (e) {
+      console.error('Error saving computer use settings:', e)
+    }
+  }
+
+  const handleRunCalibration = async () => {
+    setIsCalibrating(true)
+    try {
+      const res = await api.calibrateComputerUse(selectedPlatformOS, calibX, calibY)
+      if (res && res.data) {
+        setCalibResult(res.data)
+      }
+    } catch (e) {
+      console.error('Error calibrating coordinates:', e)
+    } finally {
+      setIsCalibrating(false)
+    }
+  }
 
   // Trigger Real Import Execution
   const handleExecuteImport = async () => {
@@ -157,118 +188,6 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
       setIsImporting(false)
       setImportFeedback(`Import failed: ${err?.message || 'Unknown error'}`)
     }
-  }
-
-  // Trigger ACP Ping All
-  const handlePingAllAcp = async () => {
-    setIsPingingAll(true)
-    setAcpFeedback(null)
-    try {
-      const res = await api.getAcpMesh()
-      if (res && res.agents) {
-        setAgentInstances(res.agents)
-        const online = res.agents.filter((a: any) => a.status !== 'unreachable')
-        setAcpFeedback(`ACP Handshake ping completed. ${online.length} active agent daemon${online.length === 1 ? '' : 's'} responded successfully.`)
-        const newLogs: AcpHandshakeLog[] = online.map((a: any) => ({
-          id: `log-${Date.now()}-${a.id}`,
-          timestamp: new Date().toLocaleTimeString(),
-          from_agent: 'Antigravity 2.0',
-          to_agent: a.name,
-          action: 'ACP_HELLO / CAPABILITY_EXCHANGE',
-          payload_summary: `Negotiated ${a.supported_tools?.length || 0} tools (${(a.supported_tools || []).slice(0, 3).join(', ')}...) over socket ${a.port_socket}`,
-          status: 'success',
-        }))
-        setHandshakeLogs((prev) => [...newLogs, ...prev])
-      }
-    } catch (e: any) {
-      setAcpFeedback(`ACP Ping failed: ${e?.message || 'Network error'}`)
-    } finally {
-      setIsPingingAll(false)
-      setTimeout(() => setAcpFeedback(null), 4000)
-    }
-  }
-
-  const [pingingAgentId, setPingingAgentId] = useState<string | null>(null)
-
-  const handlePingSingleAgent = async (agent: AcpAgentInstance) => {
-    setPingingAgentId(agent.id)
-    try {
-      const res = await api.getAcpMesh()
-      if (res && res.agents) {
-        setAgentInstances(res.agents)
-        const updatedAgent = res.agents.find((a: any) => a.id === agent.id) || agent
-        const isOnline = updatedAgent.status !== 'unreachable'
-        setAcpFeedback(`ACP Handshake ping completed for ${agent.name}: ${isOnline ? 'Active & Healthy' : 'Offline'}`)
-        const log: AcpHandshakeLog = {
-          id: `log-${Date.now()}-${agent.id}`,
-          timestamp: new Date().toLocaleTimeString(),
-          from_agent: 'Antigravity 2.0',
-          to_agent: agent.name,
-          action: 'ACP_HELLO / DIRECT_PING',
-          payload_summary: isOnline
-            ? `Pinged ${agent.name} over socket ${agent.port_socket} (latency: ${updatedAgent.ping_latency_ms} ms)`
-            : `Attempted ping to ${agent.name} over socket ${agent.port_socket} — daemon unreachable`,
-          status: isOnline ? 'success' : 'warning',
-        }
-        setHandshakeLogs((prev) => [log, ...prev])
-      }
-    } catch (e: any) {
-      setAcpFeedback(`Ping ${agent.name} failed: ${e?.message || 'Network error'}`)
-    } finally {
-      setPingingAgentId(null)
-      setTimeout(() => setAcpFeedback(null), 4000)
-    }
-  }
-
-  const renderAgentAvatar = (id: string) => {
-    const iconProps = { size: 15, strokeWidth: 1.75 }
-    let icon = <Bot {...iconProps} />
-    switch (id) {
-      case 'agent-antigravity':
-        icon = <Monitor {...iconProps} />
-        break
-      case 'agent-antigravity-cli':
-        icon = <Terminal {...iconProps} />
-        break
-      case 'agent-devin':
-        icon = <Workflow {...iconProps} />
-        break
-      case 'agent-opencode':
-        icon = <Code2 {...iconProps} />
-        break
-      case 'agent-deepseek-harness':
-        icon = <Cpu {...iconProps} />
-        break
-      case 'agent-pi':
-        icon = <Radio {...iconProps} />
-        break
-      case 'agent-codex':
-        icon = <TerminalSquare {...iconProps} />
-        break
-      case 'agent-claude-code':
-        icon = <Bot {...iconProps} />
-        break
-      case 'agent-cursor':
-        icon = <Edit3 {...iconProps} />
-        break
-    }
-    return (
-      <div
-        style={{
-          width: ACP_CARD_LAYOUT_TOKENS.avatarSize,
-          height: ACP_CARD_LAYOUT_TOKENS.avatarSize,
-          borderRadius: ACP_CARD_LAYOUT_TOKENS.avatarBorderRadius,
-          backgroundColor: '#f1f3f4',
-          color: 'var(--text)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-        }}
-      >
-        {icon}
-      </div>
-    )
   }
 
   return (
@@ -449,7 +368,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                       border: '1px solid var(--border)',
                       borderRadius: '6px',
                       padding: '4px 12px',
-                      fontSize: '11.5px',
+                      fontSize: '12px',
                       color: 'var(--text)',
                       cursor: isScanning ? 'not-allowed' : 'pointer',
                       display: 'flex',
@@ -467,7 +386,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                       border: '1px solid var(--border)',
                       borderRadius: '6px',
                       padding: '4px 12px',
-                      fontSize: '11.5px',
+                      fontSize: '12px',
                       color: 'var(--text)',
                       cursor: 'pointer',
                     }}
@@ -483,7 +402,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                   ...(candidates.length > 0 ? { height: '420px', overflowY: 'auto' } : {}),
                 }}
               >
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>
                       <th style={{ padding: '8px 10px', width: '30px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>
@@ -582,7 +501,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                               backgroundColor: 'transparent',
                               border: 'none',
                               color: 'var(--primary)',
-                              fontSize: '11.5px',
+                              fontSize: '12px',
                               cursor: 'pointer',
                               display: 'inline-flex',
                               alignItems: 'center',
@@ -780,7 +699,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                       borderRadius: '8px',
                       padding: '12px',
                       fontFamily: 'monospace',
-                      fontSize: '11.5px',
+                      fontSize: '12px',
                       maxHeight: '180px',
                       overflowY: 'auto',
                     }}
@@ -801,7 +720,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                       border: 'none',
                       borderRadius: '6px',
                       padding: '7px 18px',
-                      fontSize: '12.5px',
+                      fontSize: '13px',
                       fontWeight: 600,
                       color: '#ffffff',
                       cursor: 'pointer',
@@ -817,352 +736,10 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
       )}
 
       {/* ============================================================ */}
-      {/* TAB 1: ACP (AGENT CLIENT PROTOCOL) STATUS INSPECTOR */}
+      {/* TAB 1: ACP (AGENT CLIENT PROTOCOL) AGENT MESH */}
       {/* ============================================================ */}
       {activeTab === 1 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {acpFeedback && (
-            <div
-              style={{
-                backgroundColor: '#e6f4ea',
-                color: '#137333',
-                border: '1px solid #ceead6',
-                borderRadius: '10px',
-                padding: '10px 16px',
-                fontSize: '13px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}
-            >
-              <CheckCircle2 size={16} />
-              {acpFeedback}
-            </div>
-          )}
-
-
-          {/* Agent Nodes Grid */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-              gap: '16px',
-            }}
-          >
-            {agentInstances.length === 0 ? (
-              <div
-                style={{
-                  gridColumn: '1 / -1',
-                  backgroundColor: '#ffffff',
-                  border: '1px solid var(--border)',
-                  borderRadius: '10px',
-                  padding: '32px',
-                  textAlign: 'center',
-                  color: 'var(--text-muted)',
-                  fontSize: '13px',
-                }}
-              >
-                No active agent daemons or ACP nodes discovered on this system.
-              </div>
-            ) : (
-              agentInstances.map((agent) => {
-                const statusPres = getAcpStatusPresentation(agent.status)
-                return (
-                  <div
-                    key={agent.id}
-                    style={{
-                      backgroundColor: '#ffffff',
-                      border: `${ACP_CARD_LAYOUT_TOKENS.cardBorderWidth} solid var(--border)`,
-                      borderRadius: ACP_CARD_LAYOUT_TOKENS.cardBorderRadius,
-                      padding: ACP_CARD_LAYOUT_TOKENS.cardPadding,
-                      boxShadow: ACP_CARD_LAYOUT_TOKENS.cardShadow,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      gap: '8px',
-                    }}
-                  >
-                    <div>
-                      {/* Card Header with Lucide Avatar & Status */}
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'flex-start',
-                          marginBottom: ACP_CARD_LAYOUT_TOKENS.headerMarginBottom,
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          {renderAgentAvatar(agent.id)}
-                          <div>
-                            <h4
-                              style={{
-                                fontSize: '14px',
-                                fontWeight: 700,
-                                margin: '0 0 2px 0',
-                                color: 'var(--text)',
-                                whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
-                              }}
-                            >
-                              {agent.name}
-                            </h4>
-                            <span
-                              style={{
-                                fontSize: '11.5px',
-                                color: 'var(--text-muted)',
-                                whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
-                              }}
-                            >
-                              {agent.type} • PID {agent.pid || 'N/A'}
-                            </span>
-                          </div>
-                        </div>
-
-                        <span
-                          style={{
-                            padding: '3px 8px',
-                            borderRadius: '6px',
-                            fontSize: '11px',
-                            fontWeight: 600,
-                            backgroundColor: statusPres.bg,
-                            color: statusPres.color,
-                            textTransform: 'uppercase',
-                            whiteSpace: statusPres.whiteSpace,
-                          }}
-                        >
-                          {statusPres.label}
-                        </span>
-                      </div>
-
-                      {/* Card Body Metadata */}
-                      <div
-                        style={{
-                          fontSize: '12px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: ACP_CARD_LAYOUT_TOKENS.bodyGap,
-                          marginBottom: '8px',
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: 'var(--text-muted)', whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
-                            Socket / Endpoint:
-                          </span>
-                          <span
-                            style={{
-                              fontFamily: 'monospace',
-                              fontSize: '11px',
-                              color: 'var(--text)',
-                              whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
-                            }}
-                          >
-                            {agent.port_socket}
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: 'var(--text-muted)', whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
-                            Protocol Version:
-                          </span>
-                          <span
-                            style={{
-                              fontWeight: 600,
-                              color: 'var(--text)',
-                              whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
-                            }}
-                          >
-                            {agent.acp_version}
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: 'var(--text-muted)', whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
-                            Ping Latency:
-                          </span>
-                          <span
-                            style={{
-                              fontWeight: 600,
-                              color: agent.ping_latency_ms > 0 && agent.ping_latency_ms < 3 ? '#137333' : '#b06000',
-                              whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
-                            }}
-                          >
-                            {agent.ping_latency_ms > 0 ? `${agent.ping_latency_ms} ms` : 'Unreachable'}
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: 'var(--text-muted)', whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
-                            Last Handshake:
-                          </span>
-                          <span style={{ color: 'var(--text)', whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
-                            {agent.last_handshake}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Shared Tools Tag List */}
-                      <div style={{ borderTop: '1px solid #f1f3f4', paddingTop: '8px' }}>
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            fontWeight: 600,
-                            color: 'var(--text-muted)',
-                            display: 'block',
-                            marginBottom: '4px',
-                            whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
-                          }}
-                        >
-                          Negotiated Tools Sharing ({agent.supported_tools.length})
-                        </span>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: ACP_CARD_LAYOUT_TOKENS.tagGap }}>
-                          {agent.supported_tools.length > 0 ? (
-                            agent.supported_tools.map((t) => (
-                              <span
-                                key={t}
-                                style={{
-                                  backgroundColor: '#f1f3f4',
-                                  borderRadius: '4px',
-                                  padding: '1px 6px',
-                                  fontSize: '10.5px',
-                                  fontFamily: 'monospace',
-                                  color: '#3c4043',
-                                  whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
-                                }}
-                              >
-                                {t}
-                              </span>
-                            ))
-                          ) : (
-                            <span
-                              style={{
-                                fontSize: '11px',
-                                color: 'var(--text-muted)',
-                                fontStyle: 'italic',
-                                whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
-                              }}
-                            >
-                              No tools shared
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Card Action Button: Ping {agent.name} */}
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'flex-end',
-                        borderTop: '1px solid #f1f3f4',
-                        paddingTop: '8px',
-                        marginTop: '4px',
-                      }}
-                    >
-                      <button
-                        className="btn-pill-tonal"
-                        onClick={() => handlePingSingleAgent(agent)}
-                        disabled={pingingAgentId === agent.id}
-                        style={{
-                          height: ACP_CARD_LAYOUT_TOKENS.actionButtonHeight,
-                          padding: ACP_CARD_LAYOUT_TOKENS.actionButtonPadding,
-                          fontSize: ACP_CARD_LAYOUT_TOKENS.actionButtonFontSize,
-                          borderRadius: ACP_CARD_LAYOUT_TOKENS.actionButtonBorderRadius,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
-                          cursor: pingingAgentId === agent.id ? 'not-allowed' : 'pointer',
-                          border: '1px solid var(--border)',
-                          backgroundColor: '#f8f9fa',
-                          color: 'var(--text)',
-                        }}
-                      >
-                        <Activity
-                          size={12}
-                          className={pingingAgentId === agent.id ? 'animate-spin' : ''}
-                        />
-                        <span style={{ whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
-                          Ping {agent.name}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                )
-              })
-            )}
-          </div>
-
-          {/* Live Handshake Logs */}
-          <div
-            style={{
-              backgroundColor: '#ffffff',
-              border: '1px solid var(--border)',
-              borderRadius: '10px',
-              padding: '20px',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
-                ACP Communication & Delegation Stream
-              </h3>
-              <button
-                onClick={handlePingAllAcp}
-                disabled={isPingingAll}
-                style={{
-                  backgroundColor: 'var(--primary)',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  padding: '6px 14px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: isPingingAll ? 'not-allowed' : 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  whiteSpace: 'nowrap',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
-                }}
-              >
-                <Activity size={13} className={isPingingAll ? 'animate-spin' : ''} />
-                <span>{isPingingAll ? 'Pinging Nodes...' : 'Ping All ACP Nodes'}</span>
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {handshakeLogs.length === 0 ? (
-                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                  No ACP handshakes or delegations recorded yet. Click &quot;Ping All ACP Nodes&quot; above to initiate a protocol health check across all detected agent processes.
-                </div>
-              ) : (
-                handshakeLogs.map((log) => (
-                <div
-                  key={log.id}
-                  style={{
-                    border: '1px solid #f1f3f4',
-                    borderRadius: '10px',
-                    padding: '10px 14px',
-                    backgroundColor: '#fafafa',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '4px',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600 }}>
-                      <span style={{ color: 'var(--primary)' }}>{log.from_agent}</span>
-                      <ArrowRight size={12} color="var(--text-muted)" />
-                      <span style={{ color: 'var(--text)' }}>{log.to_agent}</span>
-                      <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontSize: '11px' }}>({log.action})</span>
-                    </div>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{log.timestamp}</span>
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                    {log.payload_summary}
-                  </div>
-                </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
+        <ACPAgentMeshPage />
       )}
 
       {/* 4. Computer Use Tab */}
@@ -1170,7 +747,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
           {/* Main Card */}
           <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px 24px' }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Monitor size={18} color="var(--primary)" />
@@ -1179,85 +756,414 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                   </h3>
                 </div>
                 <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5, maxWidth: '820px' }}>
-                  OS-level execution enhancer optimizing Antigravity computer use with display coordinate scaling normalization, Wayland PipeWire screen capture, and token-saving accessibility tree grounding on Linux desktop.
+                  Cross-platform execution enhancer optimizing Antigravity computer use with display coordinate scaling normalization, native screen capture pipelines, and token-saving accessibility tree grounding across Linux, Windows, and macOS.
                 </p>
               </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '4px 10px',
+                    borderRadius: '20px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    backgroundColor: '#e6f4ea',
+                    color: '#137333',
+                    border: '1px solid #ceead6',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <span
+                    style={{
+                      width: '7px',
+                      height: '7px',
+                      borderRadius: '50%',
+                      backgroundColor: '#137333',
+                      display: 'inline-block',
+                    }}
+                  />
+                  <span>Host: {compUseStatus?.current_os ? compUseStatus.current_os.toUpperCase() : 'LINUX'}</span>
+                </div>
+
+                <button
+                  onClick={loadComputerUseStatus}
+                  disabled={compUseLoading}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: '#ffffff',
+                    color: 'var(--text)',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: compUseLoading ? 'not-allowed' : 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title="Reload live OS diagnostics"
+                >
+                  <RefreshCw size={13} style={{ animation: compUseLoading ? 'spin 1s linear infinite' : 'none' }} />
+                  <span>Refresh</span>
+                </button>
+              </div>
             </div>
 
-            {/* Diagnostic Badges */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', padding: '10px 14px', backgroundColor: 'var(--canvas)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                <CheckCircle2 size={13} color="var(--green)" />
-                <span>Display Pipeline: <strong>Wayland & X11 Portal Ready</strong></span>
-              </div>
-              <span style={{ color: 'var(--border)' }}>•</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                <CheckCircle2 size={13} color="var(--green)" />
-                <span>Screen Capture: <strong>xdg-desktop-portal / PipeWire</strong></span>
-              </div>
-              <span style={{ color: 'var(--border)' }}>•</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                <CheckCircle2 size={13} color="var(--green)" />
-                <span>Grounding: <strong>AT-SPI D-Bus Accessible</strong></span>
-              </div>
+            {/* Operating System Selector Tabs */}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+              {(
+                [
+                  { id: 'linux', label: 'Linux (Wayland & X11)' },
+                  { id: 'windows', label: 'Windows 11 / 10 (DWM)' },
+                  { id: 'darwin', label: 'macOS (Retina & SCK)' },
+                ] as const
+              ).map((tab) => {
+                const isSelected = selectedPlatformOS === tab.id
+                const isHost = compUseStatus?.current_os === tab.id
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setSelectedPlatformOS(tab.id)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      border: isSelected ? '1px solid var(--primary)' : '1px solid var(--border)',
+                      backgroundColor: isSelected ? 'rgba(26, 115, 232, 0.08)' : 'var(--canvas)',
+                      color: isSelected ? 'var(--primary)' : 'var(--text)',
+                      fontSize: '13px',
+                      fontWeight: isSelected ? 700 : 500,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <span>{tab.label}</span>
+                    {isHost && (
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          padding: '1px 6px',
+                          borderRadius: '10px',
+                          backgroundColor: '#e6f4ea',
+                          color: '#137333',
+                        }}
+                      >
+                        Active Host
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
 
-            {/* 3 Setting Cards */}
+            {/* Diagnostic Badges for Selected Platform */}
+            {(() => {
+              const spec = compUseStatus?.profiles?.[selectedPlatformOS] || compUseStatus?.host_spec
+              const pipeline = spec?.display_pipeline || (selectedPlatformOS === 'linux' ? 'Wayland Compositor (Xwayland Rootless)' : selectedPlatformOS === 'windows' ? 'Desktop Window Manager (DWM) Per-Monitor V2' : 'Quartz Display Services with Retina 2.0x')
+              const capture = spec?.screen_capture_backend || (selectedPlatformOS === 'linux' ? 'xdg-desktop-portal / PipeWire Stream' : selectedPlatformOS === 'windows' ? 'Windows Graphics Capture (WGC) & DXGI' : 'ScreenCaptureKit (SCK) Zero-Copy Stream')
+              const grounding = spec?.grounding_backend || (selectedPlatformOS === 'linux' ? 'AT-SPI2 D-Bus Accessibility Tree' : selectedPlatformOS === 'windows' ? 'Windows UI Automation (UIA) COM Patterns' : 'macOS AXUIElement Accessibility Hierarchy')
+              const scale = spec?.dpi_scaling_factor || (selectedPlatformOS === 'darwin' ? 2.0 : selectedPlatformOS === 'windows' ? 1.25 : 1.0)
+              const resolution = spec?.display_resolution || (selectedPlatformOS === 'darwin' ? '2880x1800 (Retina Display)' : selectedPlatformOS === 'windows' ? '2560x1440 (Primary High-DPI)' : '1920x1080 (Primary)')
+
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', padding: '10px 14px', backgroundColor: 'var(--canvas)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                    <CheckCircle2 size={13} color="var(--green)" />
+                    <span>Display Pipeline: <strong>{pipeline}</strong></span>
+                  </div>
+                  <span style={{ color: 'var(--border)' }}>•</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                    <CheckCircle2 size={13} color="var(--green)" />
+                    <span>Screen Capture: <strong>{capture}</strong></span>
+                  </div>
+                  <span style={{ color: 'var(--border)' }}>•</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                    <CheckCircle2 size={13} color="var(--green)" />
+                    <span>Grounding: <strong>{grounding}</strong></span>
+                  </div>
+                  <span style={{ color: 'var(--border)' }}>•</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                    <CheckCircle2 size={13} color="var(--green)" />
+                    <span>Resolution: <strong>{resolution} ({scale}x Scale)</strong></span>
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* Setting Cards for Selected Platform */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
-                <div style={{ paddingRight: '12px' }}>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>DPI Normalizer</div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    Calibrate HiDPI 125%/150% scaling offsets to ensure click and drag coordinates target exact pixel boundaries.
-                  </div>
-                </div>
-                <ToggleSwitch
-                  size="sm"
-                  checked={dpiNormalization}
-                  onChange={(val) => {
-                    setDpiNormalization(val)
-                    localStorage.setItem('antigravity_comp_dpi_norm', String(val))
-                  }}
-                  ariaLabel="Toggle DPI Normalizer"
-                />
-              </label>
+              {selectedPlatformOS === 'linux' && (
+                <>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
+                    <div style={{ paddingRight: '12px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>HiDPI Fractional Normalizer</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Calibrate fractional scaling offsets (125%/150%) so click and drag coordinates target exact pixel boundaries.
+                      </div>
+                    </div>
+                    <ToggleSwitch
+                      size="sm"
+                      checked={compSettings.linux_dpi_normalizer}
+                      onChange={(val) => handleToggleCompSetting('linux_dpi_normalizer', val)}
+                      ariaLabel="Toggle HiDPI Fractional Normalizer"
+                    />
+                  </label>
 
-              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
-                <div style={{ paddingRight: '12px' }}>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>Wayland PipeWire Stream</div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    Capture frames directly via xdg-desktop-portal PipeWire streams under modern Wayland compositors.
-                  </div>
-                </div>
-                <ToggleSwitch
-                  size="sm"
-                  checked={waylandPipeWire}
-                  onChange={(val) => {
-                    setWaylandPipeWire(val)
-                    localStorage.setItem('antigravity_comp_wayland_pipewire', String(val))
-                  }}
-                  ariaLabel="Toggle Wayland PipeWire Stream"
-                />
-              </label>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
+                    <div style={{ paddingRight: '12px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>Wayland PipeWire Stream</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Capture frames directly via xdg-desktop-portal PipeWire streams under modern Wayland compositors.
+                      </div>
+                    </div>
+                    <ToggleSwitch
+                      size="sm"
+                      checked={compSettings.wayland_pipewire}
+                      onChange={(val) => handleToggleCompSetting('wayland_pipewire', val)}
+                      ariaLabel="Toggle Wayland PipeWire Stream"
+                    />
+                  </label>
 
-              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
-                <div style={{ paddingRight: '12px' }}>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>Accessibility Grounding</div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    Query OS accessibility tree (AT-SPI) via D-Bus to locate UI elements deterministically without burning vision tokens.
-                  </div>
-                </div>
-                <ToggleSwitch
-                  size="sm"
-                  checked={accessibilityGrounding}
-                  onChange={(val) => {
-                    setAccessibilityGrounding(val)
-                    localStorage.setItem('antigravity_comp_accessibility_grounding', String(val))
-                  }}
-                  ariaLabel="Toggle Accessibility Grounding"
-                />
-              </label>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
+                    <div style={{ paddingRight: '12px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>AT-SPI2 Accessibility Grounding</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Query OS accessibility tree via D-Bus to locate UI elements deterministically without burning vision tokens.
+                      </div>
+                    </div>
+                    <ToggleSwitch
+                      size="sm"
+                      checked={compSettings.accessibility_grounding}
+                      onChange={(val) => handleToggleCompSetting('accessibility_grounding', val)}
+                      ariaLabel="Toggle Accessibility Grounding"
+                    />
+                  </label>
+                </>
+              )}
+
+              {selectedPlatformOS === 'windows' && (
+                <>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
+                    <div style={{ paddingRight: '12px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>Per-Monitor V2 DPI Awareness</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Enforce Per-Monitor V2 scaling context so input injection coordinates scale correctly across mixed-DPI displays.
+                      </div>
+                    </div>
+                    <ToggleSwitch
+                      size="sm"
+                      checked={compSettings.per_monitor_v2_dpi}
+                      onChange={(val) => handleToggleCompSetting('per_monitor_v2_dpi', val)}
+                      ariaLabel="Toggle Per-Monitor V2 DPI Awareness"
+                    />
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
+                    <div style={{ paddingRight: '12px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>Windows Graphics Capture (WGC)</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Capture hardware-accelerated desktop buffers via modern Windows.Graphics.Capture API instead of legacy BitBlt.
+                      </div>
+                    </div>
+                    <ToggleSwitch
+                      size="sm"
+                      checked={compSettings.windows_graphics_capture}
+                      onChange={(val) => handleToggleCompSetting('windows_graphics_capture', val)}
+                      ariaLabel="Toggle Windows Graphics Capture"
+                    />
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
+                    <div style={{ paddingRight: '12px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>UI Automation COM Grounding</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Inspect UIAutomationCore COM element tree to identify clickable controls by AutomationId and Name without vision cost.
+                      </div>
+                    </div>
+                    <ToggleSwitch
+                      size="sm"
+                      checked={compSettings.ui_automation_grounding}
+                      onChange={(val) => handleToggleCompSetting('ui_automation_grounding', val)}
+                      ariaLabel="Toggle UI Automation COM Grounding"
+                    />
+                  </label>
+                </>
+              )}
+
+              {selectedPlatformOS === 'darwin' && (
+                <>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
+                    <div style={{ paddingRight: '12px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>Quartz Retina Coordinate Normalizer</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Normalize 2.0x Retina points to hardware raster pixels with inverted Cocoa bottom-left coordinate matrix transform.
+                      </div>
+                    </div>
+                    <ToggleSwitch
+                      size="sm"
+                      checked={compSettings.quartz_retina_normalizer}
+                      onChange={(val) => handleToggleCompSetting('quartz_retina_normalizer', val)}
+                      ariaLabel="Toggle Quartz Retina Coordinate Normalizer"
+                    />
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
+                    <div style={{ paddingRight: '12px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>ScreenCaptureKit Zero-Copy Stream</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Stream display frames via macOS ScreenCaptureKit (SCK) with zero memory copy and Metal hardware optimization.
+                      </div>
+                    </div>
+                    <ToggleSwitch
+                      size="sm"
+                      checked={compSettings.screen_capture_kit}
+                      onChange={(val) => handleToggleCompSetting('screen_capture_kit', val)}
+                      ariaLabel="Toggle ScreenCaptureKit Stream"
+                    />
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
+                    <div style={{ paddingRight: '12px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>AXUIElement Accessibility Grounding</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Query macOS Accessibility framework hierarchy to locate interactive buttons and textfields by AXRole and AXTitle.
+                      </div>
+                    </div>
+                    <ToggleSwitch
+                      size="sm"
+                      checked={compSettings.ax_accessibility_grounding}
+                      onChange={(val) => handleToggleCompSetting('ax_accessibility_grounding', val)}
+                      ariaLabel="Toggle AXUIElement Accessibility Grounding"
+                    />
+                  </label>
+                </>
+              )}
             </div>
+          </div>
+
+          {/* Real Interactive Coordinate Calibration Card */}
+          <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '18px 22px' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Crosshair size={16} color="var(--primary)" />
+                  <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
+                    Display Coordinate Normalization Probe
+                  </h4>
+                </div>
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  Verify logical-to-physical coordinate transformation on {selectedPlatformOS.toUpperCase()}. Ensures open-computer-use click and drag actions target exact pixel coordinates without scaling drift.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>Target X:</span>
+                  <input
+                    type="number"
+                    value={calibX}
+                    onChange={(e) => setCalibX(parseInt(e.target.value) || 0)}
+                    style={{
+                      width: '75px',
+                      padding: '5px 8px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      fontSize: '12px',
+                      backgroundColor: '#ffffff',
+                      color: 'var(--text)',
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>Target Y:</span>
+                  <input
+                    type="number"
+                    value={calibY}
+                    onChange={(e) => setCalibY(parseInt(e.target.value) || 0)}
+                    style={{
+                      width: '75px',
+                      padding: '5px 8px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      fontSize: '12px',
+                      backgroundColor: '#ffffff',
+                      color: 'var(--text)',
+                    }}
+                  />
+                </div>
+
+                <button
+                  onClick={handleRunCalibration}
+                  disabled={isCalibrating}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '7px 14px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    backgroundColor: 'var(--primary)',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: isCalibrating ? 'not-allowed' : 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <Crosshair size={13} />
+                  <span>{isCalibrating ? 'Calibrating...' : 'Calibrate Coordinates'}</span>
+                </button>
+              </div>
+            </div>
+
+            {calibResult && (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                  gap: '10px',
+                  padding: '12px 14px',
+                  backgroundColor: 'var(--canvas)',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border)',
+                  fontSize: '12px',
+                }}
+              >
+                <div>
+                  <span style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>Platform Profile</span>
+                  <strong style={{ color: 'var(--text)' }}>{calibResult.os.toUpperCase()}</strong>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>Scaling Factor</span>
+                  <strong style={{ color: 'var(--primary)' }}>{calibResult.scale_factor}x</strong>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>Logical Viewport</span>
+                  <strong style={{ color: 'var(--text)' }}>{calibResult.logical_width} x {calibResult.logical_height}</strong>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>Physical Hardware</span>
+                  <strong style={{ color: 'var(--text)' }}>{calibResult.physical_width} x {calibResult.physical_height}</strong>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>Input Coordinates</span>
+                  <strong style={{ color: 'var(--text)' }}>({calibResult.offset_target_x}, {calibResult.offset_target_y})</strong>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>Corrected Hardware Target</span>
+                  <strong style={{ color: '#137333' }}>({calibResult.corrected_target_x}, {calibResult.corrected_target_y})</strong>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Architecture Explanation Card */}

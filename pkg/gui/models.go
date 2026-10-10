@@ -29,6 +29,11 @@ type Config struct {
 	AutoArchiveConversations    bool              `json:"auto_archive_conversations"`    // Toggle: Automatically archive stale conversations
 	AutoArchiveHorizon          string            `json:"auto_archive_horizon"`          // "3d", "7d", "14d" (default), "30d", "60d", "90d"
 	AutoInject                  bool              `json:"auto_inject"`                  // Automatically inject into Antigravity desktop app
+	ChatTelemetryInputTokens     bool              `json:"chat_telemetry_input_tokens"`      // default true
+	ChatTelemetryOutputTokens    bool              `json:"chat_telemetry_output_tokens"`     // default true
+	ChatTelemetryCacheHitRatio   bool              `json:"chat_telemetry_cache_hit_ratio"`   // default true
+	ChatTelemetryGenerationSpeed bool              `json:"chat_telemetry_generation_speed"`  // default true
+	ChatTelemetryScope           string            `json:"chat_telemetry_scope"`             // "aggregated" (default) or "main_only"
 }
 
 // FactoryProjectColors returns the factory default project colors.
@@ -69,6 +74,11 @@ func DefaultConfig() *Config {
 		AutoArchiveConversations:    true,
 		AutoArchiveHorizon:          "14d",
 		AutoInject:                  true,
+		ChatTelemetryInputTokens:     true,
+		ChatTelemetryOutputTokens:    true,
+		ChatTelemetryCacheHitRatio:   true,
+		ChatTelemetryGenerationSpeed: true,
+		ChatTelemetryScope:           "aggregated",
 	}
 }
 

@@ -29,6 +29,18 @@ export const ACP_NODE_ICONS: Record<AcpNodeId, string> = {
   'agent-cursor': 'Edit3',
 }
 
+export const ACP_PRODUCT_NAMES: Record<AcpNodeId, string> = {
+  'agent-antigravity': 'Antigravity 2.0',
+  'agent-antigravity-cli': 'Antigravity CLI',
+  'agent-devin': 'Devin',
+  'agent-opencode': 'OpenCode',
+  'agent-deepseek-harness': 'DeepSeek Harness',
+  'agent-pi': 'Pi',
+  'agent-codex': 'Codex',
+  'agent-claude-code': 'Claude Code',
+  'agent-cursor': 'Cursor',
+}
+
 export const ACP_CARD_LAYOUT_TOKENS = {
   cardPadding: '16px', // 4 * 4px
   cardBorderRadius: '8px', // 2 * 4px

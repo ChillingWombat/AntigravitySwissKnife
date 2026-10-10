@@ -247,6 +247,68 @@ func (s *Shield) RestartLanguageServer() error {
 	return nil
 }
 
+// LaunchHostIDE launches the Antigravity desktop IDE application if it is not currently running.
+// If already running, it returns nil immediately without spawning a duplicate instance.
+func (s *Shield) LaunchHostIDE() error {
+	if os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" {
+		return nil
+	}
+
+	// Safeguard: Never spawn during unit test runs unless explicitly authorized
+	if flag.Lookup("test.v") != nil && os.Getenv("ANTIGRAVITY_ALLOW_TEST_RELAUNCH") != "1" {
+		return nil
+	}
+
+	relaunchMu.Lock()
+	defer relaunchMu.Unlock()
+
+	procs, err := s.findAntigravityProcessesInternal()
+	if err == nil {
+		for _, p := range procs {
+			lower := strings.ToLower(p.Cmdline)
+			if (p.Name == "antigravity" || strings.HasSuffix(p.Name, "antigravity")) &&
+				!strings.Contains(lower, "--type=") &&
+				!strings.Contains(lower, "swiss") {
+				// Already running
+				return nil
+			}
+		}
+	}
+
+	// Clear stale Chromium/Electron singleton locks & DevTools port file if dead
+	hostConfigDir := core.GetAntigravityHostConfigDir()
+	_ = os.Remove(filepath.Join(hostConfigDir, "SingletonLock"))
+	_ = os.Remove(filepath.Join(hostConfigDir, "SingletonSocket"))
+	_ = os.Remove(filepath.Join(hostConfigDir, "SingletonCookie"))
+	_ = os.Remove(filepath.Join(hostConfigDir, "DevToolsActivePort"))
+
+	binPath := core.GetAntigravityBinaryPath()
+	var cmd *exec.Cmd
+	if runtime.GOOS == "darwin" {
+		cmd = exec.Command("open", "-a", "Antigravity")
+	} else {
+		cmd = exec.Command(binPath)
+	}
+
+	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+	if err == nil {
+		defer devNull.Close()
+		cmd.Stdin = devNull
+		cmd.Stdout = devNull
+		cmd.Stderr = devNull
+	}
+
+	setDetachedProcess(cmd)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to launch Antigravity (%s): %w", binPath, err)
+	}
+	go func() {
+		_ = cmd.Wait()
+	}()
+
+	return nil
+}
+
 // RelaunchHostIDE gracefully terminates the running host Antigravity IDE (if alive),
 // relaunches it as a detached background process so it reads fresh credentials from disk,
 // and restores the previously active conversation view.
