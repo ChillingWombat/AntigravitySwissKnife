@@ -43,11 +43,11 @@ type ExtensionVisibility struct {
 var ExtensionIDs = []string{"browser", "files", "memos", "github", "mobile", "computer_use"}
 
 // DefaultExtensionVisibility returns the per-extension visibility map with every
-// known extension enabled in both the auxiliary panel and the main stage.
+// known extension enabled in the auxiliary panel (default: true) and disabled on the main stage (default: false).
 func DefaultExtensionVisibility() map[string]ExtensionVisibility {
 	m := make(map[string]ExtensionVisibility, len(ExtensionIDs))
 	for _, id := range ExtensionIDs {
-		m[id] = ExtensionVisibility{AuxPanel: true, MainPage: true}
+		m[id] = ExtensionVisibility{AuxPanel: true, MainPage: false}
 	}
 	return m
 }
@@ -61,7 +61,7 @@ type EnhancementsConfig struct {
 	ToolDensityMode    string              `json:"tool_density_mode"`    // "normal", "muted", "hidden"
 	BreakerLineEnabled         bool                `json:"breaker_line_enabled"`          // Breaker line between previous answer and new prompt
 	LeftPanelExtensionsEnabled bool                `json:"left_panel_extensions_enabled"` // Toggle button for extension in left sidebar (default: true)
-	LeftPanelExtensionsMode    string              `json:"left_panel_extensions_mode"`    // "single" (single Swiss Knife button) or "individual" (default: "individual")
+	LeftPanelExtensionsMode    string              `json:"left_panel_extensions_mode"`    // "single" (single Swiss Knife button) or "individual" (default: "single")
 	MainSectionExtensionsEnabled bool              `json:"main_section_extensions_enabled"` // Toggle to use extension in main section vs auxiliary panel (default: true)
 	Extensions                 map[string]ExtensionVisibility `json:"extensions,omitempty"` // Per-extension aux-panel/main-page visibility switches
 	DefaultNewProject          string              `json:"default_new_project"`           // "auto" (default: latest active) or predefined project name
@@ -101,7 +101,7 @@ func DefaultConfig() *EnhancementsConfig {
 		ToolDensityMode:            "muted",
 		BreakerLineEnabled:         true,
 		LeftPanelExtensionsEnabled: true,
-		LeftPanelExtensionsMode:    "individual",
+		LeftPanelExtensionsMode:    "single",
 		MainSectionExtensionsEnabled: true,
 		Extensions:                 DefaultExtensionVisibility(),
 		DefaultNewProject:          "auto",

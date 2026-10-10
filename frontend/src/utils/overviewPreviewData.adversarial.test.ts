@@ -236,16 +236,15 @@ describe('Adversarial & Empirical Privacy Stress Tests (Milestone 9)', () => {
       )
     })
 
-    it('asserts whiteSpace nowrap on preview header and badge', () => {
+    it('asserts whiteSpace nowrap on preview header and confirms badge omission', () => {
       assert.ok(
         pageContent.includes('{OVERVIEW_PREVIEW_HEADER}'),
         'Page must bind to OVERVIEW_PREVIEW_HEADER'
       )
       assert.ok(
-        pageContent.includes('{OVERVIEW_DIVISION_BADGE_LABELS[op.division_style]}'),
-        'Page must bind to OVERVIEW_DIVISION_BADGE_LABELS'
+        !pageContent.includes('{OVERVIEW_DIVISION_BADGE_LABELS[op.division_style]}'),
+        'Page must omit division badge for minimalist design'
       )
-      // Check that both header and badge use nowrap
       const headerSnippet = pageContent.slice(
         pageContent.indexOf('{OVERVIEW_PREVIEW_HEADER}') - 150,
         pageContent.indexOf('{OVERVIEW_PREVIEW_HEADER}') + 100
@@ -253,15 +252,6 @@ describe('Adversarial & Empirical Privacy Stress Tests (Milestone 9)', () => {
       assert.ok(
         headerSnippet.includes("whiteSpace: 'nowrap'"),
         'Overview preview header text must specify whiteSpace: nowrap'
-      )
-
-      const badgeSnippet = pageContent.slice(
-        pageContent.indexOf('{OVERVIEW_DIVISION_BADGE_LABELS[op.division_style]}') - 250,
-        pageContent.indexOf('{OVERVIEW_DIVISION_BADGE_LABELS[op.division_style]}') + 100
-      )
-      assert.ok(
-        badgeSnippet.includes("whiteSpace: 'nowrap'"),
-        'Overview preview badge must specify whiteSpace: nowrap'
       )
     })
 

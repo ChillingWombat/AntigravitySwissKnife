@@ -137,11 +137,15 @@ describe('Subagent Custom Model Options in Switcher Settings', () => {
       assert.ok(sec4bBlock.includes("border: subagentStrategy === 'default_custom_only' ? '2px solid var(--primary)' : '1px solid var(--border)'"))
       assert.ok(sec4bBlock.includes("border: subagentStrategy === 'auto_decide' ? '2px solid var(--primary)' : '1px solid var(--border)'"))
 
-      // 7. Verify Lucide icons exclusively
-      assert.ok(sec4bBlock.includes('<Bot size={16}'), 'Must use Lucide Bot icon in header')
-      assert.ok(sec4bBlock.includes('<Cpu size={15}'), 'Must use Lucide Cpu icon for Option A')
-      assert.ok(sec4bBlock.includes('<Sliders size={15}'), 'Must use Lucide Sliders icon for Option B')
+      // 7. Verify Lucide icons exclusively & header toggle switch
+      assert.ok(!sec4bBlock.includes('<Bot size={16}'), 'Header icon was removed per user request for clean headers')
+      assert.ok(!sec4bBlock.includes('<Cpu'), 'Option A header icon removed per user request')
+      assert.ok(!sec4bBlock.includes('<Sliders'), 'Option B header icon removed per user request')
       assert.ok(sec4bBlock.includes('<CheckCircle2 size={14}'), 'Must use Lucide CheckCircle2 icon for active indicator')
+      assert.ok(sec4bBlock.includes('<ToggleSwitch'), 'Section 4b must contain ToggleSwitch in header')
+      assert.ok(sec4bBlock.includes('subagentCustomModelsEnabled'), 'ToggleSwitch controls subagentCustomModelsEnabled')
+      assert.ok(sec4bBlock.includes("opacity: subagentCustomModelsEnabled ? 1 : 0.45"), 'Options dim when disabled')
+      assert.ok(sec4bBlock.includes("pointerEvents: subagentCustomModelsEnabled ? 'auto' : 'none'"), 'Options inert when disabled')
     })
   })
 

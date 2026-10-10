@@ -21,6 +21,17 @@ import (
 
 var tokenRefreshEndpoint = GoogleOAuthTokenURL
 
+// isSafeTestWritePath ensures that during automated unit/integration tests,
+// writes to host configuration and token files only occur if targeted within a temporary directory.
+func isSafeTestWritePath(path string) bool {
+	if !core.IsRunningTests() {
+		return true
+	}
+	cleaned := filepath.Clean(path)
+	tempDir := filepath.Clean(os.TempDir())
+	return strings.HasPrefix(cleaned, tempDir) || strings.HasPrefix(cleaned, "/tmp") || strings.HasPrefix(cleaned, "/private/tmp")
+}
+
 // EnsureFreshAccessToken exchanges the account's refresh token for a fresh access token
 // when the access token is empty, has an unknown expiry, or expires within 15 minutes.
 func EnsureFreshAccessToken(acc *Account) bool {
@@ -28,7 +39,7 @@ func EnsureFreshAccessToken(acc *Account) bool {
 		return false
 	}
 	if tokenRefreshEndpoint == GoogleOAuthTokenURL {
-		if os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" || isTestMockEmail(acc.Email) {
+		if os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" || core.IsRunningTests() || isTestMockEmail(acc.Email) {
 			return false
 		}
 	}
@@ -133,8 +144,12 @@ func buildSecretPayload(acc *Account) ([]byte, error) {
 	}
 	payload.Token.IDToken = idToken
 	hasRefresh := strings.TrimSpace(acc.RefreshToken) != ""
-	if !acc.TokenExpiry.IsZero() && (!hasRefresh || time.Until(acc.TokenExpiry) > 5*time.Minute) {
-		payload.Token.Expiry = acc.TokenExpiry.UTC().Format("2006-01-02T15:04:05.000000Z")
+	if strings.TrimSpace(acc.AccessToken) != "" {
+		if !acc.TokenExpiry.IsZero() && time.Until(acc.TokenExpiry) > 0 {
+			payload.Token.Expiry = acc.TokenExpiry.UTC().Format("2006-01-02T15:04:05.000000Z")
+		} else {
+			payload.Token.Expiry = time.Now().Add(1 * time.Hour).UTC().Format("2006-01-02T15:04:05.000000Z")
+		}
 	} else if hasRefresh {
 		payload.Token.Expiry = time.Now().Add(-1 * time.Minute).UTC().Format("2006-01-02T15:04:05.000000Z")
 	} else {
@@ -146,7 +161,7 @@ func buildSecretPayload(acc *Account) ([]byte, error) {
 
 // WriteSecretServiceToken stores account credentials into Linux Secret Service (service=gemini, username=antigravity).
 func WriteSecretServiceToken(acc *Account) error {
-	if os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" || acc == nil || (acc.AccessToken == "" && acc.RefreshToken == "") {
+	if os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" || core.IsRunningTests() || acc == nil || isTestMockEmail(acc.Email) || (acc.AccessToken == "" && acc.RefreshToken == "") {
 		return nil
 	}
 	payloadBytes, err := buildSecretPayload(acc)
@@ -177,6 +192,9 @@ func SyncAppStorageLoginUser(email string) error {
 		return nil
 	}
 	storagePath := filepath.Join(core.GetAntigravityHostConfigDir(), "app_storage.json")
+	if !isSafeTestWritePath(storagePath) {
+		return nil
+	}
 
 	data, err := os.ReadFile(storagePath)
 	if err != nil {
@@ -217,7 +235,7 @@ func SyncHardwareProfileToDirs(prof *fingerprint.DeviceProfile, antigravityConfi
 		return nil
 	}
 
-	if antigravityConfigDir != "" {
+	if antigravityConfigDir != "" && isSafeTestWritePath(antigravityConfigDir) {
 		if err := os.MkdirAll(antigravityConfigDir, 0755); err != nil {
 			return err
 		}
@@ -231,7 +249,7 @@ func SyncHardwareProfileToDirs(prof *fingerprint.DeviceProfile, antigravityConfi
 		}
 	}
 
-	if geminiAntigravityDir != "" {
+	if geminiAntigravityDir != "" && isSafeTestWritePath(geminiAntigravityDir) {
 		if err := os.MkdirAll(geminiAntigravityDir, 0755); err != nil {
 			return err
 		}
@@ -282,7 +300,7 @@ func SyncHardwareProfileToDirs(prof *fingerprint.DeviceProfile, antigravityConfi
 // SyncHardwareProfile swaps Antigravity's machineid, .updaterId, installation_id,
 // and antigravity_state.pbtxt installation_uuid to match the account's isolated profile.
 func SyncHardwareProfile(email string, profileMgr *fingerprint.Store) error {
-	if profileMgr == nil || email == "" || isTestMockEmail(email) || os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" {
+	if profileMgr == nil || email == "" || isTestMockEmail(email) || os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" || core.IsRunningTests() {
 		return nil
 	}
 	prof, err := profileMgr.GetOrCreateProfile(email)
@@ -301,7 +319,7 @@ func SyncHardwareProfile(email string, profileMgr *fingerprint.Store) error {
 
 // SyncDesktopStandaloneToken writes ~/.gemini/jetski-standalone-oauth-token for Antigravity 2.0.
 func SyncDesktopStandaloneToken(acc *Account) error {
-	if acc == nil || (acc.AccessToken == "" && acc.RefreshToken == "") {
+	if acc == nil || isTestMockEmail(acc.Email) || (acc.AccessToken == "" && acc.RefreshToken == "") {
 		return nil
 	}
 	home, err := os.UserHomeDir()
@@ -309,8 +327,11 @@ func SyncDesktopStandaloneToken(acc *Account) error {
 		return err
 	}
 	geminiDir := filepath.Join(home, ".gemini")
-	_ = os.MkdirAll(geminiDir, 0755)
 	targetPath := filepath.Join(geminiDir, "jetski-standalone-oauth-token")
+	if !isSafeTestWritePath(targetPath) {
+		return nil
+	}
+	_ = os.MkdirAll(geminiDir, 0755)
 	data, err := buildSecretPayload(acc)
 	if err != nil {
 		return err
@@ -320,7 +341,7 @@ func SyncDesktopStandaloneToken(acc *Account) error {
 
 // SyncCLIOAuthToken writes ~/.gemini/antigravity-cli/antigravity-oauth-token for Antigravity CLI (agy).
 func SyncCLIOAuthToken(acc *Account) error {
-	if acc == nil || (acc.AccessToken == "" && acc.RefreshToken == "") {
+	if acc == nil || isTestMockEmail(acc.Email) || (acc.AccessToken == "" && acc.RefreshToken == "") {
 		return nil
 	}
 	home, err := os.UserHomeDir()
@@ -328,8 +349,11 @@ func SyncCLIOAuthToken(acc *Account) error {
 		return err
 	}
 	cliDir := filepath.Join(home, ".gemini", "antigravity-cli")
-	_ = os.MkdirAll(cliDir, 0755)
 	targetPath := filepath.Join(cliDir, "antigravity-oauth-token")
+	if !isSafeTestWritePath(targetPath) {
+		return nil
+	}
+	_ = os.MkdirAll(cliDir, 0755)
 	data, err := buildSecretPayload(acc)
 	if err != nil {
 		return err
@@ -339,13 +363,19 @@ func SyncCLIOAuthToken(acc *Account) error {
 
 // SyncGoogleAccountsJSON writes ~/.gemini/google_accounts.json setting active and old accounts.
 func SyncGoogleAccountsJSON(activeEmail string, allEmails []string) error {
+	if isTestMockEmail(activeEmail) {
+		return nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
 	}
 	geminiDir := filepath.Join(home, ".gemini")
-	_ = os.MkdirAll(geminiDir, 0755)
 	targetPath := filepath.Join(geminiDir, "google_accounts.json")
+	if !isSafeTestWritePath(targetPath) {
+		return nil
+	}
+	_ = os.MkdirAll(geminiDir, 0755)
 	var old []string
 	seen := make(map[string]bool)
 	seen[strings.ToLower(activeEmail)] = true
@@ -371,7 +401,7 @@ func SyncGoogleAccountsJSON(activeEmail string, allEmails []string) error {
 
 // SyncOAuthCredsJSON writes ~/.gemini/oauth_creds.json used across CLI and extensions.
 func SyncOAuthCredsJSON(acc *Account) error {
-	if acc == nil || (acc.AccessToken == "" && acc.RefreshToken == "") {
+	if acc == nil || isTestMockEmail(acc.Email) || (acc.AccessToken == "" && acc.RefreshToken == "") {
 		return nil
 	}
 	home, err := os.UserHomeDir()
@@ -379,13 +409,20 @@ func SyncOAuthCredsJSON(acc *Account) error {
 		return err
 	}
 	geminiDir := filepath.Join(home, ".gemini")
-	_ = os.MkdirAll(geminiDir, 0755)
 	targetPath := filepath.Join(geminiDir, "oauth_creds.json")
+	if !isSafeTestWritePath(targetPath) {
+		return nil
+	}
+	_ = os.MkdirAll(geminiDir, 0755)
 
 	hasRefresh := strings.TrimSpace(acc.RefreshToken) != ""
 	expiryMs := time.Now().Add(1 * time.Hour).UnixMilli()
-	if !acc.TokenExpiry.IsZero() && (!hasRefresh || time.Until(acc.TokenExpiry) > 5*time.Minute) {
-		expiryMs = acc.TokenExpiry.UnixMilli()
+	if strings.TrimSpace(acc.AccessToken) != "" {
+		if !acc.TokenExpiry.IsZero() && time.Until(acc.TokenExpiry) > 0 {
+			expiryMs = acc.TokenExpiry.UnixMilli()
+		} else {
+			expiryMs = time.Now().Add(1 * time.Hour).UnixMilli()
+		}
 	} else if hasRefresh {
 		expiryMs = time.Now().Add(-1 * time.Minute).UnixMilli()
 	}
@@ -573,24 +610,22 @@ func buildOAuthTokenSentinel(acc *Account) string {
 	return base64.StdEncoding.EncodeToString(top.Bytes())
 }
 
-// SyncStateVscdb updates profileUrl, userStatus, and oauthToken in Antigravity's state.vscdb SQLite storage if present.
-func SyncStateVscdb(acc *Account) error {
-	if acc == nil {
+// syncSingleVscdb updates profileUrl, userStatus, and oauthToken in a target state.vscdb SQLite storage.
+func syncSingleVscdb(vscdbPath string, acc *Account) error {
+	if !isSafeTestWritePath(vscdbPath) {
 		return nil
 	}
-
-	vscdbPath := filepath.Join(core.GetAntigravityHostConfigDir(), "User", "globalStorage", "state.vscdb")
 	if _, err := os.Stat(vscdbPath); err != nil {
 		return nil // state.vscdb not present on host
 	}
 
 	db, err := sql.Open("sqlite", vscdbPath)
 	if err != nil {
-		return fmt.Errorf("failed to open state.vscdb: %w", err)
+		return fmt.Errorf("failed to open %s: %w", vscdbPath, err)
 	}
 	defer db.Close()
 
-	// Configure busy timeout to handle concurrent access by Antigravity Electron process
+	// Configure busy timeout to handle concurrent access by Antigravity / Code process
 	_, _ = db.Exec("PRAGMA busy_timeout = 5000;")
 
 	var tableCount int
@@ -622,6 +657,24 @@ func SyncStateVscdb(acc *Account) error {
 	return nil
 }
 
+// SyncStateVscdb updates profileUrl, userStatus, and oauthToken in Antigravity's
+// and VS Code's state.vscdb SQLite storage if present.
+func SyncStateVscdb(acc *Account) error {
+	if acc == nil || isTestMockEmail(acc.Email) {
+		return nil
+	}
+
+	// 1. Antigravity state.vscdb
+	vscdbPathAntigravity := filepath.Join(core.GetAntigravityHostConfigDir(), "User", "globalStorage", "state.vscdb")
+	_ = syncSingleVscdb(vscdbPathAntigravity, acc)
+
+	// 2. VS Code state.vscdb (if present)
+	vscdbPathCode := filepath.Join(core.GetVSCodeHostConfigDir(), "User", "globalStorage", "state.vscdb")
+	_ = syncSingleVscdb(vscdbPathCode, acc)
+
+	return nil
+}
+
 // SyncAllSurfaces atomically syncs the active account across Antigravity 2.0 Desktop,
 // Antigravity CLI (agy), and Antigravity VS Code Extension.
 func SyncAllSurfaces(acc *Account, allEmails []string, profileMgr *fingerprint.Store) error {
@@ -635,7 +688,7 @@ func SyncAllSurfaces(acc *Account, allEmails []string, profileMgr *fingerprint.S
 	// 1. Linux Secret Service (VS Code Extension & Electron Keytar)
 	_ = WriteSecretServiceToken(acc)
 
-	// 2. Antigravity 2.0 Desktop App
+	// 2. Antigravity 2.0 Desktop App & VS Code Extension Token
 	_ = SyncDesktopStandaloneToken(acc)
 	_ = SyncAppStorageLoginUser(acc.Email)
 	_ = SyncHardwareProfile(acc.Email, profileMgr)
@@ -679,6 +732,8 @@ func SyncCLISurface(acc *Account, allEmails []string) error {
 		return fmt.Errorf("nil account")
 	}
 	_ = EnsureFreshAccessToken(acc)
+	_ = WriteSecretServiceToken(acc)
+	_ = SyncDesktopStandaloneToken(acc)
 	_ = SyncCLIOAuthToken(acc)
 	_ = SyncGoogleAccountsJSON(acc.Email, allEmails)
 	_ = SyncOAuthCredsJSON(acc)
@@ -692,6 +747,10 @@ func SyncVSCodeSurface(acc *Account) error {
 	}
 	_ = EnsureFreshAccessToken(acc)
 	_ = WriteSecretServiceToken(acc)
+	_ = SyncDesktopStandaloneToken(acc)
+	_ = SyncStateVscdb(acc)
+	_ = SyncCLIOAuthToken(acc)
+	_ = SyncOAuthCredsJSON(acc)
 	return nil
 }
 

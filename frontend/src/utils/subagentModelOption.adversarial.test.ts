@@ -34,20 +34,18 @@ describe('Adversarial & Empirical Verification: Milestone 13 Subagent Custom Mod
     })
 
     it('verifies exclusively monochrome Lucide icons are employed with vector sizing', () => {
-      assert.ok(sec4bSource.includes('<Bot size={16} style={{ color: \'var(--primary)\' }} />'), 'Must use Lucide Bot icon for card header')
-      assert.ok(sec4bSource.includes('<Cpu size={15}'), 'Must use Lucide Cpu icon for Option A')
-      assert.ok(sec4bSource.includes('<Sliders size={15}'), 'Must use Lucide Sliders icon for Option B')
+      assert.ok(!sec4bSource.includes('<Bot size={16}'), 'Header icon was removed per user request for clean headers')
+      assert.ok(!sec4bSource.includes('<Cpu'), 'Option A header icon removed per user request')
+      assert.ok(!sec4bSource.includes('<Sliders'), 'Option B header icon removed per user request')
       assert.ok(sec4bSource.includes('<CheckCircle2 size={14} color="var(--primary)" />'), 'Must use Lucide CheckCircle2 icon for active checkmark')
     })
 
-    it('verifies active vs unselected icon tinting matches theme tokens', () => {
+    it('verifies toggle switch in header enables or disables subagent custom models', () => {
+      assert.ok(sec4bSource.includes('<ToggleSwitch'), 'Section 4b must contain ToggleSwitch')
+      assert.ok(sec4bSource.includes('subagentCustomModelsEnabled'), 'ToggleSwitch controls subagentCustomModelsEnabled')
       assert.ok(
-        sec4bSource.includes("color={subagentStrategy === 'default_custom_only' ? 'var(--primary)' : 'var(--text-muted)'}"),
-        'Option A icon must tint primary when active and text-muted when inactive'
-      )
-      assert.ok(
-        sec4bSource.includes("color={subagentStrategy === 'auto_decide' ? 'var(--primary)' : 'var(--text-muted)'}"),
-        'Option B icon must tint primary when active and text-muted when inactive'
+        sec4bSource.includes("opacity: subagentCustomModelsEnabled ? 1 : 0.45"),
+        'Option cards must dim when custom models are disabled'
       )
     })
   })

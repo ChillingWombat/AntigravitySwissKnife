@@ -244,7 +244,7 @@ export const NavRail: React.FC<NavRailProps> = ({
           }}
         >
           <Wrench size={18} color={currentTool === 9 ? 'var(--primary)' : 'var(--text-muted)'} />
-          Utilities & Interop
+          Utilities
         </button>
 
         <button

@@ -335,8 +335,11 @@ func TestWebGUIAppReleaseEndpoints(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	if cachedInfo.CurrentVersion != core.AppVersion {
-		t.Errorf("expected current version %s, got %s", core.AppVersion, cachedInfo.CurrentVersion)
+	if cachedInfo.CurrentVersion != "N/A" {
+		t.Errorf("expected current version N/A, got %s", cachedInfo.CurrentVersion)
+	}
+	if cachedInfo.LatestVersion != "N/A" {
+		t.Errorf("expected latest version N/A, got %s", cachedInfo.LatestVersion)
 	}
 
 	// 2. POST /api/system/check_app_release

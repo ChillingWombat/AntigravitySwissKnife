@@ -77,6 +77,23 @@ func TestGitHubHandlers(t *testing.T) {
 		t.Errorf("expected bound issue 25, got %d", got)
 	}
 
+	// 3b. Test /api/github/agent-tasks/report
+	reportPayload, _ := json.Marshal(map[string]interface{}{
+		"workspace_path":  tmpDir,
+		"conversation_id": "test-conv-002",
+		"work_item":       "Refactor Token Price Table and Model Pins",
+		"agent_label":     "Token Telemetry Worker",
+		"issues":          []int{38, 42},
+		"prs":             []int{15},
+		"status":          "working",
+	})
+	reqReport := httptest.NewRequest("POST", "/api/github/agent-tasks/report", bytes.NewReader(reportPayload))
+	rrReport := httptest.NewRecorder()
+	server.handleGitHubAgentTaskReport(rrReport, reqReport)
+	if rrReport.Code != http.StatusOK {
+		t.Fatalf("expected 200 from report, got %d", rrReport.Code)
+	}
+
 	// 4. Test /api/github/kanban
 	reqKanban := httptest.NewRequest("GET", "/api/github/kanban?workspace_path=.", nil)
 	rrKanban := httptest.NewRecorder()

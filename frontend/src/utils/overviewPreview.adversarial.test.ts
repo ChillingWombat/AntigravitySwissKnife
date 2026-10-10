@@ -51,21 +51,9 @@ describe('Adversarial & Stress Verification: Overview Panel Preview Layout, Styl
       )
     })
 
-    it('verifies whiteSpace: nowrap is strictly enforced on division style badges', () => {
+    it('verifies division style badge is omitted from header per minimal UI design', () => {
       const badgeUsageIdx = previewBlock.indexOf('{OVERVIEW_DIVISION_BADGE_LABELS[op.division_style]}')
-      assert.ok(badgeUsageIdx !== -1, 'Must render division style badge label')
-      const badgeSpanStart = previewBlock.lastIndexOf('<span', badgeUsageIdx)
-      const badgeSpanEnd = previewBlock.indexOf('>', badgeUsageIdx)
-      const badgeSpanJSX = previewBlock.slice(badgeSpanStart, badgeSpanEnd + 1)
-
-      assert.ok(
-        badgeSpanJSX.includes("whiteSpace: 'nowrap'"),
-        'Division style badge must specify whiteSpace: "nowrap" to prevent multiline badge wrapping'
-      )
-      assert.ok(
-        badgeSpanJSX.includes("fontSize: '11px'"),
-        'Badge must specify 11px font size per David-Design fine print standard'
-      )
+      assert.strictEqual(badgeUsageIdx, -1, 'Division style badge was removed for minimalism')
     })
 
     it('verifies parent flex container specifies minWidth: 0 for defensive shrink sizing', () => {
@@ -271,7 +259,7 @@ describe('Adversarial & Stress Verification: Overview Panel Preview Layout, Styl
       assert.equal(12 % 4, 0)
     })
 
-    it('verifies header row and badge spacing adheres to 4px grid', () => {
+    it('verifies header row spacing adheres to 4px grid', () => {
       // Header row paddingBottom must be 8px (2 * 4)
       assert.ok(
         previewBlock.includes("paddingBottom: '8px'"),
@@ -283,18 +271,6 @@ describe('Adversarial & Stress Verification: Overview Panel Preview Layout, Styl
       assert.ok(
         previewBlock.includes("gap: '8px'"),
         'Header items must use gap: 8px (divisible by 4)'
-      )
-
-      // Badge horizontal padding: 8px
-      assert.ok(
-        previewBlock.includes("padding: '2px 8px'"),
-        'Badge must specify 8px horizontal padding (divisible by 4)'
-      )
-
-      // Badge border radius: 12px
-      assert.ok(
-        previewBlock.includes("borderRadius: '12px'"),
-        'Badge must specify 12px border radius (divisible by 4)'
       )
     })
 

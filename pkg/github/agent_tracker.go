@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
@@ -56,12 +57,12 @@ func (at *AgentTracker) ListWorkspaceTasks(workspacePath string) ([]AgentTaskSum
 	}
 	defer db.Close()
 
-	// Query last 100 conversations
+	// Query last 999 conversations
 	query := `SELECT conversation_id, title, step_count, last_modified_time, workspace_uris, agent_name, not_fully_idle,
 	                 COALESCE(parent_conversation_id, ''), COALESCE(nesting_depth, 0)
 	          FROM conversation_summaries
 	          ORDER BY last_modified_time DESC
-	          LIMIT 100`
+	          LIMIT 999`
 
 	rows, err := db.Query(query)
 	if err != nil {
@@ -85,7 +86,9 @@ func (at *AgentTracker) ListWorkspaceTasks(workspacePath string) ([]AgentTaskSum
 			convsDir = core.GetConversationsDir()
 		}
 	}
-	parentCache := make(map[string]string)
+	parentCache := make(map[string]parentInfo)
+	rosterMap := loadTeamworkRosters(workspacePath)
+	selfReportMap := loadSelfReportedTasks(workspacePath)
 
 	for rows.Next() {
 		var (
@@ -125,17 +128,80 @@ func (at *AgentTracker) ListWorkspaceTasks(workspacePath string) ([]AgentTaskSum
 			}
 		}
 
-		// Determine custom agent label
+		// Determine custom agent label / role
 		agentLabel := ""
 		if at.store != nil {
 			agentLabel = at.store.GetAgentLabel(convID)
 		}
+
+		// Try extracting subagent role from parent transcript if this is a subagent
+		subRole, subPrompt := "", ""
+		if parentConvID != "" {
+			subRole, subPrompt = getSubagentMetadata(parentConvID, convID)
+		}
+		if agentLabel == "" && subRole != "" {
+			agentLabel = subRole
+		}
+
 		if agentLabel == "" {
 			if agentName != "" && agentName != "self" {
 				agentLabel = agentName
+			} else if nestingDepth == 0 && title != "" {
+				agentLabel = title
 			} else {
 				agentLabel = "Agent"
 			}
+		}
+
+		var workItem string
+		var workingIssues []int
+		var workingPRs []int
+
+		// 1. Self-reported metadata
+		if sr, ok := selfReportMap[convID]; ok {
+			if sr.WorkItem != "" {
+				workItem = sr.WorkItem
+			}
+			if sr.AgentLabel != "" {
+				agentLabel = sr.AgentLabel
+			}
+			workingIssues = sr.Issues
+			workingPRs = sr.PRs
+		}
+
+		// 2. Teamwork roster metadata
+		if tw, ok := rosterMap[convID]; ok {
+			if workItem == "" && tw.WorkItem != "" {
+				workItem = tw.WorkItem
+			}
+			if tw.Agent != "" && (agentLabel == "" || agentLabel == "Agent") {
+				agentLabel = tw.Agent
+			}
+		}
+
+		// 3. Transcript extraction (inspect for rich issues, PRs, and workItem)
+		tsWork, tsIssues, tsPRs := extractTaskAndWorkItemsFromTranscript(convID, subPrompt)
+		if workItem == "" && tsWork != "" {
+			workItem = tsWork
+		}
+		workingIssues = appendUniqueInts(workingIssues, tsIssues)
+		workingPRs = appendUniqueInts(workingPRs, tsPRs)
+
+		// 4. Fallback: if title is present, use it; if title is empty, prioritize agentLabel over workItem
+		if title == "" && agentLabel != "" {
+			title = agentLabel
+		}
+		if workItem == "" && title != "" {
+			workItem = title
+		}
+		if title == "" && workItem != "" {
+			title = workItem
+		}
+
+		if boundIssue == 0 && len(workingIssues) > 0 {
+			boundIssue = workingIssues[0]
+		} else if boundIssue > 0 && len(workingIssues) == 0 {
+			workingIssues = []int{boundIssue}
 		}
 
 		status := "idle"
@@ -143,15 +209,22 @@ func (at *AgentTracker) ListWorkspaceTasks(workspacePath string) ([]AgentTaskSum
 			status = "working"
 		}
 
-		// Determine root parent conversation ID for subagents
+		// Determine root parent conversation ID and title for subagents
 		rootParentID := ""
+		rootParentTitle := ""
 		if parentConvID != "" {
 			if cached, ok := parentCache[parentConvID]; ok {
-				rootParentID = cached
+				rootParentID = cached.rootID
+				rootParentTitle = cached.rootTitle
 			} else {
-				rootParentID = resolveRootParentID(db, parentConvID)
-				parentCache[parentConvID] = rootParentID
+				rID, rTitle := resolveRootParentInfo(db, parentConvID)
+				rootParentID = rID
+				rootParentTitle = rTitle
+				parentCache[parentConvID] = parentInfo{rootID: rID, rootTitle: rTitle}
 			}
+		} else {
+			rootParentID = ""
+			rootParentTitle = title
 		}
 
 		// Check if physical SQLite db file exists (either for this conversation or its root parent)
@@ -171,15 +244,19 @@ func (at *AgentTracker) ListWorkspaceTasks(workspacePath string) ([]AgentTaskSum
 		tasks = append(tasks, AgentTaskSummary{
 			ConversationID:           convID,
 			ConversationTitle:        title,
+			WorkItem:                 workItem,
 			AgentName:                agentName,
 			AgentLabel:               agentLabel,
 			Status:                   status,
 			NotFullyIdle:             notFullyIdle,
 			ParentConversationID:     parentConvID,
 			RootParentConversationID: rootParentID,
+			RootParentTitle:          rootParentTitle,
 			NestingDepth:             nestingDepth,
 			IsPruned:                 isPruned,
 			BoundIssueNumber:         boundIssue,
+			WorkingIssues:            workingIssues,
+			WorkingPRs:               workingPRs,
 			LastModified:             lastMod,
 			WorkspaceURI:             urisJSON,
 			StepCount:                stepCount,
@@ -189,24 +266,42 @@ func (at *AgentTracker) ListWorkspaceTasks(workspacePath string) ([]AgentTaskSum
 	return tasks, nil
 }
 
-// resolveRootParentID resolves the root parent conversation ID by walking up the ancestor chain.
-func resolveRootParentID(db *sql.DB, parentID string) string {
+type parentInfo struct {
+	rootID    string
+	rootTitle string
+}
+
+func resolveRootParentInfo(db *sql.DB, parentID string) (string, string) {
 	curr := parentID
 	visited := make(map[string]bool)
+	var rootTitle string
 	for i := 0; i < 50 && curr != ""; i++ {
 		if visited[curr] {
 			break
 		}
 		visited[curr] = true
 		var nextParent string
+		var title string
 		var depth int
-		err := db.QueryRow(`SELECT COALESCE(parent_conversation_id, ''), COALESCE(nesting_depth, 0) FROM conversation_summaries WHERE conversation_id = ?`, curr).Scan(&nextParent, &depth)
-		if err != nil || nextParent == "" {
-			return curr
+		err := db.QueryRow(`SELECT COALESCE(parent_conversation_id, ''), COALESCE(title, ''), COALESCE(nesting_depth, 0) FROM conversation_summaries WHERE conversation_id = ?`, curr).Scan(&nextParent, &title, &depth)
+		if err != nil {
+			return curr, rootTitle
+		}
+		if title != "" {
+			rootTitle = title
+		}
+		if nextParent == "" {
+			return curr, rootTitle
 		}
 		curr = nextParent
 	}
-	return curr
+	return curr, rootTitle
+}
+
+// resolveRootParentID resolves the root parent conversation ID by walking up the ancestor chain.
+func resolveRootParentID(db *sql.DB, parentID string) string {
+	id, _ := resolveRootParentInfo(db, parentID)
+	return id
 }
 
 // ResolveProjectPath resolves a workspace path or bare project name to an absolute directory path when possible.
@@ -372,9 +467,394 @@ func matchesWorkspace(urisJSON string, normTarget string) bool {
 	}
 	for _, u := range uris {
 		nu := normalizePath(u)
-		if nu == normTarget || filepath.Base(nu) == normTarget || strings.Contains(nu, normTarget) || (len(nu) > 1 && strings.Contains(normTarget, nu)) {
+		if nu == normTarget {
 			return true
+		}
+		if strings.HasPrefix(nu, normTarget+"/") || strings.HasPrefix(nu, normTarget+"\\") {
+			return true
+		}
+		targetBase := filepath.Base(normTarget)
+		if targetBase != "" && targetBase != "." && targetBase != "/" {
+			if filepath.Base(nu) == targetBase || strings.EqualFold(filepath.Base(nu), targetBase) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+type TeamworkAgentInfo struct {
+	Agent    string
+	Type     string
+	WorkItem string
+	Status   string
+	ConvID   string
+}
+
+type SelfReportedTask struct {
+	ConversationID string `json:"conversation_id"`
+	WorkItem       string `json:"work_item"`
+	AgentLabel     string `json:"agent_label"`
+	Issues         []int  `json:"issues"`
+	PRs            []int  `json:"prs"`
+	Status         string `json:"status"`
+}
+
+func loadTeamworkRosters(workspacePath string) map[string]TeamworkAgentInfo {
+	res := make(map[string]TeamworkAgentInfo)
+	if workspacePath == "" || workspacePath == "." {
+		workspacePath, _ = os.Getwd()
+	}
+	matches, _ := filepath.Glob(filepath.Join(workspacePath, ".agents", "teamwork", "*", "BRIEFING.md"))
+	for _, m := range matches {
+		data, err := os.ReadFile(m)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(string(data), "\n")
+		inRoster := false
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "## Team Roster") {
+				inRoster = true
+				continue
+			}
+			if inRoster && strings.HasPrefix(trimmed, "## ") {
+				inRoster = false
+				continue
+			}
+			if inRoster && strings.HasPrefix(trimmed, "|") {
+				parts := strings.Split(trimmed, "|")
+				if len(parts) >= 6 {
+					agent := strings.TrimSpace(parts[1])
+					agentType := strings.TrimSpace(parts[2])
+					workItem := strings.TrimSpace(parts[3])
+					status := strings.TrimSpace(parts[4])
+					convID := strings.TrimSpace(parts[5])
+					if convID != "" && convID != "Conv ID" && !strings.Contains(convID, "---") {
+						res[convID] = TeamworkAgentInfo{
+							Agent:    agent,
+							Type:     agentType,
+							WorkItem: workItem,
+							Status:   status,
+							ConvID:   convID,
+						}
+					}
+				}
+			}
+		}
+	}
+	return res
+}
+
+func loadSelfReportedTasks(workspacePath string) map[string]SelfReportedTask {
+	res := make(map[string]SelfReportedTask)
+	candidates := []string{
+		filepath.Join(workspacePath, ".antigravity", "agent_tasks.json"),
+		filepath.Join(workspacePath, ".agents", "agent_tasks.json"),
+		filepath.Join(core.GetConfigDir(), "agent_tasks.json"),
+	}
+	for _, c := range candidates {
+		data, err := os.ReadFile(c)
+		if err != nil {
+			continue
+		}
+		var m map[string]SelfReportedTask
+		if err := json.Unmarshal(data, &m); err == nil {
+			for k, v := range m {
+				res[k] = v
+			}
+			continue
+		}
+		var list []SelfReportedTask
+		if err := json.Unmarshal(data, &list); err == nil {
+			for _, v := range list {
+				if v.ConversationID != "" {
+					res[v.ConversationID] = v
+				}
+			}
+		}
+	}
+	return res
+}
+
+// ReportAgentTask saves a self-reported agent task to disk so that it's reliably discovered.
+func ReportAgentTask(workspacePath string, task SelfReportedTask) error {
+	if task.ConversationID == "" {
+		return fmt.Errorf("conversation_id is required")
+	}
+	targetDir := ""
+	if workspacePath != "" && workspacePath != "." && workspacePath != "GLOBAL" {
+		targetDir = filepath.Join(workspacePath, ".antigravity")
+	} else {
+		targetDir = core.GetConfigDir()
+	}
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		targetDir = core.GetConfigDir()
+		_ = os.MkdirAll(targetDir, 0755)
+	}
+	targetFile := filepath.Join(targetDir, "agent_tasks.json")
+
+	// Read existing map or list
+	data, _ := os.ReadFile(targetFile)
+	taskMap := make(map[string]SelfReportedTask)
+	if len(data) > 0 {
+		var m map[string]SelfReportedTask
+		if err := json.Unmarshal(data, &m); err == nil {
+			taskMap = m
+		} else {
+			var list []SelfReportedTask
+			if err := json.Unmarshal(data, &list); err == nil {
+				for _, v := range list {
+					if v.ConversationID != "" {
+						taskMap[v.ConversationID] = v
+					}
+				}
+			}
+		}
+	}
+
+	taskMap[task.ConversationID] = task
+	out, err := json.MarshalIndent(taskMap, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(targetFile, out, 0644)
+}
+
+var (
+	subagentMetaMu      sync.RWMutex
+	subagentRoleCache   = make(map[string]map[string]string)
+	subagentPromptCache = make(map[string]map[string]string)
+
+	issueRegexStrict = regexp.MustCompile(`(?i)(?:issue\s*#?|issues/|issue:)\s*(\d+)`)
+	prRegexStrict    = regexp.MustCompile(`(?i)(?:pr\s*#?|pull/|pull\s+request\s*#?|pr:)\s*(\d+)`)
+	genericNumRegex  = regexp.MustCompile(`(?:#)(\d+)`)
+	branchRefRegex   = regexp.MustCompile(`(?i)(?:feature|wip|fix|bugfix)/(?:[a-zA-Z0-9_-]+/)?(?:issue-|pr-)?(\d+)-`)
+	commitRefRegex   = regexp.MustCompile(`\(#(\d+)\)`)
+)
+
+func getSubagentMetadata(parentID, subID string) (string, string) {
+	if parentID == "" || subID == "" {
+		return "", ""
+	}
+	subagentMetaMu.RLock()
+	if roles, ok := subagentRoleCache[parentID]; ok {
+		role := roles[subID]
+		prompt := subagentPromptCache[parentID][subID]
+		subagentMetaMu.RUnlock()
+		return role, prompt
+	}
+	subagentMetaMu.RUnlock()
+
+	home, _ := os.UserHomeDir()
+	logPath := filepath.Join(home, ".gemini", "antigravity", "brain", parentID, ".system_generated", "logs", "transcript_full.jsonl")
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		logPath = filepath.Join(home, ".gemini", "antigravity", "brain", parentID, ".system_generated", "logs", "transcript.jsonl")
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		return "", ""
+	}
+
+	roleMap := make(map[string]string)
+	promptMap := make(map[string]string)
+
+	lines := strings.Split(string(data), "\n")
+	type subagentSpec struct {
+		Role     string `json:"Role"`
+		Prompt   string `json:"Prompt"`
+		TypeName string `json:"TypeName"`
+	}
+	var pendingSubs []subagentSpec
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.Contains(trimmed, "invoke_subagent") {
+			var step struct {
+				ToolCalls []struct {
+					Name string `json:"name"`
+					Args struct {
+						Subagents []subagentSpec `json:"Subagents"`
+					} `json:"args"`
+				} `json:"tool_calls"`
+			}
+			if err := json.Unmarshal([]byte(trimmed), &step); err == nil {
+				for _, tc := range step.ToolCalls {
+					if tc.Name == "invoke_subagent" && len(tc.Args.Subagents) > 0 {
+						pendingSubs = tc.Args.Subagents
+					}
+				}
+			}
+		}
+
+		if len(pendingSubs) > 0 && strings.Contains(trimmed, "conversationId") {
+			re := regexp.MustCompile(`"conversationId":\s*"([^"]+)"`)
+			matches := re.FindAllStringSubmatch(trimmed, -1)
+			for i, m := range matches {
+				if len(m) > 1 && i < len(pendingSubs) {
+					cid := m[1]
+					roleMap[cid] = pendingSubs[i].Role
+					promptMap[cid] = pendingSubs[i].Prompt
+				}
+			}
+			pendingSubs = nil
+		}
+	}
+
+	subagentMetaMu.Lock()
+	subagentRoleCache[parentID] = roleMap
+	subagentPromptCache[parentID] = promptMap
+	subagentMetaMu.Unlock()
+
+	return roleMap[subID], promptMap[subID]
+}
+
+func extractTaskAndWorkItemsFromTranscript(convID string, extraPrompt string) (string, []int, []int) {
+	home, _ := os.UserHomeDir()
+	logPath := filepath.Join(home, ".gemini", "antigravity", "brain", convID, ".system_generated", "logs", "transcript.jsonl")
+	data, err := os.ReadFile(logPath)
+
+	issueSet := make(map[int]bool)
+	prSet := make(map[int]bool)
+	var workItem string
+
+	scanText := func(text string) {
+		if text == "" {
+			return
+		}
+		for _, m := range prRegexStrict.FindAllStringSubmatch(text, -1) {
+			if len(m) > 1 {
+				if num, err := strconv.Atoi(m[1]); err == nil && num > 0 && num < 1000 {
+					prSet[num] = true
+				}
+			}
+		}
+		for _, m := range issueRegexStrict.FindAllStringSubmatch(text, -1) {
+			if len(m) > 1 {
+				if num, err := strconv.Atoi(m[1]); err == nil && num > 0 && num < 1000 {
+					issueSet[num] = true
+				}
+			}
+		}
+		for _, m := range branchRefRegex.FindAllStringSubmatch(text, -1) {
+			if len(m) > 1 {
+				if num, err := strconv.Atoi(m[1]); err == nil && num > 0 && num < 1000 {
+					issueSet[num] = true
+				}
+			}
+		}
+		for _, m := range commitRefRegex.FindAllStringSubmatch(text, -1) {
+			if len(m) > 1 {
+				if num, err := strconv.Atoi(m[1]); err == nil && num > 0 && num < 1000 {
+					issueSet[num] = true
+				}
+			}
+		}
+		for _, m := range genericNumRegex.FindAllStringSubmatch(text, -1) {
+			if len(m) > 1 {
+				if num, err := strconv.Atoi(m[1]); err == nil && num > 0 && num < 1000 {
+					idx := strings.Index(text, m[0])
+					if idx > 0 {
+						start := idx - 10
+						if start < 0 {
+							start = 0
+						}
+						prefix := strings.ToLower(text[start:idx])
+						if strings.Contains(prefix, "pr") || strings.Contains(prefix, "pull") {
+							prSet[num] = true
+							continue
+						}
+					}
+					issueSet[num] = true
+				}
+			}
+		}
+	}
+
+	if extraPrompt != "" {
+		scanText(extraPrompt)
+	}
+
+	if err == nil {
+		lines := strings.Split(string(data), "\n")
+		for i, line := range lines {
+			if i > 80 {
+				break
+			}
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue
+			}
+			var step struct {
+				Content   string `json:"content"`
+				Role      string `json:"role"`
+				Type      string `json:"type"`
+				ToolCalls []struct {
+					Name string                 `json:"name"`
+					Args map[string]interface{} `json:"args"`
+				} `json:"tool_calls"`
+			}
+			if err := json.Unmarshal([]byte(trimmed), &step); err == nil {
+				if step.Content != "" {
+					c := step.Content
+					if idx := strings.Index(c, "content="); idx != -1 {
+						c = c[idx+len("content="):]
+					}
+					c = strings.TrimSpace(c)
+					if workItem == "" && len(c) > 0 {
+						firstLine := strings.Split(c, "\n")[0]
+						if len(firstLine) > 100 {
+							firstLine = firstLine[:100] + "..."
+						}
+						workItem = strings.TrimSpace(firstLine)
+					}
+					scanText(step.Content)
+				}
+				for _, tc := range step.ToolCalls {
+					if tc.Args != nil {
+						if b, err := json.Marshal(tc.Args); err == nil {
+							scanText(string(b))
+						}
+					}
+				}
+			}
+		}
+	}
+
+	var issues []int
+	for n := range issueSet {
+		if !prSet[n] {
+			issues = append(issues, n)
+		}
+	}
+	var prs []int
+	for n := range prSet {
+		prs = append(prs, n)
+	}
+
+	return workItem, issues, prs
+}
+
+func extractTaskFromTranscript(convID string) (string, []int) {
+	workItem, issues, _ := extractTaskAndWorkItemsFromTranscript(convID, "")
+	return workItem, issues
+}
+
+func appendUniqueInts(base []int, items []int) []int {
+	seen := make(map[int]bool)
+	for _, n := range base {
+		seen[n] = true
+	}
+	res := append([]int{}, base...)
+	for _, n := range items {
+		if !seen[n] && n > 0 {
+			seen[n] = true
+			res = append(res, n)
+		}
+	}
+	return res
 }

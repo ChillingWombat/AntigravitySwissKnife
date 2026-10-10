@@ -395,6 +395,54 @@ func (s *Server) handleGitHubAgentTaskLabel(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, map[string]interface{}{"success": true})
 }
 
+func (s *Server) handleGitHubAgentTaskReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		WorkspacePath  string `json:"workspace_path"`
+		ConversationID string `json:"conversation_id"`
+		WorkItem       string `json:"work_item"`
+		AgentLabel     string `json:"agent_label"`
+		Issues         []int  `json:"issues"`
+		PRs            []int  `json:"prs"`
+		Status         string `json:"status"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": "invalid payload: " + err.Error()})
+		return
+	}
+
+	if req.ConversationID == "" {
+		writeJSON(w, map[string]interface{}{"success": false, "error": "conversation_id required"})
+		return
+	}
+
+	ws := req.WorkspacePath
+	if ws == "" {
+		ws = s.resolveWorkspace(r)
+	}
+
+	task := github.SelfReportedTask{
+		ConversationID: req.ConversationID,
+		WorkItem:       req.WorkItem,
+		AgentLabel:     req.AgentLabel,
+		Issues:         req.Issues,
+		PRs:            req.PRs,
+		Status:         req.Status,
+	}
+
+	if err := s.githubService.ReportAgentTask(ws, task); err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	writeJSON(w, map[string]interface{}{"success": true})
+}
+
 func (s *Server) handleGitHubContext(w http.ResponseWriter, r *http.Request) {
 	ws := s.resolveWorkspace(r)
 	repo, err := s.githubService.DetectRepository(ws)

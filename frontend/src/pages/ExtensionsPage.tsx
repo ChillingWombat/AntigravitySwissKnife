@@ -3,12 +3,11 @@ import {
   Globe,
   Folder,
   FileText,
-  Smartphone,
-  Monitor,
   ExternalLink,
   CheckCircle2,
   AlertTriangle,
   ArrowLeft,
+  PanelLeft,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { GithubIcon } from '../components/GithubIcon'
@@ -19,7 +18,7 @@ import type { EnhancementsConfig } from '../types'
 const IDE_PRESETS = ['code', 'cursor', 'windsurf', 'codium', 'zed']
 
 type ExtensionVisibility = { aux_panel: boolean; main_page: boolean }
-const DEFAULT_EXT_VIS: ExtensionVisibility = { aux_panel: true, main_page: true }
+const DEFAULT_EXT_VIS: ExtensionVisibility = { aux_panel: true, main_page: false }
 
 export interface ExtensionsPageProps {
   activeTab?: number
@@ -46,10 +45,18 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
   const [workspaceDefaultView, setWorkspaceDefaultView] = useState<'kanban' | 'list'>(() => {
     return (localStorage.getItem('antigravity_workspace_default_view') as 'kanban' | 'list') || 'kanban'
   })
+  const [auxAgentScope, setAuxAgentScope] = useState<'all' | 'focused'>(() => {
+    return (localStorage.getItem('antigravity_github_aux_agent_scope') as 'all' | 'focused') || 'all'
+  })
+  const [auxPinFocused, setAuxPinFocused] = useState<boolean>(() => {
+    return localStorage.getItem('antigravity_github_aux_pin_focused') !== 'false'
+  })
 
   // Preview Browser
   const [previewUrl, setPreviewUrl] = useState<string>(() => {
-    return localStorage.getItem('antigravity_browser_default_url') || 'http://localhost:5173'
+    const stored = localStorage.getItem('antigravity_browser_default_url')
+    if (!stored || stored === 'http://localhost:5173') return 'http://localhost:8765'
+    return stored
   })
 
   // File Explorer
@@ -83,17 +90,6 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
   })
   const [showBezel, setShowBezel] = useState<boolean>(() => {
     return localStorage.getItem('antigravity_mobile_show_bezel') !== 'false'
-  })
-
-  // Computer Use Enhancer
-  const [dpiNormalization, setDpiNormalization] = useState<boolean>(() => {
-    return localStorage.getItem('antigravity_comp_dpi_norm') !== 'false'
-  })
-  const [waylandPipeWire, setWaylandPipeWire] = useState<boolean>(() => {
-    return localStorage.getItem('antigravity_comp_wayland_pipewire') !== 'false'
-  })
-  const [accessibilityGrounding, setAccessibilityGrounding] = useState<boolean>(() => {
-    return localStorage.getItem('antigravity_comp_accessibility_grounding') !== 'false'
   })
 
   // Feedback Notification
@@ -242,6 +238,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
       }
       const saved = await api.updateEnhancements(updated)
       setEnhConfig(saved)
+      api.applyEnhancements().catch(() => {})
       setEnhError(null)
       setExtVisLocal((prev) => {
         const copy = { ...prev }
@@ -257,24 +254,47 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
   const extSwitchLabelStyle: React.CSSProperties = {
     display: 'inline-flex',
     alignItems: 'center',
-    gap: '6px',
+    gap: '8px',
     fontSize: '12px',
     fontWeight: 600,
     color: 'var(--text-muted)',
     whiteSpace: 'nowrap',
   }
 
+  const handleLeftPanelModeChange = async (mode: 'single' | 'individual') => {
+    try {
+      let base = enhConfig
+      if (!base) {
+        base = await api.getEnhancements()
+      }
+      const updated: EnhancementsConfig = {
+        ...base,
+        left_panel_extensions_mode: mode,
+      }
+      try {
+        localStorage.setItem('antigravity_swiss_left_panel_mode', mode)
+        window.dispatchEvent(new CustomEvent('swiss-left-nav-config-updated', { detail: { mode } }))
+      } catch {}
+      const saved = await api.updateEnhancements(updated)
+      setEnhConfig(saved)
+      api.applyEnhancements().catch(() => {})
+      showFeedback(`Left panel mode set to ${mode === 'individual' ? 'Individual Buttons' : 'Single Button'}`)
+    } catch {
+      setEnhError('Daemon unreachable — left panel mode change was not saved')
+    }
+  }
+
   const renderExtSwitches = (id: string, name: string) => {
     const vis = visFor(id)
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', flexShrink: 0 }}>
         <span style={extSwitchLabelStyle} title="Available in the IDE's right auxiliary panel">
-          Enabled
+          Auxiliary Panel
           <ToggleSwitch
             size="sm"
             checked={vis.aux_panel}
             onChange={(v) => handleExtVisChange(id, 'aux_panel', v)}
-            ariaLabel={`${name} enabled`}
+            ariaLabel={`${name} available in auxiliary panel`}
           />
         </span>
         <span style={extSwitchLabelStyle} title="Openable on the main stage via a left-sidebar tab button">
@@ -283,7 +303,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
             size="sm"
             checked={vis.main_page}
             onChange={(v) => handleExtVisChange(id, 'main_page', v)}
-            ariaLabel={`${name} main page`}
+            ariaLabel={`${name} available in main page`}
           />
         </span>
       </div>
@@ -294,8 +314,6 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
   const browserVis = visFor('browser')
   const filesVis = visFor('files')
   const memosVis = visFor('memos')
-  const mobileVis = visFor('mobile')
-  const computerUseVis = visFor('computer_use')
 
   const getIDEName = (id: string) => {
     const map: Record<string, string> = {
@@ -390,6 +408,64 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
         {/* ========================================================================= */}
+        {/* TOP GADGET: Left Panel Extensions Access Mode                            */}
+        {/* ========================================================================= */}
+        <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '18px 20px' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <PanelLeft size={16} color="var(--text-muted)" />
+                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
+                  Left Panel Extensions Access Mode
+                </h3>
+              </div>
+              <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
+                Choose whether extensions appear as individual dedicated buttons on the IDE's left activity bar or are grouped under a single unified Swiss Knife extensions launcher button.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '6px', backgroundColor: 'var(--tonal)', padding: '3px', borderRadius: '8px', flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => handleLeftPanelModeChange('individual')}
+                style={{
+                  border: 'none',
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'individual' ? 600 : 500,
+                  backgroundColor: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'individual' ? '#ffffff' : 'transparent',
+                  color: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'individual' ? 'var(--primary)' : 'var(--text-muted)',
+                  boxShadow: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'individual' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Individual Buttons
+              </button>
+              <button
+                type="button"
+                onClick={() => handleLeftPanelModeChange('single')}
+                style={{
+                  border: 'none',
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'single' ? 600 : 500,
+                  backgroundColor: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'single' ? '#ffffff' : 'transparent',
+                  color: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'single' ? 'var(--primary)' : 'var(--text-muted)',
+                  boxShadow: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'single' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Single Swiss Knife Button
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ========================================================================= */}
         {/* GADGET 1: GitHub Workspace                                                */}
         {/* ========================================================================= */}
         <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '18px 20px' }}>
@@ -428,9 +504,9 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                       borderRadius: '6px',
                       fontSize: '12px',
                       fontWeight: workspaceDefaultView === 'kanban' ? 600 : 500,
-                      backgroundColor: workspaceDefaultView === 'kanban' ? '#ffffff' : 'transparent',
-                      color: workspaceDefaultView === 'kanban' ? 'var(--primary)' : 'var(--text-muted)',
-                      boxShadow: workspaceDefaultView === 'kanban' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                      backgroundColor: workspaceDefaultView === 'kanban' ? 'var(--accent, var(--primary, #1a73e8))' : 'transparent',
+                      color: workspaceDefaultView === 'kanban' ? 'var(--accent-foreground, #ffffff)' : 'var(--text-muted)',
+                      boxShadow: workspaceDefaultView === 'kanban' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
                       cursor: 'pointer',
                       whiteSpace: 'nowrap',
                     }}
@@ -448,9 +524,9 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                       borderRadius: '6px',
                       fontSize: '12px',
                       fontWeight: workspaceDefaultView === 'list' ? 600 : 500,
-                      backgroundColor: workspaceDefaultView === 'list' ? '#ffffff' : 'transparent',
-                      color: workspaceDefaultView === 'list' ? 'var(--primary)' : 'var(--text-muted)',
-                      boxShadow: workspaceDefaultView === 'list' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                      backgroundColor: workspaceDefaultView === 'list' ? 'var(--accent, var(--primary, #1a73e8))' : 'transparent',
+                      color: workspaceDefaultView === 'list' ? 'var(--accent-foreground, #ffffff)' : 'var(--text-muted)',
+                      boxShadow: workspaceDefaultView === 'list' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
                       cursor: 'pointer',
                       whiteSpace: 'nowrap',
                     }}
@@ -468,6 +544,73 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                 <ExternalLink size={13} />
                 <span>Open Full Workspace</span>
               </button>
+
+              {/* Auxiliary Panel AGY Agents Display Settings */}
+              <div style={{ width: '100%', paddingTop: '10px', marginTop: '4px', borderTop: '1px dashed var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                    Aux AGY Agents:
+                  </span>
+                  <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--tonal)', padding: '2px', borderRadius: '6px' }}>
+                    <button
+                      onClick={() => {
+                        setAuxAgentScope('all')
+                        localStorage.setItem('antigravity_github_aux_agent_scope', 'all')
+                      }}
+                      style={{
+                        border: 'none',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                        fontWeight: auxAgentScope === 'all' ? 600 : 500,
+                        backgroundColor: auxAgentScope === 'all' ? 'var(--accent, var(--primary, #1a73e8))' : 'transparent',
+                        color: auxAgentScope === 'all' ? 'var(--accent-foreground, #ffffff)' : 'var(--text-muted)',
+                        boxShadow: auxAgentScope === 'all' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      All Active Chats
+                    </button>
+                    <button
+                      onClick={() => {
+                        setAuxAgentScope('focused')
+                        localStorage.setItem('antigravity_github_aux_agent_scope', 'focused')
+                      }}
+                      style={{
+                        border: 'none',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                        fontWeight: auxAgentScope === 'focused' ? 600 : 500,
+                        backgroundColor: auxAgentScope === 'focused' ? 'var(--accent, var(--primary, #1a73e8))' : 'transparent',
+                        color: auxAgentScope === 'focused' ? 'var(--accent-foreground, #ffffff)' : 'var(--text-muted)',
+                        boxShadow: auxAgentScope === 'focused' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      Focused Chat Only
+                    </button>
+                  </div>
+                </div>
+
+                {auxAgentScope === 'all' && (
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '12px', color: 'var(--text)' }}>
+                    <input
+                      type="checkbox"
+                      checked={auxPinFocused}
+                      onChange={(e) => {
+                        const val = e.target.checked
+                        setAuxPinFocused(val)
+                        localStorage.setItem('antigravity_github_aux_pin_focused', val ? 'true' : 'false')
+                      }}
+                      style={{ cursor: 'pointer', accentColor: 'var(--accent, var(--primary, #1a73e8))' }}
+                    />
+                    <span>Pin focused chat to top</span>
+                  </label>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -486,7 +629,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                 </h3>
               </div>
               <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
-                Embeds a lightweight development browser inside Antigravity's auxiliary panel with port shortcuts (:5173, :3000, :8080) and live visual annotation.
+                Embeds a lightweight development browser inside Antigravity's auxiliary panel with port shortcuts (:8765, :5173, :3000, :8080) and live visual annotation.
               </p>
             </div>
             {renderExtSwitches('browser', 'Preview Browser')}
@@ -494,7 +637,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
 
           {/* Extension Settings */}
           {(browserVis.aux_panel || browserVis.main_page) && (
-            <div style={{ marginTop: '4px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ marginTop: '4px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', minWidth: '100px' }}>
                   Default URL:
@@ -516,10 +659,10 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                     border: '1px solid var(--border)',
                     backgroundColor: 'var(--canvas)',
                   }}
-                  placeholder="http://localhost:5173"
+                  placeholder="http://localhost:8765"
                 />
                 <div style={{ display: 'flex', gap: '4px' }}>
-                  {['5173', '3000', '8080'].map((port) => (
+                  {['8765', '5173', '3000', '8080'].map((port) => (
                     <button
                       key={port}
                       onClick={() => {
@@ -533,6 +676,48 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                       :{port}
                     </button>
                   ))}
+                </div>
+              </div>
+
+              {/* Mobile Viewport Simulation Options */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', paddingTop: '10px', borderTop: '1px dashed var(--border-subtle)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', minWidth: '100px' }}>
+                    Default Device:
+                  </span>
+                  <select
+                    value={selectedDevice}
+                    onChange={(e) => {
+                      const dev = e.target.value as any
+                      setSelectedDevice(dev)
+                      localStorage.setItem('antigravity_mobile_default_device', dev)
+                    }}
+                    style={{
+                      fontSize: '12px',
+                      padding: '5px 10px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      backgroundColor: 'var(--canvas)',
+                    }}
+                  >
+                    <option value="iphone16">iPhone 16 Pro (393 × 852)</option>
+                    <option value="pixel9">Google Pixel 9 (412 × 924)</option>
+                    <option value="ipad">iPad Air (820 × 1180)</option>
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    <span>Show Hardware Bezel</span>
+                    <ToggleSwitch
+                      size="sm"
+                      checked={showBezel}
+                      onChange={(val) => {
+                        setShowBezel(val)
+                        localStorage.setItem('antigravity_mobile_show_bezel', String(val))
+                      }}
+                    />
+                  </label>
                 </div>
               </div>
             </div>
@@ -721,142 +906,6 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
                   </div>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
-
-        {/* ========================================================================= */}
-        {/* GADGET 5: Mobile Viewport Simulator                                       */}
-        {/* ========================================================================= */}
-        <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '18px 20px' }}>
-          {/* Header & Toggle Row */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Smartphone size={16} color="var(--text-muted)" />
-                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
-                  Mobile Viewport Simulator
-                </h3>
-              </div>
-              <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
-                Virtual mobile viewport emulation for testing responsive web designs, touch events, and mobile screen ratios directly within Antigravity.
-              </p>
-            </div>
-            {renderExtSwitches('mobile', 'Mobile Viewport Simulator')}
-          </div>
-
-          {/* Extension Settings */}
-          {(mobileVis.aux_panel || mobileVis.main_page) && (
-            <div style={{ marginTop: '4px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                  Default Device:
-                </span>
-                <select
-                  value={selectedDevice}
-                  onChange={(e) => {
-                    const dev = e.target.value as any
-                    setSelectedDevice(dev)
-                    localStorage.setItem('antigravity_mobile_default_device', dev)
-                  }}
-                  style={{
-                    fontSize: '12px',
-                    padding: '5px 10px',
-                    borderRadius: '6px',
-                    border: '1px solid var(--border)',
-                    backgroundColor: 'var(--canvas)',
-                  }}
-                >
-                  <option value="iphone16">iPhone 16 Pro (393 × 852)</option>
-                  <option value="pixel9">Google Pixel 9 (412 × 924)</option>
-                  <option value="ipad">iPad Air (820 × 1180)</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  <span>Show Hardware Bezel</span>
-                  <ToggleSwitch
-                    size="sm"
-                    checked={showBezel}
-                    onChange={(val) => {
-                      setShowBezel(val)
-                      localStorage.setItem('antigravity_mobile_show_bezel', String(val))
-                    }}
-                  />
-                </label>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ========================================================================= */}
-        {/* GADGET 6: Computer Use Enhancer                                           */}
-        {/* ========================================================================= */}
-        <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '18px 20px' }}>
-          {/* Header & Toggle Row */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Monitor size={16} color="var(--text-muted)" />
-                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
-                  Computer Use Enhancer
-                </h3>
-              </div>
-              <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
-                OS-level execution enhancer optimizing Antigravity computer use with display coordinate scaling normalization, Wayland PipeWire capture, and accessibility grounding.
-              </p>
-            </div>
-            {renderExtSwitches('computer_use', 'Computer Use Enhancer')}
-          </div>
-
-          {/* Extension Settings */}
-          {(computerUseVis.aux_panel || computerUseVis.main_page) && (
-            <div style={{ marginTop: '4px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
-                <div>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>DPI Normalizer</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Calibrate HiDPI 125%/150% scaling offsets</div>
-                </div>
-                <ToggleSwitch
-                  size="sm"
-                  checked={dpiNormalization}
-                  onChange={(val) => {
-                    setDpiNormalization(val)
-                    localStorage.setItem('antigravity_comp_dpi_norm', String(val))
-                  }}
-                />
-              </label>
-
-              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
-                <div>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>Wayland PipeWire Stream</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Capture via desktop portal PipeWire</div>
-                </div>
-                <ToggleSwitch
-                  size="sm"
-                  checked={waylandPipeWire}
-                  onChange={(val) => {
-                    setWaylandPipeWire(val)
-                    localStorage.setItem('antigravity_comp_wayland_pipewire', String(val))
-                  }}
-                />
-              </label>
-
-              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
-                <div>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>Accessibility Grounding</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Query OS accessibility tree to save tokens</div>
-                </div>
-                <ToggleSwitch
-                  size="sm"
-                  checked={accessibilityGrounding}
-                  onChange={(val) => {
-                    setAccessibilityGrounding(val)
-                    localStorage.setItem('antigravity_comp_accessibility_grounding', String(val))
-                  }}
-                />
-              </label>
             </div>
           )}
         </div>

@@ -164,3 +164,74 @@ func TestLoadConfig_SubagentModelStrategy_PersistenceAndFallback(t *testing.T) {
 	}
 }
 
+func TestDefaultConfig_QuotaRefreshMode(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.QuotaRefreshMode != QuotaRefreshModeDynamic {
+		t.Fatalf("expected default QuotaRefreshMode %q, got %q", QuotaRefreshModeDynamic, cfg.QuotaRefreshMode)
+	}
+	if !cfg.DynamicQuotaRefreshEnabled {
+		t.Fatalf("expected default DynamicQuotaRefreshEnabled to be true")
+	}
+	if !cfg.IsDynamicQuotaRefreshEnabled() {
+		t.Fatalf("expected IsDynamicQuotaRefreshEnabled() to return true")
+	}
+	if cfg.GetQuotaRefreshMode() != QuotaRefreshModeDynamic {
+		t.Fatalf("expected GetQuotaRefreshMode() %q, got %q", QuotaRefreshModeDynamic, cfg.GetQuotaRefreshMode())
+	}
+}
+
+func TestNormalizeQuotaRefreshMode(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected string
+	}{
+		{"dynamic", QuotaRefreshModeDynamic},
+		{"DYNAMIC", QuotaRefreshModeDynamic},
+		{"manual", QuotaRefreshModeManual},
+		{"MANUAL", QuotaRefreshModeManual},
+		{"", QuotaRefreshModeDynamic},
+		{"unknown", QuotaRefreshModeDynamic},
+	}
+	for _, tc := range cases {
+		got := NormalizeQuotaRefreshMode(tc.input)
+		if got != tc.expected {
+			t.Errorf("NormalizeQuotaRefreshMode(%q) = %q, expected %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestLoadConfig_QuotaRefreshModePersistence(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+
+	rawManual := map[string]interface{}{
+		"quota_refresh_mode": "manual",
+	}
+	data, err := json.Marshal(rawManual)
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tempDir, "config.json"), data, 0600); err != nil {
+		t.Fatalf("failed to write: %v", err)
+	}
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig error: %v", err)
+	}
+	if cfg.GetQuotaRefreshMode() != QuotaRefreshModeManual {
+		t.Errorf("expected %q, got %q", QuotaRefreshModeManual, cfg.GetQuotaRefreshMode())
+	}
+	if cfg.IsDynamicQuotaRefreshEnabled() {
+		t.Errorf("expected IsDynamicQuotaRefreshEnabled to be false for manual mode")
+	}
+
+	if err := cfg.SetQuotaRefreshMode("dynamic"); err != nil {
+		t.Fatalf("SetQuotaRefreshMode failed: %v", err)
+	}
+	if !cfg.IsDynamicQuotaRefreshEnabled() {
+		t.Errorf("expected IsDynamicQuotaRefreshEnabled to be true after setting dynamic")
+	}
+}
+
+

@@ -73,10 +73,10 @@ describe('Launch Antigravity 2.0 Button in Switcher Status Gadget', () => {
     assert.ok(scanMatch && addMatch, 'Both adjacent buttons must exist')
   })
 
-  it('renders a smaller 20px logo inside the 32px button box for visual balance', () => {
+  it('renders a balanced 24px logo inside the 32px button box for visual balance', () => {
     assert.ok(
-      pageSrc.includes("height: '20px'"),
-      'Logo image height must be reduced to 20px'
+      pageSrc.includes("height: '24px'"),
+      'Logo image height must be set to 24px'
     )
     assert.ok(
       pageSrc.includes("aspectRatio: '200 / 184'"),

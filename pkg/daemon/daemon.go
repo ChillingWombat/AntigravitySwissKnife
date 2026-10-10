@@ -53,6 +53,8 @@ type Daemon struct {
 
 	ignitedAccounts map[string]time.Time
 	ignitedMu       sync.RWMutex
+
+	configUpdated chan struct{}
 }
 
 // NewDaemon initializes all subsystem stores and sets up JSON-RPC method handlers.
@@ -110,6 +112,7 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 		lastSwitchTime: time.Now(),
 		quotaCache:     quota.LoadQuotaCache(),
 		ignitedAccounts: make(map[string]time.Time),
+		configUpdated:   make(chan struct{}, 1),
 	}
 
 	d.registerRPCHandlers()
@@ -981,6 +984,8 @@ func (d *Daemon) registerRPCHandlers() {
 			"auto_switch_threshold":            d.Config.AutoSwitchThreshold,
 			"auto_switch_weekly_threshold":     threshWeekly,
 			"switch_mode":                      switchMode,
+			"quota_refresh_mode":               d.Config.GetQuotaRefreshMode(),
+			"dynamic_quota_refresh_enabled":    d.Config.IsDynamicQuotaRefreshEnabled(),
 			"polling_interval_seconds":         d.Config.PollingIntervalSec,
 			"active_polling_interval_seconds":  activePoll,
 			"standby_polling_interval_seconds": standbyPoll,
@@ -999,6 +1004,7 @@ func (d *Daemon) registerRPCHandlers() {
 			"auto_import_active_account":       d.Config.AutoImportActiveAccount,
 			"multi_app_sync_mode":              d.Config.GetMultiAppSyncMode(),
 			"active_app_accounts":              d.Config.GetActiveAppAccounts(),
+			"subagent_custom_models_enabled":   d.Config.GetSubagentCustomModelsEnabled(),
 			"subagent_model_strategy":          d.Config.GetSubagentModelStrategy(),
 			"installed_apps":                   installedMap,
 		}, nil
@@ -1013,6 +1019,8 @@ func (d *Daemon) registerRPCHandlers() {
 			AutoSwitchThreshold         *float64           `json:"auto_switch_threshold"`
 			AutoSwitchWeeklyThreshold   *float64           `json:"auto_switch_weekly_threshold"`
 			SwitchMode                  *string            `json:"switch_mode"`
+			QuotaRefreshMode            *string            `json:"quota_refresh_mode"`
+			DynamicQuotaRefreshEnabled  *bool              `json:"dynamic_quota_refresh_enabled"`
 			PollingIntervalSec          *int               `json:"polling_interval_seconds"`
 			ActivePollingIntervalSec    *int               `json:"active_polling_interval_seconds"`
 			StandbyPollingIntervalSec   *int               `json:"standby_polling_interval_seconds"`
@@ -1031,6 +1039,7 @@ func (d *Daemon) registerRPCHandlers() {
 			AutoImportActiveAccount     *bool              `json:"auto_import_active_account"`
 			MultiAppSyncMode            *string            `json:"multi_app_sync_mode"`
 			ActiveAppAccounts           *map[string]string `json:"active_app_accounts"`
+			SubagentCustomModelsEnabled *bool              `json:"subagent_custom_models_enabled"`
 			SubagentModelStrategy       *string            `json:"subagent_model_strategy"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -1050,6 +1059,18 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 		if p.SwitchMode != nil {
 			d.Config.SwitchMode = quota.NormalizeSwitchMode(*p.SwitchMode)
+		}
+		if p.QuotaRefreshMode != nil {
+			d.Config.QuotaRefreshMode = core.NormalizeQuotaRefreshMode(*p.QuotaRefreshMode)
+			d.Config.DynamicQuotaRefreshEnabled = (d.Config.QuotaRefreshMode == core.QuotaRefreshModeDynamic)
+		}
+		if p.DynamicQuotaRefreshEnabled != nil {
+			d.Config.DynamicQuotaRefreshEnabled = *p.DynamicQuotaRefreshEnabled
+			if *p.DynamicQuotaRefreshEnabled {
+				d.Config.QuotaRefreshMode = core.QuotaRefreshModeDynamic
+			} else {
+				d.Config.QuotaRefreshMode = core.QuotaRefreshModeManual
+			}
 		}
 		if p.PollingIntervalSec != nil {
 			d.Config.PollingIntervalSec = *p.PollingIntervalSec
@@ -1108,11 +1129,15 @@ func (d *Daemon) registerRPCHandlers() {
 				_ = d.Config.SetActiveAppAccount(k, v)
 			}
 		}
+		if p.SubagentCustomModelsEnabled != nil {
+			_ = d.Config.SetSubagentCustomModelsEnabled(*p.SubagentCustomModelsEnabled)
+		}
 		if p.SubagentModelStrategy != nil {
 			_ = d.Config.SetSubagentModelStrategy(*p.SubagentModelStrategy)
 		}
 		_ = d.Config.Save()
 		d.mu.Unlock()
+		d.notifyConfigUpdated()
 
 		return map[string]interface{}{"success": true}, nil
 	}
@@ -1425,35 +1450,123 @@ func (d *Daemon) Stop() error {
 	return nil
 }
 
+func (d *Daemon) notifyConfigUpdated() {
+	if d.configUpdated != nil {
+		select {
+		case d.configUpdated <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func resetTimer(t *time.Timer, duration time.Duration) {
+	if !t.Stop() {
+		select {
+		case <-t.C:
+		default:
+		}
+	}
+	t.Reset(duration)
+}
+
+func (d *Daemon) calculateNextActiveInterval(r *rand.Rand) time.Duration {
+	d.mu.RLock()
+	dynamicEnabled := d.Config.IsDynamicQuotaRefreshEnabled()
+	activeIntervalSec := d.Config.ActivePollingIntervalSec
+	thresh := d.Config.AutoSwitchThreshold
+	d.mu.RUnlock()
+
+	if !dynamicEnabled {
+		interval := time.Duration(activeIntervalSec) * time.Second
+		if interval < 10*time.Second {
+			interval = 120 * time.Second
+		}
+		return interval
+	}
+
+	active := d.Keyring.ActiveAccount()
+	if active == "" {
+		return quota.RollDynamicJitter(60*time.Second, r)
+	}
+
+	cached := d.getQuotaSummary(active)
+	if thresh <= 0 {
+		thresh = core.DefaultAutoSwitchThresholdFraction
+	}
+
+	fraction, ok := quota.ExtractRemaining5HFraction(cached)
+	if !ok {
+		return quota.RollDynamicJitter(60*time.Second, r)
+	}
+
+	return quota.ResolveActiveDynamicIntervalWithJitter(fraction, thresh, r)
+}
+
+func (d *Daemon) calculateNextStandbyInterval(r *rand.Rand) time.Duration {
+	d.mu.RLock()
+	dynamicEnabled := d.Config.IsDynamicQuotaRefreshEnabled()
+	standbyIntervalSec := d.Config.StandbyPollingIntervalSec
+	d.mu.RUnlock()
+
+	if !dynamicEnabled {
+		interval := time.Duration(standbyIntervalSec) * time.Second
+		if interval < 30*time.Second {
+			interval = 900 * time.Second
+		}
+		return interval
+	}
+
+	accounts := d.Keyring.ListAccounts()
+	active := d.Keyring.ActiveAccount()
+
+	var minNominal time.Duration = quota.StandbyIntervalAbundant // 15m default
+	hasStandby := false
+
+	for _, acc := range accounts {
+		if acc.Email == active || acc.Status == "BANNED" {
+			continue
+		}
+		hasStandby = true
+		cached := d.getQuotaSummary(acc.Email)
+		fraction, ok := quota.ExtractRemaining5HFraction(cached)
+		var nominal time.Duration
+		if !ok {
+			nominal = quota.StandbyIntervalRecovering // 5m
+		} else {
+			nominal = quota.ResolveStandbyDynamicInterval(fraction)
+		}
+		if nominal < minNominal {
+			minNominal = nominal
+		}
+	}
+
+	if !hasStandby {
+		minNominal = quota.StandbyIntervalAbundant
+	}
+	return quota.RollDynamicJitter(minNominal, r)
+}
+
 func (d *Daemon) schedulerLoop() {
 	defer d.wg.Done()
 
 	d.mu.RLock()
-	activeInterval := time.Duration(d.Config.ActivePollingIntervalSec) * time.Second
-	standbyInterval := time.Duration(d.Config.StandbyPollingIntervalSec) * time.Second
 	jitterSec := d.Config.StandbyRandomJitterSec
 	d.mu.RUnlock()
 
-	if activeInterval < 10*time.Second {
-		activeInterval = 120 * time.Second
-	}
-	if standbyInterval < 30*time.Second {
-		standbyInterval = 900 * time.Second
-	}
 	if jitterSec <= 0 {
 		jitterSec = 30
 	}
 
-	activeTicker := time.NewTicker(activeInterval)
-	defer activeTicker.Stop()
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	standbyTicker := time.NewTicker(standbyInterval)
-	defer standbyTicker.Stop()
+	activeTimer := time.NewTimer(d.calculateNextActiveInterval(r))
+	defer activeTimer.Stop()
+
+	standbyTimer := time.NewTimer(d.calculateNextStandbyInterval(r))
+	defer standbyTimer.Stop()
 
 	vaultTicker := time.NewTicker(60 * time.Second)
 	defer vaultTicker.Stop()
-
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	// Warm up fleet quota cache asynchronously in background on startup
 	d.triggerQuotaRefreshAsync()
@@ -1491,7 +1604,7 @@ func (d *Daemon) schedulerLoop() {
 				})
 			}
 
-		case <-activeTicker.C:
+		case <-activeTimer.C:
 			// 1. Frequently refresh active account quota (e.g. every 2m)
 			_ = gui.NewInjector(0).CaptureActiveConversationPath()
 			var tickEmails []string
@@ -1684,10 +1797,16 @@ func (d *Daemon) schedulerLoop() {
 				}
 				d.checkPostResetIgnitions()
 			}
+			activeTimer.Reset(d.calculateNextActiveInterval(r))
 
-		case <-standbyTicker.C:
+		case <-standbyTimer.C:
 			// 2. Infrequently refresh standby accounts with cooldown skip and post-reset ignition
 			d.pollStandbyAccounts(r, jitterSec)
+			standbyTimer.Reset(d.calculateNextStandbyInterval(r))
+
+		case <-d.configUpdated:
+			resetTimer(activeTimer, d.calculateNextActiveInterval(r))
+			resetTimer(standbyTimer, d.calculateNextStandbyInterval(r))
 		}
 	}
 }
@@ -1740,6 +1859,17 @@ func (d *Daemon) pollStandbyAccounts(r *rand.Rand, jitterSec int) {
 		var resetTime time.Time
 		if cached != nil {
 			resetTime = cached.GetResetTime()
+		}
+
+		// If dynamic adaptive quota refresh is enabled, skip accounts that are not yet due
+		if d.Config.IsDynamicQuotaRefreshEnabled() && cached != nil && !cached.LastPolled.IsZero() {
+			fraction, ok := quota.ExtractRemaining5HFraction(cached)
+			if ok {
+				nominal := quota.ResolveStandbyDynamicInterval(fraction)
+				if time.Since(cached.LastPolled) < nominal-30*time.Second {
+					continue
+				}
+			}
 		}
 
 		// Check if standby account is in cooldown with a known reset horizon

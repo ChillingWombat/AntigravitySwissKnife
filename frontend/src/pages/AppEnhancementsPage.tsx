@@ -23,7 +23,6 @@ import { api } from '../api'
 import type { EnhancementsConfig, GUIConfig } from '../types'
 import {
   OVERVIEW_PREVIEW_HEADER,
-  OVERVIEW_DIVISION_BADGE_LABELS,
   DEMO_PROJECT_NAME,
   SYNTHETIC_SUBAGENTS_COUNT,
   SYNTHETIC_SUBAGENT,
@@ -2092,18 +2091,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '13px', color: '#1e293b' }}>
                 <span>Just an Icon (Compact)</span>
-                <span
-                  style={{
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    padding: '2px 6px',
-                    borderRadius: '10px',
-                    backgroundColor: '#dcfce7',
-                    color: '#15803d',
-                  }}
-                >
-                  Matches Native Tabs
-                </span>
               </div>
               <input
                 type="radio"
@@ -2733,19 +2720,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       {OVERVIEW_PREVIEW_HEADER}
                     </span>
                   </div>
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      backgroundColor: op.division_style === 'divider_line' ? '#e0f2fe' : '#dcfce7',
-                      color: op.division_style === 'divider_line' ? '#0369a1' : '#15803d',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {OVERVIEW_DIVISION_BADGE_LABELS[op.division_style]}
-                  </span>
                 </div>
 
                 {/* Simulating the Antigravity right-side panel container */}

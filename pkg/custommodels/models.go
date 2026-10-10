@@ -41,6 +41,7 @@ type CustomModel struct {
 	ProviderType         ProviderType `json:"provider_type"`
 	BaseURL              string       `json:"base_url"`
 	APIKey               string       `json:"api_key,omitempty"`
+	CustomQuotaEndpoint  string       `json:"custom_quota_endpoint,omitempty"`
 	ProjectMappings      []string     `json:"project_mappings"` // Specific projects or ["*"] for all
 	QuotaType            QuotaType    `json:"quota_type"`
 	QuotaManualOverride  bool         `json:"quota_manual_override,omitempty"`

@@ -205,11 +205,15 @@ export interface FleetQuotaSummary {
   refreshing?: boolean
 }
 
+export type QuotaRefreshMode = 'dynamic' | 'manual'
+
 export interface RuleConfig {
   auto_switch_enabled: boolean
   auto_switch_threshold: number
   auto_switch_weekly_threshold?: number
   switch_mode?: SwitchMode
+  quota_refresh_mode?: QuotaRefreshMode
+  dynamic_quota_refresh_enabled?: boolean
   polling_interval_seconds: number
   active_polling_interval_seconds?: number
   standby_polling_interval_seconds?: number
@@ -227,6 +231,7 @@ export interface RuleConfig {
   auto_import_active_account?: boolean
   multi_app_sync_mode?: MultiAppSyncMode
   active_app_accounts?: Record<string, string>
+  subagent_custom_models_enabled?: boolean
   subagent_model_strategy?: SubagentModelStrategy
   installed_apps?: InstalledAppsStatus
 }
@@ -352,6 +357,7 @@ export interface CustomModel {
   provider_type: ProviderType
   base_url: string
   api_key?: string
+  custom_quota_endpoint?: string
   project_mappings: string[]
   quota_type: QuotaType
   quota_manual_override?: boolean
@@ -456,6 +462,8 @@ export interface TokenSummaryResponse {
   cached_input_tokens: number
   output_tokens: number
   total_cost_usd: number
+  input_cost_usd?: number
+  output_cost_usd?: number
   saved_cost_usd: number
   avg_tps: number
   requests_count: number
@@ -933,20 +941,34 @@ export interface DiagnosticResult {
   error?: string
 }
 
+export interface WorkItemRef {
+  type: 'issue' | 'pr'
+  number: number
+  state: string
+  url?: string
+  title?: string
+}
+
 export interface AgentTaskSummary {
   conversation_id: string
   conversation_title: string
+  work_item?: string
   agent_name: string
   agent_label: string
   status: string
   not_fully_idle: boolean
   parent_conversation_id?: string
   root_parent_conversation_id?: string
+  root_parent_title?: string
   nesting_depth?: number
   is_pruned?: boolean
   bound_issue_number?: number
   bound_pr_number?: number
+  working_issues?: number[]
+  working_prs?: number[]
+  work_items?: WorkItemRef[]
   last_modified?: string
+  step_count?: number
 }
 
 export interface KanbanCard {

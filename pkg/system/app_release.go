@@ -119,11 +119,11 @@ func (m *AppReleaseManager) GetCachedReleaseInfo(cfg *core.Config) *AppReleaseIn
 	}
 
 	return &AppReleaseInfo{
-		CurrentVersion: core.AppVersion,
-		LatestVersion:  core.AppVersion,
+		CurrentVersion: "N/A",
+		LatestVersion:  "N/A",
 		HasUpdate:      false,
-		ReleaseName:    "v" + core.AppVersion,
-		ReleaseNotes:   "Active production build of Antigravity Swiss Knife.",
+		ReleaseName:    "",
+		ReleaseNotes:   "Pre-release build. No public releases published yet.",
 		PublishedAt:    "",
 		HTMLURL:        fmt.Sprintf("https://github.com/%s/%s/releases", DefaultGitHubRepoOwner, DefaultGitHubRepoName),
 		DownloadURL:    "",
@@ -132,7 +132,7 @@ func (m *AppReleaseManager) GetCachedReleaseInfo(cfg *core.Config) *AppReleaseIn
 		AutoCheck:      autoCheck,
 		AutoUpgrade:    autoUpgrade,
 		LastChecked:    lastChecked,
-		StatusMessage:  "Application is up to date.",
+		StatusMessage:  "No published releases yet.",
 	}
 }
 
@@ -190,18 +190,18 @@ func (m *AppReleaseManager) CheckForUpdates(ctx context.Context, cfg *core.Confi
 	if resp.StatusCode == http.StatusNotFound {
 		// Repository has no releases published yet
 		info := &AppReleaseInfo{
-			CurrentVersion: currentVer,
-			LatestVersion:  currentVer,
+			CurrentVersion: "N/A",
+			LatestVersion:  "N/A",
 			HasUpdate:      false,
-			ReleaseName:    "v" + currentVer + " (Latest)",
-			ReleaseNotes:   "You are running the newest available release.",
+			ReleaseName:    "",
+			ReleaseNotes:   "No remote releases found on repository yet.",
 			HTMLURL:        fmt.Sprintf("https://github.com/%s/%s/releases", DefaultGitHubRepoOwner, DefaultGitHubRepoName),
 			Platform:       goos,
 			Arch:           goarch,
 			AutoCheck:      autoCheck,
 			AutoUpgrade:    autoUpgrade,
 			LastChecked:    nowStr,
-			StatusMessage:  "Application is up to date.",
+			StatusMessage:  "No published releases yet.",
 		}
 		m.lastInfo = info
 		if cfg != nil {
@@ -233,18 +233,18 @@ func (m *AppReleaseManager) CheckForUpdates(ctx context.Context, cfg *core.Confi
 
 	if len(releases) == 0 {
 		info := &AppReleaseInfo{
-			CurrentVersion: currentVer,
-			LatestVersion:  currentVer,
+			CurrentVersion: "N/A",
+			LatestVersion:  "N/A",
 			HasUpdate:      false,
-			ReleaseName:    "v" + currentVer,
-			ReleaseNotes:   "No remote releases found on repository. Running current build.",
+			ReleaseName:    "",
+			ReleaseNotes:   "No remote releases found on repository yet.",
 			HTMLURL:        fmt.Sprintf("https://github.com/%s/%s/releases", DefaultGitHubRepoOwner, DefaultGitHubRepoName),
 			Platform:       goos,
 			Arch:           goarch,
 			AutoCheck:      autoCheck,
 			AutoUpgrade:    autoUpgrade,
 			LastChecked:    nowStr,
-			StatusMessage:  "Application is up to date.",
+			StatusMessage:  "No published releases yet.",
 		}
 		m.lastInfo = info
 		if cfg != nil {

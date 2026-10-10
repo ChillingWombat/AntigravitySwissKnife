@@ -18,7 +18,6 @@ import {
   ShieldAlert,
   ChevronDown,
   ChevronRight,
-  Coins,
 } from 'lucide-react'
 import type {
   CustomModel,
@@ -64,6 +63,12 @@ const inferProviderType = (url: string): ProviderType => {
   return 'custom'
 }
 
+const normalizeQuotaType = (t?: string | null): QuotaType => {
+  if (t === 'balance' || t === 'cost_based') return 'balance'
+  if (t === 'quota' || t === 'quota_based') return 'quota'
+  return 'na'
+}
+
 export const CustomModelsPage: React.FC = () => {
   const [config, setConfig] = useState<CustomModelsConfig | null>(null)
   const [loading, setLoading] = useState<boolean>(true)
@@ -86,7 +91,7 @@ export const CustomModelsPage: React.FC = () => {
   const [providerType, setProviderType] = useState<ProviderType>('gemini')
   const [baseUrl, setBaseUrl] = useState<string>('')
   const [apiKey, setApiKey] = useState<string>('')
-  const [projectMappings, setProjectMappings] = useState<string>('*')
+  const [customQuotaEndpoint, setCustomQuotaEndpoint] = useState<string>('')
   const [isDefault, setIsDefault] = useState<boolean>(false)
   const [enabled, setEnabled] = useState<boolean>(true)
   const [contextWindow, setContextWindow] = useState<number>(1048576)
@@ -134,12 +139,28 @@ export const CustomModelsPage: React.FC = () => {
   const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false)
   const [activeReportForView, setActiveReportForView] = useState<SecurityAuditReport | null>(null)
 
+  const [rulesDefaultCustom, setRulesDefaultCustom] = useState<string>('')
+
+  const isModelDefault = (m: CustomModel | null | undefined): boolean => {
+    if (!m) return false
+    if (m.is_default) return true
+    if (config?.active_model_id && (config.active_model_id === m.id || config.active_model_id === m.name)) return true
+    if (!rulesDefaultCustom) return false
+    return rulesDefaultCustom === m.id || rulesDefaultCustom === m.name
+  }
+
   const loadData = async () => {
     setLoading(true)
     setFeedback(null)
     try {
-      const cfg = await api.getCustomModels()
+      const [cfg, rules] = await Promise.all([
+        api.getCustomModels(),
+        api.getRules().catch(() => null),
+      ])
       setConfig(cfg)
+      if (rules?.default_custom_model) {
+        setRulesDefaultCustom(rules.default_custom_model)
+      }
     } catch (err: any) {
       setFeedback(`Failed to load custom models: ${err.message}`)
     } finally {
@@ -185,7 +206,7 @@ export const CustomModelsPage: React.FC = () => {
     setProviderType('custom')
     setBaseUrl('')
     setApiKey('')
-    setProjectMappings('*')
+    setCustomQuotaEndpoint('')
     setIsDefault((config?.models?.length ?? 0) === 0)
     setEnabled(false)
     setContextWindow(1048576)
@@ -222,8 +243,8 @@ export const CustomModelsPage: React.FC = () => {
     setProviderType(model.provider_type || inferProviderType(model.base_url))
     setBaseUrl(model.base_url)
     setApiKey(model.api_key || '')
-    setProjectMappings(model.project_mappings?.join(', ') || '*')
-    setIsDefault(model.is_default)
+    setCustomQuotaEndpoint(model.custom_quota_endpoint || '')
+    setIsDefault(isModelDefault(model))
     setEnabled(model.enabled)
     setContextWindow(model.context_window || 1048576)
     setNotes(model.notes || '')
@@ -232,7 +253,7 @@ export const CustomModelsPage: React.FC = () => {
     setThinkingLevels(rawLevels.length > 0 ? rawLevels : ['low', 'medium', 'high'])
     setThinkingLevel(isThinking ? (model.thinking_level || 'high') : '')
     setIsQuotaPriceOpen(true)
-    setQuotaType(model.quota_type || 'na')
+    setQuotaType(normalizeQuotaType(model.quota_type))
     setQuotaManualOverride(!!model.quota_manual_override)
     setBalanceValue(model.balance_value || '')
     setQuotaValue(model.quota_value || '')
@@ -354,7 +375,8 @@ export const CustomModelsPage: React.FC = () => {
       provider_type: inferred,
       base_url: baseUrl.trim(),
       api_key: apiKey.trim(),
-      project_mappings: projectMappings.split(',').map((p) => p.trim()).filter(Boolean),
+      custom_quota_endpoint: customQuotaEndpoint.trim() || undefined,
+      project_mappings: ['*'],
       quota_type: editingModel?.quota_type || 'na',
       balance_value: editingModel?.balance_value,
       quota_value: editingModel?.quota_value,
@@ -375,11 +397,18 @@ export const CustomModelsPage: React.FC = () => {
       setModalTestResult(res)
       if (res.quota_result) {
         if (!quotaManualOverride) {
-          if (res.quota_result.quota_type) setQuotaType(res.quota_result.quota_type)
-          if (res.quota_result.balance_value) setBalanceValue(res.quota_result.balance_value)
-          if (res.quota_result.quota_value) setQuotaValue(res.quota_result.quota_value)
-          if (res.quota_result.fraction !== null && res.quota_result.fraction !== undefined) {
-            setQuotaFraction(res.quota_result.fraction)
+          const normType = normalizeQuotaType(res.quota_result.quota_type)
+          setQuotaType(normType)
+          if (normType === 'na') {
+            setBalanceValue('')
+            setQuotaValue('')
+            setQuotaFraction(null)
+          } else {
+            if (res.quota_result.balance_value) setBalanceValue(res.quota_result.balance_value)
+            if (res.quota_result.quota_value) setQuotaValue(res.quota_result.quota_value)
+            if (res.quota_result.fraction !== null && res.quota_result.fraction !== undefined) {
+              setQuotaFraction(res.quota_result.fraction)
+            }
           }
         }
         if (res.quota_result.input_price_per_m !== undefined) {
@@ -388,6 +417,11 @@ export const CustomModelsPage: React.FC = () => {
           setOutputPricePerM(res.quota_result.output_price_per_m ?? null)
           setPriceSource(res.quota_result.price_source || (res.quota_result.input_price_per_m !== null ? 'provider' : 'unconfigured'))
         }
+      } else if (!quotaManualOverride) {
+        setQuotaType('na')
+        setBalanceValue('')
+        setQuotaValue('')
+        setQuotaFraction(null)
       }
     } catch (err: any) {
       const message = err.message || 'Request failed'
@@ -419,6 +453,7 @@ export const CustomModelsPage: React.FC = () => {
       provider_type: effectiveProvider,
       base_url: baseUrl.trim(),
       api_key: apiKey.trim(),
+      custom_quota_endpoint: customQuotaEndpoint.trim() || undefined,
       project_mappings: ['*'],
       quota_type: quotaType,
       prepaid_balance: 0,
@@ -431,11 +466,18 @@ export const CustomModelsPage: React.FC = () => {
       const res = await api.fetchCustomModelQuota(draftModel)
       if (res) {
         if (!quotaManualOverride) {
-          if (res.quota_type) setQuotaType(res.quota_type)
-          if (res.balance_value) setBalanceValue(res.balance_value)
-          if (res.quota_value) setQuotaValue(res.quota_value)
-          if (res.fraction !== null && res.fraction !== undefined) {
-            setQuotaFraction(res.fraction)
+          const normType = normalizeQuotaType(res.quota_type)
+          setQuotaType(normType)
+          if (normType === 'na') {
+            setBalanceValue('')
+            setQuotaValue('')
+            setQuotaFraction(null)
+          } else {
+            if (res.balance_value) setBalanceValue(res.balance_value)
+            if (res.quota_value) setQuotaValue(res.quota_value)
+            if (res.fraction !== null && res.fraction !== undefined) {
+              setQuotaFraction(res.fraction)
+            }
           }
         }
         if (res.input_price_per_m !== undefined) {
@@ -444,8 +486,16 @@ export const CustomModelsPage: React.FC = () => {
           setOutputPricePerM(res.output_price_per_m ?? null)
           setPriceSource(res.price_source || (res.input_price_per_m !== null ? 'provider' : 'unconfigured'))
         }
+      } else if (!quotaManualOverride) {
+        setQuotaType('na')
+        setBalanceValue('')
+        setQuotaValue('')
+        setQuotaFraction(null)
       }
     } catch (err: any) {
+      if (!quotaManualOverride) {
+        setQuotaType('na')
+      }
       setModalError(`Failed to auto-fetch quota & price: ${err.message || 'Network error'}`)
     } finally {
       setIsFetchingQuotaPrice(false)
@@ -471,11 +521,6 @@ export const CustomModelsPage: React.FC = () => {
     setModalSaving(true)
     setModalError(null)
 
-    const mappings = projectMappings
-      .split(',')
-      .map((p) => p.trim())
-      .filter(Boolean)
-
     const isThinking = thinkingLevel.trim() !== '' && thinkingLevel.toLowerCase() !== 'off'
     const activeThinkingLvl = isThinking ? thinkingLevel.trim() : ''
     const updatedThinkingLevels = [...thinkingLevels].filter((l) => l.toLowerCase() !== 'off' && l.trim() !== '')
@@ -499,14 +544,15 @@ export const CustomModelsPage: React.FC = () => {
       provider_type: effectiveProvider,
       base_url: baseUrl.trim(),
       api_key: apiKey.trim(),
-      project_mappings: mappings.length > 0 ? mappings : ['*'],
+      custom_quota_endpoint: customQuotaEndpoint.trim() || undefined,
+      project_mappings: ['*'],
       quota_type: quotaType,
       quota_manual_override: quotaManualOverride,
-      balance_value: balanceValue.trim() || undefined,
-      quota_value: quotaValue.trim() || undefined,
+      balance_value: quotaType === 'balance' ? (balanceValue.trim() || undefined) : undefined,
+      quota_value: quotaType === 'quota' ? (quotaValue.trim() || undefined) : undefined,
       prepaid_balance: editingModel?.prepaid_balance || 0,
       total_budget: editingModel?.total_budget || 0,
-      quota_fraction: quotaFraction,
+      quota_fraction: quotaType === 'na' ? null : quotaFraction,
       budget_cap_type: budgetCapType,
       budget_cap_value: budgetCapValue,
       input_price_per_m: inputPricePerM,
@@ -527,6 +573,13 @@ export const CustomModelsPage: React.FC = () => {
 
     try {
       await api.saveCustomModel(modelToSave)
+      if (isDefault) {
+        await api.saveRules({ default_custom_model: modelToSave.id }).catch(() => {})
+        setRulesDefaultCustom(modelToSave.id)
+      } else if (rulesDefaultCustom === modelToSave.id || rulesDefaultCustom === modelToSave.name) {
+        await api.saveRules({ default_custom_model: '' }).catch(() => {})
+        setRulesDefaultCustom('')
+      }
       setIsModalOpen(false)
       await loadData()
     } catch (err: any) {
@@ -822,7 +875,7 @@ export const CustomModelsPage: React.FC = () => {
 
             // Quota Gauge calculation
             let gaugePct: number | null = null
-            let gaugeTitle = 'Untracked'
+            let gaugeTitle = 'N/A'
             let emptyGrey = true
 
             const qType = (m.quota_type || '').toLowerCase()
@@ -864,7 +917,7 @@ export const CustomModelsPage: React.FC = () => {
             } else {
               emptyGrey = true
               gaugePct = null
-              gaugeTitle = 'Untracked'
+              gaugeTitle = 'N/A'
             }
 
             return (
@@ -876,7 +929,7 @@ export const CustomModelsPage: React.FC = () => {
                   flexDirection: 'column',
                   justifyContent: 'space-between',
                   padding: '16px',
-                  border: m.is_default ? '2px solid var(--primary)' : '1px solid var(--border)',
+                  border: isModelDefault(m) ? '2px solid var(--primary)' : '1px solid var(--border)',
                   opacity: m.enabled ? 1 : 0.65,
                   transition: 'opacity 0.2s ease, border-color 0.2s ease',
                 }}
@@ -885,9 +938,24 @@ export const CustomModelsPage: React.FC = () => {
                   {/* Model Name and Gauge Row */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <h3 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text)', marginBottom: '3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {m.display_name}
-                      </h3>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                        <h3 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {m.display_name}
+                        </h3>
+                        {isModelDefault(m) && (
+                          <span
+                            className="badge-chip badge-primary"
+                            style={{
+                              fontSize: '10px',
+                              fontWeight: 600,
+                              padding: '1px 6px',
+                              borderRadius: '4px',
+                            }}
+                          >
+                            Default
+                          </span>
+                        )}
+                      </div>
                       <div style={{ fontFamily: 'monospace', fontSize: '11.5px', color: 'var(--text-muted)', marginBottom: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {m.name}
                       </div>
@@ -905,28 +973,6 @@ export const CustomModelsPage: React.FC = () => {
                         title={m.base_url}
                       >
                         {m.base_url}
-                      </div>
-
-                      {/* Project Mappings */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)' }}>
-                          PROJECTS:
-                        </span>
-                        {m.project_mappings?.map((p, idx) => (
-                          <span
-                            key={idx}
-                            style={{
-                              backgroundColor: 'var(--tonal)',
-                              color: 'var(--text)',
-                              fontSize: '10px',
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              fontFamily: 'monospace',
-                            }}
-                          >
-                            {p === '*' ? '* (All Projects)' : p}
-                          </span>
-                        ))}
                       </div>
 
                       {/* Budget Cap & Token Price Badges */}
@@ -1215,7 +1261,7 @@ export const CustomModelsPage: React.FC = () => {
                   {editingModel ? 'Edit Custom Model' : 'Add Custom Model Provider'}
                 </h2>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  Configure provider endpoint, credentials, quota gauge, and project routing.
+                  Configure provider endpoint, credentials, quota gauge, and pricing.
                 </div>
               </div>
               <button
@@ -1555,22 +1601,8 @@ export const CustomModelsPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Project Mappings */}
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                  Project Mappings (comma separated, use * for all projects):
-                </label>
-                <input
-                  type="text"
-                  placeholder="*, my-web-app, backend-api"
-                  value={projectMappings}
-                  onChange={(e) => setProjectMappings(e.target.value)}
-                  style={{ width: '100%', fontSize: '12px', padding: '8px 10px', fontFamily: 'monospace' }}
-                />
-              </div>
-
-              {/* Toggles */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+              {/* Toggles & Test Connection */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer' }}>
                   <span>Set as default custom model</span>
                   <ToggleSwitch
@@ -1579,6 +1611,50 @@ export const CustomModelsPage: React.FC = () => {
                     onChange={(checked) => setIsDefault(checked)}
                   />
                 </label>
+
+                {(() => {
+                  const testBtn = getTestConnectionButtonPresentation({
+                    isTesting: modalTesting,
+                    testResult: modalTestResult,
+                    baseUrl,
+                  })
+                  return (
+                    <button
+                      type="button"
+                      onClick={handleTestInModal}
+                      disabled={testBtn.disabled}
+                      title={testBtn.tooltip}
+                      className="btn-pill-tonal"
+                      style={{
+                        ...testBtn.style,
+                        padding: '0 12px',
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        flexShrink: 0,
+                        boxSizing: 'border-box',
+                      }}
+                    >
+                      {testBtn.icon === 'spinner' ? (
+                        <Loader2 size={13} className="spin" style={{ flexShrink: 0 }} />
+                      ) : testBtn.icon === 'check' ? (
+                        <CheckCircle2 size={13} style={{ flexShrink: 0 }} />
+                      ) : testBtn.icon === 'alert' ? (
+                        <AlertCircle size={13} style={{ flexShrink: 0 }} />
+                      ) : (
+                        <Zap size={13} style={{ flexShrink: 0 }} />
+                      )}
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {testBtn.label}
+                      </span>
+                    </button>
+                  )
+                })()}
               </div>
 
               {/* Notes Section: User Notes */}
@@ -1632,7 +1708,6 @@ export const CustomModelsPage: React.FC = () => {
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     {isQuotaPriceOpen ? <ChevronDown size={15} color="var(--text-muted)" /> : <ChevronRight size={15} color="var(--text-muted)" />}
-                    <Coins size={15} color="var(--primary)" />
                     <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
                       Quota & Price
                     </span>
@@ -1647,7 +1722,7 @@ export const CustomModelsPage: React.FC = () => {
                         textTransform: 'capitalize',
                       }}
                     >
-                      {quotaType === 'balance' ? 'Balance' : quotaType === 'quota' ? 'Quota' : 'Untracked'}
+                      {quotaType === 'balance' ? 'Balance' : quotaType === 'quota' ? 'Quota' : 'N/A'}
                     </span>
                     {budgetCapType !== 'none' && budgetCapValue !== null && (
                       <span
@@ -1714,11 +1789,12 @@ export const CustomModelsPage: React.FC = () => {
                         {[
                           { id: 'balance' as QuotaType, label: 'Balance Mode' },
                           { id: 'quota' as QuotaType, label: 'Quota Mode' },
-                          { id: 'na' as QuotaType, label: 'Untracked / N/A' },
+                          { id: 'na' as QuotaType, label: 'N/A' },
                         ].map((m) => (
                           <button
                             key={m.id}
                             type="button"
+                            disabled={!quotaManualOverride}
                             onClick={() => setQuotaType(m.id)}
                             style={{
                               flex: 1,
@@ -1729,7 +1805,8 @@ export const CustomModelsPage: React.FC = () => {
                               color: quotaType === m.id ? 'var(--primary)' : 'var(--text-muted)',
                               backgroundColor: quotaType === m.id ? '#e8f0fe' : '#ffffff',
                               border: quotaType === m.id ? '1px solid var(--primary)' : '1px solid var(--border)',
-                              cursor: 'pointer',
+                              cursor: !quotaManualOverride ? 'not-allowed' : 'pointer',
+                              opacity: !quotaManualOverride ? 0.6 : 1,
                               whiteSpace: 'nowrap',
                             }}
                           >
@@ -1746,10 +1823,19 @@ export const CustomModelsPage: React.FC = () => {
                             </label>
                             <input
                               type="text"
+                              disabled={!quotaManualOverride}
                               placeholder="e.g. $12.50 or ¥50.00"
                               value={balanceValue}
                               onChange={(e) => setBalanceValue(e.target.value)}
-                              style={{ width: '100%', fontSize: '12px', padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}
+                              style={{
+                                width: '100%',
+                                fontSize: '12px',
+                                padding: '6px 8px',
+                                borderRadius: '4px',
+                                border: '1px solid var(--border)',
+                                opacity: !quotaManualOverride ? 0.6 : 1,
+                                cursor: !quotaManualOverride ? 'not-allowed' : undefined,
+                              }}
                             />
                           </div>
                           <div>
@@ -1758,6 +1844,7 @@ export const CustomModelsPage: React.FC = () => {
                             </label>
                             <input
                               type="number"
+                              disabled={!quotaManualOverride}
                               min="0"
                               max="100"
                               placeholder="e.g. 75"
@@ -1766,7 +1853,15 @@ export const CustomModelsPage: React.FC = () => {
                                 const v = e.target.value.trim()
                                 setQuotaFraction(v === '' ? null : Math.max(0, Math.min(100, Number(v))) / 100)
                               }}
-                              style={{ width: '100%', fontSize: '12px', padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}
+                              style={{
+                                width: '100%',
+                                fontSize: '12px',
+                                padding: '6px 8px',
+                                borderRadius: '4px',
+                                border: '1px solid var(--border)',
+                                opacity: !quotaManualOverride ? 0.6 : 1,
+                                cursor: !quotaManualOverride ? 'not-allowed' : undefined,
+                              }}
                             />
                           </div>
                         </div>
@@ -1780,10 +1875,19 @@ export const CustomModelsPage: React.FC = () => {
                             </label>
                             <input
                               type="text"
+                              disabled={!quotaManualOverride}
                               placeholder="e.g. Tier 1 (500 RPM)"
                               value={quotaValue}
                               onChange={(e) => setQuotaValue(e.target.value)}
-                              style={{ width: '100%', fontSize: '12px', padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}
+                              style={{
+                                width: '100%',
+                                fontSize: '12px',
+                                padding: '6px 8px',
+                                borderRadius: '4px',
+                                border: '1px solid var(--border)',
+                                opacity: !quotaManualOverride ? 0.6 : 1,
+                                cursor: !quotaManualOverride ? 'not-allowed' : undefined,
+                              }}
                             />
                           </div>
                           <div>
@@ -1792,6 +1896,7 @@ export const CustomModelsPage: React.FC = () => {
                             </label>
                             <input
                               type="number"
+                              disabled={!quotaManualOverride}
                               min="0"
                               max="100"
                               placeholder="e.g. 80"
@@ -1800,7 +1905,15 @@ export const CustomModelsPage: React.FC = () => {
                                 const v = e.target.value.trim()
                                 setQuotaFraction(v === '' ? null : Math.max(0, Math.min(100, Number(v))) / 100)
                               }}
-                              style={{ width: '100%', fontSize: '12px', padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}
+                              style={{
+                                width: '100%',
+                                fontSize: '12px',
+                                padding: '6px 8px',
+                                borderRadius: '4px',
+                                border: '1px solid var(--border)',
+                                opacity: !quotaManualOverride ? 0.6 : 1,
+                                cursor: !quotaManualOverride ? 'not-allowed' : undefined,
+                              }}
                             />
                           </div>
                         </div>
@@ -1811,6 +1924,28 @@ export const CustomModelsPage: React.FC = () => {
                           Untracked: No automated quota or prepaid balance queries will be executed for this model.
                         </div>
                       )}
+
+                      {/* Custom Quota Endpoint */}
+                      <div style={{ marginTop: '10px' }}>
+                        <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '3px' }}>
+                          Custom Quota Endpoint (optional):
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. https://api.example.com/v1/usage or https://api.example.com/dashboard/billing/subscription"
+                          value={customQuotaEndpoint}
+                          onChange={(e) => setCustomQuotaEndpoint(e.target.value)}
+                          style={{
+                            width: '100%',
+                            fontSize: '12px',
+                            padding: '6px 8px',
+                            borderRadius: '4px',
+                            border: '1px solid var(--border)',
+                            fontFamily: 'monospace',
+                            boxSizing: 'border-box',
+                          }}
+                        />
+                      </div>
                     </div>
 
                     {/* B. Token Pricing (Shared with Token Monitor) */}
@@ -1918,9 +2053,6 @@ export const CustomModelsPage: React.FC = () => {
                         <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
                           Model Budget / Usage Cap:
                         </label>
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                          Set a consumption cap for this model. Options adapt to the selected fee mode and price configuration.
-                        </div>
                       </div>
 
                       <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', flexWrap: 'wrap' }}>
@@ -2000,7 +2132,7 @@ export const CustomModelsPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Modal Actions Footer: Test Connection on bottom left, Cancel & Save on right */}
+            {/* Modal Actions Footer */}
             <div
               style={{
                 display: 'flex',
@@ -2013,53 +2145,8 @@ export const CustomModelsPage: React.FC = () => {
                 flexWrap: 'nowrap',
               }}
             >
-              {/* Bottom Left: Inline Test Connection Button */}
-              {(() => {
-                const testBtn = getTestConnectionButtonPresentation({
-                  isTesting: modalTesting,
-                  testResult: modalTestResult,
-                  baseUrl,
-                })
-                return (
-                  <button
-                    type="button"
-                    onClick={handleTestInModal}
-                    disabled={testBtn.disabled}
-                    title={testBtn.tooltip}
-                    className="btn-pill-tonal"
-                    style={{
-                      ...testBtn.style,
-                      padding: '0 12px',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '6px',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      flexShrink: 0,
-                      boxSizing: 'border-box',
-                    }}
-                  >
-                    {testBtn.icon === 'spinner' ? (
-                      <Loader2 size={13} className="spin" style={{ flexShrink: 0 }} />
-                    ) : testBtn.icon === 'check' ? (
-                      <CheckCircle2 size={13} style={{ flexShrink: 0 }} />
-                    ) : testBtn.icon === 'alert' ? (
-                      <AlertCircle size={13} style={{ flexShrink: 0 }} />
-                    ) : (
-                      <Zap size={13} style={{ flexShrink: 0 }} />
-                    )}
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {testBtn.label}
-                    </span>
-                  </button>
-                )
-              })()}
-
-              {/* Bottom Right: Delete (if editing), Cancel & Save Model */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+              {/* Bottom Left: Delete Model (if editing) */}
+              <div>
                 {editingModel && (
                   <button
                     type="button"
@@ -2071,6 +2158,10 @@ export const CustomModelsPage: React.FC = () => {
                     <Trash2 size={13} /> Delete Model
                   </button>
                 )}
+              </div>
+
+              {/* Bottom Right: Cancel & Save Model */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}

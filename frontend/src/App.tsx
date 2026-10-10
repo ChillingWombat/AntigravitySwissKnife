@@ -22,7 +22,7 @@ export const App: React.FC = () => {
   const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 2: Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived, 7: Extensions, 8: Token Monitor, 9: Utilities
   const [currentTab, setCurrentTab] = useState<number>(0) // 0: Dashboard, 1: FP, 2: Rules
   const [systemSettingsTab, setSystemSettingsTab] = useState<number>(0) // 0: General, 1: Path & Storage, 2: Error & Privacy, 3: About
-  const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Overview Panel
+  const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Auxiliary Panel
   const [availableProjects, setAvailableProjects] = useState<Array<{ name: string; color: string; order: number; is_archived: boolean }>>([])
   const [utilitiesTab, setUtilitiesTab] = useState<number>(0) // 0: Cache Manager, 1: ACP Agent Mesh, 2: Chat & Project Importer
   const [tokenMonitorTab, setTokenMonitorTab] = useState<number>(0) // 0: Overview, 1: Telemetry & Logs, 2: Token Price
@@ -175,7 +175,7 @@ export const App: React.FC = () => {
                     gap: '2px',
                   }}
                 >
-                  {['Chat View', 'Project Panel', 'Auxiliary & Overview Panel'].map((tab, idx) => {
+                  {['Chat View', 'Project Panel', 'Auxiliary Panel'].map((tab, idx) => {
                     const isActive = enhancementTab === idx
                     return (
                       <button
@@ -249,7 +249,7 @@ export const App: React.FC = () => {
                     gap: '2px',
                   }}
                 >
-                  {['Storage Manager', 'ACP Agent Mesh', 'Chat & Project Importer'].map((tab, idx) => {
+                  {['Storage Manager', 'ACP Agent Mesh', 'Chat & Project Importer', 'Computer Use'].map((tab, idx) => {
                     const isActive = utilitiesTab === idx
                     return (
                       <button

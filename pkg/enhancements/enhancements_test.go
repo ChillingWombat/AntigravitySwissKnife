@@ -49,8 +49,8 @@ func TestDefaultConfig(t *testing.T) {
 	if !cfg.LeftPanelExtensionsEnabled {
 		t.Errorf("expected LeftPanelExtensionsEnabled to be true by default")
 	}
-	if cfg.LeftPanelExtensionsMode != "individual" {
-		t.Errorf("expected LeftPanelExtensionsMode to be 'individual' by default, got %s", cfg.LeftPanelExtensionsMode)
+	if cfg.LeftPanelExtensionsMode != "single" {
+		t.Errorf("expected LeftPanelExtensionsMode to be 'single' by default, got %s", cfg.LeftPanelExtensionsMode)
 	}
 	if cfg.DefaultNewProject != "auto" {
 		t.Errorf("expected DefaultNewProject to be 'auto', got %s", cfg.DefaultNewProject)
@@ -67,8 +67,8 @@ func TestDefaultConfig(t *testing.T) {
 			t.Errorf("expected Extensions map to contain %q", id)
 			continue
 		}
-		if !vis.AuxPanel || !vis.MainPage {
-			t.Errorf("expected Extensions[%q] to default to {true, true}, got %+v", id, vis)
+		if !vis.AuxPanel || vis.MainPage {
+			t.Errorf("expected Extensions[%q] to default to {true, false}, got %+v", id, vis)
 		}
 	}
 }
@@ -453,8 +453,8 @@ func TestLeftPanelExtensions_StoreAndScript(t *testing.T) {
 	if !cfg.LeftPanelExtensionsEnabled {
 		t.Errorf("expected LeftPanelExtensionsEnabled to be true by default")
 	}
-	if cfg.LeftPanelExtensionsMode != "individual" {
-		t.Errorf("expected LeftPanelExtensionsMode to be 'individual' by default, got %s", cfg.LeftPanelExtensionsMode)
+	if cfg.LeftPanelExtensionsMode != "single" {
+		t.Errorf("expected LeftPanelExtensionsMode to be 'single' by default, got %s", cfg.LeftPanelExtensionsMode)
 	}
 
 	if err := store.ToggleLeftPanelExtensions(false); err != nil {
@@ -540,8 +540,8 @@ func TestExtensionsVisibility_LegacyMigration(t *testing.T) {
 			t.Errorf("expected Extensions[%q].MainPage=false (main_section_extensions_enabled was false)", id)
 		}
 	}
-	if cfg.LeftPanelExtensionsMode != "individual" {
-		t.Errorf("expected LeftPanelExtensionsMode forced to 'individual' after migration, got %s", cfg.LeftPanelExtensionsMode)
+	if cfg.LeftPanelExtensionsMode != "single" {
+		t.Errorf("expected LeftPanelExtensionsMode to preserve 'single' after migration, got %s", cfg.LeftPanelExtensionsMode)
 	}
 
 	// The normalized config must be persisted once so the map is authoritative.
@@ -596,12 +596,12 @@ func TestExtensionsVisibility_LegacyMigration_Enabled(t *testing.T) {
 			t.Errorf("expected Extensions map to contain %q", id)
 			continue
 		}
-		if !vis.AuxPanel || !vis.MainPage {
-			t.Errorf("expected Extensions[%q] to be {true, true}, got %+v", id, vis)
+		if !vis.AuxPanel || vis.MainPage {
+			t.Errorf("expected Extensions[%q] to be {true, false}, got %+v", id, vis)
 		}
 	}
-	if cfg.LeftPanelExtensionsMode != "individual" {
-		t.Errorf("expected LeftPanelExtensionsMode forced to 'individual', got %s", cfg.LeftPanelExtensionsMode)
+	if cfg.LeftPanelExtensionsMode != "single" {
+		t.Errorf("expected LeftPanelExtensionsMode to preserve 'single', got %s", cfg.LeftPanelExtensionsMode)
 	}
 }
 

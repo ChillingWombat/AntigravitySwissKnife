@@ -15,6 +15,8 @@ type Config struct {
 	AutoSwitchThreshold        float64  `json:"auto_switch_threshold"`
 	AutoSwitchWeeklyThreshold  float64  `json:"auto_switch_weekly_threshold"`
 	SwitchMode                 string   `json:"switch_mode,omitempty"`
+	QuotaRefreshMode           string   `json:"quota_refresh_mode,omitempty"`
+	DynamicQuotaRefreshEnabled bool     `json:"dynamic_quota_refresh_enabled"`
 	PollingIntervalSec         int      `json:"polling_interval_seconds"`
 	ActivePollingIntervalSec   int      `json:"active_polling_interval_seconds"`
 	StandbyPollingIntervalSec  int      `json:"standby_polling_interval_seconds"`
@@ -54,6 +56,7 @@ type Config struct {
 	PersistentVisualEffects    bool                         `json:"persistent_visual_effects"`
 	MultiAppSyncMode           string                       `json:"multi_app_sync_mode"`
 	ActiveAppAccounts          map[string]string            `json:"active_app_accounts,omitempty"`
+	SubagentCustomModelsEnabled bool                        `json:"subagent_custom_models_enabled"`
 	SubagentModelStrategy      string                       `json:"subagent_model_strategy"`
 
 	mu sync.RWMutex `json:"-"`
@@ -73,6 +76,8 @@ func DefaultConfig() *Config {
 		AutoSwitchThreshold:        DefaultAutoSwitchThresholdFraction,
 		AutoSwitchWeeklyThreshold:  DefaultAutoSwitchWeeklyThresholdFraction,
 		SwitchMode:                 DefaultSwitchMode,
+		QuotaRefreshMode:           QuotaRefreshModeDynamic,
+		DynamicQuotaRefreshEnabled: true,
 		AutoImportActiveAccount:    false,
 		PollingIntervalSec:         DefaultPollingIntervalSeconds,
 		ActivePollingIntervalSec:   120, // 2 minutes
@@ -101,6 +106,7 @@ func DefaultConfig() *Config {
 		PersistentVisualEffects:    true,
 		MultiAppSyncMode:           DefaultMultiAppSyncMode,
 		ActiveAppAccounts:          make(map[string]string),
+		SubagentCustomModelsEnabled: false,
 		SubagentModelStrategy:      DefaultSubagentModelStrategy,
 		Memo: MemoConfig{
 			StorageLocation: "global",
@@ -159,6 +165,15 @@ func LoadConfig() (*Config, error) {
 		cfg.ActiveAppAccounts = make(map[string]string)
 	}
 	cfg.SubagentModelStrategy = NormalizeSubagentModelStrategy(cfg.SubagentModelStrategy)
+	if cfg.QuotaRefreshMode == "" {
+		if !cfg.DynamicQuotaRefreshEnabled && strings.Contains(string(data), "\"dynamic_quota_refresh_enabled\":false") {
+			cfg.QuotaRefreshMode = QuotaRefreshModeManual
+		} else {
+			cfg.QuotaRefreshMode = QuotaRefreshModeDynamic
+		}
+	}
+	cfg.QuotaRefreshMode = NormalizeQuotaRefreshMode(cfg.QuotaRefreshMode)
+	cfg.DynamicQuotaRefreshEnabled = (cfg.QuotaRefreshMode == QuotaRefreshModeDynamic)
 	if cfg.PostResetDelaySec <= 0 && cfg.WarmupLeadTimeSec > 0 {
 		cfg.PostResetDelaySec = cfg.WarmupLeadTimeSec
 	}
@@ -462,6 +477,62 @@ func (c *Config) SetSubagentModelStrategy(strategy string) error {
 	c.mu.Unlock()
 	return c.Save()
 }
+
+// GetSubagentCustomModelsEnabled returns whether subagent custom models are enabled.
+func (c *Config) GetSubagentCustomModelsEnabled() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.SubagentCustomModelsEnabled
+}
+
+// SetSubagentCustomModelsEnabled updates and persists whether subagent custom models are enabled.
+func (c *Config) SetSubagentCustomModelsEnabled(enabled bool) error {
+	c.mu.Lock()
+	c.SubagentCustomModelsEnabled = enabled
+	c.mu.Unlock()
+	return c.Save()
+}
+
+// NormalizeQuotaRefreshMode validates and defaults the quota refresh frequency mode.
+func NormalizeQuotaRefreshMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case QuotaRefreshModeManual:
+		return QuotaRefreshModeManual
+	default:
+		return QuotaRefreshModeDynamic
+	}
+}
+
+// GetQuotaRefreshMode returns the configured quota refresh frequency mode in a thread-safe manner.
+func (c *Config) GetQuotaRefreshMode() string {
+	if c == nil {
+		return DefaultQuotaRefreshMode
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.QuotaRefreshMode == "" {
+		return DefaultQuotaRefreshMode
+	}
+	return NormalizeQuotaRefreshMode(c.QuotaRefreshMode)
+}
+
+// IsDynamicQuotaRefreshEnabled returns whether dynamic adaptive quota refresh frequency is active.
+func (c *Config) IsDynamicQuotaRefreshEnabled() bool {
+	return c.GetQuotaRefreshMode() == QuotaRefreshModeDynamic
+}
+
+// SetQuotaRefreshMode updates and persists the quota refresh frequency mode in a thread-safe manner.
+func (c *Config) SetQuotaRefreshMode(mode string) error {
+	c.mu.Lock()
+	c.QuotaRefreshMode = NormalizeQuotaRefreshMode(mode)
+	c.DynamicQuotaRefreshEnabled = (c.QuotaRefreshMode == QuotaRefreshModeDynamic)
+	c.mu.Unlock()
+	return c.Save()
+}
+
 
 
 

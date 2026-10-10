@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react'
 import {
   ArrowUp,
   ArrowDown,
-  Layers,
   GripVertical,
   RefreshCw,
   Download,
@@ -19,12 +18,9 @@ import {
   Infinity as InfinityIcon,
   Share2,
   Split,
-  Bot,
-  Cpu,
-  Sliders,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
-import type { RuleConfig, AvailableModelItem, SwitchMode, MultiAppSyncMode, InstalledAppsStatus, SubagentModelStrategy } from '../types'
+import type { RuleConfig, AvailableModelItem, SwitchMode, MultiAppSyncMode, InstalledAppsStatus, SubagentModelStrategy, QuotaRefreshMode } from '../types'
 import { api } from '../api'
 import { resolveEffectiveCustomModel } from '../utils/modelFilter'
 import {
@@ -51,6 +47,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     String(Math.round((initialRules?.auto_switch_weekly_threshold ?? 0.05) * 100))
   )
   const [switchMode, setSwitchMode] = useState<SwitchMode>(initialRules?.switch_mode || 'balanced')
+  const [quotaRefreshMode, setQuotaRefreshMode] = useState<QuotaRefreshMode>(
+    initialRules?.quota_refresh_mode || (initialRules?.dynamic_quota_refresh_enabled === false ? 'manual' : 'dynamic')
+  )
   const [pollingInterval, setPollingInterval] = useState<number>(initialRules?.polling_interval_seconds ?? 60)
   const [activePollingInterval, setActivePollingInterval] = useState<number>(initialRules?.active_polling_interval_seconds ?? 120)
   const [standbyPollingInterval, setStandbyPollingInterval] = useState<number>(initialRules?.standby_polling_interval_seconds ?? 900)
@@ -77,6 +76,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   const [defaultGemini, setDefaultGemini] = useState<string>(initialRules?.default_gemini_model || 'gemini-3.8-flash-high')
   const [defaultCustom, setDefaultCustom] = useState<string>(initialRules?.default_custom_model || '')
   const [defaultNonGemini, setDefaultNonGemini] = useState<string>(initialRules?.default_non_gemini_model || 'claude-opus-4-6-thinking')
+  const [subagentCustomModelsEnabled, setSubagentCustomModelsEnabled] = useState<boolean>(
+    initialRules?.subagent_custom_models_enabled ?? false
+  )
   const [subagentStrategy, setSubagentStrategy] = useState<SubagentModelStrategy>(
     initialRules?.subagent_model_strategy || 'default_custom_only'
   )
@@ -251,6 +253,11 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     if (initialRules.switch_mode) {
       setSwitchMode(initialRules.switch_mode)
     }
+    if (initialRules.quota_refresh_mode) {
+      setQuotaRefreshMode(initialRules.quota_refresh_mode)
+    } else if (initialRules.dynamic_quota_refresh_enabled !== undefined) {
+      setQuotaRefreshMode(initialRules.dynamic_quota_refresh_enabled ? 'dynamic' : 'manual')
+    }
     setPollingInterval(initialRules.polling_interval_seconds)
     if (initialRules.active_polling_interval_seconds) {
       setActivePollingInterval(initialRules.active_polling_interval_seconds)
@@ -287,6 +294,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     }
     if (initialRules.installed_apps) {
       setInstalledApps(initialRules.installed_apps)
+    }
+    if (initialRules.subagent_custom_models_enabled !== undefined) {
+      setSubagentCustomModelsEnabled(initialRules.subagent_custom_models_enabled)
     }
     if (initialRules.subagent_model_strategy) {
       setSubagentStrategy(initialRules.subagent_model_strategy)
@@ -411,6 +421,8 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       auto_switch_threshold: threshold,
       auto_switch_weekly_threshold: weeklyThreshold,
       switch_mode: switchMode,
+      quota_refresh_mode: quotaRefreshMode,
+      dynamic_quota_refresh_enabled: quotaRefreshMode === 'dynamic',
       polling_interval_seconds: pollingInterval,
       active_polling_interval_seconds: activePollingInterval,
       standby_polling_interval_seconds: standbyPollingInterval,
@@ -426,6 +438,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       default_non_gemini_model: defaultNonGemini,
       auto_import_active_account: autoImportActive,
       multi_app_sync_mode: isSingleAppOrLess ? 'shared' : multiAppSyncMode,
+      subagent_custom_models_enabled: subagentCustomModelsEnabled,
       subagent_model_strategy: subagentStrategy,
     }
     const serialized = JSON.stringify(payload)
@@ -452,6 +465,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     threshold,
     weeklyThreshold,
     switchMode,
+    quotaRefreshMode,
     pollingInterval,
     activePollingInterval,
     standbyPollingInterval,
@@ -467,6 +481,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     autoImportActive,
     multiAppSyncMode,
     isSingleAppOrLess,
+    subagentCustomModelsEnabled,
     subagentStrategy,
   ])
 
@@ -623,6 +638,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             </div>
           </div>
 
+          {/* Divider between Switch Mode and Thresholds */}
+          <div style={{ borderTop: '1px solid var(--border)' }} />
+
           {/* 5-Hour Threshold */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
@@ -675,84 +693,110 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             </div>
           </div>
 
-          {/* Active Account Polling Interval */}
+          {/* Divider between Thresholds and Refresh Frequency Fetch Method */}
+          <div style={{ borderTop: '1px solid var(--border)' }} />
+
+          {/* Account Quota Refresh Frequency Mode */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                Active Account Quota Refresh Interval:
+                Account Quota Refresh Frequency:
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                The active account quota is refreshed frequently (e.g. every 2m) to guarantee prompt rotation triggers.
+                Controls how often account quota levels are checked. Dynamic mode adapts frequency to remaining 5-hour quota.
               </div>
             </div>
             <select
-              value={activePollingInterval}
-              onChange={(e) => setActivePollingInterval(Number(e.target.value))}
-              style={{ width: '160px' }}
+              value={quotaRefreshMode}
+              onChange={(e) => setQuotaRefreshMode(e.target.value as QuotaRefreshMode)}
+              style={{ width: '240px' }}
+              aria-label="Account Quota Refresh Frequency Mode"
             >
-              <option value={30}>30 Seconds</option>
-              <option value={60}>1 Minute</option>
-              <option value={120}>2 Minutes</option>
-              <option value={180}>3 Minutes</option>
-              <option value={300}>5 Minutes</option>
+              <option value="dynamic">Dynamic Adaptive Fetch</option>
+              <option value="manual">Manually Set Refresh Frequency</option>
             </select>
           </div>
 
-          {/* Standby Accounts Polling Interval */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                Standby Accounts Quota Refresh Interval:
+          {/* Manual Refresh Frequency Settings (Visible ONLY when Manually Set is selected) */}
+          {quotaRefreshMode === 'manual' && (
+            <>
+              {/* Active Account Polling Interval */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                    Active Account Quota Refresh Interval:
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    The active account quota is refreshed frequently (e.g. every 2m) to guarantee prompt rotation triggers.
+                  </div>
+                </div>
+                <select
+                  value={activePollingInterval}
+                  onChange={(e) => setActivePollingInterval(Number(e.target.value))}
+                  style={{ width: '160px' }}
+                >
+                  <option value={30}>30 Seconds</option>
+                  <option value={60}>1 Minute</option>
+                  <option value={120}>2 Minutes</option>
+                  <option value={180}>3 Minutes</option>
+                  <option value={300}>5 Minutes</option>
+                </select>
               </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Standby accounts are refreshed much less frequently. Quotas are polled in randomized order with random time gaps.
-              </div>
-            </div>
-            <select
-              value={standbyPollingInterval}
-              onChange={(e) => setStandbyPollingInterval(Number(e.target.value))}
-              style={{ width: '160px' }}
-            >
-              <option value={300}>5 Minutes</option>
-              <option value={600}>10 Minutes</option>
-              <option value={900}>15 Minutes</option>
-              <option value={1800}>30 Minutes</option>
-              <option value={3600}>1 Hour</option>
-            </select>
-          </div>
 
-          {/* Standby Account Staggered Jitter Gap */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                Standby Account Staggered Jitter Gap:
+              {/* Standby Accounts Polling Interval */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                    Standby Accounts Quota Refresh Interval:
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    Standby accounts are refreshed much less frequently. Quotas are polled in randomized order with random time gaps.
+                  </div>
+                </div>
+                <select
+                  value={standbyPollingInterval}
+                  onChange={(e) => setStandbyPollingInterval(Number(e.target.value))}
+                  style={{ width: '160px' }}
+                >
+                  <option value={300}>5 Minutes</option>
+                  <option value={600}>10 Minutes</option>
+                  <option value={900}>15 Minutes</option>
+                  <option value={1800}>30 Minutes</option>
+                  <option value={3600}>1 Hour</option>
+                </select>
               </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Random delay time gap between refreshing individual standby accounts to avoid spike load.
+
+              {/* Standby Account Staggered Jitter Gap */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                    Standby Account Staggered Jitter Gap:
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    Random delay time gap between refreshing individual standby accounts to avoid spike load.
+                  </div>
+                </div>
+                <select
+                  value={standbyRandomJitter}
+                  onChange={(e) => setStandbyRandomJitter(Number(e.target.value))}
+                  style={{ width: '160px' }}
+                >
+                  <option value={10}>5–10 Seconds Gap</option>
+                  <option value={20}>5–20 Seconds Gap</option>
+                  <option value={30}>5–30 Seconds Gap</option>
+                  <option value={45}>5–45 Seconds Gap</option>
+                  <option value={60}>5–60 Seconds Gap</option>
+                </select>
               </div>
-            </div>
-            <select
-              value={standbyRandomJitter}
-              onChange={(e) => setStandbyRandomJitter(Number(e.target.value))}
-              style={{ width: '160px' }}
-            >
-              <option value={10}>5–10 Seconds Gap</option>
-              <option value={20}>5–20 Seconds Gap</option>
-              <option value={30}>5–30 Seconds Gap</option>
-              <option value={45}>5–45 Seconds Gap</option>
-              <option value={60}>5–60 Seconds Gap</option>
-            </select>
-          </div>
+            </>
+          )}
         </div>
       </div>
 
       {/* Section 1b: Multi-App Account Synchronization Mode */}
       <div className="google-card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-          <Share2 size={16} style={{ color: 'var(--primary)' }} />
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-            Multi-App Account Synchronization Mode
-          </div>
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
+          Multi-App Account Synchronization Mode
         </div>
         <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
           Sync active accounts across all Antigravity apps or manage each app independently.
@@ -855,11 +899,8 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
 
       {/* Section 2: Model Source Hierarchy & Failover Priority */}
       <div className="google-card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-          <Layers size={16} style={{ color: 'var(--primary)' }} />
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-            Model Source Hierarchy & Priority Order
-          </div>
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
+          Model Source Hierarchy & Priority Order
         </div>
         <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
           When quotas deplete or requests require fallback, Antigravity attempts model sources in this exact sequential order. Drag items or use arrows to adjust priority.
@@ -1161,11 +1202,16 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
 
       {/* Section 4b: Gemini Subagent Custom Models */}
       <div className="google-card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-          <Bot size={16} style={{ color: 'var(--primary)' }} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
           <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
             Gemini Subagent Custom Models
           </div>
+          <ToggleSwitch
+            checked={subagentCustomModelsEnabled}
+            onChange={(checked) => setSubagentCustomModelsEnabled(checked)}
+            style={{ flexShrink: 0 }}
+            ariaLabel="Enable Gemini subagent custom models"
+          />
         </div>
         <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
           Configure how Gemini subagents use custom models.
@@ -1176,6 +1222,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
             gap: '12px',
+            opacity: subagentCustomModelsEnabled ? 1 : 0.45,
+            pointerEvents: subagentCustomModelsEnabled ? 'auto' : 'none',
+            transition: 'opacity 0.15s ease',
           }}
         >
           {/* Option A: Default custom model only */}
@@ -1195,7 +1244,6 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Cpu size={15} color={subagentStrategy === 'default_custom_only' ? 'var(--primary)' : 'var(--text-muted)'} />
                 <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                   Default custom model only
                 </span>
@@ -1226,7 +1274,6 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Sliders size={15} color={subagentStrategy === 'auto_decide' ? 'var(--primary)' : 'var(--text-muted)'} />
                 <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                   Auto-decide based on ability, performance, and price
                 </span>
@@ -1292,13 +1339,10 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
         <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', cursor: 'pointer' }}>
           <div>
             <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-              Auto Import &amp; Sync Antigravity Account
+              Auto Import Account
             </div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px', lineHeight: 1.5 }}>
-              Imports the account signed in to Antigravity when Swiss Knife doesn't have it yet and makes it active. Antigravity 2.0 takes priority; the CLI and VS Code extension follow it.
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-              When off, an account that isn't imported leaves Swiss Knife with no active account.
+              Auto import accounts signed in to Antigravity but not stored in Account Switcher's vault.
             </div>
           </div>
           <ToggleSwitch

@@ -18,8 +18,11 @@ func TestAppReleaseManager_DefaultInfo(t *testing.T) {
 	cfg := core.DefaultConfig()
 
 	info := mgr.GetCachedReleaseInfo(cfg)
-	if info.CurrentVersion != core.AppVersion {
-		t.Errorf("expected current version %s, got %s", core.AppVersion, info.CurrentVersion)
+	if info.CurrentVersion != "N/A" {
+		t.Errorf("expected current version N/A, got %s", info.CurrentVersion)
+	}
+	if info.LatestVersion != "N/A" {
+		t.Errorf("expected latest version N/A, got %s", info.LatestVersion)
 	}
 	if info.HasUpdate {
 		t.Errorf("default cached info should not claim has_update is true")
@@ -50,8 +53,11 @@ func TestAppReleaseManager_404OrEmptyReleases(t *testing.T) {
 	if info.HasUpdate {
 		t.Errorf("expected has_update false on 404")
 	}
-	if info.CurrentVersion != core.AppVersion {
-		t.Errorf("expected current version %s, got %s", core.AppVersion, info.CurrentVersion)
+	if info.CurrentVersion != "N/A" {
+		t.Errorf("expected current version N/A, got %s", info.CurrentVersion)
+	}
+	if info.LatestVersion != "N/A" {
+		t.Errorf("expected latest version N/A, got %s", info.LatestVersion)
 	}
 
 	// Test empty list `[]`
@@ -69,18 +75,24 @@ func TestAppReleaseManager_404OrEmptyReleases(t *testing.T) {
 	if infoEmpty.HasUpdate {
 		t.Errorf("expected has_update false on empty array")
 	}
+	if infoEmpty.CurrentVersion != "N/A" {
+		t.Errorf("expected current version N/A, got %s", infoEmpty.CurrentVersion)
+	}
+	if infoEmpty.LatestVersion != "N/A" {
+		t.Errorf("expected latest version N/A, got %s", infoEmpty.LatestVersion)
+	}
 }
 
 func TestAppReleaseManager_OlderRelease(t *testing.T) {
-	// Remote release is older than current version (e.g. 1.9.0 vs 2.0.0)
+	// Remote release is older than current version (e.g. 0.0.5 vs 0.1.0)
 	olderRelease := []GitHubRelease{
 		{
-			TagName:     "v1.9.0",
-			Name:        "v1.9.0 Maintenance",
+			TagName:     "v0.0.5",
+			Name:        "v0.0.5 Alpha",
 			Body:        "Older release notes",
 			Draft:       false,
 			PublishedAt: time.Now().Add(-24 * time.Hour),
-			HTMLURL:     "https://github.com/ChillingWombat/AntigravitySwissKnife/releases/tag/v1.9.0",
+			HTMLURL:     "https://github.com/ChillingWombat/AntigravitySwissKnife/releases/tag/v0.0.5",
 		},
 	}
 
@@ -98,7 +110,7 @@ func TestAppReleaseManager_OlderRelease(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if info.HasUpdate {
-		t.Errorf("expected has_update false when remote is 1.9.0 and local is 2.0.0")
+		t.Errorf("expected has_update false when remote is 0.0.5 and local is %s", core.AppVersion)
 	}
 	if info.LatestVersion != core.AppVersion {
 		t.Errorf("expected latest version to match current version %s, got %s", core.AppVersion, info.LatestVersion)

@@ -342,6 +342,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/github/agent-tasks", s.handleGitHubAgentTasks)
 	mux.HandleFunc("/api/github/agent-tasks/bind", s.handleGitHubAgentTaskBind)
 	mux.HandleFunc("/api/github/agent-tasks/label", s.handleGitHubAgentTaskLabel)
+	mux.HandleFunc("/api/github/agent-tasks/report", s.handleGitHubAgentTaskReport)
 	mux.HandleFunc("/api/github/context", s.handleGitHubContext)
 
 	l, err := net.Listen("tcp", s.addr)
@@ -1389,6 +1390,18 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			if val, ok := p["switch_mode"].(string); ok {
 				c.SwitchMode = quota.NormalizeSwitchMode(val)
 			}
+			if val, ok := p["quota_refresh_mode"].(string); ok {
+				c.QuotaRefreshMode = core.NormalizeQuotaRefreshMode(val)
+				c.DynamicQuotaRefreshEnabled = (c.QuotaRefreshMode == core.QuotaRefreshModeDynamic)
+			}
+			if val, ok := p["dynamic_quota_refresh_enabled"].(bool); ok {
+				c.DynamicQuotaRefreshEnabled = val
+				if val {
+					c.QuotaRefreshMode = core.QuotaRefreshModeDynamic
+				} else {
+					c.QuotaRefreshMode = core.QuotaRefreshModeManual
+				}
+			}
 			if val, ok := p["polling_interval_seconds"].(float64); ok {
 				c.PollingIntervalSec = int(val)
 			}
@@ -1473,6 +1486,9 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
+			if val, ok := p["subagent_custom_models_enabled"].(bool); ok {
+				c.SubagentCustomModelsEnabled = val
+			}
 			if val, ok := p["subagent_model_strategy"].(string); ok {
 				c.SubagentModelStrategy = core.NormalizeSubagentModelStrategy(val)
 			}
@@ -1534,6 +1550,8 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			"auto_switch_threshold":            c.AutoSwitchThreshold,
 			"auto_switch_weekly_threshold":     threshWeekly,
 			"switch_mode":                      switchMode,
+			"quota_refresh_mode":               c.GetQuotaRefreshMode(),
+			"dynamic_quota_refresh_enabled":    c.IsDynamicQuotaRefreshEnabled(),
 			"polling_interval_seconds":         c.PollingIntervalSec,
 			"active_polling_interval_seconds":  c.ActivePollingIntervalSec,
 			"standby_polling_interval_seconds": c.StandbyPollingIntervalSec,
@@ -1552,6 +1570,7 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			"auto_import_active_account":       c.AutoImportActiveAccount,
 			"multi_app_sync_mode":              syncMode,
 			"active_app_accounts":              activeApps,
+			"subagent_custom_models_enabled":   c.GetSubagentCustomModelsEnabled(),
 			"subagent_model_strategy":          subagentStrategy,
 			"installed_apps":                   installedMap,
 		}
@@ -1602,6 +1621,14 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 				cfg["subagent_model_strategy"] = c.GetSubagentModelStrategy()
 			} else {
 				cfg["subagent_model_strategy"] = core.DefaultSubagentModelStrategy
+			}
+		}
+		if _, ok := cfg["subagent_custom_models_enabled"]; !ok {
+			c, _ := core.LoadConfig()
+			if c != nil {
+				cfg["subagent_custom_models_enabled"] = c.GetSubagentCustomModelsEnabled()
+			} else {
+				cfg["subagent_custom_models_enabled"] = false
 			}
 		}
 	}
@@ -2352,6 +2379,13 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		cfg := s.customModelsStore.GetConfig()
+		if coreCfg, err := core.LoadConfig(); err == nil && coreCfg.DefaultCustomModel != "" {
+			for i := range cfg.Models {
+				if cfg.Models[i].ID == coreCfg.DefaultCustomModel || cfg.Models[i].Name == coreCfg.DefaultCustomModel {
+					cfg.Models[i].IsDefault = true
+				}
+			}
+		}
 		writeJSON(w, cfg)
 	case http.MethodPost:
 		var m custommodels.CustomModel
@@ -2408,6 +2442,17 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 		if err := s.customModelsStore.SaveModel(m); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
+		}
+		if m.IsDefault {
+			if c, err := core.LoadConfig(); err == nil {
+				c.DefaultCustomModel = m.ID
+				_ = c.Save()
+			}
+		} else {
+			if c, err := core.LoadConfig(); err == nil && (c.DefaultCustomModel == m.ID || c.DefaultCustomModel == m.Name) {
+				c.DefaultCustomModel = ""
+				_ = c.Save()
+			}
 		}
 		if saved, err := s.customModelsStore.GetModel(m.ID); err == nil && saved != nil {
 			m = *saved

@@ -15,7 +15,6 @@ import {
   AlertTriangle,
   Download,
   CheckCircle2,
-  Clock,
   AppWindow,
   Server,
   Play,
@@ -1772,15 +1771,18 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                   backgroundColor: 'var(--canvas)',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <div style={{ marginBottom: '8px' }}>
                   <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)' }}>CURRENT VERSION</span>
-                  <span className="badge-chip badge-green">Installed</span>
                 </div>
                 <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text)' }}>
-                  v{appRelease?.current_version || '2.0.0'}
+                  {appRelease?.current_version && appRelease.current_version !== 'N/A' && appRelease.current_version !== ''
+                    ? (appRelease.current_version.startsWith('v') ? appRelease.current_version : `v${appRelease.current_version}`)
+                    : 'N/A'}
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                  Active desktop runtime build
+                  {appRelease?.current_version && appRelease.current_version !== 'N/A'
+                    ? 'Active desktop runtime build'
+                    : 'Pre-release development build'}
                 </div>
               </div>
 
@@ -1793,21 +1795,20 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                   backgroundColor: 'var(--canvas)',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <div style={{ marginBottom: '8px' }}>
                   <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)' }}>LATEST RELEASE</span>
-                  {appRelease?.has_update ? (
-                    <span className="badge-chip badge-yellow">Update Available</span>
-                  ) : (
-                    <span className="badge-chip badge-green">Up to Date</span>
-                  )}
                 </div>
                 <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text)' }}>
-                  v{appRelease?.latest_version || appRelease?.current_version || '2.0.0'}
+                  {appRelease?.latest_version && appRelease.latest_version !== 'N/A' && appRelease.latest_version !== ''
+                    ? (appRelease.latest_version.startsWith('v') ? appRelease.latest_version : `v${appRelease.latest_version}`)
+                    : 'N/A'}
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
                   {appRelease?.has_update
                     ? `New version available (${appRelease.release_name || 'v' + appRelease.latest_version})`
-                    : 'Newest public release confirmed'}
+                    : appRelease?.latest_version && appRelease.latest_version !== 'N/A'
+                    ? 'Newest public release confirmed'
+                    : 'No public releases on GitHub yet'}
                 </div>
               </div>
 
@@ -1820,15 +1821,11 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                   backgroundColor: 'var(--canvas)',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <div style={{ marginBottom: '8px' }}>
                   <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)' }}>CHECK STATUS</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-muted)', fontSize: '11px' }}>
-                    <Clock size={11} />
-                    <span>{appRelease?.last_checked ? appRelease.last_checked.split(' ')[1] || appRelease.last_checked : 'Active'}</span>
-                  </div>
                 </div>
                 <div style={{ fontSize: '13px', fontWeight: 600, color: appRelease?.has_update ? 'var(--yellow, #b06000)' : 'var(--green)' }}>
-                  {appRelease?.status_message || 'Application is up to date.'}
+                  {appRelease?.status_message || (appRelease?.latest_version && appRelease.latest_version !== 'N/A' ? 'Application is up to date.' : 'No published releases yet.')}
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
                   {appRelease?.last_checked ? `Last checked: ${appRelease.last_checked}` : 'Ready to verify'}

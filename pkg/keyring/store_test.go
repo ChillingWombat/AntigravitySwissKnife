@@ -227,20 +227,27 @@ func TestMultiSurfaceResolutionAndAutoImport(t *testing.T) {
 		t.Errorf("expected active account to remain vault_account@google.com when autoImport=false, got %s", store.ActiveAccount())
 	}
 
-	// 4. Test Store Reconcile with autoImport=true
+	// 4. Test Store Reconcile with autoImport=true:
+	// desktop_user is NOT in vault, so it must be auto-imported as STANDBY, preserving vault_account as active!
 	reconciled, err = store.ReconcileActiveAccount(true, []string{"vault_account@google.com"}, nil)
 	if err != nil {
 		t.Fatalf("ReconcileActiveAccount with autoImport=true error: %v", err)
 	}
-	if reconciled == nil || reconciled.Email != "desktop_user@google.com" {
-		t.Fatalf("expected desktop_user@google.com to be auto-imported, got %v", reconciled)
+	if reconciled == nil || reconciled.Email != "vault_account@google.com" {
+		t.Fatalf("expected vault_account@google.com to be preserved as active, got %v", reconciled)
 	}
-	if store.ActiveAccount() != "desktop_user@google.com" {
-		t.Errorf("expected desktop_user@google.com to become active account, got %s", store.ActiveAccount())
+	if store.ActiveAccount() != "vault_account@google.com" {
+		t.Errorf("expected active account to remain vault_account@google.com, got %s", store.ActiveAccount())
 	}
 	target, _ := store.GetAccount("desktop_user@google.com")
-	if target == nil || !target.IsActive {
-		t.Errorf("expected desktop_user@google.com to be active in vault")
+	if target == nil {
+		t.Fatalf("expected desktop_user@google.com to be auto-imported into vault")
+	}
+	if target.IsActive {
+		t.Errorf("expected auto-imported account to NOT be active")
+	}
+	if target.Status != "STANDBY" {
+		t.Errorf("expected auto-imported account to have status STANDBY, got %s", target.Status)
 	}
 
 	// 5. Test Store Reconcile when account is already in vault
@@ -856,15 +863,14 @@ func TestEnsureFreshAccessToken_RefreshesExpiredOrUnknownExpiry(t *testing.T) {
 		t.Fatalf("expected refreshCalls to remain 1, got %d", refreshCalls)
 	}
 
-	// 3. When TokenExpiry is zero (e.g., offline during switch) and RefreshToken is present,
-	// buildSecretPayload and SyncOAuthCredsJSON must mark expiry in the past so language_server
-	// refreshes immediately instead of trusting a stale access token for 1 hour.
-	offlineAcc := &Account{
+	// 3. When AccessToken is valid, buildSecretPayload and SyncOAuthCredsJSON must ALWAYS
+	// produce a valid future timestamp (so VS Code Antigravity Extension and AGY CLI do not discard it as expired).
+	validAcc := &Account{
 		Email:        "offline_user@google.com",
 		AccessToken:  "ya29.possibly_stale",
 		RefreshToken: "1//offline_refresh",
 	}
-	payload, err := buildSecretPayload(offlineAcc)
+	payload, err := buildSecretPayload(validAcc)
 	if err != nil {
 		t.Fatalf("buildSecretPayload error: %v", err)
 	}
@@ -878,13 +884,13 @@ func TestEnsureFreshAccessToken_RefreshesExpiredOrUnknownExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to parse token.expiry %q: %v", expStr, err)
 	}
-	if !expTime.Before(time.Now()) {
-		t.Errorf("expected unknown-expiry token with refresh_token to have past expiry so language_server refreshes immediately, got %v", expTime)
+	if !expTime.After(time.Now()) {
+		t.Errorf("expected valid access token to have future expiry for VS Code extension compatibility, got %v", expTime)
 	}
 
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
-	if err := SyncOAuthCredsJSON(offlineAcc); err != nil {
+	if err := SyncOAuthCredsJSON(validAcc); err != nil {
 		t.Fatalf("SyncOAuthCredsJSON error: %v", err)
 	}
 	credsRaw, err := os.ReadFile(filepath.Join(tmpHome, ".gemini", "oauth_creds.json"))
@@ -896,8 +902,32 @@ func TestEnsureFreshAccessToken_RefreshesExpiredOrUnknownExpiry(t *testing.T) {
 		t.Fatalf("failed to unmarshal oauth_creds.json: %v", err)
 	}
 	expiryMs, _ := credsMap["expiry_date"].(float64)
-	if int64(expiryMs) >= time.Now().UnixMilli() {
-		t.Errorf("expected oauth_creds.json expiry_date to be in the past when TokenExpiry is unknown, got %v", int64(expiryMs))
+	if int64(expiryMs) <= time.Now().UnixMilli() {
+		t.Errorf("expected oauth_creds.json expiry_date to be in the future when AccessToken is present, got %v", int64(expiryMs))
+	}
+
+	// 4. When AccessToken is empty but RefreshToken is present, expiry must be in the past.
+	emptyAtAcc := &Account{
+		Email:        "refresh_only@google.com",
+		AccessToken:  "",
+		RefreshToken: "1//refresh_only",
+	}
+	pEmpty, err := buildSecretPayload(emptyAtAcc)
+	if err != nil {
+		t.Fatalf("buildSecretPayload error: %v", err)
+	}
+	var parsedEmpty map[string]interface{}
+	if err := json.Unmarshal([]byte(pEmpty), &parsedEmpty); err != nil {
+		t.Fatalf("failed to unmarshal secret payload: %v", err)
+	}
+	tokEmpty, _ := parsedEmpty["token"].(map[string]interface{})
+	expEmptyStr, _ := tokEmpty["expiry"].(string)
+	expEmptyTime, err := time.Parse(time.RFC3339, expEmptyStr)
+	if err != nil {
+		t.Fatalf("failed to parse token.expiry %q: %v", expEmptyStr, err)
+	}
+	if !expEmptyTime.Before(time.Now()) {
+		t.Errorf("expected empty access token with refresh_token to have past expiry, got %v", expEmptyTime)
 	}
 }
 
@@ -986,8 +1016,8 @@ func TestEnsureFreshAccessToken_FailedRefreshClearsStaleExpiryAndAppStorageTos(t
 	if err != nil {
 		t.Fatalf("parse expiry error: %v", err)
 	}
-	if !expTime.Before(time.Now()) {
-		t.Errorf("expected past expiry in secret payload after failed refresh, got %v", expTime)
+	if !expTime.After(time.Now()) {
+		t.Errorf("expected valid access token in secret payload to have future expiry for VS Code extension compatibility, got %v", expTime)
 	}
 
 	// Verify SyncAppStorageLoginUser sets jetski.onboarding.lastLoginIsGcpTos
@@ -1068,6 +1098,272 @@ func TestReconcileActiveAccount_DoesNotWipeActiveAccountWhenUnrecognizedDetected
 	}
 	if reconciled != nil && reconciled.Email != "preserved-active@example.com" {
 		t.Errorf("expected reconciled account to be preserved-active@example.com, got %v", reconciled)
+	}
+}
+
+func TestReconcileActiveAccount_AutoImportDoesNotSwitchActiveAccount(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
+	tmpDir := t.TempDir()
+	store, err := NewStore(filepath.Join(tmpDir, "accounts.json"))
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	primary := &Account{
+		Email:    "alice@domain.com",
+		Label:    "Alice Active",
+		Status:   "ACTIVE",
+		IsActive: true,
+	}
+	standby := &Account{
+		Email:    "bob@domain.com",
+		Label:    "Bob Standby",
+		Status:   "STANDBY",
+		IsActive: false,
+	}
+	_ = store.AddOrUpdateAccount(primary)
+	_ = store.AddOrUpdateAccount(standby)
+	_ = store.SetActiveAccount("alice@domain.com")
+	store.lastManualSwitchTime = time.Time{}
+
+	// Mock host surface with charlie
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	antigravityDir := filepath.Join(tmpHome, ".config", "Antigravity")
+	_ = os.MkdirAll(antigravityDir, 0755)
+	_ = os.WriteFile(filepath.Join(antigravityDir, "app_storage.json"), []byte(`{"jetski.onboarding.lastLoginUsername":"charlie@domain.com"}`), 0644)
+	t.Setenv("ANTIGRAVITY_CONFIG_DIR", antigravityDir)
+	store.homeDir = tmpHome
+	store.antigravityConfigDir = antigravityDir
+
+	reconciled, err := store.ReconcileActiveAccount(true, []string{"alice@domain.com", "bob@domain.com"}, nil)
+	if err != nil {
+		t.Fatalf("ReconcileActiveAccount error: %v", err)
+	}
+
+	// Active account must remain alice!
+	if store.ActiveAccount() != "alice@domain.com" {
+		t.Errorf("expected active account to remain alice@domain.com, got %s", store.ActiveAccount())
+	}
+	if reconciled == nil || reconciled.Email != "alice@domain.com" {
+		t.Errorf("expected returned reconciled account to be alice@domain.com, got %v", reconciled)
+	}
+
+	// Charlie must be added to vault as STANDBY
+	charlie, err := store.GetAccount("charlie@domain.com")
+	if err != nil || charlie == nil {
+		t.Fatalf("expected charlie to be added to vault: %v", err)
+	}
+	if charlie.IsActive {
+		t.Errorf("expected charlie.IsActive to be false, got true")
+	}
+	if charlie.Status != "STANDBY" {
+		t.Errorf("expected charlie.Status to be STANDBY, got %s", charlie.Status)
+	}
+}
+
+func TestReconcileActiveAccount_EmptyVaultAutoImportsAsActive(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
+	tmpDir := t.TempDir()
+	store, err := NewStore(filepath.Join(tmpDir, "accounts.json"))
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	// Vault is empty: 0 accounts, activeEmail == ""
+	if store.ActiveAccount() != "" || len(store.ListAccounts()) != 0 {
+		t.Fatalf("expected empty vault")
+	}
+
+	// Mock host surface with charlie
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	antigravityDir := filepath.Join(tmpHome, ".config", "Antigravity")
+	_ = os.MkdirAll(antigravityDir, 0755)
+	_ = os.WriteFile(filepath.Join(antigravityDir, "app_storage.json"), []byte(`{"jetski.onboarding.lastLoginUsername":"charlie@domain.com"}`), 0644)
+	t.Setenv("ANTIGRAVITY_CONFIG_DIR", antigravityDir)
+	store.homeDir = tmpHome
+	store.antigravityConfigDir = antigravityDir
+
+	reconciled, err := store.ReconcileActiveAccount(true, []string{}, nil)
+	if err != nil {
+		t.Fatalf("ReconcileActiveAccount error: %v", err)
+	}
+
+	if store.ActiveAccount() != "charlie@domain.com" {
+		t.Errorf("expected charlie@domain.com to become active in empty vault, got %s", store.ActiveAccount())
+	}
+	if reconciled == nil || reconciled.Email != "charlie@domain.com" {
+		t.Errorf("expected returned reconciled account to be charlie, got %v", reconciled)
+	}
+	charlie, err := store.GetAccount("charlie@domain.com")
+	if err != nil || charlie == nil {
+		t.Fatalf("expected charlie in vault: %v", err)
+	}
+	if !charlie.IsActive {
+		t.Errorf("expected charlie.IsActive to be true")
+	}
+	if charlie.Status != "ACTIVE" {
+		t.Errorf("expected charlie.Status to be ACTIVE, got %s", charlie.Status)
+	}
+}
+
+func TestAccount_RecoverCredentialsFromNotes(t *testing.T) {
+	// 1. Pure JSON with refresh_token and access_token
+	acc1 := &Account{
+		Email:        "user1@google.com",
+		Status:       "ERROR",
+		ErrorMessage: "Missing credentials / re-authentication required",
+		Notes:        `{"refresh_token": "1//rt_111", "access_token": "ya29.at_111"}`,
+	}
+	if !acc1.RecoverCredentialsFromNotes() {
+		t.Errorf("expected credentials to be recovered for acc1")
+	}
+	if acc1.RefreshToken != "1//rt_111" {
+		t.Errorf("expected RefreshToken 1//rt_111, got %s", acc1.RefreshToken)
+	}
+	if acc1.AccessToken != "ya29.at_111" {
+		t.Errorf("expected AccessToken ya29.at_111, got %s", acc1.AccessToken)
+	}
+	if acc1.Credential == nil || acc1.Credential.RefreshToken != "1//rt_111" {
+		t.Errorf("expected acc1.Credential.RefreshToken to be populated")
+	}
+	if acc1.ErrorMessage != "" {
+		t.Errorf("expected ErrorMessage to be cleared, got %s", acc1.ErrorMessage)
+	}
+	if acc1.Status != "STANDBY" {
+		t.Errorf("expected Status to be restored to STANDBY, got %s", acc1.Status)
+	}
+
+	// 2. JSON with "token" instead of "access_token"
+	acc2 := &Account{
+		Email:        "user2@google.com",
+		Status:       "ERROR",
+		ErrorMessage: "Missing credentials / re-authentication required",
+		Notes:        `{"refresh_token": "1//rt_222", "token": "ya29.at_222"}`,
+	}
+	if !acc2.RecoverCredentialsFromNotes() {
+		t.Errorf("expected credentials to be recovered for acc2")
+	}
+	if acc2.RefreshToken != "1//rt_222" || acc2.AccessToken != "ya29.at_222" {
+		t.Errorf("acc2 tokens mismatch: rf=%s at=%s", acc2.RefreshToken, acc2.AccessToken)
+	}
+
+	// 3. Embedded JSON inside text notes with extra surrounding content
+	acc3 := &Account{
+		Email:        "user3@google.com",
+		Status:       "ERROR",
+		ErrorMessage: "Missing credentials / re-authentication required",
+		Notes:        "Some account notes here.\n{\"client_id\":\"xxx\",\"refresh_token\":\"1//rt_333\",\"access_token\":\"ya29.at_333\"}\nKeep secret!",
+	}
+	if !acc3.RecoverCredentialsFromNotes() {
+		t.Errorf("expected credentials to be recovered for acc3")
+	}
+	if acc3.RefreshToken != "1//rt_333" || acc3.AccessToken != "ya29.at_333" {
+		t.Errorf("acc3 tokens mismatch: rf=%s at=%s", acc3.RefreshToken, acc3.AccessToken)
+	}
+
+	// 4. Nested JSON under "credential"
+	acc4 := &Account{
+		Email: "user4@google.com",
+		Notes: `{"credential": {"refresh_token": "1//rt_444", "access_token": "ya29.at_444"}}`,
+	}
+	if !acc4.RecoverCredentialsFromNotes() {
+		t.Errorf("expected credentials to be recovered for acc4")
+	}
+	if acc4.RefreshToken != "1//rt_444" || acc4.AccessToken != "ya29.at_444" {
+		t.Errorf("acc4 tokens mismatch: rf=%s at=%s", acc4.RefreshToken, acc4.AccessToken)
+	}
+
+	// 5. Account already has RefreshToken - RecoverCredentialsFromNotes should return false without modifying
+	acc5 := &Account{
+		Email:        "user5@google.com",
+		RefreshToken: "existing_rf",
+		Notes:        `{"refresh_token": "new_rf"}`,
+	}
+	if acc5.RecoverCredentialsFromNotes() {
+		t.Errorf("expected RecoverCredentialsFromNotes to return false when RefreshToken is non-empty")
+	}
+	if acc5.RefreshToken != "existing_rf" {
+		t.Errorf("RefreshToken should remain existing_rf, got %s", acc5.RefreshToken)
+	}
+}
+
+func TestStore_LoadAndSaveRecoverCredentialsFromNotes(t *testing.T) {
+	tmpDir := t.TempDir()
+	accPath := filepath.Join(tmpDir, "accounts.json")
+
+	// Write accounts.json where an account has empty refresh_token but notes has credentials
+	initialJSON := `{
+  "version": 1,
+  "active_account": "user@google.com",
+  "accounts": {
+    "user@google.com": {
+      "email": "user@google.com",
+      "label": "User",
+      "status": "ERROR",
+      "error_message": "Missing credentials / re-authentication required",
+      "notes": "{\"refresh_token\": \"1//recovered_rf_disk\", \"access_token\": \"ya29.recovered_at_disk\"}"
+    }
+  }
+}`
+	if err := os.WriteFile(accPath, []byte(initialJSON), 0600); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
+
+	store, err := NewStore(accPath)
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	acc, err := store.GetAccount("user@google.com")
+	if err != nil {
+		t.Fatalf("GetAccount error: %v", err)
+	}
+	if acc.RefreshToken != "1//recovered_rf_disk" {
+		t.Errorf("expected RefreshToken 1//recovered_rf_disk, got %s", acc.RefreshToken)
+	}
+	if acc.AccessToken != "ya29.recovered_at_disk" {
+		t.Errorf("expected AccessToken ya29.recovered_at_disk, got %s", acc.AccessToken)
+	}
+	if acc.ErrorMessage != "" {
+		t.Errorf("expected ErrorMessage to be cleared, got %s", acc.ErrorMessage)
+	}
+	if acc.Status != "ACTIVE" {
+		t.Errorf("expected Status to be ACTIVE, got %s", acc.Status)
+	}
+
+	// Now save the store and inspect the JSON written to disk
+	if err := store.save(); err != nil {
+		t.Fatalf("save error: %v", err)
+	}
+
+	data, err := os.ReadFile(accPath)
+	if err != nil {
+		t.Fatalf("ReadFile error: %v", err)
+	}
+
+	var saved struct {
+		Accounts map[string]struct {
+			IsHealthy  bool `json:"is_healthy"`
+			Credential struct {
+				RefreshToken string `json:"refresh_token"`
+				AccessToken  string `json:"access_token"`
+			} `json:"credential"`
+		} `json:"accounts"`
+	}
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+	savedUser, ok := saved.Accounts["user@google.com"]
+	if !ok {
+		t.Fatalf("user@google.com not found in saved accounts.json")
+	}
+	if !savedUser.IsHealthy {
+		t.Errorf("expected is_healthy to be true")
+	}
+	if savedUser.Credential.RefreshToken == "" {
+		t.Errorf("expected saved credential.refresh_token to be non-empty")
 	}
 }
 

@@ -142,9 +142,6 @@ export const FingerprintsPage: React.FC<FingerprintsPageProps> = ({ accounts }) 
               Click an account row to view and customize its isolated hardware profile
             </div>
           </div>
-          <span className="badge-chip badge-neutral" style={{ fontSize: '11px' }}>
-            {sortedAccounts.length} Accounts
-          </span>
         </div>
 
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>

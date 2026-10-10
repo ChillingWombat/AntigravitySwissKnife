@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -129,9 +130,6 @@ var knownNativePlaceholderMap = []struct {
 	{marker: "MODEL_PLACEHOLDER_M320", modelID: "gemini-3.8-flash", displayName: "Gemini 3.8 Flash", provider: "gemini"},
 	{marker: "MODEL_PLACEHOLDER_M16", modelID: "gemini-3.1-pro", displayName: "Gemini 3.1 Pro", provider: "gemini"},
 	{marker: "MODEL_PLACEHOLDER_M37", modelID: "gemini-3.1-pro", displayName: "Gemini 3.1 Pro", provider: "gemini"},
-	{marker: "claude-opus-4-6-thinking", modelID: "claude-opus-4-6", displayName: "Claude Opus 4.6", provider: "anthropic"},
-	{marker: "claude-opus-4-6", modelID: "claude-opus-4-6", displayName: "Claude Opus 4.6", provider: "anthropic"},
-	{marker: "claude-sonnet-4-6", modelID: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6", provider: "anthropic"},
 	{marker: "gpt-oss-120b-medium", modelID: "gpt-oss-120b", displayName: "GPT-OSS 120B", provider: "openai"},
 	{marker: "gpt-oss-120b", modelID: "gpt-oss-120b", displayName: "GPT-OSS 120B", provider: "openai"},
 	{marker: "gemini-3.8-flash-high", modelID: "gemini-3.8-flash", displayName: "Gemini 3.8 Flash", provider: "gemini"},
@@ -336,105 +334,272 @@ func parseTranscriptFile(tPath string, info os.FileInfo) cachedTranscriptStats {
 	return stats
 }
 
-func detectConversationModel(convDBPath string, customModels []custommodels.CustomModel, catalogModels []custommodels.CatalogModelInput) (modelID, displayName, provider string) {
-	info, err := os.Stat(convDBPath)
-	if err != nil || info.IsDir() {
-		return "", "", ""
-	}
+var modelSelectionRegex = regexp.MustCompile(`(?i)setting\s+[` + "`" + `']Model Selection[` + "`" + `'].*?to\s+(.+?)(?:\.\s+|\.?(?:\r|\n|</USER_SETTINGS_CHANGE>))`)
 
-	tokenCacheMu.RLock()
-	if cached, ok := convModelCacheMap[convDBPath]; ok && cached.modTimeNano == info.ModTime().UnixNano() && cached.size == info.Size() {
-		tokenCacheMu.RUnlock()
-		return cached.modelID, cached.displayName, cached.provider
-	}
-	tokenCacheMu.RUnlock()
-
-	f, err := os.Open(convDBPath)
+// extractModelFromTranscript reads step 0 from transcript.jsonl and extracts any model selection from <USER_SETTINGS_CHANGE>.
+func extractModelFromTranscript(tPath string) (modelName string, ok bool) {
+	f, err := os.Open(tPath)
 	if err != nil {
-		return "", "", ""
+		return "", false
 	}
 	defer f.Close()
 
-	// Read up to the first 512KB (and last 128KB if larger) where gen_metadata model_enum records live
-	maxHead := int64(512 * 1024)
-	readLen := info.Size()
-	if readLen > maxHead {
-		readLen = maxHead
-	}
-	data := make([]byte, readLen)
-	n, _ := f.Read(data)
-	data = data[:n]
-
-	if info.Size() > maxHead {
-		tailLen := int64(128 * 1024)
-		if info.Size()-maxHead < tailLen {
-			tailLen = info.Size() - maxHead
+	scanner := bufio.NewScanner(f)
+	// Read step 0 (first non-empty line)
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
 		}
-		tailBuf := make([]byte, tailLen)
-		if tn, err := f.ReadAt(tailBuf, info.Size()-tailLen); err == nil && tn > 0 {
-			data = append(data, tailBuf[:tn]...)
+		var step struct {
+			StepIndex int    `json:"step_index"`
+			Content   string `json:"content"`
 		}
+		if err := json.Unmarshal(line, &step); err != nil {
+			break
+		}
+		content := step.Content
+		if startIdx := strings.Index(content, "<USER_SETTINGS_CHANGE>"); startIdx >= 0 {
+			endIdx := strings.Index(content[startIdx:], "</USER_SETTINGS_CHANGE>")
+			var block string
+			if endIdx >= 0 {
+				block = content[startIdx : startIdx+endIdx+len("</USER_SETTINGS_CHANGE>")]
+			} else {
+				block = content[startIdx:]
+			}
+			if m := modelSelectionRegex.FindStringSubmatch(block); len(m) > 1 {
+				mName := strings.TrimSpace(m[1])
+				if mName != "" {
+					return mName, true
+				}
+			}
+		}
+		break
+	}
+	return "", false
+}
+
+// mapModelNameToMetadata maps raw model strings from settings to canonical modelID, displayName, and provider.
+func mapModelNameToMetadata(rawName string, customModels []custommodels.CustomModel, catalogModels []custommodels.CatalogModelInput) (modelID, displayName, provider string) {
+	rawTrimmed := strings.TrimSpace(rawName)
+	if rawTrimmed == "" {
+		return "gemini-3.8-flash", "Gemini 3.8 Flash", "gemini"
 	}
 
-	// 1. Check user-configured Custom Models first if their ID or Name appears in the conversation DB
+	// 1. Match custom models
 	for _, cm := range customModels {
-		if cm.Name != "" && bytes.Contains(data, []byte(cm.Name)) {
+		if strings.EqualFold(cm.Name, rawTrimmed) || (cm.DisplayName != "" && strings.EqualFold(cm.DisplayName, rawTrimmed)) {
 			disp := cm.DisplayName
 			if disp == "" {
 				disp = cm.Name
 			}
 			prov := custommodels.NormalizePricingProvider(string(cm.ProviderType), cm.Name)
-			res := cachedConvModel{modTimeNano: info.ModTime().UnixNano(), size: info.Size(), modelID: cm.Name, displayName: disp, provider: prov}
-			tokenCacheMu.Lock()
-			convModelCacheMap[convDBPath] = res
-			tokenCacheMu.Unlock()
-			return res.modelID, res.displayName, res.provider
+			return cm.Name, disp, prov
 		}
 	}
 
-	// 2. Check known Antigravity model_enum placeholders and explicit model IDs, picking the one with the latest occurrence in the file
-	bestPos := -1
-	var bestID, bestName, bestProv string
-	for _, entry := range knownNativePlaceholderMap {
-		if idx := bytes.LastIndex(data, []byte(entry.marker)); idx > bestPos {
-			bestPos = idx
-			bestID = entry.modelID
-			bestName = entry.displayName
-			bestProv = entry.provider
+	// 2. Match catalog models
+	for _, cat := range catalogModels {
+		if strings.EqualFold(cat.ID, rawTrimmed) || (cat.DisplayName != "" && strings.EqualFold(cat.DisplayName, rawTrimmed)) {
+			canID, canName := custommodels.NormalizeCanonicalNativeModel(cat.ID, cat.DisplayName)
+			prov := custommodels.NormalizePricingProvider(cat.Provider, canID)
+			return canID, canName, prov
 		}
 	}
 
-	// 3. Also check any dynamic models from the live catalog
-	for _, cm := range catalogModels {
-		if cm.ID != "" {
-			if idx := bytes.LastIndex(data, []byte(cm.ID)); idx > bestPos {
-				bestPos = idx
-				canID, canName := custommodels.NormalizeCanonicalNativeModel(cm.ID, cm.DisplayName)
-				bestID = canID
-				bestName = canName
-				if bestName == "" {
-					bestName = bestID
+	// 3. Gemini Native model family mappings
+	lower := strings.ToLower(rawTrimmed)
+	if strings.Contains(lower, "gemini 3.8 flash") || strings.Contains(lower, "gemini-3.8-flash") {
+		return "gemini-3.8-flash", "Gemini 3.8 Flash", "gemini"
+	}
+	if strings.Contains(lower, "gemini 3.7 flash") || strings.Contains(lower, "gemini-3.7-flash") {
+		return "gemini-3.7-flash", "Gemini 3.7 Flash", "gemini"
+	}
+	if strings.Contains(lower, "gemini 3.6 flash") || strings.Contains(lower, "gemini-3.6-flash") {
+		return "gemini-3.6-flash", "Gemini 3.6 Flash", "gemini"
+	}
+	if strings.Contains(lower, "gemini 3.1 pro") || strings.Contains(lower, "gemini-3.1-pro") || strings.Contains(lower, "gemini pro") {
+		return "gemini-3.1-pro", "Gemini 3.1 Pro", "gemini"
+	}
+	if strings.Contains(lower, "gemini 3 flash") || strings.Contains(lower, "gemini-3-flash") {
+		return "gemini-3-flash", "Gemini 3 Flash", "gemini"
+	}
+	if strings.Contains(lower, "gemini 2.5 pro") || strings.Contains(lower, "gemini-2.5-pro") {
+		return "gemini-2.5-pro", "Gemini 2.5 Pro", "gemini"
+	}
+	if strings.Contains(lower, "gemini 2.5 flash") || strings.Contains(lower, "gemini-2.5-flash") {
+		return "gemini-2.5-flash", "Gemini 2.5 Flash", "gemini"
+	}
+
+	// 4. Anthropic models - strictly only when genuinely selected in settings
+	if strings.Contains(lower, "claude opus 4.6") || strings.Contains(lower, "claude-opus-4-6") || strings.Contains(lower, "claude opus") {
+		return "claude-opus-4-6", "Claude Opus 4.6", "anthropic"
+	}
+	if strings.Contains(lower, "claude 3.7 sonnet") || strings.Contains(lower, "claude-3-7-sonnet") || strings.Contains(lower, "claude sonnet") {
+		return "claude-3-7-sonnet", "Claude 3.7 Sonnet", "anthropic"
+	}
+
+	// 5. OpenAI models
+	if strings.Contains(lower, "gpt-oss-120b") {
+		return "gpt-oss-120b", "GPT-OSS 120B", "openai"
+	}
+
+	canID, canName := custommodels.NormalizeCanonicalNativeModel(rawTrimmed, rawTrimmed)
+	if canID != "" && canID != rawTrimmed {
+		prov := custommodels.NormalizePricingProvider("", canID)
+		return canID, canName, prov
+	}
+
+	return "gemini-3.8-flash", "Gemini 3.8 Flash", "gemini"
+}
+
+// detectConversationModelWithTranscript detects the conversation model using transcript.jsonl step 0 <USER_SETTINGS_CHANGE>,
+// eliminating false positives from SQLite database byte-scanning.
+func detectConversationModelWithTranscript(tPath string, convDBPath string, customModels []custommodels.CustomModel, catalogModels []custommodels.CatalogModelInput) (modelID, displayName, provider string) {
+	// Locate transcript path if not explicitly provided
+	if tPath == "" {
+		if strings.HasSuffix(convDBPath, "transcript.jsonl") {
+			tPath = convDBPath
+		} else if strings.HasSuffix(convDBPath, ".db") {
+			convID := strings.TrimSuffix(filepath.Base(convDBPath), ".db")
+			parentDir := filepath.Dir(filepath.Dir(convDBPath))
+			candidate := filepath.Join(parentDir, "brain", convID, ".system_generated", "logs", "transcript.jsonl")
+			if _, err := os.Stat(candidate); err == nil {
+				tPath = candidate
+			} else if home, err := os.UserHomeDir(); err == nil {
+				homeCandidate := filepath.Join(home, ".gemini", "antigravity", "brain", convID, ".system_generated", "logs", "transcript.jsonl")
+				if _, err := os.Stat(homeCandidate); err == nil {
+					tPath = homeCandidate
 				}
-				bestProv = custommodels.NormalizePricingProvider(cm.Provider, bestID)
+			}
+		} else if convDBPath != "" && !strings.Contains(convDBPath, string(filepath.Separator)) {
+			// convDBPath is a bare conversation ID
+			convID := convDBPath
+			if home, err := os.UserHomeDir(); err == nil {
+				homeCandidate := filepath.Join(home, ".gemini", "antigravity", "brain", convID, ".system_generated", "logs", "transcript.jsonl")
+				if _, err := os.Stat(homeCandidate); err == nil {
+					tPath = homeCandidate
+				}
 			}
 		}
 	}
 
-	if bestID != "" {
-		res := cachedConvModel{
-			modTimeNano: info.ModTime().UnixNano(),
-			size:        info.Size(),
-			modelID:     bestID,
-			displayName: bestName,
-			provider:    bestProv,
+	// Determine cache key and stat info
+	var cacheKey string
+	var cacheModTime int64
+	var cacheSize int64
+
+	if tPath != "" {
+		if info, err := os.Stat(tPath); err == nil && !info.IsDir() {
+			cacheKey = tPath
+			cacheModTime = info.ModTime().UnixNano()
+			cacheSize = info.Size()
 		}
-		tokenCacheMu.Lock()
-		convModelCacheMap[convDBPath] = res
-		tokenCacheMu.Unlock()
-		return res.modelID, res.displayName, res.provider
+	}
+	if cacheKey == "" && convDBPath != "" {
+		if info, err := os.Stat(convDBPath); err == nil && !info.IsDir() {
+			cacheKey = convDBPath
+			cacheModTime = info.ModTime().UnixNano()
+			cacheSize = info.Size()
+		}
 	}
 
-	return "", "", ""
+	if cacheKey != "" {
+		tokenCacheMu.RLock()
+		if cached, ok := convModelCacheMap[cacheKey]; ok && cached.modTimeNano == cacheModTime && cached.size == cacheSize {
+			tokenCacheMu.RUnlock()
+			return cached.modelID, cached.displayName, cached.provider
+		}
+		tokenCacheMu.RUnlock()
+	}
+
+	// 1. Authoritative check: transcript.jsonl step 0 <USER_SETTINGS_CHANGE>
+	if tPath != "" {
+		if rawName, ok := extractModelFromTranscript(tPath); ok {
+			mID, mName, mProv := mapModelNameToMetadata(rawName, customModels, catalogModels)
+			if cacheKey != "" {
+				tokenCacheMu.Lock()
+				convModelCacheMap[cacheKey] = cachedConvModel{
+					modTimeNano: cacheModTime,
+					size:        cacheSize,
+					modelID:     mID,
+					displayName: mName,
+					provider:    mProv,
+				}
+				tokenCacheMu.Unlock()
+			}
+			return mID, mName, mProv
+		}
+	}
+
+	// 2. If step 0 has no settings change, check if convDBPath contains an explicitly configured Custom Model
+	if convDBPath != "" && strings.HasSuffix(convDBPath, ".db") {
+		if f, err := os.Open(convDBPath); err == nil {
+			buf := make([]byte, 64*1024)
+			n, _ := f.Read(buf)
+			f.Close()
+			data := buf[:n]
+
+			for _, cm := range customModels {
+				if cm.Name != "" && bytes.Contains(data, []byte(cm.Name)) {
+					disp := cm.DisplayName
+					if disp == "" {
+						disp = cm.Name
+					}
+					prov := custommodels.NormalizePricingProvider(string(cm.ProviderType), cm.Name)
+					if cacheKey != "" {
+						tokenCacheMu.Lock()
+						convModelCacheMap[cacheKey] = cachedConvModel{
+							modTimeNano: cacheModTime,
+							size:        cacheSize,
+							modelID:     cm.Name,
+							displayName: disp,
+							provider:    prov,
+						}
+						tokenCacheMu.Unlock()
+					}
+					return cm.Name, disp, prov
+				}
+			}
+		}
+	}
+
+	// 3. Fall back safely to active native Gemini default
+	mID := "gemini-3.8-flash"
+	mName := "Gemini 3.8 Flash"
+	mProv := "gemini"
+
+	if cacheKey != "" {
+		tokenCacheMu.Lock()
+		convModelCacheMap[cacheKey] = cachedConvModel{
+			modTimeNano: cacheModTime,
+			size:        cacheSize,
+			modelID:     mID,
+			displayName: mName,
+			provider:    mProv,
+		}
+		tokenCacheMu.Unlock()
+	}
+
+	return mID, mName, mProv
+}
+
+// detectConversationModel detects the model for a conversation, delegating to transcript extraction.
+func detectConversationModel(convDBPath string, customModels []custommodels.CustomModel, catalogModels []custommodels.CatalogModelInput) (modelID, displayName, provider string) {
+	mID, mName, mProv := detectConversationModelWithTranscript("", convDBPath, customModels, catalogModels)
+	if mID == "" {
+		return "gemini-3.8-flash", "Gemini 3.8 Flash", "gemini"
+	}
+	return mID, mName, mProv
+}
+
+// resolveConversationModel resolves the active model for a conversation ID or path by reading transcript.jsonl step 0.
+func resolveConversationModel(convID string) (modelID, displayName, provider string) {
+	mID, mName, mProv := detectConversationModelWithTranscript("", convID, nil, nil)
+	if mID == "" {
+		return "gemini-3.8-flash", "Gemini 3.8 Flash", "gemini"
+	}
+	return mID, mName, mProv
 }
 
 func resolveProjectFromURI(uris []string) (projectName, workspacePath string) {
@@ -605,6 +770,8 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 	var totalCachedInput int64
 	var totalOutputTokens int64
 	var totalCostUSD float64
+	var totalInputCostUSD float64
+	var totalOutputCostUSD float64
 	var totalSavedUSD float64
 	var totalRequests int
 	var totalConversations int
@@ -647,9 +814,9 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 			uris := workspaceMap[convID]
 			projName, projPath := resolveProjectFromURI(uris)
 
-			// Resolve actual model from conversations/<convID>.db
+			// Resolve actual model from transcript or conversations/<convID>.db
 			convDBPath := filepath.Join(convDir, convID+".db")
-			mID, mDisplayName, mProv := detectConversationModel(convDBPath, customModelsList, catalogModels)
+			mID, mDisplayName, mProv := detectConversationModelWithTranscript(tPath, convDBPath, customModelsList, catalogModels)
 			if mID == "" {
 				// Check if project has a bound custom model
 				if bound := store.GetModelForProject(projName); bound != nil {
@@ -715,10 +882,14 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 					cacheRate = *pRec.CachedInputPricePerM
 				}
 				outRate := *pRec.OutputPricePerM
-				convCost = (float64(tStats.freshInput)*inRate + float64(tStats.cachedInput)*cacheRate + float64(tStats.outputTokens)*outRate) / 1_000_000.0
+				convInputCost := (float64(tStats.freshInput)*inRate + float64(tStats.cachedInput)*cacheRate) / 1_000_000.0
+				convOutputCost := float64(tStats.outputTokens) * outRate / 1_000_000.0
+				convCost = convInputCost + convOutputCost
 				if inRate > cacheRate {
 					convSaved = float64(tStats.cachedInput) * (inRate - cacheRate) / 1_000_000.0
 				}
+				totalInputCostUSD += convInputCost
+				totalOutputCostUSD += convOutputCost
 			}
 
 			totalConversations++
@@ -955,6 +1126,8 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 		"cached_input_tokens": totalCachedInput,
 		"output_tokens":       totalOutputTokens,
 		"total_cost_usd":      totalCostUSD,
+		"input_cost_usd":      totalInputCostUSD,
+		"output_cost_usd":     totalOutputCostUSD,
 		"saved_cost_usd":      totalSavedUSD,
 		"avg_tps":             avgTPS,
 		"requests_count":      totalRequests,

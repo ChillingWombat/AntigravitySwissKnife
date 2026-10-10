@@ -119,3 +119,107 @@ func TestFormatTokens(t *testing.T) {
 		}
 	}
 }
+
+func TestDetectAndFetchQuota_CustomQuotaEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/my-custom-quota" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"balance": 42.50}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	m := CustomModel{
+		BaseURL:             "https://example.com/v1",
+		APIKey:              "sk-custom-key",
+		CustomQuotaEndpoint: server.URL + "/my-custom-quota",
+	}
+
+	res := DetectAndFetchQuota(m)
+	if res.QuotaType != QuotaTypeBalance {
+		t.Fatalf("expected QuotaTypeBalance, got %s", res.QuotaType)
+	}
+	if res.BalanceValue != "$42.50" {
+		t.Errorf("expected $42.50, got %s", res.BalanceValue)
+	}
+}
+
+func TestDetectAndFetchQuota_CommonSuffixes(t *testing.T) {
+	// Test /v1/usage
+	s1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/usage" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"total_credits": 100.0, "total_usage": 25.0}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer s1.Close()
+
+	m1 := CustomModel{
+		BaseURL: s1.URL + "/v1",
+		APIKey:  "sk-v1-usage",
+	}
+	res1 := DetectAndFetchQuota(m1)
+	if res1.QuotaType != QuotaTypeBalance || res1.BalanceValue != "$75.00" {
+		t.Errorf("expected $75.00 balance, got %v", res1)
+	}
+	if res1.Fraction == nil || *res1.Fraction != 0.75 {
+		t.Errorf("expected fraction 0.75, got %v", res1.Fraction)
+	}
+
+	// Test /api/user/usage
+	s2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/user/usage" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"quota": 500000}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer s2.Close()
+
+	m2 := CustomModel{
+		BaseURL: s2.URL,
+		APIKey:  "sk-user-usage",
+	}
+	res2 := DetectAndFetchQuota(m2)
+	if res2.QuotaType != QuotaTypeQuota || res2.QuotaValue != "500k tokens" {
+		t.Errorf("expected 500k tokens quota, got %v", res2)
+	}
+}
+
+func TestDetectAndFetchQuota_OpenCode(t *testing.T) {
+	sessionHeaderReceived := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sessionHeaderReceived = r.Header.Get("x-opencode-session")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"data": {"balance": 28.50}}`))
+	}))
+	defer server.Close()
+
+	// Simulate opencode.ai host entry by checking OpenCode in registry
+	var openCodeEntry *ProviderQuotaRegistryEntry
+	for i := range ProviderQuotaRegistry {
+		if ProviderQuotaRegistry[i].Name == "OpenCode" {
+			openCodeEntry = &ProviderQuotaRegistry[i]
+			break
+		}
+	}
+	if openCodeEntry == nil {
+		t.Fatalf("OpenCode not found in ProviderQuotaRegistry")
+	}
+
+	res, err := openCodeEntry.FetchFunc(t.Context(), server.Client(), server.URL+"/api/user/usage", "sk-opencode-key")
+	if err != nil {
+		t.Fatalf("OpenCode FetchFunc failed: %v", err)
+	}
+	if res.QuotaType != QuotaTypeBalance || res.BalanceValue != "$28.50" {
+		t.Errorf("expected $28.50 balance, got %v", res)
+	}
+	if sessionHeaderReceived == "" {
+		t.Errorf("expected x-opencode-session header to be set")
+	}
+}

@@ -92,7 +92,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       clearInterval(window.__swissEnhIntervalId);
     }
     syncConfigFromServer();
-    window.__swissEnhIntervalId = setInterval(syncConfigFromServer, 25000);
+    window.__swissEnhIntervalId = setInterval(syncConfigFromServer, 3000);
 
     function isDarkMode() {
       return document.documentElement.classList.contains("dark") ||

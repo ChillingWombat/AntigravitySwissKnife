@@ -2,26 +2,35 @@ package keyring
 
 import "time"
 
+// OAuthCredential holds OAuth tokens.
+type OAuthCredential struct {
+	AccessToken  string `json:"access_token,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	IDToken      string `json:"id_token,omitempty"`
+	Expiry       string `json:"expiry,omitempty"`
+}
+
 // Account represents an authenticated user profile in the keyring.
 type Account struct {
-	Email        string    `json:"email"`
-	Label        string    `json:"label,omitempty"`
-	PlanTier     string    `json:"plan_tier,omitempty"`
-	Status       string    `json:"status,omitempty"`
-	Priority     string    `json:"priority,omitempty"`
-	Notes        string    `json:"notes,omitempty"`
-	Password     string    `json:"password,omitempty"`
-	TOTPSecret   string    `json:"totp_secret,omitempty"`
-	HasTOTP              bool      `json:"has_totp"`
-	IsActive             bool      `json:"is_active"`
-	Credits              float64   `json:"credits"`
-	EnableCreditOverages bool      `json:"enable_credit_overages"`
-	AllowClaudeGPT       bool      `json:"allow_claude_gpt"`
-	AccessToken          string    `json:"access_token,omitempty"`
-	RefreshToken         string    `json:"refresh_token,omitempty"`
-	IDToken              string    `json:"id_token,omitempty"`
-	TokenExpiry          time.Time `json:"token_expiry,omitempty"`
-	ErrorMessage         string    `json:"error_message,omitempty"`
+	Email                string           `json:"email"`
+	Label                string           `json:"label,omitempty"`
+	PlanTier             string           `json:"plan_tier,omitempty"`
+	Status               string           `json:"status,omitempty"`
+	Priority             string           `json:"priority,omitempty"`
+	Notes                string           `json:"notes,omitempty"`
+	Password             string           `json:"password,omitempty"`
+	TOTPSecret           string           `json:"totp_secret,omitempty"`
+	HasTOTP              bool             `json:"has_totp"`
+	IsActive             bool             `json:"is_active"`
+	Credits              float64          `json:"credits"`
+	EnableCreditOverages bool             `json:"enable_credit_overages"`
+	AllowClaudeGPT       bool             `json:"allow_claude_gpt"`
+	AccessToken          string           `json:"access_token,omitempty"`
+	RefreshToken         string           `json:"refresh_token,omitempty"`
+	IDToken              string           `json:"id_token,omitempty"`
+	TokenExpiry          time.Time        `json:"token_expiry,omitempty"`
+	ErrorMessage         string           `json:"error_message,omitempty"`
+	Credential           *OAuthCredential `json:"credential,omitempty"`
 }
 
 // SessionState captures snapshot information to restore across rotations.

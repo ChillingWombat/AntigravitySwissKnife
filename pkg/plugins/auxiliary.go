@@ -138,7 +138,17 @@ div:has(> .shrink-0.flex.items-center.border-b),
 }
 
 /* 2. Flexible Middle Section: File Tabs & Plus Button */
-.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > div:nth-child(2) {
+.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > div.w-px,
+.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > div.h-4.w-px {
+  width: 1px !important;
+  min-width: 1px !important;
+  max-width: 1px !important;
+  flex: 0 0 1px !important;
+  flex-shrink: 0 !important;
+  flex-grow: 0 !important;
+}
+.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > div.overflow-x-auto,
+.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > div[class*="overflow-x-auto"] {
   flex: 1 1 0% !important;
   min-width: 0 !important;
   overflow: hidden !important;
@@ -1397,7 +1407,7 @@ func GenerateAuxiliaryPluginsScript() string {
 
     const API_BASE = "http://127.0.0.1:8765";
     let activeAuxTab = null; // "swiss-browser" | "swiss-files" | "swiss-memos" | null (native)
-    let currentBrowserUrl = "http://localhost:5173";
+    let currentBrowserUrl = "http://localhost:8765";
     let currentFilePath = ".";
     let fileHistory = [];
     let stageFilePath = ".";
@@ -2016,23 +2026,23 @@ func GenerateAuxiliaryPluginsScript() string {
           <button class="swiss-browser-btn" id="swiss-b-back" title="Back"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
           <button class="swiss-browser-btn" id="swiss-b-fwd" title="Forward"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
           <button class="swiss-browser-btn" id="swiss-b-refresh" title="Reload"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button>
-          <input type="text" class="swiss-browser-url-input" id="swiss-b-url" value="${currentBrowserUrl}" placeholder="http://localhost:5173" />
+          <input type="text" class="swiss-browser-url-input" id="swiss-b-url" value="${currentBrowserUrl}" placeholder="http://localhost:8765" />
           <div class="swiss-browser-port-bar">
             <span class="swiss-port-label">Quick Ports:</span>
             <div class="swiss-port-list" id="swiss-port-list">
+              <button class="swiss-port-chip" data-port="8765" title="Antigravity Swiss Knife (Right-click to delete)">:8765</button>
               <button class="swiss-port-chip" data-port="5173" title="Vite Development Server (Right-click to delete)">:5173</button>
               <button class="swiss-port-chip" data-port="3000" title="React / Next.js Server (Right-click to delete)">:3000</button>
               <button class="swiss-port-chip" data-port="8080" title="Standard Web Server (Right-click to delete)">:8080</button>
-              <button class="swiss-port-chip" data-port="8765" title="Antigravity Swiss Knife (Right-click to delete)">:8765</button>
               <button class="swiss-port-chip" data-port="4173" title="Vite Production Preview (Right-click to delete)">:4173</button>
             </div>
             <div class="swiss-port-dropdown-wrap" id="swiss-port-dropdown-wrap">
               <select class="swiss-port-select" id="swiss-port-select" title="Quick Ports (Right-click to delete)">
                 <option value="" disabled selected>Quick Ports</option>
+                <option value="8765">:8765 (Swiss Knife)</option>
                 <option value="5173">:5173 (Vite)</option>
                 <option value="3000">:3000 (React)</option>
                 <option value="8080">:8080 (Web)</option>
-                <option value="8765">:8765 (Swiss Knife)</option>
                 <option value="4173">:4173 (Preview)</option>
                 <option value="__add__">+ Add Port...</option>
               </select>
@@ -2209,7 +2219,7 @@ func GenerateAuxiliaryPluginsScript() string {
 
       // Quick Ports Management & localStorage persistence
       const QUICK_PORTS_KEY = "antigravity_swiss_quick_ports";
-      const DEFAULT_PORTS = ["5173", "3000", "8080", "8765", "4173"];
+      const DEFAULT_PORTS = ["8765", "5173", "3000", "8080", "4173"];
       const PORT_TITLES = {
         "5173": "Vite Development Server",
         "3000": "React / Next.js Server",
@@ -3352,7 +3362,17 @@ func GenerateAuxiliaryPluginsScript() string {
               const editor = lexicalElem.__lexicalEditor;
               editor.update(() => {
                 if (typeof lexicalElem.focus === "function") lexicalElem.focus();
-                document.execCommand("insertText", false, promptText);
+                const sel = window.getSelection();
+                if (sel) {
+                  const range = document.createRange();
+                  range.selectNodeContents(lexicalElem);
+                  range.collapse(false);
+                  sel.removeAllRanges();
+                  sel.addRange(range);
+                }
+                const hasContent = (lexicalElem.innerText || "").trim().length > 0;
+                const textToInsert = (hasContent ? "\n" : "") + promptText;
+                document.execCommand("insertText", false, textToInsert);
                 injectedLexical = true;
               });
             } catch (err) {
@@ -4661,14 +4681,28 @@ func GenerateAuxiliaryPluginsScript() string {
     function insertTextToChatInput(text) {
       const input = document.querySelector('[data-testid="chat-input-textarea"]') ||
                     document.querySelector('.lexical-container [contenteditable="true"]') ||
-                    document.querySelector('textarea[placeholder*="Ask"]');
+                    document.querySelector('[data-lexical-editor="true"]') ||
+                    document.querySelector('textarea[placeholder*="Ask"]') ||
+                    document.querySelector('textarea');
       if (!input) return;
 
       if (input.isContentEditable) {
         input.focus();
-        document.execCommand("insertText", false, text);
+        const sel = window.getSelection();
+        if (sel) {
+          const range = document.createRange();
+          range.selectNodeContents(input);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+        const hasContent = (input.innerText || "").trim().length > 0;
+        const textToInsert = (hasContent ? "\n" : "") + text;
+        document.execCommand("insertText", false, textToInsert);
       } else {
-        input.value = (input.value ? input.value + "\n" : "") + text;
+        const curVal = input.value || "";
+        input.value = (curVal.trim() ? curVal.trim() + "\n" : "") + text;
+        input.selectionStart = input.selectionEnd = input.value.length;
         input.dispatchEvent(new Event("input", { bubbles: true }));
       }
       input.focus();

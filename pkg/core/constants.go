@@ -11,7 +11,7 @@ import (
 
 const (
 	AppName    = "Antigravity Swiss Knife"
-	AppVersion = "2.0.0"
+	AppVersion = "0.1.0"
 	AppID      = "com.antigravity.swiss-knife"
 
 	// Default timeouts and intervals
@@ -29,6 +29,11 @@ const (
 	SwitchModeMaxContinuous      = "max_continuous"
 	DefaultSwitchMode            = SwitchModeBalanced
 	DefaultMinSwitchDwellSeconds = 600
+
+	// Quota Refresh Frequency Modes
+	QuotaRefreshModeDynamic = "dynamic"
+	QuotaRefreshModeManual  = "manual"
+	DefaultQuotaRefreshMode = QuotaRefreshModeDynamic
 
 	// Multi-App Account Synchronization Modes
 	MultiAppSyncModeShared     = "shared"
@@ -175,6 +180,31 @@ func GetAntigravityHostConfigDir() string {
 		home = "/tmp"
 	}
 	return filepath.Join(home, ".config", "Antigravity")
+}
+
+// GetVSCodeHostConfigDir returns host VS Code settings directory per OS:
+// Linux: ~/.config/Code
+// Windows: %APPDATA%\Code
+// macOS: ~/Library/Application Support/Code
+func GetVSCodeHostConfigDir() string {
+	if dir := os.Getenv("VSCODE_HOST_CONFIG_DIR"); dir != "" {
+		return dir
+	}
+	if runtime.GOOS == "windows" {
+		if appData := os.Getenv("APPDATA"); appData != "" {
+			return filepath.Join(appData, "Code")
+		}
+	} else if runtime.GOOS == "darwin" {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			return filepath.Join(home, "Library", "Application Support", "Code")
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "/tmp"
+	}
+	return filepath.Join(home, ".config", "Code")
 }
 
 // GetAntigravityDesktopResourcesDir returns desktop resources directory per OS:

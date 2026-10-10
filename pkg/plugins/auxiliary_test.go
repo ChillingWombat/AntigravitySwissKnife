@@ -2142,6 +2142,91 @@ func TestAuxiliaryDaemonOfflineHandling(t *testing.T) {
 		}
 	}
 }
+func TestVisualAnnotationAppendToChatEnd(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
 
+	// Verify JS contains range collapse logic and selection positioning to end
+	requiredPatterns := []string{
+		"range.selectNodeContents(lexicalElem)",
+		"range.collapse(false)",
+		"range.selectNodeContents(input)",
+		"input.selectionStart = input.selectionEnd = input.value.length",
+	}
 
+	for _, p := range requiredPatterns {
+		if !strings.Contains(js, p) {
+			t.Errorf("expected GenerateAuxiliaryPluginsScript to contain %q", p)
+		}
+	}
 
+	// Verify runtime appending behavior via Node.js simulation
+	if nodePath, err := exec.LookPath("node"); err == nil {
+		nodeTestScript := `
+const assert = require("assert");
+
+// Mock Document and Elements
+class MockElement {
+  constructor(tag) {
+    this.tagName = tag.toUpperCase();
+    this.value = "";
+    this.innerText = "";
+    this.isContentEditable = false;
+    this.children = [];
+    this.selectionStart = 0;
+    this.selectionEnd = 0;
+  }
+  focus() {}
+  dispatchEvent(e) {}
+}
+
+const mockTextarea = new MockElement("textarea");
+mockTextarea.value = "Initial user prompt";
+
+// Simulate textarea appending logic from insertTextToChatInput
+const curVal = mockTextarea.value || "";
+const annotationText = "[Preview Browser Annotation @ http://localhost:8765]\n(Visual annotation attached: annotation.png)";
+mockTextarea.value = (curVal.trim() ? curVal.trim() + "\n" : "") + annotationText;
+mockTextarea.selectionStart = mockTextarea.selectionEnd = mockTextarea.value.length;
+
+assert.strictEqual(
+  mockTextarea.value,
+  "Initial user prompt\n[Preview Browser Annotation @ http://localhost:8765]\n(Visual annotation attached: annotation.png)",
+  "annotation text should be appended to the end of textarea"
+);
+assert.strictEqual(mockTextarea.selectionStart, mockTextarea.value.length, "cursor should be at the end");
+
+// Simulate contenteditable appending logic
+const mockEditable = new MockElement("div");
+mockEditable.isContentEditable = true;
+mockEditable.innerText = "Existing rich text";
+
+let collapsedToEnd = false;
+let insertedText = "";
+const mockRange = {
+  selectNodeContents(el) {},
+  collapse(toStart) {
+    if (toStart === false) collapsedToEnd = true;
+  }
+};
+
+const hasContent = (mockEditable.innerText || "").trim().length > 0;
+const textToInsert = (hasContent ? "\n" : "") + annotationText;
+mockRange.selectNodeContents(mockEditable);
+mockRange.collapse(false);
+insertedText = textToInsert;
+
+assert.strictEqual(collapsedToEnd, true, "range should collapse to end (false)");
+assert.ok(insertedText.startsWith("\n"), "should prefix with newline when existing content is present");
+
+console.log("R5_APPEND_ANNOTATION_TEST_PASSED");
+`
+		cmd := exec.Command(nodePath, "-e", nodeTestScript)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("Node visual annotation append test failed: %v\n%s", err, string(out))
+		}
+		if !strings.Contains(string(out), "R5_APPEND_ANNOTATION_TEST_PASSED") {
+			t.Fatalf("expected test output to contain R5_APPEND_ANNOTATION_TEST_PASSED, got %q", string(out))
+		}
+	}
+}

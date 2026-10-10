@@ -38,7 +38,8 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
   const [dragOverCol, setDragOverCol] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'issues' | 'prs' | 'tasks'>('issues')
   const [searchQuery, setSearchQuery] = useState<string>('')
-  const [stateFilter, setStateFilter] = useState<'all' | 'open' | 'closed'>('all')
+  const [stateFilter, setStateFilter] = useState<'open' | 'closed'>('open')
+  const [agentStatusFilter, setAgentStatusFilter] = useState<'active' | 'killed'>('active')
   const [selectedItem, setSelectedItem] = useState<any | null>(null)
   const [commentText, setCommentText] = useState<string>('')
   const [editTitle, setEditTitle] = useState<string>('')
@@ -75,7 +76,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
   }
 
   const navigateToConversation = (convId: string, rootParentId?: string, isPruned?: boolean) => {
-    const targetId = rootParentId || convId
+    const targetId = convId || rootParentId
     if (isPruned || (targetId && ((window as any).__swissPrunedConversations?.has?.(targetId) || (window.parent as any)?.__swissPrunedConversations?.has?.(targetId)))) {
       showToast('Conversation database was pruned or archived (local file not found)')
       return
@@ -195,7 +196,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
       } else {
         setIssues([])
       }
-      const prsRes = await api.getGitHubPRs(wsPath)
+      const prsRes = await api.getGitHubPRs(wsPath, stateFilter)
       if (prsRes.success && prsRes.prs) {
         setPRs(prsRes.prs)
       } else {
@@ -458,14 +459,138 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
   }
 
   const filteredItems = (activeTab === 'issues' ? issues : activeTab === 'prs' ? prs : agentTasks).filter(
-    (item) => {
-      const title = (item.title || item.conversation_title || '').toLowerCase()
+    (item: any) => {
+      if (activeTab === 'tasks') {
+        if (item.is_pruned) return false
+        const isWorking = item.not_fully_idle || item.status === 'working'
+        if (agentStatusFilter === 'active' && !isWorking) return false
+        if (agentStatusFilter === 'killed' && isWorking) return false
+      }
+      const title = (item.title || item.work_item || item.conversation_title || '').toLowerCase()
       const num = (item.number || item.bound_issue_number || '').toString()
       const agent = (item.agent_label || item.agent_name || '').toLowerCase()
+      const issuesStr = (item.working_issues || []).join(' ')
+      const prsStr = (item.working_prs || []).join(' ')
       const q = searchQuery.toLowerCase()
-      return title.includes(q) || num.includes(q) || agent.includes(q)
+      return title.includes(q) || num.includes(q) || agent.includes(q) || issuesStr.includes(q) || prsStr.includes(q)
     }
   )
+
+  const getGroupedAgentTasks = () => {
+    const validTasks = filteredItems
+    const groupsMap = new Map<string, {
+      rootId: string
+      title: string
+      lastModified: number
+      isFocused: boolean
+      agents: any[]
+    }>()
+
+    const detectFocusedConvId = () => {
+      try {
+        const m = window.location.pathname ? window.location.pathname.match(/\/c\/([^/?#]+)/) : null
+        if (m && m[1]) return m[1]
+        if (window.parent && window.parent !== window && window.parent.location.pathname) {
+          const pm = window.parent.location.pathname.match(/\/c\/([^/?#]+)/)
+          if (pm && pm[1]) return pm[1]
+        }
+      } catch (_) {}
+      const activeSelector = '[data-testid="conversation-row-sidebar"][aria-selected="true"], [data-testid="conversation-row-sidebar"][data-selected="true"], [data-testid="conversation-row-sidebar"].bg-accent, [data-testid="conversation-row-sidebar"].bg-sidebar-accent, [data-testid="conversation-row-sidebar"][data-state="active"]'
+      const row = document.querySelector(activeSelector) || (window.parent && window.parent.document.querySelector(activeSelector))
+      if (row) {
+        const cid = row.getAttribute('data-cascade-id') || row.getAttribute('data-id') || row.getAttribute('data-conversation-id')
+        if (cid) return cid
+        const a = row.tagName === 'A' ? row : row.querySelector('a[href*="/c/"]')
+        if (a) {
+          const href = a.getAttribute('href') || ''
+          const m = href.match(/\/c\/([^/?#]+)/)
+          if (m && m[1]) return m[1]
+        }
+      }
+      return localStorage.getItem('antigravity_last_active_conversation') || ''
+    }
+
+    const currentFocusedId = detectFocusedConvId()
+
+    validTasks.forEach((t: any) => {
+      const rootId = t.root_parent_conversation_id || t.conversation_id
+      let grp = groupsMap.get(rootId)
+      const tMod = t.last_modified ? new Date(t.last_modified).getTime() : 0
+      if (!grp) {
+        const convTitle = t.root_parent_title || (t.conversation_id === rootId ? t.conversation_title : '') || t.conversation_title || `Chat #${rootId.slice(0, 8)}`
+        grp = {
+          rootId,
+          title: convTitle,
+          lastModified: tMod,
+          isFocused: Boolean(currentFocusedId && rootId === currentFocusedId),
+          agents: [],
+        }
+        groupsMap.set(rootId, grp)
+      }
+      if (tMod > grp.lastModified) {
+        grp.lastModified = tMod
+      }
+      if (t.root_parent_title) {
+        grp.title = t.root_parent_title
+      } else if (t.conversation_id === rootId && t.conversation_title) {
+        grp.title = t.conversation_title
+      } else if ((!grp.title || grp.title.startsWith('Chat #')) && t.conversation_title) {
+        grp.title = t.conversation_title
+      }
+      grp.agents.push(t)
+    })
+
+    const sidebarLinks = Array.from(document.querySelectorAll('a[href*="/c/"], [data-testid="conversation-row-sidebar"]'))
+      .map(el => {
+        const id = el.getAttribute('data-cascade-id') || el.getAttribute('data-id') || el.getAttribute('data-conversation-id')
+        if (id) return id
+        const href = el.getAttribute('href') || ''
+        const m = href.match(/\/c\/([^/?#]+)/)
+        return m ? m[1] : null
+      })
+      .filter(Boolean) as string[]
+
+    let groups = Array.from(groupsMap.values())
+
+    // Base sort: match left project panel order
+    groups.sort((a, b) => {
+      const idxA = sidebarLinks.indexOf(a.rootId)
+      const idxB = sidebarLinks.indexOf(b.rootId)
+      if (idxA !== -1 && idxB !== -1) {
+        return idxA - idxB
+      }
+      if (idxA !== -1) return -1
+      if (idxB !== -1) return 1
+      return b.lastModified - a.lastModified
+    })
+
+    // Auxiliary panel settings check
+    const isAux = Boolean(
+      (typeof window !== 'undefined' && (
+        window.location.search.includes('view=aux') ||
+        window.location.search.includes('aux=true') ||
+        document.getElementById('swiss-aux-container') ||
+        document.querySelector('[data-testid="auxiliary-panel"]')
+      ))
+    )
+
+    if (isAux) {
+      const auxScope = (localStorage.getItem('antigravity_github_aux_agent_scope') as 'all' | 'focused') || 'all'
+      const auxPin = localStorage.getItem('antigravity_github_aux_pin_focused') !== 'false'
+
+      if (auxScope === 'focused') {
+        groups = groups.filter(g => g.isFocused || (currentFocusedId && g.rootId === currentFocusedId))
+      } else if (auxPin) {
+        groups.sort((a, b) => {
+          if (a.isFocused && !b.isFocused) return -1
+          if (!a.isFocused && b.isFocused) return 1
+          return 0
+        })
+      }
+    }
+
+    return groups
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -477,8 +602,8 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
             bottom: '24px',
             right: '24px',
             zIndex: 1000,
-            backgroundColor: '#1a73e8',
-            color: '#fff',
+            backgroundColor: 'var(--accent, var(--primary, #1a73e8))',
+            color: 'var(--accent-foreground, #ffffff)',
             padding: '10px 16px',
             borderRadius: '8px',
             fontSize: '13px',
@@ -545,12 +670,12 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                 borderRadius: '4px',
                 fontSize: '12px',
                 fontWeight: viewMode === 'kanban' ? 600 : 500,
-                backgroundColor: viewMode === 'kanban' ? 'var(--surface)' : 'transparent',
-                color: viewMode === 'kanban' ? '#1a73e8' : 'var(--text-muted)',
+                backgroundColor: viewMode === 'kanban' ? 'var(--accent, var(--primary, #1a73e8))' : 'transparent',
+                color: viewMode === 'kanban' ? 'var(--accent-foreground, #ffffff)' : 'var(--text-muted)',
                 border: 'none',
                 cursor: 'pointer',
                 whiteSpace: 'nowrap',
-                boxShadow: viewMode === 'kanban' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                boxShadow: viewMode === 'kanban' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
               }}
             >
               <Kanban size={13} /> Board
@@ -568,12 +693,12 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                 borderRadius: '4px',
                 fontSize: '12px',
                 fontWeight: viewMode === 'list' && activeTab === 'issues' ? 600 : 500,
-                backgroundColor: viewMode === 'list' && activeTab === 'issues' ? 'var(--surface)' : 'transparent',
-                color: viewMode === 'list' && activeTab === 'issues' ? '#1a73e8' : 'var(--text-muted)',
+                backgroundColor: viewMode === 'list' && activeTab === 'issues' ? 'var(--accent, var(--primary, #1a73e8))' : 'transparent',
+                color: viewMode === 'list' && activeTab === 'issues' ? 'var(--accent-foreground, #ffffff)' : 'var(--text-muted)',
                 border: 'none',
                 cursor: 'pointer',
                 whiteSpace: 'nowrap',
-                boxShadow: viewMode === 'list' && activeTab === 'issues' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                boxShadow: viewMode === 'list' && activeTab === 'issues' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
               }}
             >
               Issues ({issues.length})
@@ -591,12 +716,12 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                 borderRadius: '4px',
                 fontSize: '12px',
                 fontWeight: viewMode === 'list' && activeTab === 'prs' ? 600 : 500,
-                backgroundColor: viewMode === 'list' && activeTab === 'prs' ? 'var(--surface)' : 'transparent',
-                color: viewMode === 'list' && activeTab === 'prs' ? '#1a73e8' : 'var(--text-muted)',
+                backgroundColor: viewMode === 'list' && activeTab === 'prs' ? 'var(--accent, var(--primary, #1a73e8))' : 'transparent',
+                color: viewMode === 'list' && activeTab === 'prs' ? 'var(--accent-foreground, #ffffff)' : 'var(--text-muted)',
                 border: 'none',
                 cursor: 'pointer',
                 whiteSpace: 'nowrap',
-                boxShadow: viewMode === 'list' && activeTab === 'prs' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                boxShadow: viewMode === 'list' && activeTab === 'prs' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
               }}
             >
               Pull Requests ({prs.length})
@@ -614,44 +739,20 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                 borderRadius: '4px',
                 fontSize: '12px',
                 fontWeight: viewMode === 'list' && activeTab === 'tasks' ? 600 : 500,
-                backgroundColor: viewMode === 'list' && activeTab === 'tasks' ? 'var(--surface)' : 'transparent',
-                color: viewMode === 'list' && activeTab === 'tasks' ? '#1a73e8' : 'var(--text-muted)',
+                backgroundColor: viewMode === 'list' && activeTab === 'tasks' ? 'var(--accent, var(--primary, #1a73e8))' : 'transparent',
+                color: viewMode === 'list' && activeTab === 'tasks' ? 'var(--accent-foreground, #ffffff)' : 'var(--text-muted)',
                 border: 'none',
                 cursor: 'pointer',
                 whiteSpace: 'nowrap',
-                boxShadow: viewMode === 'list' && activeTab === 'tasks' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                boxShadow: viewMode === 'list' && activeTab === 'tasks' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
               }}
             >
-              Agent Tasks ({agentTasks.length})
+              AGY Agents ({agentTasks.filter((t: any) => !t.is_pruned).length})
             </button>
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          {viewMode === 'list' && activeTab !== 'tasks' && (
-            <div style={{ display: 'flex', gap: '6px' }}>
-              {(['all', 'open', 'closed'] as const).map((filter) => (
-                <button
-                  key={filter}
-                  onClick={() => setStateFilter(filter)}
-                  style={{
-                    padding: '4px 10px',
-                    borderRadius: '6px',
-                    fontSize: '11px',
-                    fontWeight: stateFilter === filter ? 600 : 500,
-                    backgroundColor: stateFilter === filter ? '#1a73e8' : 'transparent',
-                    color: stateFilter === filter ? '#fff' : 'var(--text-muted)',
-                    border: '1px solid var(--border)',
-                    cursor: 'pointer',
-                    textTransform: 'capitalize',
-                  }}
-                >
-                  {filter}
-                </button>
-              ))}
-            </div>
-          )}
-
           <div style={{ position: 'relative' }}>
             <Search
               size={14}
@@ -675,6 +776,82 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
             />
           </div>
 
+          {viewMode === 'list' && (activeTab === 'issues' || activeTab === 'prs') && (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: '2px',
+                borderRadius: '6px',
+                backgroundColor: 'var(--surface-variant)',
+                border: '1px solid var(--border)',
+                gap: '2px',
+              }}
+            >
+              {(['open', 'closed'] as const).map((filter) => {
+                const isActive = stateFilter === filter
+                return (
+                  <button
+                    key={filter}
+                    onClick={() => setStateFilter(filter)}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontWeight: isActive ? 600 : 500,
+                      backgroundColor: isActive ? 'var(--accent, var(--primary, #1a73e8))' : 'transparent',
+                      color: isActive ? 'var(--accent-foreground, #ffffff)' : 'var(--text-muted)',
+                      border: 'none',
+                      cursor: 'pointer',
+                      boxShadow: isActive ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
+                      lineHeight: '16px',
+                    }}
+                  >
+                    {filter === 'open' ? 'Open' : 'Closed'}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
+          {viewMode === 'list' && activeTab === 'tasks' && (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: '2px',
+                borderRadius: '6px',
+                backgroundColor: 'var(--surface-variant)',
+                border: '1px solid var(--border)',
+                gap: '2px',
+              }}
+            >
+              {(['active', 'killed'] as const).map((filter) => {
+                const isActive = agentStatusFilter === filter
+                return (
+                  <button
+                    key={filter}
+                    onClick={() => setAgentStatusFilter(filter)}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontWeight: isActive ? 600 : 500,
+                      backgroundColor: isActive ? 'var(--accent, var(--primary, #1a73e8))' : 'transparent',
+                      color: isActive ? 'var(--accent-foreground, #ffffff)' : 'var(--text-muted)',
+                      border: 'none',
+                      cursor: 'pointer',
+                      boxShadow: isActive ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
+                      lineHeight: '16px',
+                    }}
+                  >
+                    {filter === 'active' ? 'Active' : 'Killed'}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
           <button
             onClick={() => setIsCreatingIssue(true)}
             style={{
@@ -685,8 +862,8 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
               borderRadius: '6px',
               fontSize: '12px',
               fontWeight: 600,
-              backgroundColor: '#1a73e8',
-              color: '#fff',
+              backgroundColor: 'var(--accent, var(--primary, #1a73e8))',
+              color: 'var(--accent-foreground, #ffffff)',
               border: 'none',
               cursor: 'pointer',
             }}
@@ -1074,79 +1251,274 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
             backgroundColor: 'var(--surface-variant)',
           }}
         >
-          {filteredItems.map((item, idx) => {
-            const isSelected = selectedItem && (selectedItem.number === item.number || selectedItem.conversation_id === item.conversation_id)
-            if (activeTab === 'tasks') {
-              const isWorking = item.not_fully_idle
-              return (
-                <div
-                  key={item.conversation_id || idx}
-                  onClick={() => setSelectedItem(item)}
-                  style={{
-                    padding: '12px 16px',
-                    borderBottom: '1px solid var(--border)',
-                    backgroundColor: isSelected ? 'rgba(26, 115, 232, 0.08)' : 'transparent',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        padding: '2px 8px',
-                        borderRadius: '6px',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        backgroundColor: isWorking ? 'rgba(34, 197, 94, 0.15)' : 'rgba(148, 163, 184, 0.15)',
-                        color: isWorking ? '#15803d' : '#64748b',
-                      }}
-                    >
-                      <Bot size={12} />
-                      {isWorking ? 'Working' : 'Idle'}: {item.agent_label || 'Agent'}
-                    </span>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{item.step_count} steps</span>
-                  </div>
-                  <div style={{ fontSize: '13px', fontWeight: 600, marginTop: '6px', color: 'var(--text)' }}>
-                    {item.conversation_title || 'Active Conversation'}
-                  </div>
+          {activeTab === 'tasks' ? (
+            getGroupedAgentTasks().length === 0 ? (
+              <div style={{ padding: '24px 16px', textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>
+                No active or matching agents found
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '10px' }}>
+                {getGroupedAgentTasks().map((group) => (
                   <div
+                    key={group.rootId}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      marginTop: '8px',
-                      fontSize: '11px',
-                      color: 'var(--text-muted)',
+                      borderRadius: '8px',
+                      border: group.isFocused ? '1px solid rgba(26, 115, 232, 0.4)' : '1px solid var(--border)',
+                      backgroundColor: group.isFocused ? 'rgba(26, 115, 232, 0.02)' : 'var(--surface)',
+                      overflow: 'hidden',
+                      boxShadow: group.isFocused ? '0 1px 3px rgba(26, 115, 232, 0.06)' : 'none',
                     }}
                   >
-                    <span>{item.bound_issue_number ? `Bound to #${item.bound_issue_number}` : 'Unbound'}</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleLabelAgent(item.conversation_id, item.agent_label)
-                      }}
+                    {/* Conversation Header */}
+                    <div
                       style={{
-                        border: 'none',
-                        background: 'transparent',
-                        color: '#1a73e8',
-                        cursor: 'pointer',
-                        fontSize: '11px',
-                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '8px 12px',
+                        backgroundColor: group.isFocused ? 'rgba(26, 115, 232, 0.08)' : 'var(--surface-variant)',
+                        borderBottom: '1px solid var(--border)',
+                        gap: '8px',
                       }}
                     >
-                      Label Agent
-                    </button>
+                      <div style={{ display: 'flex', alignItems: 'center', minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                        <span
+                          title={group.title}
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            color: group.isFocused ? 'var(--accent, var(--primary, #1a73e8))' : 'var(--text)',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            display: 'block',
+                            minWidth: 0,
+                          }}
+                        >
+                          {group.title}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                          {group.agents.length} {group.agents.length === 1 ? 'agent' : 'agents'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Agent Cards within this conversation */}
+                    <div style={{ display: 'flex', flexDirection: 'column', maxHeight: '380px', overflowY: 'auto' }}>
+                      {group.agents.map((item, idx) => {
+                        const isSelected = selectedItem && selectedItem.conversation_id === item.conversation_id
+                        const agentName = item.agent_label || item.conversation_title || item.agent_name || 'Agent'
+                        const workTitle = item.work_item && item.work_item !== agentName ? item.work_item : ''
+
+                        // Resolve work item refs (issues and PRs)
+                        const workItems: Array<{ type: 'issue' | 'pr'; number: number; state: string; url?: string; title?: string }> = []
+                        const seenWorkKeys = new Set<string>()
+
+                        if (item.work_items && Array.isArray(item.work_items)) {
+                          item.work_items.forEach((ref: any) => {
+                            const key = `${ref.type}-${ref.number}`
+                            if (!seenWorkKeys.has(key)) {
+                              seenWorkKeys.add(key)
+                              workItems.push({
+                                type: ref.type,
+                                number: ref.number,
+                                state: ref.state || 'open',
+                                url: ref.url || (repo ? `https://github.com/${repo.full_name}/${ref.type === 'pr' ? 'pull' : 'issues'}/${ref.number}` : undefined),
+                                title: ref.title,
+                              })
+                            }
+                          })
+                        }
+
+                        // Fallbacks from working_issues / working_prs / bound_issue_number if needed
+                        if (item.bound_issue_number) {
+                          const key = `issue-${item.bound_issue_number}`
+                          if (!seenWorkKeys.has(key)) {
+                            seenWorkKeys.add(key)
+                            const found = issues.find(i => i.number === item.bound_issue_number)
+                            workItems.push({
+                              type: 'issue',
+                              number: item.bound_issue_number,
+                              state: found?.state || 'open',
+                              url: found?.html_url || (repo ? `https://github.com/${repo.full_name}/issues/${item.bound_issue_number}` : undefined),
+                              title: found?.title,
+                            })
+                          }
+                        }
+
+                        (item.working_issues || []).forEach((num: number) => {
+                          const key = `issue-${num}`
+                          if (!seenWorkKeys.has(key)) {
+                            seenWorkKeys.add(key)
+                            const found = issues.find(i => i.number === num)
+                            workItems.push({
+                              type: 'issue',
+                              number: num,
+                              state: found?.state || 'open',
+                              url: found?.html_url || (repo ? `https://github.com/${repo.full_name}/issues/${num}` : undefined),
+                              title: found?.title,
+                            })
+                          }
+                        })
+
+                        (item.working_prs || []).forEach((num: number) => {
+                          const key = `pr-${num}`
+                          if (!seenWorkKeys.has(key)) {
+                            seenWorkKeys.add(key)
+                            const found = prs.find(p => p.number === num)
+                            workItems.push({
+                              type: 'pr',
+                              number: num,
+                              state: found?.state || 'closed',
+                              url: found?.html_url || (repo ? `https://github.com/${repo.full_name}/pull/${num}` : undefined),
+                              title: found?.title,
+                            })
+                          }
+                        })
+
+                        return (
+                          <div
+                            key={item.conversation_id || idx}
+                            onClick={() => setSelectedItem(item)}
+                            style={{
+                              padding: '10px 12px',
+                              borderBottom: idx === group.agents.length - 1 ? 'none' : '1px solid var(--border)',
+                              backgroundColor: isSelected ? 'rgba(26, 115, 232, 0.08)' : 'transparent',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {/* Row 1: Agent Header (Name on left, Steps on right) */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                              <div
+                                title={item.conversation_id}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  fontSize: '12px',
+                                  fontWeight: 600,
+                                  color: 'var(--text)',
+                                  minWidth: 0,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                <Bot size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {agentName}
+                                </span>
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  navigateToConversation(item.conversation_id, item.root_parent_conversation_id, item.is_pruned)
+                                }}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  border: '1px solid var(--border)',
+                                  backgroundColor: 'transparent',
+                                  color: 'var(--text-muted)',
+                                  fontSize: '11px',
+                                  fontWeight: 500,
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
+                                  flexShrink: 0,
+                                }}
+                                title="Open conversation with this agent"
+                              >
+                                <span>{item.step_count || 0} steps</span>
+                                <ExternalLink size={10} />
+                              </button>
+                            </div>
+
+                            {/* Optional Work Title / Prompt preview */}
+                            {workTitle ? (
+                              <div
+                                style={{
+                                  fontSize: '11px',
+                                  color: 'var(--text-muted)',
+                                  marginTop: '4px',
+                                  lineHeight: 1.3,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {workTitle}
+                              </div>
+                            ) : null}
+
+                            {/* Row 2: Relevant Issues & PRs Tags */}
+                            {workItems.length > 0 && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+                                {workItems.map((ref) => {
+                                  const isPR = ref.type === 'pr'
+                                  const rawState = (ref.state || 'open').toLowerCase()
+                                  const isClosed = rawState === 'closed' || rawState === 'merged'
+                                  const stateLabel = isClosed ? (rawState === 'merged' ? 'Merged' : 'Closed') : 'Open'
+                                  const hoverTitle = `${stateLabel}${ref.title ? `: ${ref.title}` : ''}`
+                                  const bg = isPR
+                                    ? (isClosed ? 'rgba(100, 116, 139, 0.12)' : 'rgba(168, 85, 247, 0.12)')
+                                    : (isClosed ? 'rgba(100, 116, 139, 0.12)' : 'rgba(34, 197, 94, 0.12)')
+                                  const color = isPR
+                                    ? (isClosed ? '#64748b' : '#9333ea')
+                                    : (isClosed ? '#64748b' : '#16a34a')
+
+                                  return (
+                                    <span
+                                      key={`${ref.type}-${ref.number}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (ref.url) {
+                                          window.open(ref.url, '_blank')
+                                        } else if (repo) {
+                                          const url = `https://github.com/${repo.full_name}/${isPR ? 'pull' : 'issues'}/${ref.number}`
+                                          window.open(url, '_blank')
+                                        }
+                                      }}
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '3px',
+                                        fontSize: '10px',
+                                        fontWeight: 600,
+                                        padding: '1px 6px',
+                                        borderRadius: '4px',
+                                        backgroundColor: bg,
+                                        color: color,
+                                        cursor: 'pointer',
+                                      }}
+                                      title={hoverTitle}
+                                    >
+                                      {isPR ? <GitPullRequest size={10} /> : <AlertCircle size={10} />}
+                                      {isPR ? `PR #${ref.number}` : `Issue #${ref.number}`}
+                                    </span>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
-                </div>
-              )
-            }
+                ))}
+              </div>
+            )
+          ) : (
+            filteredItems.map((item, idx) => {
+              const isSelected = selectedItem && (selectedItem.number === item.number || selectedItem.conversation_id === item.conversation_id)
+              const isOpen = (item.state || 'open').toLowerCase() === 'open'
+              const assigned = item.assigned_agent
 
-            const isOpen = (item.state || 'open').toLowerCase() === 'open'
-            const assigned = item.assigned_agent
-
-            return (
+              return (
               <div
                 key={item.number || idx}
                 onClick={() => selectItemForEditing(item)}
@@ -1243,7 +1615,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                 )}
               </div>
             )
-          })}
+          }))}
         </div>
 
         {/* Column 2: In-Place Detail Viewer & Editor */}
@@ -1257,7 +1629,217 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
             backgroundColor: 'var(--surface)',
           }}
         >
-          {selectedItem ? (
+          {activeTab === 'tasks' && selectedItem ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      backgroundColor: (selectedItem.not_fully_idle || selectedItem.status === 'working')
+                        ? 'rgba(34, 197, 94, 0.15)'
+                        : 'rgba(148, 163, 184, 0.15)',
+                      color: (selectedItem.not_fully_idle || selectedItem.status === 'working') ? '#15803d' : '#64748b',
+                    }}
+                  >
+                    <Bot size={14} />
+                    {(selectedItem.not_fully_idle || selectedItem.status === 'working') ? 'Active Agent' : 'Idle Agent'}
+                  </span>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
+                    {selectedItem.agent_label || selectedItem.agent_name || 'Agent'}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={() => navigateToConversation(selectedItem.conversation_id, selectedItem.root_parent_conversation_id, selectedItem.is_pruned)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '6px 14px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      backgroundColor: '#1a73e8',
+                      color: '#fff',
+                      border: 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Focus Conversation
+                  </button>
+                  <button
+                    onClick={() => handleLabelAgent(selectedItem.conversation_id, selectedItem.agent_label)}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      backgroundColor: 'var(--surface-variant)',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Label Persona
+                  </button>
+                  <button
+                    onClick={() => handleBindTask(selectedItem.conversation_id)}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      backgroundColor: 'var(--surface-variant)',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Bind Issue
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>CURRENT WORK ITEM / GOAL</label>
+                <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text)', marginTop: '4px', lineHeight: 1.4 }}>
+                  {selectedItem.work_item || selectedItem.conversation_title || 'No active work item description'}
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                <div style={{ padding: '12px', borderRadius: '6px', backgroundColor: 'var(--surface-variant)', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>CONVERSATION ID</div>
+                  <div style={{ fontSize: '12px', fontFamily: 'monospace', marginTop: '4px', color: 'var(--text)' }}>
+                    {selectedItem.conversation_id}
+                  </div>
+                </div>
+                <div style={{ padding: '12px', borderRadius: '6px', backgroundColor: 'var(--surface-variant)', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>TOTAL STEPS</div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '4px', color: 'var(--text)' }}>
+                    {selectedItem.step_count || 0}
+                  </div>
+                </div>
+                {selectedItem.parent_conversation_id && (
+                  <div style={{ padding: '12px', borderRadius: '6px', backgroundColor: 'var(--surface-variant)', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>SUBAGENT OF</div>
+                    <div
+                      onClick={() => navigateToConversation(selectedItem.parent_conversation_id)}
+                      style={{ fontSize: '12px', fontFamily: 'monospace', color: '#1a73e8', cursor: 'pointer', marginTop: '4px' }}
+                    >
+                      #{selectedItem.parent_conversation_id.slice(0, 8)} (Click to view)
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Working Issues & Pull Requests */}
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', marginBottom: '10px' }}>
+                  Linked GitHub Work Items
+                </div>
+                {(!selectedItem.working_issues?.length && !selectedItem.working_prs?.length && !selectedItem.bound_issue_number) ? (
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                    No GitHub issues or PRs currently linked to this agent. Use "Bind Issue" above to link one.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {selectedItem.bound_issue_number && (
+                      <div
+                        onClick={() => {
+                          const found = issues.find(i => i.number === selectedItem.bound_issue_number)
+                          if (found) {
+                            setActiveTab('issues')
+                            setSelectedItem(found)
+                          }
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          padding: '10px 12px',
+                          borderRadius: '6px',
+                          backgroundColor: 'rgba(26, 115, 232, 0.08)',
+                          border: '1px solid rgba(26, 115, 232, 0.2)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <AlertCircle size={14} color="#1a73e8" />
+                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#1a73e8' }}>
+                          Bound Issue #{selectedItem.bound_issue_number}
+                        </span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: 'auto' }}>Click to view issue details</span>
+                      </div>
+                    )}
+                    {(selectedItem.working_issues || []).filter((n: number) => n !== selectedItem.bound_issue_number).map((n: number) => (
+                      <div
+                        key={`det-iss-${n}`}
+                        onClick={() => {
+                          const found = issues.find(i => i.number === n)
+                          if (found) {
+                            setActiveTab('issues')
+                            setSelectedItem(found)
+                          }
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          padding: '10px 12px',
+                          borderRadius: '6px',
+                          backgroundColor: 'rgba(34, 197, 94, 0.08)',
+                          border: '1px solid rgba(34, 197, 94, 0.2)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <AlertCircle size={14} color="#16a34a" />
+                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#16a34a' }}>
+                          Active Issue #{n}
+                        </span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: 'auto' }}>Click to view issue details</span>
+                      </div>
+                    ))}
+                    {(selectedItem.working_prs || []).map((n: number) => (
+                      <div
+                        key={`det-pr-${n}`}
+                        onClick={() => {
+                          const found = prs.find(p => p.number === n)
+                          if (found) {
+                            setActiveTab('prs')
+                            setSelectedItem(found)
+                          }
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          padding: '10px 12px',
+                          borderRadius: '6px',
+                          backgroundColor: 'rgba(168, 85, 247, 0.08)',
+                          border: '1px solid rgba(168, 85, 247, 0.2)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <GitPullRequest size={14} color="#9333ea" />
+                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#9333ea' }}>
+                          Active Pull Request #{n}
+                        </span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: 'auto' }}>Click to view PR details</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : selectedItem ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1483,11 +2065,12 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
               color: 'var(--text)',
             }}
           >
-            Agent Conversations ({agentTasks.length})
+            AGY Agents ({agentTasks.length})
           </div>
           <div style={{ overflowY: 'auto', flex: 1 }}>
             {agentTasks.map((t) => {
-              const isWorking = t.not_fully_idle
+              const isWorking = t.not_fully_idle || t.status === 'working'
+              const workTitle = t.work_item || t.conversation_title || (t.agent_label ? `${t.agent_label} Task` : 'Agent Task')
               return (
                 <div
                   key={t.conversation_id}
@@ -1514,7 +2097,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                       }}
                     >
                       <Bot size={12} />
-                      {isWorking ? 'Working' : 'Idle'}: {t.agent_label || 'Agent'}
+                      {isWorking ? 'Active' : 'Idle'}: {t.agent_label || 'Agent'}
                     </span>
                     <button
                       onClick={() => handleLabelAgent(t.conversation_id, t.agent_label)}
@@ -1531,9 +2114,68 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                     </button>
                   </div>
 
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                    {t.conversation_title || 'Conversation'}
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', lineHeight: 1.35 }}>
+                    {workTitle}
                   </div>
+
+                  {/* Working Issues / PRs Badges */}
+                  {((t.working_issues && t.working_issues.length > 0) || (t.working_prs && t.working_prs.length > 0) || t.bound_issue_number) && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
+                      {t.bound_issue_number && (!t.working_issues || !t.working_issues.includes(t.bound_issue_number)) && (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                            fontSize: '9.5px',
+                            fontWeight: 600,
+                            padding: '1px 5px',
+                            borderRadius: '4px',
+                            backgroundColor: 'rgba(26, 115, 232, 0.12)',
+                            color: '#1a73e8',
+                          }}
+                        >
+                          <AlertCircle size={9} /> #{t.bound_issue_number}
+                        </span>
+                      )}
+                      {(t.working_issues || []).map((issNum: number) => (
+                        <span
+                          key={`iss-${issNum}`}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                            fontSize: '9.5px',
+                            fontWeight: 600,
+                            padding: '1px 5px',
+                            borderRadius: '4px',
+                            backgroundColor: 'rgba(34, 197, 94, 0.12)',
+                            color: '#16a34a',
+                          }}
+                        >
+                          <AlertCircle size={9} /> #{issNum}
+                        </span>
+                      ))}
+                      {(t.working_prs || []).map((prNum: number) => (
+                        <span
+                          key={`pr-${prNum}`}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                            fontSize: '9.5px',
+                            fontWeight: 600,
+                            padding: '1px 5px',
+                            borderRadius: '4px',
+                            backgroundColor: 'rgba(168, 85, 247, 0.12)',
+                            color: '#9333ea',
+                          }}
+                        >
+                          <GitPullRequest size={9} /> PR #{prNum}
+                        </span>
+                      ))}
+                    </div>
+                  )}
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
                     <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--text-muted)' }}>

@@ -228,6 +228,14 @@ func (s *Store) SaveModel(m CustomModel) error {
 		s.config.Models = append(s.config.Models, m)
 	}
 
+	if m.IsDefault {
+		for j := range s.config.Models {
+			if s.config.Models[j].ID != m.ID {
+				s.config.Models[j].IsDefault = false
+			}
+		}
+	}
+
 	s.clearDeletedModelLocked(m.Name, m.ID)
 	s.syncCustomModelToPricingLocked(m)
 

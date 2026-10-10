@@ -4,12 +4,69 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
+
+func findGHBinary() string {
+	if p, err := exec.LookPath("gh"); err == nil {
+		return p
+	}
+	home, _ := os.UserHomeDir()
+	candidates := []string{
+		filepath.Join(home, ".local", "bin", "gh"),
+		filepath.Join(home, ".pixi", "bin", "gh"),
+		filepath.Join(home, ".cargo", "bin", "gh"),
+		"/home/linuxbrew/.linuxbrew/bin",
+		"/usr/local/bin/gh",
+		"/usr/bin/gh",
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	return "gh"
+}
+
+func ghCommand(args ...string) *exec.Cmd {
+	bin := findGHBinary()
+	cmd := exec.Command(bin, args...)
+	env := os.Environ()
+	home, _ := os.UserHomeDir()
+	extraPaths := []string{
+		filepath.Join(home, ".local", "bin"),
+		filepath.Join(home, ".pixi", "bin"),
+		filepath.Join(home, ".cargo", "bin"),
+		"/home/linuxbrew/.linuxbrew/bin",
+		"/usr/local/bin",
+		"/usr/bin",
+	}
+	pathVal := os.Getenv("PATH")
+	for _, p := range extraPaths {
+		if !strings.Contains(pathVal, p) {
+			pathVal = p + ":" + pathVal
+		}
+	}
+	found := false
+	for i, e := range env {
+		if strings.HasPrefix(e, "PATH=") {
+			env[i] = "PATH=" + pathVal
+			found = true
+			break
+		}
+	}
+	if !found {
+		env = append(env, "PATH="+pathVal)
+	}
+	cmd.Env = env
+	return cmd
+}
 
 var gitURLRegex = regexp.MustCompile(`(?:https://github\.com/|git@github\.com:)([^/]+)/([^/\.]+)(?:\.git)?`)
 
@@ -90,7 +147,7 @@ func (s *Service) ListIssues(repo *RepoInfo, state string, search string) ([]Iss
 		args = append(args, "--search", search)
 	}
 
-	cmd := exec.Command("gh", args...)
+	cmd := ghCommand(args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("gh issue list failed: %s: %w", string(out), err)
@@ -185,7 +242,7 @@ func (s *Service) GetIssue(repo *RepoInfo, number int) (*IssueDetail, error) {
 
 	args := []string{"issue", "view", strconv.Itoa(number), "--repo", repo.FullName,
 		"--json", "number,title,body,state,labels,assignees,author,comments,createdAt,updatedAt,url,closedAt"}
-	cmd := exec.Command("gh", args...)
+	cmd := ghCommand(args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("gh issue view failed: %s: %w", string(out), err)
@@ -276,7 +333,7 @@ func (s *Service) CreateIssue(repo *RepoInfo, req CreateIssueRequest) (*Issue, e
 		args = append(args, "--assignee", a)
 	}
 
-	cmd := exec.Command("gh", args...)
+	cmd := ghCommand(args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("gh issue create failed: %s: %w", string(out), err)
@@ -333,7 +390,7 @@ func (s *Service) UpdateIssue(repo *RepoInfo, number int, req UpdateIssueRequest
 	}
 
 	if needsEdit {
-		cmd := exec.Command("gh", editArgs...)
+		cmd := ghCommand(editArgs...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return nil, fmt.Errorf("gh issue edit failed: %s: %w", string(out), err)
 		}
@@ -343,12 +400,12 @@ func (s *Service) UpdateIssue(repo *RepoInfo, number int, req UpdateIssueRequest
 	if req.State != nil {
 		st := strings.ToLower(*req.State)
 		if st == "closed" {
-			cmd := exec.Command("gh", "issue", "close", numStr, "--repo", repo.FullName)
+			cmd := ghCommand("issue", "close", numStr, "--repo", repo.FullName)
 			if out, err := cmd.CombinedOutput(); err != nil {
 				return nil, fmt.Errorf("gh issue close failed: %s: %w", string(out), err)
 			}
 		} else if st == "open" {
-			cmd := exec.Command("gh", "issue", "reopen", numStr, "--repo", repo.FullName)
+			cmd := ghCommand("issue", "reopen", numStr, "--repo", repo.FullName)
 			if out, err := cmd.CombinedOutput(); err != nil {
 				return nil, fmt.Errorf("gh issue reopen failed: %s: %w", string(out), err)
 			}
@@ -369,7 +426,7 @@ func (s *Service) AddIssueComment(repo *RepoInfo, number int, body string) error
 		return fmt.Errorf("repository info required")
 	}
 
-	cmd := exec.Command("gh", "issue", "comment", strconv.Itoa(number), "--repo", repo.FullName, "--body", body)
+	cmd := ghCommand("issue", "comment", strconv.Itoa(number), "--repo", repo.FullName, "--body", body)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("gh issue comment failed: %s: %w", string(out), err)
 	}
@@ -387,10 +444,10 @@ func (s *Service) ListPullRequests(repo *RepoInfo, state string) ([]PullRequest,
 		st = "all"
 	}
 
-	args := []string{"pr", "list", "--repo", repo.FullName, "--state", st, "--limit", "50",
+	args := []string{"pr", "list", "--repo", repo.FullName, "--state", st, "--limit", "100",
 		"--json", "number,title,body,state,isDraft,headRefName,baseRefName,author,labels,assignees,reviewDecision,createdAt,updatedAt,url,mergedAt"}
 
-	cmd := exec.Command("gh", args...)
+	cmd := ghCommand(args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("gh pr list failed: %s: %w", string(out), err)
@@ -467,7 +524,7 @@ func (s *Service) GetPullRequest(repo *RepoInfo, number int) (*PullRequestDetail
 	args := []string{"pr", "view", strconv.Itoa(number), "--repo", repo.FullName,
 		"--json", "number,title,body,state,isDraft,headRefName,baseRefName,author,labels,assignees,reviewDecision,comments,createdAt,updatedAt,url,mergedAt"}
 
-	cmd := exec.Command("gh", args...)
+	cmd := ghCommand(args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("gh pr view failed: %s: %w", string(out), err)
@@ -554,7 +611,7 @@ func (s *Service) ListProjects(repo *RepoInfo) ([]ProjectBoard, error) {
 	}
 
 	// Try owner projects first
-	cmd := exec.Command("gh", "project", "list", "--owner", repo.Owner, "--limit", "30",
+	cmd := ghCommand("project", "list", "--owner", repo.Owner, "--limit", "30",
 		"--json", "id,number,title,shortDescription,url,closed")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -591,7 +648,7 @@ func (s *Service) getProjectV2Board(repo *RepoInfo, projectNumber int) (*KanbanB
 		return nil, fmt.Errorf("invalid project number")
 	}
 
-	cmd := exec.Command("gh", "project", "item-list", strconv.Itoa(projectNumber),
+	cmd := ghCommand("project", "item-list", strconv.Itoa(projectNumber),
 		"--owner", repo.Owner, "--format", "json", "--limit", "100")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -857,7 +914,7 @@ func (s *Service) MoveKanbanCard(repo *RepoInfo, req *MoveKanbanCardRequest) err
 		case "done":
 			statusValue = "Done"
 		}
-		cmdEdit := exec.Command("gh", "project", "item-edit", "--id", req.ProjectItemID,
+		cmdEdit := ghCommand("project", "item-edit", "--id", req.ProjectItemID,
 			"--text", statusValue)
 		_ = cmdEdit.Run()
 	}
@@ -866,15 +923,15 @@ func (s *Service) MoveKanbanCard(repo *RepoInfo, req *MoveKanbanCardRequest) err
 	if cardType == "pr" {
 		switch targetCol {
 		case "done":
-			cmd := exec.Command("gh", "pr", "close", strconv.Itoa(req.Number), "--repo", repo.FullName)
+			cmd := ghCommand("pr", "close", strconv.Itoa(req.Number), "--repo", repo.FullName)
 			if out, err := cmd.CombinedOutput(); err != nil {
 				return fmt.Errorf("failed to close PR: %s: %w", string(out), err)
 			}
 		case "review":
-			cmd := exec.Command("gh", "pr", "ready", strconv.Itoa(req.Number), "--repo", repo.FullName)
+			cmd := ghCommand("pr", "ready", strconv.Itoa(req.Number), "--repo", repo.FullName)
 			_ = cmd.Run()
 		case "in_progress":
-			cmd := exec.Command("gh", "pr", "ready", "--undo", strconv.Itoa(req.Number), "--repo", repo.FullName)
+			cmd := ghCommand("pr", "ready", "--undo", strconv.Itoa(req.Number), "--repo", repo.FullName)
 			_ = cmd.Run()
 		}
 		return nil
@@ -969,7 +1026,139 @@ func (s *Service) GetAgentTasks(workspacePath string) ([]AgentTaskSummary, error
 	if s.tracker == nil {
 		return []AgentTaskSummary{}, nil
 	}
-	return s.tracker.ListWorkspaceTasks(workspacePath)
+	tasks, err := s.tracker.ListWorkspaceTasks(workspacePath)
+	if err != nil {
+		return nil, err
+	}
+	repo, _ := s.DetectRepository(workspacePath)
+	return s.enrichTasksWithWorkItems(repo, tasks), nil
+}
+
+func (s *Service) enrichTasksWithWorkItems(repo *RepoInfo, tasks []AgentTaskSummary) []AgentTaskSummary {
+	if len(tasks) == 0 {
+		return tasks
+	}
+	issueMap := make(map[int]Issue)
+	prMap := make(map[int]PullRequest)
+	repoFullName := ""
+	if repo != nil {
+		repoFullName = repo.FullName
+		if issues, err := s.ListIssues(repo, "all", ""); err == nil {
+			for _, iss := range issues {
+				issueMap[iss.Number] = iss
+			}
+		}
+		if prs, err := s.ListPullRequests(repo, "all"); err == nil {
+			for _, p := range prs {
+				prMap[p.Number] = p
+			}
+		}
+	}
+
+	for i := range tasks {
+		t := &tasks[i]
+		var refs []WorkItemRef
+		seen := make(map[string]bool)
+
+		// Bound issue
+		if t.BoundIssueNumber > 0 {
+			key := fmt.Sprintf("issue-%d", t.BoundIssueNumber)
+			if !seen[key] {
+				seen[key] = true
+				state := "open"
+				url := ""
+				title := ""
+				if iss, ok := issueMap[t.BoundIssueNumber]; ok {
+					state = iss.State
+					url = iss.URL
+					title = iss.Title
+				} else if repoFullName != "" {
+					url = fmt.Sprintf("https://github.com/%s/issues/%d", repoFullName, t.BoundIssueNumber)
+				}
+				refs = append(refs, WorkItemRef{
+					Type:   "issue",
+					Number: t.BoundIssueNumber,
+					State:  state,
+					URL:    url,
+					Title:  title,
+				})
+			}
+		}
+
+		// Working issues
+		for _, num := range t.WorkingIssues {
+			if num <= 0 {
+				continue
+			}
+			// Check if this number is actually a known PR
+			if pr, ok := prMap[num]; ok {
+				key := fmt.Sprintf("pr-%d", num)
+				if !seen[key] {
+					seen[key] = true
+					refs = append(refs, WorkItemRef{
+						Type:   "pr",
+						Number: num,
+						State:  pr.State,
+						URL:    pr.URL,
+						Title:  pr.Title,
+					})
+				}
+				continue
+			}
+
+			key := fmt.Sprintf("issue-%d", num)
+			if !seen[key] {
+				seen[key] = true
+				state := "open"
+				url := ""
+				title := ""
+				if iss, ok := issueMap[num]; ok {
+					state = iss.State
+					url = iss.URL
+					title = iss.Title
+				} else if repoFullName != "" {
+					url = fmt.Sprintf("https://github.com/%s/issues/%d", repoFullName, num)
+				}
+				refs = append(refs, WorkItemRef{
+					Type:   "issue",
+					Number: num,
+					State:  state,
+					URL:    url,
+					Title:  title,
+				})
+			}
+		}
+
+		// Working PRs
+		for _, num := range t.WorkingPRs {
+			if num <= 0 {
+				continue
+			}
+			key := fmt.Sprintf("pr-%d", num)
+			if !seen[key] {
+				seen[key] = true
+				state := "closed"
+				url := ""
+				title := ""
+				if pr, ok := prMap[num]; ok {
+					state = pr.State
+					url = pr.URL
+					title = pr.Title
+				} else if repoFullName != "" {
+					url = fmt.Sprintf("https://github.com/%s/pull/%d", repoFullName, num)
+				}
+				refs = append(refs, WorkItemRef{
+					Type:   "pr",
+					Number: num,
+					State:  state,
+					URL:    url,
+					Title:  title,
+				})
+			}
+		}
+		t.WorkItems = refs
+	}
+	return tasks
 }
 
 // BindTask associates a conversation with an issue and sets an agent label.
@@ -994,6 +1183,22 @@ func (s *Service) SetAgentLabel(convID string, label string) error {
 		return fmt.Errorf("store unavailable")
 	}
 	return s.store.SetAgentLabel(convID, label)
+}
+
+// ReportAgentTask records a self-reported agent task and updates bindings.
+func (s *Service) ReportAgentTask(workspacePath string, task SelfReportedTask) error {
+	if err := ReportAgentTask(workspacePath, task); err != nil {
+		return err
+	}
+	if s.store != nil {
+		if task.AgentLabel != "" {
+			_ = s.store.SetAgentLabel(task.ConversationID, task.AgentLabel)
+		}
+		if len(task.Issues) > 0 {
+			_ = s.store.BindIssue(task.ConversationID, task.Issues[0])
+		}
+	}
+	return nil
 }
 
 // FormatContextForChat produces structured markdown suitable for dragging or injecting into agent chat.

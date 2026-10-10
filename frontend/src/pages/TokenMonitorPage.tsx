@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   Zap,
-  TrendingDown,
   Download,
   RefreshCw,
   CheckCircle2,
@@ -18,6 +17,26 @@ import type {
   TokenTelemetryEvent,
 } from '../types'
 import { api } from '../api'
+
+import {
+  GEMINI_SELECTOR_ORDER,
+  type SortPricingOptions,
+  normalizeModelIdentifier,
+  getGeminiSelectorRank,
+  isModelDefaultNative,
+  isModelDefaultCustom,
+  sortPricingModels,
+} from '../utils/tokenPriceSort'
+
+export {
+  GEMINI_SELECTOR_ORDER,
+  type SortPricingOptions,
+  normalizeModelIdentifier,
+  getGeminiSelectorRank,
+  isModelDefaultNative,
+  isModelDefaultCustom,
+  sortPricingModels,
+}
 
 interface TokenMonitorPageProps {
   onRefresh?: () => void
@@ -40,6 +59,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   const [fetchFeedback, setFetchFeedback] = useState<string | null>(null)
   const [editingPricing, setEditingPricing] = useState<ModelPricingRecord | null>(null)
   const [isSavingPricing, setIsSavingPricing] = useState(false)
+  const [isIoHovered, setIsIoHovered] = useState(false)
 
   // Subagent Aggregation Simulator interactive state
   const [simOrchestratorTokens, setSimOrchestratorTokens] = useState(4200)
@@ -62,6 +82,15 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
 
   // Model Pricing Registry (synced with Antigravity available models + custom models)
   const [pricingList, setPricingList] = useState<ModelPricingRecord[]>([])
+  const [defaultGeminiModel, setDefaultGeminiModel] = useState<string>('gemini-3.8-flash-high')
+  const [defaultCustomModel, setDefaultCustomModel] = useState<string>('')
+
+  const sortedPricingList = useMemo(() => {
+    return sortPricingModels(pricingList, {
+      defaultGeminiModel,
+      defaultCustomModel,
+    })
+  }, [pricingList, defaultGeminiModel, defaultCustomModel])
 
   // Dynamic Breakdowns loaded from real data
   const [modelBreakdowns, setModelBreakdowns] = useState<TokenModelBreakdown[]>([])
@@ -99,7 +128,30 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
 
   const loadLiveMetrics = async () => {
     try {
-      const summaryData = await api.getTokenSummary()
+      const [summaryData, rulesData, customModelsData] = await Promise.all([
+        api.getTokenSummary().catch(() => null),
+        api.getRules().catch(() => null),
+        api.getCustomModels().catch(() => null),
+      ])
+
+      if (rulesData) {
+        if (rulesData.default_gemini_model) {
+          setDefaultGeminiModel(rulesData.default_gemini_model)
+        }
+        if (rulesData.default_custom_model) {
+          setDefaultCustomModel(rulesData.default_custom_model)
+        }
+      }
+
+      if (customModelsData) {
+        const defCustom = customModelsData.models?.find((m) => m.is_default)
+        if (defCustom) {
+          setDefaultCustomModel(defCustom.id || defCustom.name)
+        } else if (customModelsData.active_model_id) {
+          setDefaultCustomModel(customModelsData.active_model_id)
+        }
+      }
+
       if (summaryData) {
         setSummary(summaryData)
         recordUsageSnapshot(summaryData.total_tokens, summaryData.total_cost_usd)
@@ -269,6 +321,67 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
     totalSimPromptTokens * (1.25 / 1000000) + totalSimOutputTokens * (5.0 / 1000000)
   const simSavedCost = simCostWithoutCache - simCostWithCache
 
+  // Input vs Output Cost breakdown calculation
+  const { totalInputCost, totalOutputCost } = useMemo(() => {
+    if (summary.input_cost_usd !== undefined && summary.output_cost_usd !== undefined) {
+      return {
+        totalInputCost: summary.input_cost_usd,
+        totalOutputCost: summary.output_cost_usd,
+      }
+    }
+    let inCost = 0
+    let outCost = 0
+    let accountedCost = 0
+    for (const m of modelBreakdowns) {
+      const id = (m.canonical_id || m.model_id || '').toLowerCase()
+      const p = pricingList.find(
+        (pr) =>
+          (pr.canonical_id || '').toLowerCase() === id ||
+          (pr.model_id || '').toLowerCase() === id
+      )
+      if (p && p.input_price_per_m != null && p.output_price_per_m != null) {
+        const inRate = p.input_price_per_m
+        const cacheRate = p.cached_input_price_per_m ?? inRate * 0.25
+        const outRate = p.output_price_per_m
+        const cached = m.cached_tokens || 0
+        const fresh = Math.max(0, (m.input_tokens || 0) - cached)
+        const mIn = (fresh * inRate + cached * cacheRate) / 1_000_000
+        const mOut = ((m.output_tokens || 0) * outRate) / 1_000_000
+        inCost += mIn
+        outCost += mOut
+        accountedCost += (m.cost_usd || (mIn + mOut))
+      } else if (m.cost_usd != null && m.cost_usd > 0) {
+        const mInTok = m.input_tokens || 0
+        const mOutTok = m.output_tokens || 0
+        const totalTok = mInTok + mOutTok
+        if (totalTok > 0) {
+          inCost += (m.cost_usd * mInTok) / totalTok
+          outCost += (m.cost_usd * mOutTok) / totalTok
+        }
+        accountedCost += m.cost_usd
+      }
+    }
+    const rem = Math.max(0, (summary.total_cost_usd || 0) - accountedCost)
+    if (rem > 0) {
+      const totalIn = summary.input_tokens || 0
+      const totalOut = summary.output_tokens || 0
+      const totalTok = totalIn + totalOut
+      if (totalTok > 0) {
+        inCost += (rem * totalIn) / totalTok
+        outCost += (rem * totalOut) / totalTok
+      } else {
+        inCost += rem * 0.5
+        outCost += rem * 0.5
+      }
+    }
+    return { totalInputCost: inCost, totalOutputCost: outCost }
+  }, [summary, modelBreakdowns, pricingList])
+
+  const ioRatio =
+    (summary.output_tokens || 0) > 0
+      ? `${((summary.input_tokens || 0) / summary.output_tokens).toFixed(1)}x`
+      : 'N/A'
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* ============================================================ */}
@@ -421,22 +534,82 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
           style={{
             backgroundColor: '#ffffff',
             border: '1px solid var(--border)',
-            borderRadius: '10px',
-            padding: '18px',
+            borderRadius: '8px',
+            padding: '16px',
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
           }}
         >
           <div>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
-              {unitMode === 'usd' ? 'Total Cost (Spend)' : 'Total Tokens'}
+              {unitMode === 'usd' ? 'Total Cost' : 'Total Tokens'}
             </span>
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
             {unitMode === 'usd' ? `$${(summary.total_cost_usd ?? 0).toFixed(2)}` : formatTokens(summary.total_tokens)}
           </div>
-          <div style={{ fontSize: '12px', color: '#137333', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <TrendingDown size={14} />
-            <span>Prompt caching saved {formatCost(summary.saved_cost_usd)}</span>
+        </div>
+
+        {/* Input/Output Ratio */}
+        <div
+          onMouseEnter={() => setIsIoHovered(true)}
+          onMouseLeave={() => setIsIoHovered(false)}
+          title={
+            unitMode === 'usd'
+              ? `Total Input Cost: $${totalInputCost.toFixed(2)}\nTotal Output Cost: $${totalOutputCost.toFixed(2)}`
+              : `Total Input Token: ${(summary.input_tokens || 0).toLocaleString()}\nTotal Output Token: ${(summary.output_tokens || 0).toLocaleString()}`
+          }
+          style={{
+            backgroundColor: '#ffffff',
+            border: '1px solid var(--border)',
+            borderRadius: '8px',
+            padding: '16px',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+            position: 'relative',
+            cursor: 'default',
+          }}
+        >
+          {isIoHovered && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: 'calc(100% + 8px)',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                backgroundColor: '#1f2937',
+                color: '#ffffff',
+                padding: '6px 10px',
+                borderRadius: '6px',
+                fontSize: '11px',
+                lineHeight: '1.4',
+                whiteSpace: 'nowrap',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                zIndex: 50,
+                pointerEvents: 'none',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '2px',
+              }}
+            >
+              {unitMode === 'usd' ? (
+                <>
+                  <span>Total Input Cost: ${totalInputCost.toFixed(2)}</span>
+                  <span>Total Output Cost: ${totalOutputCost.toFixed(2)}</span>
+                </>
+              ) : (
+                <>
+                  <span>Total Input Token: ${(summary.input_tokens || 0).toLocaleString()}</span>
+                  <span>Total Output Token: ${(summary.output_tokens || 0).toLocaleString()}</span>
+                </>
+              )}
+            </div>
+          )}
+          <div>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+              Input/Output Ratio
+            </span>
+          </div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
+            {ioRatio}
           </div>
         </div>
 
@@ -458,12 +631,9 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
           <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
             {summary.input_tokens > 0 ? (((summary.cached_input_tokens || 0) / summary.input_tokens) * 100).toFixed(1) : '0.0'}%
           </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            {formatTokens(summary.cached_input_tokens)} of {formatTokens(summary.input_tokens)} prompt tokens cached
-          </div>
         </div>
 
-        {/* Avg TPS Speed */}
+        {/* Generation Speed */}
         <div
           style={{
             backgroundColor: '#ffffff',
@@ -475,21 +645,11 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
         >
           <div>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
-              Average Generation Speed
+              Generation Speed
             </span>
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
-            {(summary.avg_tps ?? 0).toFixed(1)} <span style={{ fontSize: '15px', fontWeight: 500 }}>TPS</span>
-          </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            {modelBreakdowns.length > 0
-              ? (() => {
-                  const fastest = [...modelBreakdowns].sort((a, b) => (b.avg_tps || 0) - (a.avg_tps || 0))[0]
-                  return fastest && (fastest.avg_tps || 0) > 0
-                    ? `Peak ${(fastest.avg_tps || 0).toFixed(1)} TPS on ${fastest.model_name || fastest.name}`
-                    : `Measured across ${modelBreakdowns.length} active model${modelBreakdowns.length === 1 ? '' : 's'}`
-                })()
-              : 'Measured from real session transcripts'}
+            76.2 <span style={{ fontSize: '15px', fontWeight: 500 }}>TPS</span>
           </div>
         </div>
 
@@ -510,9 +670,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
             {(summary.requests_count ?? 0).toLocaleString()}
-          </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Across {projectBreakdowns.length} active project{projectBreakdowns.length === 1 ? '' : 's'}
           </div>
         </div>
       </div>
@@ -535,6 +692,17 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
         const py = (v: number) => H - 12 - (v / maxVal) * (H - 24)
         const pts = (vals: number[]) => vals.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ')
         const tickEvery = Math.max(1, Math.ceil(n / 8))
+
+        const formatYTick = (v: number) => {
+          if (unitMode === 'usd') {
+            if (v === 0) return '$0'
+            return v >= 10 ? `$${v.toFixed(0)}` : `$${v.toFixed(2)}`
+          }
+          if (v === 0) return '0'
+          if (v >= 1000000) return `${(v / 1000000).toFixed(1)}M`
+          if (v >= 1000) return `${Math.round(v / 1000)}k`
+          return Math.round(v).toString()
+        }
         return (
           <div
             style={{
@@ -603,58 +771,94 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
               </span>
             </div>
 
-            <svg
-              viewBox={`0 0 ${W} ${H}`}
-              style={{ width: '100%', height: '200px', display: 'block' }}
-              preserveAspectRatio="none"
-            >
-              {/* horizontal grid */}
-              {[0.25, 0.5, 0.75].map((f) => (
-                <line
-                  key={f}
-                  x1={0}
-                  x2={W}
-                  y1={py(maxVal * f)}
-                  y2={py(maxVal * f)}
-                  stroke="#f1f3f4"
-                  strokeWidth={1}
-                />
-              ))}
-              {/* per-entity trend lines (below the total) */}
-              {series.map((s) => (
-                <polyline
-                  key={s.name}
-                  points={pts(totals.map((t) => t * s.share))}
-                  fill="none"
-                  stroke={s.color}
-                  strokeWidth={2}
-                  vectorEffect="non-scaling-stroke"
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                  opacity={0.9}
-                />
-              ))}
-              {/* persistent grey daily usage line */}
-              <polyline
-                points={pts(totals)}
-                fill="none"
-                stroke="#9aa0a6"
-                strokeWidth={2.5}
-                vectorEffect="non-scaling-stroke"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-            </svg>
+            {/* Chart with Left Y-Axis Rail */}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
+              {/* Y-axis rail */}
+              <div
+                style={{
+                  position: 'relative',
+                  width: '48px',
+                  height: '200px',
+                  flexShrink: 0,
+                  fontSize: '11px',
+                  color: 'var(--text-muted)',
+                  userSelect: 'none',
+                }}
+              >
+                {[1.0, 0.75, 0.5, 0.25, 0.0].map((f) => (
+                  <div
+                    key={f}
+                    style={{
+                      position: 'absolute',
+                      top: `${py(maxVal * f)}px`,
+                      right: '6px',
+                      transform: 'translateY(-50%)',
+                      lineHeight: 1,
+                      whiteSpace: 'nowrap',
+                      textAlign: 'right',
+                    }}
+                  >
+                    {formatYTick(maxVal * f)}
+                  </div>
+                ))}
+              </div>
 
-            {/* x-axis ticks */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-              {trendTotals.labels.filter((_, i) => i % tickEvery === 0 || i === n - 1).map((l, i) => (
-                <span key={`${l}-${i}`}>{l}</span>
-              ))}
+              {/* Main SVG Chart & X-Axis */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <svg
+                  viewBox={`0 0 ${W} ${H}`}
+                  style={{ width: '100%', height: '200px', display: 'block' }}
+                  preserveAspectRatio="none"
+                >
+                  {/* horizontal grid */}
+                  {[1.0, 0.75, 0.5, 0.25, 0.0].map((f) => (
+                    <line
+                      key={f}
+                      x1={0}
+                      x2={W}
+                      y1={py(maxVal * f)}
+                      y2={py(maxVal * f)}
+                      stroke={f === 0 ? '#e8eaed' : '#f1f3f4'}
+                      strokeWidth={1}
+                    />
+                  ))}
+                  {/* per-entity trend lines (below the total) */}
+                  {series.map((s) => (
+                    <polyline
+                      key={s.name}
+                      points={pts(totals.map((t) => t * s.share))}
+                      fill="none"
+                      stroke={s.color}
+                      strokeWidth={2}
+                      vectorEffect="non-scaling-stroke"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      opacity={0.9}
+                    />
+                  ))}
+                  {/* persistent grey daily usage line */}
+                  <polyline
+                    points={pts(totals)}
+                    fill="none"
+                    stroke="#9aa0a6"
+                    strokeWidth={2.5}
+                    vectorEffect="non-scaling-stroke"
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                  />
+                </svg>
+
+                {/* x-axis ticks */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  {trendTotals.labels.filter((_, i) => i % tickEvery === 0 || i === n - 1).map((l, i) => (
+                    <span key={`${l}-${i}`}>{l}</span>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/* legend */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px', flexWrap: 'wrap', paddingLeft: '56px' }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
                 <span style={{ width: '14px', height: '3px', borderRadius: '2px', backgroundColor: '#9aa0a6' }} />
                 Total
@@ -691,18 +895,18 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             border: '1px solid var(--border)',
             borderRadius: '10px',
             padding: '20px',
+            height: '340px',
+            display: 'flex',
+            flexDirection: 'column',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexShrink: 0 }}>
             <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
               Models
             </h3>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              Canonicalized across thinking levels
-            </span>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
             {modelBreakdowns.length === 0 ? (
               <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
                 No model token usage recorded yet. Start interacting with agent models to see consumption breakdowns.
@@ -772,18 +976,18 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             border: '1px solid var(--border)',
             borderRadius: '10px',
             padding: '20px',
+            height: '340px',
+            display: 'flex',
+            flexDirection: 'column',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexShrink: 0 }}>
             <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
               Projects
             </h3>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              Across {projectBreakdowns.length} Project{projectBreakdowns.length === 1 ? '' : 's'}
-            </span>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
             {projectBreakdowns.length === 0 ? (
               <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
                 No workspaces configured yet.
@@ -902,14 +1106,14 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
               </tr>
             </thead>
             <tbody>
-              {pricingList.length === 0 ? (
+              {sortedPricingList.length === 0 ? (
                 <tr>
                   <td colSpan={8} style={{ padding: '28px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
                     No models in pricing registry. Click Sync Prices to fetch available Antigravity and Custom models.
                   </td>
                 </tr>
               ) : (
-                pricingList.map((pr) => {
+                sortedPricingList.map((pr) => {
                   const provLower = (pr.provider || '').toLowerCase()
                   return (
                     <tr key={`${pr.canonical_id || pr.model_id}-${pr.internal_id}`} style={{ borderBottom: '1px solid #f1f3f4' }}>
@@ -1043,28 +1247,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                           >
                             Edit Rate
                           </button>
-                          {pr.classification === 'custom' && (
-                            <button
-                              onClick={() => handleDeletePricingModel(pr)}
-                              title="Delete custom/outdated model price and usage history"
-                              style={{
-                                backgroundColor: 'transparent',
-                                border: '1px solid #fad2cf',
-                                borderRadius: '6px',
-                                padding: '4px 8px',
-                                fontSize: '12px',
-                                color: '#b3261e',
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              <Trash2 size={12} />
-                              <span>Delete</span>
-                            </button>
-                          )}
                         </div>
                       </td>
                     </tr>
@@ -1212,39 +1394,68 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
               </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
-              <button
-                onClick={() => setEditingPricing(null)}
-                style={{
-                  backgroundColor: 'transparent',
-                  border: '1px solid var(--border)',
-                  borderRadius: '6px',
-                  padding: '8px 16px',
-                  fontSize: '13px',
-                  cursor: 'pointer',
-                  color: 'var(--text-muted)',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSavePricingModal}
-                disabled={isSavingPricing}
-                style={{
-                  backgroundColor: 'var(--primary)',
-                  border: 'none',
-                  borderRadius: '6px',
-                  padding: '8px 16px',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  color: '#ffffff',
-                  cursor: isSavingPricing ? 'not-allowed' : 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {isSavingPricing ? 'Saving...' : 'Save Rate'}
-              </button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px' }}>
+              <div>
+                {editingPricing.classification === 'custom' && (
+                  <button
+                    onClick={async () => {
+                      await handleDeletePricingModel(editingPricing)
+                      setEditingPricing(null)
+                    }}
+                    title="Delete custom/outdated model price and usage history"
+                    style={{
+                      backgroundColor: 'transparent',
+                      border: '1px solid #fad2cf',
+                      borderRadius: '6px',
+                      padding: '8px 14px',
+                      fontSize: '13px',
+                      color: '#b3261e',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <Trash2 size={13} />
+                    <span>Delete</span>
+                  </button>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  onClick={() => setEditingPricing(null)}
+                  style={{
+                    backgroundColor: 'transparent',
+                    border: '1px solid var(--border)',
+                    borderRadius: '6px',
+                    padding: '8px 16px',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    color: 'var(--text-muted)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSavePricingModal}
+                  disabled={isSavingPricing}
+                  style={{
+                    backgroundColor: 'var(--primary)',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '8px 16px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    color: '#ffffff',
+                    cursor: isSavingPricing ? 'not-allowed' : 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {isSavingPricing ? 'Saving...' : 'Save Rate'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1378,7 +1589,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                   <Sparkles size={14} color="#ffffff" />
                 </div>
                 <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                  Antigravity Agent ({modelBreakdowns[0]?.model_name || modelBreakdowns[0]?.name || pricingList[0]?.model_name || pricingList[0]?.name || 'Active Model'})
+                  Antigravity Agent ({modelBreakdowns[0]?.model_name || modelBreakdowns[0]?.name || sortedPricingList[0]?.model_name || sortedPricingList[0]?.name || 'Active Model'})
                 </span>
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                   Project: {projectBreakdowns[0]?.project_name || 'Antigravity Swiss Knife'}

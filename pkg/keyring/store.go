@@ -92,6 +92,193 @@ func parseTokenExpiry(raw string) time.Time {
 	return time.Time{}
 }
 
+func inspectMapForOAuth(m map[string]interface{}) (rf string, at string, id string, exp time.Time, found bool) {
+	if v, ok := m["refresh_token"].(string); ok && strings.TrimSpace(v) != "" {
+		rf = strings.TrimSpace(v)
+	}
+	if v, ok := m["access_token"].(string); ok && strings.TrimSpace(v) != "" {
+		at = strings.TrimSpace(v)
+	} else if v, ok := m["token"].(string); ok && strings.TrimSpace(v) != "" {
+		at = strings.TrimSpace(v)
+	}
+	if v, ok := m["id_token"].(string); ok && strings.TrimSpace(v) != "" {
+		id = strings.TrimSpace(v)
+	}
+	if v, ok := m["expiry"].(string); ok && strings.TrimSpace(v) != "" {
+		exp = parseTokenExpiry(v)
+	} else if v, ok := m["token_expiry"].(string); ok && strings.TrimSpace(v) != "" {
+		exp = parseTokenExpiry(v)
+	}
+
+	if rf != "" {
+		return rf, at, id, exp, true
+	}
+
+	for _, val := range m {
+		if subMap, ok := val.(map[string]interface{}); ok {
+			sRf, sAt, sId, sExp, sFound := inspectMapForOAuth(subMap)
+			if sFound {
+				return sRf, sAt, sId, sExp, true
+			}
+		}
+	}
+
+	return "", "", "", time.Time{}, false
+}
+
+// ExtractOAuthFromJSONOrNotes searches raw text or notes for a JSON object containing OAuth credentials.
+func ExtractOAuthFromJSONOrNotes(notes string) (refreshToken string, accessToken string, idToken string, expiry time.Time, ok bool) {
+	trimmed := strings.TrimSpace(notes)
+	if trimmed == "" {
+		return "", "", "", time.Time{}, false
+	}
+
+	// 1. Direct unmarshal of full string
+	var rootMap map[string]interface{}
+	if err := json.Unmarshal([]byte(trimmed), &rootMap); err == nil {
+		if rf, at, id, exp, found := inspectMapForOAuth(rootMap); found {
+			return rf, at, id, exp, true
+		}
+	} else {
+		candFixed := strings.ReplaceAll(trimmed, "'", "\"")
+		if errFixed := json.Unmarshal([]byte(candFixed), &rootMap); errFixed == nil {
+			if rf, at, id, exp, found := inspectMapForOAuth(rootMap); found {
+				return rf, at, id, exp, true
+			}
+		}
+	}
+
+	// 2. Scan substring blocks enclosed by '{' and '}'
+	for i := 0; i < len(notes); i++ {
+		if notes[i] != '{' {
+			continue
+		}
+		braceCount := 0
+		inString := false
+		escape := false
+		for j := i; j < len(notes); j++ {
+			c := notes[j]
+			if escape {
+				escape = false
+				continue
+			}
+			if c == '\\' {
+				escape = true
+				continue
+			}
+			if c == '"' {
+				inString = !inString
+				continue
+			}
+			if !inString {
+				if c == '{' {
+					braceCount++
+				} else if c == '}' {
+					braceCount--
+					if braceCount == 0 {
+						candidate := notes[i : j+1]
+						if strings.Contains(candidate, "refresh_token") {
+							var candMap map[string]interface{}
+							if err := json.Unmarshal([]byte(candidate), &candMap); err == nil {
+								if rf, at, id, exp, found := inspectMapForOAuth(candMap); found {
+									return rf, at, id, exp, true
+								}
+							}
+							candFixed := strings.ReplaceAll(candidate, "'", "\"")
+							if errFixed := json.Unmarshal([]byte(candFixed), &candMap); errFixed == nil {
+								if rf, at, id, exp, found := inspectMapForOAuth(candMap); found {
+									return rf, at, id, exp, true
+								}
+							}
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+
+	return "", "", "", time.Time{}, false
+}
+
+// RecoverCredentialsFromNotes checks if RefreshToken is empty, and if so, scans acc.Notes
+// for a JSON object containing "refresh_token" (and "token"/"access_token").
+// If found, it automatically populates acc.RefreshToken, acc.AccessToken, and acc.Credential.RefreshToken,
+// and clears any "Missing credentials" error status.
+func (acc *Account) RecoverCredentialsFromNotes() bool {
+	if acc == nil {
+		return false
+	}
+	if strings.TrimSpace(acc.RefreshToken) != "" {
+		if acc.Credential == nil {
+			acc.Credential = &OAuthCredential{
+				RefreshToken: acc.RefreshToken,
+				AccessToken:  acc.AccessToken,
+				IDToken:      acc.IDToken,
+			}
+			if !acc.TokenExpiry.IsZero() {
+				acc.Credential.Expiry = acc.TokenExpiry.UTC().Format(time.RFC3339Nano)
+			}
+		} else {
+			if acc.Credential.RefreshToken == "" {
+				acc.Credential.RefreshToken = acc.RefreshToken
+			}
+			if acc.Credential.AccessToken == "" {
+				acc.Credential.AccessToken = acc.AccessToken
+			}
+			if acc.Credential.IDToken == "" {
+				acc.Credential.IDToken = acc.IDToken
+			}
+		}
+		return false
+	}
+
+	rf, at, id, exp, ok := ExtractOAuthFromJSONOrNotes(acc.Notes)
+	if !ok || rf == "" {
+		return false
+	}
+
+	acc.RefreshToken = rf
+	if at != "" {
+		acc.AccessToken = at
+	}
+	if id != "" && acc.IDToken == "" {
+		acc.IDToken = id
+	}
+	if !exp.IsZero() && acc.TokenExpiry.IsZero() {
+		acc.TokenExpiry = exp
+	}
+
+	if acc.Credential == nil {
+		acc.Credential = &OAuthCredential{}
+	}
+	acc.Credential.RefreshToken = acc.RefreshToken
+	acc.Credential.AccessToken = acc.AccessToken
+	if acc.IDToken != "" {
+		acc.Credential.IDToken = acc.IDToken
+	}
+	if !acc.TokenExpiry.IsZero() {
+		acc.Credential.Expiry = acc.TokenExpiry.UTC().Format(time.RFC3339Nano)
+	}
+
+	// Clear any "Missing credentials" error status
+	if strings.Contains(strings.ToLower(acc.ErrorMessage), "missing credentials") {
+		acc.ErrorMessage = ""
+	}
+	if acc.Status == "ERROR" || acc.Status == "NEEDS_REAUTH" {
+		if acc.ErrorMessage == "" || strings.Contains(strings.ToLower(acc.ErrorMessage), "missing credentials") {
+			acc.ErrorMessage = ""
+			if acc.IsActive {
+				acc.Status = "ACTIVE"
+			} else {
+				acc.Status = "STANDBY"
+			}
+		}
+	}
+
+	return true
+}
+
 func (s *Store) load() error {
 	data, err := os.ReadFile(s.accountsPath)
 	if err != nil {
@@ -164,6 +351,21 @@ func (s *Store) load() error {
 					}
 				}
 
+				if strings.TrimSpace(refreshToken) == "" && item.Notes != "" {
+					if rf, at, id, exp, ok := ExtractOAuthFromJSONOrNotes(item.Notes); ok {
+						refreshToken = rf
+						if accessToken == "" && at != "" {
+							accessToken = at
+						}
+						if idToken == "" && id != "" {
+							idToken = id
+						}
+						if tokenExpiry.IsZero() && !exp.IsZero() {
+							tokenExpiry = exp
+						}
+					}
+				}
+
 				errMsg := ""
 				if strings.TrimSpace(refreshToken) == "" && status != "BANNED" && !core.IsRunningTests() {
 					status = "ERROR"
@@ -173,6 +375,33 @@ func (s *Store) load() error {
 					errMsg = "Missing credentials / re-authentication required"
 				} else if status == "ERROR" || status == "BANNED" {
 					errMsg = item.ErrorMessage
+					if strings.Contains(strings.ToLower(errMsg), "missing credentials") && strings.TrimSpace(refreshToken) != "" {
+						errMsg = ""
+						if isActive {
+							status = "ACTIVE"
+						} else {
+							status = "STANDBY"
+						}
+					}
+				}
+
+				var cred *OAuthCredential
+				if item.Credential != nil {
+					cred = &OAuthCredential{
+						AccessToken:  accessToken,
+						RefreshToken: refreshToken,
+						IDToken:      idToken,
+						Expiry:       item.Credential.Expiry,
+					}
+				} else if refreshToken != "" || accessToken != "" {
+					cred = &OAuthCredential{
+						AccessToken:  accessToken,
+						RefreshToken: refreshToken,
+						IDToken:      idToken,
+					}
+					if !tokenExpiry.IsZero() {
+						cred.Expiry = tokenExpiry.UTC().Format(time.RFC3339Nano)
+					}
 				}
 
 				acc := &Account{
@@ -194,7 +423,9 @@ func (s *Store) load() error {
 					Credits:              item.Credits,
 					EnableCreditOverages: item.EnableCreditOverages,
 					AllowClaudeGPT:       item.AllowClaudeGPT,
+					Credential:           cred,
 				}
+				acc.RecoverCredentialsFromNotes()
 				s.accounts[em] = acc
 			}
 			return nil
@@ -245,6 +476,21 @@ func (s *Store) load() error {
 				}
 			}
 
+			if strings.TrimSpace(refreshToken) == "" && item.Notes != "" {
+				if rf, at, id, exp, ok := ExtractOAuthFromJSONOrNotes(item.Notes); ok {
+					refreshToken = rf
+					if accessToken == "" && at != "" {
+						accessToken = at
+					}
+					if idToken == "" && id != "" {
+						idToken = id
+					}
+					if tokenExpiry.IsZero() && !exp.IsZero() {
+						tokenExpiry = exp
+					}
+				}
+			}
+
 			errMsg := ""
 			if strings.TrimSpace(refreshToken) == "" && status != "BANNED" && !core.IsRunningTests() {
 				status = "ERROR"
@@ -254,6 +500,33 @@ func (s *Store) load() error {
 				errMsg = "Missing credentials / re-authentication required"
 			} else if status == "ERROR" || status == "BANNED" {
 				errMsg = item.ErrorMessage
+				if strings.Contains(strings.ToLower(errMsg), "missing credentials") && strings.TrimSpace(refreshToken) != "" {
+					errMsg = ""
+					if isActive {
+						status = "ACTIVE"
+					} else {
+						status = "STANDBY"
+					}
+				}
+			}
+
+			var cred *OAuthCredential
+			if item.Credential != nil {
+				cred = &OAuthCredential{
+					AccessToken:  accessToken,
+					RefreshToken: refreshToken,
+					IDToken:      idToken,
+					Expiry:       item.Credential.Expiry,
+				}
+			} else if refreshToken != "" || accessToken != "" {
+				cred = &OAuthCredential{
+					AccessToken:  accessToken,
+					RefreshToken: refreshToken,
+					IDToken:      idToken,
+				}
+				if !tokenExpiry.IsZero() {
+					cred.Expiry = tokenExpiry.UTC().Format(time.RFC3339Nano)
+				}
 			}
 
 			acc := &Account{
@@ -275,7 +548,9 @@ func (s *Store) load() error {
 				Credits:              item.Credits,
 				EnableCreditOverages: item.EnableCreditOverages,
 				AllowClaudeGPT:       item.AllowClaudeGPT,
+				Credential:           cred,
 			}
+			acc.RecoverCredentialsFromNotes()
 			s.accounts[item.Email] = acc
 		}
 	}
@@ -329,6 +604,7 @@ func (s *Store) save() error {
 
 	accMap := make(map[string]exportedAccount)
 	for _, acc := range s.accounts {
+		acc.RecoverCredentialsFromNotes()
 		acc.IsActive = (s.activeEmail != "" && strings.EqualFold(acc.Email, s.activeEmail))
 		acc.HasTOTP = (acc.TOTPSecret != "")
 
@@ -426,6 +702,7 @@ func (s *Store) ListAccounts() []*Account {
 
 	list := make([]*Account, 0, len(s.accounts))
 	for _, acc := range s.accounts {
+		acc.RecoverCredentialsFromNotes()
 		copyAcc := *acc
 		list = append(list, &copyAcc)
 	}
@@ -465,6 +742,7 @@ func (s *Store) ExportAccounts() []AccountExport {
 
 	result := make([]AccountExport, 0, len(s.accounts))
 	for _, acc := range s.accounts {
+		acc.RecoverCredentialsFromNotes()
 		ea := AccountExport{
 			ID:                   acc.Email,
 			Email:                acc.Email,
@@ -644,6 +922,8 @@ func (s *Store) BatchImportAccounts(items []BatchImportItem) (int, error) {
 			acc.AllowClaudeGPT = *item.AllowClaudeGPT
 		}
 
+		acc.RecoverCredentialsFromNotes()
+
 		if (item.SetActive != nil && *item.SetActive) || acc.Status == "ACTIVE" {
 			s.activeEmail = email
 		}
@@ -686,6 +966,7 @@ func (s *Store) GetAccount(email string) (*Account, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: %s", core.ErrAccountNotFound, email)
 	}
+	acc.RecoverCredentialsFromNotes()
 	copyAcc := *acc
 	return &copyAcc, nil
 }
@@ -695,6 +976,7 @@ func (s *Store) AddOrUpdateAccount(acc *Account) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	acc.RecoverCredentialsFromNotes()
 	acc.HasTOTP = (acc.TOTPSecret != "")
 	if s.activeEmail == "" {
 		s.activeEmail = acc.Email
@@ -947,6 +1229,8 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 	acc.EnableCreditOverages = enableCreditOverages
 	acc.AllowClaudeGPT = allowClaudeGPT
 
+	acc.RecoverCredentialsFromNotes()
+
 	if setActive {
 		s.activeEmail = email
 		s.lastManualSwitchTime = time.Now()
@@ -1181,10 +1465,11 @@ func (s *Store) ActiveAccount() string {
 //
 // 2. If the running account is NOT in the vault:
 //   - If autoImport is true:
-//     Automatically imports the account into the vault, sets it as active,
-//     and synchronizes all 3 surfaces to this active account.
+//     Automatically adds the account to the vault as a STANDBY account (preserving the current active account,
+//     without switching or calling SyncAllSurfaces). Only if the vault was completely empty (activeEmail == ""
+//     and 0 accounts) is it initialized as active.
 //   - If autoImport is false:
-//     No account in Swiss Knife is treated as active (active_account: "", all IsActive: false).
+//     Preserves the current vault active account.
 func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, profileMgr *fingerprint.Store) (*Account, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1240,6 +1525,8 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 	}
 
 	if targetAcc != nil {
+		targetAcc.RecoverCredentialsFromNotes()
+
 		// Update tokens if detected tokens are non-empty and target has empty
 		if detected.RefreshToken != "" && targetAcc.RefreshToken == "" {
 			targetAcc.RefreshToken = detected.RefreshToken
@@ -1297,37 +1584,54 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 
 	// autoImport is true: import account automatically
 	label := "Imported (" + detected.SurfaceName + ")"
+
+	// If the vault was completely empty (s.activeEmail == "" and 0 accounts),
+	// then and only then may it be initialized as active.
+	if s.activeEmail == "" && len(s.accounts) == 0 {
+		acc := &Account{
+			Email:        detectedEmail,
+			Label:        label,
+			PlanTier:     "Free",
+			Status:       "ACTIVE",
+			Priority:     "High",
+			IsActive:     true,
+			AccessToken:  detected.AccessToken,
+			RefreshToken: detected.RefreshToken,
+			IDToken:      detected.IDToken,
+		}
+		acc.RecoverCredentialsFromNotes()
+		s.accounts[detectedEmail] = acc
+		s.activeEmail = detectedEmail
+		_ = s.save()
+		copyAcc := *acc
+		return &copyAcc, nil
+	}
+
+	// Vault is not completely empty: add to the vault as a STANDBY account,
+	// preserving the current active account. DO NOT switch active account!
+	// Do NOT set s.activeEmail = detectedEmail, and do NOT call SyncAllSurfaces.
 	acc := &Account{
 		Email:        detectedEmail,
 		Label:        label,
 		PlanTier:     "Free",
-		Status:       "ACTIVE",
+		Status:       "STANDBY",
 		Priority:     "High",
-		IsActive:     true,
+		IsActive:     false,
 		AccessToken:  detected.AccessToken,
 		RefreshToken: detected.RefreshToken,
 		IDToken:      detected.IDToken,
 	}
+	acc.RecoverCredentialsFromNotes()
 	s.accounts[detectedEmail] = acc
-	s.activeEmail = detectedEmail
-
-	for em, a := range s.accounts {
-		if !strings.EqualFold(em, detectedEmail) {
-			a.IsActive = false
-			if a.Status == "ACTIVE" {
-				a.Status = "STANDBY"
-			}
-		}
-	}
 	_ = s.save()
 
-	if acc.RefreshToken != "" || acc.AccessToken != "" {
-		allWithNew := append(allEmails, detectedEmail)
-		_ = SyncAllSurfaces(acc, allWithNew, profileMgr)
-		_ = s.save()
+	if s.activeEmail != "" {
+		if curr, ok := s.accounts[s.activeEmail]; ok && curr != nil {
+			copyAcc := *curr
+			return &copyAcc, nil
+		}
 	}
-	copyAcc := *acc
-	return &copyAcc, nil
+	return nil, nil
 }
 
 // ClearActiveAccount sets activeEmail to empty string and marks all accounts as inactive.

@@ -4,57 +4,44 @@
 
 <h1 align="center">Antigravity Swiss Knife</h1>
 
-<p align="center">
-  Open-source companion for Google Antigravity
-</p>
+Cross-platform companion for Google Antigravity
 
-<p align="center">
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#key-capabilities">Capabilities</a> •
-  <a href="#installation">Installation</a> •
-  <a href="#architecture">Architecture</a> •
-  <a href="#documentation-wiki">Documentation Wiki</a> •
-  <a href="#license">License</a>
-</p>
+[Features](#key-features)  • [Quick Start](#quick-start)  •  [GUI](#gui-examples)  •  [FAQ](#frequently-asked-questions)  •  [Wiki](#documentation-wiki)  •  [License](#license)
 
 ---
 
-Antigravity Swiss Knife is a local desktop companion and background daemon for Google Antigravity 2.0. It coordinates multi-account quotas across installed Antigravity applications, continues active conversations and subagents across account switches, auto-prunes local caches, and monitors local agent runtimes with zero external proxies.
+Antigravity Swiss Knife is a cross-platform local desktop companion and background daemon for Antigravity, which does NOT violet Google's Terms of Services.
 
-All credentials stay in your operating system's native secret storage (Linux Secret Service, macOS Keychain, Windows Credential Manager). All daemon communications run strictly over local loopback sockets.
+It supports Antigravity 2.0,  CLI,  Code Extension across Linux, Windows* and macOS*.
 
----
+...early stage...please raise issues...discuession...
 
-## Key Capabilities
+## Key Features
 
-- **Multi-App Fleet Sync**: Track and switch Google CloudCode accounts across Antigravity Desktop, CLI (`agy`), and Extension. Supports shared-account fleet mode or independent accounts per app with automated standby rotation on quota exhaustion.
-- **Conversation & Subagent Continuation**: Automatically captures active conversation context and running subagent tasks before account switches or app restarts, resuming them via Chrome DevTools Protocol (CDP) without requiring a manual user prompt.
-- **Cache Auto-Pruning**: Inspects and safely reclaims disk space across conversation databases, step outputs, and tool logs with configurable time and size thresholds (defaulting to unlimited).
-- **ACP Agent Mesh**: Discovers, monitors, and exchanges capabilities with 9 local Agent Client Protocol (ACP) nodes, including Antigravity 2.0, Antigravity CLI, Devin, OpenCode, DeepSeek Harness, Pi, Codex, Claude Code, and Cursor.
-- **Native Keyring Security & Tray**: Operates directly with host OS keyrings. Provides a lightweight system tray menu with real-time quota indicators and one-click account switching.
+![key_features](./images/key_features.png)
 
----
+## Quick Start
 
-## Installation
+### Installation
 
-Download ready-to-run installers from [Releases](https://github.com/ChillingWombat/AntigravitySwissKnife/releases):
+**Download ready-to-run installers from [Releases](https://github.com/ChillingWombat/AntigravitySwissKnife/releases)**
 
-| Platform | Package Format | Install Location |
-| :--- | :--- | :--- |
-| **Linux** | `.deb` package | `/opt/antigravity-swiss-knife` |
-| **Windows** | NSIS installer (`.exe`) | `%LOCALAPPDATA%\Programs\Antigravity Swiss Knife` |
-| **macOS** | Disk Image (`.dmg`) | `/Applications/Antigravity Swiss Knife.app` |
+<table class="markdown-table">
+  <tr><th>Platform</th><th>Package Format</th><th>Install Location</th></tr>
+  <tr><td>Linux</td><td>.deb package</td><td>/opt/antigravity-swiss-knife</td></tr>
+  <tr><td>Windows</td><td>NSIS installer (.exe)</td><td>%LOCALAPPDATA%\Programs\Antigravity Swiss Knife</td></tr>
+  <tr><td>macOS</td><td>Disk Image (.dmg)</td><td>/Applications/Antigravity Swiss Knife.app</td></tr>
+</table>
 
 ### Linux Dedicated Out-of-Tree Installer
+
 To install directly from source into your user directory (`~/.local/share/antigravity-swiss-knife`):
+
 ```bash
 npm run install:linux
 ```
+
 This bundles the companion daemon, installs desktop icons, and configures the desktop menu entry.
-
----
-
-## Quick Start
 
 ### Building from Source
 
@@ -67,34 +54,30 @@ npm run desktop
 ```
 
 To run only the headless companion daemon:
+
 ```bash
 ./bin/swiss daemon --web --addr 127.0.0.1:8765
 ```
 
----
+## GUI Examples
 
-## Architecture
+**Antigravity Swiss Knife**
 
-The system operates across three local tiers: an injected client runtime inside Antigravity 2.0, a React 19 supervisory desktop interface, and a headless pure-Go companion daemon (`bin/swiss daemon`) communicating over Unix domain sockets and loopback HTTP.
+**Antirgravity 2.0**
 
-```
-+------------------------------------------------------------------------+
-|                     Host Runtime (Antigravity 2.0)                     |
-+------------------------------------------------------------------------+
-                               | (CDP / DOM Injection)
-+------------------------------------------------------------------------+
-|             Supervisory Desktop Interface (Electron & React 19)        |
-+------------------------------------------------------------------------+
-                               | (Unix Domain Socket / Loopback HTTP)
-+------------------------------------------------------------------------+
-|               Companion Daemon Binary (bin/swiss daemon)               |
-+------------------------------------------------------------------------+
-                               |
-                               v
-            Operating System Keyring & SQLite Storage
-```
+## Frequently Asked Questions
 
----
+1. **What platforms does it support?**  
+It is designed to be cross-platform. However, due to personal limited time, this project was developed on Linux and done much more testing there than Windows and  macOS.
+2. **Does it supports API Proxy server?**  
+No, ...  violate ToS. ....each account
+3. **Will I get banned for using Account Switcher?**  
+No, ...(reference to ToS and  google emplyee's quoate)...
+4. **Does it allow having seperate Google accounts for subagents?**  
+No,...violate ToS..... it only custom models as subagents...
+5. **Are my credentials safe?**  
+Yes,............local only, can be password encrypted......
+6.
 
 ## Documentation Wiki
 
@@ -106,8 +89,6 @@ Comprehensive architecture specs, multi-app fleet guides, and developer workflow
 - [ACP Agent Mesh Expansion](https://github.com/ChillingWombat/AntigravitySwissKnife/wiki/ACP-Agent-Mesh-Expansion): Registered agent nodes, GUI vs CLI node architecture, and handshake protocol.
 - [Packaging, VM Validation & Installation](https://github.com/ChillingWombat/AntigravitySwissKnife/wiki/Packaging,-VM-Validation-and-Installation): Cross-platform release builds, Quickemu VM testing (Windows 11 & macOS), and Git worktrees.
 - [Security, Compliance & Cache Management](https://github.com/ChillingWombat/AntigravitySwissKnife/wiki/Security,-Compliance-and-Cache-Management): Google Terms of Service alignment, zero-proxy architecture, and cache pruning.
-
----
 
 ## License
 

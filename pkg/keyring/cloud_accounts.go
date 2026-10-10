@@ -427,10 +427,16 @@ except Exception:
 // SyncCloudAccountsActiveAccount updates is_active in ~/.antigravity-agent/cloud_accounts.db
 // so that third-party tools and queries see the same active account.
 func SyncCloudAccountsActiveAccount(homeDir, activeEmail string) error {
+	if os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" || core.IsRunningTests() || isTestMockEmail(activeEmail) {
+		return nil
+	}
 	if homeDir == "" {
 		homeDir, _ = os.UserHomeDir()
 	}
 	dbPath := filepath.Join(homeDir, ".antigravity-agent", "cloud_accounts.db")
+	if !isSafeTestWritePath(dbPath) {
+		return nil
+	}
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		return nil
 	}

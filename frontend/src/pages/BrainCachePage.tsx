@@ -4,7 +4,6 @@ import {
   RefreshCw,
   AlertCircle,
   CheckCircle2,
-  Info,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import type { CacheBreakdown, VaultStatus } from '../types'
@@ -289,27 +288,6 @@ export const BrainCachePage: React.FC = () => {
           </div>
         </div>
 
-        {/* Explanatory Banner */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: '10px',
-            backgroundColor: '#f8f9fa',
-            border: '1px solid var(--border)',
-            borderRadius: '8px',
-            padding: '12px 14px',
-            fontSize: '12px',
-            color: 'var(--text-muted)',
-            lineHeight: 1.5,
-            marginBottom: '16px',
-          }}
-        >
-          <Info size={16} color="var(--primary)" style={{ flexShrink: 0, marginTop: '2px' }} />
-          <div>
-            Antigravity deletes SQLite databases once chat history exceeds 500 sessions. The vault keeps filesystem hardlinks on Linux, macOS, and Windows. Pruned sessions restore automatically upon access; manual deletes inside Antigravity remove files from the vault.
-          </div>
-        </div>
 
         {/* Vault Setting & Action Gadget */}
         <div

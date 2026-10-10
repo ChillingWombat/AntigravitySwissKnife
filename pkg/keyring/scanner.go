@@ -76,7 +76,7 @@ func isTestMockEmail(email string) bool {
 	if norm == "" {
 		return true
 	}
-	if norm == "target@gmail.com" || strings.HasSuffix(norm, "@example.com") || strings.HasSuffix(norm, ".test") || strings.HasSuffix(norm, "@mock.test") {
+	if norm == "target@gmail.com" || strings.HasSuffix(norm, "@example.com") || strings.HasSuffix(norm, ".test") || strings.HasSuffix(norm, "@mock.test") || strings.Contains(norm, "fleet-shared") || strings.Contains(norm, "cli-user") {
 		return true
 	}
 	if strings.HasPrefix(norm, "mock_") || strings.HasPrefix(norm, "test_") || strings.HasPrefix(norm, "test.") {

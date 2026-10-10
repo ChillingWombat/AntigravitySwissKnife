@@ -145,6 +145,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const [switchFeedback, setSwitchFeedback] = useState<string | null>(null)
   const [errorDetailAccount, setErrorDetailAccount] = useState<AccountState | null>(null)
   const [isVerifyingErrorAccount, setIsVerifyingErrorAccount] = useState(false)
+  const isVerifyingRef = React.useRef<boolean>(false)
+  isVerifyingRef.current = isVerifyingErrorAccount
   const errorDetailFetchedAtRef = React.useRef<number>(0)
   const errorDetailPollingRef = React.useRef<boolean>(false)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; account: AccountState } | null>(null)
@@ -245,11 +247,13 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
         if (!q) return null
         const hasError = Boolean(q.error_status || q.error_message)
         if (!hasError && q.reset_horizon_text !== 'Not Polled' && !q.reset_horizon_text?.startsWith('Error')) {
-          setIsVerifyingErrorAccount(false)
-          setErrorDetailAccount((prev) =>
-            prev && prev.email.toLowerCase() === targetEmail.toLowerCase() ? null : prev
-          )
-          onRefresh()
+          if (isVerifyingRef.current) {
+            setIsVerifyingErrorAccount(false)
+            setErrorDetailAccount((prev) =>
+              prev && prev.email.toLowerCase() === targetEmail.toLowerCase() ? null : prev
+            )
+            onRefresh()
+          }
           return null
         }
         if (q.error_message) {
@@ -309,18 +313,20 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   }, [errorDetailAccount?.email, errorDetailAccount?.status, isVerifyingErrorAccount, pollErrorDetailAccount])
 
   useEffect(() => {
-    if (!errorDetailAccount?.email) return
+    if (!errorDetailAccount?.email || !isVerifyingErrorAccount) return
     const matching = accounts.find((a) => a.email.toLowerCase() === errorDetailAccount.email.toLowerCase())
     if (
       matching &&
       !matching.error_message &&
       !matching.status?.toUpperCase().includes('ERROR') &&
-      !matching.status?.toUpperCase().includes('BANNED')
+      !matching.status?.toUpperCase().includes('NEEDS_REAUTH') &&
+      !matching.status?.toUpperCase().includes('BANNED') &&
+      Boolean(matching.refresh_token?.trim())
     ) {
       setIsVerifyingErrorAccount(false)
       setErrorDetailAccount(null)
     }
-  }, [accounts, errorDetailAccount?.email])
+  }, [accounts, errorDetailAccount?.email, isVerifyingErrorAccount])
   const activeAccount = activeAccountEmail || fleet?.active_account || accounts.find((a) => a.is_active)?.email || ''
   const autoSwitchOn = rules?.auto_switch_enabled ?? false
   const threshold = rules?.auto_switch_threshold ?? 0.10
@@ -681,7 +687,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   src={antigravityLogo}
                   alt="Antigravity 2.0"
                   style={{
-                    height: '20px',
+                    height: '24px',
                     width: 'auto',
                     aspectRatio: '200 / 184',
                     display: 'block',

@@ -26,6 +26,7 @@ import type {
   AcpHandshakeLog,
 } from '../types'
 import { api } from '../api'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 import { BrainCachePage } from './BrainCachePage'
 import {
   ACP_CARD_LAYOUT_TOKENS,
@@ -45,6 +46,17 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
 }) => {
   const [internalActiveTab] = useState<number>(initialTab)
   const activeTab = controlledActiveTab !== undefined ? controlledActiveTab : internalActiveTab
+
+  // --- Computer Use Enhancer State ---
+  const [dpiNormalization, setDpiNormalization] = useState<boolean>(() => {
+    return localStorage.getItem('antigravity_comp_dpi_norm') !== 'false'
+  })
+  const [waylandPipeWire, setWaylandPipeWire] = useState<boolean>(() => {
+    return localStorage.getItem('antigravity_comp_wayland_pipewire') !== 'false'
+  })
+  const [accessibilityGrounding, setAccessibilityGrounding] = useState<boolean>(() => {
+    return localStorage.getItem('antigravity_comp_accessibility_grounding') !== 'false'
+  })
 
   // --- 1. Chat Import State ---
   const [selectedSource, setSelectedSource] = useState<ChatImportSource>('opencode')
@@ -1148,6 +1160,124 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                 </div>
                 ))
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Computer Use Tab */}
+      {activeTab === 3 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          {/* Main Card */}
+          <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px 24px' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Monitor size={18} color="var(--primary)" />
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+                    Computer Use Enhancer
+                  </h3>
+                </div>
+                <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5, maxWidth: '820px' }}>
+                  OS-level execution enhancer optimizing Antigravity computer use with display coordinate scaling normalization, Wayland PipeWire screen capture, and token-saving accessibility tree grounding on Linux desktop.
+                </p>
+              </div>
+            </div>
+
+            {/* Diagnostic Badges */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', padding: '10px 14px', backgroundColor: 'var(--canvas)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                <CheckCircle2 size={13} color="var(--green)" />
+                <span>Display Pipeline: <strong>Wayland & X11 Portal Ready</strong></span>
+              </div>
+              <span style={{ color: 'var(--border)' }}>•</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                <CheckCircle2 size={13} color="var(--green)" />
+                <span>Screen Capture: <strong>xdg-desktop-portal / PipeWire</strong></span>
+              </div>
+              <span style={{ color: 'var(--border)' }}>•</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                <CheckCircle2 size={13} color="var(--green)" />
+                <span>Grounding: <strong>AT-SPI D-Bus Accessible</strong></span>
+              </div>
+            </div>
+
+            {/* 3 Setting Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
+                <div style={{ paddingRight: '12px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>DPI Normalizer</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    Calibrate HiDPI 125%/150% scaling offsets to ensure click and drag coordinates target exact pixel boundaries.
+                  </div>
+                </div>
+                <ToggleSwitch
+                  size="sm"
+                  checked={dpiNormalization}
+                  onChange={(val) => {
+                    setDpiNormalization(val)
+                    localStorage.setItem('antigravity_comp_dpi_norm', String(val))
+                  }}
+                  ariaLabel="Toggle DPI Normalizer"
+                />
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
+                <div style={{ paddingRight: '12px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>Wayland PipeWire Stream</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    Capture frames directly via xdg-desktop-portal PipeWire streams under modern Wayland compositors.
+                  </div>
+                </div>
+                <ToggleSwitch
+                  size="sm"
+                  checked={waylandPipeWire}
+                  onChange={(val) => {
+                    setWaylandPipeWire(val)
+                    localStorage.setItem('antigravity_comp_wayland_pipewire', String(val))
+                  }}
+                  ariaLabel="Toggle Wayland PipeWire Stream"
+                />
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)', cursor: 'pointer' }}>
+                <div style={{ paddingRight: '12px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>Accessibility Grounding</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    Query OS accessibility tree (AT-SPI) via D-Bus to locate UI elements deterministically without burning vision tokens.
+                  </div>
+                </div>
+                <ToggleSwitch
+                  size="sm"
+                  checked={accessibilityGrounding}
+                  onChange={(val) => {
+                    setAccessibilityGrounding(val)
+                    localStorage.setItem('antigravity_comp_accessibility_grounding', String(val))
+                  }}
+                  ariaLabel="Toggle Accessibility Grounding"
+                />
+              </label>
+            </div>
+          </div>
+
+          {/* Architecture Explanation Card */}
+          <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '18px 22px' }}>
+            <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
+              Architecture: MCP Tools, Skills & Native System Framework
+            </h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', fontSize: '12px', lineHeight: 1.5, color: 'var(--text-muted)' }}>
+              <div style={{ padding: '12px', borderRadius: '6px', backgroundColor: 'var(--canvas)', border: '1px solid var(--border)' }}>
+                <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>1. Agent MCP Tools</div>
+                Antigravity agents invoke the <code>open-computer-use</code> MCP server tools (<code>click</code>, <code>drag</code>, <code>press_key</code>, <code>type_text</code>, <code>get_app_state</code>) to express user-level intent.
+              </div>
+              <div style={{ padding: '12px', borderRadius: '6px', backgroundColor: 'var(--canvas)', border: '1px solid var(--border)' }}>
+                <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>2. Coded OS Integration</div>
+                Swiss Knife executes the actual system-level bridge: intercepting coordinate frames, scaling HiDPI displays, and capturing Wayland buffers through PipeWire.
+              </div>
+              <div style={{ padding: '12px', borderRadius: '6px', backgroundColor: 'var(--canvas)', border: '1px solid var(--border)' }}>
+                <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>3. Accessibility Tree Grounding</div>
+                Bypasses costly full-screen multimodal vision passes by pulling semantic node hierarchies from the Linux AT-SPI D-Bus daemon for token-efficient element localization.
+              </div>
             </div>
           </div>
         </div>

@@ -650,6 +650,9 @@ func TestDetectProjects(t *testing.T) {
 }
 
 func TestLiveInjection(t *testing.T) {
+	if os.Getenv("ANTIGRAVITY_ENABLE_LIVE_TESTS") != "1" && os.Getenv("ANTIGRAVITY_LIVE_TEST") != "1" {
+		t.Skip("Skipping live test to protect running IDE session")
+	}
 	inj := NewInjector(0)
 	port, err := inj.FindDevToolsPort()
 	if err != nil {
@@ -727,6 +730,9 @@ func TestLiveInjection(t *testing.T) {
 }
 
 func TestInspectLiveSidebar(t *testing.T) {
+	if os.Getenv("ANTIGRAVITY_ENABLE_LIVE_TESTS") != "1" && os.Getenv("ANTIGRAVITY_LIVE_TEST") != "1" {
+		t.Skip("Skipping live test to protect running IDE session")
+	}
 	inj := NewInjector(0)
 	port, err := inj.FindDevToolsPort()
 	if err != nil {
@@ -856,6 +862,9 @@ func TestLiveRefreshUserStatus(t *testing.T) {
 }
 
 func TestGetLiveEmail(t *testing.T) {
+	if os.Getenv("ANTIGRAVITY_ENABLE_LIVE_TESTS") != "1" && os.Getenv("ANTIGRAVITY_LIVE_TEST") != "1" {
+		t.Skip("Skipping live test to protect running IDE session")
+	}
 	inj := NewInjector(0)
 	_, err := inj.FindDevToolsPort()
 	if err != nil {
@@ -1297,6 +1306,9 @@ func TestProjectColorsOfflinePersistenceAndLocalStorage(t *testing.T) {
 }
 
 func TestLiveVerificationR1R2R3(t *testing.T) {
+	if os.Getenv("ANTIGRAVITY_ENABLE_LIVE_TESTS") != "1" && os.Getenv("ANTIGRAVITY_LIVE_TEST") != "1" {
+		t.Skip("Skipping live test to protect running IDE session")
+	}
 	inj := NewInjector(0)
 	port, err := inj.FindDevToolsPort()
 	if err != nil {
@@ -1483,6 +1495,9 @@ func TestAutomateTasksOverlayBadgeAndColorResetLifecycle(t *testing.T) {
 }
 
 func TestLiveOverlayAndFactoryResetLifecycle(t *testing.T) {
+	if os.Getenv("ANTIGRAVITY_ENABLE_LIVE_TESTS") != "1" && os.Getenv("ANTIGRAVITY_LIVE_TEST") != "1" {
+		t.Skip("Skipping live test to protect running IDE session")
+	}
 	inj := NewInjector(0)
 	port, err := inj.FindDevToolsPort()
 	if err != nil {
@@ -1555,6 +1570,9 @@ func TestLiveOverlayAndFactoryResetLifecycle(t *testing.T) {
 }
 
 func TestLiveCaptureScreenshot(t *testing.T) {
+	if os.Getenv("ANTIGRAVITY_ENABLE_LIVE_TESTS") != "1" && os.Getenv("ANTIGRAVITY_LIVE_TEST") != "1" {
+		t.Skip("Skipping live test to protect running IDE session")
+	}
 	inj := NewInjector(0)
 	port, err := inj.FindDevToolsPort()
 	if err != nil {
@@ -1585,6 +1603,9 @@ func TestLiveCaptureScreenshot(t *testing.T) {
 }
 
 func TestLiveNativeDragOrderAndColorPersistence(t *testing.T) {
+	if os.Getenv("ANTIGRAVITY_ENABLE_LIVE_TESTS") != "1" && os.Getenv("ANTIGRAVITY_LIVE_TEST") != "1" {
+		t.Skip("Skipping live test to protect running IDE session")
+	}
 	inj := NewInjector(0)
 	port, err := inj.FindDevToolsPort()
 	if err != nil {

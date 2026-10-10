@@ -364,11 +364,296 @@ var ProviderQuotaRegistry = []ProviderQuotaRegistryEntry{
 			return nil, fmt.Errorf("no credits or balance found in together response")
 		},
 	},
+
+	// 6. OpenCode (opencode.ai)
+	{
+		Name:         "OpenCode",
+		HostPatterns: []string{"opencode.ai"},
+		QuotaType:    QuotaTypeBalance,
+		EndpointFunc: func(baseURL string) string {
+			clean := strings.TrimRight(baseURL, "/")
+			if strings.HasSuffix(clean, "/v1") {
+				clean = strings.TrimSuffix(clean, "/v1")
+			}
+			return clean + "/api/user/usage"
+		},
+		FetchFunc: func(ctx context.Context, client *http.Client, endpoint string, apiKey string) (*QuotaResult, error) {
+			candidateEndpoints := []string{endpoint}
+			clean := strings.TrimSuffix(endpoint, "/api/user/usage")
+			candidateEndpoints = append(candidateEndpoints, clean+"/v1/usage", clean+"/usage", "https://opencode.ai/api/user/usage")
+
+			for _, ep := range candidateEndpoints {
+				req, err := http.NewRequestWithContext(ctx, "GET", ep, nil)
+				if err != nil {
+					continue
+				}
+				if apiKey != "" {
+					req.Header.Set("Authorization", "Bearer "+apiKey)
+					req.Header.Set("x-api-key", apiKey)
+				}
+				req.Header.Set("x-opencode-session", fmt.Sprintf("swiss-quota-%d", time.Now().Unix()))
+
+				resp, err := client.Do(req)
+				if err != nil {
+					continue
+				}
+				defer resp.Body.Close()
+
+				if resp.StatusCode != http.StatusOK {
+					continue
+				}
+
+				if rl := ParseRateLimitHeaders(resp.Header); rl != nil {
+					return rl, nil
+				}
+
+				body, _ := io.ReadAll(resp.Body)
+				var ocData struct {
+					Data struct {
+						Balance      json.RawMessage `json:"balance"`
+						TotalCredits json.RawMessage `json:"total_credits"`
+						TotalUsage   json.RawMessage `json:"total_usage"`
+						Quota        int64           `json:"quota"`
+					} `json:"data"`
+					Balance      json.RawMessage `json:"balance"`
+					Credits      json.RawMessage `json:"credits"`
+					TotalCredits json.RawMessage `json:"total_credits"`
+					TotalUsage   json.RawMessage `json:"total_usage"`
+					Quota        int64           `json:"quota"`
+				}
+				if err := json.Unmarshal(body, &ocData); err == nil {
+					bal := parseRawFloat(ocData.Balance)
+					if bal == 0 {
+						bal = parseRawFloat(ocData.Credits)
+					}
+					if bal == 0 {
+						bal = parseRawFloat(ocData.Data.Balance)
+					}
+					totCred := parseRawFloat(ocData.TotalCredits)
+					if totCred == 0 {
+						totCred = parseRawFloat(ocData.Data.TotalCredits)
+					}
+					totUse := parseRawFloat(ocData.TotalUsage)
+					if totUse == 0 {
+						totUse = parseRawFloat(ocData.Data.TotalUsage)
+					}
+					if totCred > 0 {
+						avail := totCred - totUse
+						if avail < 0 {
+							avail = 0
+						}
+						var frac *float64
+						f := avail / totCred
+						f = math.Max(0, math.Min(1, f))
+						frac = &f
+						return &QuotaResult{
+							QuotaType:     QuotaTypeBalance,
+							BalanceValue:  fmt.Sprintf("$%.2f", avail),
+							Fraction:      frac,
+							HasPercentage: true,
+							Message:       fmt.Sprintf("OpenCode balance: $%.2f", avail),
+						}, nil
+					}
+					if bal > 0 {
+						return &QuotaResult{
+							QuotaType:    QuotaTypeBalance,
+							BalanceValue: fmt.Sprintf("$%.2f", bal),
+							Message:      fmt.Sprintf("OpenCode balance: $%.2f", bal),
+						}, nil
+					}
+					q := ocData.Quota
+					if q == 0 {
+						q = ocData.Data.Quota
+					}
+					if q > 0 {
+						return &QuotaResult{
+							QuotaType:  QuotaTypeQuota,
+							QuotaValue: fmt.Sprintf("%s tokens", formatTokens(q)),
+							Message:    fmt.Sprintf("OpenCode quota: %s tokens", formatTokens(q)),
+						}, nil
+					}
+				}
+			}
+			return nil, fmt.Errorf("no balance or quota found in opencode response")
+		},
+	},
+}
+
+// probeQuotaEndpoint makes a GET request to the given endpoint and parses rate-limit
+// headers or JSON usage/balance/quota payloads.
+func probeQuotaEndpoint(ctx context.Context, client *http.Client, endpoint string, apiKey string) *QuotaResult {
+	if strings.TrimSpace(endpoint) == "" {
+		return nil
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		req.Header.Set("x-api-key", apiKey)
+	}
+	req.Header.Set("x-opencode-session", fmt.Sprintf("swiss-probe-%d", time.Now().Unix()))
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	// 1. Check rate limit headers
+	if rl := ParseRateLimitHeaders(resp.Header); rl != nil {
+		return rl
+	}
+
+	// 2. Parse JSON response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || len(body) == 0 {
+		return nil
+	}
+
+	// A. OneAPI billing subscription: {"hard_limit_usd": 50.0, "total_usage": 1500}
+	var subData struct {
+		HardLimitUSD float64 `json:"hard_limit_usd"`
+		TotalUsage   float64 `json:"total_usage"`
+	}
+	if json.Unmarshal(body, &subData) == nil && subData.HardLimitUSD > 0 {
+		avail := subData.HardLimitUSD - (subData.TotalUsage / 100.0)
+		if avail < 0 {
+			avail = 0
+		}
+		f := avail / subData.HardLimitUSD
+		f = math.Max(0, math.Min(1, f))
+		return &QuotaResult{
+			QuotaType:     QuotaTypeBalance,
+			BalanceValue:  fmt.Sprintf("$%.2f", avail),
+			Fraction:      &f,
+			HasPercentage: true,
+			Message:       fmt.Sprintf("Proxy Billing Balance: $%.2f", avail),
+		}
+	}
+
+	// B. OneAPI user token quota: {"success": true, "data": {"quota": 1000000, "used_quota": ...}}
+	var uData struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Quota     int64 `json:"quota"`
+			UsedQuota int64 `json:"used_quota"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(body, &uData) == nil && uData.Success && uData.Data.Quota > 0 {
+		var frac *float64
+		hasPct := false
+		if uData.Data.UsedQuota > 0 && uData.Data.Quota >= uData.Data.UsedQuota {
+			f := float64(uData.Data.Quota-uData.Data.UsedQuota) / float64(uData.Data.Quota)
+			f = math.Max(0, math.Min(1, f))
+			frac = &f
+			hasPct = true
+		}
+		return &QuotaResult{
+			QuotaType:     QuotaTypeQuota,
+			QuotaValue:    fmt.Sprintf("%s tokens", formatTokens(uData.Data.Quota)),
+			Fraction:      frac,
+			HasPercentage: hasPct,
+			Message:       fmt.Sprintf("User Quota: %s tokens", formatTokens(uData.Data.Quota)),
+		}
+	}
+
+	// C. General Usage / Balance / Credits / Quota JSON
+	var genData struct {
+		Data struct {
+			Balance      json.RawMessage `json:"balance"`
+			TotalCredits json.RawMessage `json:"total_credits"`
+			TotalUsage   json.RawMessage `json:"total_usage"`
+			Quota        int64           `json:"quota"`
+			UsedQuota    int64           `json:"used_quota"`
+		} `json:"data"`
+		Balance      json.RawMessage `json:"balance"`
+		Credits      json.RawMessage `json:"credits"`
+		TotalCredits json.RawMessage `json:"total_credits"`
+		TotalUsage   json.RawMessage `json:"total_usage"`
+		TotalTokens  int64           `json:"total_tokens"`
+		Quota        int64           `json:"quota"`
+	}
+	if json.Unmarshal(body, &genData) == nil {
+		totCred := parseRawFloat(genData.TotalCredits)
+		if totCred == 0 {
+			totCred = parseRawFloat(genData.Data.TotalCredits)
+		}
+		totUse := parseRawFloat(genData.TotalUsage)
+		if totUse == 0 {
+			totUse = parseRawFloat(genData.Data.TotalUsage)
+		}
+		if totCred > 0 {
+			avail := totCred - totUse
+			if avail < 0 {
+				avail = 0
+			}
+			f := avail / totCred
+			f = math.Max(0, math.Min(1, f))
+			return &QuotaResult{
+				QuotaType:     QuotaTypeBalance,
+				BalanceValue:  fmt.Sprintf("$%.2f", avail),
+				Fraction:      &f,
+				HasPercentage: true,
+				Message:       fmt.Sprintf("Quota Balance: $%.2f", avail),
+			}
+		}
+
+		bal := parseRawFloat(genData.Balance)
+		if bal == 0 {
+			bal = parseRawFloat(genData.Credits)
+		}
+		if bal == 0 {
+			bal = parseRawFloat(genData.Data.Balance)
+		}
+		if bal > 0 {
+			return &QuotaResult{
+				QuotaType:    QuotaTypeBalance,
+				BalanceValue: fmt.Sprintf("$%.2f", bal),
+				Message:      fmt.Sprintf("Balance: $%.2f", bal),
+			}
+		}
+
+		q := genData.Quota
+		if q == 0 {
+			q = genData.Data.Quota
+		}
+		if q == 0 {
+			q = genData.TotalTokens
+		}
+		if q > 0 {
+			return &QuotaResult{
+				QuotaType:  QuotaTypeQuota,
+				QuotaValue: fmt.Sprintf("%s tokens", formatTokens(q)),
+				Message:    fmt.Sprintf("Quota: %s tokens", formatTokens(q)),
+			}
+		}
+	}
+
+	return nil
 }
 
 // DetectAndFetchQuota inspects the model configuration and attempts to auto-derive
 // balance or quota limits by querying registered providers or inspecting proxy endpoints.
 func DetectAndFetchQuota(model CustomModel) QuotaResult {
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// 0. Check custom quota endpoint if explicitly specified
+	if strings.TrimSpace(model.CustomQuotaEndpoint) != "" {
+		if res := probeQuotaEndpoint(ctx, client, strings.TrimSpace(model.CustomQuotaEndpoint), model.APIKey); res != nil {
+			return *res
+		}
+	}
+
 	rawBase := strings.TrimSpace(model.BaseURL)
 	if rawBase == "" {
 		return UntrackedQuotaResult("Base URL is empty")
@@ -383,12 +668,6 @@ func DetectAndFetchQuota(model CustomModel) QuotaResult {
 	if strings.Contains(host, ":") {
 		host = strings.Split(host, ":")[0]
 	}
-
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
 	// 1. Check known provider dictionary entries
 	for _, entry := range ProviderQuotaRegistry {
@@ -405,72 +684,23 @@ func DetectAndFetchQuota(model CustomModel) QuotaResult {
 		}
 	}
 
-	// 2. Check for OneAPI / NewAPI / OpenAI-compatible Billing Proxy endpoints
+	// 2. Probe common quota and billing proxy endpoints
 	cleanBase := strings.TrimRight(rawBase, "/")
 	if strings.HasSuffix(cleanBase, "/v1") {
 		cleanBase = strings.TrimSuffix(cleanBase, "/v1")
 	}
 
-	// Try OneAPI subscription endpoint
-	if model.APIKey != "" {
-		subEndpoint := cleanBase + "/dashboard/billing/subscription"
-		subReq, err := http.NewRequestWithContext(ctx, "GET", subEndpoint, nil)
-		if err == nil {
-			subReq.Header.Set("Authorization", "Bearer "+model.APIKey)
-			subResp, err := client.Do(subReq)
-			if err == nil {
-				defer subResp.Body.Close()
-				if subResp.StatusCode == http.StatusOK {
-					body, _ := io.ReadAll(subResp.Body)
-					var subData struct {
-						HardLimitUSD float64 `json:"hard_limit_usd"`
-						TotalUsage   float64 `json:"total_usage"`
-					}
-					if json.Unmarshal(body, &subData) == nil && subData.HardLimitUSD > 0 {
-						avail := subData.HardLimitUSD - (subData.TotalUsage / 100.0)
-						if avail < 0 {
-							avail = 0
-						}
-						f := avail / subData.HardLimitUSD
-						f = math.Max(0, math.Min(1, f))
-						return QuotaResult{
-							QuotaType:     QuotaTypeBalance,
-							BalanceValue:  fmt.Sprintf("$%.2f", avail),
-							Fraction:      &f,
-							HasPercentage: true,
-							Message:       fmt.Sprintf("Proxy Billing Balance: $%.2f", avail),
-						}
-					}
-				}
-			}
-		}
+	suffixes := []string{
+		"/v1/usage",
+		"/usage",
+		"/api/user/usage",
+		"/dashboard/billing/subscription",
+		"/api/user/self",
+	}
 
-		// Try OneAPI /api/user/self token quota endpoint
-		userEndpoint := cleanBase + "/api/user/self"
-		uReq, err := http.NewRequestWithContext(ctx, "GET", userEndpoint, nil)
-		if err == nil {
-			uReq.Header.Set("Authorization", "Bearer "+model.APIKey)
-			uResp, err := client.Do(uReq)
-			if err == nil {
-				defer uResp.Body.Close()
-				if uResp.StatusCode == http.StatusOK {
-					body, _ := io.ReadAll(uResp.Body)
-					var uData struct {
-						Success bool `json:"success"`
-						Data    struct {
-							Quota     int64 `json:"quota"`
-							UsedQuota int64 `json:"used_quota"`
-						} `json:"data"`
-					}
-					if json.Unmarshal(body, &uData) == nil && uData.Success && uData.Data.Quota > 0 {
-						return QuotaResult{
-							QuotaType:  QuotaTypeQuota,
-							QuotaValue: fmt.Sprintf("%s tokens", formatTokens(uData.Data.Quota)),
-							Message:    fmt.Sprintf("User Quota: %s tokens", formatTokens(uData.Data.Quota)),
-						}
-					}
-				}
-			}
+	for _, suffix := range suffixes {
+		if res := probeQuotaEndpoint(ctx, client, cleanBase+suffix, model.APIKey); res != nil {
+			return *res
 		}
 	}
 

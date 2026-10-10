@@ -50,7 +50,8 @@ func GenerateGitHubExtensionScript() string {
   let cachedAgentTasks = [];
   let cachedKanbanBoard = null;
   let activeTab = "board"; // "board" | "issues" | "prs" | "tasks"
-  let activeFilter = "all"; // "all" | "open" | "mine"
+  let activeFilter = "open"; // "open" | "closed" | "all"
+  let agentFilter = "active"; // "active" | "idle"
   let activeSearch = "";
   let isLeftPanelOpen = true;
   let activeMainStageExt = null; // null | "github" | "browser" | "files" | "memos"
@@ -210,6 +211,36 @@ func GenerateGitHubExtensionScript() string {
       prev = prev.previousElementSibling;
     }
     return "";
+  }
+
+  function detectCurrentConversationId() {
+    try {
+      const m = window.location.pathname ? window.location.pathname.match(/\/c\/([^/?#]+)/) : null;
+      if (m && m[1]) return m[1];
+      if (window.parent && window.parent !== window && window.parent.location.pathname) {
+        const pm = window.parent.location.pathname.match(/\/c\/([^/?#]+)/);
+        if (pm && pm[1]) return pm[1];
+      }
+    } catch (_) {}
+    try {
+      const activeSelector = '[data-testid="conversation-row-sidebar"][aria-selected="true"], [data-testid="conversation-row-sidebar"][data-selected="true"], [data-testid="conversation-row-sidebar"].bg-accent, [data-testid="conversation-row-sidebar"].bg-sidebar-accent, [data-testid="conversation-row-sidebar"][data-state="active"]';
+      const row = document.querySelector(activeSelector) || (window.parent && window.parent.document.querySelector(activeSelector));
+      if (row) {
+        const cid = row.getAttribute('data-cascade-id') || row.getAttribute('data-id') || row.getAttribute('data-conversation-id');
+        if (cid) return cid;
+        const a = row.tagName === 'A' ? row : row.querySelector('a[href*="/c/"]');
+        if (a) {
+          const href = a.getAttribute('href') || '';
+          const m = href.match(/\/c\/([^/?#]+)/);
+          if (m && m[1]) return m[1];
+        }
+      }
+    } catch (_) {}
+    try {
+      return localStorage.getItem('antigravity_last_active_conversation') || '';
+    } catch (_) {
+      return '';
+    }
   }
 
   function detectCurrentConversationProject() {
@@ -543,29 +574,26 @@ func GenerateGitHubExtensionScript() string {
         }
       ];
 
+      const panelMode = getLeftPanelMode();
       let exts = [];
-      if (swissExtVisibility && typeof swissExtVisibility === "object") {
-        // Per-extension main_page switches are the source of truth: every mode
-        // now behaves like individual navigation — one left-sidebar tab button
-        // per extension allowed to open on the main stage.
-        exts = individualExts.filter(ext => {
-          const vis = swissExtVisibility[ext.id];
-          return Boolean(vis && vis.main_page === true);
-        });
-      } else {
-        // Legacy fallback when no per-extension visibility map exists yet.
-        const panelMode = getLeftPanelMode();
-        if (panelMode === "individual") {
-          exts = individualExts.filter(ext => isExtensionEnabled(ext.id));
+      if (panelMode === "individual") {
+        if (swissExtVisibility && typeof swissExtVisibility === "object") {
+          exts = individualExts.filter(ext => {
+            const vis = swissExtVisibility[ext.id];
+            return Boolean(vis && vis.main_page === true);
+          });
         } else {
-          exts = [
-            {
-              id: "swiss-knife",
-              label: "Swiss Knife",
-              svg: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v1c0 1 2 1 2 2S3 6 3 7s2 1 2 2-2 1-2 2 2 1 2 2"/><path d="M18 6h.01"/><path d="M6 18h.01"/><path d="M20.83 8.83a4 4 0 0 0-5.66-5.66l-12 12a4 4 0 1 0 5.66 5.66Z"/><path d="M18 11.66V22a4 4 0 0 0 4-4V6"/></svg>'
-            }
-          ];
+          exts = individualExts.filter(ext => isExtensionEnabled(ext.id));
         }
+      } else {
+        // "single" mode (default): grouped under a single unified Swiss Knife extensions launcher button
+        exts = [
+          {
+            id: "swiss-knife",
+            label: "Swiss Knife",
+            svg: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v1c0 1 2 1 2 2S3 6 3 7s2 1 2 2-2 1-2 2 2 1 2 2"/><path d="M18 6h.01"/><path d="M6 18h.01"/><path d="M20.83 8.83a4 4 0 0 0-5.66-5.66l-12 12a4 4 0 1 0 5.66 5.66Z"/><path d="M18 11.66V22a4 4 0 0 0 4-4V6"/></svg>'
+          }
+        ];
       }
 
       if (exts.length === 0) {
@@ -1012,7 +1040,7 @@ func GenerateGitHubExtensionScript() string {
   document.addEventListener("keydown", window.__swissDocNavKeydownHandler, true);
 
   function navigateToConversation(convId, rootParentId, isPruned) {
-    const targetId = rootParentId || convId;
+    const targetId = convId || rootParentId;
     if (isPruned || (targetId && window.__swissPrunedConversations && window.__swissPrunedConversations.has(targetId))) {
       showToast("Conversation trajectory was pruned by Antigravity (500-session limit reached)");
       return;
@@ -1105,10 +1133,12 @@ func GenerateGitHubExtensionScript() string {
         <button class="swiss-gh-tab-btn ${activeTab === "board" ? "active" : ""}" data-tab="board">Board</button>
         <button class="swiss-gh-tab-btn ${activeTab === "issues" ? "active" : ""}" data-tab="issues">Issues (${effIssues.length})</button>
         <button class="swiss-gh-tab-btn ${activeTab === "prs" ? "active" : ""}" data-tab="prs">PRs (${effPRs.length})</button>
-        <button class="swiss-gh-tab-btn ${activeTab === "tasks" ? "active" : ""}" data-tab="tasks">Agent Tasks (${effTasks.length})</button>
+        <button class="swiss-gh-tab-btn ${activeTab === "tasks" ? "active" : ""}" data-tab="tasks">AGY Agents (${effTasks.filter(t => !t.is_pruned).length})</button>
       </div>
-      <div class="swiss-gh-search-box">
-        <input type="text" class="swiss-gh-search-input" placeholder="Search ${activeTab}..." value="${escapeHTML(activeSearch)}" id="swiss-gh-aux-search-field">
+      <div class="swiss-gh-search-box" style="display: flex; align-items: center; gap: 6px;">
+        <input type="text" class="swiss-gh-search-input" style="flex: 1;" placeholder="Search ${activeTab === "tasks" ? "agents" : activeTab}..." value="${escapeHTML(activeSearch)}" id="swiss-gh-aux-search-field">
+        ${(activeTab === "issues" || activeTab === "prs") ? ('<div class="swiss-gh-filter-toggle" style="display: inline-flex; padding: 2px; border-radius: 4px; background: rgba(0,0,0,0.06); gap: 2px;"><button class="swiss-gh-subfilter-btn ' + (activeFilter === "open" ? "active" : "") + '" data-subfilter="open" style="border:none; padding: 2px 6px; font-size: 10px; border-radius: 3px; cursor: pointer;">Open</button><button class="swiss-gh-subfilter-btn ' + (activeFilter === "closed" ? "active" : "") + '" data-subfilter="closed" style="border:none; padding: 2px 6px; font-size: 10px; border-radius: 3px; cursor: pointer;">Closed</button></div>') : ""}
+        ${activeTab === "tasks" ? ('<div class="swiss-gh-filter-toggle" style="display: inline-flex; padding: 2px; border-radius: 4px; background: rgba(0,0,0,0.06); gap: 2px;"><button class="swiss-gh-subfilter-btn ' + (agentFilter === "active" ? "active" : "") + '" data-agentfilter="active" style="border:none; padding: 2px 6px; font-size: 10px; border-radius: 3px; cursor: pointer;">Active</button><button class="swiss-gh-subfilter-btn ' + (agentFilter === "killed" ? "active" : "") + '" data-agentfilter="killed" style="border:none; padding: 2px 6px; font-size: 10px; border-radius: 3px; cursor: pointer;">Killed</button></div>') : ""}
       </div>
       <div class="swiss-gh-list" id="swiss-gh-aux-items-list" style="flex: 1; overflow-y: auto;">
         ${activeTab === "board" ? renderAuxKanbanBoardHTML() : renderCardListHTML(filteredItems)}
@@ -1123,6 +1153,17 @@ func GenerateGitHubExtensionScript() string {
     auxView.querySelectorAll(".swiss-gh-tab-btn").forEach(btn => {
       btn.addEventListener("click", (e) => {
         activeTab = e.currentTarget.dataset.tab;
+        window.renderSwissGitHubWorkspaceView(container);
+      });
+    });
+
+    auxView.querySelectorAll(".swiss-gh-subfilter-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        if (e.currentTarget.dataset.subfilter) {
+          activeFilter = e.currentTarget.dataset.subfilter;
+        } else if (e.currentTarget.dataset.agentfilter) {
+          agentFilter = e.currentTarget.dataset.agentfilter;
+        }
         window.renderSwissGitHubWorkspaceView(container);
       });
     });
@@ -1154,18 +1195,38 @@ func GenerateGitHubExtensionScript() string {
     const effTab = (!forAux && activeTab === "board") ? "issues" : activeTab;
     if (effTab === "issues") {
       items = issList;
+      if (activeFilter === "open") {
+        items = items.filter(it => (it.state || "open").toLowerCase() === "open");
+      } else if (activeFilter === "closed") {
+        items = items.filter(it => (it.state || "").toLowerCase() === "closed");
+      }
     } else if (effTab === "prs") {
       items = prList;
+      if (activeFilter === "open") {
+        items = items.filter(it => (it.state || "open").toLowerCase() === "open");
+      } else if (activeFilter === "closed") {
+        items = items.filter(it => {
+          const st = (it.state || "").toLowerCase();
+          return st === "closed" || st === "merged";
+        });
+      }
     } else if (effTab === "tasks") {
-      items = taskList;
+      items = (taskList || []).filter(it => !it.is_pruned);
+      if (agentFilter === "active") {
+        items = items.filter(it => it.not_fully_idle || it.status === "working");
+      } else if (agentFilter === "killed") {
+        items = items.filter(it => !it.not_fully_idle && it.status !== "working");
+      }
     }
 
     if (activeSearch) {
       items = items.filter(it => {
-        const title = (it.title || it.conversation_title || "").toLowerCase();
+        const title = (it.title || it.work_item || it.conversation_title || "").toLowerCase();
         const num = (it.number || it.bound_issue_number || "").toString();
         const agent = (it.agent_label || it.agent_name || "").toLowerCase();
-        return title.includes(activeSearch) || num.includes(activeSearch) || agent.includes(activeSearch);
+        const issStr = (it.working_issues || []).join(" ");
+        const prStr = (it.working_prs || []).join(" ");
+        return title.includes(activeSearch) || num.includes(activeSearch) || agent.includes(activeSearch) || issStr.includes(activeSearch) || prStr.includes(activeSearch);
       });
     }
     return items;
@@ -1177,24 +1238,193 @@ func GenerateGitHubExtensionScript() string {
     }
 
     if (activeTab === "tasks") {
-      return items.map(t => {
-        const isWorking = t.not_fully_idle;
-        const statusClass = isWorking ? "working" : "idle";
-        const statusLabel = isWorking ? "Working" : "Idle";
-        return ` + "`" + `
-          <div class="swiss-gh-card" data-conv-id="${t.conversation_id}">
-            <div class="swiss-gh-card-header">
-              <span class="swiss-agent-task-badge ${statusClass}">
-                <span class="swiss-agent-pulse-dot" style="${isWorking ? "" : "display:none;"}"></span>
-                ${statusLabel}: ${t.agent_label || "Agent"}
-              </span>
-              <span style="font-size: 10px; color: var(--text-muted, #94a3b8);">${t.step_count} steps</span>
+      const groupsMap = new Map();
+      const currentFocusedId = detectCurrentConversationId();
+
+      items.forEach(t => {
+        const rootId = t.root_parent_conversation_id || t.conversation_id;
+        if (!groupsMap.has(rootId)) {
+          const groupTitle = t.root_parent_title || (t.conversation_id === rootId ? t.conversation_title : "") || t.conversation_title || ("Chat #" + rootId.slice(0, 8));
+          groupsMap.set(rootId, {
+            rootId: rootId,
+            title: groupTitle,
+            lastModified: t.last_modified || 0,
+            isFocused: Boolean(currentFocusedId && (rootId === currentFocusedId || t.conversation_id === currentFocusedId)),
+            agents: []
+          });
+        }
+        const g = groupsMap.get(rootId);
+        if (t.root_parent_title) {
+          g.title = t.root_parent_title;
+        } else if (t.conversation_id === rootId && t.conversation_title) {
+          g.title = t.conversation_title;
+        } else if ((!g.title || g.title.startsWith("Chat #")) && t.conversation_title) {
+          g.title = t.conversation_title;
+        }
+        if (currentFocusedId && (t.conversation_id === currentFocusedId || rootId === currentFocusedId)) {
+          g.isFocused = true;
+        }
+        g.agents.push(t);
+      });
+
+      let groups = Array.from(groupsMap.values());
+
+      const sidebarLinks = [];
+      try {
+        const links = document.querySelectorAll('a[href*="/chat/"], a[href*="/c/"], [data-conversation-id]');
+        links.forEach(el => {
+          const href = el.getAttribute("href") || "";
+          const match = href.match(/\/(?:chat|c)\/([a-zA-Z0-9_-]+)/);
+          const cid = match ? match[1] : el.getAttribute("data-conversation-id");
+          if (cid && !sidebarLinks.includes(cid)) sidebarLinks.push(cid);
+        });
+      } catch (_) {}
+
+      groups.sort((a, b) => {
+        const idxA = sidebarLinks.indexOf(a.rootId);
+        const idxB = sidebarLinks.indexOf(b.rootId);
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+        if (idxA !== -1) return -1;
+        if (idxB !== -1) return 1;
+        return (b.lastModified || 0) - (a.lastModified || 0);
+      });
+
+      const isAux = Boolean(
+        document.getElementById("swiss-aux-container") ||
+        document.querySelector('[data-testid="auxiliary-panel"]') ||
+        window.location.search.includes("view=aux")
+      );
+
+      if (isAux) {
+        let auxScope = "all";
+        let auxPin = true;
+        try {
+          auxScope = localStorage.getItem("antigravity_github_aux_agent_scope") || "all";
+          auxPin = localStorage.getItem("antigravity_github_aux_pin_focused") !== "false";
+        } catch (_) {}
+
+        if (auxScope === "focused") {
+          groups = groups.filter(g => g.isFocused || (currentFocusedId && g.rootId === currentFocusedId));
+        } else if (auxPin) {
+          groups.sort((a, b) => {
+            if (a.isFocused && !b.isFocused) return -1;
+            if (!a.isFocused && b.isFocused) return 1;
+            return 0;
+          });
+        }
+      }
+
+      if (groups.length === 0) {
+        return '<div style="padding: 16px; text-align: center; font-size: 11px; color: var(--text-muted, #94a3b8);">No active or matching agents found</div>';
+      }
+
+      return groups.map(group => {
+        const agentsHTML = group.agents.map(t => {
+          const agentName = t.agent_label || t.conversation_title || t.agent_name || "Agent";
+          const workTitle = t.work_item && t.work_item !== agentName ? t.work_item : "";
+
+          // Resolve work item refs (issues and PRs)
+          const workItems = [];
+          const seenWork = new Set();
+          if (t.work_items && Array.isArray(t.work_items)) {
+            t.work_items.forEach(ref => {
+              const k = ref.type + "-" + ref.number;
+              if (!seenWork.has(k)) {
+                seenWork.add(k);
+                workItems.push(ref);
+              }
+            });
+          }
+          if (t.bound_issue_number && !seenWork.has("issue-" + t.bound_issue_number)) {
+            seenWork.add("issue-" + t.bound_issue_number);
+            const found = (issList || []).find(i => i.number === t.bound_issue_number);
+            workItems.push({
+              type: "issue",
+              number: t.bound_issue_number,
+              state: found ? found.state : "open",
+              url: found ? found.html_url : "",
+              title: found ? found.title : ""
+            });
+          }
+          (t.working_issues || []).forEach(num => {
+            const k = "issue-" + num;
+            if (!seenWork.has(k)) {
+              seenWork.add(k);
+              const found = (issList || []).find(i => i.number === num);
+              workItems.push({
+                type: "issue",
+                number: num,
+                state: found ? found.state : "open",
+                url: found ? found.html_url : "",
+                title: found ? found.title : ""
+              });
+            }
+          });
+          (t.working_prs || []).forEach(num => {
+            const k = "pr-" + num;
+            if (!seenWork.has(k)) {
+              seenWork.add(k);
+              const found = (prList || []).find(p => p.number === num);
+              workItems.push({
+                type: "pr",
+                number: num,
+                state: found ? found.state : "closed",
+                url: found ? found.html_url : "",
+                title: found ? found.title : ""
+              });
+            }
+          });
+
+          const tagsHTML = workItems.map(ref => {
+            const isPR = ref.type === "pr";
+            const rawState = (ref.state || "open").toLowerCase();
+            const isClosed = rawState === "closed" || rawState === "merged";
+            const stateLabel = isClosed ? (rawState === "merged" ? "Merged" : "Closed") : "Open";
+            const hoverTitle = stateLabel + (ref.title ? ": " + ref.title : "");
+            const bg = isPR
+              ? (isClosed ? "rgba(100, 116, 139, 0.12)" : "rgba(168, 85, 247, 0.12)")
+              : (isClosed ? "rgba(100, 116, 139, 0.12)" : "rgba(34, 197, 94, 0.12)");
+            const col = isPR
+              ? (isClosed ? "#64748b" : "#9333ea")
+              : (isClosed ? "#64748b" : "#16a34a");
+            const url = ref.url || (repoInfo ? "https://github.com/" + repoInfo.full_name + "/" + (isPR ? "pull" : "issues") + "/" + ref.number : "");
+            const icon = isPR
+              ? '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:2px;"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M13 6h3a2 2 0 0 1 2 2v7"></path><line x1="6" y1="9" x2="6" y2="21"></line></svg>'
+              : '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:2px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
+            const labelText = (isPR ? "PR #" : "Issue #") + ref.number;
+            return '<span class="swiss-gh-tag-link" data-url="' + escapeHTML(url) + '" title="' + escapeHTML(hoverTitle) + '" style="display:inline-flex; align-items:center; gap:2px; font-size:10px; font-weight:600; padding:1px 6px; border-radius:4px; background:' + bg + '; color:' + col + '; cursor:pointer;">' + icon + labelText + '</span>';
+          }).join("");
+
+          return ` + "`" + `
+            <div class="swiss-gh-card" data-conv-id="${t.conversation_id}" style="margin: 0; border: none; border-radius: 0; border-bottom: 1px solid var(--border);">
+              <div class="swiss-gh-card-header" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                <div title="${escapeHTML(t.conversation_id)}" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text, #0f172a); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; color: var(--text-muted, #94a3b8);"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="12" cy="5" r="2"></circle><path d="M12 7v4"></path><line x1="8" y1="16" x2="8" y2="16"></line><line x1="16" y1="16" x2="16" y2="16"></line></svg>
+                  <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHTML(agentName)}</span>
+                </div>
+                <button class="swiss-gh-step-link-btn" data-conv-id="${t.conversation_id}" title="Open conversation with this agent" style="flex-shrink: 0;">
+                  <span>${t.step_count || 0} steps</span>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 3px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                </button>
+              </div>
+              ${workTitle ? '<div style="font-size: 11px; color: var(--text-muted, #94a3b8); margin-top: 4px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + escapeHTML(workTitle) + '</div>' : ""}
+              ${tagsHTML ? '<div class="swiss-gh-chips-row" style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px;">' + tagsHTML + '</div>' : ""}
             </div>
-            <div class="swiss-gh-card-title">${escapeHTML(t.conversation_title || "Active Agent Task")}</div>
-            ${t.bound_issue_number ? '<div class="swiss-gh-chips-row"><span class="swiss-gh-label-chip">Issue #' + t.bound_issue_number + '</span></div>' : ""}
-            <div class="swiss-gh-card-footer">
-              <button class="swiss-gh-action-btn swiss-btn-focus-conv" data-conv-id="${t.conversation_id}">Focus Convo</button>
-              <button class="swiss-gh-action-btn swiss-btn-label-agent" data-conv-id="${t.conversation_id}">Label Agent</button>
+          ` + "`" + `;
+        }).join("");
+
+        return ` + "`" + `
+          <div class="swiss-gh-conv-group ${group.isFocused ? "focused" : ""}" data-root-id="${group.rootId}">
+            <div class="swiss-gh-conv-group-header ${group.isFocused ? "focused" : ""}" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+              <div style="display: flex; align-items: center; min-width: 0; flex: 1; overflow: hidden;">
+                <span class="swiss-gh-conv-group-title" title="${escapeHTML(group.title)}" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; min-width: 0;">${escapeHTML(group.title)}</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                <span style="font-size: 10px; color: var(--text-muted, #94a3b8); white-space: nowrap;">${group.agents.length} ${group.agents.length === 1 ? "agent" : "agents"}</span>
+              </div>
+            </div>
+            <div class="swiss-gh-conv-group-body" style="max-height: 380px; overflow-y: auto;">
+              ${agentsHTML}
             </div>
           </div>
         ` + "`" + `;
@@ -1363,6 +1593,25 @@ func GenerateGitHubExtensionScript() string {
           showToast("Updated agent label");
           fetchRepoData();
         }
+      });
+    });
+
+    // 6. Step link button to jump to conversation
+    parentEl.querySelectorAll(".swiss-gh-step-link-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const convId = btn.dataset.convId;
+        const task = getTasks().find(t => t.conversation_id === convId);
+        navigateToConversation(convId, task?.root_parent_conversation_id, task?.is_pruned);
+      });
+    });
+
+    // 7. Issue & PR tag links in agent cards
+    parentEl.querySelectorAll(".swiss-gh-tag-link").forEach(tag => {
+      tag.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const url = tag.dataset.url;
+        if (url) window.open(url, "_blank");
       });
     });
   }
@@ -1693,6 +1942,13 @@ func GenerateGitHubExtensionScript() string {
 
     activeMainStageExt = extType;
     window.__swissActiveMainStageExt = extType;
+    if (extType === "github" && currentScope === "GLOBAL") {
+      const fallbackProject = lastInteractedProject || (availableProjects.length > 0 ? availableProjects[0] : "");
+      if (fallbackProject) {
+        currentScope = fallbackProject;
+        try { localStorage.setItem("antigravity_swiss_extension_scope", fallbackProject); } catch (_) {}
+      }
+    }
     let stageContainer = document.getElementById("swiss-main-stage-container");
     if (!stageContainer) {
       stageContainer = document.createElement("div");
@@ -1918,6 +2174,9 @@ func GenerateGitHubExtensionScript() string {
       item.addEventListener("click", (e) => {
         e.stopPropagation();
         const targetScope = item.dataset.scope || item.getAttribute("data-scope") || "GLOBAL";
+        if (activeMainStageExt === "github" && targetScope === "GLOBAL") {
+          return;
+        }
         currentScope = targetScope;
         try { localStorage.setItem("antigravity_swiss_extension_scope", targetScope); } catch (_) {}
         if (targetScope !== "GLOBAL") {
@@ -1936,8 +2195,19 @@ func GenerateGitHubExtensionScript() string {
     const scopeMenu = document.getElementById("swiss-stage-scope-menu");
     if (!scopeBtn || !scopeMenu) return;
 
+    if (activeMainStageExt === "github" && currentScope === "GLOBAL") {
+      const fallbackProject = lastInteractedProject || (availableProjects.length > 0 ? availableProjects[0] : "");
+      if (fallbackProject) {
+        currentScope = fallbackProject;
+        try { localStorage.setItem("antigravity_swiss_extension_scope", fallbackProject); } catch (_) {}
+      }
+    }
+
     const isGlobal = currentScope === "GLOBAL";
     const scopeDisplay = isGlobal ? "GLOBAL" : currentScope;
+    const isGithub = activeMainStageExt === "github";
+    const globalDisabledStyle = isGithub ? 'style="opacity: 0.45; cursor: not-allowed; pointer-events: none;" title="GitHub Workspace requires a repository project"' : '';
+    const globalSubtext = isGithub ? '(Requires repo)' : '(All Projects)';
 
     scopeBtn.innerHTML = ` + "`" + `
       <span class="swiss-scope-pill">
@@ -1948,9 +2218,9 @@ func GenerateGitHubExtensionScript() string {
     ` + "`" + `;
 
     scopeMenu.innerHTML = ` + "`" + `
-      <div class="swiss-scope-item ${isGlobal ? "selected" : ""}" data-scope="GLOBAL">
+      <div class="swiss-scope-item ${isGlobal ? "selected" : ""}" data-scope="GLOBAL" ${globalDisabledStyle}>
         <span style="font-weight: 500;">GLOBAL</span>
-        <span style="font-size: 11px; color: var(--muted-foreground); margin-left: auto;">(All Projects)</span>
+        <span style="font-size: 11px; color: var(--muted-foreground); margin-left: auto;">${globalSubtext}</span>
       </div>
       ${availableProjects.map(p => ` + "`" + `
         <div class="swiss-scope-item ${currentScope === p ? "selected" : ""}" data-scope="${escapeHTML(p)}">
@@ -1966,8 +2236,19 @@ func GenerateGitHubExtensionScript() string {
     const container = document.getElementById("swiss-main-stage-container");
     if (!container) return;
 
+    if (activeMainStageExt === "github" && currentScope === "GLOBAL") {
+      const fallbackProject = lastInteractedProject || (availableProjects.length > 0 ? availableProjects[0] : "");
+      if (fallbackProject) {
+        currentScope = fallbackProject;
+        try { localStorage.setItem("antigravity_swiss_extension_scope", fallbackProject); } catch (_) {}
+      }
+    }
+
     const isGlobal = currentScope === "GLOBAL";
     const scopeDisplay = isGlobal ? "GLOBAL" : currentScope;
+    const isGithub = activeMainStageExt === "github";
+    const globalDisabledStyle = isGithub ? 'style="opacity: 0.45; cursor: not-allowed; pointer-events: none;" title="GitHub Workspace requires a repository project"' : '';
+    const globalSubtext = isGithub ? '(Requires repo)' : '(All Projects)';
 
     const effListTab = (activeTab === "board" || !activeTab) ? "issues" : activeTab;
 
@@ -1984,9 +2265,9 @@ func GenerateGitHubExtensionScript() string {
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left: 2px;"><polyline points="6 9 12 15 18 9"></polyline></svg>
             </button>
             <div class="swiss-scope-dropdown-menu" id="swiss-stage-scope-menu" style="display: none;">
-              <div class="swiss-scope-item ${isGlobal ? "selected" : ""}" data-scope="GLOBAL">
+              <div class="swiss-scope-item ${isGlobal ? "selected" : ""}" data-scope="GLOBAL" ${globalDisabledStyle}>
                 <span style="font-weight: 500;">GLOBAL</span>
-                <span style="font-size: 11px; color: var(--muted-foreground); margin-left: auto;">(All Projects)</span>
+                <span style="font-size: 11px; color: var(--muted-foreground); margin-left: auto;">${globalSubtext}</span>
               </div>
               ${availableProjects.map(p => ` + "`" + `
                 <div class="swiss-scope-item ${currentScope === p ? "selected" : ""}" data-scope="${escapeHTML(p)}">
@@ -2047,7 +2328,7 @@ func GenerateGitHubExtensionScript() string {
                 PRs (${cachedPRs.length})
               </button>
               <button class="swiss-gh-view-btn ${stageViewMode === "list" && effListTab === "tasks" ? "active" : ""}" data-stage-tab="tasks">
-                Agent Tasks (${cachedAgentTasks.length})
+                AGY Agents (${cachedAgentTasks.length})
               </button>
             </div>
             <button class="swiss-gh-action-btn" id="swiss-stage-gh-refresh" title="Refresh">
@@ -2079,6 +2360,14 @@ func GenerateGitHubExtensionScript() string {
       tab.addEventListener("click", (e) => {
         activeMainStageExt = e.currentTarget.dataset.ext;
         window.__swissActiveMainStageExt = activeMainStageExt;
+        if (activeMainStageExt === "github" && currentScope === "GLOBAL") {
+          const fallback = lastInteractedProject || (availableProjects.length > 0 ? availableProjects[0] : "");
+          if (fallback) {
+            currentScope = fallback;
+            try { localStorage.setItem("antigravity_swiss_extension_scope", fallback); } catch (_) {}
+            fetchRepoData();
+          }
+        }
         renderMainStageUI();
         setupLeftNavTabs();
       });
@@ -2642,21 +2931,25 @@ func GenerateGitHubExtensionScript() string {
         <!-- Column 3: Multi-Agent & Conversation Task Board -->
         <div class="swiss-gh-col-right">
           <div class="swiss-agent-board-header">
-            <span>Agent Tasks & Conversations (${cachedAgentTasks.length})</span>
+            <span>AGY Agents & Conversations (${cachedAgentTasks.length})</span>
           </div>
           <div style="overflow-y: auto; flex: 1;">
             ${cachedAgentTasks.map(t => {
-              const isWorking = t.not_fully_idle;
+              const isWorking = t.not_fully_idle || t.status === "working";
+              const workTitle = t.work_item || t.conversation_title || (t.agent_label ? t.agent_label + " Task" : "Agent Task");
+              const issChips = (t.working_issues || []).map(num => '<span class="swiss-gh-label-chip" style="color:#16a34a; background:rgba(34,197,94,0.12); font-size:9.5px; padding:1px 5px;">#' + num + '</span>').join("");
+              const prChips = (t.working_prs || []).map(num => '<span class="swiss-gh-label-chip" style="color:#9333ea; background:rgba(168,85,247,0.12); font-size:9.5px; padding:1px 5px;">PR #' + num + '</span>').join("");
               return ` + "`" + `
                 <div class="swiss-agent-conv-item">
                   <div style="display: flex; align-items: center; justify-content: space-between;">
                     <span class="swiss-agent-task-badge ${t.is_pruned ? "pruned" : (isWorking ? "working" : "idle")}">
                       <span class="swiss-agent-pulse-dot" style="${isWorking && !t.is_pruned ? "" : "display:none;"}"></span>
-                      ${t.is_pruned ? "Archived" : (isWorking ? "Working" : "Idle")}: ${t.agent_label || "Agent"}
+                      ${t.is_pruned ? "Archived" : (isWorking ? "Active" : "Idle")}: ${t.agent_label || "Agent"}
                     </span>
                     <button class="swiss-gh-action-btn swiss-btn-stage-focus" data-conv-id="${t.root_parent_conversation_id || t.conversation_id}" data-orig-id="${t.conversation_id}" style="font-size: 9.5px;">${t.is_pruned ? "Archived" : "Focus"}</button>
                   </div>
-                  <div style="font-size: 11px; font-weight: 500; margin-top: 2px;">${escapeHTML(t.conversation_title || "Conversation")}</div>
+                  <div style="font-size: 11px; font-weight: 500; margin-top: 2px;">${escapeHTML(workTitle)}</div>
+                  ${(issChips || prChips) ? '<div class="swiss-gh-chips-row" style="margin-top:3px; display:flex; flex-wrap:wrap; gap:3px;">' + issChips + prChips + '</div>' : ""}
                   <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px; font-size: 10px; color: var(--text-muted, #94a3b8);">
                     <span>${t.bound_issue_number ? "Bound to #" + t.bound_issue_number : "Unbound"}</span>
                     <button class="swiss-gh-action-btn swiss-btn-stage-bind" data-conv-id="${t.conversation_id}">Bind Task</button>
@@ -2851,6 +3144,16 @@ func GenerateGitHubExtensionScript() string {
     setupLeftNavTabs();
   };
   window.addEventListener("swiss-left-nav-config-updated", window.__swissLeftNavConfigHandler);
+
+  if (window.__swissStorageHandler) {
+    window.removeEventListener("storage", window.__swissStorageHandler);
+  }
+  window.__swissStorageHandler = (e) => {
+    if (e && (e.key === "antigravity_swiss_left_panel_mode" || e.key === "antigravity_swiss_left_panel_enabled" || e.key === "antigravity_swiss_ext_visibility")) {
+      setupLeftNavTabs();
+    }
+  };
+  window.addEventListener("storage", window.__swissStorageHandler);
 
   if (window.__swissGHNavInterval) clearInterval(window.__swissGHNavInterval);
   if (window.__swissGHFetchInterval) clearInterval(window.__swissGHFetchInterval);

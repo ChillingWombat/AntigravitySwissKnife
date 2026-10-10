@@ -119,8 +119,7 @@ func (s *Store) load() error {
 }
 
 // normalizeExtensions derives cfg.Extensions from the legacy global toggles when
-// the map is absent/empty, and forces the left sidebar into individual mode so
-// each extension gets its own tab button. Returns true when the config changed.
+// the map is absent/empty. Returns true when the config changed.
 func normalizeExtensions(cfg *EnhancementsConfig) bool {
 	if len(cfg.Extensions) > 0 {
 		return false
@@ -138,7 +137,9 @@ func normalizeExtensions(cfg *EnhancementsConfig) bool {
 			cfg.Extensions[id] = vis
 		}
 	}
-	cfg.LeftPanelExtensionsMode = "individual"
+	if cfg.LeftPanelExtensionsMode == "" {
+		cfg.LeftPanelExtensionsMode = "single"
+	}
 	return true
 }
 

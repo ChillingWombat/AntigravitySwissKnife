@@ -445,8 +445,26 @@ global.localStorage = {
   setItem: (k, v) => { storage[k] = String(v); }
 };
 global.location = { pathname: "/c/virtualized-uuid-111", href: "" };
-global.addEventListener = () => {};
-global.removeEventListener = () => {};
+const winListeners = {};
+global.addEventListener = (ev, fn) => {
+  winListeners[ev] = winListeners[ev] || [];
+  winListeners[ev].push(fn);
+};
+global.removeEventListener = (ev, fn) => {
+  if (!winListeners[ev]) return;
+  winListeners[ev] = winListeners[ev].filter(f => f !== fn);
+};
+global.dispatchEvent = (e) => {
+  if (e && e.type && winListeners[e.type]) {
+    winListeners[e.type].forEach(fn => fn(e));
+  }
+};
+global.CustomEvent = class CustomEvent {
+  constructor(type, init = {}) {
+    this.type = type;
+    this.detail = init.detail;
+  }
+};
 global.window = global;
 global.document = {
   body: docBody,
@@ -513,6 +531,41 @@ assert.strictEqual(document.getElementById("swiss-left-nav-group"), null, "swiss
 storage["antigravity_swiss_left_panel_enabled"] = "true";
 storage["antigravity_swiss_left_panel_mode"] = "single";
 window.setupLeftNavTabs();
+
+// Verify single mode works when window.__SWISS_ENH_CONFIG__.extensions is present
+window.__SWISS_ENH_CONFIG__ = {
+  left_panel_extensions_mode: "single",
+  extensions: {
+    browser: { aux_panel: true, main_page: false },
+    files: { aux_panel: true, main_page: false },
+    memos: { aux_panel: true, main_page: false },
+    github: { aux_panel: true, main_page: false },
+  }
+};
+storage["antigravity_swiss_left_panel_mode"] = "single";
+window.setupLeftNavTabs();
+const singleGrpConfig = document.getElementById("swiss-left-nav-group");
+assert.ok(singleGrpConfig, "swiss-left-nav-group should exist with __SWISS_ENH_CONFIG__.extensions in single mode");
+assert.ok(singleGrpConfig.querySelector('[data-swiss-ext="swiss-knife"]'), "single swiss-knife button must exist even when extensions map is present");
+
+// Verify switching to individual mode via event when extensions map is present
+window.__SWISS_ENH_CONFIG__.extensions.github.main_page = true;
+window.dispatchEvent(new CustomEvent("swiss-left-nav-config-updated", {
+  detail: { mode: "individual" }
+}));
+const indGrpEvent = document.getElementById("swiss-left-nav-group");
+assert.ok(indGrpEvent, "swiss-left-nav-group should update to individual mode via event");
+assert.strictEqual(indGrpEvent.querySelector('[data-swiss-ext="swiss-knife"]'), null, "swiss-knife button must not exist in individual mode");
+assert.ok(indGrpEvent.querySelector('[data-swiss-ext="github"]'), "github button must exist when main_page is true");
+assert.strictEqual(indGrpEvent.querySelector('[data-swiss-ext="browser"]'), null, "browser button must not exist when main_page is false");
+
+// Switch back to single mode via event
+window.dispatchEvent(new CustomEvent("swiss-left-nav-config-updated", {
+  detail: { mode: "single" }
+}));
+const singleGrpRestored = document.getElementById("swiss-left-nav-group");
+assert.ok(singleGrpRestored.querySelector('[data-swiss-ext="swiss-knife"]'), "swiss-knife button must be restored when switching back to single mode");
+
 
 // Verify breadcrumb project detection when conversation row is virtualized out of DOM
 assert.strictEqual(storage["antigravity_swiss_last_project"], "Obsidian-HomePage", "should detect project from first breadcrumb-segment");
