@@ -456,7 +456,7 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 		if s != nil {
 			if s.ErrorStatus != "" {
 				status = strings.ToUpper(s.ErrorStatus)
-			} else if status == "ERROR" && s.ResetHorizonText != "Error" && s.ResetHorizonText != "Not Polled" {
+			} else if status == "ERROR" && s.ResetHorizonText != "Error" && s.ResetHorizonText != "Not Polled" && !strings.Contains(errorMessage, "Missing credentials") {
 				if acc.IsActive {
 					status = "ACTIVE"
 				} else {
@@ -465,7 +465,7 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 			}
 			if s.ErrorMessage != "" {
 				errorMessage = s.ErrorMessage
-			} else if s.ErrorStatus == "" && s.ResetHorizonText != "Error" && s.ResetHorizonText != "Not Polled" {
+			} else if s.ErrorStatus == "" && s.ResetHorizonText != "Error" && s.ResetHorizonText != "Not Polled" && !strings.Contains(errorMessage, "Missing credentials") {
 				errorMessage = ""
 			}
 			if s.PlanTier != "" {
@@ -617,16 +617,38 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 
 		// Credential check: if account lacks a valid refresh token, it requires re-authentication.
 		if strings.TrimSpace(acc.RefreshToken) == "" && !core.IsRunningTests() {
-			if status != "BANNED" && status != "ERROR" {
-				status = "NEEDS_REAUTH"
+			if status != "BANNED" {
+				status = "ERROR"
 			}
 			if errorMessage == "" {
 				errorMessage = "Missing credentials / re-authentication required"
 			}
 		}
 
-		if strings.EqualFold(acc.Status, "NEEDS_REAUTH") {
-			status = "NEEDS_REAUTH"
+		if strings.EqualFold(acc.Status, "NEEDS_REAUTH") || strings.EqualFold(status, "NEEDS_REAUTH") {
+			status = "ERROR"
+			if errorMessage == "" {
+				errorMessage = "Missing credentials / re-authentication required"
+			}
+		}
+
+		// When an account is in ERROR, BANNED, or lacks valid credentials, its quota is invalid.
+		// It must NOT show stale positive quota percentages or countdown timers.
+		if status == "ERROR" || status == "BANNED" || (strings.TrimSpace(acc.RefreshToken) == "" && !core.IsRunningTests()) {
+			cur5h = 0.0
+			avail5h = 0.0
+			curWeekly = 0.0
+			curSec = 0.0
+			curSecWeekly = 0.0
+			cur5hClaude = 0.0
+			curWeeklyClaude = 0.0
+			if status == "BANNED" {
+				resText = "Banned"
+				resWeeklyText = "Banned"
+			} else {
+				resText = "Error"
+				resWeeklyText = "Error"
+			}
 		}
 
 		results = append(results, AccountQuotaState{

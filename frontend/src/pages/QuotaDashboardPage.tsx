@@ -1089,8 +1089,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
 
               const isActive = isRowActive
               const current5h = acc.quota_5h_current ?? acc.quota_5h_available ?? 0
-              const isHealthy = current5h > threshold && (acc.quota_weekly ?? 0) > thresholdWeekly && !acc.status?.toUpperCase().includes('NEEDS_REAUTH')
-              const isNextSwitch = autoSwitchOn && sortMode === 'auto' && !isActive && !acc.status?.toUpperCase().includes('BANNED') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('COOLDOWN') && !acc.status?.toUpperCase().includes('COOLING') && !acc.status?.toUpperCase().includes('NEEDS_REAUTH') && index === 1 && isHealthy
+              const isHealthy = current5h > threshold && (acc.quota_weekly ?? 0) > thresholdWeekly && !acc.status?.toUpperCase().includes('NEEDS_REAUTH') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('BANNED') && Boolean(acc.refresh_token?.trim())
+              const isNextSwitch = autoSwitchOn && sortMode === 'auto' && !isActive && !acc.status?.toUpperCase().includes('BANNED') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('COOLDOWN') && !acc.status?.toUpperCase().includes('COOLING') && !acc.status?.toUpperCase().includes('NEEDS_REAUTH') && Boolean(acc.refresh_token?.trim()) && index === 1 && isHealthy
               return (
                 <tr
                   key={acc.email}
@@ -1286,7 +1286,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                       >
                         <AlertTriangle size={12} /> BANNED
                       </button>
-                    ) : acc.status?.toUpperCase() === 'ERROR' ? (
+                    ) : acc.status?.toUpperCase() === 'ERROR' || acc.status?.toUpperCase() === 'NEEDS_REAUTH' || !acc.refresh_token?.trim() ? (
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
@@ -1308,29 +1308,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                         title="Authentication or verification error (Click to view details)"
                       >
                         <AlertCircle size={12} /> ERROR
-                      </button>
-                    ) : acc.status?.toUpperCase() === 'NEEDS_REAUTH' ? (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setErrorDetailAccount(acc)
-                        }}
-                        style={{
-                          padding: '4px 10px',
-                          borderRadius: '12px',
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          color: '#b06000',
-                          backgroundColor: '#fef7e0',
-                          border: '1px solid #feefc3',
-                          cursor: 'pointer',
-                        }}
-                        title="Stored credentials missing or expired. Re-authenticate account to use."
-                      >
-                        <AlertCircle size={12} /> NEEDS REAUTH
                       </button>
                     ) : (() => {
                       const renderSwitchControl = () => {

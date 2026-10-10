@@ -157,11 +157,15 @@ export function toAccountState(acc: any, activeEmail?: string): AccountState {
   if (status === 'COOLDOWN') {
     status = 'COOLING'
   }
+  if (status === 'NEEDS_REAUTH') {
+    status = 'ERROR'
+  }
   if (isActive && status === 'STANDBY') {
     status = 'ACTIVE'
   } else if (!isActive && status === 'ACTIVE') {
     status = 'STANDBY'
   }
+  const hasError = status === 'ERROR' || status === 'BANNED'
   return {
     email,
     label: acc.label || email,
@@ -171,18 +175,18 @@ export function toAccountState(acc: any, activeEmail?: string): AccountState {
     password: acc.password || '',
     is_active: isActive,
     status,
-    quota_5h_current: typeof acc.quota_5h_current === 'number' ? acc.quota_5h_current : 1.0,
-    quota_5h_available: typeof acc.quota_5h_available === 'number' ? acc.quota_5h_available : 1.0,
-    quota_weekly: typeof acc.quota_weekly === 'number' ? acc.quota_weekly : 1.0,
-    reset_horizon_text: acc.reset_horizon_text || 'Ready',
-    reset_horizon_weekly_text: acc.reset_horizon_weekly_text || 'Ready',
+    quota_5h_current: hasError ? 0.0 : (typeof acc.quota_5h_current === 'number' ? acc.quota_5h_current : 1.0),
+    quota_5h_available: hasError ? 0.0 : (typeof acc.quota_5h_available === 'number' ? acc.quota_5h_available : 1.0),
+    quota_weekly: hasError ? 0.0 : (typeof acc.quota_weekly === 'number' ? acc.quota_weekly : 1.0),
+    reset_horizon_text: hasError ? (status === 'BANNED' ? 'Banned' : 'Error') : (acc.reset_horizon_text || 'Ready'),
+    reset_horizon_weekly_text: hasError ? (status === 'BANNED' ? 'Banned' : 'Error') : (acc.reset_horizon_weekly_text || 'Ready'),
     has_mfa: Boolean(acc.has_totp || acc.totp_secret),
     totp_secret: acc.totp_secret || '',
     refresh_token: acc.refresh_token || '',
     credits: typeof acc.credits === 'number' ? acc.credits : 0,
     enable_credit_overages: Boolean(acc.enable_credit_overages),
     allow_claude_gpt: Boolean(acc.allow_claude_gpt),
-    error_message: acc.error_message || '',
+    error_message: acc.error_message || (hasError && !acc.refresh_token?.trim() ? 'Missing credentials / re-authentication required' : ''),
     status_reason: acc.status_reason || '',
     active_apps: Array.isArray(acc.active_apps) ? acc.active_apps : [],
   }

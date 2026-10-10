@@ -73,17 +73,31 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const RIGHT_ACTION_WIDTH = '172px'
   const CONTROL_HEIGHT = '36px'
 
+  const isAccountInError = Boolean(
+    currentStatus?.toUpperCase() === 'ERROR' ||
+    currentStatus?.toUpperCase() === 'BANNED' ||
+    currentStatus?.toUpperCase() === 'NEEDS_REAUTH' ||
+    account.status?.toUpperCase() === 'ERROR' ||
+    account.status?.toUpperCase() === 'BANNED' ||
+    account.status?.toUpperCase() === 'NEEDS_REAUTH' ||
+    Boolean(account.error_message) ||
+    Boolean(liveErrorMessage) ||
+    (!isNewAccount && !account.refresh_token?.trim() && !refreshToken?.trim())
+  )
+
   const isQuotaConnected = Boolean(
-    liveQuota5h !== null ||
-      (!isNewAccount &&
-        (account.is_active ||
-          currentStatus === 'ACTIVE' ||
-          account.status === 'ACTIVE' ||
-          Boolean(account.refresh_token?.trim()) ||
-          Boolean(refreshToken?.trim()) ||
-          (Boolean(account.reset_horizon_text?.trim()) &&
-            account.reset_horizon_text !== 'Not Polled'))) ||
-      Boolean(oauthSuccessMsg)
+    !isAccountInError &&
+      (liveQuota5h !== null ||
+        (!isNewAccount &&
+          (account.is_active ||
+            currentStatus === 'ACTIVE' ||
+            account.status === 'ACTIVE' ||
+            Boolean(account.refresh_token?.trim()) ||
+            Boolean(refreshToken?.trim()) ||
+            (Boolean(account.reset_horizon_text?.trim()) &&
+              account.reset_horizon_text !== 'Not Polled' &&
+              account.reset_horizon_text !== 'Error'))) ||
+        Boolean(oauthSuccessMsg))
   )
 
   const headerDisplay = getAccountHeaderDisplay(isNewAccount, label, email)
@@ -501,9 +515,16 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     }
   }
 
-  const st = (currentStatus || (account.is_active ? 'ACTIVE' : 'STANDBY')).toUpperCase()
+  const st = (
+    currentStatus?.toUpperCase() === 'BANNED' || account.status?.toUpperCase() === 'BANNED'
+      ? 'BANNED'
+      : isAccountInError
+      ? 'ERROR'
+      : currentStatus || (account.is_active ? 'ACTIVE' : 'STANDBY')
+  ).toUpperCase()
+
   const errorAlert = parseAccountErrorAlert(
-    liveErrorMessage || account.error_message || account.status_reason,
+    liveErrorMessage || account.error_message || account.status_reason || (isAccountInError ? 'Missing credentials / re-authentication required' : ''),
     email.trim() || account.email
   )
 
@@ -563,7 +584,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                         : 'badge-neutral'
                     }`}
                   >
-                    {account.is_active && st !== 'BANNED' && st !== 'ERROR' ? 'ACTIVE' : (st === 'COOLDOWN' || st === 'COOLING') ? 'COOLING' : st}
+                    {st === 'BANNED' ? 'BANNED' : st === 'ERROR' ? 'ERROR' : account.is_active ? 'ACTIVE' : (st === 'COOLDOWN' || st === 'COOLING') ? 'COOLING' : st}
                   </span>
                   {renderPlanTierBadge(account.plan_tier)}
                   {account.credits !== undefined && account.credits !== null && account.credits > 0 && (

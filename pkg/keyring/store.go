@@ -165,7 +165,13 @@ func (s *Store) load() error {
 				}
 
 				errMsg := ""
-				if status == "ERROR" || status == "BANNED" {
+				if strings.TrimSpace(refreshToken) == "" && status != "BANNED" && !core.IsRunningTests() {
+					status = "ERROR"
+					errMsg = "Missing credentials / re-authentication required"
+				} else if status == "NEEDS_REAUTH" {
+					status = "ERROR"
+					errMsg = "Missing credentials / re-authentication required"
+				} else if status == "ERROR" || status == "BANNED" {
 					errMsg = item.ErrorMessage
 				}
 
@@ -240,7 +246,13 @@ func (s *Store) load() error {
 			}
 
 			errMsg := ""
-			if status == "ERROR" || status == "BANNED" {
+			if strings.TrimSpace(refreshToken) == "" && status != "BANNED" && !core.IsRunningTests() {
+				status = "ERROR"
+				errMsg = "Missing credentials / re-authentication required"
+			} else if status == "NEEDS_REAUTH" {
+				status = "ERROR"
+				errMsg = "Missing credentials / re-authentication required"
+			} else if status == "ERROR" || status == "BANNED" {
 				errMsg = item.ErrorMessage
 			}
 
@@ -332,14 +344,19 @@ func (s *Store) save() error {
 		} else if acc.IsActive && st == "STANDBY" {
 			st = "ACTIVE"
 		}
-		if strings.TrimSpace(acc.RefreshToken) == "" && st != "BANNED" && st != "ERROR" && !core.IsRunningTests() {
-			st = "NEEDS_REAUTH"
+		if strings.TrimSpace(acc.RefreshToken) == "" && st != "BANNED" && !core.IsRunningTests() {
+			st = "ERROR"
+			if acc.ErrorMessage == "" {
+				acc.ErrorMessage = "Missing credentials / re-authentication required"
+			}
+		} else if st == "NEEDS_REAUTH" {
+			st = "ERROR"
 			if acc.ErrorMessage == "" {
 				acc.ErrorMessage = "Missing credentials / re-authentication required"
 			}
 		}
 		acc.Status = st
-		if st != "ERROR" && st != "BANNED" && st != "NEEDS_REAUTH" {
+		if st != "ERROR" && st != "BANNED" {
 			acc.ErrorMessage = ""
 		}
 
@@ -372,7 +389,7 @@ func (s *Store) save() error {
 			Credits:              acc.Credits,
 			EnableCreditOverages: acc.EnableCreditOverages,
 			AllowClaudeGPT:       acc.AllowClaudeGPT,
-			IsHealthy:            st != "ERROR" && st != "BANNED" && st != "NEEDS_REAUTH" && (strings.TrimSpace(acc.RefreshToken) != "" || core.IsRunningTests()),
+			IsHealthy:            st != "ERROR" && st != "BANNED" && (strings.TrimSpace(acc.RefreshToken) != "" || core.IsRunningTests()),
 			TokenExpiry:          expiryStr,
 		}
 		ea.Credential.AccessToken = encAccess
