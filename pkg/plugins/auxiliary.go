@@ -3501,12 +3501,17 @@ func GenerateAuxiliaryPluginsScript() string {
               const hasContent = (lexicalElem.innerText || "").trim().length > 0;
               const textToInsert = (hasContent ? "\n" : "") + promptText;
               document.execCommand("insertText", false, textToInsert);
-              lexicalElem.dispatchEvent(new InputEvent("beforeinput", {
-                inputType: "insertText",
-                data: textToInsert,
-                bubbles: true,
-                cancelable: true
-              }));
+              const hasInserted = (lexicalElem.innerText || "").includes(promptText);
+              if (!hasInserted) {
+                try {
+                  lexicalElem.dispatchEvent(new InputEvent("beforeinput", {
+                    inputType: "insertText",
+                    data: textToInsert,
+                    bubbles: true,
+                    cancelable: true
+                  }));
+                } catch (_) {}
+              }
               lexicalElem.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
               injectedLexical = true;
             } catch (err) {
@@ -4960,14 +4965,17 @@ func GenerateAuxiliaryPluginsScript() string {
         try {
           document.execCommand("insertText", false, textToInsert);
         } catch (_) {}
-        try {
-          input.dispatchEvent(new InputEvent("beforeinput", {
-            inputType: "insertText",
-            data: textToInsert,
-            bubbles: true,
-            cancelable: true
-          }));
-        } catch (_) {}
+        const hasInserted = (input.innerText || "").includes(text.slice(0, 15));
+        if (!hasInserted) {
+          try {
+            input.dispatchEvent(new InputEvent("beforeinput", {
+              inputType: "insertText",
+              data: textToInsert,
+              bubbles: true,
+              cancelable: true
+            }));
+          } catch (_) {}
+        }
         input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
 
         // Fallback: paste event if execCommand was swallowed

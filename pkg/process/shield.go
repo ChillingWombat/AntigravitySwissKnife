@@ -248,7 +248,7 @@ func (s *Shield) RestartLanguageServer() error {
 }
 
 // LaunchHostIDE launches the Antigravity desktop IDE application if it is not currently running.
-// If already running, it returns nil immediately without spawning a duplicate instance.
+// If already running, it actively brings the active window to front via CDP.
 func (s *Shield) LaunchHostIDE() error {
 	if os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" {
 		return nil
@@ -269,8 +269,9 @@ func (s *Shield) LaunchHostIDE() error {
 			if (p.Name == "antigravity" || strings.HasSuffix(p.Name, "antigravity")) &&
 				!strings.Contains(lower, "--type=") &&
 				!strings.Contains(lower, "swiss") {
-				// Already running
-				return nil
+				// Already running: bring window to front via CDP
+				inj := gui.NewInjector(0)
+				return inj.FocusActiveWindows()
 			}
 		}
 	}
@@ -290,21 +291,9 @@ func (s *Shield) LaunchHostIDE() error {
 		cmd = exec.Command(binPath)
 	}
 
-	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
-	if err == nil {
-		defer devNull.Close()
-		cmd.Stdin = devNull
-		cmd.Stdout = devNull
-		cmd.Stderr = devNull
-	}
-
-	setDetachedProcess(cmd)
-	if err := cmd.Start(); err != nil {
+	if err := core.LaunchDetachedProcess(cmd); err != nil {
 		return fmt.Errorf("failed to launch Antigravity (%s): %w", binPath, err)
 	}
-	go func() {
-		_ = cmd.Wait()
-	}()
 
 	return nil
 }

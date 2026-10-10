@@ -1370,14 +1370,17 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             }
             document.execCommand("selectAll", false, null);
             document.execCommand("insertText", false, promptText);
-            try {
-              editor.dispatchEvent(new InputEvent("beforeinput", {
-                inputType: "insertText",
-                data: promptText,
-                bubbles: true,
-                cancelable: true
-              }));
-            } catch (_) {}
+            const hasInserted = (editor.innerText || "").includes(promptText);
+            if (!hasInserted) {
+              try {
+                editor.dispatchEvent(new InputEvent("beforeinput", {
+                  inputType: "insertText",
+                  data: promptText,
+                  bubbles: true,
+                  cancelable: true
+                }));
+              } catch (_) {}
+            }
             editor.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
           }
         } else {

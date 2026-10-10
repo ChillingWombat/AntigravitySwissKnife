@@ -2,9 +2,11 @@ package revival
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 )
 
@@ -32,6 +34,9 @@ func NewCDPTrigger(customPort int) *CDPTrigger {
 			return inj.ExecuteScript(wsURL, expression)
 		},
 		TargetFinder: func(port int) (int, []gui.DevToolsTarget, error) {
+			if gui.IsTestExecution() || os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" || core.IsRunningTests() {
+				return 0, nil, fmt.Errorf("live cdp connection disabled during test execution")
+			}
 			activePort, err := inj.FindDevToolsPort()
 			if err != nil {
 				return 0, nil, err
@@ -140,14 +145,17 @@ func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string,
 					}
 					document.execCommand("selectAll", false, null);
 					document.execCommand("insertText", false, promptText);
-					try {
-						editor.dispatchEvent(new InputEvent("beforeinput", {
-							inputType: "insertText",
-							data: promptText,
-							bubbles: true,
-							cancelable: true
-						}));
-					} catch (_) {}
+					const hasInserted = (editor.innerText || "").includes(promptText);
+					if (!hasInserted) {
+						try {
+							editor.dispatchEvent(new InputEvent("beforeinput", {
+								inputType: "insertText",
+								data: promptText,
+								bubbles: true,
+								cancelable: true
+							}));
+						} catch (_) {}
+					}
 					editor.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
 				}
 			} else {

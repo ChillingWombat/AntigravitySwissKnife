@@ -84,11 +84,12 @@ func (d *Detector) CheckUpdates() (*SystemInstallations, error) {
 
 func (d *Detector) detectDesktopApp() InstallationInfo {
 	appPath := core.GetAntigravityDesktopAppPath()
+	binPath := core.GetAntigravityBinaryPath()
 	resDir := core.GetAntigravityDesktopResourcesDir()
 
 	info := InstallationInfo{
 		Installed:     false,
-		Path:          appPath,
+		Path:          binPath,
 		Version:       "",
 		UpToDate:      false,
 		LatestVersion: LatestDesktopVersion,
@@ -101,6 +102,15 @@ func (d *Detector) detectDesktopApp() InstallationInfo {
 		if pathExists(cfg.DesktopAppPath) {
 			info.Installed = true
 			info.Path = cfg.DesktopAppPath
+			if fi, err := os.Stat(info.Path); err == nil && fi.IsDir() {
+				for _, exeName := range []string{"antigravity", "Antigravity.exe", "Contents/MacOS/Antigravity"} {
+					cand := filepath.Join(info.Path, exeName)
+					if pathExists(cand) {
+						info.Path = cand
+						break
+					}
+				}
+			}
 			info.Version = LatestDesktopVersion
 			info.UpToDate = true
 			return info
@@ -108,28 +118,46 @@ func (d *Detector) detectDesktopApp() InstallationInfo {
 	}
 
 	// 1. Check if executable / bundle or resources dir exists
+	binExists := pathExists(binPath)
 	appExists := pathExists(appPath)
 	resExists := pathExists(resDir)
 
-	if !appExists && !resExists {
+	if !binExists && !appExists && !resExists {
 		// Try fallback common paths
 		fallbacks := []string{
+			"/opt/Antigravity/antigravity",
+			"/usr/bin/antigravity",
 			"/opt/Antigravity",
 			"/usr/lib/Antigravity",
 			filepath.Join(os.Getenv("HOME"), "Applications", "Antigravity.app"),
 		}
 		for _, fb := range fallbacks {
 			if pathExists(fb) {
-				appPath = fb
-				appExists = true
+				if fi, err := os.Stat(fb); err == nil && !fi.IsDir() {
+					binPath = fb
+					binExists = true
+				} else {
+					appPath = fb
+					appExists = true
+				}
 				break
 			}
 		}
 	}
 
-	if appExists || resExists {
+	if binExists || appExists || resExists {
 		info.Installed = true
-		info.Path = appPath
+		if binExists {
+			info.Path = binPath
+		} else if pathExists(filepath.Join(appPath, "antigravity")) {
+			info.Path = filepath.Join(appPath, "antigravity")
+		} else if pathExists(filepath.Join(appPath, "Antigravity.exe")) {
+			info.Path = filepath.Join(appPath, "Antigravity.exe")
+		} else if pathExists(filepath.Join(appPath, "Contents", "MacOS", "Antigravity")) {
+			info.Path = filepath.Join(appPath, "Contents", "MacOS", "Antigravity")
+		} else {
+			info.Path = binPath
+		}
 
 		// Attempt to extract version from package.json
 		version := readPackageJSONVersion(
@@ -138,6 +166,8 @@ func (d *Detector) detectDesktopApp() InstallationInfo {
 			filepath.Join(appPath, "resources", "app", "package.json"),
 			filepath.Join(appPath, "resources", "package.json"),
 			filepath.Join(appPath, "package.json"),
+			filepath.Join(filepath.Dir(info.Path), "resources", "app", "package.json"),
+			filepath.Join(filepath.Dir(info.Path), "resources", "package.json"),
 		)
 
 		if version == "" {

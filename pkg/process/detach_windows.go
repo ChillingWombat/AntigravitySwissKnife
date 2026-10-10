@@ -4,11 +4,10 @@ package process
 
 import (
 	"os/exec"
-	"syscall"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
 
 func setDetachedProcess(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		CreationFlags: 0x00000008, // DETACHED_PROCESS
-	}
+	core.SetDetachedProcess(cmd)
 }

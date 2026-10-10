@@ -81,4 +81,30 @@ func TestShield_RevivalEngineCoordination(t *testing.T) {
 	}
 }
 
+func TestLaunchHostIDE_RunningCallsFocus(t *testing.T) {
+	shield := NewShield(0)
+	shield.SetProcessFinder(func() ([]ProcessInfo, error) {
+		return []ProcessInfo{
+			{PID: 1234, Name: "antigravity", Cmdline: "/opt/Antigravity/antigravity"},
+		}, nil
+	})
+
+	err := shield.LaunchHostIDE()
+	if err != nil {
+		t.Fatalf("expected nil error on LaunchHostIDE when already running, got: %v", err)
+	}
+}
+
+func TestLaunchHostIDE_ClosedIDETestMode(t *testing.T) {
+	shield := NewShield(0)
+	shield.SetProcessFinder(func() ([]ProcessInfo, error) {
+		return []ProcessInfo{}, nil
+	})
+
+	err := shield.LaunchHostIDE()
+	if err != nil {
+		t.Fatalf("expected nil error on LaunchHostIDE in test mode when stopped, got: %v", err)
+	}
+}
+
 

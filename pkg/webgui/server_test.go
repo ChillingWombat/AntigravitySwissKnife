@@ -428,6 +428,9 @@ func TestWebGUICustomModelsEndpoints(t *testing.T) {
 		t.Fatalf("failed to decode custom models config: %v", err)
 	}
 	resp.Body.Close()
+	if infSupported, ok := cmCfg["inference_supported"].(bool); !ok || !infSupported {
+		t.Errorf("expected inference_supported true in /api/custom_models, got %v", cmCfg["inference_supported"])
+	}
 
 	// 3. POST /api/custom_models (create custom model)
 	newModel := map[string]interface{}{

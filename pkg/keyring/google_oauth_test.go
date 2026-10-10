@@ -124,4 +124,18 @@ func TestGoogleOAuthCallbackHTML_LightThemeAndLucideIcon(t *testing.T) {
 	if strings.Contains(errPage, "<script>alert(1)</script>") || !strings.Contains(errPage, "&lt;script&gt;alert(1)&lt;/script&gt;") {
 		t.Errorf("expected renderOAuthErrorHTML to HTML-escape title and detail")
 	}
+
+	// Verify absence of destructive Electron/VS Code window-closing hacks
+	if strings.Contains(oauthSuccessHTML, "window.open('', '_self', '')") || strings.Contains(oauthSuccessHTML, `window.open('','_self','')`) {
+		t.Errorf("expected oauthSuccessHTML not to contain destructive window.open('', '_self', '') hack")
+	}
+	if strings.Contains(errPage, "window.open('', '_self', '')") || strings.Contains(errPage, `window.open('','_self','')`) {
+		t.Errorf("expected renderOAuthErrorHTML not to contain destructive window.open('', '_self', '') hack")
+	}
+	if !strings.Contains(oauthSuccessHTML, "isEmbeddedOrVSCode") || !strings.Contains(oauthSuccessHTML, "safeCloseWindow") {
+		t.Errorf("expected oauthSuccessHTML to contain embedded VS Code environment checks")
+	}
+	if !strings.Contains(errPage, "isEmbeddedOrVSCode") || !strings.Contains(errPage, "safeCloseWindow") {
+		t.Errorf("expected renderOAuthErrorHTML to contain embedded VS Code environment checks")
+	}
 }

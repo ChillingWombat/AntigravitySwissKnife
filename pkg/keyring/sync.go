@@ -671,6 +671,7 @@ func SyncStateVscdb(acc *Account) error {
 	// 2. VS Code state.vscdb (if present)
 	vscdbPathCode := filepath.Join(core.GetVSCodeHostConfigDir(), "User", "globalStorage", "state.vscdb")
 	_ = syncSingleVscdb(vscdbPathCode, acc)
+	_ = core.EnsureVSCodeWindowCloseGuard()
 
 	return nil
 }
@@ -769,4 +770,3 @@ func SyncSurface(targetApp string, acc *Account, allEmails []string, profileMgr 
 		return fmt.Errorf("unknown target app: %s", targetApp)
 	}
 }
-

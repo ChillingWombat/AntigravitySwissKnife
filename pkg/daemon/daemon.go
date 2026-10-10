@@ -88,6 +88,8 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 		return nil, fmt.Errorf("failed to init gui store: %w", err)
 	}
 
+	_ = core.EnsureVSCodeWindowCloseGuard()
+
 	if socketPath == "" {
 		socketPath = core.GetSocketPath()
 	}
@@ -96,21 +98,21 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	d := &Daemon{
-		Config:         cfg,
-		Keyring:        keyringStore,
-		Profiles:       fpStore,
-		GUIStore:       guiStore,
-		Shield:         shield,
-		Revival:        revEngine,
-		Inspector:      inspector,
-		Pruner:         pruner,
-		TOTP:           totpEngine,
-		Vault:          vault.NewManager("", ""),
-		Server:         server,
-		ctx:            ctx,
-		cancel:         cancel,
-		lastSwitchTime: time.Now(),
-		quotaCache:     quota.LoadQuotaCache(),
+		Config:          cfg,
+		Keyring:         keyringStore,
+		Profiles:        fpStore,
+		GUIStore:        guiStore,
+		Shield:          shield,
+		Revival:         revEngine,
+		Inspector:       inspector,
+		Pruner:          pruner,
+		TOTP:            totpEngine,
+		Vault:           vault.NewManager("", ""),
+		Server:          server,
+		ctx:             ctx,
+		cancel:          cancel,
+		lastSwitchTime:  time.Now(),
+		quotaCache:      quota.LoadQuotaCache(),
 		ignitedAccounts: make(map[string]time.Time),
 		configUpdated:   make(chan struct{}, 1),
 	}

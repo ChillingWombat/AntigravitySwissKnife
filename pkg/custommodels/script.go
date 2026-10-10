@@ -1,6 +1,7 @@
 package custommodels
 
 import (
+	"encoding/json"
 	"fmt"
 )
 
@@ -10,14 +11,19 @@ import (
 func GenerateCustomModelsScript(cfg *Config) string {
 	// Custom models must not be baked permanently into the offline Electron renderer.
 	// Initial state starts empty; config is loaded dynamically only when the Swiss Knife daemon is running and inference is supported.
-	cfgJSON := []byte(`{"version":"1.0.0","models":[],"project_binds":{}}`)
+	cfgJSON := []byte(`{"version":"1.0.0","inference_supported":true,"models":[],"project_binds":{}}`)
+	if cfg != nil {
+		if cBytes, err := json.Marshal(cfg); err == nil {
+			cfgJSON = cBytes
+		}
+	}
 
 	return fmt.Sprintf(`
 /* === Antigravity Swiss Knife: Custom Model Provider Integration === */
 (() => {
   try {
-    let customConfig = %s || { version: "1.0.0", models: [], project_binds: {} };
-    if (!customConfig) customConfig = { version: "1.0.0", models: [], project_binds: {} };
+    let customConfig = %s || { version: "1.0.0", inference_supported: true, models: [], project_binds: {} };
+    if (!customConfig) customConfig = { version: "1.0.0", inference_supported: true, models: [], project_binds: {} };
     if (!customConfig.models) customConfig.models = [];
     if (!customConfig.project_binds) customConfig.project_binds = {};
 
@@ -38,7 +44,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
           }
         }
       } catch (_) {}
-      customConfig = { version: "1.0.0", models: [], project_binds: {} };
+      customConfig = { version: "1.0.0", inference_supported: false, models: [], project_binds: {} };
     }
 
     refreshCustomConfig();

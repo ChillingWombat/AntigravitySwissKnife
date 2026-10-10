@@ -683,3 +683,27 @@ func TestSharedPriceDataAndMonotonicInternalID(t *testing.T) {
 	}
 }
 
+func TestCustomModel_InferenceSupportedContract(t *testing.T) {
+	cfg := DefaultConfig()
+	if !cfg.InferenceSupported {
+		t.Fatalf("expected DefaultConfig() to have InferenceSupported true")
+	}
+
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	storeCfg := store.GetConfig()
+	if !storeCfg.InferenceSupported {
+		t.Fatalf("expected store.GetConfig() to have InferenceSupported true")
+	}
+
+	script := GenerateCustomModelsScript(nil)
+	if !containsSubstring(script, "inference_supported: true") {
+		t.Errorf("expected generated script to contain 'inference_supported: true'")
+	}
+}
+
+

@@ -237,7 +237,6 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/session/continuation", s.handleConversationsStatus)
 	mux.HandleFunc("/api/session/continuation/ack", s.handleConversationsAck)
 
-
 	// System installations & updates
 	mux.HandleFunc("/api/system/installations", s.handleSystemInstallations)
 	mux.HandleFunc("/api/system/check_updates", s.handleSystemCheckUpdates)
@@ -841,11 +840,13 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 				_ = store.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
 			}
 			if !shouldRelaunch {
-				_, _ = gui.NewInjector(0).RefreshUserStatus()
-				if s.revivalEngine != nil && revIntent != nil {
-					go func(it *revival.RevivalIntent) {
-						_ = s.revivalEngine.ExecutePostRelaunchRevival(it)
-					}(revIntent)
+				if !core.IsRunningTests() && !gui.IsTestExecution() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+					_, _ = gui.NewInjector(0).RefreshUserStatus()
+					if s.revivalEngine != nil && revIntent != nil {
+						go func(it *revival.RevivalIntent) {
+							_ = s.revivalEngine.ExecutePostRelaunchRevival(it)
+						}(revIntent)
+					}
 				}
 			}
 		}
@@ -891,8 +892,6 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, res)
 }
-
-
 
 func (s *Server) handleTOTP(w http.ResponseWriter, r *http.Request) {
 	email := r.URL.Query().Get("email")
@@ -2302,8 +2301,6 @@ func (s *Server) handleDesktopLaunch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, res)
 }
 
-
-
 func (s *Server) handleSystemInstallations(w http.ResponseWriter, r *http.Request) {
 	if s.systemDetector == nil {
 		s.systemDetector = system.NewDetector()
@@ -2411,6 +2408,7 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		cfg := s.customModelsStore.GetConfig()
+		cfg.InferenceSupported = true
 		if coreCfg, err := core.LoadConfig(); err == nil && coreCfg.DefaultCustomModel != "" {
 			for i := range cfg.Models {
 				if cfg.Models[i].ID == coreCfg.DefaultCustomModel || cfg.Models[i].Name == coreCfg.DefaultCustomModel {
@@ -4991,7 +4989,9 @@ func (s *Server) handleFilesReveal(w http.ResponseWriter, r *http.Request) {
 	if fi, err := os.Stat(target); err == nil && !fi.IsDir() {
 		target = filepath.Dir(target)
 	}
-	_ = exec.Command("xdg-open", target).Start()
+	if !core.IsRunningTests() && !gui.IsTestExecution() {
+		_ = core.LaunchDetachedProcess(exec.Command("xdg-open", target))
+	}
 	writeJSON(w, map[string]interface{}{"success": true, "revealed": target})
 }
 
@@ -5011,6 +5011,10 @@ func (s *Server) handleFilesTerminal(w http.ResponseWriter, r *http.Request) {
 	if fi, err := os.Stat(dir); err == nil && !fi.IsDir() {
 		dir = filepath.Dir(dir)
 	}
+	if core.IsRunningTests() || gui.IsTestExecution() {
+		writeJSON(w, map[string]interface{}{"success": true, "dir": dir})
+		return
+	}
 	terms := [][]string{
 		{"ptyxis", "--working-directory=" + dir},
 		{"gnome-terminal", "--working-directory=" + dir},
@@ -5025,7 +5029,7 @@ func (s *Server) handleFilesTerminal(w http.ResponseWriter, r *http.Request) {
 	for _, term := range terms {
 		cmd := exec.Command(term[0], term[1:]...)
 		cmd.Dir = dir
-		if err := cmd.Start(); err == nil {
+		if err := core.LaunchDetachedProcess(cmd); err == nil {
 			spawned = true
 			break
 		}
@@ -5111,6 +5115,22 @@ func (s *Server) handleFilesOpenIDE(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	_ = core.EnsureVSCodeWindowCloseGuard()
+
+	if core.IsRunningTests() || gui.IsTestExecution() {
+		launchedCandidate := ""
+		if len(candidates) > 0 {
+			launchedCandidate = candidates[0]
+		}
+		writeJSON(w, map[string]interface{}{
+			"success":  true,
+			"dir":      dir,
+			"ide":      targetIDE,
+			"launched": launchedCandidate,
+		})
+		return
+	}
+
 	spawned := false
 	launched := ""
 	for _, cand := range candidates {
@@ -5123,7 +5143,7 @@ func (s *Server) handleFilesOpenIDE(w http.ResponseWriter, r *http.Request) {
 		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
 			cmd.Dir = dir
 		}
-		if err := cmd.Start(); err == nil {
+		if err := core.LaunchDetachedProcess(cmd); err == nil {
 			spawned = true
 			launched = cand
 			break

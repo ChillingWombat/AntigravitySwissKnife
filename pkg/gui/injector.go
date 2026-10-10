@@ -110,6 +110,13 @@ func (inj *Injector) FindDevToolsPort() (int, error) {
 		}
 	}
 
+	// 3. Scan common DevTools debugging ports (9222-9230)
+	for p := 9222; p <= 9230; p++ {
+		if inj.isPortLive(p) {
+			return p, nil
+		}
+	}
+
 	return 0, fmt.Errorf("DevToolsActivePort file not found, empty, or port not responding (Antigravity may not be running)")
 }
 
@@ -141,8 +148,8 @@ func (inj *Injector) GetPageTargets(port int) ([]DevToolsTarget, error) {
 	return pages, nil
 }
 
-// ExecuteScript evaluates a JavaScript expression in the given page target via WebSocket.
-func (inj *Injector) ExecuteScript(wsURLStr string, expression string) (map[string]interface{}, error) {
+// ExecuteCDPCommand sends a JSON-RPC command to the given target via WebSocket.
+func (inj *Injector) ExecuteCDPCommand(wsURLStr string, method string, params map[string]interface{}) (map[string]interface{}, error) {
 	u, err := url.Parse(wsURLStr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid websocket url: %w", err)
@@ -187,12 +194,10 @@ func (inj *Injector) ExecuteScript(wsURLStr string, expression string) (map[stri
 	// Construct JSON-RPC command
 	rpcReq := map[string]interface{}{
 		"id":     1,
-		"method": "Runtime.evaluate",
-		"params": map[string]interface{}{
-			"expression":    expression,
-			"returnByValue": true,
-			"awaitPromise":  true,
-		},
+		"method": method,
+	}
+	if params != nil {
+		rpcReq["params"] = params
 	}
 	payload, err := json.Marshal(rpcReq)
 	if err != nil {
@@ -237,6 +242,41 @@ func (inj *Injector) ExecuteScript(wsURLStr string, expression string) (map[stri
 		return m, nil
 	}
 	return map[string]interface{}{"value": rpcResp.Result.Result.Value}, nil
+}
+
+// ExecuteScript evaluates a JavaScript expression in the given page target via WebSocket.
+func (inj *Injector) ExecuteScript(wsURLStr string, expression string) (map[string]interface{}, error) {
+	return inj.ExecuteCDPCommand(wsURLStr, "Runtime.evaluate", map[string]interface{}{
+		"expression":    expression,
+		"returnByValue": true,
+		"awaitPromise":  true,
+	})
+}
+
+// FocusActiveWindows brings all active Antigravity page windows to front via CDP.
+func (inj *Injector) FocusActiveWindows() error {
+	if IsTestExecution() || os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" || core.IsRunningTests() {
+		if inj.customPort == 0 {
+			return nil
+		}
+	}
+
+	port, err := inj.FindDevToolsPort()
+	if err != nil {
+		return err
+	}
+
+	pages, err := inj.GetPageTargets(port)
+	if err != nil || len(pages) == 0 {
+		return fmt.Errorf("no active Antigravity page windows found on port %d: %w", port, err)
+	}
+
+	for _, page := range pages {
+		_, _ = inj.ExecuteCDPCommand(page.WebSocketDebuggerURL, "Page.bringToFront", nil)
+		_, _ = inj.ExecuteScript(page.WebSocketDebuggerURL, "try { window.focus(); } catch(_) {}")
+	}
+
+	return nil
 }
 
 // ApplyConfig applies the styling configuration to all running Antigravity window instances.

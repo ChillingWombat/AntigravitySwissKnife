@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
 
 const (
@@ -67,6 +69,9 @@ func NewGoogleOAuthManager(clientID, clientSecret string) *GoogleOAuthManager {
 
 // OpenBrowser opens the specified URL in the user's default browser.
 func OpenBrowser(targetURL string) error {
+	if core.IsRunningTests() {
+		return nil
+	}
 	var cmd string
 	var args []string
 
@@ -82,7 +87,7 @@ func OpenBrowser(targetURL string) error {
 		cmd = "xdg-open"
 		args = []string{targetURL}
 	}
-	return exec.Command(cmd, args...).Start()
+	return core.LaunchDetachedProcess(exec.Command(cmd, args...))
 }
 
 // CancelFlow aborts any active OAuth loopback flow and shuts down the loopback server immediately.
@@ -454,21 +459,50 @@ const oauthSuccessHTML = `<!DOCTYPE html>
     </div>
     <h2 style="margin:0 0 8px; color:#1f1f1f; font-size:20px; font-weight:700;">Authentication Successful</h2>
     <p style="color:#5f6368; font-size:14px; line-height:1.5; margin:0 0 16px;">Antigravity Swiss Knife has received and verified your credentials. You can safely close this browser window and return to the application.</p>
-    <p style="color:#5f6368; font-size:12px; margin:0 0 20px;">This tab will attempt to auto-close in <span id="countdown" style="font-weight:700; color:#1a73e8;">5</span> seconds.</p>
-    <button onclick="try{window.close();}catch(e){}try{window.open('','_self','');window.close();}catch(e){}" style="background:#1a73e8; color:#ffffff; border:none; border-radius:9999px; padding:10px 28px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; box-shadow:0 1px 2px rgba(26,115,232,0.2);">Close Window</button>
+    <p id="countdown-notice" style="color:#5f6368; font-size:12px; margin:0 0 20px;">This tab will attempt to auto-close in <span id="countdown" style="font-weight:700; color:#1a73e8;">5</span> seconds.</p>
+    <button id="close-btn" onclick="safeCloseWindow()" style="background:#1a73e8; color:#ffffff; border:none; border-radius:9999px; padding:10px 28px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; box-shadow:0 1px 2px rgba(26,115,232,0.2);">Close Window</button>
   </div>
   <script>
-    let remaining = 5;
-    const countEl = document.getElementById('countdown');
-    const timer = setInterval(function() {
-      remaining--;
-      if (countEl) countEl.textContent = remaining;
-      if (remaining <= 0) {
-        clearInterval(timer);
-        try { window.close(); } catch(e) {}
-        try { window.open('', '_self', ''); window.close(); } catch(e) {}
+    function isEmbeddedOrVSCode() {
+      try {
+        var ua = (navigator && navigator.userAgent) || "";
+        if (/Code\/|Electron\/|VSCode/i.test(ua)) return true;
+        if (typeof window.vscode !== "undefined" || typeof window.__vscode__ !== "undefined") return true;
+        if (window.parent && window.parent !== window) return true;
+      } catch (_) {}
+      return false;
+    }
+
+    function safeCloseWindow() {
+      if (isEmbeddedOrVSCode()) {
+        var notice = document.getElementById('countdown-notice');
+        if (notice) notice.textContent = 'Authentication complete. You can close this editor tab or return to your code.';
+        return;
       }
-    }, 1000);
+      try {
+        if (window.opener) {
+          window.close();
+        }
+      } catch (_) {}
+    }
+
+    if (isEmbeddedOrVSCode()) {
+      var notice = document.getElementById('countdown-notice');
+      if (notice) notice.textContent = 'Authentication complete. You can safely close this editor tab or return to your code.';
+      var btn = document.getElementById('close-btn');
+      if (btn) btn.style.display = 'none';
+    } else {
+      let remaining = 5;
+      const countEl = document.getElementById('countdown');
+      const timer = setInterval(function() {
+        remaining--;
+        if (countEl) countEl.textContent = remaining;
+        if (remaining <= 0) {
+          clearInterval(timer);
+          safeCloseWindow();
+        }
+      }, 1000);
+    }
   </script>
 </body>
 </html>`
@@ -489,8 +523,27 @@ func renderOAuthErrorHTML(title, detail string) []byte {
     </div>
     <h2 style="margin:0 0 8px; color:#d93025; font-size:20px; font-weight:700;">%s</h2>
     <p style="color:#5f6368; font-size:14px; line-height:1.5; margin:0 0 20px;">%s</p>
-    <button onclick="try{window.close();}catch(e){}try{window.open('','_self','');window.close();}catch(e){}" style="background:#1a73e8; color:#ffffff; border:none; border-radius:9999px; padding:10px 28px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; box-shadow:0 1px 2px rgba(26,115,232,0.2);">Close Window</button>
+    <button id="err-close-btn" onclick="safeCloseWindow()" style="background:#1a73e8; color:#ffffff; border:none; border-radius:9999px; padding:10px 28px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; box-shadow:0 1px 2px rgba(26,115,232,0.2);">Close Window</button>
   </div>
+  <script>
+    function isEmbeddedOrVSCode() {
+      try {
+        var ua = (navigator && navigator.userAgent) || "";
+        if (/Code\/|Electron\/|VSCode/i.test(ua)) return true;
+        if (typeof window.vscode !== "undefined" || typeof window.__vscode__ !== "undefined") return true;
+        if (window.parent && window.parent !== window) return true;
+      } catch (_) {}
+      return false;
+    }
+    function safeCloseWindow() {
+      if (isEmbeddedOrVSCode()) return;
+      try { if (window.opener) window.close(); } catch (_) {}
+    }
+    if (isEmbeddedOrVSCode()) {
+      var btn = document.getElementById('err-close-btn');
+      if (btn) btn.style.display = 'none';
+    }
+  </script>
 </body>
 </html>`, safeTitle, safeTitle, safeDetail))
 }
