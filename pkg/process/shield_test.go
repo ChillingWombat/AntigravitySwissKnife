@@ -82,8 +82,10 @@ func TestShield_RevivalEngineCoordination(t *testing.T) {
 }
 
 func TestLaunchHostIDE_RunningCallsFocus(t *testing.T) {
+	called := false
 	shield := NewShield(0)
 	shield.SetProcessFinder(func() ([]ProcessInfo, error) {
+		called = true
 		return []ProcessInfo{
 			{PID: 1234, Name: "antigravity", Cmdline: "/opt/Antigravity/antigravity"},
 		}, nil
@@ -92,6 +94,9 @@ func TestLaunchHostIDE_RunningCallsFocus(t *testing.T) {
 	err := shield.LaunchHostIDE()
 	if err != nil {
 		t.Fatalf("expected nil error on LaunchHostIDE when already running, got: %v", err)
+	}
+	if !called {
+		t.Fatalf("expected processFinder to be invoked when checking if Antigravity is running")
 	}
 }
 

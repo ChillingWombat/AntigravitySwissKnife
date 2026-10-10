@@ -216,15 +216,9 @@ func (inj *Injector) ExecuteCDPCommand(wsURLStr string, method string, params ma
 	}
 
 	var rpcResp struct {
-		ID     int `json:"id"`
-		Result struct {
-			Result struct {
-				Type  string      `json:"type"`
-				Value interface{} `json:"value"`
-			} `json:"result"`
-			ExceptionDetails interface{} `json:"exceptionDetails"`
-		} `json:"result"`
-		Error *struct {
+		ID     int                    `json:"id"`
+		Result map[string]interface{} `json:"result"`
+		Error  *struct {
 			Code    int    `json:"code"`
 			Message string `json:"message"`
 		} `json:"error"`
@@ -238,19 +232,38 @@ func (inj *Injector) ExecuteCDPCommand(wsURLStr string, method string, params ma
 		return nil, fmt.Errorf("CDP RPC error: %s (code %d)", rpcResp.Error.Message, rpcResp.Error.Code)
 	}
 
-	if m, ok := rpcResp.Result.Result.Value.(map[string]interface{}); ok {
-		return m, nil
+	if rpcResp.Result == nil {
+		return map[string]interface{}{}, nil
 	}
-	return map[string]interface{}{"value": rpcResp.Result.Result.Value}, nil
+
+	return rpcResp.Result, nil
 }
 
 // ExecuteScript evaluates a JavaScript expression in the given page target via WebSocket.
 func (inj *Injector) ExecuteScript(wsURLStr string, expression string) (map[string]interface{}, error) {
-	return inj.ExecuteCDPCommand(wsURLStr, "Runtime.evaluate", map[string]interface{}{
+	raw, err := inj.ExecuteCDPCommand(wsURLStr, "Runtime.evaluate", map[string]interface{}{
 		"expression":    expression,
 		"returnByValue": true,
 		"awaitPromise":  true,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	if exc, ok := raw["exceptionDetails"]; ok && exc != nil {
+		return nil, fmt.Errorf("CDP evaluation exception: %v", exc)
+	}
+
+	if inner, ok := raw["result"].(map[string]interface{}); ok {
+		if val, ok := inner["value"]; ok {
+			if m, ok := val.(map[string]interface{}); ok {
+				return m, nil
+			}
+			return map[string]interface{}{"value": val}, nil
+		}
+	}
+
+	return raw, nil
 }
 
 // FocusActiveWindows brings all active Antigravity page windows to front via CDP.
@@ -267,13 +280,26 @@ func (inj *Injector) FocusActiveWindows() error {
 	}
 
 	pages, err := inj.GetPageTargets(port)
-	if err != nil || len(pages) == 0 {
-		return fmt.Errorf("no active Antigravity page windows found on port %d: %w", port, err)
+	if err != nil {
+		return fmt.Errorf("failed to query active Antigravity page windows on port %d: %w", port, err)
+	}
+	if len(pages) == 0 {
+		return fmt.Errorf("no active Antigravity page windows found on port %d", port)
 	}
 
+	var lastErr error
+	focusedCount := 0
 	for _, page := range pages {
-		_, _ = inj.ExecuteCDPCommand(page.WebSocketDebuggerURL, "Page.bringToFront", nil)
+		if _, err := inj.ExecuteCDPCommand(page.WebSocketDebuggerURL, "Page.bringToFront", nil); err != nil {
+			lastErr = err
+		} else {
+			focusedCount++
+		}
 		_, _ = inj.ExecuteScript(page.WebSocketDebuggerURL, "try { window.focus(); } catch(_) {}")
+	}
+
+	if focusedCount == 0 && lastErr != nil {
+		return fmt.Errorf("failed to bring Antigravity window to front: %w", lastErr)
 	}
 
 	return nil

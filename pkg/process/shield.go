@@ -254,26 +254,18 @@ func (s *Shield) LaunchHostIDE() error {
 		return nil
 	}
 
-	// Safeguard: Never spawn during unit test runs unless explicitly authorized
-	if flag.Lookup("test.v") != nil && os.Getenv("ANTIGRAVITY_ALLOW_TEST_RELAUNCH") != "1" {
-		return nil
-	}
-
 	relaunchMu.Lock()
 	defer relaunchMu.Unlock()
 
-	procs, err := s.findAntigravityProcessesInternal()
-	if err == nil {
-		for _, p := range procs {
-			lower := strings.ToLower(p.Cmdline)
-			if (p.Name == "antigravity" || strings.HasSuffix(p.Name, "antigravity")) &&
-				!strings.Contains(lower, "--type=") &&
-				!strings.Contains(lower, "swiss") {
-				// Already running: bring window to front via CDP
-				inj := gui.NewInjector(0)
-				return inj.FocusActiveWindows()
-			}
-		}
+	if s.IsAntigravityRunning() {
+		// Already running: bring active window to front via CDP
+		inj := gui.NewInjector(0)
+		return inj.FocusActiveWindows()
+	}
+
+	// Safeguard: Never spawn during unit test runs unless explicitly authorized
+	if flag.Lookup("test.v") != nil && os.Getenv("ANTIGRAVITY_ALLOW_TEST_RELAUNCH") != "1" {
+		return nil
 	}
 
 	// Clear stale Chromium/Electron singleton locks & DevTools port file if dead

@@ -103,7 +103,7 @@ func (d *Detector) detectDesktopApp() InstallationInfo {
 			info.Installed = true
 			info.Path = cfg.DesktopAppPath
 			if fi, err := os.Stat(info.Path); err == nil && fi.IsDir() {
-				for _, exeName := range []string{"antigravity", "Antigravity.exe", "Contents/MacOS/Antigravity"} {
+				for _, exeName := range []string{"antigravity", "Antigravity.exe", filepath.Join("Contents", "MacOS", "Antigravity")} {
 					cand := filepath.Join(info.Path, exeName)
 					if pathExists(cand) {
 						info.Path = cand
@@ -153,10 +153,20 @@ func (d *Detector) detectDesktopApp() InstallationInfo {
 			info.Path = filepath.Join(appPath, "antigravity")
 		} else if pathExists(filepath.Join(appPath, "Antigravity.exe")) {
 			info.Path = filepath.Join(appPath, "Antigravity.exe")
-		} else if pathExists(filepath.Join(appPath, "Contents", "MacOS", "Antigravity")) {
-			info.Path = filepath.Join(appPath, "Contents", "MacOS", "Antigravity")
+		} else if pathExists(filepath.Join(appPath, filepath.Join("Contents", "MacOS", "Antigravity"))) {
+			info.Path = filepath.Join(appPath, filepath.Join("Contents", "MacOS", "Antigravity"))
 		} else {
 			info.Path = binPath
+		}
+
+		if fi, err := os.Stat(info.Path); err == nil && fi.IsDir() {
+			for _, exeName := range []string{"antigravity", "Antigravity.exe", filepath.Join("Contents", "MacOS", "Antigravity")} {
+				cand := filepath.Join(info.Path, exeName)
+				if pathExists(cand) {
+					info.Path = cand
+					break
+				}
+			}
 		}
 
 		// Attempt to extract version from package.json

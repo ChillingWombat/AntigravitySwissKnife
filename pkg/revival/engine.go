@@ -140,7 +140,7 @@ func (e *Engine) executeDesktopRevival(intent *RevivalIntent) error {
 	targetPath := "/c/" + strings.TrimPrefix(intent.RootConversationID, "/c/")
 
 	// Asynchronously ensure URL routing only in non-test mode with a valid target path
-	if !gui.IsTestExecution() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" && gui.IsValidConversationPath(targetPath) {
+	if !gui.IsTestExecution() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" && !core.IsRunningTests() && gui.IsValidConversationPath(targetPath) {
 		go func() {
 			_ = gui.NewInjector(e.CDPTrigger.CustomPort).RestoreConversationPath(targetPath, 25*time.Second)
 		}()

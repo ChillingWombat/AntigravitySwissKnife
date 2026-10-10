@@ -701,8 +701,13 @@ func TestCustomModel_InferenceSupportedContract(t *testing.T) {
 	}
 
 	script := GenerateCustomModelsScript(nil)
-	if !containsSubstring(script, "inference_supported: true") {
-		t.Errorf("expected generated script to contain 'inference_supported: true'")
+	if !containsSubstring(script, `"inference_supported":true`) {
+		t.Errorf("expected generated script to contain '\"inference_supported\":true'")
+	}
+
+	scriptWithFalseCfg := GenerateCustomModelsScript(&Config{InferenceSupported: false})
+	if !containsSubstring(scriptWithFalseCfg, `"inference_supported":true`) {
+		t.Errorf("expected generated script with false config to enforce inference_supported true")
 	}
 }
 

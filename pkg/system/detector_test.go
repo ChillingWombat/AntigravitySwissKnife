@@ -132,3 +132,26 @@ func TestDetector_DesktopAppPathResolvesToBinary(t *testing.T) {
 	}
 }
 
+func TestDetector_DesktopAppPathResolvesDirectoryToBinary(t *testing.T) {
+	tmpDir := t.TempDir()
+	binPath := filepath.Join(tmpDir, "antigravity")
+	_ = os.WriteFile(binPath, []byte("#!/bin/sh\nexit 0\n"), 0755)
+
+	t.Setenv("ANTIGRAVITY_BIN_PATH", tmpDir)
+	t.Setenv("ANTIGRAVITY_APP_PATH", tmpDir)
+
+	detector := NewDetector()
+	res := detector.DetectAll()
+
+	if !res.DesktopApp.Installed {
+		t.Fatalf("expected DesktopApp.Installed to be true")
+	}
+	if res.DesktopApp.Path != binPath {
+		t.Errorf("expected DesktopApp.Path to resolve directory to binary %q, got %q", binPath, res.DesktopApp.Path)
+	}
+	if fi, err := os.Stat(res.DesktopApp.Path); err != nil || fi.IsDir() {
+		t.Errorf("expected DesktopApp.Path to be a file, got dir or error: %v", err)
+	}
+}
+
+

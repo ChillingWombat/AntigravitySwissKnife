@@ -3,6 +3,7 @@ package core
 import (
 	"flag"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -277,11 +278,16 @@ func GetAntigravityBinaryPath() string {
 		return filepath.Join(GetAntigravityDesktopAppPath(), "Contents", "MacOS", "Antigravity")
 	default:
 		// Linux: prefer /opt/Antigravity/antigravity, fallback to /usr/bin/antigravity
-		if _, err := os.Stat("/opt/Antigravity/antigravity"); err == nil {
+		if fi, err := os.Stat("/opt/Antigravity/antigravity"); err == nil && !fi.IsDir() {
 			return "/opt/Antigravity/antigravity"
 		}
-		if _, err := os.Stat("/usr/bin/antigravity"); err == nil {
+		if fi, err := os.Stat("/usr/bin/antigravity"); err == nil && !fi.IsDir() {
 			return "/usr/bin/antigravity"
+		}
+		if p, err := exec.LookPath("antigravity"); err == nil && p != "" {
+			if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+				return p
+			}
 		}
 		return filepath.Join(GetAntigravityDesktopAppPath(), "antigravity")
 	}

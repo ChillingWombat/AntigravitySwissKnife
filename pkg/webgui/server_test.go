@@ -2513,8 +2513,9 @@ func TestServer_ConversationEndpoints(t *testing.T) {
 }
 
 func TestConversationEndpoints(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
 	tmpDir := t.TempDir()
+	dummySock := filepath.Join(tmpDir, "isolated.sock")
+	srv := NewServer("127.0.0.1:0", dummySock)
 	guiStore, _ := gui.NewStore(tmpDir)
 	srv.SetGUIStore(guiStore)
 	engine := revival.NewEngine(tmpDir, 9222)

@@ -2088,3 +2088,153 @@ console.log(JSON.stringify({ state, res }));
 		t.Errorf("CaptureActiveConversationPath() = %q, want %q", captured, targetPath)
 	}
 }
+
+func TestInjector_ExecuteCDPCommand_ArbitraryCommand(t *testing.T) {
+	var receivedMethod string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ws":
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				http.Error(w, "hijack not supported", http.StatusInternalServerError)
+				return
+			}
+			conn, rw, err := hj.Hijack()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			_, _ = rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+			_ = rw.Flush()
+
+			framePayload, err := readWebSocketFrame(rw.Reader)
+			if err != nil {
+				return
+			}
+			var rpcReq struct {
+				ID     int    `json:"id"`
+				Method string `json:"method"`
+			}
+			_ = json.Unmarshal(framePayload, &rpcReq)
+			receivedMethod = rpcReq.Method
+
+			respObj := map[string]interface{}{
+				"id": rpcReq.ID,
+				"result": map[string]interface{}{
+					"screenshot": "base64data",
+				},
+			}
+			respBytes, _ := json.Marshal(respObj)
+			_ = writeUnmaskedWSFrame(rw.Writer, respBytes)
+		}
+	}))
+	defer srv.Close()
+
+	u, _ := url.Parse(srv.URL)
+	wsURL := "ws://" + u.Host + "/ws"
+
+	inj := NewInjector(0)
+	res, err := inj.ExecuteCDPCommand(wsURL, "Page.captureScreenshot", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if receivedMethod != "Page.captureScreenshot" {
+		t.Errorf("expected received method Page.captureScreenshot, got %q", receivedMethod)
+	}
+	if res["screenshot"] != "base64data" {
+		t.Errorf("expected result to contain screenshot data, got %+v", res)
+	}
+}
+
+func TestInjector_FocusActiveWindows(t *testing.T) {
+	var methodsReceived []string
+	var mu sync.Mutex
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/json/version":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"Browser":"Chrome/132.0.0.0"}`))
+		case "/json":
+			targets := []DevToolsTarget{
+				{
+					ID:                   "page-focus-1",
+					Title:                "Antigravity",
+					Type:                 "page",
+					URL:                  "http://" + r.Host + "/",
+					WebSocketDebuggerURL: "ws://" + r.Host + "/devtools/page/focus-1",
+				},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(targets)
+		case "/devtools/page/focus-1":
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				http.Error(w, "hijack not supported", http.StatusInternalServerError)
+				return
+			}
+			conn, rw, err := hj.Hijack()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			_, _ = rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+			_ = rw.Flush()
+
+			for {
+				framePayload, err := readWebSocketFrame(rw.Reader)
+				if err != nil {
+					return
+				}
+				var rpcReq struct {
+					ID     int    `json:"id"`
+					Method string `json:"method"`
+				}
+				_ = json.Unmarshal(framePayload, &rpcReq)
+
+				mu.Lock()
+				methodsReceived = append(methodsReceived, rpcReq.Method)
+				mu.Unlock()
+
+				respObj := map[string]interface{}{
+					"id":     rpcReq.ID,
+					"result": map[string]interface{}{},
+				}
+				respBytes, _ := json.Marshal(respObj)
+				_ = writeUnmaskedWSFrame(rw.Writer, respBytes)
+			}
+		}
+	}))
+	defer srv.Close()
+
+	u, _ := url.Parse(srv.URL)
+	port, _ := strconv.Atoi(u.Port())
+
+	inj := NewInjector(port)
+	if err := inj.FocusActiveWindows(); err != nil {
+		t.Fatalf("expected FocusActiveWindows to succeed on mock DevTools port, got: %v", err)
+	}
+
+	mu.Lock()
+	methods := methodsReceived
+	mu.Unlock()
+
+	foundBringToFront := false
+	foundRuntimeEvaluate := false
+	for _, m := range methods {
+		if m == "Page.bringToFront" {
+			foundBringToFront = true
+		}
+		if m == "Runtime.evaluate" {
+			foundRuntimeEvaluate = true
+		}
+	}
+
+	if !foundBringToFront {
+		t.Errorf("expected Page.bringToFront to be sent to active window, got methods: %v", methods)
+	}
+	if !foundRuntimeEvaluate {
+		t.Errorf("expected Runtime.evaluate (window.focus()) to be sent to active window, got methods: %v", methods)
+	}
+}
+
