@@ -36,6 +36,7 @@ type Shield struct {
 	protectedPID  int
 	processFinder func() ([]ProcessInfo, error)
 	revivalEngine *revival.Engine
+	focusFunc     func() error
 }
 
 // NewShield initializes a Shield. If protectedPID is 0, it reads from environment or detects host.
@@ -65,6 +66,11 @@ func (s *Shield) getRevivalEngine() *revival.Engine {
 // SetProcessFinder overrides process discovery for tests or custom environments.
 func (s *Shield) SetProcessFinder(finder func() ([]ProcessInfo, error)) {
 	s.processFinder = finder
+}
+
+// SetFocusFunc overrides window focus execution for tests or custom environments.
+func (s *Shield) SetFocusFunc(fn func() error) {
+	s.focusFunc = fn
 }
 
 func (s *Shield) findAntigravityProcessesInternal() ([]ProcessInfo, error) {
@@ -176,7 +182,8 @@ func (s *Shield) IsAntigravityRunning() bool {
 	}
 	for _, p := range procs {
 		lower := strings.ToLower(p.Cmdline)
-		if (p.Name == "antigravity" || strings.HasSuffix(p.Name, "antigravity")) &&
+		nameLower := strings.ToLower(p.Name)
+		if (nameLower == "antigravity" || nameLower == "antigravity.exe" || strings.HasSuffix(nameLower, "antigravity") || strings.HasSuffix(nameLower, "antigravity.exe")) &&
 			!strings.Contains(lower, "--type=") &&
 			!strings.Contains(lower, "swiss") {
 			return true
@@ -255,6 +262,9 @@ func (s *Shield) LaunchHostIDE() error {
 
 	if s.IsAntigravityRunning() {
 		// Already running: bring active window to front via CDP
+		if s.focusFunc != nil {
+			return s.focusFunc()
+		}
 		inj := gui.NewInjector(0)
 		return inj.FocusActiveWindows()
 	}

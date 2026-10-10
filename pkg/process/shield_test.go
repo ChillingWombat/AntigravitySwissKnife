@@ -83,12 +83,17 @@ func TestShield_RevivalEngineCoordination(t *testing.T) {
 
 func TestLaunchHostIDE_RunningCallsFocus(t *testing.T) {
 	called := false
+	focusCalled := false
 	shield := NewShield(0)
 	shield.SetProcessFinder(func() ([]ProcessInfo, error) {
 		called = true
 		return []ProcessInfo{
 			{PID: 1234, Name: "antigravity", Cmdline: "/opt/Antigravity/antigravity"},
 		}, nil
+	})
+	shield.SetFocusFunc(func() error {
+		focusCalled = true
+		return nil
 	})
 
 	err := shield.LaunchHostIDE()
@@ -97,6 +102,22 @@ func TestLaunchHostIDE_RunningCallsFocus(t *testing.T) {
 	}
 	if !called {
 		t.Fatalf("expected processFinder to be invoked when checking if Antigravity is running")
+	}
+	if !focusCalled {
+		t.Fatalf("expected focusFunc to be invoked when Antigravity is detected running")
+	}
+}
+
+func TestShield_IsAntigravityRunningWindowsAndMixedCase(t *testing.T) {
+	shield := NewShield(0)
+	shield.SetProcessFinder(func() ([]ProcessInfo, error) {
+		return []ProcessInfo{
+			{PID: 5678, Name: "Antigravity.exe", Cmdline: `C:\Program Files\Antigravity\Antigravity.exe`},
+		}, nil
+	})
+
+	if !shield.IsAntigravityRunning() {
+		t.Fatalf("expected Antigravity.exe to be detected as running")
 	}
 }
 

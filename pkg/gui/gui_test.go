@@ -2146,6 +2146,59 @@ func TestInjector_ExecuteCDPCommand_ArbitraryCommand(t *testing.T) {
 	}
 }
 
+func TestInjector_ExecuteCDPCommand_SkipsAsyncEvents(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "hijack not supported", http.StatusInternalServerError)
+			return
+		}
+		conn, rw, err := hj.Hijack()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _ = rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+		_ = rw.Flush()
+
+		_, err = readWebSocketFrame(rw.Reader)
+		if err != nil {
+			return
+		}
+
+		// First write an asynchronous event frame with no ID
+		eventObj := map[string]interface{}{
+			"method": "Target.targetInfoChanged",
+			"params": map[string]interface{}{"targetId": "xyz"},
+		}
+		eventBytes, _ := json.Marshal(eventObj)
+		_ = writeUnmaskedWSFrame(rw.Writer, eventBytes)
+
+		// Second write the actual response frame matching request ID
+		respObj := map[string]interface{}{
+			"id": 1,
+			"result": map[string]interface{}{
+				"focused": true,
+			},
+		}
+		respBytes, _ := json.Marshal(respObj)
+		_ = writeUnmaskedWSFrame(rw.Writer, respBytes)
+	}))
+	defer srv.Close()
+
+	u, _ := url.Parse(srv.URL)
+	wsURL := "ws://" + u.Host + "/ws"
+
+	inj := NewInjector(0)
+	res, err := inj.ExecuteCDPCommand(wsURL, "Page.bringToFront", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res["focused"] != true {
+		t.Errorf("expected result to contain focused: true, got %+v", res)
+	}
+}
+
 func TestInjector_FocusActiveWindows(t *testing.T) {
 	var methodsReceived []string
 	var mu sync.Mutex

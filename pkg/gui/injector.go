@@ -87,15 +87,20 @@ func (inj *Injector) FindDevToolsPort() (int, error) {
 		return 0, fmt.Errorf("unit test mode: skipped connecting to live host DevTools port")
 	}
 
-	// 1. Check DevToolsActivePort in Antigravity host config dir
-	activePortPath := filepath.Join(core.GetAntigravityHostConfigDir(), "DevToolsActivePort")
-	if data, err := os.ReadFile(activePortPath); err == nil {
-		lines := strings.Split(string(data), "\n")
-		if len(lines) > 0 {
-			portStr := strings.TrimSpace(lines[0])
-			if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
-				if inj.isPortLive(p) {
-					return p, nil
+	// 1. Check DevToolsActivePort in Antigravity host config dir and alternatives
+	portCandidates := []string{
+		filepath.Join(core.GetAntigravityHostConfigDir(), "DevToolsActivePort"),
+		filepath.Join(os.Getenv("HOME"), ".config", "antigravity", "DevToolsActivePort"),
+	}
+	for _, portFile := range portCandidates {
+		if data, err := os.ReadFile(portFile); err == nil {
+			lines := strings.Split(string(data), "\n")
+			if len(lines) > 0 {
+				portStr := strings.TrimSpace(lines[0])
+				if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
+					if inj.isPortLive(p) {
+						return p, nil
+					}
 				}
 			}
 		}
@@ -209,12 +214,7 @@ func (inj *Injector) ExecuteCDPCommand(wsURLStr string, method string, params ma
 		return nil, fmt.Errorf("failed to send WS frame: %w", err)
 	}
 
-	// Read response frame
-	respPayload, err := readWebSocketFrame(reader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read WS response: %w", err)
-	}
-
+	// Read response frame(s), ignoring async CDP events until matching request ID
 	var rpcResp struct {
 		ID     int                    `json:"id"`
 		Result map[string]interface{} `json:"result"`
@@ -224,8 +224,19 @@ func (inj *Injector) ExecuteCDPCommand(wsURLStr string, method string, params ma
 		} `json:"error"`
 	}
 
-	if err := json.Unmarshal(respPayload, &rpcResp); err != nil {
-		return nil, fmt.Errorf("failed to parse RPC response: %w", err)
+	for {
+		respPayload, err := readWebSocketFrame(reader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read WS response: %w", err)
+		}
+
+		if err := json.Unmarshal(respPayload, &rpcResp); err != nil {
+			return nil, fmt.Errorf("failed to parse RPC response: %w", err)
+		}
+
+		if rpcResp.ID == 1 {
+			break
+		}
 	}
 
 	if rpcResp.Error != nil {
@@ -261,6 +272,7 @@ func (inj *Injector) ExecuteScript(wsURLStr string, expression string) (map[stri
 			}
 			return map[string]interface{}{"value": val}, nil
 		}
+		return map[string]interface{}{"value": nil}, nil
 	}
 
 	return raw, nil
@@ -269,7 +281,7 @@ func (inj *Injector) ExecuteScript(wsURLStr string, expression string) (map[stri
 // FocusActiveWindows brings all active Antigravity page windows to front via CDP.
 func (inj *Injector) FocusActiveWindows() error {
 	if IsTestExecution() || os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" || core.IsRunningTests() {
-		if inj.customPort == 0 {
+		if inj.customPort == 0 && os.Getenv("ANTIGRAVITY_CDP_PORT") == "" {
 			return nil
 		}
 	}
