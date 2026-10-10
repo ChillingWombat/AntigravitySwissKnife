@@ -562,9 +562,32 @@ div:has(> .shrink-0.flex.items-center.border-b),
   background: #1557b0;
 }
 .swiss-browser-btn.active {
-  background: rgba(234, 67, 53, 0.1);
-  color: #ea4335;
-  border-color: #ea4335;
+  background: rgba(234, 67, 53, 0.15) !important;
+  color: #ea4335 !important;
+  border-color: #ea4335 !important;
+  box-shadow: 0 0 0 1px #ea4335, inset 0 1px 2px rgba(234, 67, 53, 0.15) !important;
+  font-weight: 600;
+}
+:is(.dark, [data-theme="dark"]) .swiss-browser-btn.active {
+  background: rgba(234, 67, 53, 0.25) !important;
+  color: #f87171 !important;
+  border-color: #f87171 !important;
+  box-shadow: 0 0 0 1px #f87171, inset 0 1px 2px rgba(0, 0, 0, 0.3) !important;
+  font-weight: 600;
+}
+#swiss-b-touch.active {
+  background: rgba(26, 115, 232, 0.15) !important;
+  color: #1a73e8 !important;
+  border-color: #1a73e8 !important;
+  box-shadow: 0 0 0 1px #1a73e8 !important;
+  font-weight: 600;
+}
+:is(.dark, [data-theme="dark"]) #swiss-b-touch.active {
+  background: rgba(56, 189, 248, 0.2) !important;
+  color: #38bdf8 !important;
+  border-color: #38bdf8 !important;
+  box-shadow: 0 0 0 1px #38bdf8 !important;
+  font-weight: 600;
 }
 
 /* Device Stage & Realistic Frames */
@@ -751,17 +774,17 @@ div:has(> .shrink-0.flex.items-center.border-b),
 .swiss-element-annotation-box {
   position: absolute;
   z-index: 70;
-  width: 320px;
+  width: 380px;
   max-width: calc(100% - 16px);
   background: var(--canvas, #ffffff);
   border: 1px solid var(--border, #cbd5e1);
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.05);
-  padding: 8px 10px;
+  padding: 10px 12px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 :is(.dark, [data-theme="dark"]) .swiss-element-annotation-box {
   background: var(--card, #1e293b);
@@ -788,7 +811,7 @@ div:has(> .shrink-0.flex.items-center.border-b),
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 240px;
+  max-width: 290px;
 }
 .swiss-element-annotation-close {
   display: inline-flex;
@@ -811,18 +834,21 @@ div:has(> .shrink-0.flex.items-center.border-b),
 }
 .swiss-element-annotation-body {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  gap: 8px;
 }
 .swiss-element-annotation-input {
-  flex: 1;
-  min-width: 0;
-  padding: 5px 8px;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 72px;
+  resize: vertical;
+  padding: 6px 8px;
   border-radius: 4px;
   border: 1px solid var(--border, #cbd5e1);
   background: var(--canvas, #ffffff);
   color: var(--text, #1e293b);
   font-size: 12px;
+  line-height: 1.4;
   font-family: inherit;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -836,11 +862,16 @@ div:has(> .shrink-0.flex.items-center.border-b),
   border-color: var(--border, #334155);
   color: #f8fafc;
 }
+.swiss-element-annotation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
 .swiss-element-annotation-send {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 5px 10px;
+  padding: 5px 12px;
   border-radius: 4px;
   border: 1px solid #1a73e8;
   background: #1a73e8;
@@ -2072,7 +2103,7 @@ func GenerateAuxiliaryPluginsScript() string {
             <button class="swiss-browser-btn" id="swiss-b-pen" title="Red Pen Drawing"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg><span>Pen</span></button>
             <button class="swiss-browser-btn" id="swiss-b-rect" title="Red Box Annotation"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/></svg><span>Box</span></button>
             <button class="swiss-browser-btn" id="swiss-b-inspect" title="Interactive DOM Inspector"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m22 12-4 0"/><path d="m6 12-4 0"/><path d="m12 6 0-4"/><path d="m12 22 0-4"/></svg><span>Inspect</span></button>
-            <button class="swiss-browser-btn" id="swiss-b-clear" title="Clear Annotations"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+            <button class="swiss-browser-btn" id="swiss-b-clear" title="Clear Annotations"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg><span>Clear</span></button>
             <button class="swiss-browser-btn primary" id="swiss-b-send-chat" title="Send to Antigravity Chat"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg><span>Send to Chat</span></button>
           </div>
         </div>
@@ -2685,13 +2716,20 @@ func GenerateAuxiliaryPluginsScript() string {
       const inspectBtn = toolbar.querySelector("#swiss-b-inspect");
       const clearBtn = toolbar.querySelector("#swiss-b-clear");
 
-      function exitInspectTool() {
+      function exitAllTools() {
+        if (drawTool === "inspect") {
+          toggleDOMInspector(false);
+        }
         drawTool = "none";
         penBtn.classList.remove("active");
         rectBtn.classList.remove("active");
         inspectBtn.classList.remove("active");
         canvas.style.pointerEvents = "none";
-        toggleDOMInspector(false);
+        clearElementAnnotation();
+      }
+
+      function exitInspectTool() {
+        exitAllTools();
       }
 
       function setDrawTool(tool) {
@@ -2734,16 +2772,14 @@ func GenerateAuxiliaryPluginsScript() string {
         window.removeEventListener("keydown", window.__swissBrowserKeyHandler, true);
       }
       window.__swissBrowserKeyHandler = (e) => {
-        if ((e.key === "Escape" || e.key === "Esc" || e.keyCode === 27 || e.which === 27) && drawTool === "inspect") {
-          e.preventDefault();
-          e.stopPropagation();
-          if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
-          exitInspectTool();
-        } else if ((e.key === "Escape" || e.key === "Esc" || e.keyCode === 27 || e.which === 27) && screen.querySelector("#swiss-element-annotation-box")) {
-          e.preventDefault();
-          e.stopPropagation();
-          if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
-          clearElementAnnotation();
+        if (e.key === "Escape" || e.key === "Esc" || e.keyCode === 27 || e.which === 27) {
+          const hasAnnotationBox = !!screen.querySelector("#swiss-element-annotation-box");
+          if (drawTool !== "none" || hasAnnotationBox) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+            exitAllTools();
+          }
         }
       };
       document.addEventListener("keydown", window.__swissBrowserKeyHandler, true);
@@ -2812,8 +2848,6 @@ func GenerateAuxiliaryPluginsScript() string {
           ctx.lineWidth = 2;
           ctx.setLineDash([5, 5]);
           ctx.strokeRect(boxX, boxY, boxW, boxH);
-          ctx.fillStyle = "rgba(234, 67, 53, 0.15)";
-          ctx.fillRect(boxX, boxY, boxW, boxH);
           ctx.setLineDash([]);
         }
       };
@@ -2843,16 +2877,68 @@ func GenerateAuxiliaryPluginsScript() string {
             ctx.strokeStyle = "#ea4335";
             ctx.lineWidth = 2;
             ctx.strokeRect(boxX, boxY, boxW, boxH);
-            ctx.fillStyle = "rgba(234, 67, 53, 0.15)";
-            ctx.fillRect(boxX, boxY, boxW, boxH);
-
-            ctx.fillStyle = "#ea4335";
-            ctx.fillRect(boxX, Math.max(0, boxY - 18), 75, 18);
-            ctx.fillStyle = "#ffffff";
-            ctx.font = "bold 10px monospace";
-            ctx.fillText("#annotation", boxX + 4, Math.max(12, boxY - 5));
 
             lastAnnotatedRegion = { x: boxX, y: boxY, width: boxW, height: boxH };
+
+            if (webview && typeof webview.executeJavaScript === "function") {
+              const cx = Math.round(boxX + boxW / 2);
+              const cy = Math.round(boxY + boxH / 2);
+              const detectScript = ` + "`" + `(() => {
+                const el = document.elementFromPoint(${cx}, ${cy});
+                if (!el || el === document.body || el === document.documentElement) return null;
+                function getCssSelector(el) {
+                  if (!el || el.nodeType !== Node.ELEMENT_NODE) return '';
+                  if (el.id) return '#' + el.id;
+                  let path = [];
+                  while (el && el.nodeType === Node.ELEMENT_NODE) {
+                    let sel = el.nodeName.toLowerCase();
+                    if (el.className && typeof el.className === 'string') {
+                      const classes = el.className.trim().split(/\s+/).filter(c => c && !c.startsWith('swiss-'));
+                      if (classes.length) sel += '.' + classes.slice(0, 2).join('.');
+                    }
+                    let sib = el, nth = 1;
+                    while (sib = sib.previousElementSibling) {
+                      if (sib.nodeName.toLowerCase() === el.nodeName.toLowerCase()) nth++;
+                    }
+                    if (nth > 1) sel += ':nth-of-type(' + nth + ')';
+                    path.unshift(sel);
+                    if (el.id || path.length >= 3) break;
+                    el = el.parentElement;
+                  }
+                  return path.join(' > ');
+                }
+                const r = el.getBoundingClientRect();
+                return {
+                  selector: getCssSelector(el),
+                  outerHTML: (el.outerHTML || '').slice(0, 1500),
+                  rect: { x: r.left, y: r.top, width: r.width, height: r.height }
+                };
+              })()` + "`" + `;
+              webview.executeJavaScript(detectScript).then(res => {
+                if (res && res.selector) {
+                  lastSelectedElement = res;
+                  renderElementAnnotationBox(res);
+                } else {
+                  renderElementAnnotationBox({
+                    selector: "Box Region (" + Math.round(boxW) + "×" + Math.round(boxH) + ")",
+                    outerHTML: "",
+                    rect: { x: boxX, y: boxY, width: boxW, height: boxH }
+                  });
+                }
+              }).catch(() => {
+                renderElementAnnotationBox({
+                  selector: "Box Region (" + Math.round(boxW) + "×" + Math.round(boxH) + ")",
+                  outerHTML: "",
+                  rect: { x: boxX, y: boxY, width: boxW, height: boxH }
+                });
+              });
+            } else {
+              renderElementAnnotationBox({
+                selector: "Box Region (" + Math.round(boxW) + "×" + Math.round(boxH) + ")",
+                outerHTML: "",
+                rect: { x: boxX, y: boxY, width: boxW, height: boxH }
+              });
+            }
           }
         }
       };
@@ -3016,8 +3102,8 @@ func GenerateAuxiliaryPluginsScript() string {
 
         const screenW = screen.clientWidth || 400;
         const screenH = screen.clientHeight || 600;
-        const boxW = 320;
-        const boxH = 76;
+        const boxW = 380;
+        const boxH = 130;
         let left = Math.max(8, Math.min(result.rect.x, screenW - boxW - 8));
         let top = result.rect.y + result.rect.height + 8;
         if (top + boxH > screenH) {
@@ -3042,13 +3128,15 @@ func GenerateAuxiliaryPluginsScript() string {
           '</button>' +
         '</div>' +
         '<div class="swiss-element-annotation-body">' +
-          '<input type="text" class="swiss-element-annotation-input" id="swiss-element-annotation-input" placeholder="Enter annotation for element..." value="' + ((userComment || "").replace(/"/g, "&quot;")) + '" />' +
-          '<button class="swiss-element-annotation-send" id="swiss-element-annotation-send" title="Send element annotation to chat">' +
-            '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-              '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>' +
-            '</svg>' +
-            '<span>Send to Chat</span>' +
-          '</button>' +
+          '<textarea class="swiss-element-annotation-input" id="swiss-element-annotation-input" rows="3" placeholder="Enter detailed annotation notes or prompt for chat..."></textarea>' +
+          '<div class="swiss-element-annotation-actions">' +
+            '<button class="swiss-element-annotation-send" id="swiss-element-annotation-send" title="Send element annotation to chat">' +
+              '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>' +
+              '</svg>' +
+              '<span>Send to Chat</span>' +
+            '</button>' +
+          '</div>' +
         '</div>';
 
         screen.appendChild(box);
@@ -3062,7 +3150,7 @@ func GenerateAuxiliaryPluginsScript() string {
         };
 
         input.onkeydown = (e) => {
-          if (e.key === "Enter") {
+          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
             userComment = input.value.trim();
             executeSendToChatWorkflow();
@@ -3090,6 +3178,7 @@ func GenerateAuxiliaryPluginsScript() string {
         if (!result) return;
         lastSelectedElement = result;
         lastAnnotatedRegion = result.rect;
+        userComment = "";
 
         const ctx = canvas.getContext("2d");
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -3097,8 +3186,6 @@ func GenerateAuxiliaryPluginsScript() string {
         ctx.strokeStyle = "#ea4335";
         ctx.lineWidth = 2;
         ctx.strokeRect(result.rect.x, result.rect.y, result.rect.width, result.rect.height);
-        ctx.fillStyle = "rgba(234, 67, 53, 0.15)";
-        ctx.fillRect(result.rect.x, result.rect.y, result.rect.width, result.rect.height);
 
         ctx.fillStyle = "#ea4335";
         ctx.fillRect(result.rect.x, Math.max(0, result.rect.y - 18), Math.min(180, result.selector.length * 8 + 8), 18);
@@ -3247,7 +3334,13 @@ func GenerateAuxiliaryPluginsScript() string {
         } else {
           comment = await showSwissPrompt(
             "Add comment to attach with this preview snapshot to Antigravity chat:",
-            userComment || "Review UI alignment and inspected element markup."
+            "",
+            {
+              multiline: true,
+              rows: 4,
+              placeholder: "Write a detailed note or paragraph for chat...",
+              confirmText: "Send to Chat"
+            }
           );
           if (comment === null) return;
           userComment = comment;
@@ -3326,7 +3419,7 @@ func GenerateAuxiliaryPluginsScript() string {
           }
 
           let promptText = "";
-          if (lastSelectedElement) {
+          if (lastSelectedElement && (lastSelectedElement.selector || lastSelectedElement.outerHTML)) {
             promptText = "[Preview Browser Element Annotation @ " + currentBrowserUrl + "]\n";
             if (lastSelectedElement.selector) {
               promptText += "Selected Element: " + lastSelectedElement.selector + "\n";
@@ -3340,48 +3433,77 @@ func GenerateAuxiliaryPluginsScript() string {
             promptText += "(Visual annotation attached: annotation.png)";
           } else {
             promptText = "[Preview Browser Annotation @ " + currentBrowserUrl + "]\n";
+            if (lastAnnotatedRegion) {
+              promptText += "Region: " + Math.round(lastAnnotatedRegion.width) + "×" + Math.round(lastAnnotatedRegion.height) + " at (" + Math.round(lastAnnotatedRegion.x) + ", " + Math.round(lastAnnotatedRegion.y) + ")\n";
+            }
             if (userComment) {
-              promptText += "Comment: " + userComment + "\n";
+              promptText += "Annotation: " + userComment + "\n";
             }
             promptText += "(Visual annotation attached: annotation.png)";
           }
 
           let injectedLexical = false;
-          const lexicalElem = document.querySelector('[data-lexical-editor="true"]') ||
+          const lexicalElem = document.querySelector('[data-testid="agent-input-box"] [contenteditable="true"]') ||
+                              document.querySelector('[data-testid="chat-input-textarea"]') ||
+                              document.querySelector('[data-lexical-editor="true"][contenteditable="true"]') ||
+                              document.querySelector('[data-lexical-editor="true"]') ||
                               document.querySelector('.lexical-container [contenteditable="true"]') ||
+                              document.querySelector('.chat-input-container [contenteditable="true"]') ||
                               document.querySelector('[contenteditable="true"]');
 
-          if (lexicalElem && lexicalElem.__lexicalEditor) {
+          if (lexicalElem && lexicalElem.isContentEditable) {
             try {
-              const editor = lexicalElem.__lexicalEditor;
-              editor.update(() => {
-                if (typeof lexicalElem.focus === "function") lexicalElem.focus();
-                const sel = window.getSelection();
-                if (sel) {
-                  const range = document.createRange();
-                  range.selectNodeContents(lexicalElem);
-                  range.collapse(false);
-                  sel.removeAllRanges();
-                  sel.addRange(range);
-                }
-                const hasContent = (lexicalElem.innerText || "").trim().length > 0;
-                const textToInsert = (hasContent ? "\n" : "") + promptText;
-                document.execCommand("insertText", false, textToInsert);
-                injectedLexical = true;
-              });
+              if (typeof lexicalElem.focus === "function") lexicalElem.focus();
+              const sel = window.getSelection();
+              if (sel) {
+                const range = document.createRange();
+                range.selectNodeContents(lexicalElem);
+                range.collapse(false);
+                sel.removeAllRanges();
+                sel.addRange(range);
+              }
+              const hasContent = (lexicalElem.innerText || "").trim().length > 0;
+              const textToInsert = (hasContent ? "\n" : "") + promptText;
+              document.execCommand("insertText", false, textToInsert);
+              lexicalElem.dispatchEvent(new InputEvent("beforeinput", {
+                inputType: "insertText",
+                data: textToInsert,
+                bubbles: true,
+                cancelable: true
+              }));
+              lexicalElem.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+              injectedLexical = true;
             } catch (err) {
-              console.warn("Lexical editor update failed:", err);
+              console.warn("Direct editor injection failed:", err);
             }
           }
 
-          if (!injectedLexical) {
+          if (!injectedLexical || (lexicalElem && !lexicalElem.innerText.includes("[Preview Browser"))) {
             insertTextToChatInput(promptText);
           }
 
+          setTimeout(() => {
+            const curInput = document.querySelector('[data-testid="agent-input-box"] [contenteditable="true"]') ||
+                             document.querySelector('[data-testid="chat-input-textarea"]') ||
+                             document.querySelector('[data-lexical-editor="true"]') ||
+                             document.querySelector('.lexical-container [contenteditable="true"]') ||
+                             document.querySelector('textarea[placeholder*="Ask"]') ||
+                             document.querySelector('textarea');
+            if (curInput) {
+              const textInInput = curInput.isContentEditable ? (curInput.innerText || "") : (curInput.value || "");
+              if (!textInInput.includes("[Preview Browser")) {
+                insertTextToChatInput(promptText);
+              }
+            }
+          }, 100);
+
           attachChatAnnotationChip(lastSelectedElement, userComment);
 
-          const existingBox = screen.querySelector("#swiss-element-annotation-box");
-          if (existingBox) existingBox.remove();
+          // Clear element, region, and comment state so subsequent annotations never repopulate
+          clearElementAnnotation();
+          userComment = "";
+          lastSelectedElement = null;
+          lastAnnotatedRegion = null;
 
           showToast("Attached element annotation to Antigravity chat");
         }, "image/png");
@@ -4742,10 +4864,15 @@ func GenerateAuxiliaryPluginsScript() string {
 
     // Helper: Insert text into Antigravity chat input (Lexical or textarea)
     function insertTextToChatInput(text) {
-      const input = document.querySelector('[data-testid="chat-input-textarea"]') ||
-                    document.querySelector('.lexical-container [contenteditable="true"]') ||
+      const input = document.querySelector('[data-testid="agent-input-box"] [contenteditable="true"]') ||
+                    document.querySelector('[data-testid="chat-input-textarea"]') ||
+                    document.querySelector('[data-lexical-editor="true"][contenteditable="true"]') ||
                     document.querySelector('[data-lexical-editor="true"]') ||
+                    document.querySelector('.chat-input-container [contenteditable="true"]') ||
+                    document.querySelector('.lexical-container [contenteditable="true"]') ||
+                    document.querySelector('[role="textbox"][contenteditable="true"]') ||
                     document.querySelector('textarea[placeholder*="Ask"]') ||
+                    document.querySelector('.chat-input-container textarea') ||
                     document.querySelector('textarea');
       if (!input) return;
 
@@ -4761,12 +4888,34 @@ func GenerateAuxiliaryPluginsScript() string {
         }
         const hasContent = (input.innerText || "").trim().length > 0;
         const textToInsert = (hasContent ? "\n" : "") + text;
-        document.execCommand("insertText", false, textToInsert);
+        try {
+          document.execCommand("insertText", false, textToInsert);
+        } catch (_) {}
+        try {
+          input.dispatchEvent(new InputEvent("beforeinput", {
+            inputType: "insertText",
+            data: textToInsert,
+            bubbles: true,
+            cancelable: true
+          }));
+        } catch (_) {}
+        input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+
+        // Fallback: paste event if execCommand was swallowed
+        if (!input.innerText || !input.innerText.includes(text.slice(0, 15))) {
+          try {
+            const dt = new DataTransfer();
+            dt.setData("text/plain", textToInsert);
+            const pasteEvt = new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true });
+            input.dispatchEvent(pasteEvt);
+          } catch (_) {}
+        }
       } else {
         const curVal = input.value || "";
         input.value = (curVal.trim() ? curVal.trim() + "\n" : "") + text;
         input.selectionStart = input.selectionEnd = input.value.length;
         input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
       }
       input.focus();
     }

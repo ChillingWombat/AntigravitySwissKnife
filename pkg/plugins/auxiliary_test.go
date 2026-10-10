@@ -2233,3 +2233,60 @@ console.log("R5_APPEND_ANNOTATION_TEST_PASSED");
 		}
 	}
 }
+
+func TestPreviewBrowser_ClearButtonEraserAndLabel(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	if !strings.Contains(js, `id="swiss-b-clear" title="Clear Annotations"`) {
+		t.Fatalf("expected clear button with title 'Clear Annotations'")
+	}
+	if !strings.Contains(js, `m7 21-4.3-4.3`) || !strings.Contains(js, `M22 21H7`) {
+		t.Fatalf("expected Lucide eraser SVG path in clear button")
+	}
+	if !strings.Contains(js, `<span>Clear</span>`) {
+		t.Fatalf("expected <span>Clear</span> label inside clear button")
+	}
+}
+
+func TestPreviewBrowser_TransparentRedBoxAndNoAnnotationTitle(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	if strings.Contains(js, `fillText("#annotation"`) {
+		t.Fatalf("expected rect tool to not draw #annotation title badge")
+	}
+	if !strings.Contains(js, `ctx.strokeRect(boxX, boxY, boxW, boxH)`) {
+		t.Fatalf("expected strokeRect for bounding box")
+	}
+}
+
+func TestPreviewBrowser_ActiveToolHighlight(t *testing.T) {
+	css := GenerateAuxiliaryPluginsCSS()
+	if !strings.Contains(css, `.swiss-browser-btn.active`) {
+		t.Fatalf("expected .swiss-browser-btn.active in CSS")
+	}
+	if !strings.Contains(css, `border-color: #ea4335 !important`) {
+		t.Fatalf("expected prominent active border color in CSS")
+	}
+	if !strings.Contains(css, `#swiss-b-touch.active`) {
+		t.Fatalf("expected #swiss-b-touch.active in CSS")
+	}
+}
+
+func TestPreviewBrowser_EscapeExitsAllTools(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	if !strings.Contains(js, `exitAllTools`) {
+		t.Fatalf("expected exitAllTools helper in script")
+	}
+	if !strings.Contains(js, `exitAllTools();`) {
+		t.Fatalf("expected exitAllTools() invocation in script")
+	}
+}
+
+func TestPreviewBrowser_MultilineCommentTextarea(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	css := GenerateAuxiliaryPluginsCSS()
+	if !strings.Contains(js, `<textarea class="swiss-element-annotation-input"`) {
+		t.Fatalf("expected <textarea> for element annotation")
+	}
+	if !strings.Contains(css, `min-height: 72px`) || !strings.Contains(css, `resize: vertical`) {
+		t.Fatalf("expected textarea CSS with min-height and resize")
+	}
+}

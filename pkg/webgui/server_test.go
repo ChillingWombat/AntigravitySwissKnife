@@ -47,7 +47,13 @@ func TestWebGUIServesMinimalistLightHTML(t *testing.T) {
 }
 
 func TestWebGUIEndpoints(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	tempDir := t.TempDir()
+	srv := NewServer("127.0.0.1:0", filepath.Join(tempDir, "isolated.sock"))
+	tempStore, err := gui.NewStore(tempDir)
+	if err != nil {
+		t.Fatalf("gui.NewStore error: %v", err)
+	}
+	srv.SetGUIStore(tempStore)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
