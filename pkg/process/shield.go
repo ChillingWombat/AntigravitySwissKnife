@@ -250,10 +250,6 @@ func (s *Shield) RestartLanguageServer() error {
 // LaunchHostIDE launches the Antigravity desktop IDE application if it is not currently running.
 // If already running, it actively brings the active window to front via CDP.
 func (s *Shield) LaunchHostIDE() error {
-	if os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" {
-		return nil
-	}
-
 	relaunchMu.Lock()
 	defer relaunchMu.Unlock()
 
@@ -264,7 +260,7 @@ func (s *Shield) LaunchHostIDE() error {
 	}
 
 	// Safeguard: Never spawn during unit test runs unless explicitly authorized
-	if flag.Lookup("test.v") != nil && os.Getenv("ANTIGRAVITY_ALLOW_TEST_RELAUNCH") != "1" {
+	if (flag.Lookup("test.v") != nil || os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1") && os.Getenv("ANTIGRAVITY_ALLOW_TEST_RELAUNCH") != "1" {
 		return nil
 	}
 

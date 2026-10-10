@@ -1199,21 +1199,6 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
                 pending = data.pending_intent;
               } else if (data && (data.cascade_id || data.root_conversation_id)) {
                 pending = data;
-              } else if (data && data.active_session && data.active_session.needs_revival) {
-                const sess = data.active_session;
-                const targetID = sess.conversation_id || curID;
-                const epoch = window.__swissTurnEpoch || 0;
-                pending = {
-                  root_conversation_id: targetID,
-                  cascade_id: targetID,
-                  trigger_prompt: "Please continue ongoing tasks and subagents.",
-                  prompt: "Please continue ongoing tasks and subagents.",
-                  intent_id: "auto-session-" + targetID + "-epoch-" + epoch + "-" + (sess.last_modified ? new Date(sess.last_modified).getTime() : Date.now()),
-                  created_at: sess.last_modified || new Date().toISOString(),
-                  ttl_seconds: 120,
-                  resumed: false,
-                  status: "pending"
-                };
               }
             }
           }
@@ -1292,6 +1277,19 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           }
         }
 
+        // Protect user drafts: if the editor has typed text, never navigate away or hijack view
+        const activeEditor = document.querySelector('[data-testid="agent-input-box"] [contenteditable="true"]') ||
+                             document.querySelector('[data-lexical-editor="true"][contenteditable="true"]') ||
+                             document.querySelector('.lexical-container [contenteditable="true"]') ||
+                             document.querySelector('[data-testid="chat-input-textarea"]') ||
+                             document.querySelector('textarea[placeholder*="Ask"]');
+        if (activeEditor) {
+          const curDraft = (activeEditor.isContentEditable ? (activeEditor.innerText || "") : (activeEditor.value || "")).trim();
+          if (curDraft.length > 0) {
+            return;
+          }
+        }
+
         // 1. If not at the target conversation route, navigate
         if (!curPath.startsWith(targetPath)) {
           if (curPath.startsWith("/onboarding")) {
@@ -1359,6 +1357,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
         if (editor.isContentEditable) {
           const curText = (editor.innerText || "").trim();
+          if (curText.length > 0 && !curText.includes(promptText)) {
+            autoRevivalInFlight = false;
+            return;
+          }
           if (!curText.includes(promptText)) {
             editor.focus();
             const sel = window.getSelection();
@@ -1384,7 +1386,12 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             editor.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
           }
         } else {
-          if (!(editor.value || "").includes(promptText)) {
+          const curVal = (editor.value || "").trim();
+          if (curVal.length > 0 && !curVal.includes(promptText)) {
+            autoRevivalInFlight = false;
+            return;
+          }
+          if (!curVal.includes(promptText)) {
             editor.focus();
             editor.value = promptText;
             editor.dispatchEvent(new Event("input", { bubbles: true }));
