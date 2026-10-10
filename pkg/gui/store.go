@@ -85,6 +85,38 @@ func (s *Store) load() error {
 		if _, ok := raw["consistent_project_spacing_line"]; !ok {
 			cfg.ConsistentProjectSpacingLine = true
 		}
+		if _, ok := raw["chat_telemetry_input_tokens"]; !ok {
+			cfg.ChatTelemetryInputTokens = true
+		}
+		if _, ok := raw["chat_telemetry_output_tokens"]; !ok {
+			cfg.ChatTelemetryOutputTokens = true
+		}
+		if _, ok := raw["chat_telemetry_cache_hit_ratio"]; !ok {
+			cfg.ChatTelemetryCacheHitRatio = true
+		}
+		if _, ok := raw["chat_telemetry_generation_speed"]; !ok {
+			cfg.ChatTelemetryGenerationSpeed = true
+		}
+		if _, ok := raw["chat_telemetry_scope"]; !ok || cfg.ChatTelemetryScope == "" {
+			cfg.ChatTelemetryScope = "aggregated"
+		}
+	}
+	if !cfg.ColorStylingEnabled && !cfg.ReplaceSeeAllTriangle && !cfg.ConsistentProjectSpacing {
+		cfg.Enabled = true
+		cfg.ColorStylingEnabled = true
+		cfg.ReplaceSeeAllTriangle = true
+		cfg.ConsistentProjectSpacing = true
+		cfg.ConsistentProjectSpacingLine = true
+		cfg.AutoInject = true
+	}
+	if !cfg.ChatTelemetryInputTokens && !cfg.ChatTelemetryOutputTokens && !cfg.ChatTelemetryCacheHitRatio {
+		cfg.ChatTelemetryInputTokens = true
+		cfg.ChatTelemetryOutputTokens = true
+		cfg.ChatTelemetryCacheHitRatio = true
+		cfg.ChatTelemetryGenerationSpeed = true
+		if cfg.ChatTelemetryScope == "" {
+			cfg.ChatTelemetryScope = "aggregated"
+		}
 	}
 	if cfg.ActiveConversationIndicator == "" {
 		cfg.ActiveConversationIndicator = "background"

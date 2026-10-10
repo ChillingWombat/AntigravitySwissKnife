@@ -5256,12 +5256,22 @@ func (s *Server) handleConversationsStatus(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	targetID := strings.TrimSpace(r.URL.Query().Get("conversation_id"))
+	if targetID == "" {
+		targetID = strings.TrimSpace(r.URL.Query().Get("cascade_id"))
+	}
+	targetID = strings.TrimPrefix(targetID, "/c/")
+
 	var status *revival.RevivalStatus
 	if s.client != nil {
-		_ = s.client.Call("swiss.getRevivalStatus", nil, &status)
+		var params map[string]interface{}
+		if targetID != "" {
+			params = map[string]interface{}{"conversation_id": targetID}
+		}
+		_ = s.client.Call("swiss.getRevivalStatus", params, &status)
 	}
 	if status == nil && s.revivalEngine != nil {
-		sStatus, err := s.revivalEngine.GetRevivalStatus()
+		sStatus, err := s.revivalEngine.GetRevivalStatus(targetID)
 		if err == nil {
 			status = sStatus
 		}

@@ -697,7 +697,20 @@ func (d *Daemon) registerRPCHandlers() {
 		if d.Revival == nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: "revival engine not initialized"}
 		}
-		status, err := d.Revival.GetRevivalStatus()
+		var p struct {
+			ConversationID string `json:"conversation_id"`
+			CascadeID      string `json:"cascade_id"`
+		}
+		if len(params) > 0 {
+			_ = json.Unmarshal(params, &p)
+		}
+		targetID := p.ConversationID
+		if targetID == "" {
+			targetID = p.CascadeID
+		}
+		targetID = strings.TrimPrefix(strings.TrimSpace(targetID), "/c/")
+
+		status, err := d.Revival.GetRevivalStatus(targetID)
 		if err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}

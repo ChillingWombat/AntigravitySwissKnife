@@ -60,10 +60,31 @@ func (inj *Injector) isPortLive(port int) bool {
 	return false
 }
 
+// IsTestExecution returns true if the current process is running inside a Go test runner.
+func IsTestExecution() bool {
+	if os.Getenv("ANTIGRAVITY_TESTING") == "1" || os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" {
+		return true
+	}
+	if strings.HasSuffix(os.Args[0], ".test") || strings.Contains(os.Args[0], "/_test/") {
+		return true
+	}
+	for _, arg := range os.Args {
+		if strings.HasPrefix(arg, "-test.") {
+			return true
+		}
+	}
+	return false
+}
+
 // FindDevToolsPort reads the active remote debugging port of Antigravity and verifies it is responsive.
 func (inj *Injector) FindDevToolsPort() (int, error) {
 	if inj.customPort > 0 {
 		return inj.customPort, nil
+	}
+
+	// Under unit tests, never connect to the live host IDE when customPort is not specified
+	if IsTestExecution() {
+		return 0, fmt.Errorf("unit test mode: skipped connecting to live host DevTools port")
 	}
 
 	// 1. Check DevToolsActivePort in Antigravity host config dir
@@ -782,17 +803,24 @@ func (inj *Injector) RestoreConversationPath(targetPath string, maxWait time.Dur
 						window.__swissLastOnboardingNudge = now;
 						if (window.location && typeof window.location.assign === "function") {
 							window.location.assign(targetPath);
-						} else {
+						} else if (window.history && typeof window.history.replaceState === "function") {
 							window.history.replaceState(window.history.state, "", targetPath);
 						}
 					}
 				} else if (curPath !== targetPathOnly) {
 					window.__swissLastRestoreNudge = now;
-					window.history.replaceState(window.history.state, "", targetPath);
+					if (window.history && typeof window.history.replaceState === "function") {
+						window.history.replaceState(window.history.state, "", targetPath);
+					} else if (window.location && typeof window.location.assign === "function") {
+						window.location.assign(targetPath);
+					}
 				} else if (hasShell && (!window.__swissLastRestoreNudge || (now - window.__swissLastRestoreNudge) > 1200)) {
 					window.__swissLastRestoreNudge = now;
-					window.history.replaceState(window.history.state, "", "/");
-					window.history.replaceState(window.history.state, "", targetPath);
+					if (window.history && typeof window.history.replaceState === "function") {
+						window.history.replaceState(window.history.state, "", targetPath);
+					} else if (window.location && typeof window.location.assign === "function") {
+						window.location.assign(targetPath);
+					}
 				}
 			}
 			return {

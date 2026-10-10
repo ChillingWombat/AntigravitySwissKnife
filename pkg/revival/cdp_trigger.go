@@ -73,8 +73,13 @@ func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string,
 					window.location.assign(targetPath);
 					return { status: "navigating_from_onboarding", ready: false, success: false };
 				}
-				window.history.replaceState(null, "", targetPath);
-				window.dispatchEvent(new PopStateEvent("popstate"));
+				const convPart = targetPath.replace(/^\/c\//, "");
+				const navLink = document.querySelector('a[href*="' + convPart + '"]');
+				if (navLink) {
+					navLink.click();
+					return { status: "navigating_via_link", ready: false, success: false };
+				}
+				window.location.assign(targetPath);
 				return { status: "navigating", ready: false, success: false };
 			}
 
@@ -123,30 +128,35 @@ func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string,
 			// 5. Inject continuation prompt into Lexical editor
 			const promptText = %q;
 			if (editor.isContentEditable) {
-				editor.focus();
-				const sel = window.getSelection();
-				if (sel) {
-					const range = document.createRange();
-					range.selectNodeContents(editor);
-					range.collapse(false);
-					sel.removeAllRanges();
-					sel.addRange(range);
+				const curText = (editor.innerText || "").trim();
+				if (!curText.includes(promptText)) {
+					editor.focus();
+					const sel = window.getSelection();
+					if (sel) {
+						const range = document.createRange();
+						range.selectNodeContents(editor);
+						sel.removeAllRanges();
+						sel.addRange(range);
+					}
+					document.execCommand("selectAll", false, null);
+					document.execCommand("insertText", false, promptText);
+					try {
+						editor.dispatchEvent(new InputEvent("beforeinput", {
+							inputType: "insertText",
+							data: promptText,
+							bubbles: true,
+							cancelable: true
+						}));
+					} catch (_) {}
+					editor.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
 				}
-				document.execCommand("insertText", false, promptText);
-				try {
-					editor.dispatchEvent(new InputEvent("beforeinput", {
-						inputType: "insertText",
-						data: promptText,
-						bubbles: true,
-						cancelable: true
-					}));
-				} catch (_) {}
-				editor.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
 			} else {
-				editor.focus();
-				editor.value = promptText;
-				editor.dispatchEvent(new Event("input", { bubbles: true }));
-				editor.dispatchEvent(new Event("change", { bubbles: true }));
+				if (!(editor.value || "").includes(promptText)) {
+					editor.focus();
+					editor.value = promptText;
+					editor.dispatchEvent(new Event("input", { bubbles: true }));
+					editor.dispatchEvent(new Event("change", { bubbles: true }));
+				}
 			}
 
 			// 6. Wait/poll until send button is enabled (Lexical enables it async after processing input)
@@ -198,7 +208,11 @@ func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string,
 
 				res, err := c.ScriptExecutor(target.WebSocketDebuggerURL, script)
 				if err == nil && res != nil {
-					if success, ok := res["success"].(bool); ok && success {
+					evalRes := res
+					if v, ok := res["value"].(map[string]interface{}); ok {
+						evalRes = v
+					}
+					if success, ok := evalRes["success"].(bool); ok && success {
 						return nil
 					}
 				}

@@ -1124,6 +1124,15 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const curID = curPath.replace(/^\/c\//, "").split(/[?#]/)[0];
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+      // When on a valid UUID conversation with editor or view, pin it as active
+      if (uuidRegex.test(curID)) {
+        const hasEditorOrView = Boolean(document.querySelector('[data-testid="conversation-view"], [data-testid="agent-input-box"], textarea'));
+        if (hasEditorOrView) {
+          try { localStorage.setItem("antigravity_swiss_last_conversation_path", "/c/" + curID); } catch (_) {}
+          return;
+        }
+      }
+
       const isNotFound = document.querySelector('[data-testid="not-found"]') ||
                          Array.from(document.querySelectorAll("h1, h2, h3, p")).some(el =>
                            el.textContent && (
@@ -1139,10 +1148,15 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           const pinnedID = pinned.replace(/^\/c\//, "").split(/[?#]/)[0];
           if (uuidRegex.test(pinnedID) && curID !== pinnedID) {
             const now = Date.now();
-            if (!window.__swissLastRedirectTime || (now - window.__swissLastRedirectTime > 3000)) {
+            if (!window.__swissLastRedirectTime || (now - window.__swissLastRedirectTime > 5000)) {
               window.__swissLastRedirectTime = now;
               console.warn("[SwissKnife] Redirecting from invalid/not-found conversation " + curPath + " to pinned: " + pinned);
-              window.location.assign(pinned);
+              const navLink = document.querySelector('a[href*="' + pinnedID + '"]');
+              if (navLink) {
+                navLink.click();
+              } else {
+                window.location.assign(pinned);
+              }
             }
           }
         }
@@ -1157,17 +1171,49 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       if (now - lastRevivalCheckTime < 1500) return;
       lastRevivalCheckTime = now;
 
+      // Track agent generation transition to advance turn epoch when a turn finishes
+      const isGeneratingNow = Boolean(
+        document.querySelector('[data-testid="agent-generating"], [data-testid="stop-button"], [data-tooltip-id="input-send-button-cancel-tooltip"]')
+      );
+      if (window.__swissLastGeneratingState === true && !isGeneratingNow) {
+        window.__swissTurnEpoch = (window.__swissTurnEpoch || 0) + 1;
+      }
+      window.__swissLastGeneratingState = isGeneratingNow;
+
+      const curPath = window.location.pathname || "/";
+      const curID = curPath.replace(/^\/c\//, "").split(/[?#]/)[0];
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
       try {
         let pending = null;
         try {
           if (typeof window !== "undefined" && window.fetch) {
-            const res = await fetch("http://127.0.0.1:8765/api/conversations/status");
+            let statusUrl = "http://127.0.0.1:8765/api/conversations/status";
+            if (uuidRegex.test(curID)) {
+              statusUrl += "?conversation_id=" + encodeURIComponent(curID);
+            }
+            const res = await fetch(statusUrl);
             if (res.ok) {
               const data = await res.json();
               if (data && data.pending_intent) {
                 pending = data.pending_intent;
               } else if (data && (data.cascade_id || data.root_conversation_id)) {
                 pending = data;
+              } else if (data && data.active_session && data.active_session.needs_revival) {
+                const sess = data.active_session;
+                const targetID = sess.conversation_id || curID;
+                const epoch = window.__swissTurnEpoch || 0;
+                pending = {
+                  root_conversation_id: targetID,
+                  cascade_id: targetID,
+                  trigger_prompt: "Please continue ongoing tasks and subagents.",
+                  prompt: "Please continue ongoing tasks and subagents.",
+                  intent_id: "auto-session-" + targetID + "-epoch-" + epoch + "-" + (sess.last_modified ? new Date(sess.last_modified).getTime() : Date.now()),
+                  created_at: sess.last_modified || new Date().toISOString(),
+                  ttl_seconds: 120,
+                  resumed: false,
+                  status: "pending"
+                };
               }
             }
           }
@@ -1252,8 +1298,12 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             window.location.assign(targetPath);
             return;
           }
-          window.history.replaceState(null, "", targetPath);
-          window.dispatchEvent(new PopStateEvent("popstate"));
+          const navLink = document.querySelector('a[href*="' + convID + '"]');
+          if (navLink) {
+            navLink.click();
+            return;
+          }
+          window.location.assign(targetPath);
           return;
         }
 
@@ -1308,30 +1358,35 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         const promptText = triggerPrompt || "Please continue ongoing tasks and subagents.";
 
         if (editor.isContentEditable) {
-          editor.focus();
-          const sel = window.getSelection();
-          if (sel) {
-            const range = document.createRange();
-            range.selectNodeContents(editor);
-            range.collapse(false);
-            sel.removeAllRanges();
-            sel.addRange(range);
+          const curText = (editor.innerText || "").trim();
+          if (!curText.includes(promptText)) {
+            editor.focus();
+            const sel = window.getSelection();
+            if (sel) {
+              const range = document.createRange();
+              range.selectNodeContents(editor);
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
+            document.execCommand("selectAll", false, null);
+            document.execCommand("insertText", false, promptText);
+            try {
+              editor.dispatchEvent(new InputEvent("beforeinput", {
+                inputType: "insertText",
+                data: promptText,
+                bubbles: true,
+                cancelable: true
+              }));
+            } catch (_) {}
+            editor.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
           }
-          document.execCommand("insertText", false, promptText);
-          try {
-            editor.dispatchEvent(new InputEvent("beforeinput", {
-              inputType: "insertText",
-              data: promptText,
-              bubbles: true,
-              cancelable: true
-            }));
-          } catch (_) {}
-          editor.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
         } else {
-          editor.focus();
-          editor.value = promptText;
-          editor.dispatchEvent(new Event("input", { bubbles: true }));
-          editor.dispatchEvent(new Event("change", { bubbles: true }));
+          if (!(editor.value || "").includes(promptText)) {
+            editor.focus();
+            editor.value = promptText;
+            editor.dispatchEvent(new Event("input", { bubbles: true }));
+            editor.dispatchEvent(new Event("change", { bubbles: true }));
+          }
         }
 
         (async () => {

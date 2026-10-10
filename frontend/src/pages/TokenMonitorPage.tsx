@@ -13,6 +13,7 @@ import type {
   TokenTelemetryEvent,
 } from '../types'
 import { api } from '../api'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 
 import {
   GEMINI_SELECTOR_ORDER,
@@ -1533,34 +1534,16 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                   padding: '12px 14px',
                   border: '1px solid var(--border)',
                   borderRadius: '6px',
-                  backgroundColor: '#fafafa',
+                  backgroundColor: '#ffffff',
                 }}
               >
-                <div>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                    Input Tokens
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    Prompt and cached context token volume
-                  </div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                  Input Tokens
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleUpdateTelemetrySetting('input', !chatTelemetryInputTokens)}
-                  style={{
-                    padding: '4px 12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '4px',
-                    border: '1px solid var(--border)',
-                    backgroundColor: chatTelemetryInputTokens ? 'var(--primary)' : '#ffffff',
-                    color: chatTelemetryInputTokens ? '#ffffff' : 'var(--text-muted)',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {chatTelemetryInputTokens ? 'Enabled' : 'Disabled'}
-                </button>
+                <ToggleSwitch
+                  checked={chatTelemetryInputTokens}
+                  onChange={(val: boolean) => handleUpdateTelemetrySetting('input', val)}
+                />
               </div>
 
               {/* 2. Output Tokens */}
@@ -1572,34 +1555,16 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                   padding: '12px 14px',
                   border: '1px solid var(--border)',
                   borderRadius: '6px',
-                  backgroundColor: '#fafafa',
+                  backgroundColor: '#ffffff',
                 }}
               >
-                <div>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                    Output Tokens
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    Generated completion token count
-                  </div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                  Output Tokens
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleUpdateTelemetrySetting('output', !chatTelemetryOutputTokens)}
-                  style={{
-                    padding: '4px 12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '4px',
-                    border: '1px solid var(--border)',
-                    backgroundColor: chatTelemetryOutputTokens ? 'var(--primary)' : '#ffffff',
-                    color: chatTelemetryOutputTokens ? '#ffffff' : 'var(--text-muted)',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {chatTelemetryOutputTokens ? 'Enabled' : 'Disabled'}
-                </button>
+                <ToggleSwitch
+                  checked={chatTelemetryOutputTokens}
+                  onChange={(val: boolean) => handleUpdateTelemetrySetting('output', val)}
+                />
               </div>
 
               {/* 3. Cache Hit Ratio */}
@@ -1611,34 +1576,16 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                   padding: '12px 14px',
                   border: '1px solid var(--border)',
                   borderRadius: '6px',
-                  backgroundColor: '#fafafa',
+                  backgroundColor: '#ffffff',
                 }}
               >
-                <div>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                    Cache Hit Ratio
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    Prompt caching efficiency percentage
-                  </div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                  Cache Hit Ratio
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleUpdateTelemetrySetting('cache', !chatTelemetryCacheHitRatio)}
-                  style={{
-                    padding: '4px 12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '4px',
-                    border: '1px solid var(--border)',
-                    backgroundColor: chatTelemetryCacheHitRatio ? 'var(--primary)' : '#ffffff',
-                    color: chatTelemetryCacheHitRatio ? '#ffffff' : 'var(--text-muted)',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {chatTelemetryCacheHitRatio ? 'Enabled' : 'Disabled'}
-                </button>
+                <ToggleSwitch
+                  checked={chatTelemetryCacheHitRatio}
+                  onChange={(val: boolean) => handleUpdateTelemetrySetting('cache', val)}
+                />
               </div>
 
               {/* 4. Generation Speed */}
@@ -1650,34 +1597,16 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                   padding: '12px 14px',
                   border: '1px solid var(--border)',
                   borderRadius: '6px',
-                  backgroundColor: '#fafafa',
+                  backgroundColor: '#ffffff',
                 }}
               >
-                <div>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                    Generation Speed
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    Tokens per second (TPS) output throughput
-                  </div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                  Generation Speed
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleUpdateTelemetrySetting('speed', !chatTelemetryGenerationSpeed)}
-                  style={{
-                    padding: '4px 12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '4px',
-                    border: '1px solid var(--border)',
-                    backgroundColor: chatTelemetryGenerationSpeed ? 'var(--primary)' : '#ffffff',
-                    color: chatTelemetryGenerationSpeed ? '#ffffff' : 'var(--text-muted)',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {chatTelemetryGenerationSpeed ? 'Enabled' : 'Disabled'}
-                </button>
+                <ToggleSwitch
+                  checked={chatTelemetryGenerationSpeed}
+                  onChange={(val: boolean) => handleUpdateTelemetrySetting('speed', val)}
+                />
               </div>
             </div>
 

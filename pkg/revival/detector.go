@@ -40,6 +40,25 @@ func (d *SessionDetector) Detect(appType string) (*ActiveSessionInfo, error) {
 	var dbPath string
 	appType = strings.ToLower(strings.TrimSpace(appType))
 
+	// 1. Live CDP check first if desktop is running on host environment
+	isHostEnv := (d.BaseDir == "" || d.BaseDir == core.GetAntigravityDir())
+	if isHostEnv && d.LiveCDPEnabled && (appType == "" || appType == "desktop" || appType == "all") {
+		livePath := gui.NewInjector(0).CaptureActiveConversationPath()
+		if livePath != "" && gui.IsValidConversationPath(livePath) {
+			convID := strings.TrimPrefix(livePath, "/c/")
+			if idx := strings.Index(convID, "?"); idx != -1 {
+				convID = convID[:idx]
+			}
+			convID = strings.TrimSpace(convID)
+			if convID != "" {
+				if info, err := d.DetectForID(convID); err == nil && info != nil {
+					info.TargetApp = appType
+					return info, nil
+				}
+			}
+		}
+	}
+
 	home, _ := os.UserHomeDir()
 	if appType == "agy" && home != "" {
 		cliDB := filepath.Join(home, ".gemini", "antigravity-cli", "conversation_summaries.db")
@@ -56,7 +75,7 @@ func (d *SessionDetector) Detect(appType string) (*ActiveSessionInfo, error) {
 		dbPath = filepath.Join(base, "conversation_summaries.db")
 	}
 
-	// 1. Try querying conversation_summaries.db
+	// 2. Try querying conversation_summaries.db
 	if _, err := os.Stat(dbPath); err == nil {
 		info, err := d.querySummaryDatabase(dbPath)
 		if err == nil && info != nil && info.ConversationID != "" {
@@ -68,32 +87,6 @@ func (d *SessionDetector) Detect(appType string) (*ActiveSessionInfo, error) {
 		}
 	}
 
-	// 2. Fallback to live CDP if desktop is running
-	if d.LiveCDPEnabled && (appType == "" || appType == "desktop" || appType == "all") {
-		livePath := gui.NewInjector(0).CaptureActiveConversationPath()
-		if livePath != "" && gui.IsValidConversationPath(livePath) {
-			convID := strings.TrimPrefix(livePath, "/c/")
-			if idx := strings.Index(convID, "?"); idx != -1 {
-				convID = convID[:idx]
-			}
-			convID = strings.TrimSpace(convID)
-			if convID != "" {
-				baseDir := d.BaseDir
-				if baseDir == "" {
-					baseDir = core.GetAntigravityDir()
-				}
-				needsRev := d.checkTrajectoryRunning(baseDir, convID)
-				return &ActiveSessionInfo{
-					ConversationID: convID,
-					TargetPath:     livePath,
-					IsTopLevel:     true,
-					TargetApp:      appType,
-					NeedsRevival:   needsRev,
-				}, nil
-			}
-		}
-	}
-
 	// 3. Fallback to app_storage.json layout keys
 	info, err := d.fallbackToAppStorage()
 	if err == nil && info != nil {
@@ -102,6 +95,35 @@ func (d *SessionDetector) Detect(appType string) (*ActiveSessionInfo, error) {
 	}
 
 	return nil, fmt.Errorf("no active Antigravity conversation found")
+}
+
+// DetectForID finds the active session info for a specific conversation ID.
+func (d *SessionDetector) DetectForID(convID string) (*ActiveSessionInfo, error) {
+	convID = strings.TrimSpace(strings.TrimPrefix(convID, "/c/"))
+	if convID == "" {
+		return d.Detect("")
+	}
+	base := d.BaseDir
+	if base == "" {
+		base = core.GetAntigravityDir()
+	}
+	dbPath := filepath.Join(base, "conversation_summaries.db")
+	if _, err := os.Stat(dbPath); err == nil {
+		info, err := d.querySummaryDatabaseForID(dbPath, convID)
+		if err == nil && info != nil && info.ConversationID != "" {
+			if info.TargetPath == "" {
+				info.TargetPath = "/c/" + info.ConversationID
+			}
+			return info, nil
+		}
+	}
+	needsRev := d.checkTrajectoryRunning(base, convID)
+	return &ActiveSessionInfo{
+		ConversationID: convID,
+		TargetPath:     "/c/" + convID,
+		IsTopLevel:     true,
+		NeedsRevival:   needsRev,
+	}, nil
 }
 
 func parseTime(s string) time.Time {
@@ -126,6 +148,11 @@ func parseTime(s string) time.Time {
 
 // querySummaryDatabase opens the database in read-only WAL mode and resolves the root conversation.
 func (d *SessionDetector) querySummaryDatabase(dbPath string) (*ActiveSessionInfo, error) {
+	return d.querySummaryDatabaseForID(dbPath, "")
+}
+
+// querySummaryDatabaseForID opens the database in read-only WAL mode and resolves either targetID or the latest root conversation.
+func (d *SessionDetector) querySummaryDatabaseForID(dbPath string, targetID string) (*ActiveSessionInfo, error) {
 	// WAL read-only connection with busy timeout
 	connStr := fmt.Sprintf("file:%s?mode=ro&_busy_timeout=5000", filepath.ToSlash(dbPath))
 	db, err := sql.Open("sqlite", connStr)
@@ -139,11 +166,20 @@ func (d *SessionDetector) querySummaryDatabase(dbPath string) (*ActiveSessionInf
 		depth, notFullyIdle                                       int
 	)
 
-	query := `SELECT conversation_id, title, workspace_uris, parent_conversation_id, nesting_depth, not_fully_idle, status, last_modified_time 
-              FROM conversation_summaries 
-              ORDER BY last_modified_time DESC LIMIT 1;`
+	targetID = strings.TrimSpace(strings.TrimPrefix(targetID, "/c/"))
+	var row *sql.Row
+	if targetID != "" {
+		query := `SELECT conversation_id, title, workspace_uris, parent_conversation_id, nesting_depth, not_fully_idle, status, last_modified_time 
+                  FROM conversation_summaries 
+                  WHERE conversation_id = ? LIMIT 1;`
+		row = db.QueryRow(query, targetID)
+	} else {
+		query := `SELECT conversation_id, title, workspace_uris, parent_conversation_id, nesting_depth, not_fully_idle, status, last_modified_time 
+                  FROM conversation_summaries 
+                  ORDER BY last_modified_time DESC LIMIT 1;`
+		row = db.QueryRow(query)
+	}
 
-	row := db.QueryRow(query)
 	if err := row.Scan(&convID, &title, &workspaceURI, &parentID, &depth, &notFullyIdle, &status, &rawModTime); err != nil {
 		return nil, err
 	}

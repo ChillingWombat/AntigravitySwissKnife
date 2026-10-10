@@ -138,8 +138,8 @@ func (e *Engine) executeDesktopRevival(intent *RevivalIntent) error {
 
 	targetPath := "/c/" + strings.TrimPrefix(intent.RootConversationID, "/c/")
 
-	// Asynchronously ensure URL routing only when not in test dry-run mode and target is valid
-	if os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" && gui.IsValidConversationPath(targetPath) {
+	// Asynchronously ensure URL routing only in non-test mode with a valid target path
+	if !gui.IsTestExecution() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" && gui.IsValidConversationPath(targetPath) {
 		go func() {
 			_ = gui.NewInjector(e.CDPTrigger.CustomPort).RestoreConversationPath(targetPath, 25*time.Second)
 		}()
@@ -247,8 +247,13 @@ func (e *Engine) ReviveConversation(targetApp string, conversationID string, for
 }
 
 // GetRevivalStatus retrieves the active session, pending revival intent, and last revived timestamp.
-func (e *Engine) GetRevivalStatus() (*RevivalStatus, error) {
-	session, _ := e.Detector.Detect("")
+func (e *Engine) GetRevivalStatus(targetConvID ...string) (*RevivalStatus, error) {
+	var session *ActiveSessionInfo
+	if len(targetConvID) > 0 && strings.TrimSpace(targetConvID[0]) != "" {
+		session, _ = e.Detector.DetectForID(strings.TrimSpace(targetConvID[0]))
+	} else {
+		session, _ = e.Detector.Detect("")
+	}
 	pending, _ := e.Store.LoadIntent()
 
 	e.mu.RLock()
