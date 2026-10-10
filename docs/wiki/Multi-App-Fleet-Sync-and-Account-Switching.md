@@ -2,8 +2,6 @@
 
 Antigravity Swiss Knife provides cross-application account coordination, quota monitoring, and zero-loss credential rotation for developer workstations running multiple Google Antigravity environments.
 
-![Lifecycle Flow](../../assets/lifecycle_flow.png)
-
 ---
 
 ## 1. Fleet Management Across 3 Antigravity Applications

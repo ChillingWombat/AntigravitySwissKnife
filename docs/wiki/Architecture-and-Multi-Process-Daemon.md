@@ -2,8 +2,6 @@
 
 Antigravity Swiss Knife uses a three-tier local architecture to separate runtime hooks, supervisory controls, and background operations. This design isolates heavy backend operations like quota polling, hardware profile virtualization, and file caching from the desktop user interface.
 
-![System Architecture](../../assets/architecture.png)
-
 ---
 
 ## 1. Three-Tier Architectural Overview
