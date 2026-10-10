@@ -37,7 +37,9 @@ type TokenModelBreakdown struct {
 	OutputTokens     int64                            `json:"output_tokens"`
 	TotalTokens      int64                            `json:"total_tokens"`
 	CostUSD          float64                          `json:"cost_usd"`
+	SavedUSD         float64                          `json:"saved_usd"`
 	PriceConfigured  bool                             `json:"price_configured"`
+	AvgTPS           float64                          `json:"avg_tps"`
 	Requests         int                              `json:"requests"`
 	Percentage       float64                          `json:"percentage"`
 }
@@ -51,6 +53,8 @@ type TokenProjectBreakdown struct {
 	CachedTokens  int64   `json:"cached_tokens"`
 	OutputTokens  int64   `json:"output_tokens"`
 	CostUSD       float64 `json:"cost_usd"`
+	SavedUSD      float64 `json:"saved_usd"`
+	CacheHitRatio float64 `json:"cache_hit_ratio"`
 	SessionsCount int     `json:"sessions_count"`
 	LastActive    string  `json:"last_active"`
 	PrimaryModel  string  `json:"primary_model"`
@@ -557,6 +561,8 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 		requests         int
 		costUSD          float64
 		savedUSD         float64
+		durationMs       int64
+		timedOutput      int64
 		priceConfigured  bool
 	}
 
@@ -567,6 +573,7 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 		cachedInput   int64
 		outputTokens  int64
 		costUSD       float64
+		savedUSD      float64
 		sessionsCount int
 		lastActive    time.Time
 		tokensByModel map[string]int64
@@ -747,6 +754,10 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 			ma.requests += tStats.requests
 			ma.costUSD += convCost
 			ma.savedUSD += convSaved
+			if tStats.totalDurationMs > 0 {
+				ma.durationMs += tStats.totalDurationMs
+				ma.timedOutput += tStats.outputTokens
+			}
 
 			// Aggregate by Project
 			pa, exists := projectMap[projName]
@@ -763,6 +774,7 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 			pa.cachedInput += tStats.cachedInput
 			pa.outputTokens += tStats.outputTokens
 			pa.costUSD += convCost
+			pa.savedUSD += convSaved
 			pa.sessionsCount++
 			pa.tokensByModel[mDisplayName] += convTotalTokens
 			if tStats.lastActive.After(pa.lastActive) {
@@ -823,6 +835,10 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 		if totalTokens > 0 {
 			pct = math.Round((float64(mTotal)/float64(totalTokens))*1000) / 10
 		}
+		avgTPS := 0.0
+		if ma.durationMs > 0 && ma.timedOutput > 0 {
+			avgTPS = math.Round((float64(ma.timedOutput)/(float64(ma.durationMs)/1000.0))*10) / 10
+		}
 		modelBreakdowns = append(modelBreakdowns, TokenModelBreakdown{
 			InternalID:       ma.internalID,
 			ModelID:          ma.modelID,
@@ -836,7 +852,9 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 			OutputTokens:     ma.outputTokens,
 			TotalTokens:      mTotal,
 			CostUSD:          ma.costUSD,
+			SavedUSD:         ma.savedUSD,
 			PriceConfigured:  ma.priceConfigured,
+			AvgTPS:           avgTPS,
 			Requests:         ma.requests,
 			Percentage:       pct,
 		})
@@ -867,6 +885,10 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		cacheRatio := 0.0
+		if pPrompt > 0 {
+			cacheRatio = math.Round((float64(pa.cachedInput)/float64(pPrompt))*1000) / 10
+		}
 		projectBreakdowns = append(projectBreakdowns, TokenProjectBreakdown{
 			ProjectName:   pa.projectName,
 			WorkspacePath: pa.workspacePath,
@@ -875,6 +897,8 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 			CachedTokens:  pa.cachedInput,
 			OutputTokens:  pa.outputTokens,
 			CostUSD:       pa.costUSD,
+			SavedUSD:      pa.savedUSD,
+			CacheHitRatio: cacheRatio,
 			SessionsCount: pa.sessionsCount,
 			LastActive:    formatRelativeTime(pa.lastActive),
 			PrimaryModel:  primaryModel,

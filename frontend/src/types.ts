@@ -423,10 +423,15 @@ export interface TokenProjectBreakdown {
   project_name: string
   workspace_path: string
   total_tokens: number
+  input_tokens?: number
+  cached_tokens?: number
+  output_tokens?: number
   cost_usd: number
-  saved_usd: number
+  saved_usd?: number
   cache_hit_ratio: number
+  sessions_count?: number
   last_active: string
+  primary_model?: string
 }
 
 export interface TokenTelemetryEvent {

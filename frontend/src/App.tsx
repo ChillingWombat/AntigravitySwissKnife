@@ -13,6 +13,7 @@ import { ExtensionsPage } from './pages/ExtensionsPage'
 import { TokenMonitorPage } from './pages/TokenMonitorPage'
 import { UtilitiesPage } from './pages/UtilitiesPage'
 import { AppLockScreen } from './components/AppLockScreen'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import type { AccountState, FleetQuotaSummary, RuleConfig, SystemStatus } from './types'
 import { toAccountState } from './types'
 import { api } from './api'
@@ -325,62 +326,64 @@ export const App: React.FC = () => {
             padding: '24px',
           }}
         >
-          {currentTool === 0 && (
-            <>
-              {currentTab === 0 && (
-                <QuotaDashboardPage
-                  fleet={fleet}
-                  directAccounts={directAccounts}
-                  activeAccountEmail={status?.active_account || fleet?.active_account || ''}
-                  rules={rules}
-                  onRefresh={loadAllData}
-                  onAutoSwitchToggled={(val) => {
-                    if (rules) setRules({ ...rules, auto_switch_enabled: val })
-                    loadAllData()
-                  }}
-                />
-              )}
-              {currentTab === 1 && (
-                <FingerprintsPage accounts={effectiveAccounts} />
-              )}
-              {currentTab === 2 && (
-                <SwitcherSettingsPage
-                  initialRules={rules}
-                  onSaved={loadAllData}
-                />
-              )}
-            </>
-          )}
+          <ErrorBoundary>
+            {currentTool === 0 && (
+              <>
+                {currentTab === 0 && (
+                  <QuotaDashboardPage
+                    fleet={fleet}
+                    directAccounts={directAccounts}
+                    activeAccountEmail={status?.active_account || fleet?.active_account || ''}
+                    rules={rules}
+                    onRefresh={loadAllData}
+                    onAutoSwitchToggled={(val) => {
+                      if (rules) setRules({ ...rules, auto_switch_enabled: val })
+                      loadAllData()
+                    }}
+                  />
+                )}
+                {currentTab === 1 && (
+                  <FingerprintsPage accounts={effectiveAccounts} />
+                )}
+                {currentTab === 2 && (
+                  <SwitcherSettingsPage
+                    initialRules={rules}
+                    onSaved={loadAllData}
+                  />
+                )}
+              </>
+            )}
 
-          {currentTool === 2 && (
-            <SystemSettingsPage
-              status={status}
-              onRefresh={loadAllData}
-              activeTab={systemSettingsTab}
-              onTabChange={setSystemSettingsTab}
-            />
-          )}
-          {currentTool === 3 && <CustomModelsPage />}
-          {currentTool === 4 && <AppEnhancementsPage activeCategoryTab={enhancementTab} />}
-          {currentTool === 5 && <ScheduledTemplatesPage />}
-          {currentTool === 6 && <ArchivedProjectsPage />}
-          {Boolean(status?.daemon_running) && (currentTool === 7 || currentTool === 10) && (
-            <ExtensionsPage
-              fallbackProject={availableProjects[0]?.name}
-            />
-          )}
-          {currentTool === 8 && (
-            <TokenMonitorPage
-              activeTab={tokenMonitorTab}
-              onTabChange={setTokenMonitorTab}
-            />
-          )}
-          {currentTool === 9 && (
-            <UtilitiesPage
-              activeTab={utilitiesTab}
-              onTabChange={setUtilitiesTab}
-            />
-          )}
+            {currentTool === 2 && (
+              <SystemSettingsPage
+                status={status}
+                onRefresh={loadAllData}
+                activeTab={systemSettingsTab}
+                onTabChange={setSystemSettingsTab}
+              />
+            )}
+            {currentTool === 3 && <CustomModelsPage />}
+            {currentTool === 4 && <AppEnhancementsPage activeCategoryTab={enhancementTab} />}
+            {currentTool === 5 && <ScheduledTemplatesPage />}
+            {currentTool === 6 && <ArchivedProjectsPage />}
+            {Boolean(status?.daemon_running) && (currentTool === 7 || currentTool === 10) && (
+              <ExtensionsPage
+                fallbackProject={availableProjects[0]?.name}
+              />
+            )}
+            {currentTool === 8 && (
+              <TokenMonitorPage
+                activeTab={tokenMonitorTab}
+                onTabChange={setTokenMonitorTab}
+              />
+            )}
+            {currentTool === 9 && (
+              <UtilitiesPage
+                activeTab={utilitiesTab}
+                onTabChange={setUtilitiesTab}
+              />
+            )}
+          </ErrorBoundary>
         </main>
       </div>
     </div>

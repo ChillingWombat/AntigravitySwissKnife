@@ -179,10 +179,11 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   }
 
   // Format Helper
-  const formatTokens = (num: number) => {
-    if (num >= 1000000) return `${(num / 1000000).toFixed(2)}M`
-    if (num >= 1000) return `${(num / 1000).toFixed(1)}k`
-    return num.toLocaleString()
+  const formatTokens = (num: number | null | undefined) => {
+    const n = num ?? 0
+    if (n >= 1000000) return `${(n / 1000000).toFixed(2)}M`
+    if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
+    return n.toLocaleString()
   }
 
   const formatCost = (usd: number | null | undefined) =>
@@ -431,7 +432,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             </span>
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
-            {unitMode === 'usd' ? `$${summary.total_cost_usd.toFixed(2)}` : formatTokens(summary.total_tokens)}
+            {unitMode === 'usd' ? `$${(summary.total_cost_usd ?? 0).toFixed(2)}` : formatTokens(summary.total_tokens)}
           </div>
           <div style={{ fontSize: '12px', color: '#137333', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
             <TrendingDown size={14} />
@@ -455,7 +456,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             </span>
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
-            {summary.input_tokens > 0 ? ((summary.cached_input_tokens / summary.input_tokens) * 100).toFixed(1) : '0.0'}%
+            {summary.input_tokens > 0 ? (((summary.cached_input_tokens || 0) / summary.input_tokens) * 100).toFixed(1) : '0.0'}%
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
             {formatTokens(summary.cached_input_tokens)} of {formatTokens(summary.input_tokens)} prompt tokens cached
@@ -478,14 +479,14 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             </span>
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
-            {summary.avg_tps} <span style={{ fontSize: '15px', fontWeight: 500 }}>TPS</span>
+            {(summary.avg_tps ?? 0).toFixed(1)} <span style={{ fontSize: '15px', fontWeight: 500 }}>TPS</span>
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
             {modelBreakdowns.length > 0
               ? (() => {
-                  const fastest = [...modelBreakdowns].sort((a, b) => b.avg_tps - a.avg_tps)[0]
-                  return fastest && fastest.avg_tps > 0
-                    ? `Peak ${fastest.avg_tps.toFixed(1)} TPS on ${fastest.model_name || fastest.name}`
+                  const fastest = [...modelBreakdowns].sort((a, b) => (b.avg_tps || 0) - (a.avg_tps || 0))[0]
+                  return fastest && (fastest.avg_tps || 0) > 0
+                    ? `Peak ${(fastest.avg_tps || 0).toFixed(1)} TPS on ${fastest.model_name || fastest.name}`
                     : `Measured across ${modelBreakdowns.length} active model${modelBreakdowns.length === 1 ? '' : 's'}`
                 })()
               : 'Measured from real session transcripts'}
@@ -508,7 +509,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             </span>
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
-            {summary.requests_count}
+            {(summary.requests_count ?? 0).toLocaleString()}
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
             Across {projectBreakdowns.length} active project{projectBreakdowns.length === 1 ? '' : 's'}
@@ -810,7 +811,15 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                       />
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                      <span>Cache hit: {p.cache_hit_ratio.toFixed(1)}%</span>
+                      <span>
+                        Cache hit:{' '}
+                        {(typeof p.cache_hit_ratio === 'number'
+                          ? p.cache_hit_ratio
+                          : (p.input_tokens || 0) > 0
+                          ? (((p.cached_tokens || 0) / (p.input_tokens || 1)) * 100)
+                          : 0
+                        ).toFixed(1)}%
+                      </span>
                       <span>{p.last_active ? `Active ${p.last_active}` : p.workspace_path}</span>
                     </div>
                   </div>
