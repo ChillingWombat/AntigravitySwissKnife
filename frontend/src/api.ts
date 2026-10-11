@@ -868,5 +868,26 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     }),
+
+  getBridgeStatus: () => request<any>('/api/bridge/status'),
+
+  updateBridgeConfig: (data: any) =>
+    request<any>('/api/bridge/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  dispatchBridgeTask: (data: { prompt: string; target?: string }) =>
+    request<{ success: boolean; result?: string; error?: string }>('/api/bridge/dispatch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  testBridgeConnection: () =>
+    request<{ success: boolean; message?: string; status?: any }>('/api/bridge/test', {
+      method: 'POST',
+    }),
 }
 

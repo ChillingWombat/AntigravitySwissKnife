@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/bridge"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/cache"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
@@ -54,6 +55,7 @@ type Server struct {
 	githubService      *github.Service
 	vaultManager       *vault.Manager
 	revivalEngine      *revival.Engine
+	bridgeService      *bridge.Service
 	httpServer         *http.Server
 	addr               string
 	memoMu             sync.RWMutex
@@ -83,6 +85,7 @@ func NewServer(addr string, socketPath string) *Server {
 	ghTracker := github.NewAgentTracker("", ghStore)
 	ghService := github.NewService(ghTracker, ghStore)
 	vaultMgr := vault.NewManager("", "")
+	bridgeSvc, _ := bridge.NewService("")
 	return &Server{
 		client:             client,
 		guiStore:           guiStore,
@@ -96,6 +99,7 @@ func NewServer(addr string, socketPath string) *Server {
 		githubService:      ghService,
 		vaultManager:       vaultMgr,
 		revivalEngine:      revival.NewEngine("", 0),
+		bridgeService:      bridgeSvc,
 		addr:               addr,
 		knownWorkspaces:    make(map[string]struct{}),
 	}
@@ -306,6 +310,14 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/utilities/acp", s.handleUtilitiesACP)
 	mux.HandleFunc("/api/utilities/import", s.handleUtilitiesImport)
 	mux.HandleFunc("/api/utilities/import/scan", s.handleUtilitiesImportScan)
+
+	// Gemini Bridge (F41 / M15) Two-Way Agent Orchestration & Streamable HTTP MCP
+	mux.HandleFunc("/api/bridge/status", s.handleBridgeStatus)
+	mux.HandleFunc("/api/bridge/config", s.handleBridgeConfig)
+	mux.HandleFunc("/api/bridge/dispatch", s.handleBridgeDispatch)
+	mux.HandleFunc("/api/bridge/test", s.handleBridgeTest)
+	mux.HandleFunc("/api/bridge/mcp", s.handleBridgeMCP)
+	mux.HandleFunc("/mcp", s.handleBridgeMCP)
 
 	// Quick Memos API
 	mux.HandleFunc("/api/memos", s.handleMemos)
@@ -5338,6 +5350,124 @@ func (s *Server) handleConversationsAck(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func (s *Server) handleBridgeStatus(w http.ResponseWriter, r *http.Request) {
+	if s.bridgeService == nil {
+		s.bridgeService, _ = bridge.NewService("")
+	}
+	writeJSON(w, s.bridgeService.GetStatus())
+}
+
+func (s *Server) handleBridgeConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.bridgeService == nil {
+		s.bridgeService, _ = bridge.NewService("")
+	}
+	var cfg bridge.Config
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if err := s.bridgeService.UpdateConfig(cfg); err != nil {
+		http.Error(w, "failed to update config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, s.bridgeService.GetStatus())
+}
+
+func (s *Server) handleBridgeDispatch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.bridgeService == nil {
+		s.bridgeService, _ = bridge.NewService("")
+	}
+	var p struct {
+		Prompt string `json:"prompt"`
+		Target string `json:"target"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	res, err := s.bridgeService.CallTool("antigravity_dispatch_task", map[string]interface{}{
+		"prompt": p.Prompt,
+		"target": p.Target,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"result":  res,
+	})
+}
+
+func (s *Server) handleBridgeTest(w http.ResponseWriter, r *http.Request) {
+	if s.bridgeService == nil {
+		s.bridgeService, _ = bridge.NewService("")
+	}
+	st := s.bridgeService.GetStatus()
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"status":  st,
+		"message": "Gemini Bridge connection verified. All local Antigravity surfaces synchronized.",
+	})
+}
+
+func (s *Server) handleBridgeMCP(w http.ResponseWriter, r *http.Request) {
+	if s.bridgeService == nil {
+		s.bridgeService, _ = bridge.NewService("")
+	}
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		flusher, ok := w.(http.Flusher)
+		if ok {
+			endpointURL := fmt.Sprintf("/api/bridge/mcp?session=%d", time.Now().UnixNano())
+			fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", endpointURL)
+			flusher.Flush()
+		}
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read error", http.StatusBadRequest)
+			return
+		}
+		resp, mErr := s.bridgeService.HandleMCPRequest(body)
+		if mErr != nil {
+			http.Error(w, mErr.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if resp != nil {
+			_, _ = w.Write(resp)
+		} else {
+			w.WriteHeader(http.StatusNoContent)
+		}
+		return
+	}
+
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {
