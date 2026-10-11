@@ -1393,7 +1393,8 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                           }
                         }
 
-                        (item.working_issues || []).forEach((num: number) => {
+                        const itemWorkingIssues = Array.isArray(item.working_issues) ? item.working_issues : []
+                        for (const num of itemWorkingIssues) {
                           const key = `issue-${num}`
                           if (!seenWorkKeys.has(key)) {
                             seenWorkKeys.add(key)
@@ -1406,9 +1407,10 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                               title: found?.title,
                             })
                           }
-                        })
+                        }
 
-                        (item.working_prs || []).forEach((num: number) => {
+                        const itemWorkingPRs = Array.isArray(item.working_prs) ? item.working_prs : []
+                        for (const num of itemWorkingPRs) {
                           const key = `pr-${num}`
                           if (!seenWorkKeys.has(key)) {
                             seenWorkKeys.add(key)
@@ -1421,7 +1423,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                               title: found?.title,
                             })
                           }
-                        })
+                        }
 
                         return (
                           <div
