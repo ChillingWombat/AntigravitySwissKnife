@@ -249,7 +249,7 @@ export const App: React.FC = () => {
                     gap: '2px',
                   }}
                 >
-                  {['Storage Manager', 'ACP Agent Mesh', 'Chat & Project Importer', 'Computer Use'].map((tab, idx) => {
+                  {['Storage Manager', 'ACP Agent Mesh', 'Chat & Project Importer'].map((tab, idx) => {
                     const isActive = utilitiesTab === idx
                     return (
                       <button

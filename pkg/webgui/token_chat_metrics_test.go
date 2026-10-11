@@ -1,12 +1,8 @@
 package webgui
 
 import (
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -60,47 +56,5 @@ func TestGetChatMetricsForConversation(t *testing.T) {
 	}
 	if res.Summary.GenerationSpeed != 100.0 { // 500 / 5.0s = 100 TPS
 		t.Errorf("expected 100 TPS summary speed, got %f", res.Summary.GenerationSpeed)
-	}
-}
-
-func TestComputerUseEndpoints(t *testing.T) {
-	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
-
-	s := &Server{}
-
-	// 1. GET /api/system/computer-use
-	req := httptest.NewRequest(http.MethodGet, "/api/system/computer-use", nil)
-	rec := httptest.NewRecorder()
-	s.handleSystemComputerUse(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-	var res map[string]interface{}
-	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
-		t.Fatal(err)
-	}
-	if res["success"] != true {
-		t.Errorf("expected success true in computer-use response")
-	}
-
-	// 2. POST /api/system/computer-use/calibrate
-	calibBody := `{"target_os":"windows","input_x":100,"input_y":100}`
-	reqCalib := httptest.NewRequest(http.MethodPost, "/api/system/computer-use/calibrate", strings.NewReader(calibBody))
-	recCalib := httptest.NewRecorder()
-	s.handleSystemComputerUseCalibrate(recCalib, reqCalib)
-	if recCalib.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", recCalib.Code)
-	}
-
-	// 3. POST /api/system/computer-use/config
-	cfgBody := `{"wayland_pipewire":true,"accessibility_grounding":true,"linux_dpi_normalizer":true,"per_monitor_v2_dpi":true}`
-	reqCfg := httptest.NewRequest(http.MethodPost, "/api/system/computer-use/config", strings.NewReader(cfgBody))
-	recCfg := httptest.NewRecorder()
-	s.handleSystemComputerUseConfig(recCfg, reqCfg)
-	if recCfg.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", recCfg.Code)
 	}
 }

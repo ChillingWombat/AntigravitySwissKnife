@@ -2,7 +2,7 @@
 
 [Features](Features.md) / Utilities
 
-The Utilities subsystem bundles maintenance and interoperability tools into four specialized tabs: Storage Manager, ACP Agent Mesh, Chat & Project Importer, and Computer Use.
+The Utilities subsystem bundles maintenance and interoperability tools into three specialized tabs: Storage Manager, ACP Agent Mesh, and Chat & Project Importer.
 
 ---
 
@@ -32,11 +32,3 @@ Facilitates cross-tool developer migrations by converting conversation histories
 - **Sync Options**: Supports one-time manual batch imports, scheduled periodic polling, or filesystem watch modes that ingest external conversation updates automatically.
 - **Historical Migration Log**: Records all completed migrations with source timestamps and message counts in local storage.
 
----
-
-## 4. Computer Use Enhancer
-
-Calibrates the operating system environment for autonomous visual desktop agents:
-- **DPI Coordinate Normalization**: Corrects mouse coordinate calculations on high-DPI displays (such as 4K monitors with 150% or 200% scaling) to ensure pixel-perfect clicks and drags.
-- **Wayland & PipeWire Integration**: On modern Linux desktops, configures screen capture permissions and bridges XDG Desktop Portals to provide visual framebuffer streams without tearing.
-- **Accessibility Tree Grounding**: Bridges system accessibility APIs (AT-SPI on Linux, UI Automation on Windows, Accessibility on macOS) to give visual agents semantic DOM metadata alongside raw screenshot pixels.
