@@ -27,7 +27,7 @@
 - Eliminate paranoid defensive code, redundant null checks, and empty try/catch blocks.
 
 ### 5. Autonomous Computer & Browser Use Execution
-- When needed, automatically leverage computer use and browser use capabilities (`obscura`, `open-browser-use`, `open-computer-use`) proactively without waiting for user reminders.
+- When needed, automatically leverage computer use and browser use capabilities (`obscura`, `open-browser-use`, `Agent-S`) proactively without waiting for user reminders.
 
 ### 6. Automatic Compilation, Build & Active Process Relaunch
 - Whenever a project moves to a new major version or completes a substantial set of work/features, the agent must automatically rebuild and recompile the new application artifacts (e.g., `npm run build`, `go build`).
