@@ -13,6 +13,7 @@ import (
 )
 
 const SwissLoaderMarker = "// __SWISS_PRELOAD_LOADER__"
+const SwissMainLoaderMarker = "// __SWISS_MAIN_LOADER__"
 
 // DesktopStatus reports the installation and backup status of the persistent loader in Antigravity resources.
 type DesktopStatus struct {
@@ -78,7 +79,7 @@ func (dm *DesktopManager) GetStatus() DesktopStatus {
 		return status
 	}
 
-	status.Installed = bytes.Contains(data, []byte(SwissLoaderMarker))
+	status.Installed = bytes.Contains(data, []byte(SwissLoaderMarker)) || bytes.Contains(data, []byte(SwissMainLoaderMarker))
 	return status
 }
 
@@ -153,6 +154,21 @@ func (dm *DesktopManager) InstallDesktopLoader() (*ApplyResult, error) {
 		}, err
 	}
 
+	// 4. Patch Swiss main loader script in main.js (handles sandboxed renderers reliably)
+	mainPath := filepath.Join(extractDir, "dist", "main.js")
+	if fileExists(mainPath) {
+		if mainContent, mErr := os.ReadFile(mainPath); mErr == nil {
+			mainLoaderScript := generateMainLoaderScript()
+			var newMainContent string
+			if idx := bytes.Index(mainContent, []byte(SwissMainLoaderMarker)); idx != -1 {
+				newMainContent = string(mainContent[:idx]) + mainLoaderScript
+			} else {
+				newMainContent = string(mainContent) + "\n\n" + mainLoaderScript
+			}
+			_ = os.WriteFile(mainPath, []byte(newMainContent), 0644)
+		}
+	}
+
 	// 5. Pack back into asar
 	tmpPackAsar := filepath.Join(tmpDir, "app.asar.new")
 	if err := runAsarPack(extractDir, tmpPackAsar); err != nil {
@@ -206,7 +222,7 @@ func (dm *DesktopManager) UninstallDesktopLoader() (*ApplyResult, error) {
 	}
 
 	data, err := os.ReadFile(asarPath)
-	if err == nil && !bytes.Contains(data, []byte(SwissLoaderMarker)) {
+	if err == nil && !bytes.Contains(data, []byte(SwissLoaderMarker)) && !bytes.Contains(data, []byte(SwissMainLoaderMarker)) {
 		return &ApplyResult{
 			Success: true,
 			Message: "Persistent desktop loader is already uninstalled.",
@@ -381,6 +397,62 @@ func runAsarPack(srcDir, destAsar string) error {
 
 func jsonUnmarshal(data []byte, v interface{}) error {
 	return json.Unmarshal(data, v)
+}
+
+func generateMainLoaderScript() string {
+	return SwissMainLoaderMarker + `
+(() => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+    const electron = require('electron');
+    const app = electron && electron.app;
+
+    const configDir = (typeof process !== "undefined" && process.env && process.env.ANTIGRAVITY_SWISS_CONFIG_DIR) ||
+      (typeof process !== "undefined" && process.platform === "win32" && process.env && process.env.APPDATA
+        ? path.join(process.env.APPDATA, "antigravity-swiss")
+        : path.join(os.homedir(), ".config", "antigravity-swiss"));
+
+    const cssPath = path.join(configDir, "persistent_styles.css");
+    const jsPath = path.join(configDir, "persistent_script.js");
+
+    function injectIntoWebContents(wc) {
+      if (!wc || wc.isDestroyed()) return;
+      try {
+        if (fs.existsSync(cssPath)) {
+          const css = fs.readFileSync(cssPath, 'utf8');
+          if (css && css.trim()) {
+            wc.insertCSS(css).catch(() => {});
+          }
+        }
+        if (fs.existsSync(jsPath)) {
+          const js = fs.readFileSync(jsPath, 'utf8');
+          if (js && js.trim()) {
+            wc.executeJavaScript(js).catch(() => {});
+          }
+        }
+      } catch (e) {
+        console.warn("[SwissKnife Main] Injection failed:", e);
+      }
+    }
+
+    if (app && typeof app.on === "function") {
+      app.on('browser-window-created', (_event, win) => {
+        if (!win || !win.webContents) return;
+        win.webContents.on('dom-ready', () => {
+          injectIntoWebContents(win.webContents);
+        });
+        win.webContents.on('did-finish-load', () => {
+          injectIntoWebContents(win.webContents);
+        });
+      });
+    }
+  } catch (err) {
+    console.warn("[SwissKnife Main] Setup failed:", err);
+  }
+})();
+`
 }
 
 func generatePreloadLoaderScript() string {
