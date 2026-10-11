@@ -293,6 +293,7 @@ func (s *Shield) LaunchHostIDE() error {
 		return fmt.Errorf("failed to launch Antigravity (%s): %w", binPath, err)
 	}
 
+	scheduleCDPStyleInjection()
 	return nil
 }
 
@@ -450,7 +451,27 @@ func (s *Shield) RelaunchHostIDE() error {
 			_ = gui.NewInjector(0).RestoreConversationPath(target, 30*time.Second)
 		}(resumePath)
 	}
+
+	scheduleCDPStyleInjection()
 	return nil
+}
+
+func scheduleCDPStyleInjection() {
+	go func() {
+		inj := gui.NewInjector(0)
+		for i := 0; i < 30; i++ {
+			time.Sleep(500 * time.Millisecond)
+			if port, err := inj.FindDevToolsPort(); err == nil && port > 0 {
+				if store, sErr := gui.NewStore(""); sErr == nil {
+					cfg := store.GetConfig()
+					if cfg.Enabled {
+						_, _ = inj.ApplyConfig(&cfg)
+					}
+				}
+				break
+			}
+		}
+	}()
 }
 
 func isZombieProcess(pid int) bool {
