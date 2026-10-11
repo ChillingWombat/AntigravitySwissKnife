@@ -56,6 +56,7 @@ func (s *Store) load() error {
 	if cfg.ProjectBinds == nil {
 		cfg.ProjectBinds = make(map[string]string)
 	}
+	cfg.InferenceSupported = true
 	s.config = &cfg
 	for i := range s.config.Models {
 		if s.config.Models[i].InternalID <= 0 {
@@ -118,13 +119,14 @@ func (s *Store) GetConfig() Config {
 	}
 
 	return Config{
-		Version:        s.config.Version,
-		ActiveModelID:  s.config.ActiveModelID,
-		NextInternalID: s.config.NextInternalID,
-		Models:         modelsCopy,
-		PricingRecords: pricingCopy,
-		DeletedModels:  deletedCopy,
-		ProjectBinds:   bindsCopy,
+		Version:            s.config.Version,
+		InferenceSupported: true,
+		ActiveModelID:      s.config.ActiveModelID,
+		NextInternalID:     s.config.NextInternalID,
+		Models:             modelsCopy,
+		PricingRecords:     pricingCopy,
+		DeletedModels:      deletedCopy,
+		ProjectBinds:       bindsCopy,
 	}
 }
 

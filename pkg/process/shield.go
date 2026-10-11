@@ -36,6 +36,7 @@ type Shield struct {
 	protectedPID  int
 	processFinder func() ([]ProcessInfo, error)
 	revivalEngine *revival.Engine
+	focusFunc     func() error
 }
 
 // NewShield initializes a Shield. If protectedPID is 0, it reads from environment or detects host.
@@ -65,6 +66,11 @@ func (s *Shield) getRevivalEngine() *revival.Engine {
 // SetProcessFinder overrides process discovery for tests or custom environments.
 func (s *Shield) SetProcessFinder(finder func() ([]ProcessInfo, error)) {
 	s.processFinder = finder
+}
+
+// SetFocusFunc overrides window focus execution for tests or custom environments.
+func (s *Shield) SetFocusFunc(fn func() error) {
+	s.focusFunc = fn
 }
 
 func (s *Shield) findAntigravityProcessesInternal() ([]ProcessInfo, error) {
@@ -176,7 +182,8 @@ func (s *Shield) IsAntigravityRunning() bool {
 	}
 	for _, p := range procs {
 		lower := strings.ToLower(p.Cmdline)
-		if (p.Name == "antigravity" || strings.HasSuffix(p.Name, "antigravity")) &&
+		nameLower := strings.ToLower(p.Name)
+		if (nameLower == "antigravity" || nameLower == "antigravity.exe" || strings.HasSuffix(nameLower, "antigravity") || strings.HasSuffix(nameLower, "antigravity.exe")) &&
 			!strings.Contains(lower, "--type=") &&
 			!strings.Contains(lower, "swiss") {
 			return true
@@ -248,31 +255,23 @@ func (s *Shield) RestartLanguageServer() error {
 }
 
 // LaunchHostIDE launches the Antigravity desktop IDE application if it is not currently running.
-// If already running, it returns nil immediately without spawning a duplicate instance.
+// If already running, it actively brings the active window to front via CDP.
 func (s *Shield) LaunchHostIDE() error {
-	if os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" {
-		return nil
-	}
-
-	// Safeguard: Never spawn during unit test runs unless explicitly authorized
-	if flag.Lookup("test.v") != nil && os.Getenv("ANTIGRAVITY_ALLOW_TEST_RELAUNCH") != "1" {
-		return nil
-	}
-
 	relaunchMu.Lock()
 	defer relaunchMu.Unlock()
 
-	procs, err := s.findAntigravityProcessesInternal()
-	if err == nil {
-		for _, p := range procs {
-			lower := strings.ToLower(p.Cmdline)
-			if (p.Name == "antigravity" || strings.HasSuffix(p.Name, "antigravity")) &&
-				!strings.Contains(lower, "--type=") &&
-				!strings.Contains(lower, "swiss") {
-				// Already running
-				return nil
-			}
+	if s.IsAntigravityRunning() {
+		// Already running: bring active window to front via CDP
+		if s.focusFunc != nil {
+			return s.focusFunc()
 		}
+		inj := gui.NewInjector(0)
+		return inj.FocusActiveWindows()
+	}
+
+	// Safeguard: Never spawn during unit test runs unless explicitly authorized
+	if (flag.Lookup("test.v") != nil || os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1") && os.Getenv("ANTIGRAVITY_ALLOW_TEST_RELAUNCH") != "1" {
+		return nil
 	}
 
 	// Clear stale Chromium/Electron singleton locks & DevTools port file if dead
@@ -290,21 +289,9 @@ func (s *Shield) LaunchHostIDE() error {
 		cmd = exec.Command(binPath)
 	}
 
-	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
-	if err == nil {
-		defer devNull.Close()
-		cmd.Stdin = devNull
-		cmd.Stdout = devNull
-		cmd.Stderr = devNull
-	}
-
-	setDetachedProcess(cmd)
-	if err := cmd.Start(); err != nil {
+	if err := core.LaunchDetachedProcess(cmd); err != nil {
 		return fmt.Errorf("failed to launch Antigravity (%s): %w", binPath, err)
 	}
-	go func() {
-		_ = cmd.Wait()
-	}()
 
 	return nil
 }

@@ -428,6 +428,9 @@ func TestWebGUICustomModelsEndpoints(t *testing.T) {
 		t.Fatalf("failed to decode custom models config: %v", err)
 	}
 	resp.Body.Close()
+	if infSupported, ok := cmCfg["inference_supported"].(bool); !ok || !infSupported {
+		t.Errorf("expected inference_supported true in /api/custom_models, got %v", cmCfg["inference_supported"])
+	}
 
 	// 3. POST /api/custom_models (create custom model)
 	newModel := map[string]interface{}{
@@ -2510,8 +2513,9 @@ func TestServer_ConversationEndpoints(t *testing.T) {
 }
 
 func TestConversationEndpoints(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
 	tmpDir := t.TempDir()
+	dummySock := filepath.Join(tmpDir, "isolated.sock")
+	srv := NewServer("127.0.0.1:0", dummySock)
 	guiStore, _ := gui.NewStore(tmpDir)
 	srv.SetGUIStore(guiStore)
 	engine := revival.NewEngine(tmpDir, 9222)

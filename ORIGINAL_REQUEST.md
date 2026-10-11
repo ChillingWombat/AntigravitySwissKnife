@@ -76,3 +76,50 @@ Server has restarted. Please resume all tasks and active subagent milestones imm
 3. Complete Milestone 4 (Model detection from transcript step 0 <USER_SETTINGS_CHANGE>, and visual annotation appending).
 4. Run full verification tests.
 Proceed at full speed.
+
+## 2026-10-10T15:44:10Z
+
+This is a single self-contained fix; keep it small and focused.
+
+Resolve the Antigravity desktop IDE launch window focus failure and live modification injection issues in Antigravity Swiss Knife. Implement the fixes following David-Wish Track 1 protocol (Focused Patch / Bugfix), ensuring window focus over CDP when already running, correcting executable binary path resolution, restoring custom model injection, and rebuilding production assets.
+
+Working directory: /mnt/Data/Projects/Antigravity Swiss Knife
+Integrity mode: demo
+
+## Requirements
+
+### R1. Host IDE Launch & Live Window Focus
+Update `pkg/process/shield.go:LaunchHostIDE()` so that when Antigravity is already running (PID detected), it actively resolves the live DevTools port from `DevToolsActivePort` (or port scan) and executes CDP window activation (`Page.bringToFront` and `window.focus()`) across active page targets instead of silently doing a no-op return. If Antigravity is not running, ensure it spawns the executable binary cleanly as a detached background process across desktop environments.
+
+### R2. System Detector Executable Path Resolution
+Update `pkg/system/detector.go` and `pkg/core/constants.go` so `desktop_app.path` resolves to the actual executable binary (`/opt/Antigravity/antigravity` or `/usr/bin/antigravity`) rather than the root directory (`/opt/Antigravity`). This ensures Path & Storage and process launch routines reference a runnable file.
+
+### R3. Custom Models Inference Availability Contract
+Align the custom model injection script (`pkg/custommodels/script.go`) and the daemon API (`/api/custom_models` in `pkg/webgui/server.go` / `pkg/custommodels/config.go`): ensure the payload includes `"inference_supported": true` (and `isCustomModelInferenceAvailable()` accepts it) so valid enabled models (such as DeepSeek V4.1 Flash) render properly in Antigravity's composer model selector rather than being purged from the DOM.
+
+### R4. Build Synchronization & Runtime Reinstall
+Rebuild the frontend bundle (`npm run build:frontend`) and Go companion binary (`npm run build:go` -> `bin/swiss`). Update the installed runtime binary at `/home/david/.local/share/antigravity-swiss-knife/app/resources/bin/swiss` and restart the daemon so the live service runs the updated code.
+
+### R5. David-Wish Track 1 Protocol & Remote Synchronization
+Execute under David-Wish Track 1:
+- Create a dedicated branch `wip/launch-and-mod-fixes` off current `main`.
+- Enforce the zero local-only drift contract: synchronize the branch and commits to `origin`.
+- Maintain strict David-Design standards (Lucide icons only, no decorative emojis) and David-Humanizer concise technical voice.
+- Eliminate useless defensive code, empty catch blocks, and paranoid null checks.
+
+## Acceptance Criteria
+
+### Launch & Window Focus
+- [ ] Calling `/api/desktop/launch` when Antigravity is already running actively brings the Antigravity window to the front via CDP (`Page.bringToFront`).
+- [ ] Calling `/api/desktop/launch` when Antigravity is stopped starts the process cleanly.
+- [ ] `/api/system/installations` reports a valid executable path for `desktop_app.path` (pointing to the binary, not directory).
+
+### Modification & Model Injection
+- [ ] `GET /api/custom_models` includes `"inference_supported": true`.
+- [ ] Custom models dropdown menu and custom model group render in Antigravity composer without being removed.
+- [ ] Persistent stylesheet (`antigravity-swiss-styles`) and prompt jump bar (`#swiss-prompt-jump-bar`) remain active and applied.
+
+### Verification & Test Suite
+- [ ] All Go tests (`go test -count=1 ./...`) pass green.
+- [ ] All frontend unit tests (`npm test --prefix frontend`) pass green.
+- [ ] Branch pushed upstream with remote synchronization intact.

@@ -87,15 +87,20 @@ func (inj *Injector) FindDevToolsPort() (int, error) {
 		return 0, fmt.Errorf("unit test mode: skipped connecting to live host DevTools port")
 	}
 
-	// 1. Check DevToolsActivePort in Antigravity host config dir
-	activePortPath := filepath.Join(core.GetAntigravityHostConfigDir(), "DevToolsActivePort")
-	if data, err := os.ReadFile(activePortPath); err == nil {
-		lines := strings.Split(string(data), "\n")
-		if len(lines) > 0 {
-			portStr := strings.TrimSpace(lines[0])
-			if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
-				if inj.isPortLive(p) {
-					return p, nil
+	// 1. Check DevToolsActivePort in Antigravity host config dir and alternatives
+	portCandidates := []string{
+		filepath.Join(core.GetAntigravityHostConfigDir(), "DevToolsActivePort"),
+		filepath.Join(os.Getenv("HOME"), ".config", "antigravity", "DevToolsActivePort"),
+	}
+	for _, portFile := range portCandidates {
+		if data, err := os.ReadFile(portFile); err == nil {
+			lines := strings.Split(string(data), "\n")
+			if len(lines) > 0 {
+				portStr := strings.TrimSpace(lines[0])
+				if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
+					if inj.isPortLive(p) {
+						return p, nil
+					}
 				}
 			}
 		}
@@ -107,6 +112,13 @@ func (inj *Injector) FindDevToolsPort() (int, error) {
 			if inj.isPortLive(p) {
 				return p, nil
 			}
+		}
+	}
+
+	// 3. Scan common DevTools debugging ports (9222-9230)
+	for p := 9222; p <= 9230; p++ {
+		if inj.isPortLive(p) {
+			return p, nil
 		}
 	}
 
@@ -141,8 +153,8 @@ func (inj *Injector) GetPageTargets(port int) ([]DevToolsTarget, error) {
 	return pages, nil
 }
 
-// ExecuteScript evaluates a JavaScript expression in the given page target via WebSocket.
-func (inj *Injector) ExecuteScript(wsURLStr string, expression string) (map[string]interface{}, error) {
+// ExecuteCDPCommand sends a JSON-RPC command to the given target via WebSocket.
+func (inj *Injector) ExecuteCDPCommand(wsURLStr string, method string, params map[string]interface{}) (map[string]interface{}, error) {
 	u, err := url.Parse(wsURLStr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid websocket url: %w", err)
@@ -187,12 +199,10 @@ func (inj *Injector) ExecuteScript(wsURLStr string, expression string) (map[stri
 	// Construct JSON-RPC command
 	rpcReq := map[string]interface{}{
 		"id":     1,
-		"method": "Runtime.evaluate",
-		"params": map[string]interface{}{
-			"expression":    expression,
-			"returnByValue": true,
-			"awaitPromise":  true,
-		},
+		"method": method,
+	}
+	if params != nil {
+		rpcReq["params"] = params
 	}
 	payload, err := json.Marshal(rpcReq)
 	if err != nil {
@@ -204,39 +214,107 @@ func (inj *Injector) ExecuteScript(wsURLStr string, expression string) (map[stri
 		return nil, fmt.Errorf("failed to send WS frame: %w", err)
 	}
 
-	// Read response frame
-	respPayload, err := readWebSocketFrame(reader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read WS response: %w", err)
-	}
-
+	// Read response frame(s), ignoring async CDP events until matching request ID
 	var rpcResp struct {
-		ID     int `json:"id"`
-		Result struct {
-			Result struct {
-				Type  string      `json:"type"`
-				Value interface{} `json:"value"`
-			} `json:"result"`
-			ExceptionDetails interface{} `json:"exceptionDetails"`
-		} `json:"result"`
-		Error *struct {
+		ID     int                    `json:"id"`
+		Result map[string]interface{} `json:"result"`
+		Error  *struct {
 			Code    int    `json:"code"`
 			Message string `json:"message"`
 		} `json:"error"`
 	}
 
-	if err := json.Unmarshal(respPayload, &rpcResp); err != nil {
-		return nil, fmt.Errorf("failed to parse RPC response: %w", err)
+	for {
+		respPayload, err := readWebSocketFrame(reader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read WS response: %w", err)
+		}
+
+		if err := json.Unmarshal(respPayload, &rpcResp); err != nil {
+			return nil, fmt.Errorf("failed to parse RPC response: %w", err)
+		}
+
+		if rpcResp.ID == 1 {
+			break
+		}
 	}
 
 	if rpcResp.Error != nil {
 		return nil, fmt.Errorf("CDP RPC error: %s (code %d)", rpcResp.Error.Message, rpcResp.Error.Code)
 	}
 
-	if m, ok := rpcResp.Result.Result.Value.(map[string]interface{}); ok {
-		return m, nil
+	if rpcResp.Result == nil {
+		return map[string]interface{}{}, nil
 	}
-	return map[string]interface{}{"value": rpcResp.Result.Result.Value}, nil
+
+	return rpcResp.Result, nil
+}
+
+// ExecuteScript evaluates a JavaScript expression in the given page target via WebSocket.
+func (inj *Injector) ExecuteScript(wsURLStr string, expression string) (map[string]interface{}, error) {
+	raw, err := inj.ExecuteCDPCommand(wsURLStr, "Runtime.evaluate", map[string]interface{}{
+		"expression":    expression,
+		"returnByValue": true,
+		"awaitPromise":  true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if exc, ok := raw["exceptionDetails"]; ok && exc != nil {
+		return nil, fmt.Errorf("CDP evaluation exception: %v", exc)
+	}
+
+	if inner, ok := raw["result"].(map[string]interface{}); ok {
+		if val, ok := inner["value"]; ok {
+			if m, ok := val.(map[string]interface{}); ok {
+				return m, nil
+			}
+			return map[string]interface{}{"value": val}, nil
+		}
+		return map[string]interface{}{"value": nil}, nil
+	}
+
+	return raw, nil
+}
+
+// FocusActiveWindows brings all active Antigravity page windows to front via CDP.
+func (inj *Injector) FocusActiveWindows() error {
+	if IsTestExecution() || os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" || core.IsRunningTests() {
+		if inj.customPort == 0 && os.Getenv("ANTIGRAVITY_CDP_PORT") == "" {
+			return nil
+		}
+	}
+
+	port, err := inj.FindDevToolsPort()
+	if err != nil {
+		return err
+	}
+
+	pages, err := inj.GetPageTargets(port)
+	if err != nil {
+		return fmt.Errorf("failed to query active Antigravity page windows on port %d: %w", port, err)
+	}
+	if len(pages) == 0 {
+		return fmt.Errorf("no active Antigravity page windows found on port %d", port)
+	}
+
+	var lastErr error
+	focusedCount := 0
+	for _, page := range pages {
+		if _, err := inj.ExecuteCDPCommand(page.WebSocketDebuggerURL, "Page.bringToFront", nil); err != nil {
+			lastErr = err
+		} else {
+			focusedCount++
+		}
+		_, _ = inj.ExecuteScript(page.WebSocketDebuggerURL, "try { window.focus(); } catch(_) {}")
+	}
+
+	if focusedCount == 0 && lastErr != nil {
+		return fmt.Errorf("failed to bring Antigravity window to front: %w", lastErr)
+	}
+
+	return nil
 }
 
 // ApplyConfig applies the styling configuration to all running Antigravity window instances.

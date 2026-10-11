@@ -3,6 +3,7 @@ package core
 import (
 	"flag"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -15,13 +16,13 @@ const (
 	AppID      = "com.antigravity.swiss-knife"
 
 	// Default timeouts and intervals
-	DefaultPollingIntervalSeconds             = 60
-	DefaultAutoSwitchThresholdFraction        = 0.05
-	DefaultAutoSwitchWeeklyThresholdFraction  = 0.05
-	DefaultWarmupLeadTimeSeconds              = 2.0
-	DefaultPostResetDelaySeconds              = 2.0
-	DefaultSocketTimeout                = 10 * time.Second
-	DefaultShutdownGracePeriod          = 3 * time.Second
+	DefaultPollingIntervalSeconds            = 60
+	DefaultAutoSwitchThresholdFraction       = 0.05
+	DefaultAutoSwitchWeeklyThresholdFraction = 0.05
+	DefaultWarmupLeadTimeSeconds             = 2.0
+	DefaultPostResetDelaySeconds             = 2.0
+	DefaultSocketTimeout                     = 10 * time.Second
+	DefaultShutdownGracePeriod               = 3 * time.Second
 
 	// Account Switcher Modes
 	SwitchModeBalanced           = "balanced"
@@ -50,7 +51,6 @@ const (
 	TargetAppDesktop = "desktop"
 	TargetAppCLI     = "agy"
 	TargetAppVSCode  = "vscode"
-
 
 	// Quota Health Statuses
 	StatusHealthy   = "HEALTHY"
@@ -277,9 +277,17 @@ func GetAntigravityBinaryPath() string {
 	case "darwin":
 		return filepath.Join(GetAntigravityDesktopAppPath(), "Contents", "MacOS", "Antigravity")
 	default:
-		// Linux: prefer /usr/bin/antigravity, fallback to /opt/Antigravity/antigravity
-		if _, err := os.Stat("/usr/bin/antigravity"); err == nil {
+		// Linux: prefer /opt/Antigravity/antigravity, fallback to /usr/bin/antigravity
+		if fi, err := os.Stat("/opt/Antigravity/antigravity"); err == nil && !fi.IsDir() {
+			return "/opt/Antigravity/antigravity"
+		}
+		if fi, err := os.Stat("/usr/bin/antigravity"); err == nil && !fi.IsDir() {
 			return "/usr/bin/antigravity"
+		}
+		if p, err := exec.LookPath("antigravity"); err == nil && p != "" {
+			if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+				return p
+			}
 		}
 		return filepath.Join(GetAntigravityDesktopAppPath(), "antigravity")
 	}
@@ -287,14 +295,19 @@ func GetAntigravityBinaryPath() string {
 
 // IsRunningTests returns true if the current execution is within a Go test runner.
 func IsRunningTests() bool {
-	if os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" {
+	if os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" || os.Getenv("ANTIGRAVITY_TESTING") == "1" || os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" {
 		return true
 	}
 	if flag.Lookup("test.v") != nil {
 		return true
 	}
-	if len(os.Args) > 0 && strings.HasSuffix(os.Args[0], ".test") {
+	if len(os.Args) > 0 && (strings.HasSuffix(os.Args[0], ".test") || strings.Contains(os.Args[0], "/_test/")) {
 		return true
+	}
+	for _, arg := range os.Args {
+		if strings.HasPrefix(arg, "-test.") {
+			return true
+		}
 	}
 	return false
 }
@@ -313,5 +326,3 @@ func IsTestMockEmail(email string) bool {
 	}
 	return false
 }
-
-

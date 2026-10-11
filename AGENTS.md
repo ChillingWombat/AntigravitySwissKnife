@@ -29,3 +29,7 @@
 ### 5. Autonomous Computer & Browser Use Execution
 - When needed, automatically leverage computer use and browser use capabilities (`obscura`, `open-browser-use`, `open-computer-use`) proactively without waiting for user reminders.
 
+### 6. Automatic Compilation, Build & Active Process Relaunch
+- Whenever a project moves to a new major version or completes a substantial set of work/features, the agent must automatically rebuild and recompile the new application artifacts (e.g., `npm run build`, `go build`).
+- If an older instance of the application or its background daemon is currently running, the agent must cleanly terminate the running process and relaunch the newly compiled application so that active execution never drifts from the codebase.
+

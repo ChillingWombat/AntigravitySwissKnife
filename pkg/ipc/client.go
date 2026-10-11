@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
@@ -19,7 +21,11 @@ type Client struct {
 // NewClient returns a new IPC client.
 func NewClient(socketPath string) *Client {
 	if socketPath == "" {
-		socketPath = core.GetSocketPath()
+		if core.IsRunningTests() || os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" {
+			socketPath = filepath.Join(os.TempDir(), "swiss-isolated-test.sock")
+		} else {
+			socketPath = core.GetSocketPath()
+		}
 	}
 	return &Client{
 		socketPath: socketPath,

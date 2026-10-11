@@ -75,13 +75,14 @@ type CustomModel struct {
 
 // Config holds the full custom models configuration file structure.
 type Config struct {
-	Version        string               `json:"version"`
-	ActiveModelID  string               `json:"active_model_id,omitempty"`
-	NextInternalID int64                `json:"next_internal_id,omitempty"`
-	Models         []CustomModel        `json:"models"`
-	PricingRecords []ModelPricingRecord `json:"pricing_records,omitempty"`
-	DeletedModels  []DeletedModelRecord `json:"deleted_models,omitempty"`
-	ProjectBinds   map[string]string    `json:"project_binds"` // project name -> model ID
+	Version            string               `json:"version"`
+	InferenceSupported bool                 `json:"inference_supported"`
+	ActiveModelID      string               `json:"active_model_id,omitempty"`
+	NextInternalID     int64                `json:"next_internal_id,omitempty"`
+	Models             []CustomModel        `json:"models"`
+	PricingRecords     []ModelPricingRecord `json:"pricing_records,omitempty"`
+	DeletedModels      []DeletedModelRecord `json:"deleted_models,omitempty"`
+	ProjectBinds       map[string]string    `json:"project_binds"` // project name -> model ID
 }
 
 // Validate checks model fields for completeness and validity.
@@ -205,9 +206,10 @@ func (m *CustomModel) MatchesProject(projectName string) bool {
 // DefaultConfig returns an initial empty configuration.
 func DefaultConfig() *Config {
 	return &Config{
-		Version:      "1.0.0",
-		Models:       []CustomModel{},
-		ProjectBinds: make(map[string]string),
+		Version:            "1.0.0",
+		InferenceSupported: true,
+		Models:             []CustomModel{},
+		ProjectBinds:       make(map[string]string),
 	}
 }
 

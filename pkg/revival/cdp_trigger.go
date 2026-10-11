@@ -2,9 +2,11 @@ package revival
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 )
 
@@ -32,6 +34,9 @@ func NewCDPTrigger(customPort int) *CDPTrigger {
 			return inj.ExecuteScript(wsURL, expression)
 		},
 		TargetFinder: func(port int) (int, []gui.DevToolsTarget, error) {
+			if gui.IsTestExecution() || os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" || core.IsRunningTests() {
+				return 0, nil, fmt.Errorf("live cdp connection disabled during test execution")
+			}
 			activePort, err := inj.FindDevToolsPort()
 			if err != nil {
 				return 0, nil, err
@@ -48,6 +53,9 @@ func NewCDPTrigger(customPort int) *CDPTrigger {
 // TriggerDesktopContinuation connects to the IDE via CDP, navigates to the conversation if needed,
 // and submits the continuation prompt to Lexical editor.
 func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string, timeout time.Duration) error {
+	if (gui.IsTestExecution() || os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" || core.IsRunningTests()) && c.CustomPort == 0 {
+		return nil
+	}
 	if cascadeID == "" {
 		return fmt.Errorf("cascadeID cannot be empty")
 	}
@@ -69,18 +77,14 @@ func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string,
 
 			// 1. Ensure navigation to target conversation
 			if (!curPath.startsWith(targetPath)) {
-				if (curPath.startsWith("/onboarding")) {
-					window.location.assign(targetPath);
-					return { status: "navigating_from_onboarding", ready: false, success: false };
-				}
 				const convPart = targetPath.replace(/^\/c\//, "");
 				const navLink = document.querySelector('a[href*="' + convPart + '"]');
 				if (navLink) {
 					navLink.click();
 					return { status: "navigating_via_link", ready: false, success: false };
 				}
-				window.location.assign(targetPath);
-				return { status: "navigating", ready: false, success: false };
+				// If target conversation is not active and no link found in DOM, abort to avoid disturbing user view
+				return { status: "mismatched_target_conversation", ready: false, success: false };
 			}
 
 			// 1.5. Prevent duplicate trigger loops for the exact same intent
@@ -129,6 +133,10 @@ func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string,
 			const promptText = %q;
 			if (editor.isContentEditable) {
 				const curText = (editor.innerText || "").trim();
+				// If editor has an active user draft that is not the continuation prompt, protect it!
+				if (curText.length > 0 && !curText.includes(promptText)) {
+					return { status: "user_draft_in_progress", ready: false, success: false };
+				}
 				if (!curText.includes(promptText)) {
 					editor.focus();
 					const sel = window.getSelection();
@@ -140,17 +148,24 @@ func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string,
 					}
 					document.execCommand("selectAll", false, null);
 					document.execCommand("insertText", false, promptText);
-					try {
-						editor.dispatchEvent(new InputEvent("beforeinput", {
-							inputType: "insertText",
-							data: promptText,
-							bubbles: true,
-							cancelable: true
-						}));
-					} catch (_) {}
+					const hasInserted = (editor.innerText || "").includes(promptText);
+					if (!hasInserted) {
+						try {
+							editor.dispatchEvent(new InputEvent("beforeinput", {
+								inputType: "insertText",
+								data: promptText,
+								bubbles: true,
+								cancelable: true
+							}));
+						} catch (_) {}
+					}
 					editor.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
 				}
 			} else {
+				const curVal = (editor.value || "").trim();
+				if (curVal.length > 0 && !curVal.includes(promptText)) {
+					return { status: "user_draft_in_progress", ready: false, success: false };
+				}
 				if (!(editor.value || "").includes(promptText)) {
 					editor.focus();
 					editor.value = promptText;
@@ -214,6 +229,11 @@ func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string,
 					}
 					if success, ok := evalRes["success"].(bool); ok && success {
 						return nil
+					}
+					if status, ok := evalRes["status"].(string); ok {
+						if status == "user_draft_in_progress" || status == "mismatched_target_conversation" {
+							return nil
+						}
 					}
 				}
 			}

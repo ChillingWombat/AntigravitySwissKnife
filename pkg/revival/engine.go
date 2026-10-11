@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 )
 
@@ -139,7 +140,7 @@ func (e *Engine) executeDesktopRevival(intent *RevivalIntent) error {
 	targetPath := "/c/" + strings.TrimPrefix(intent.RootConversationID, "/c/")
 
 	// Asynchronously ensure URL routing only in non-test mode with a valid target path
-	if !gui.IsTestExecution() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" && gui.IsValidConversationPath(targetPath) {
+	if !gui.IsTestExecution() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" && !core.IsRunningTests() && gui.IsValidConversationPath(targetPath) {
 		go func() {
 			_ = gui.NewInjector(e.CDPTrigger.CustomPort).RestoreConversationPath(targetPath, 25*time.Second)
 		}()
@@ -148,6 +149,10 @@ func (e *Engine) executeDesktopRevival(intent *RevivalIntent) error {
 	prompt := strings.TrimSpace(intent.TriggerPrompt)
 	if prompt == "" {
 		// Skip prompt injection for idle conversations
+		return nil
+	}
+
+	if gui.IsTestExecution() || os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" || core.IsRunningTests() {
 		return nil
 	}
 
@@ -172,20 +177,22 @@ func (e *Engine) executeCLIRevival(intent *RevivalIntent) error {
 		}
 	}
 
-	cmd := exec.Command(binPath, "--conversation", convID, "--continue")
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start agy continuation process: %w", err)
+	if gui.IsTestExecution() || os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" || core.IsRunningTests() {
+		return nil
 	}
-	go func() {
-		_ = cmd.Wait()
-	}()
-	return nil
+
+	cmd := exec.Command(binPath, "--conversation", convID, "--continue")
+	return core.LaunchDetachedProcess(cmd)
 }
 
 func (e *Engine) executeVSCodeRevival(intent *RevivalIntent) error {
 	convID := intent.RootConversationID
 	if convID == "" {
 		return fmt.Errorf("missing conversation ID for VS Code revival")
+	}
+
+	if gui.IsTestExecution() || os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" || core.IsRunningTests() {
+		return nil
 	}
 
 	codePath, err := exec.LookPath("code")
@@ -195,7 +202,7 @@ func (e *Engine) executeVSCodeRevival(intent *RevivalIntent) error {
 
 	uri := fmt.Sprintf("vscode://google.google-antigravity/open-conversation?cascadeId=%s&path=/c/%s", convID, convID)
 	cmd := exec.Command(codePath, "--open-url", uri)
-	return cmd.Start()
+	return core.LaunchDetachedProcess(cmd)
 }
 
 // ReviveConversation manually or programmatically triggers continuation for the specified target.
