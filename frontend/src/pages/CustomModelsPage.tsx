@@ -919,6 +919,18 @@ export const CustomModelsPage: React.FC = () => {
           portalTarget
         )}
 
+      {/* Page Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--text)' }}>
+            Custom Models
+          </h1>
+          <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
+            Configure OpenAI-compatible model endpoints, reasoning levels, context windows, and live quota tracking.
+          </p>
+        </div>
+      </div>
+
       {feedback && (
         <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: '#fce8e6', color: '#b3261e', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <AlertCircle size={15} />

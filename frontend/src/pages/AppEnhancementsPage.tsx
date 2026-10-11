@@ -310,7 +310,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
 
   if (loading || !config) {
     return (
-      <div style={{ padding: '32px', textAlign: 'center', color: '#64748b' }}>
+      <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
         <div style={{ fontSize: '14px', fontWeight: 500 }}>Loading App Enhancements...</div>
       </div>
     )
@@ -357,6 +357,18 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
           portalTarget
         )}
 
+      {/* Page Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--text)' }}>
+            UI & App Enhancements
+          </h1>
+          <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
+            Configure quick prompt jumping, multi-project tabs, layout density, and IDE visual styling.
+          </p>
+        </div>
+      </div>
+
       {statusMsg && (
         <div
           style={{
@@ -380,10 +392,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
           <div className="google-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
               Quick Prompt Jump Bar
             </h2>
-            <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
+            <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
               Jump directly to any prompt turn from the margin. Automatically highlights the current turn while scrolling.
             </p>
           </div>
@@ -407,7 +419,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                background: '#f8fafc',
+                background: 'var(--canvas)',
                 borderRadius: '10px',
                 border: '1px solid #e2e8f0',
                 padding: '12px 16px',
@@ -422,12 +434,12 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   width: '100%',
                   cursor: 'pointer',
                   fontSize: '13px',
-                  color: '#334155',
+                  color: 'var(--text)',
                 }}
               >
                 <div>
                   <span style={{ fontWeight: 500 }}>Pulse Highlight Target Prompt Card on Jump</span>
-                  <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
+                  <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
                     Briefly highlights the target prompt card with an accent focus outline for 1.2s when jumping.
                   </p>
                 </div>
@@ -458,16 +470,16 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 {/* Color Mode Selection (User Request: removed default tag) */}
                 <div
                   style={{
-                    background: '#f8fafc',
+                    background: 'var(--canvas)',
                     borderRadius: '10px',
                     border: '1px solid #e2e8f0',
                     padding: '16px 20px',
                   }}
                 >
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b', marginBottom: '8px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', marginBottom: '8px' }}>
                     Active & Hover Line Color
                   </div>
-                  <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#64748b' }}>
+                  <p style={{ margin: '0 0 12px', fontSize: '12px', color: 'var(--text-muted)' }}>
                     Inactive lines remain subtle grey ({jb.inactive_thickness || 1.5}px). Choose the accent color for active indicator ({jb.dash_thickness || 2.5}px) and hover:
                   </p>
 
@@ -478,7 +490,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         alignItems: 'center',
                         gap: '8px',
                         fontSize: '13px',
-                        color: '#1e293b',
+                        color: 'var(--text)',
                         cursor: 'pointer',
                       }}
                     >
@@ -504,7 +516,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         alignItems: 'center',
                         gap: '8px',
                         fontSize: '13px',
-                        color: '#1e293b',
+                        color: 'var(--text)',
                         cursor: 'pointer',
                       }}
                     >
@@ -530,7 +542,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         alignItems: 'center',
                         gap: '8px',
                         fontSize: '13px',
-                        color: '#1e293b',
+                        color: 'var(--text)',
                         cursor: 'pointer',
                       }}
                     >
@@ -563,7 +575,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
                           Presets:
                         </span>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -597,7 +609,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         </div>
 
                         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '12px', color: '#64748b' }}>Hex:</span>
+                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Hex:</span>
                           <div
                             style={{
                               width: '18px',
@@ -635,7 +647,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                             display: 'block',
                             fontSize: '11px',
                             fontWeight: 700,
-                            color: '#64748b',
+                            color: 'var(--text-muted)',
                             textTransform: 'uppercase',
                             marginBottom: '6px',
                           }}
@@ -648,7 +660,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                             gridTemplateColumns: 'repeat(10, 18px)',
                             gap: '3px',
                             padding: '6px',
-                            background: '#f8fafc',
+                            background: 'var(--canvas)',
                             borderRadius: '6px',
                             border: '1px solid #e2e8f0',
                             width: 'fit-content',
@@ -697,20 +709,20 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 {/* Line Dimensions Settings (Width & Thickness) */}
                 <div
                   style={{
-                    background: '#f8fafc',
+                    background: 'var(--canvas)',
                     borderRadius: '10px',
                     border: '1px solid #e2e8f0',
                     padding: '16px 20px',
                   }}
                 >
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b', marginBottom: '14px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', marginBottom: '14px' }}>
                     Line Dimensions
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
                     {/* Line Width */}
                     <div>
-                      <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
                         Dash Width:
                       </label>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -739,7 +751,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
 
                     {/* Active Line Thickness */}
                     <div>
-                      <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
                         Active Thickness:
                       </label>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -769,7 +781,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
 
                     {/* Inactive Line Thickness */}
                     <div>
-                      <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
                         Inactive Thickness:
                       </label>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -808,7 +820,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 style={{
                   width: '360px',
                   boxSizing: 'border-box',
-                  background: '#f8fafc',
+                  background: 'var(--canvas)',
                   borderRadius: '12px',
                   border: '1px dashed #cbd5e1',
                   padding: '20px',
@@ -820,7 +832,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>Interactive Gutter Preview</div>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>Interactive Gutter Preview</div>
                 </div>
 
                 <div
@@ -872,7 +884,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     })}
                   </div>
 
-                  <div style={{ fontSize: '12px', color: '#64748b', lineHeight: 1.5 }}>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                     Line #3 is active (<strong>{jb.dash_width || 14}px &times; {jb.dash_thickness || 2.5}px</strong> in{' '}
                     <span style={{ color: activeColor, fontWeight: 700 }}>{activeColor}</span>).
                     <br />
@@ -939,9 +951,9 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   onChange={() => {}}
                   style={{ accentColor: '#0b57d0' }}
                 />
-                <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>{opt.title}</span>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>{opt.title}</span>
               </div>
-              <p style={{ margin: 0, fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>{opt.desc}</p>
+              <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.4 }}>{opt.desc}</p>
             </div>
           ))}
         </div>
@@ -1031,11 +1043,11 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     >
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
+                          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
                             Accent Background / Fill
                           </span>
                         </div>
-                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px', lineHeight: 1.4 }}>
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px', lineHeight: 1.4 }}>
                           Fills the active conversation tab with a subtle project accent background tint.
                         </div>
                       </div>
@@ -1078,10 +1090,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     >
                       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
                         <div>
-                          <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
+                          <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
                             Border Outline
                           </div>
-                          <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px', lineHeight: 1.4 }}>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px', lineHeight: 1.4 }}>
                             Outlines the active tab with an accent border while preserving the normal tab background.
                           </div>
                         </div>
@@ -1090,7 +1102,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                             style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <span style={{ fontSize: '12px', color: '#475569', fontWeight: 500 }}>Width:</span>
+                            <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 500 }}>Width:</span>
                             <select
                               value={guiConfig.active_conversation_border_width || '2px'}
                               onChange={(e) =>
@@ -1106,7 +1118,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                 background: '#ffffff',
                                 fontSize: '12px',
                                 fontWeight: 600,
-                                color: '#1e293b',
+                                color: 'var(--text)',
                                 cursor: 'pointer',
                               }}
                             >
@@ -1156,10 +1168,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       }}
                     >
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
                           Left Accent Bar
                         </div>
-                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px', lineHeight: 1.4 }}>
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px', lineHeight: 1.4 }}>
                           Highlights the active conversation tab with a distinct 3px colored bar along its left edge.
                         </div>
                       </div>
@@ -1189,7 +1201,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       gap: '10px',
                       cursor: 'pointer',
                       fontSize: '13px',
-                      color: '#1e293b',
+                      color: 'var(--text)',
                       fontWeight: 500,
                     }}
                   >
@@ -1205,7 +1217,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       }
                     />
                   </label>
-                  <p style={{ margin: '3px 0 0', fontSize: '11px', color: '#64748b' }}>
+                  <p style={{ margin: '3px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
                     When unchecked, the open conversation tab title uses regular font weight matching ordinary tabs.
                   </p>
                 </div>
@@ -1213,7 +1225,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 {/* Opacity slider with unified divider line */}
                 <div style={{ paddingTop: '10px', borderTop: '1px solid var(--border, #e2e8f0)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                    <label style={{ fontSize: '13px', fontWeight: 500, color: '#1e293b' }}>
+                    <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text)' }}>
                       Conversation Tab Tint Opacity:
                     </label>
                     <span style={{ fontSize: '12px', fontWeight: 600, color: '#0b57d0' }}>
@@ -1244,7 +1256,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 style={{
                   width: '360px',
                   boxSizing: 'border-box',
-                  background: '#f8fafc',
+                  background: 'var(--canvas)',
                   border: '1px solid #e2e8f0',
                   borderRadius: '10px',
                   padding: '16px',
@@ -1254,7 +1266,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
                     Sidebar Live Preview
                   </span>
                   <span style={{ fontSize: '11px', color: '#94a3b8' }}>Antigravity 2.0</span>
@@ -1324,7 +1336,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       padding: '0 10px',
                       fontSize: '13px',
                       fontWeight: (guiConfig.active_conversation_bold ?? false) ? 700 : 400,
-                      color: '#0f172a',
+                      color: 'var(--text)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
@@ -1351,7 +1363,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       padding: '0 10px',
                       fontSize: '13px',
                       fontWeight: 400,
-                      color: '#475569',
+                      color: 'var(--text-muted)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
@@ -1364,7 +1376,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         Matching Font and UI ...
                       </span>
                     </div>
-                    <span style={{ fontSize: '11px', color: '#64748b', flexShrink: 0 }}>6h</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0 }}>6h</span>
                   </div>
 
                   {/* Ordinary Conversation Tab 2 */}
@@ -1377,7 +1389,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       padding: '0 10px',
                       fontSize: '13px',
                       fontWeight: 400,
-                      color: '#475569',
+                      color: 'var(--text-muted)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
@@ -1390,11 +1402,11 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         Antigravity Manager Pl...
                       </span>
                     </div>
-                    <span style={{ fontSize: '11px', color: '#64748b', flexShrink: 0 }}>1d</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0 }}>1d</span>
                   </div>
                 </div>
 
-                <div style={{ fontSize: '11px', color: '#64748b', textAlign: 'center', lineHeight: 1.4 }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.4 }}>
                   {guiConfig.active_conversation_indicator === 'border' ? (
                     <span>
                       Active tab outlined with <strong>{guiConfig.active_conversation_border_width || '2px'} accent border</strong>
@@ -1445,10 +1457,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 }}
               >
                 <div>
-                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
                     Simplicity Replacement for "See all" / "See less"
                   </div>
-                  <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                  <p style={{ margin: '3px 0 0', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
                     Replace 'See all' and 'See less' text buttons with a 1px divider and expand/collapse indicator.
                   </p>
                 </div>
@@ -1477,10 +1489,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 }}
               >
                 <div>
-                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
                     Divider Separation Below All Projects
                   </div>
-                  <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                  <p style={{ margin: '3px 0 0', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
                     Add horizontal divider lines below uncontracted projects for consistent spacing.
                   </p>
                 </div>
@@ -1524,16 +1536,16 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     onChange={() => {}}
                     style={{ accentColor: '#0b57d0' }}
                   />
-                  <span style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
                     Fixed Number
                   </span>
                 </div>
-                <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                <p style={{ margin: '0 0 12px', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
                   Show a constant number of conversation tabs under each project before showing the expand divider.
                 </p>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }} onClick={(e) => e.stopPropagation()}>
-                  <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Tabs per project:</label>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>Tabs per project:</label>
                   <select
                     value={guiConfig.conversation_tabs_fixed_limit || 6}
                     onChange={(e) =>
@@ -1551,7 +1563,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       background: '#ffffff',
                       fontSize: '13px',
                       fontWeight: 600,
-                      color: '#0f172a',
+                      color: 'var(--text)',
                       cursor: 'pointer',
                     }}
                   >
@@ -1589,15 +1601,15 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     onChange={() => {}}
                     style={{ accentColor: '#0b57d0' }}
                   />
-                  <span style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>Dynamic (By Chat Recency)</span>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>Dynamic (By Chat Recency)</span>
                 </div>
-                <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                <p style={{ margin: '0 0 12px', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
                   Dynamically adjust visible tabs per project based on last active timestamp, bounded between min and max.
                 </p>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }} onClick={(e) => e.stopPropagation()}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Active within:</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>Active within:</label>
                     <select
                       value={guiConfig.conversation_tabs_age_threshold || '14d'}
                       onChange={(e) =>
@@ -1615,7 +1627,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         background: '#ffffff',
                         fontSize: '13px',
                         fontWeight: 600,
-                        color: '#0f172a',
+                        color: 'var(--text)',
                         cursor: 'pointer',
                       }}
                     >
@@ -1629,7 +1641,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Min tabs:</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>Min tabs:</label>
                       <select
                         value={guiConfig.conversation_tabs_min ?? 3}
                         onChange={(e) =>
@@ -1647,7 +1659,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           background: '#ffffff',
                           fontSize: '12px',
                           fontWeight: 600,
-                          color: '#0f172a',
+                          color: 'var(--text)',
                           cursor: 'pointer',
                           width: '100%',
                         }}
@@ -1661,7 +1673,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Max tabs:</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>Max tabs:</label>
                       <select
                         value={guiConfig.conversation_tabs_max ?? 6}
                         onChange={(e) =>
@@ -1679,7 +1691,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           background: '#ffffff',
                           fontSize: '12px',
                           fontWeight: 600,
-                          color: '#0f172a',
+                          color: 'var(--text)',
                           cursor: 'pointer',
                           width: '100%',
                         }}
@@ -1706,14 +1718,14 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 boxSizing: 'border-box',
                 borderRadius: '8px',
                 border: '1px solid var(--border, #e2e8f0)',
-                background: '#f8fafc',
+                background: 'var(--canvas)',
                 padding: '16px',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '8px',
               }}
             >
-              <div style={{ fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
                 Divider Visual Design & Micro-Interaction Preview
               </div>
 
@@ -1743,14 +1755,14 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     padding: '6px 10px',
                     borderRadius: '6px',
                     fontSize: '12px',
-                    color: '#334155',
+                    color: 'var(--text)',
                     background: 'rgba(37, 99, 235, 0.08)',
                     display: 'flex',
                     justifyContent: 'space-between',
                   }}
                 >
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
-                  <span style={{ fontSize: '10px', color: '#64748b' }}>{i + 1}h</span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{i + 1}h</span>
                 </div>
               ))}
 
@@ -1762,14 +1774,14 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       padding: '6px 10px',
                       borderRadius: '6px',
                       fontSize: '12px',
-                      color: '#334155',
+                      color: 'var(--text)',
                       background: 'rgba(37, 99, 235, 0.08)',
                       display: 'flex',
                       justifyContent: 'space-between',
                     }}
                   >
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
-                    <span style={{ fontSize: '10px', color: '#64748b' }}>{i + 4}h</span>
+                    <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{i + 4}h</span>
                   </div>
                 ))}
 
@@ -1818,7 +1830,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       justifyContent: 'center',
                       width: '16px',
                       height: '11px',
-                      color: '#64748b',
+                      color: 'var(--text-muted)',
                       fontSize: '8px',
                       transition: 'all 0.18s ease',
                     }}
@@ -1872,14 +1884,14 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   padding: '6px 10px',
                   borderRadius: '6px',
                   fontSize: '12px',
-                  color: '#334155',
+                  color: 'var(--text)',
                   background: 'rgba(5, 150, 105, 0.08)',
                   display: 'flex',
                   justifyContent: 'space-between',
                 }}
               >
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Active Experiment Runner</span>
-                <span style={{ fontSize: '10px', color: '#64748b' }}>20m</span>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>20m</span>
               </div>
               {guiConfig.consistent_project_spacing !== false && (
                 <div
@@ -2036,7 +2048,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 padding: '0 12px',
                 borderRadius: '8px',
                 border: '1.5px solid #cbd5e1',
-                background: '#f8fafc',
+                background: 'var(--canvas)',
                 fontSize: '13px',
                 fontWeight: 600,
                 color: 'var(--text)',
@@ -2099,7 +2111,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '13px', color: '#1e293b' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '13px', color: 'var(--text)' }}>
                 <span>Just an Icon (Compact)</span>
               </div>
               <input
@@ -2111,7 +2123,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               />
             </div>
 
-            <div style={{ fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
               Displays clean monochrome stroke icons matching Antigravity's native tabs without text. Hovering displays the tab name tooltip.
             </div>
 
@@ -2138,7 +2150,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   borderRadius: '4px',
                   backgroundColor: '#ffffff',
                   border: '1px solid #cbd5e1',
-                  color: '#1e293b',
+                  color: 'var(--text)',
                 }}
                 title="Preview Browser"
               >
@@ -2154,7 +2166,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   borderRadius: '4px',
                   backgroundColor: '#ffffff',
                   border: '1px solid #cbd5e1',
-                  color: '#1e293b',
+                  color: 'var(--text)',
                 }}
                 title="Files"
               >
@@ -2170,7 +2182,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   borderRadius: '4px',
                   backgroundColor: '#ffffff',
                   border: '1px solid #cbd5e1',
-                  color: '#1e293b',
+                  color: 'var(--text)',
                 }}
                 title="Memos"
               >
@@ -2186,7 +2198,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   borderRadius: '4px',
                   backgroundColor: '#ffffff',
                   border: '1px solid #cbd5e1',
-                  color: '#1e293b',
+                  color: 'var(--text)',
                 }}
                 title="GitHub"
               >
@@ -2213,7 +2225,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '13px', color: '#1e293b' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '13px', color: 'var(--text)' }}>
                 <span>Icon and Name</span>
               </div>
               <input
@@ -2225,7 +2237,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               />
             </div>
 
-            <div style={{ fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
               Displays clean monochrome stroke icons accompanied by full tab names for immediate text navigation.
             </div>
 
@@ -2252,7 +2264,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   borderRadius: '4px',
                   backgroundColor: '#ffffff',
                   border: '1px solid #cbd5e1',
-                  color: '#1e293b',
+                  color: 'var(--text)',
                   fontSize: '11px',
                   fontWeight: 500,
                 }}
@@ -2270,7 +2282,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   borderRadius: '4px',
                   backgroundColor: '#ffffff',
                   border: '1px solid #cbd5e1',
-                  color: '#1e293b',
+                  color: 'var(--text)',
                   fontSize: '11px',
                   fontWeight: 500,
                 }}
@@ -2288,7 +2300,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   borderRadius: '4px',
                   backgroundColor: '#ffffff',
                   border: '1px solid #cbd5e1',
-                  color: '#1e293b',
+                  color: 'var(--text)',
                   fontSize: '11px',
                   fontWeight: 500,
                 }}
@@ -2306,7 +2318,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   borderRadius: '4px',
                   backgroundColor: '#ffffff',
                   border: '1px solid #cbd5e1',
-                  color: '#1e293b',
+                  color: 'var(--text)',
                   fontSize: '11px',
                   fontWeight: 500,
                 }}
@@ -2352,7 +2364,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 {/* Switch 1: Replace See all / See less with refined divider */}
                 <div
                   style={{
-                    background: '#f8fafc',
+                    background: 'var(--canvas)',
                     borderRadius: '10px',
                     border: '1px solid #e2e8f0',
                     padding: '14px 16px',
@@ -2365,7 +2377,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       justifyContent: 'space-between',
                       gap: '12px',
                       fontSize: '13px',
-                      color: '#334155',
+                      color: 'var(--text)',
                       cursor: 'pointer',
                     }}
                   >
@@ -2386,16 +2398,16 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 {/* Section Division Style Selection (2 Visual Option Cards) */}
                 <div
                   style={{
-                    background: '#f8fafc',
+                    background: 'var(--canvas)',
                     borderRadius: '10px',
                     border: '1px solid #e2e8f0',
                     padding: '16px 20px',
                   }}
                 >
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b', marginBottom: '6px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', marginBottom: '6px' }}>
                     Section Division Style
                   </div>
-                  <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#64748b' }}>
+                  <p style={{ margin: '0 0 14px', fontSize: '12px', color: 'var(--text-muted)' }}>
                     Choose how the sections in the overview panel are visually separated:
                   </p>
 
@@ -2421,7 +2433,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '13px', color: '#1e293b' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '13px', color: 'var(--text)' }}>
                           <Split size={16} color={op.division_style === 'divider_line' ? '#0b57d0' : '#64748b'} />
                           <span>Horizontal Divider Line</span>
                         </div>
@@ -2438,7 +2450,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           style={{ accentColor: '#0b57d0', cursor: 'pointer' }}
                         />
                       </div>
-                      <div style={{ fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
                         Adds a clean horizontal divider line between each section in the panel.
                       </div>
                     </div>
@@ -2464,7 +2476,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '13px', color: '#1e293b' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '13px', color: 'var(--text)' }}>
                           <Layers size={16} color={op.division_style === 'border_zone' ? '#0b57d0' : '#64748b'} />
                           <span>Border Zone (Whiter BG)</span>
                         </div>
@@ -2481,7 +2493,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           style={{ accentColor: '#0b57d0', cursor: 'pointer' }}
                         />
                       </div>
-                      <div style={{ fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
                         Groups each section in a bounded box with slightly whiter background like the chat input box.
                       </div>
                     </div>
@@ -2493,7 +2505,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   /* Option 2 Settings: Border Zone Grouping, Background Contrast, Radius, Padding & Spacing */
                   <div
                     style={{
-                      background: '#f8fafc',
+                      background: 'var(--canvas)',
                       borderRadius: '10px',
                       border: '1px solid #e2e8f0',
                       padding: '16px 20px',
@@ -2502,13 +2514,13 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       gap: '16px',
                     }}
                   >
-                    <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
                       Border Zone Appearance & Contrast
                     </div>
 
                     {/* Background Contrast Selector */}
                     <div>
-                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
                         Zone Background Tone:
                       </label>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -2539,8 +2551,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               style={{ accentColor: '#0b57d0' }}
                             />
                             <div>
-                              <div style={{ fontSize: '12px', fontWeight: 600, color: '#1e293b' }}>{tone.label}</div>
-                              <div style={{ fontSize: '11px', color: '#64748b' }}>{tone.desc}</div>
+                              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>{tone.label}</div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{tone.desc}</div>
                             </div>
                           </div>
                         ))}
@@ -2562,7 +2574,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     >
                       {/* Border Radius */}
                       <div style={{ flex: 1, minWidth: '180px', paddingRight: '8px' }}>
-                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
                           Border Radius: <strong>{op.zone_border_radius}px</strong>
                         </label>
                         <div style={{ display: 'flex', gap: '6px' }}>
@@ -2595,7 +2607,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
 
                       {/* Gap Between Zones */}
                       <div style={{ flex: 1, minWidth: '180px', paddingLeft: '8px' }}>
-                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
                           Zone Spacing (Gap): <strong>{op.zone_gap}px</strong>
                         </label>
                         <div style={{ display: 'flex', gap: '6px' }}>
@@ -2639,7 +2651,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     >
                       {/* Internal Padding */}
                       <div style={{ flex: 1, minWidth: '180px', paddingRight: '8px' }}>
-                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
                           Internal Padding: <strong>{op.zone_padding}px</strong>
                         </label>
                         <div style={{ display: 'flex', gap: '6px' }}>
@@ -2672,7 +2684,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
 
                       {/* Border Color */}
                       <div style={{ flex: 1, minWidth: '180px', paddingLeft: '8px' }}>
-                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
                           Border Color:
                         </label>
                         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -2713,7 +2725,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 style={{
                   width: '360px',
                   boxSizing: 'border-box',
-                  background: '#f8fafc',
+                  background: 'var(--canvas)',
                   borderRadius: '12px',
                   border: '1px solid var(--border, #e2e8f0)',
                   padding: '16px',
@@ -2726,7 +2738,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border, #e2e8f0)', paddingBottom: '8px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                       {OVERVIEW_PREVIEW_HEADER}
                     </span>
                   </div>
@@ -2757,7 +2769,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           justifyContent: 'center',
                           borderRadius: '4px',
                           backgroundColor: 'rgba(0,0,0,0.08)',
-                          color: '#1e293b',
+                          color: 'var(--text)',
                         }}
                         title="Overview"
                       >
@@ -2772,7 +2784,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           alignItems: 'center',
                           justifyContent: 'center',
                           borderRadius: '4px',
-                          color: '#64748b',
+                          color: 'var(--text-muted)',
                         }}
                         title="Review"
                       >
@@ -2787,7 +2799,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           alignItems: 'center',
                           justifyContent: 'center',
                           borderRadius: '4px',
-                          color: '#64748b',
+                          color: 'var(--text-muted)',
                           fontSize: '11px',
                           fontFamily: 'monospace',
                           fontWeight: 700,
@@ -2826,7 +2838,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               alignItems: 'center',
                               justifyContent: 'center',
                               borderRadius: '4px',
-                              color: '#64748b',
+                              color: 'var(--text-muted)',
                               backgroundColor: 'transparent',
                               flexShrink: 0,
                             }}
@@ -2843,7 +2855,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               alignItems: 'center',
                               justifyContent: 'center',
                               borderRadius: '4px',
-                              color: '#64748b',
+                              color: 'var(--text-muted)',
                               backgroundColor: 'transparent',
                               flexShrink: 0,
                             }}
@@ -2860,7 +2872,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               alignItems: 'center',
                               justifyContent: 'center',
                               borderRadius: '4px',
-                              color: '#64748b',
+                              color: 'var(--text-muted)',
                               backgroundColor: 'transparent',
                               flexShrink: 0,
                             }}
@@ -2877,7 +2889,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               alignItems: 'center',
                               justifyContent: 'center',
                               borderRadius: '4px',
-                              color: '#64748b',
+                              color: 'var(--text-muted)',
                               backgroundColor: 'transparent',
                               flexShrink: 0,
                             }}
@@ -2898,7 +2910,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               alignItems: 'center',
                               gap: '4px',
                               borderRadius: '4px',
-                              color: '#64748b',
+                              color: 'var(--text-muted)',
                               fontSize: '11px',
                               fontWeight: 500,
                               whiteSpace: 'nowrap',
@@ -2916,7 +2928,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               alignItems: 'center',
                               gap: '4px',
                               borderRadius: '4px',
-                              color: '#64748b',
+                              color: 'var(--text-muted)',
                               fontSize: '11px',
                               fontWeight: 500,
                               whiteSpace: 'nowrap',
@@ -2934,7 +2946,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               alignItems: 'center',
                               gap: '4px',
                               borderRadius: '4px',
-                              color: '#64748b',
+                              color: 'var(--text-muted)',
                               fontSize: '11px',
                               fontWeight: 500,
                               whiteSpace: 'nowrap',
@@ -2952,7 +2964,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               alignItems: 'center',
                               gap: '4px',
                               borderRadius: '4px',
-                              color: '#64748b',
+                              color: 'var(--text-muted)',
                               fontSize: '11px',
                               fontWeight: 500,
                               whiteSpace: 'nowrap',
@@ -2987,11 +2999,11 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         hasChevron: true,
                         renderContent: () => (
                           <div style={{ marginTop: '6px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', fontWeight: 500, color: '#1e293b' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', fontWeight: 500, color: 'var(--text)' }}>
                               <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{SYNTHETIC_SUBAGENT.title}</span>
                               <ChevronRight size={12} strokeWidth={2} color="#94a3b8" />
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
                               <CheckCircle2 size={12} color="#16a34a" />
                               <span>{SYNTHETIC_SUBAGENT.duration}</span>
                             </div>
@@ -3006,7 +3018,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         hasChevron: true,
                         renderContent: () => (
                           <div style={{ marginTop: '6px' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: '#334155' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: 'var(--text)' }}>
                               {SYNTHETIC_VISIBLE_FILES.map((f, i) => (
                                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                   <span style={{ color: f.extColor, fontSize: '11px', fontWeight: 700 }}>{f.extBadge}</span>
@@ -3057,7 +3069,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                       justifyContent: 'center',
                                       width: '14px',
                                       height: '6px',
-                                      color: '#64748b',
+                                      color: 'var(--text-muted)',
                                       fontSize: '8px',
                                       transition: 'all 0.18s ease',
                                     }}
@@ -3096,8 +3108,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         count: SYNTHETIC_ARTIFACTS_COUNT,
                         hasChevron: true,
                         renderContent: () => (
-                          <div style={{ marginTop: '6px', fontSize: '12px', color: '#334155', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <FileText size={13} color="#64748b" />
+                          <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <FileText size={13} color="var(--text-muted)" />
                             <span>{SYNTHETIC_ARTIFACT.title}</span>
                           </div>
                         ),
@@ -3109,10 +3121,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         hasChevron: true,
                         renderContent: () => (
                           <div style={{ marginTop: '6px' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: '#334155' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: 'var(--text)' }}>
                               {SYNTHETIC_VISIBLE_UPLOADS.map((u, i) => (
                                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                  <Image size={13} color="#64748b" />
+                                  <Image size={13} color="var(--text-muted)" />
                                   <span>{u.label}</span>
                                 </div>
                               ))}
@@ -3120,7 +3132,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                 <>
                                   {SYNTHETIC_EXPANDED_UPLOADS.map((u, i) => (
                                     <div key={`exp-u-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                      <Image size={13} color="#64748b" />
+                                      <Image size={13} color="var(--text-muted)" />
                                       <span>{u.label}</span>
                                     </div>
                                   ))}
@@ -3152,7 +3164,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                       justifyContent: 'center',
                                       width: '14px',
                                       height: '6px',
-                                      color: '#64748b',
+                                      color: 'var(--text-muted)',
                                       fontSize: '8px',
                                       transition: 'all 0.18s ease',
                                     }}
@@ -3205,7 +3217,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         count: SYNTHETIC_GOALS.length,
                         hasChevron: true,
                         renderContent: () => (
-                          <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: '#334155' }}>
+                          <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: 'var(--text)' }}>
                             {SYNTHETIC_GOALS.map((g, i) => (
                               <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
                                 <CheckCircle2 size={13} color="#16a34a" style={{ marginTop: '2px', flexShrink: 0 }} />
@@ -3221,10 +3233,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         count: SYNTHETIC_SKILLS.length,
                         hasChevron: true,
                         renderContent: () => (
-                          <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: '#334155' }}>
+                          <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: 'var(--text)' }}>
                             {SYNTHETIC_SKILLS.map((s, i) => (
                               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <FileText size={13} color="#64748b" />
+                                <FileText size={13} color="var(--text-muted)" />
                                 <span>{s.name} <span style={{ color: '#94a3b8', fontSize: '11px' }}>{s.path}</span></span>
                               </div>
                             ))}
@@ -3278,14 +3290,14 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               }}
                             >
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
                                   {sec.title}
                                 </span>
                                 <span
                                   style={{
                                     fontSize: '11px',
                                     fontWeight: 700,
-                                    color: '#64748b',
+                                    color: 'var(--text-muted)',
                                   }}
                                 >
                                   {sec.count}
@@ -3313,7 +3325,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                     padding: '1px 6px',
                                     borderRadius: '4px',
                                     background: '#f1f5f9',
-                                    color: '#475569',
+                                    color: 'var(--text-muted)',
                                     border: '1px solid #e2e8f0',
                                     display: 'inline-flex',
                                     alignItems: 'center',
