@@ -241,6 +241,17 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
   background-color: rgba(255, 255, 255, 0.08) !important;
   color: #f1f5f9 !important;
 }
+
+/* Universal fix: normalize all conversation-row-sidebar child containers so hover never renders inner background mismatch */
+[data-testid="conversation-row-sidebar"] > div,
+[data-testid="conversation-row-sidebar"]:hover > div,
+[data-testid="conversation-row-sidebar"] a,
+[data-testid="conversation-row-sidebar"]:hover a,
+[data-testid="conversation-row-sidebar"] .flex,
+[data-testid="conversation-row-sidebar"]:hover .flex {
+  background: transparent !important;
+  background-color: transparent !important;
+}
 `)
 
 	if cfg.ColorStylingEnabled {
@@ -1767,6 +1778,21 @@ func generateBaseScript(cfg *Config) string {
             '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover {' +
             '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effHoverOpacity + ') !important;' +
             '}' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"] > div,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"] > div,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"] > div,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover > div,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover > div,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover > div,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"] a,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"] a,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"] a,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover a,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover a,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover a {' +
+            '  background: transparent !important;' +
+            '  background-color: transparent !important;' +
+            '}' +
             '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-selected="true"],' +
             '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-selected="true"],' +
             '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-selected="true"] {' +
@@ -1805,6 +1831,21 @@ func generateBaseScript(cfg *Config) string {
             '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover,' +
             '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover {' +
             '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effHoverOpacity + ') !important;' +
+            '}' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"] > div,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"] > div,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"] > div,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover > div,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover > div,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover > div,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"] a,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"] a,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"] a,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover a,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover a,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover a {' +
+            '  background: transparent !important;' +
+            '  background-color: transparent !important;' +
             '}' +
             '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-selected="true"],' +
             '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-selected="true"],' +
