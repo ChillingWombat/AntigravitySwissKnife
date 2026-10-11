@@ -465,6 +465,15 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
         const isWorking = item.not_fully_idle || item.status === 'working'
         if (agentStatusFilter === 'active' && !isWorking) return false
         if (agentStatusFilter === 'killed' && isWorking) return false
+
+        // Only show Main agents or subagents killed within 3 days (<= 72 hours)
+        const isMain = (!item.nesting_depth || item.nesting_depth === 0) &&
+          (!item.root_parent_conversation_id || item.root_parent_conversation_id === item.conversation_id)
+        if (!isMain && !isWorking) {
+          const tMod = item.last_modified ? new Date(item.last_modified).getTime() : 0
+          const threeDaysAgo = Date.now() - 3 * 24 * 60 * 60 * 1000
+          if (tMod < threeDaysAgo) return false
+        }
       }
       const title = (item.title || item.work_item || item.conversation_title || '').toLowerCase()
       const num = (item.number || item.bound_issue_number || '').toString()
@@ -478,11 +487,15 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
 
   const getGroupedAgentTasks = () => {
     const validTasks = filteredItems
+    const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000
+    const now = Date.now()
     const groupsMap = new Map<string, {
       rootId: string
       title: string
       lastModified: number
       isFocused: boolean
+      mainAgents: any[]
+      subAgents: any[]
       agents: any[]
     }>()
 
@@ -523,6 +536,8 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
           title: convTitle,
           lastModified: tMod,
           isFocused: Boolean(currentFocusedId && rootId === currentFocusedId),
+          mainAgents: [],
+          subAgents: [],
           agents: [],
         }
         groupsMap.set(rootId, grp)
@@ -537,7 +552,28 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
       } else if ((!grp.title || grp.title.startsWith('Chat #')) && t.conversation_title) {
         grp.title = t.conversation_title
       }
-      grp.agents.push(t)
+
+      const isMain = (!t.nesting_depth || t.nesting_depth === 0) &&
+        (!t.root_parent_conversation_id || t.root_parent_conversation_id === t.conversation_id)
+      const isWorking = t.not_fully_idle || t.status === 'working'
+
+      if (isMain) {
+        grp.mainAgents.push(t)
+      } else {
+        if (isWorking || (now - tMod <= THREE_DAYS_MS)) {
+          grp.subAgents.push(t)
+        }
+      }
+    })
+
+    // Cap subagents at maximum 20 per group, ordered by most recent first
+    groupsMap.forEach((grp) => {
+      grp.subAgents.sort((a, b) => {
+        const tA = a.last_modified ? new Date(a.last_modified).getTime() : 0
+        const tB = b.last_modified ? new Date(b.last_modified).getTime() : 0
+        return tB - tA
+      })
+      grp.agents = [...grp.mainAgents, ...grp.subAgents.slice(0, 20)]
     })
 
     const sidebarLinks = Array.from(document.querySelectorAll('a[href*="/c/"], [data-testid="conversation-row-sidebar"]'))
@@ -550,7 +586,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
       })
       .filter(Boolean) as string[]
 
-    let groups = Array.from(groupsMap.values())
+    let groups = Array.from(groupsMap.values()).filter(g => g.agents.length > 0)
 
     // Base sort: match left project panel order
     groups.sort((a, b) => {
@@ -1267,6 +1303,9 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                       backgroundColor: group.isFocused ? 'rgba(26, 115, 232, 0.02)' : 'var(--surface)',
                       overflow: 'hidden',
                       boxShadow: group.isFocused ? '0 1px 3px rgba(26, 115, 232, 0.06)' : 'none',
+                      maxHeight: '380px',
+                      display: 'flex',
+                      flexDirection: 'column',
                     }}
                   >
                     {/* Conversation Header */}
@@ -1279,6 +1318,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                         backgroundColor: group.isFocused ? 'rgba(26, 115, 232, 0.08)' : 'var(--surface-variant)',
                         borderBottom: '1px solid var(--border)',
                         gap: '8px',
+                        flexShrink: 0,
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', minWidth: 0, flex: 1, overflow: 'hidden' }}>
@@ -1306,7 +1346,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                     </div>
 
                     {/* Agent Cards within this conversation */}
-                    <div style={{ display: 'flex', flexDirection: 'column', maxHeight: '380px', overflowY: 'auto' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', overflowY: 'auto', flex: 1 }}>
                       {group.agents.map((item, idx) => {
                         const isSelected = selectedItem && selectedItem.conversation_id === item.conversation_id
                         const agentName = item.agent_label || item.conversation_title || item.agent_name || 'Agent'
