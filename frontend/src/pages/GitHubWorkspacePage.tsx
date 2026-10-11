@@ -689,7 +689,6 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
               {repo.current_branch}
             </span>
           )}
-        </div>
 
           <div
             style={{
