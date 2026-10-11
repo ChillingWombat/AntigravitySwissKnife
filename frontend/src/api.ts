@@ -34,9 +34,6 @@ import type {
   TokenSummaryResponse,
   TargetApp,
   AcpAgentInstance,
-  ComputerUseStatus,
-  CalibrationResult,
-  OSComputerUseSettings,
 } from './types'
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
@@ -870,21 +867,6 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
-    }),
-
-  // Computer Use Enhancer API
-  getComputerUseStatus: () => request<{ success: boolean; data: ComputerUseStatus }>('/api/system/computer-use'),
-  calibrateComputerUse: (targetOS: string, inputX: number, inputY: number) =>
-    request<{ success: boolean; data: CalibrationResult }>('/api/system/computer-use/calibrate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target_os: targetOS, input_x: inputX, input_y: inputY }),
-    }),
-  saveComputerUseSettings: (settings: Partial<OSComputerUseSettings>) =>
-    request<{ success: boolean; settings: OSComputerUseSettings }>('/api/system/computer-use/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(settings),
     }),
 }
 

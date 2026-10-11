@@ -302,13 +302,10 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/tokens/pricing", s.handleTokensPricing)
 	mux.HandleFunc("/api/tokens/chat-metrics", s.handleTokensChatMetrics)
 
-	// Utilities & Interoperability (Chat Import, ACP Mesh & Computer Use)
+	// Utilities & Interoperability (Chat Import & ACP Mesh)
 	mux.HandleFunc("/api/utilities/acp", s.handleUtilitiesACP)
 	mux.HandleFunc("/api/utilities/import", s.handleUtilitiesImport)
 	mux.HandleFunc("/api/utilities/import/scan", s.handleUtilitiesImportScan)
-	mux.HandleFunc("/api/system/computer-use", s.handleSystemComputerUse)
-	mux.HandleFunc("/api/system/computer-use/calibrate", s.handleSystemComputerUseCalibrate)
-	mux.HandleFunc("/api/system/computer-use/config", s.handleSystemComputerUseConfig)
 
 	// Quick Memos API
 	mux.HandleFunc("/api/memos", s.handleMemos)
@@ -5341,56 +5338,6 @@ func (s *Server) handleConversationsAck(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
-}
-
-func (s *Server) handleSystemComputerUse(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	status := system.DetectHostComputerUse()
-	writeJSON(w, map[string]interface{}{
-		"success": true,
-		"data":    status,
-	})
-}
-
-func (s *Server) handleSystemComputerUseCalibrate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	var req struct {
-		TargetOS string `json:"target_os"`
-		InputX   int    `json:"input_x"`
-		InputY   int    `json:"input_y"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
-	res := system.CalibrateDisplayCoordinates(req.TargetOS, req.InputX, req.InputY)
-	writeJSON(w, map[string]interface{}{
-		"success": true,
-		"data":    res,
-	})
-}
-
-func (s *Server) handleSystemComputerUseConfig(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	var settings system.OSComputerUseSettings
-	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
-		http.Error(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
-		return
-	}
-	if err := system.SaveComputerUseSettings(settings); err != nil {
-		http.Error(w, fmt.Sprintf("failed to save settings: %v", err), http.StatusInternalServerError)
-		return
-	}
-	writeJSON(w, map[string]interface{}{
-		"success":  true,
-		"settings": settings,
-	})
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {
