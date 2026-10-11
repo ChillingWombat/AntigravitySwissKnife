@@ -21,7 +21,25 @@ This roadmap outlines completed development milestones, ongoing stabilization ef
 
 ---
 
-## 3. Planned Future Feature: Fine-Grained Token Breakdown (Skills vs Harness)
+## 3. Planned Future Feature: Gemini Bridge (Utilities First Tab)
+
+**Gemini Bridge** will be added as the first tab in the **Utilities** section (`Utilities` $\rightarrow$ `Gemini Bridge`, ahead of Storage Manager, ACP Agent Mesh, Chat & Project Importer, and Computer Use). It establishes a two-way communication and control link between **Gemini App / Web (Gemini Spark)** and all local **Antigravity surfaces**:
+- **Antigravity 2.0 Desktop App** (via Chrome DevTools Protocol injection and local `~/.gemini/antigravity/brain/` state inspection)
+- **Antigravity CLI (`agy`)**
+- **Antigravity VS Code Extension**
+
+### Core Capabilities
+1. **Two-Way Agent Orchestration**:
+   - Exposes a Streamable HTTP Model Context Protocol (`/mcp`) gateway and authenticated tunnel/relay managed by the Swiss Knife daemon.
+   - Allows Gemini's cloud agent (from mobile or web) to consistently dispatch tasks to local Antigravity agents, monitor live step progress, answer approval prompts, and read back generated artifacts.
+2. **Local Computer & Workspace Information Retrieval**:
+   - Enables Gemini App/Web to query local project state, conversation transcripts, quota status, and local browser/GUI tools (`obscura`, `open-computer-use`, `Agent-S`) on demand.
+3. **Account-Switch Resilience**:
+   - Decouples the Gemini App/Web connection identity from local Antigravity account rotations so active remote sessions survive laptop account switches and IDE relaunches without interruption.
+
+---
+
+## 4. Planned Future Feature: Fine-Grained Token Breakdown (Skills vs Harness)
 
 > [!NOTE]
 > This capability is a planned future feature currently in architectural design. It is not yet implemented in the current production release.
@@ -51,7 +69,7 @@ The planned **Skills vs Harness Token Breakdown** will measure and categorize to
 
 ---
 
-## 4. Long-Term Vision (v0.3.0 and Beyond)
+## 5. Long-Term Vision (v0.3.0 and Beyond)
 
 - **Federated Local Agent Clustering**: Distributing subagent tasks across multiple workstations on a local network via Agent Client Protocol mesh networking.
 - **Offline Conversation Vaulting**: Cryptographically secured, zero-knowledge local backups of entire conversation trees with full-text search indexing.
