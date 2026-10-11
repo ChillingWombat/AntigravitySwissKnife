@@ -357,18 +357,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
           portalTarget
         )}
 
-      {/* Page Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--text)' }}>
-            UI & App Enhancements
-          </h1>
-          <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-            Configure quick prompt jumping, multi-project tabs, layout density, and IDE visual styling.
-          </p>
-        </div>
-      </div>
-
       {statusMsg && (
         <div
           style={{

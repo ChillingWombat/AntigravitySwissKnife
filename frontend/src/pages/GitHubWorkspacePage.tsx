@@ -666,9 +666,6 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
-            GitHub Workspace
-          </h1>
           {repo && (
             <span
               style={{

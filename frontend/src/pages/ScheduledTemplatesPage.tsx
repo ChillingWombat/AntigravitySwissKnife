@@ -166,18 +166,6 @@ export const ScheduledTemplatesPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Page Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--text)' }}>
-            Scheduled Automations
-          </h1>
-          <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-            Deploy background maintenance sidecars, automated checks, and recurring agent workflows into Antigravity.
-          </p>
-        </div>
-      </div>
-
       {pageFeedback && (
         <div
           style={{
