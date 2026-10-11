@@ -140,6 +140,18 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', ...style }}>
+      {/* Page Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--text)' }}>
+            ACP Agent Mesh
+          </h1>
+          <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
+            Discover local agent daemons, monitor inter-agent protocol handshakes, and manage delegated tool meshes.
+          </p>
+        </div>
+      </div>
+
       {acpFeedback && (
         <div
           style={{
@@ -158,6 +170,18 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
           {acpFeedback}
         </div>
       )}
+
+      {/* Discovered Agent Nodes Section Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+            Discovered Daemons ({agentInstances.length})
+          </h2>
+          <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+            Active Agent Client Protocol endpoints running on local IPC and sockets.
+          </p>
+        </div>
+      </div>
 
       {/* Agent Nodes Grid */}
       <div
@@ -433,7 +457,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
       {/* Live Handshake Logs */}
       <div
         style={{
-          backgroundColor: '#ffffff',
+          backgroundColor: 'var(--surface, #ffffff)',
           border: '1px solid var(--border)',
           borderRadius: '8px',
           padding: '20px',
@@ -447,26 +471,26 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
             marginBottom: '12px',
           }}
         >
-          <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
-            ACP Communication & Delegation Stream
-          </h3>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+              Communication & Delegation Stream
+            </h2>
+            <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+              Real-time capability exchange logs and inter-agent handshake delegations.
+            </p>
+          </div>
           <button
             onClick={handlePingAllAcp}
             disabled={isPingingAll}
+            className="btn-pill-tonal"
             style={{
-              backgroundColor: 'var(--primary)',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '6px',
               padding: '6px 14px',
               fontSize: '12px',
-              fontWeight: 600,
               cursor: isPingingAll ? 'not-allowed' : 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
               gap: '6px',
               whiteSpace: 'nowrap',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
             }}
           >
             <Activity size={13} className={isPingingAll ? 'animate-spin' : ''} />
