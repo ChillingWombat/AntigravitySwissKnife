@@ -127,20 +127,12 @@ export const FingerprintsPage: React.FC<FingerprintsPageProps> = ({ accounts }) 
           }}
         >
           <div>
-            <div
-              style={{
-                fontSize: '11px',
-                fontWeight: 700,
-                color: 'var(--text-muted)',
-                letterSpacing: '0.8px',
-                textTransform: 'uppercase',
-              }}
-            >
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
               Profile Mappings Inventory
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Click an account row to view and customize its isolated hardware profile
-            </div>
+            </h2>
+            <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+              Click an account row to view and customize its isolated hardware profile.
+            </p>
           </div>
         </div>
 

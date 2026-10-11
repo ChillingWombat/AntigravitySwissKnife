@@ -204,6 +204,17 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
       {/* ============================================================ */}
       {activeTab === 2 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Page Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--text)' }}>
+                Chat & Project Importer
+              </h1>
+              <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
+                Import conversations and projects from external tools including OpenCode, Claude Code, Cursor, and ChatGPT.
+              </p>
+            </div>
+          </div>
           {importFeedback && (
             <div
               style={{
@@ -744,19 +755,31 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
 
       {/* 4. Computer Use Tab */}
       {activeTab === 3 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Page Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--text)' }}>
+                Computer Use Enhancer
+              </h1>
+              <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
+                Cross-platform execution enhancer optimizing display coordinate scaling, native capture pipelines, and accessibility grounding.
+              </p>
+            </div>
+          </div>
+
           {/* Main Card */}
           <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px 24px' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Monitor size={18} color="var(--primary)" />
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
-                    Computer Use Enhancer
-                  </h3>
+                  <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+                    Platform Capabilities & Settings
+                  </h2>
                 </div>
-                <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5, maxWidth: '820px' }}>
-                  Cross-platform execution enhancer optimizing Antigravity computer use with display coordinate scaling normalization, native screen capture pipelines, and token-saving accessibility tree grounding across Linux, Windows, and macOS.
+                <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5, maxWidth: '820px' }}>
+                  Hardware acceleration, screen capture frameworks, and input scaling per operating system.
                 </p>
               </div>
 

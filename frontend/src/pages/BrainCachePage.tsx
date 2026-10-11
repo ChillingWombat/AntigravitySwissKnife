@@ -193,16 +193,28 @@ export const BrainCachePage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {/* Page Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--text)' }}>
+            Storage & Brain Cache
+          </h1>
+          <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
+            Manage conversation history preservation, prune temporary brain artifacts, and optimize disk footprint.
+          </p>
+        </div>
+      </div>
+
       {/* Main Gadget 1: Conversation Vault */}
       <div className="google-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
           <div>
-            <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
               Conversation Vault
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+            </h2>
+            <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
               Protects conversations beyond Antigravity's 500-session limit using filesystem hardlinks.
-            </div>
+            </p>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -328,12 +340,12 @@ export const BrainCachePage: React.FC = () => {
       <div className="google-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
           <div>
-            <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
               Cache Manager
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+            </h2>
+            <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
               Reclaims disk space from stale scratch files, step logs, and task outputs without touching active sessions.
-            </div>
+            </p>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -507,7 +519,8 @@ export const BrainCachePage: React.FC = () => {
               maxWidth: '92vw',
               padding: '24px',
               boxShadow: 'var(--shadow-md)',
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--surface, #ffffff)',
+              border: '1px solid var(--border)',
             }}
             onClick={(e) => e.stopPropagation()}
           >

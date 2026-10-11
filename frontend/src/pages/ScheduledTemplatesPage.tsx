@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Clock, Trash2, AlertCircle, CheckCircle2, Edit3, X } from 'lucide-react'
+import { Clock, Trash2, AlertCircle, CheckCircle2, Edit3, X, ArrowRight } from 'lucide-react'
 import { api } from '../api'
 import type { DeployTaskRequest, ScheduledTemplate, SidecarTaskInfo } from '../types'
 import { formatSchedule } from '../utils/schedule'
@@ -158,7 +158,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div style={{ padding: '32px', textAlign: 'center', color: '#64748b' }}>
+      <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
         <div style={{ fontSize: '14px', fontWeight: 500 }}>Loading Task Templates...</div>
       </div>
     )
@@ -166,6 +166,18 @@ export const ScheduledTemplatesPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {/* Page Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--text)' }}>
+            Scheduled Automations
+          </h1>
+          <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
+            Deploy background maintenance sidecars, automated checks, and recurring agent workflows into Antigravity.
+          </p>
+        </div>
+      </div>
+
       {pageFeedback && (
         <div
           style={{
@@ -187,8 +199,15 @@ export const ScheduledTemplatesPage: React.FC = () => {
 
       {/* Existing Scheduled Jobs (sidecars deployed into Antigravity) */}
       <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
-          Scheduled Tasks ({sidecars.length})
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+              Scheduled Tasks ({sidecars.length})
+            </h2>
+            <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+              Active background sidecars running on schedules within Antigravity.
+            </p>
+          </div>
         </div>
         {sidecars.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: '13px' }}>
@@ -269,17 +288,28 @@ export const ScheduledTemplatesPage: React.FC = () => {
       </div>
 
       <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* Category Filter Pills & Search */}
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: '16px',
-              marginBottom: '20px',
-              flexWrap: 'wrap',
-            }}
-          >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+              Template Catalog
+            </h2>
+            <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+              Pre-configured workflow templates for engineering, security, and project maintenance.
+            </p>
+          </div>
+        </div>
+
+        {/* Category Filter Pills & Search */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '16px',
+            marginBottom: '20px',
+            flexWrap: 'wrap',
+          }}
+        >
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               {CATEGORIES.map((cat) => (
                 <button
@@ -445,7 +475,10 @@ export const ScheduledTemplatesPage: React.FC = () => {
                       justifyContent: 'center',
                     }}
                   >
-                    Configure & Schedule &rarr;
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <span>Configure & Schedule</span>
+                      <ArrowRight size={13} />
+                    </span>
                   </button>
                 </div>
               </div>
@@ -469,8 +502,9 @@ export const ScheduledTemplatesPage: React.FC = () => {
         >
           <div
             style={{
-              background: '#ffffff',
-              borderRadius: '10px',
+              background: 'var(--surface, #ffffff)',
+              borderRadius: '8px',
+              border: '1px solid var(--border)',
               maxWidth: '680px',
               width: '100%',
               maxHeight: '90vh',
@@ -495,23 +529,26 @@ export const ScheduledTemplatesPage: React.FC = () => {
                 >
                   {selectedTemplate.category}
                 </span>
-                <h2 style={{ margin: '6px 0 2px', fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
+                <h2 style={{ margin: '6px 0 2px', fontSize: '18px', fontWeight: 700, color: 'var(--text)' }}>
                   {selectedTemplate.title}
                 </h2>
-                <div style={{ fontSize: '13px', color: '#64748b' }}>{selectedTemplate.subtitle}</div>
+                <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{selectedTemplate.subtitle}</div>
               </div>
               <button
                 onClick={() => setSelectedTemplate(null)}
                 style={{
                   border: 'none',
                   background: 'transparent',
-                  fontSize: '20px',
-                  color: '#94a3b8',
+                  color: 'var(--text-muted)',
                   cursor: 'pointer',
-                  padding: '2px 8px',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
+                title="Close"
               >
-                &times;
+                <X size={16} />
               </button>
             </div>
 
@@ -595,8 +632,8 @@ export const ScheduledTemplatesPage: React.FC = () => {
                           padding: '2px 7px',
                           borderRadius: '4px',
                           border: '1px solid #e2e8f0',
-                          background: cronExpression === preset.cron ? '#eff6ff' : '#f8fafc',
-                          color: cronExpression === preset.cron ? '#1d4ed8' : '#64748b',
+                          background: cronExpression === preset.cron ? 'var(--tonal)' : 'var(--canvas)',
+                          color: cronExpression === preset.cron ? 'var(--primary)' : 'var(--text-muted)',
                           cursor: 'pointer',
                         }}
                       >
@@ -607,7 +644,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
                     Target Project Context
                   </label>
                   <input
@@ -618,9 +655,11 @@ export const ScheduledTemplatesPage: React.FC = () => {
                       width: '100%',
                       padding: '8px 12px',
                       borderRadius: '6px',
-                      border: '1px solid #cbd5e1',
+                      border: '1px solid var(--border)',
                       fontSize: '13px',
                       boxSizing: 'border-box',
+                      backgroundColor: 'var(--canvas)',
+                      color: 'var(--text)',
                     }}
                   />
                 </div>
@@ -629,7 +668,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
               {/* Dynamic Template Parameters */}
               {selectedTemplate.parameters.map((p) => (
                 <div key={p.key}>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
                     {p.label}
                   </label>
                   {p.type === 'textarea' ? (
@@ -641,10 +680,12 @@ export const ScheduledTemplatesPage: React.FC = () => {
                         width: '100%',
                         padding: '8px 12px',
                         borderRadius: '6px',
-                        border: '1px solid #cbd5e1',
+                        border: '1px solid var(--border)',
                         fontSize: '12px',
                         boxSizing: 'border-box',
                         fontFamily: 'inherit',
+                        backgroundColor: 'var(--canvas)',
+                        color: 'var(--text)',
                       }}
                     />
                   ) : (
@@ -656,19 +697,21 @@ export const ScheduledTemplatesPage: React.FC = () => {
                         width: '100%',
                         padding: '8px 12px',
                         borderRadius: '6px',
-                        border: '1px solid #cbd5e1',
+                        border: '1px solid var(--border)',
                         fontSize: '12px',
                         boxSizing: 'border-box',
+                        backgroundColor: 'var(--canvas)',
+                        color: 'var(--text)',
                       }}
                     />
                   )}
-                  <span style={{ fontSize: '11px', color: '#64748b' }}>{p.description}</span>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{p.description}</span>
                 </div>
               ))}
 
               {/* Instructions / Prompt Template Editor */}
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
                   Execution Instructions & Prompt (Editable)
                 </label>
                 <textarea

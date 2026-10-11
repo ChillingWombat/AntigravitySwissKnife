@@ -665,25 +665,31 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
           flexWrap: 'wrap',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <h1 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+            GitHub Workspace
+          </h1>
           {repo && (
             <span
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '4px',
-                padding: '4px 10px',
+                padding: '3px 8px',
                 borderRadius: '6px',
                 fontSize: '12px',
                 fontWeight: 500,
-                backgroundColor: 'rgba(0,0,0,0.05)',
+                backgroundColor: 'var(--tonal)',
                 color: 'var(--text-muted)',
+                border: '1px solid var(--border)',
+                whiteSpace: 'nowrap',
               }}
             >
               <GitBranch size={13} />
               {repo.current_branch}
             </span>
           )}
+        </div>
 
           <div
             style={{
