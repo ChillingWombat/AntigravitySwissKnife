@@ -2325,3 +2325,26 @@ func TestPreviewBrowser_TouchEmulationVisualFeedbackAndDragScroll(t *testing.T) 
 	}
 }
 
+func TestQuickMemos_ImageSupportAndWhiteboard(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	expectedIdentifiers := []string{
+		`id="swiss-m-new-image"`,
+		`<span>Image Memo</span>`,
+		`swiss-m-img-composer`,
+		`id="swiss-m-whiteboard-canvas"`,
+		`id="swiss-m-tool-pen"`,
+		`id="swiss-m-tool-eraser"`,
+		`id="swiss-m-img-upload-btn"`,
+		`id="swiss-m-img-clear-btn"`,
+		`dataURLtoFile`,
+		`insertImageToChatInput`,
+		`m.image_data`,
+	}
+	for _, id := range expectedIdentifiers {
+		if !strings.Contains(js, id) {
+			t.Fatalf("expected script to contain %q for image memos support", id)
+		}
+	}
+}
+
+

@@ -4364,8 +4364,9 @@ func GenerateAuxiliaryPluginsScript() string {
       topBar.style.display = "flex";
       topBar.style.gap = "8px";
       topBar.innerHTML = ` + "`" + `
-        <button class="swiss-browser-btn primary" id="swiss-m-new-text" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 12px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span>Text Memo</span></button>
-        <button class="swiss-browser-btn" id="swiss-m-record-audio" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 12px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg><span>Voice Memo</span></button>
+        <button class="swiss-browser-btn primary" id="swiss-m-new-text" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 8px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span>Text Memo</span></button>
+        <button class="swiss-browser-btn" id="swiss-m-record-audio" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 8px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg><span>Voice Memo</span></button>
+        <button class="swiss-browser-btn" id="swiss-m-new-image" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 8px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg><span>Image Memo</span></button>
       ` + "`" + `;
       wrap.appendChild(topBar);
 
@@ -4396,6 +4397,63 @@ func GenerateAuxiliaryPluginsScript() string {
         </div>
       ` + "`" + `;
       wrap.appendChild(composer);
+
+      const imgComposer = document.createElement("div");
+      imgComposer.className = "swiss-memo-img-composer";
+      imgComposer.id = "swiss-m-img-composer";
+      imgComposer.style.display = "none";
+      imgComposer.style.flexDirection = "column";
+      imgComposer.style.gap = "8px";
+      imgComposer.style.border = "1px solid var(--border,#cbd5e1)";
+      imgComposer.style.borderRadius = "8px";
+      imgComposer.style.padding = "8px";
+      imgComposer.style.background = "var(--canvas,#ffffff)";
+      imgComposer.style.marginBottom = "8px";
+      imgComposer.innerHTML = ` + "`" + `
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:11px; font-weight:600; color:var(--text,#1e293b); display:flex; align-items:center; gap:6px;">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+            <span>Whiteboard Sketch &amp; Image Memo</span>
+          </span>
+          <div style="display:flex; gap:4px;">
+            <input type="file" accept="image/*" id="swiss-m-img-file-input" style="display:none;" />
+            <button type="button" class="swiss-browser-btn" id="swiss-m-img-upload-btn" title="Upload Image File" style="padding:3px 6px; font-size:10px;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg><span>Upload</span></button>
+            <button type="button" class="swiss-browser-btn" id="swiss-m-img-clear-btn" title="Clear Canvas" style="padding:3px 6px; font-size:10px;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg><span>Clear</span></button>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; flex-wrap:wrap; padding:4px; background:var(--card,#f8fafc); border-radius:6px; border:1px solid var(--border,#e2e8f0);">
+          <div style="display:flex; align-items:center; gap:4px;">
+            <button type="button" class="swiss-browser-btn active" id="swiss-m-tool-pen" title="Pen Tool" style="padding:3px 6px; font-size:10px;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg><span>Pen</span></button>
+            <button type="button" class="swiss-browser-btn" id="swiss-m-tool-eraser" title="Eraser Tool" style="padding:3px 6px; font-size:10px;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg><span>Eraser</span></button>
+            <select id="swiss-m-brush-size" style="font-size:10px; padding:2px 4px; border-radius:4px; border:1px solid var(--border,#cbd5e1); background:var(--canvas,#ffffff); color:var(--text,#1e293b);">
+              <option value="2">Thin (2px)</option>
+              <option value="4" selected>Normal (4px)</option>
+              <option value="8">Thick (8px)</option>
+            </select>
+          </div>
+          <div id="swiss-m-color-palette" style="display:flex; align-items:center; gap:4px;">
+            <span class="swiss-color-swatch active" data-color="#0f172a" style="width:14px; height:14px; border-radius:50%; background:#0f172a; cursor:pointer; border:2px solid #3b82f6; box-sizing:border-box;"></span>
+            <span class="swiss-color-swatch" data-color="#ef4444" style="width:14px; height:14px; border-radius:50%; background:#ef4444; cursor:pointer; border:1px solid rgba(0,0,0,0.1); box-sizing:border-box;"></span>
+            <span class="swiss-color-swatch" data-color="#3b82f6" style="width:14px; height:14px; border-radius:50%; background:#3b82f6; cursor:pointer; border:1px solid rgba(0,0,0,0.1); box-sizing:border-box;"></span>
+            <span class="swiss-color-swatch" data-color="#10b981" style="width:14px; height:14px; border-radius:50%; background:#10b981; cursor:pointer; border:1px solid rgba(0,0,0,0.1); box-sizing:border-box;"></span>
+            <span class="swiss-color-swatch" data-color="#f59e0b" style="width:14px; height:14px; border-radius:50%; background:#f59e0b; cursor:pointer; border:1px solid rgba(0,0,0,0.1); box-sizing:border-box;"></span>
+            <span class="swiss-color-swatch" data-color="#8b5cf6" style="width:14px; height:14px; border-radius:50%; background:#8b5cf6; cursor:pointer; border:1px solid rgba(0,0,0,0.1); box-sizing:border-box;"></span>
+          </div>
+        </div>
+        <div style="position:relative; width:100%; border:1px solid var(--border,#cbd5e1); border-radius:6px; overflow:hidden; background:#ffffff; box-sizing:border-box;">
+          <canvas id="swiss-m-whiteboard-canvas" width="480" height="260" style="width:100%; height:180px; display:block; cursor:crosshair; background:#ffffff; touch-action:none;"></canvas>
+          <div id="swiss-m-canvas-hint" style="position:absolute; bottom:4px; right:6px; font-size:9px; color:#94a3b8; pointer-events:none; background:rgba(255,255,255,0.85); padding:1px 4px; border-radius:3px;">Paste (Ctrl+V) or draw</div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <input type="text" id="swiss-m-img-title-input" placeholder="Memo Title (optional)..." style="width:100%; padding:4px 8px; font-size:11px; border-radius:4px; border:1px solid var(--border,#cbd5e1); background:var(--canvas,#ffffff); color:var(--text,#1e293b); box-sizing:border-box;" />
+          <input type="text" id="swiss-m-img-caption-input" placeholder="Caption / notes (optional)..." style="width:100%; padding:4px 8px; font-size:11px; border-radius:4px; border:1px solid var(--border,#cbd5e1); background:var(--canvas,#ffffff); color:var(--text,#1e293b); box-sizing:border-box;" />
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:6px;">
+          <button type="button" class="swiss-browser-btn" id="swiss-m-img-cancel"><span>Cancel</span></button>
+          <button type="button" class="swiss-browser-btn primary" id="swiss-m-img-save"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg><span>Save Image Memo</span></button>
+        </div>
+      ` + "`" + `;
+      wrap.appendChild(imgComposer);
 
       const memoList = document.createElement("div");
       memoList.style.display = "flex";
@@ -4464,7 +4522,7 @@ func GenerateAuxiliaryPluginsScript() string {
           if (trimmedQ) {
             memoList.innerHTML = '<div class="swiss-memo-empty-search">No memos found matching "' + escapeHtml(trimmedQ) + '"</div>';
           } else {
-            memoList.innerHTML = "<div style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No memos yet. Click Text Memo or Voice Memo!</div>";
+            memoList.innerHTML = "<div style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No memos yet. Click Text Memo, Voice Memo, or Image Memo!</div>";
           }
           return;
         }
@@ -4482,7 +4540,8 @@ func GenerateAuxiliaryPluginsScript() string {
               </div>
               <span style="font-size:9px; color:#94a3b8; white-space:nowrap;">${escapeHtml(m.created_at || m.createdAt || "")}</span>
             </div>
-            <div style="font-size:11px; color:var(--text,#1e293b); white-space:pre-wrap; margin-bottom:8px;">${escapeHtml(m.content || "")}</div>
+            ${m.image_data ? ('<div style="margin-bottom:6px; border-radius:4px; overflow:hidden; border:1px solid var(--border,#cbd5e1); background:#ffffff; max-height:160px; display:flex; align-items:center; justify-content:center;"><img src="' + escapeHtml(m.image_data) + '" alt="' + escapeHtml(m.title || "Memo Image") + '" style="max-width:100%; max-height:160px; object-fit:contain; display:block;" /></div>') : ""}
+            ${m.content ? ('<div style="font-size:11px; color:var(--text,#1e293b); white-space:pre-wrap; margin-bottom:8px;">' + escapeHtml(m.content) + '</div>') : ""}
             ${m.audio_data ? ('<audio controls src="' + escapeHtml(m.audio_data) + '" style="width:100%; height:24px; margin-bottom:6px; outline:none;"></audio>') : ""}
             <div style="display:flex; justify-content:flex-end; gap:6px;">
               <button class="swiss-browser-btn" id="m-insert" style="padding:2px 6px; font-size:10px;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Chat</span></button>
@@ -4491,11 +4550,24 @@ func GenerateAuxiliaryPluginsScript() string {
           ` + "`" + `;
 
           card.ondragstart = (e) => {
-            e.dataTransfer.setData("text/plain", m.transcript || m.content || "");
+            if (m.image_data) {
+              try {
+                const file = dataURLtoFile(m.image_data, (m.title ? m.title.replace(/[^a-z0-9]/gi, '_') : 'memo') + ".png");
+                if (file) e.dataTransfer.items.add(file);
+              } catch (_) {}
+              e.dataTransfer.setData("text/plain", m.content ? (m.content + "\n" + (m.title || "Memo Image")) : (m.title || "Memo Image"));
+              e.dataTransfer.setData("text/uri-list", m.image_data);
+            } else {
+              e.dataTransfer.setData("text/plain", m.transcript || m.content || "");
+            }
           };
 
           card.querySelector("#m-insert").onclick = () => {
-            insertTextToChatInput(m.transcript || m.content || "");
+            if (m.image_data) {
+              insertImageToChatInput(m.image_data, m.content || m.title || "");
+            } else {
+              insertTextToChatInput(m.transcript || m.content || "");
+            }
           };
 
           card.querySelector("#m-del").onclick = async () => {
@@ -4571,21 +4643,32 @@ func GenerateAuxiliaryPluginsScript() string {
       };
 
       const openComposer = () => {
+        closeImageComposer();
         composer.style.display = "flex";
         setTimeout(() => composerInput.focus(), 30);
       };
 
-      const createAndSaveMemo = async (text, memoType, tags) => {
-        if (!text) return;
-        const trimmed = text.trim();
-        if (!trimmed) return;
-        const titleStr = trimmed.substring(0, 24) + (trimmed.length > 24 ? "..." : "");
+      const createAndSaveMemo = async (text, memoType, tags, imageData, customTitle) => {
+        const trimmed = (text || "").trim();
+        const effType = memoType || "text";
+        if (!trimmed && !imageData) return;
+
+        let titleStr = customTitle || "";
+        if (!titleStr) {
+          if (trimmed) {
+            titleStr = trimmed.substring(0, 24) + (trimmed.length > 24 ? "..." : "");
+          } else {
+            titleStr = effType === "image" ? "Image Memo" : "Memo";
+          }
+        }
+
         const newMemo = {
           id: "memo-" + Date.now(),
           title: titleStr,
           content: trimmed,
-          type: memoType || "text",
+          type: effType,
           tags: tags || ["quick"],
+          image_data: imageData || undefined,
           created_at: new Date().toLocaleString()
         };
         allMemos.unshift(newMemo);
@@ -4601,8 +4684,9 @@ func GenerateAuxiliaryPluginsScript() string {
               id: newMemo.id,
               title: titleStr,
               content: trimmed,
-              type: memoType || "text",
+              type: effType,
               tags: tags || ["quick"],
+              image_data: imageData || undefined,
               created_at: newMemo.created_at,
               workspace_path: mq.wsPath || undefined
             })
@@ -4648,6 +4732,200 @@ func GenerateAuxiliaryPluginsScript() string {
           if (!text.trim()) return;
           closeComposer();
           await createAndSaveMemo(text, "text", ["quick"]);
+        }
+      };
+
+      // Image Composer & Whiteboard Logic
+      const imgTitleInput = imgComposer.querySelector("#swiss-m-img-title-input");
+      const imgCaptionInput = imgComposer.querySelector("#swiss-m-img-caption-input");
+      const imgCancelBtn = imgComposer.querySelector("#swiss-m-img-cancel");
+      const imgSaveBtn = imgComposer.querySelector("#swiss-m-img-save");
+      const imgFileInput = imgComposer.querySelector("#swiss-m-img-file-input");
+      const imgUploadBtn = imgComposer.querySelector("#swiss-m-img-upload-btn");
+      const imgClearBtn = imgComposer.querySelector("#swiss-m-img-clear-btn");
+      const toolPenBtn = imgComposer.querySelector("#swiss-m-tool-pen");
+      const toolEraserBtn = imgComposer.querySelector("#swiss-m-tool-eraser");
+      const brushSizeSelect = imgComposer.querySelector("#swiss-m-brush-size");
+      const colorPalette = imgComposer.querySelector("#swiss-m-color-palette");
+      const whiteboardCanvas = imgComposer.querySelector("#swiss-m-whiteboard-canvas");
+      const canvasCtx = whiteboardCanvas.getContext("2d");
+
+      let isDrawing = false;
+      let lastX = 0;
+      let lastY = 0;
+      let activeTool = "pen";
+      let activeColor = "#0f172a";
+      let activeSize = 4;
+
+      const initWhiteboard = () => {
+        canvasCtx.fillStyle = "#ffffff";
+        canvasCtx.fillRect(0, 0, whiteboardCanvas.width, whiteboardCanvas.height);
+      };
+      initWhiteboard();
+
+      const getCanvasCoords = (e) => {
+        const rect = whiteboardCanvas.getBoundingClientRect();
+        const scaleX = whiteboardCanvas.width / rect.width;
+        const scaleY = whiteboardCanvas.height / rect.height;
+        return [
+          (e.clientX - rect.left) * scaleX,
+          (e.clientY - rect.top) * scaleY
+        ];
+      };
+
+      whiteboardCanvas.onpointerdown = (e) => {
+        e.preventDefault();
+        try { whiteboardCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+        isDrawing = true;
+        const [x, y] = getCanvasCoords(e);
+        lastX = x;
+        lastY = y;
+        canvasCtx.beginPath();
+        canvasCtx.moveTo(x, y);
+      };
+
+      whiteboardCanvas.onpointermove = (e) => {
+        if (!isDrawing) return;
+        e.preventDefault();
+        const [x, y] = getCanvasCoords(e);
+        canvasCtx.beginPath();
+        canvasCtx.moveTo(lastX, lastY);
+        canvasCtx.lineTo(x, y);
+        canvasCtx.lineCap = "round";
+        canvasCtx.lineJoin = "round";
+        if (activeTool === "eraser") {
+          canvasCtx.strokeStyle = "#ffffff";
+          canvasCtx.lineWidth = activeSize * 4;
+        } else {
+          canvasCtx.strokeStyle = activeColor;
+          canvasCtx.lineWidth = activeSize;
+        }
+        canvasCtx.stroke();
+        lastX = x;
+        lastY = y;
+      };
+
+      const stopDrawing = (e) => {
+        if (isDrawing) {
+          isDrawing = false;
+          if (e && e.pointerId) {
+            try { whiteboardCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+          }
+        }
+      };
+      whiteboardCanvas.onpointerup = stopDrawing;
+      whiteboardCanvas.onpointercancel = stopDrawing;
+
+      toolPenBtn.onclick = () => {
+        activeTool = "pen";
+        toolPenBtn.classList.add("active");
+        toolEraserBtn.classList.remove("active");
+      };
+
+      toolEraserBtn.onclick = () => {
+        activeTool = "eraser";
+        toolEraserBtn.classList.add("active");
+        toolPenBtn.classList.remove("active");
+      };
+
+      brushSizeSelect.onchange = () => {
+        activeSize = parseInt(brushSizeSelect.value, 10) || 4;
+      };
+
+      colorPalette.querySelectorAll(".swiss-color-swatch").forEach(swatch => {
+        swatch.onclick = () => {
+          activeColor = swatch.dataset.color || "#0f172a";
+          activeTool = "pen";
+          toolPenBtn.classList.add("active");
+          toolEraserBtn.classList.remove("active");
+          colorPalette.querySelectorAll(".swiss-color-swatch").forEach(s => {
+            s.style.border = s === swatch ? "2px solid #3b82f6" : "1px solid rgba(0,0,0,0.1)";
+            s.classList.toggle("active", s === swatch);
+          });
+        };
+      });
+
+      imgClearBtn.onclick = () => {
+        initWhiteboard();
+      };
+
+      const drawImageToCanvas = (img) => {
+        const cw = whiteboardCanvas.width;
+        const ch = whiteboardCanvas.height;
+        const ratio = Math.min(cw / img.width, ch / img.height, 1);
+        const w = img.width * ratio;
+        const h = img.height * ratio;
+        const x = (cw - w) / 2;
+        const y = (ch - h) / 2;
+        canvasCtx.fillStyle = "#ffffff";
+        canvasCtx.fillRect(0, 0, cw, ch);
+        canvasCtx.drawImage(img, x, y, w, h);
+      };
+
+      imgUploadBtn.onclick = () => {
+        imgFileInput.click();
+      };
+
+      imgFileInput.onchange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (re) => {
+          const img = new Image();
+          img.onload = () => drawImageToCanvas(img);
+          img.src = re.target.result;
+        };
+        reader.readAsDataURL(file);
+      };
+
+      imgComposer.addEventListener("paste", (e) => {
+        if (!e.clipboardData || !e.clipboardData.items) return;
+        for (let i = 0; i < e.clipboardData.items.length; i++) {
+          const item = e.clipboardData.items[i];
+          if (item.type.indexOf("image") !== -1) {
+            e.preventDefault();
+            const blob = item.getAsFile();
+            const reader = new FileReader();
+            reader.onload = (re) => {
+              const img = new Image();
+              img.onload = () => drawImageToCanvas(img);
+              img.src = re.target.result;
+            };
+            reader.readAsDataURL(blob);
+            break;
+          }
+        }
+      });
+
+      const closeImageComposer = () => {
+        imgComposer.style.display = "none";
+        imgTitleInput.value = "";
+        imgCaptionInput.value = "";
+      };
+
+      const openImageComposer = () => {
+        closeComposer();
+        imgComposer.style.display = "flex";
+        setTimeout(() => imgTitleInput.focus(), 30);
+      };
+
+      imgCancelBtn.onclick = () => {
+        closeImageComposer();
+      };
+
+      imgSaveBtn.onclick = async () => {
+        const dataUrl = whiteboardCanvas.toDataURL("image/png");
+        const customTitle = imgTitleInput.value.trim() || "Whiteboard Sketch";
+        const caption = imgCaptionInput.value.trim();
+        closeImageComposer();
+        await createAndSaveMemo(caption, "image", ["image", "sketch"], dataUrl, customTitle);
+      };
+
+      topBar.querySelector("#swiss-m-new-image").onclick = () => {
+        if (imgComposer.style.display === "none") {
+          openImageComposer();
+        } else {
+          closeImageComposer();
         }
       };
 
@@ -4993,6 +5271,60 @@ func GenerateAuxiliaryPluginsScript() string {
         input.selectionStart = input.selectionEnd = input.value.length;
         input.dispatchEvent(new Event("input", { bubbles: true }));
         input.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      input.focus();
+    }
+
+    // Helper: Convert base64 dataURL to File object for Drag and Paste events
+    function dataURLtoFile(dataurl, filename) {
+      if (!dataurl || typeof dataurl !== "string") return null;
+      try {
+        const parts = dataurl.split(",");
+        if (parts.length < 2) return null;
+        const mimeMatch = parts[0].match(/:(.*?);/);
+        const mime = mimeMatch ? mimeMatch[1] : "image/png";
+        const bstr = atob(parts[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        return new File([u8arr], filename || "sketch.png", { type: mime });
+      } catch (_) {
+        return null;
+      }
+    }
+
+    // Helper: Insert image into Antigravity chat input (paste / drop event with File)
+    function insertImageToChatInput(imageDataUrl, caption) {
+      const input = document.querySelector('[data-testid="agent-input-box"] [contenteditable="true"]') ||
+                    document.querySelector('[data-testid="chat-input-textarea"]') ||
+                    document.querySelector('[data-lexical-editor="true"][contenteditable="true"]') ||
+                    document.querySelector('[data-lexical-editor="true"]') ||
+                    document.querySelector('.chat-input-container [contenteditable="true"]') ||
+                    document.querySelector('.lexical-container [contenteditable="true"]') ||
+                    document.querySelector('[role="textbox"][contenteditable="true"]') ||
+                    document.querySelector('textarea[placeholder*="Ask"]') ||
+                    document.querySelector('.chat-input-container textarea') ||
+                    document.querySelector('textarea');
+      if (!input) return;
+
+      const file = dataURLtoFile(imageDataUrl, "memo-image.png");
+      if (file) {
+        try {
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          if (caption) dt.setData("text/plain", caption);
+          const pasteEvt = new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true });
+          input.dispatchEvent(pasteEvt);
+
+          const dropEvt = new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true });
+          input.dispatchEvent(dropEvt);
+        } catch (_) {}
+      }
+
+      if (caption) {
+        insertTextToChatInput(caption);
       }
       input.focus();
     }

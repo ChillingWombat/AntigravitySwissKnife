@@ -3984,13 +3984,14 @@ func (s *Server) handleCustomModelSecurityAudit(w http.ResponseWriter, r *http.R
 	writeJSON(w, report)
 }
 
-// MemoItem represents a quick text or voice memo.
+// MemoItem represents a quick text, voice, or image memo.
 type MemoItem struct {
 	ID            string   `json:"id"`
 	Title         string   `json:"title"`
 	Content       string   `json:"content"`
-	Type          string   `json:"type"` // "text" | "audio"
+	Type          string   `json:"type"` // "text" | "audio" | "image"
 	AudioData     string   `json:"audio_data,omitempty"`
+	ImageData     string   `json:"image_data,omitempty"`
 	CreatedAt     string   `json:"created_at"`
 	Tags          []string `json:"tags"`
 	Transcript    string   `json:"transcript,omitempty"`
