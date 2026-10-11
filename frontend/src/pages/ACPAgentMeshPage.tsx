@@ -140,18 +140,6 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', ...style }}>
-      {/* Page Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--text)' }}>
-            ACP Agent Mesh
-          </h1>
-          <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-            Discover local agent daemons, monitor inter-agent protocol handshakes, and manage delegated tool meshes.
-          </p>
-        </div>
-      </div>
-
       {acpFeedback && (
         <div
           style={{

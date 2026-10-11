@@ -193,18 +193,6 @@ export const BrainCachePage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Page Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--text)' }}>
-            Storage & Brain Cache
-          </h1>
-          <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-            Manage conversation history preservation, prune temporary brain artifacts, and optimize disk footprint.
-          </p>
-        </div>
-      </div>
-
       {/* Main Gadget 1: Conversation Vault */}
       <div className="google-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>

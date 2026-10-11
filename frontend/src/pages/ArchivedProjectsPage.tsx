@@ -97,18 +97,6 @@ export const ArchivedProjectsPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Page Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--text)' }}>
-            Archived Projects
-          </h1>
-          <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-            Browse and restore shelved workspaces or manage unlinked project sessions.
-          </p>
-        </div>
-      </div>
-
       {statusMsg && (
         <div
           style={{

@@ -115,18 +115,6 @@ export const FingerprintsPage: React.FC<FingerprintsPageProps> = ({ accounts }) 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Page Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--text)' }}>
-            Hardware Fingerprints
-          </h1>
-          <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-            Inspect and randomize per-account hardware fingerprints, machine identifiers, and installation UUIDs.
-          </p>
-        </div>
-      </div>
-
       {/* Profile Mappings Inventory Table */}
       <div className="google-card" style={{ padding: '0px', overflow: 'hidden' }}>
         <div

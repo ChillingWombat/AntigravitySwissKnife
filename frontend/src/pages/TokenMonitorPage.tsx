@@ -416,18 +416,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Page Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--text)' }}>
-            Token & Telemetry Monitor
-          </h1>
-          <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-            Real-time token telemetry, consumption analytics across models and projects, and live cost calculation.
-          </p>
-        </div>
-      </div>
-
       {/* ============================================================ */}
       {/* TAB 0: CONSUMPTION OVERVIEW */}
       {/* ============================================================ */}

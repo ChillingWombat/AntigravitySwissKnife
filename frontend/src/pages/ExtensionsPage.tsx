@@ -364,18 +364,6 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
-      {/* Page Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--text)' }}>
-            Extensions & Auxiliary Tools
-          </h1>
-          <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-            Configure IDE auxiliary panel widgets, workspace integrations, and preview tools.
-          </p>
-        </div>
-      </div>
-
       {feedback && (
         <div
           style={{

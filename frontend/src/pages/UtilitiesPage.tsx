@@ -125,17 +125,6 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
       {/* ============================================================ */}
       {activeTab === 2 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* Page Header */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-            <div>
-              <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--text)' }}>
-                Chat & Project Importer
-              </h1>
-              <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-                Import conversations and projects from external tools including OpenCode, Claude Code, Cursor, and ChatGPT.
-              </p>
-            </div>
-          </div>
           {importFeedback && (
             <div
               style={{
