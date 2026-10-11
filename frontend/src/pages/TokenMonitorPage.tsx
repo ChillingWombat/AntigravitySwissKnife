@@ -557,8 +557,8 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          gap: '14px',
+          gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+          gap: '10px',
         }}
       >
         {/* Total Cost / Tokens */}
@@ -567,16 +567,18 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             backgroundColor: '#ffffff',
             border: '1px solid var(--border)',
             borderRadius: '8px',
-            padding: '16px',
+            padding: '12px 14px',
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+            minWidth: 0,
+            overflow: 'hidden',
           }}
         >
           <div>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
               {unitMode === 'usd' ? 'Total Cost' : 'Total Tokens'}
             </span>
           </div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
+          <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {unitMode === 'usd' ? `$${(summary.total_cost_usd ?? 0).toFixed(2)}` : formatTokens(summary.total_tokens)}
           </div>
         </div>
@@ -594,10 +596,12 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             backgroundColor: '#ffffff',
             border: '1px solid var(--border)',
             borderRadius: '8px',
-            padding: '16px',
+            padding: '12px 14px',
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
             position: 'relative',
             cursor: 'default',
+            minWidth: 0,
+            overflow: 'hidden',
           }}
         >
           {isIoHovered && (
@@ -636,11 +640,11 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             </div>
           )}
           <div>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
               Input/Output Ratio
             </span>
           </div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
+          <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {ioRatio}
           </div>
         </div>
@@ -651,16 +655,18 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             backgroundColor: '#ffffff',
             border: '1px solid var(--border)',
             borderRadius: '8px',
-            padding: '16px',
+            padding: '12px 14px',
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+            minWidth: 0,
+            overflow: 'hidden',
           }}
         >
           <div>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
               Cached Input Ratio
             </span>
           </div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
+          <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {summary.input_tokens > 0 ? (((summary.cached_input_tokens || 0) / summary.input_tokens) * 100).toFixed(1) : '0.0'}%
           </div>
         </div>
@@ -671,17 +677,20 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             backgroundColor: '#ffffff',
             border: '1px solid var(--border)',
             borderRadius: '8px',
-            padding: '16px',
+            padding: '12px 14px',
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+            minWidth: 0,
+            overflow: 'hidden',
           }}
         >
           <div>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
               Generation Speed
             </span>
           </div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
-            76.2 <span style={{ fontSize: '15px', fontWeight: 500 }}>TPS</span>
+          <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)', marginTop: '4px', whiteSpace: 'nowrap' }}>
+            {summary.avg_tps && summary.avg_tps > 0 ? summary.avg_tps.toFixed(1) : '—'}{' '}
+            <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-muted)' }}>TPS</span>
           </div>
         </div>
 
@@ -691,16 +700,18 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             backgroundColor: '#ffffff',
             border: '1px solid var(--border)',
             borderRadius: '8px',
-            padding: '16px',
+            padding: '12px 14px',
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+            minWidth: 0,
+            overflow: 'hidden',
           }}
         >
           <div>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
               Completed Chat Turns
             </span>
           </div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--text)', marginTop: '8px' }}>
+          <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {(summary.requests_count ?? 0).toLocaleString()}
           </div>
         </div>

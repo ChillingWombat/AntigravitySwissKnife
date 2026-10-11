@@ -315,9 +315,10 @@ describe('Token Price Table Sorting & Edit Rate Modal (Milestone 3 / R3)', () =>
     const pagePath = path.resolve(__dirname, '../pages/TokenMonitorPage.tsx')
     const source = fs.readFileSync(pagePath, 'utf8')
 
-    it('verifies Metric Card displays "Generation Speed" and "76.2 TPS"', () => {
+    it('verifies Metric Card displays dynamic "Generation Speed" bound to avg_tps in single-row 5-column grid', () => {
       assert.match(source, /Generation Speed/, 'Card header must be Generation Speed')
-      assert.match(source, /76\.2\s*(?:<span[^>]*>)?TPS/, 'Card must display 76.2 TPS')
+      assert.match(source, /summary\.avg_tps/, 'Card must bind dynamically to summary.avg_tps')
+      assert.match(source, /repeat\(5,\s*minmax\(0,\s*1fr\)\)/, '5 metric cards must fit in a single row')
       assert.doesNotMatch(source, /Average Generation Speed/, 'Old header Average Generation Speed must be removed')
     })
 
