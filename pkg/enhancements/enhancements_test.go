@@ -700,6 +700,19 @@ func TestGenerateEnhancementsScript_ContextWindowProgressRing(t *testing.T) {
 	if !strings.Contains(script, `pct + "% (" + formattedUsed + "/" + formattedMax + ")"`) {
 		t.Errorf("expected script to contain formatted tooltip with used and max context window")
 	}
+
+	// Verify data.summary fallback and clamped percentage
+	if !strings.Contains(script, "data.summary ? ((data.summary.input_tokens || 0) + (data.summary.output_tokens || 0)) : 0") {
+		t.Errorf("expected script to contain summary fallback for conversations without turns")
+	}
+	if !strings.Contains(script, "Math.max(0, Math.min(100, Math.round((usedTokens / validMax) * 100)))") {
+		t.Errorf("expected script to clamp token percentage strictly to [0, 100]")
+	}
+
+	// Verify subagent model selector lookup
+	if !strings.Contains(script, "subModelName = subTrigger ? subTrigger.innerText.trim() : \"\"") {
+		t.Errorf("expected script to resolve subagent model selector when present")
+	}
 }
 
 

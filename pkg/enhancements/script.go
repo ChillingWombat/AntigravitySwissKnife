@@ -1600,8 +1600,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               const turnUsage = (lastTurn.input_tokens || 0) + (lastTurn.output_tokens || 0);
               cachedTokensByConv[targetId] = turnUsage;
               renderContextWindowProgressRing();
-            } else if (data && data.success && Array.isArray(data.turns) && data.turns.length === 0) {
-              cachedTokensByConv[targetId] = 0;
+            } else if (data && data.success) {
+              const sumUsage = data.summary ? ((data.summary.input_tokens || 0) + (data.summary.output_tokens || 0)) : 0;
+              cachedTokensByConv[targetId] = sumUsage;
               renderContextWindowProgressRing();
             }
           }
@@ -1628,9 +1629,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         if (ring.innerHTML !== greyHTML) ring.innerHTML = greyHTML;
       } else {
         const usedTokens = cachedTokensByConv[convId];
-        const pct = Math.min(100, Math.round((usedTokens / maxTokens) * 100));
+        const validMax = (typeof maxTokens === "number" && maxTokens > 0) ? maxTokens : 1000000;
+        const pct = Math.max(0, Math.min(100, Math.round((usedTokens / validMax) * 100)));
         const formattedUsed = formatTokensUnit(usedTokens);
-        const formattedMax = formatTokensUnit(maxTokens);
+        const formattedMax = formatTokensUnit(validMax);
         const tooltipText = pct + "%% (" + formattedUsed + "/" + formattedMax + ")";
 
         ring.setAttribute("title", tooltipText);
@@ -1675,7 +1677,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
         const pillContainer = trigger.closest(".no-focus-agent-input") || trigger.parentElement;
         const thinkingPill = document.getElementById("swiss-thinking-level-pill");
-        const anchor = (thinkingPill && thinkingPill.parentNode === pillContainer.parentNode) ? thinkingPill : (pillContainer || trigger);
+        const anchor = (thinkingPill && (thinkingPill.parentNode === pillContainer || (pillContainer && thinkingPill.parentNode === pillContainer.parentNode))) ? thinkingPill : (pillContainer || trigger);
         if (anchor && anchor.parentNode && (mainRing.previousElementSibling !== anchor)) {
           anchor.parentNode.insertBefore(mainRing, anchor.nextSibling);
         }
@@ -1694,7 +1696,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             const hasIcon = d.querySelector('.google-symbols, svg');
             const hasText = d.querySelector('span.text-xs, span');
             const notBtn = !d.querySelector('button') && d.closest('button') === null;
-            return hasIcon && hasText && notBtn && d.innerText.trim().length > 0 && !d.classList.contains("swiss-context-window-ring");
+            const notSwiss = !d.id?.startsWith("swiss-") && !d.classList.contains("swiss-context-window-ring") && !d.classList.contains("swiss-context-window-ring-sub");
+            return hasIcon && hasText && notBtn && notSwiss && d.innerText.trim().length > 0;
           });
           if (candidate && !agentTags.includes(candidate)) {
             agentTags.push(candidate);
@@ -1736,7 +1739,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           fetchActiveConversationTokens(subConvId);
         }
 
-        const maxTokens = getModelContextWindow("");
+        const subBox = agentTag.closest ? agentTag.closest('[data-testid="agent-input-box"]') : null;
+        const subTrigger = subBox ? (subBox.querySelector('[data-testid="model-selector-trigger"]') || subBox.querySelector('button[aria-label*="Select model"]')) : null;
+        const subModelName = subTrigger ? subTrigger.innerText.trim() : "";
+        const maxTokens = getModelContextWindow(subModelName);
         updateProgressRing(subRing, subConvId, maxTokens);
 
         if (agentTag.parentNode && (subRing.previousElementSibling !== agentTag)) {

@@ -435,6 +435,15 @@ func TestSidebarDividerAndProjectSpacer(t *testing.T) {
 	if !strings.Contains(script, "spacerIndices.add(p.showMoreIdx)") {
 		t.Errorf("GenerateScript missing spacerIndices.add(p.showMoreIdx) fallback when replaceSeeAllTriangle is false")
 	}
+	if !strings.Contains(script, `button[data-swiss-divider="true"]`) || !strings.Contains(script, "hasDividerBtn") {
+		t.Errorf("GenerateScript missing hasDividerBtn check for show-more divider buttons")
+	}
+	if !strings.Contains(script, "targetTop = Math.max(0, Math.min(20, targetTop));") {
+		t.Errorf("GenerateScript missing strict clamping of targetTop to [0, 20px]")
+	}
+	if !strings.Contains(script, "nRect.top >= pRect.bottom && (nRect.top - pRect.bottom <= 40)") {
+		t.Errorf("GenerateScript missing sibling gap validation (nRect.top >= pRect.bottom && <= 40)")
+	}
 	if !strings.Contains(script, "root.stateNode.current !== root") || !strings.Contains(script, "fiber = fiber.alternate;") {
 		t.Errorf("GenerateScript missing active React Fiber alternate tree resolution")
 	}

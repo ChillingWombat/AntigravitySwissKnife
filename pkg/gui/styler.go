@@ -1403,13 +1403,13 @@ func generateBaseScript(cfg *Config) string {
           // Consistent blank spacing below projects without contracted conversation tabs
           let spacer = el.querySelector(".swiss-project-bottom-spacer");
           const hasDividerBtn = Boolean(
-            (item && item.type === "show-more") ||
-            el.querySelector('button[data-swiss-divider="true"]') ||
-            el.matches(':has(button[data-swiss-divider="true"])')
+            (item && (item.type === "show-more" || item.hasShowMore)) ||
+            el.matches('button[data-swiss-divider="true"], [data-swiss-divider="true"], :has(button[data-swiss-divider="true"]), :has([data-swiss-divider="true"])') ||
+            el.querySelector('button[data-swiss-divider="true"], [data-swiss-divider="true"]')
           );
           if (hasDividerBtn) {
-            if (spacer) spacer.remove();
             el.querySelectorAll(".swiss-project-bottom-spacer, .swiss-project-spacer-line").forEach(s => s.remove());
+            if (spacer) { spacer.remove(); spacer = null; }
           } else if (consistentProjectSpacing && spacerIndices.has(idx)) {
             if (!spacer) {
               spacer = document.createElement("div");
@@ -1433,8 +1433,12 @@ func generateBaseScript(cfg *Config) string {
               while (nextItem && (nextItem.style.display === "none" || nextItem.offsetHeight === 0)) {
                 nextItem = nextItem.nextElementSibling;
               }
-              const pInner = el.querySelector('[data-testid="conversation-row-sidebar"]') || el.firstElementChild;
-              const nextInner = nextItem ? nextItem.querySelector('[data-project-card]') : null;
+              const pInner = el.matches('[data-testid="conversation-row-sidebar"]')
+                ? el
+                : (el.querySelector('[data-testid="conversation-row-sidebar"]') || (el.firstElementChild !== spacer ? el.firstElementChild : null) || el);
+              const nextInner = nextItem
+                ? (nextItem.matches('[data-project-card]') ? nextItem : (nextItem.querySelector('[data-project-card]') || nextItem.firstElementChild || nextItem))
+                : null;
               if (pInner && nextInner) {
                 const pRect = pInner.getBoundingClientRect();
                 const nRect = nextInner.getBoundingClientRect();
@@ -1453,8 +1457,9 @@ func generateBaseScript(cfg *Config) string {
             } else if (line) {
               line.remove();
             }
-          } else if (spacer) {
-            spacer.remove();
+          } else {
+            el.querySelectorAll(".swiss-project-bottom-spacer, .swiss-project-spacer-line").forEach(s => s.remove());
+            if (spacer) { spacer.remove(); spacer = null; }
           }
 
           if (item.type === "header") {
