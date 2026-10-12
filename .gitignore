@@ -12,6 +12,7 @@ bin/
 *.exe
 dist/
 dist-desktop/
+.fuse_hidden*
 
 # Git Worktrees for concurrent agent & branch isolation
 .worktrees/

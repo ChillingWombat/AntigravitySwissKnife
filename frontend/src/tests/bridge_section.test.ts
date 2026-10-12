@@ -26,16 +26,16 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
 
   const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u
 
-  it('NavRail contains dedicated Bridge section button with Network Lucide icon', () => {
+  it('NavRail contains dedicated Remote Connect section button with Network Lucide icon', () => {
     assert.ok(navContent.includes('id="btnNavBridge"'))
     assert.ok(navContent.includes('onSelectTool(10)'))
     assert.ok(navContent.includes('<Network size={18}'))
-    assert.ok(navContent.includes('Bridge'))
+    assert.ok(navContent.includes('Remote Connect'))
   })
 
-  it('App.tsx contains 5 segmented tabs for Bridge section in exact required order', () => {
+  it('App.tsx contains 4 segmented tabs for Bridge section in exact required order', () => {
     assert.ok(appContent.includes("currentTool === 10"))
-    assert.ok(appContent.includes("['Remote', 'Gemini', 'WhatsApp', 'Telegram', 'Discord']"))
+    assert.ok(appContent.includes("['Remote', 'Gemini', 'WhatsApp', 'Telegram & Discord']"))
     assert.ok(appContent.includes('<BridgePage'))
   })
 

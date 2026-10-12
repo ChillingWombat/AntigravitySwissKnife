@@ -1108,6 +1108,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     async function ackContinuation(cascadeId) {
       try {
         localStorage.removeItem("antigravity_swiss_pending_continuation");
+        if (typeof window !== "undefined") {
+          window.__swissPendingContinuation = null;
+          window.postMessage({ type: "swiss-clear-pending-continuation", cascade_id: cascadeId }, "*");
+        }
         if (typeof window !== "undefined" && window.fetch) {
           await fetch("http://127.0.0.1:8765/api/conversations/ack", {
             method: "POST",
@@ -1204,6 +1208,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           }
         } catch (_) {}
 
+        if (!pending && typeof window !== "undefined" && window.__swissPendingContinuation) {
+          pending = window.__swissPendingContinuation;
+        }
+
         if (!pending) {
           try {
             const raw = localStorage.getItem("antigravity_swiss_pending_continuation");
@@ -1239,8 +1247,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           }
         } catch (_) {}
 
-        // Check TTL & creation timestamp
-        const ttl = (pending.ttl_seconds || 90) * 1000;
+        // Check TTL & creation timestamp (default 300s for desktop revival)
+        const ttl = (pending.ttl_seconds || 300) * 1000;
         const createdAt = pending.timestamp ? Number(pending.timestamp) : (pending.created_at ? new Date(pending.created_at).getTime() : 0);
         if (!createdAt || isNaN(createdAt) || (now - createdAt > ttl) || (createdAt > now + 60000)) {
           try { localStorage.removeItem("antigravity_swiss_pending_continuation"); } catch (_) {}
@@ -1248,34 +1256,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           return;
         }
 
-        // Dedupe against pinned last conversation path: if path != pinned, drop stale intent
-        const pinnedPath = localStorage.getItem("antigravity_swiss_last_conversation_path");
-        if (pinnedPath && pinnedPath.startsWith("/c/")) {
-          const pinnedID = pinnedPath.replace(/^\/c\//, "").split(/[?#]/)[0];
-          if (uuidRegex.test(pinnedID) && convID !== pinnedID) {
-            console.warn("[SwissKnife AutoRevival] Dropping stale intent targeting " + convID + " (pinned is " + pinnedID + ")");
-            try { localStorage.removeItem("antigravity_swiss_pending_continuation"); } catch (_) {}
-            await ackContinuation(convID);
-            return;
-          }
-        }
-
         const targetPath = "/c/" + convID;
         const curPath = window.location.pathname || "/";
-
-        // Never hijack an active conversation that is already rendered and healthy
-        if (curPath.startsWith("/c/")) {
-          const currentConvID = curPath.replace(/^\/c\//, "").split(/[?#]/)[0];
-          if (uuidRegex.test(currentConvID) && currentConvID !== convID) {
-            const hasMessagesOrEditor = Boolean(document.querySelector('[data-testid="conversation-view"], [data-testid="agent-input-box"]'));
-            if (hasMessagesOrEditor) {
-              console.warn("[SwissKnife AutoRevival] Current page is on active conversation " + currentConvID + "; refusing to navigate away to " + convID);
-              try { localStorage.removeItem("antigravity_swiss_pending_continuation"); } catch (_) {}
-              await ackContinuation(convID);
-              return;
-            }
-          }
-        }
 
         // Protect user drafts: if the editor has typed text, never navigate away or hijack view
         const activeEditor = document.querySelector('[data-testid="agent-input-box"] [contenteditable="true"]') ||
@@ -1288,6 +1270,12 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           if (curDraft.length > 0) {
             return;
           }
+        }
+
+        // If another conversation view is currently generating, retain intent until it finishes
+        const activeGenerating = document.querySelector('[data-testid="agent-generating"], [data-testid="stop-button"]');
+        if (activeGenerating && !curPath.startsWith(targetPath)) {
+          return;
         }
 
         // 1. If not at the target conversation route, navigate
@@ -1447,12 +1435,141 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
     if (!window.__swissRevivalInterval) {
       window.__swissRevivalInterval = setInterval(checkAndExecuteConversationRevival, 2500);
-      window.addEventListener("popstate", () => { setTimeout(checkAndExecuteConversationRevival, 300); }, { passive: true });
+      window.addEventListener("popstate", () => {
+        setTimeout(checkAndExecuteConversationRevival, 300);
+        setTimeout(renderContextWindowProgressRing, 300);
+      }, { passive: true });
+    }
+
+    function getMaxContextWindow(modelName) {
+      if (!modelName) return 1000000;
+      const name = modelName.toLowerCase();
+      if (name.includes("gemini")) {
+        if (name.includes("pro") || name.includes("1.5-pro") || name.includes("2.0-pro") || name.includes("2.5-pro") || name.includes("3-pro") || name.includes("3.8-pro")) {
+          return 2000000;
+        }
+        return 1000000;
+      }
+      if (name.includes("claude")) {
+        return 200000;
+      }
+      if (name.includes("gpt-4") || name.includes("o1") || name.includes("o3") || name.includes("o4")) {
+        return 128000;
+      }
+      if (name.includes("deepseek")) {
+        return 64000;
+      }
+      if (name.includes("qwen") || name.includes("llama")) {
+        return 128000;
+      }
+      if (name.includes("mistral") || name.includes("codestral")) {
+        return 128000;
+      }
+      return 1000000;
+    }
+
+    function formatTokensUnit(n) {
+      if (!n || isNaN(n) || n <= 0) return "0K";
+      if (n >= 1000000) {
+        const m = n / 1000000;
+        return (m >= 10 || Number.isInteger(m) ? m.toFixed(0) : m.toFixed(1).replace(/\.0$/, "")) + "M";
+      }
+      const k = n / 1000;
+      return (k >= 10 || Number.isInteger(k) ? Math.round(k) : k.toFixed(1).replace(/\.0$/, "")) + "K";
+    }
+
+    let lastTokensFetchTime = 0;
+    let cachedTokensByConv = {};
+    async function fetchActiveConversationTokens(convId) {
+      if (!convId) return;
+      const now = Date.now();
+      if (now - lastTokensFetchTime < 4000) return;
+      lastTokensFetchTime = now;
+      try {
+        const res = await fetch("http://127.0.0.1:8765/api/tokens/chat-metrics?conversation_id=" + convId, {
+          signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.summary) {
+            const turns = data.turns || [];
+            const lastTurn = turns.length > 0 ? turns[turns.length - 1] : null;
+            const turnIn = lastTurn ? (lastTurn.input_tokens || lastTurn.total_tokens) : 0;
+            const summaryIn = data.summary.input_tokens || (data.summary.input_tokens + data.summary.output_tokens) || 0;
+            cachedTokensByConv[convId] = turnIn > 0 ? turnIn : summaryIn;
+            renderContextWindowProgressRing();
+          }
+        }
+      } catch (_) {}
+    }
+
+    function renderContextWindowProgressRing() {
+      const trigger = document.querySelector('[data-testid="model-selector-trigger"]') ||
+                      document.querySelector('button[aria-label*="Select model"]');
+      if (!trigger) {
+        const existing = document.getElementById("swiss-context-window-ring");
+        if (existing) existing.remove();
+        return;
+      }
+
+      const modelName = trigger.innerText.trim();
+      const maxTokens = getMaxContextWindow(modelName);
+
+      const convId = (window.location.pathname || "").replace(/^\/c\//, "").split(/[?#]/)[0];
+      if (convId && uuidRegex.test(convId)) {
+        fetchActiveConversationTokens(convId);
+      }
+
+      let usedTokens = (convId && cachedTokensByConv[convId]) ? cachedTokensByConv[convId] : 0;
+      if (!usedTokens) {
+        const stepCount = document.querySelectorAll('[data-testid="user-input-step"]').length;
+        if (stepCount > 0) {
+          usedTokens = Math.min(maxTokens, Math.round(stepCount * 1250));
+        }
+      }
+
+      const pct = Math.min(100, Math.round((usedTokens / maxTokens) * 100));
+      const formattedUsed = formatTokensUnit(usedTokens);
+      const formattedMax = formatTokensUnit(maxTokens);
+      const tooltipText = pct + "%% (" + formattedUsed + "/" + formattedMax + ")";
+
+      let ring = document.getElementById("swiss-context-window-ring");
+      if (!ring) {
+        ring = document.createElement("div");
+        ring.id = "swiss-context-window-ring";
+        ring.className = "swiss-context-window-ring";
+        ring.setAttribute("role", "status");
+        ring.setAttribute("tabindex", "0");
+        ring.style.cssText = "display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 6px; position: relative; cursor: pointer; user-select: none; flex-shrink: 0; vertical-align: middle;";
+      }
+
+      ring.setAttribute("title", tooltipText);
+      ring.setAttribute("aria-label", "Context window used: " + tooltipText);
+
+      const circumference = 44;
+      const offset = Math.max(0, circumference - (circumference * pct / 100));
+
+      const ringHTML = '<svg width="18" height="18" viewBox="0 0 20 20" style="transform: rotate(-90deg); display: block;">' +
+        '<circle cx="10" cy="10" r="7" fill="none" stroke="rgba(148, 163, 184, 0.3)" stroke-width="2" />' +
+        '<circle cx="10" cy="10" r="7" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-dasharray="44" stroke-dashoffset="' + offset.toFixed(2) + '" style="transition: stroke-dashoffset 0.3s ease;" />' +
+      '</svg>';
+
+      if (ring.innerHTML !== ringHTML) {
+        ring.innerHTML = ringHTML;
+      }
+
+      const thinkingPill = document.getElementById("swiss-thinking-level-pill");
+      const pillContainer = trigger.closest(".no-focus-agent-input") || trigger.parentElement;
+      const anchor = thinkingPill || pillContainer || trigger;
+      if (anchor && anchor.parentNode && (ring.previousElementSibling !== anchor)) {
+        anchor.parentNode.insertBefore(ring, anchor.nextSibling);
+      }
     }
 
     const isSwissLeafElement = (n) =>
       n && n.nodeType === 1 && (
         (typeof n.id === "string" && n.id.startsWith("swiss-")) ||
+        n.classList?.contains("swiss-context-window-ring") ||
         n.classList?.contains("swiss-overview-divider") ||
         n.classList?.contains("swiss-overview-bottom-spacer") ||
         n.classList?.contains("swiss-overview-spacer-line") ||
@@ -1501,6 +1618,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         }
 
         applyDefaultProjectHandler();
+        renderContextWindowProgressRing();
         isEnhancingOverview = true;
         try {
           applyOverviewPanelEnhancements();
@@ -1514,6 +1632,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
     applyEnhancementsStyles();
     renderPromptJumpBar();
+    renderContextWindowProgressRing();
     applyDefaultProjectHandler();
     isEnhancingOverview = true;
     try {

@@ -59,7 +59,7 @@ func (s *Store) SaveIntent(intent *RevivalIntent) error {
 		intent.Timestamp = intent.CreatedAt.UnixMilli()
 	}
 	if intent.TTLSeconds == 0 {
-		intent.TTLSeconds = 90
+		intent.TTLSeconds = 600
 	}
 	if intent.MaxAttempts == 0 {
 		intent.MaxAttempts = 2

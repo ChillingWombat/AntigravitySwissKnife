@@ -70,7 +70,7 @@ func (e *Engine) CapturePreSwitchState(targetApp string) (*RevivalIntent, error)
 		Timestamp:          now.UnixMilli(),
 		Attempts:           0,
 		MaxAttempts:        2,
-		TTLSeconds:         90,
+		TTLSeconds:         600,
 		Resumed:            false,
 	}
 
@@ -243,7 +243,7 @@ func (e *Engine) ReviveConversation(targetApp string, conversationID string, for
 		Timestamp:          now.UnixMilli(),
 		Attempts:           0,
 		MaxAttempts:        2,
-		TTLSeconds:         90,
+		TTLSeconds:         600,
 		Resumed:            false,
 	}
 

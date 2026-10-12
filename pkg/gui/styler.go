@@ -297,6 +297,7 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
 [data-swiss-project="%s"] [data-testid="conversation-row-sidebar"] {
   --sidebar-secondary: rgba(%d, %d, %d, %.2f) !important;
   --sidebar-muted: rgba(%d, %d, %d, %.2f) !important;
+  --row-bg: rgba(%d, %d, %d, %.2f) !important;
   background-color: rgba(%d, %d, %d, %.2f) !important;
   border: %s solid transparent !important;
   %s
@@ -307,20 +308,49 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
 /* Hover & Selected States */
 [data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:hover,
 [data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:hover {
+  --row-bg: rgba(%d, %d, %d, %.2f) !important;
   background-color: rgba(%d, %d, %d, %.2f) !important;
 }
 [data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-selected="true"],
-[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-selected="true"] {
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-selected="true"],
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][aria-selected="true"],
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][aria-selected="true"],
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-state="active"],
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-state="active"],
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-active="true"],
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-active="true"],
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"].bg-accent,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"].bg-accent,
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]),
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]),
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:has(a.active),
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:has(a.active) {
+  --sidebar-accent: rgba(%d, %d, %d, %.2f) !important;
+  --accent: rgba(%d, %d, %d, %.2f) !important;
+  --row-bg: rgba(%d, %d, %d, %.2f) !important;
   background-color: rgba(%d, %d, %d, %.2f) !important;
   %s
   font-weight: %s !important;
 }
 [data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-selected="true"]:hover,
-[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-selected="true"]:hover {
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-selected="true"]:hover,
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][aria-selected="true"]:hover,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][aria-selected="true"]:hover,
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-state="active"]:hover,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-state="active"]:hover,
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-active="true"]:hover,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-active="true"]:hover,
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"].bg-accent:hover,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"].bg-accent:hover,
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]):hover,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]):hover,
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:has(a.active):hover,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:has(a.active):hover {
+  --row-bg: rgba(%d, %d, %d, %.2f) !important;
   background-color: rgba(%d, %d, %d, %.2f) !important;
   %s
 }
-`, safeName, safeName, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, borderWidth, borderStyle, safeName, safeName, r, g, b, effectiveHoverOpacity, safeName, safeName, r, g, b, effectiveOpacity, selectedBorderStyle, fontWeight, safeName, safeName, r, g, b, effectiveHoverOpacity, selectedBorderStyle)
+`, safeName, safeName, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, borderWidth, borderStyle, safeName, safeName, r, g, b, effectiveHoverOpacity, r, g, b, effectiveHoverOpacity, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, selectedBorderStyle, fontWeight, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, r, g, b, effectiveHoverOpacity, r, g, b, effectiveHoverOpacity, selectedBorderStyle)
 			} else {
 				selectedBorderStyle := ""
 				activeBgOpacity := effectiveSelectedOpacity
@@ -334,6 +364,7 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
 [data-swiss-project="%s"] [data-testid="conversation-row-sidebar"] {
   --sidebar-secondary: rgba(%d, %d, %d, %.2f) !important;
   --sidebar-muted: rgba(%d, %d, %d, %.2f) !important;
+  --row-bg: rgba(%d, %d, %d, %.2f) !important;
   background-color: rgba(%d, %d, %d, %.2f) !important;
   %s
   border-radius: 8px !important;
@@ -343,14 +374,47 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
 /* Hover & Selected States */
 [data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:hover,
 [data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:hover {
+  --row-bg: rgba(%d, %d, %d, %.2f) !important;
   background-color: rgba(%d, %d, %d, %.2f) !important;
 }
 [data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-selected="true"],
-[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-selected="true"] {
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-selected="true"],
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][aria-selected="true"],
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][aria-selected="true"],
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-state="active"],
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-state="active"],
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-active="true"],
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-active="true"],
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"].bg-accent,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"].bg-accent,
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]),
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]),
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:has(a.active),
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:has(a.active) {
+  --sidebar-accent: rgba(%d, %d, %d, %.2f) !important;
+  --accent: rgba(%d, %d, %d, %.2f) !important;
+  --row-bg: rgba(%d, %d, %d, %.2f) !important;
   background-color: rgba(%d, %d, %d, %.2f) !important;%s
   font-weight: %s !important;
 }
-`, safeName, safeName, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, borderStyle, safeName, safeName, r, g, b, effectiveHoverOpacity, safeName, safeName, r, g, b, activeBgOpacity, selectedBorderStyle, fontWeight)
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-selected="true"]:hover,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-selected="true"]:hover,
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][aria-selected="true"]:hover,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][aria-selected="true"]:hover,
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-state="active"]:hover,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-state="active"]:hover,
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"][data-active="true"]:hover,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"][data-active="true"]:hover,
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"].bg-accent:hover,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"].bg-accent:hover,
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]):hover,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]):hover,
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:has(a.active):hover,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:has(a.active):hover {
+  --row-bg: rgba(%d, %d, %d, %.2f) !important;
+  background-color: rgba(%d, %d, %d, %.2f) !important;
+}
+`, safeName, safeName, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, r, g, b, effectiveOpacity, borderStyle, safeName, safeName, r, g, b, effectiveHoverOpacity, r, g, b, effectiveHoverOpacity, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, r, g, b, activeBgOpacity, r, g, b, activeBgOpacity, r, g, b, activeBgOpacity, r, g, b, activeBgOpacity, selectedBorderStyle, fontWeight, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, r, g, b, effectiveHoverOpacity, r, g, b, effectiveHoverOpacity)
 			}
 
 			lum := (0.2126*float64(r) + 0.7152*float64(g) + 0.0722*float64(b)) / 255.0
@@ -408,12 +472,20 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
   fill: %s !important;
 }
 %s
-/* Action Bar & Buttons on Hover: 100%% Seamless, no dark overlapping gradient strip */
+/* Action Bar & Buttons on Hover: Smooth masking using --row-bg so title text is blocked cleanly */
 [data-swiss-project="%s"][data-testid="conversation-row-sidebar"] div[style*="linear-gradient"],
 [data-swiss-project="%s"] [data-testid="conversation-row-sidebar"] div[style*="linear-gradient"],
 [data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"],
 [data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"] {
-  background: transparent !important;
+  background: linear-gradient(to right, transparent 0%%, var(--row-bg) 25%%) !important;
+}
+
+/* Prevent conversation title text under action buttons from overlapping on hover */
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:hover span.truncate,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:hover span.truncate,
+[data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:hover .truncate,
+[data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:hover .truncate {
+  max-width: calc(100%% - 64px) !important;
 }
 
 /* Natural translucent hover on action buttons */
@@ -426,7 +498,7 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
 				safeName, safeName, safeName, safeName, safeName, safeName, hex, textColor,
 				safeName, safeName, safeName, hex,
 				safeName, safeName, safeName, safeName, safeName, safeName, textColor, textColor,
-				rowCSS, safeName, safeName, safeName, safeName, safeName, safeName))
+				rowCSS, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName, safeName))
 		}
 	}
 
@@ -583,6 +655,7 @@ button[data-swiss-divider="true"]:hover {
 }
 .swiss-project-spacer-line {
   position: absolute !important;
+  top: 1px !important;
   left: 6px !important;
   right: 6px !important;
   width: calc(100% - 12px) !important;
@@ -594,8 +667,9 @@ button[data-swiss-divider="true"]:hover {
   z-index: 3 !important;
   pointer-events: none !important;
 }
-[data-index]:has(button[data-swiss-divider="true"]) .swiss-project-spacer-line {
-  top: 1px !important;
+[data-index]:has(button[data-swiss-divider="true"]) .swiss-project-spacer-line,
+[data-index]:has(button[data-swiss-divider="true"]) .swiss-project-bottom-spacer {
+  display: none !important;
 }
 [data-theme="dark"] .swiss-project-spacer-line,
 .dark .swiss-project-spacer-line {
@@ -869,6 +943,7 @@ func generateBaseScript(cfg *Config) string {
 
   // 2. Tag virtual list items & attach drag handlers
   function updateTagsAndDraggables() {
+    window.__swissUpdateTagsAndDraggables = updateTagsAndDraggables;
     try {
       const activeArchived = window.__swissArchivedProjects || archivedProjects || [];
       let container = document.querySelector(".w-full.relative > [data-index]")?.parentElement;
@@ -980,6 +1055,7 @@ func generateBaseScript(cfg *Config) string {
       // Group items by project to filter conversation tabs according to tabsMode, tabsFixedLimit, and tabsAgeThreshold
       const projects = [];
       let curProj = null;
+      const rowToProjectMap = {};
       items.forEach((it, idx) => {
         if (it.type === "header") {
           curProj = {
@@ -997,6 +1073,7 @@ func generateBaseScript(cfg *Config) string {
           curProj = null;
         } else if (it.type === "row" && curProj && (!it.groupId || it.groupId === curProj.groupId)) {
           curProj.rows.push(idx);
+          rowToProjectMap[idx] = curProj.label;
         } else if (it.type === "show-more" && curProj && (!it.groupId || it.groupId === curProj.groupId)) {
           curProj.hasShowMore = true;
           curProj.showMoreIdx = idx;
@@ -1102,12 +1179,13 @@ func generateBaseScript(cfg *Config) string {
               spacerIndices.add(visibleRows[visibleRows.length - 1]);
             } else if (p.emptyPlaceholderIdx !== undefined && p.emptyPlaceholderIdx !== -1 && !hiddenIndices.has(p.emptyPlaceholderIdx)) {
               spacerIndices.add(p.emptyPlaceholderIdx);
-            } else {
+            } else if (p.rows.length === 0) {
               spacerIndices.add(p.headerIdx);
             }
-          } else {
+          } else if (!replaceSeeAllTriangle) {
             spacerIndices.add(p.showMoreIdx);
           }
+          // When p.hasShowMore is visible and replaceSeeAllTriangle is true, the divider button itself already contains the horizontal separator line
         });
       } else {
         container.querySelectorAll(".swiss-project-bottom-spacer").forEach(el => el.remove());
@@ -1157,17 +1235,15 @@ func generateBaseScript(cfg *Config) string {
               ? el
               : el.querySelector('[data-testid="conversation-row-sidebar"]');
 
-            if (item.groupId) {
-              const pName = headerMap[item.groupId];
-              if (pName) {
-                const hasRowColor = isColorEnabled && window.__swissDynamicColors && Boolean(window.__swissDynamicColors[pName]);
-                if (hasRowColor) {
-                  setAttrIfDiff(el, "data-swiss-project", pName);
-                  if (row) setAttrIfDiff(row, "data-swiss-project", pName);
-                } else {
-                  removeAttrIfPresent(el, "data-swiss-project");
-                  if (row) removeAttrIfPresent(row, "data-swiss-project");
-                }
+            const pName = rowToProjectMap[idx] || (item.groupId ? headerMap[item.groupId] : null);
+            if (pName) {
+              const hasRowColor = isColorEnabled && window.__swissDynamicColors && Boolean(window.__swissDynamicColors[pName]);
+              if (hasRowColor) {
+                setAttrIfDiff(el, "data-swiss-project", pName);
+                if (row) setAttrIfDiff(row, "data-swiss-project", pName);
+              } else {
+                removeAttrIfPresent(el, "data-swiss-project");
+                if (row) removeAttrIfPresent(row, "data-swiss-project");
               }
             }
 
@@ -1326,7 +1402,15 @@ func generateBaseScript(cfg *Config) string {
 
           // Consistent blank spacing below projects without contracted conversation tabs
           let spacer = el.querySelector(".swiss-project-bottom-spacer");
-          if (consistentProjectSpacing && spacerIndices.has(idx)) {
+          const hasDividerBtn = Boolean(
+            (item && item.type === "show-more") ||
+            el.querySelector('button[data-swiss-divider="true"]') ||
+            el.matches(':has(button[data-swiss-divider="true"])')
+          );
+          if (hasDividerBtn) {
+            if (spacer) spacer.remove();
+            el.querySelectorAll(".swiss-project-bottom-spacer, .swiss-project-spacer-line").forEach(s => s.remove());
+          } else if (consistentProjectSpacing && spacerIndices.has(idx)) {
             if (!spacer) {
               spacer = document.createElement("div");
               spacer.className = "swiss-project-bottom-spacer";
@@ -1345,20 +1429,22 @@ func generateBaseScript(cfg *Config) string {
               const spRect = spacer.getBoundingClientRect();
               const elRect = el.getBoundingClientRect();
               let targetTop = 1;
-              if (el.querySelector('button[data-swiss-divider="true"]') || el.matches(':has(button[data-swiss-divider="true"])')) {
-                line.style.removeProperty("top");
-              } else {
-                const nextItem = el.nextElementSibling;
-                const pInner = el.querySelector('[data-testid="conversation-row-sidebar"]') || el.firstElementChild;
-                const nextInner = nextItem ? nextItem.querySelector('[data-project-card]') : null;
-                if (pInner && nextInner) {
-                  const pRect = pInner.getBoundingClientRect();
-                  const nRect = nextInner.getBoundingClientRect();
+              let nextItem = el.nextElementSibling;
+              while (nextItem && (nextItem.style.display === "none" || nextItem.offsetHeight === 0)) {
+                nextItem = nextItem.nextElementSibling;
+              }
+              const pInner = el.querySelector('[data-testid="conversation-row-sidebar"]') || el.firstElementChild;
+              const nextInner = nextItem ? nextItem.querySelector('[data-project-card]') : null;
+              if (pInner && nextInner) {
+                const pRect = pInner.getBoundingClientRect();
+                const nRect = nextInner.getBoundingClientRect();
+                if (nRect && nRect.height > 0 && nRect.top >= pRect.bottom && (nRect.top - pRect.bottom <= 40)) {
                   const gapCenter = (pRect.bottom + nRect.top) / 2;
                   targetTop = Math.round(gapCenter - 0.5 - spRect.top);
+                  targetTop = Math.max(0, Math.min(20, targetTop));
                 }
-                line.style.setProperty("top", targetTop + "px", "important");
               }
+              line.style.setProperty("top", targetTop + "px", "important");
               const localY = (spRect.top - elRect.top) + targetTop;
               const elOriginDevY = Math.round(containerTop * dpr) + (elRect.top - containerTop) * dpr;
               const paintedBaseDevY = elOriginDevY + Math.round(localY * dpr);
@@ -1768,6 +1854,7 @@ func generateBaseScript(cfg *Config) string {
             '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"] {' +
             '  --sidebar-secondary: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;' +
             '  --sidebar-muted: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;' +
+            '  --row-bg: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;' +
             '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;' +
             '  border: ' + borderWidth + ' solid transparent !important;' +
             '  border-radius: 8px !important;' +
@@ -1776,6 +1863,7 @@ func generateBaseScript(cfg *Config) string {
             '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover,' +
             '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover,' +
             '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover {' +
+            '  --row-bg: rgba(' + r + ', ' + g + ', ' + b + ', ' + effHoverOpacity + ') !important;' +
             '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effHoverOpacity + ') !important;' +
             '}' +
             '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"] > div,' +
@@ -1795,14 +1883,54 @@ func generateBaseScript(cfg *Config) string {
             '}' +
             '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-selected="true"],' +
             '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-selected="true"],' +
-            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-selected="true"] {' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-selected="true"],' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][aria-selected="true"],' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][aria-selected="true"],' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][aria-selected="true"],' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-state="active"],' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-state="active"],' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-state="active"],' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-active="true"],' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-active="true"],' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-active="true"],' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"].bg-accent,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"].bg-accent,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"].bg-accent,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]),' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]),' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:has(a[aria-current="page"]),' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:has(a.active),' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:has(a.active),' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:has(a.active) {' +
+            '  --sidebar-accent: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;' +
+            '  --accent: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;' +
+            '  --row-bg: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;' +
             '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;' +
             '  ' + selectedBorderStyle +
             '  font-weight: ' + fontWeight + ' !important;' +
             '}' +
             '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-selected="true"]:hover,' +
             '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-selected="true"]:hover,' +
-            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-selected="true"]:hover {' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-selected="true"]:hover,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][aria-selected="true"]:hover,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][aria-selected="true"]:hover,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][aria-selected="true"]:hover,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-state="active"]:hover,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-state="active"]:hover,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-state="active"]:hover,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-active="true"]:hover,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-active="true"]:hover,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-active="true"]:hover,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"].bg-accent:hover,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"].bg-accent:hover,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"].bg-accent:hover,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]):hover,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]):hover,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:has(a[aria-current="page"]):hover,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:has(a.active):hover,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:has(a.active):hover,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:has(a.active):hover {' +
+            '  --row-bg: rgba(' + r + ', ' + g + ', ' + b + ', ' + effHoverOpacity + ') !important;' +
             '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effHoverOpacity + ') !important;' +
             '  ' + selectedBorderStyle +
             '}'
@@ -1821,6 +1949,7 @@ func generateBaseScript(cfg *Config) string {
             '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"] {' +
             '  --sidebar-secondary: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;' +
             '  --sidebar-muted: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;' +
+            '  --row-bg: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;' +
             '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;' +
             '  border: none !important;' +
             '  border-left: none !important;' +
@@ -1830,6 +1959,7 @@ func generateBaseScript(cfg *Config) string {
             '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover,' +
             '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover,' +
             '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover {' +
+            '  --row-bg: rgba(' + r + ', ' + g + ', ' + b + ', ' + effHoverOpacity + ') !important;' +
             '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effHoverOpacity + ') !important;' +
             '}' +
             '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"] > div,' +
@@ -1849,13 +1979,78 @@ func generateBaseScript(cfg *Config) string {
             '}' +
             '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-selected="true"],' +
             '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-selected="true"],' +
-            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-selected="true"] {' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-selected="true"],' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][aria-selected="true"],' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][aria-selected="true"],' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][aria-selected="true"],' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-state="active"],' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-state="active"],' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-state="active"],' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-active="true"],' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-active="true"],' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-active="true"],' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"].bg-accent,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"].bg-accent,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"].bg-accent,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]),' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]),' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:has(a[aria-current="page"]),' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:has(a.active),' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:has(a.active),' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:has(a.active) {' +
+            '  --sidebar-accent: rgba(' + r + ', ' + g + ', ' + b + ', ' + activeBgOpacity + ') !important;' +
+            '  --accent: rgba(' + r + ', ' + g + ', ' + b + ', ' + activeBgOpacity + ') !important;' +
+            '  --row-bg: rgba(' + r + ', ' + g + ', ' + b + ', ' + activeBgOpacity + ') !important;' +
             '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + activeBgOpacity + ') !important;' +
             (selectedBorderStyle ? '  ' + selectedBorderStyle : '') +
             '  font-weight: ' + fontWeight + ' !important;' +
+            '}' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-selected="true"]:hover,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-selected="true"]:hover,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-selected="true"]:hover,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][aria-selected="true"]:hover,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][aria-selected="true"]:hover,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][aria-selected="true"]:hover,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-state="active"]:hover,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-state="active"]:hover,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-state="active"]:hover,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-active="true"]:hover,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-active="true"]:hover,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-active="true"]:hover,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"].bg-accent:hover,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"].bg-accent:hover,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"].bg-accent:hover,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]):hover,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]):hover,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:has(a[aria-current="page"]):hover,' +
+            '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:has(a.active):hover,' +
+            '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:has(a.active):hover,' +
+            '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:has(a.active):hover {' +
+            '  --row-bg: rgba(' + r + ', ' + g + ', ' + b + ', ' + effHoverOpacity + ') !important;' +
+            '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effHoverOpacity + ') !important;' +
             '}'
           );
         }
+
+        cssRules.push(
+          '/* Action Bar Masking & Hover Truncation */' +
+          '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"] div[style*="linear-gradient"],' +
+          '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"] div[style*="linear-gradient"],' +
+          '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"] div[style*="linear-gradient"],' +
+          '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"],' +
+          '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"],' +
+          '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover div[style*="linear-gradient"] {' +
+          '  background: linear-gradient(to right, transparent 0%%, var(--row-bg) 25%%) !important;' +
+          '}' +
+          '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover span.truncate,' +
+          '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover span.truncate,' +
+          '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover span.truncate,' +
+          '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover .truncate,' +
+          '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover .truncate,' +
+          '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover .truncate {' +
+          '  max-width: calc(100%% - 64px) !important;' +
+          '}'
+        );
       }
       dynStyleEl.textContent = cssRules.join("\n");
       if (typeof window.__swissUpdateTagsAndDraggables === "function") {

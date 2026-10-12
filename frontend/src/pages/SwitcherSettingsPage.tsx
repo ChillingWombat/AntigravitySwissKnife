@@ -16,8 +16,6 @@ import {
   Scale,
   Sigma,
   Infinity as InfinityIcon,
-  Share2,
-  Split,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import type { RuleConfig, AvailableModelItem, SwitchMode, MultiAppSyncMode, InstalledAppsStatus, SubagentModelStrategy, QuotaRefreshMode } from '../types'
@@ -709,11 +707,11 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             <select
               value={quotaRefreshMode}
               onChange={(e) => setQuotaRefreshMode(e.target.value as QuotaRefreshMode)}
-              style={{ width: '240px' }}
+              style={{ width: '190px' }}
               aria-label="Account Quota Refresh Frequency Mode"
             >
-              <option value="dynamic">Dynamic Adaptive Fetch</option>
-              <option value="manual">Manually Set Refresh Frequency</option>
+              <option value="dynamic">Dynamic Adaptive Refresh</option>
+              <option value="manual">Custom Fixed Refresh</option>
             </select>
           </div>
 
@@ -825,12 +823,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Share2 size={15} color={multiAppSyncMode === 'shared' ? 'var(--primary)' : 'var(--text-muted)'} />
-                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
-                  Shared Mode (Default)
-                </span>
-              </div>
+              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                Shared Mode (Default)
+              </span>
               {multiAppSyncMode === 'shared' && (
                 <CheckCircle2 size={14} color="var(--primary)" />
               )}
@@ -861,12 +856,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Split size={15} color={multiAppSyncMode === 'individual' && !isSingleAppOrLess ? 'var(--primary)' : 'var(--text-muted)'} />
-                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
-                  Individual Accounts Mode
-                </span>
-              </div>
+              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                Individual Accounts Mode
+              </span>
               {multiAppSyncMode === 'individual' && !isSingleAppOrLess && (
                 <CheckCircle2 size={14} color="var(--primary)" />
               )}

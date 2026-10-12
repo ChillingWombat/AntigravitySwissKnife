@@ -65,6 +65,8 @@ type Server struct {
 	knownWorkspaces    map[string]struct{}
 	quotaPollMu        sync.Mutex
 	quotaPolling       bool
+	testIDEsMu         sync.Mutex
+	testIDEs           []int
 }
 
 // NewServer initializes the web UI server.
@@ -388,6 +390,13 @@ func (s *Server) Start() error {
 
 // Stop gracefully shuts down the web server.
 func (s *Server) Stop() error {
+	s.testIDEsMu.Lock()
+	pids := s.testIDEs
+	s.testIDEs = nil
+	s.testIDEsMu.Unlock()
+	for _, pid := range pids {
+		_ = core.KillProcessGroup(pid)
+	}
 	if s.httpServer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -5138,8 +5147,11 @@ func (s *Server) handleFilesOpenIDE(w http.ResponseWriter, r *http.Request) {
 	_ = core.EnsureVSCodeWindowCloseGuard()
 
 	if core.IsRunningTests() || gui.IsTestExecution() {
+		spawned := false
 		launchedCandidate := ""
-		if len(candidates) > 0 {
+		if os.Getenv("ANTIGRAVITY_ALLOW_TEST_OPEN_IDE") == "1" {
+			spawned, launchedCandidate = s.launchSandboxedIDE(dir, candidates)
+		} else if len(candidates) > 0 {
 			launchedCandidate = candidates[0]
 		}
 		writeJSON(w, map[string]interface{}{
@@ -5147,12 +5159,22 @@ func (s *Server) handleFilesOpenIDE(w http.ResponseWriter, r *http.Request) {
 			"dir":      dir,
 			"ide":      targetIDE,
 			"launched": launchedCandidate,
+			"spawned":  spawned,
 		})
 		return
 	}
 
-	spawned := false
-	launched := ""
+	spawned, launched := launchIDETarget(dir, candidates)
+
+	writeJSON(w, map[string]interface{}{
+		"success":  spawned,
+		"dir":      dir,
+		"ide":      targetIDE,
+		"launched": launched,
+	})
+}
+
+func launchIDETarget(dir string, candidates []string) (bool, string) {
 	for _, cand := range candidates {
 		fields := strings.Fields(cand)
 		if len(fields) == 0 {
@@ -5164,18 +5186,50 @@ func (s *Server) handleFilesOpenIDE(w http.ResponseWriter, r *http.Request) {
 			cmd.Dir = dir
 		}
 		if err := core.LaunchDetachedProcess(cmd); err == nil {
-			spawned = true
-			launched = cand
-			break
+			return true, cand
 		}
 	}
+	return false, ""
+}
 
-	writeJSON(w, map[string]interface{}{
-		"success":  spawned,
-		"dir":      dir,
-		"ide":      targetIDE,
-		"launched": launched,
-	})
+// launchSandboxedIDE opens the target in a throwaway, isolated editor instance
+// so test runs never touch the user's real IDE windows. VS Code-family binaries
+// get --transient, which runs with temporary user-data and extension dirs. The
+// spawned process group is recorded and killed by Server.Stop.
+func (s *Server) launchSandboxedIDE(dir string, candidates []string) (bool, string) {
+	for _, cand := range candidates {
+		fields := strings.Fields(cand)
+		if len(fields) == 0 {
+			continue
+		}
+		args := fields[1:]
+		if isVSCodeFamilyBin(fields[0]) {
+			args = append(args, "--transient", "--new-window", "--disable-extensions")
+		}
+		args = append(args, dir)
+		cmd := exec.Command(fields[0], args...)
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			cmd.Dir = dir
+		}
+		if err := core.LaunchDetachedProcess(cmd); err != nil {
+			continue
+		}
+		s.testIDEsMu.Lock()
+		s.testIDEs = append(s.testIDEs, cmd.Process.Pid)
+		s.testIDEsMu.Unlock()
+		return true, cand
+	}
+	return false, ""
+}
+
+func isVSCodeFamilyBin(bin string) bool {
+	base := strings.ToLower(filepath.Base(bin))
+	for _, name := range []string{"code", "code-insiders", "codium", "vscodium", "cursor", "windsurf"} {
+		if base == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) handleFilesIDEConfig(w http.ResponseWriter, r *http.Request) {

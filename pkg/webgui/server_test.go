@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -2191,6 +2192,94 @@ func TestWebGUIFilesOpenIDEEndpoint(t *testing.T) {
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected status 405, got %d", resp.StatusCode)
 	}
+}
+
+// TestWebGUIFilesOpenIDESandboxedCleanup verifies the opt-in real-open path:
+// the handler spawns a throwaway --transient VS Code instance, and Server.Stop
+// closes it afterwards, so test runs never leak editor tabs into the user's
+// real IDE profile.
+func TestWebGUIFilesOpenIDESandboxedCleanup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping sandboxed IDE launch test in short mode")
+	}
+	codeBin, err := exec.LookPath("code")
+	if err != nil {
+		t.Skip("code binary not found in PATH")
+	}
+	_ = codeBin
+	if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
+		t.Skip("no display server available")
+	}
+	t.Setenv("ANTIGRAVITY_ALLOW_TEST_OPEN_IDE", "1")
+
+	cfgDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", cfgDir)
+
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+	tempDir := t.TempDir()
+
+	ideReqBody, _ := json.Marshal(map[string]string{
+		"path": tempDir,
+		"ide":  "code",
+	})
+	resp, err := http.Post(baseURL+"/api/files/open_ide", "application/json", bytes.NewReader(ideReqBody))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/files/open_ide failed: %v", err)
+	}
+	var openRes map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&openRes)
+	resp.Body.Close()
+
+	if openRes["spawned"] != true {
+		t.Fatalf("expected spawned: true, got %v", openRes)
+	}
+	if openRes["launched"] != "code" {
+		t.Errorf("expected launched 'code', got %v", openRes["launched"])
+	}
+
+	findTransient := func() string {
+		out, err := exec.Command("pgrep", "-af", "transient").Output()
+		if err != nil {
+			return ""
+		}
+		for _, line := range strings.Split(string(out), "\n") {
+			if strings.Contains(line, "transient") && strings.Contains(line, "code") {
+				return line
+			}
+		}
+		return ""
+	}
+
+	deadline := time.Now().Add(20 * time.Second)
+	var procLine string
+	for time.Now().Before(deadline) {
+		if procLine = findTransient(); procLine != "" {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if procLine == "" {
+		t.Fatalf("no transient code instance spawned within 20s")
+	}
+
+	if err := srv.Stop(); err != nil {
+		t.Fatalf("srv.Stop error: %v", err)
+	}
+
+	deadline = time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if findTransient() == "" {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Fatalf("transient code instance still running after srv.Stop: %s", findTransient())
 }
 
 func TestDesktopRelaunchEndpoint(t *testing.T) {

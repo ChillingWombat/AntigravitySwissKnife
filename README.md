@@ -22,9 +22,10 @@
 
 ## Overview
 
-Antigravity Swiss Knife is a cross-platform desktop companion and background daemon for Google Antigravity 2.0, CLI  and VS Code Extension.  It operates 100% locally and adhere strictly to Google Cloud Terms of Service.
+Antigravity Swiss Knife is a cross-platform desktop companion and background daemon for Antigravity 2.0, CLI  and VS Code Extension, while adhering Google's Terms of Service.
 
-As a new open-source project in active development, community feedback is warmly encouraged. Please feel free to raise issues, report bugs, or suggest feature ideas in our GitHub repository to help shape upcoming releases.
+>As a new open-source project in active development, community feedback would be really appreciated :heart:.  
+Please feel free to raise issues, report bugs, or suggest feature ideas in our GitHub repository to help shape upcoming releases.
 
 ## Key Features
 
@@ -80,22 +81,36 @@ To run only the headless companion daemon:
 ## Frequently Asked Questions
 
 1. **What platforms does Antigravity Swiss Knife support?**  
-It runs on 64-bit Linux (`.deb` and source installer), Windows 10/11 (NSIS installer), and macOS (Apple Silicon and Intel `.dmg`). Linux serves as the primary development platform with full desktop and CLI coverage. Windows and macOS packages are validated inside Quickemu virtualized environments.
+- It runs on 64-bit Linux (`.deb` and source installer), Windows 10/11 (NSIS installer), and macOS (Apple Silicon and Intel `.dmg`). 
+- Linux is the primary development platform while Windows and macOS packages have been validated inside Quickemu virtualized environments.
 
 2. **Does it use an API proxy server?**  
-No. Antigravity Swiss Knife never deploys an HTTP MITM proxy or external network tunnel. Intercepting API traffic between your IDE and Google endpoints risks credential exposure and violates Google Cloud Terms of Service. Swiss Knife operates purely through direct local OS keyrings, SQLite WAL coordination, and native Chrome DevTools Protocol hooks on your machine.
+- No. Intercepting API traffic between your IDE and Google endpoints risks credential exposure and violates Google Cloud Terms of Service. 
+- Swiss Knife operates purely through direct local OS keyrings, SQLite WAL coordination, and native Chrome DevTools Protocol hooks on your machine.
+- If you really need such feature, please check projects like [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI).
 
-3. **Will my accounts get banned for using the Account Switcher?**  
-No. Account rotation updates OAuth refresh tokens inside your operating system's native keyring (Secret Service, Windows Credential Manager, macOS Keychain) exactly as official login sessions do. It does not generate synthetic API floods. It also virtualizes hardware identifiers (`machineid`, installation UUIDs) per account to prevent identity collision and telemetry linkage.
+3. **Will my account get banned for using the Account Switcher?**  
+- No, Google only bans relevant services for account that was acquired illicitly, but not for using account switcher. 
+- Account rotation updates OAuth refresh tokens inside your operating system's native keyring exactly as official login sessions do. 
+- It also virtualizes hardware identifiers per account to prevent identity collision and telemetry linkage.
 
 4. **Can I use separate Google accounts for subagents?**  
-No. Spawning subagents across different Google accounts concurrently causes session race conditions and violates Terms of Service. Swiss Knife limits Google account switching strictly to the primary orchestrator session. Subagent offloading is designed exclusively for Custom Models (BYOK API keys for Anthropic, OpenAI, DeepSeek, or local Ollama instances), keeping Google account usage isolated and compliant.
+- No, spawning subagents across different Google accounts concurrently as a pool causes session race conditions and violates Terms of Service. 
+- Swiss Knife limits Google account switching strictly to the primary orchestrator session. Subagent offloading is designed exclusively for Custom Models, keeping Google account usage isolated and compliant.
 
 5. **How are my credentials stored and secured?**  
-All sensitive credentials—OAuth refresh tokens, passwords, and MFA secret seeds—remain strictly on your local machine. They are encrypted at rest with AES-256-GCM before writing to disk, or stored directly within your operating system's native keyring. You can also configure an optional application access master password (PBKDF2-HMAC-SHA256) to gate desktop entry behind an unlock screen.
+- All sensitive credentials remain strictly on your local machine and are encrypted at rest with AES-256-GCM  
+- You can configure an optional application access master password to gate application  entry.
 
-6. **How does active session continuation work across account switches?**  
-The `pkg/revival` subsystem detects your active conversation UUID (`cascadeId`) and subagent execution state before rotation occurs. It pins workspace layouts in `app_storage.json`, relaunches the host process, and re-injects prompt continuation commands over the Chrome DevTools Protocol so you can resume work without losing context.
+
+
+7. **Why doesn't  this proejct support third-party subscription accounts as custom models?**  
+- Frontier models are co-trained and optimized alongside their native agent runtimes and toolchains. Running Claude outside Claude Code or GPT outside Codex loses the prompt tuning, tool protocols, and scaffold optimizations that give each model its edge. 
+- While avoiding vendor lock-in sounds appealing, models deliver their best results inside their native environments. 
+- Antigravity had rough edges early on, but Google's sufficient resources will  keep Gemini and the Antigravity runtime consistently competitive for daily development eventually and meet most people's needs.
+8. **If Custom Models don't replace Gemini, how should I work with other frontier models?**  
+- Custom Models in Swiss Knife (BYOK API keys or local Ollama) serve as backups, cost-saving alternatives, and auxiliary subagents when Gemini quota runs low. They handle overflow and specialized tasks rather than replacing the primary daily driver. 
+- The cleanest way to work with external frontier models is to run each one in its native agent application and connect them with Antigravity through open Agent Communication Protocols (ACP). Each agent should stay in its optimized environment while collaborating across projects.
 
 ## Documentation Wiki
 

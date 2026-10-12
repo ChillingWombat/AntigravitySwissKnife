@@ -73,12 +73,12 @@ describe('Dynamic Quota Refresh Frequency in Switcher Settings', () => {
         'Page must contain Account Quota Refresh Frequency title'
       )
       assert.ok(
-        pageContent.includes('Dynamic Adaptive Fetch'),
-        'Selector must contain Dynamic Adaptive Fetch option'
+        pageContent.includes('Dynamic Adaptive Refresh'),
+        'Selector must contain Dynamic Adaptive Refresh option'
       )
       assert.ok(
-        pageContent.includes('Manually Set Refresh Frequency'),
-        'Selector must contain Manually Set Refresh Frequency option'
+        pageContent.includes('Custom Fixed Refresh'),
+        'Selector must contain Custom Fixed Refresh option'
       )
     })
 

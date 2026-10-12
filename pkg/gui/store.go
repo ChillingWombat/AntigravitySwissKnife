@@ -19,11 +19,12 @@ import (
 
 // Store manages GUI improvement configuration and project discovery.
 type Store struct {
-	mu             sync.RWMutex
-	configPath     string
-	config         *Config
-	injector       *Injector
-	desktopManager *DesktopManager
+	mu                sync.RWMutex
+	configPath        string
+	config            *Config
+	injector          *Injector
+	desktopManager    *DesktopManager
+	lastLoadedModTime time.Time
 }
 
 // NewStore initializes or loads the GUI configuration from the specified directory.
@@ -53,6 +54,10 @@ func NewStore(configDir string) (*Store, error) {
 }
 
 func (s *Store) load() error {
+	fi, err := os.Stat(s.configPath)
+	if err != nil {
+		return err
+	}
 	data, err := os.ReadFile(s.configPath)
 	if err != nil {
 		return err
@@ -149,22 +154,34 @@ func (s *Store) load() error {
 		cfg.AutoArchiveHorizon = "14d"
 	}
 	s.config = &cfg
+	s.lastLoadedModTime = fi.ModTime()
 	return nil
+}
+
+func (s *Store) reloadIfModifiedLocked() {
+	if fi, err := os.Stat(s.configPath); err == nil && fi.ModTime().After(s.lastLoadedModTime) {
+		_ = s.load()
+	}
 }
 
 // Save writes the current configuration to disk and updates persistent styles and scripts.
 func (s *Store) Save() error {
-	s.mu.RLock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.reloadIfModifiedLocked()
+
 	data, err := json.MarshalIndent(s.config, "", "  ")
 	if err != nil {
-		s.mu.RUnlock()
 		return err
 	}
 	cfgCopy := *s.config
-	s.mu.RUnlock()
 
 	if err := os.WriteFile(s.configPath, data, 0600); err != nil {
 		return err
+	}
+	if fi, err := os.Stat(s.configPath); err == nil {
+		s.lastLoadedModTime = fi.ModTime()
 	}
 
 	_ = s.writePersistentFiles(&cfgCopy)
@@ -212,6 +229,10 @@ func (s *Store) SyncPersistentFiles() error {
 
 // GetConfig returns a copy of the current configuration.
 func (s *Store) GetConfig() Config {
+	s.mu.Lock()
+	s.reloadIfModifiedLocked()
+	s.mu.Unlock()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

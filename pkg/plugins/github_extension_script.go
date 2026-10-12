@@ -104,6 +104,7 @@ func GenerateGitHubExtensionScript() string {
   }
   window.setSwissDaemonOnline = setDaemonOnline;
 
+  let daemonFailureCount = 0;
   async function checkDaemonConnection() {
     try {
       const res = await fetch("http://127.0.0.1:8765/api/status", {
@@ -111,11 +112,15 @@ func GenerateGitHubExtensionScript() string {
         signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined,
       });
       if (res && res.ok) {
+        daemonFailureCount = 0;
         setDaemonOnline(true);
         return;
       }
     } catch (_) {}
-    setDaemonOnline(false);
+    daemonFailureCount++;
+    if (daemonFailureCount >= 3) {
+      setDaemonOnline(false);
+    }
   }
 
   function getLeftSidebar() {

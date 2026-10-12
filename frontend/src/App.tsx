@@ -20,7 +20,7 @@ import { toAccountState } from './types'
 import { api } from './api'
 
 export const App: React.FC = () => {
-  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 2: Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Bridge
+  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 2: Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect
   const [currentTab, setCurrentTab] = useState<number>(0) // 0: Dashboard, 1: FP, 2: Rules
   const [systemSettingsTab, setSystemSettingsTab] = useState<number>(0) // 0: General, 1: Path & Storage, 2: Error & Privacy, 3: About
   const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Auxiliary Panel
@@ -151,7 +151,7 @@ export const App: React.FC = () => {
             onSelectTab={setCurrentTab}
             activeAccount={status?.active_account || fleet?.active_account || null}
           />
-        ) : (currentTool !== 5 && currentTool !== 6 && currentTool !== 7 && currentTool !== 10) ? (
+        ) : (currentTool !== 5 && currentTool !== 6 && currentTool !== 7) ? (
           <header
             style={{
               height: '72px',
@@ -277,7 +277,7 @@ export const App: React.FC = () => {
               )}
 
               {currentTool === 10 && (
-                /* Bridge Segmented Tabs */
+                /* Remote Connect Segmented Tabs */
                 <div
                   style={{
                     display: 'flex',
@@ -287,7 +287,7 @@ export const App: React.FC = () => {
                     gap: '2px',
                   }}
                 >
-                  {['Remote', 'Gemini', 'WhatsApp', 'Telegram', 'Discord'].map((tab, idx) => {
+                  {['Remote', 'Gemini', 'WhatsApp', 'Telegram & Discord'].map((tab, idx) => {
                     const isActive = bridgeTab === idx
                     return (
                       <button

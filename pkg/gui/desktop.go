@@ -489,8 +489,16 @@ func generatePreloadLoaderScript() string {
             }
           } catch (_) {}
         }
+        let pendingContinuation = null;
+        const contPath = path.join(configDir, "pending_continuation.json");
+        if (fs.existsSync(contPath)) {
+          try {
+            pendingContinuation = JSON.parse(fs.readFileSync(contPath, "utf8"));
+          } catch (_) {}
+        }
         const diskBootstrap = 'window.__swissDiskSavedColors = ' + JSON.stringify(diskSavedColors) + ';\n' +
-          'window.__swissDiskDeletedColors = ' + JSON.stringify(diskDeletedColors) + ';\n';
+          'window.__swissDiskDeletedColors = ' + JSON.stringify(diskDeletedColors) + ';\n' +
+          'window.__swissPendingContinuation = ' + JSON.stringify(pendingContinuation) + ';\n';
         try {
           webFrame.executeJavaScript(diskBootstrap).catch(() => {});
         } catch (_) {}
@@ -567,8 +575,16 @@ func generatePreloadLoaderScript() string {
       } catch (_) {}
     });
 
-    // Listen for color persistence messages from renderer to update gui_improvements.json & persistent_styles.css
+    // Listen for persistence & revival messages from renderer to update disk state
     window.addEventListener("message", (event) => {
+      if (event.data && event.data.type === "swiss-clear-pending-continuation") {
+        try {
+          const contPath = path.join(configDir, "pending_continuation.json");
+          if (fs.existsSync(contPath)) {
+            fs.unlinkSync(contPath);
+          }
+        } catch (_) {}
+      }
       if (event.data && event.data.type === "swiss-persist-project-colors") {
         try {
           const colors = event.data.colors || {};
@@ -641,6 +657,11 @@ func generatePreloadLoaderScript() string {
                 }
                 const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0;
                 const textColor = lum > 0.6 ? '#0f172a' : '#ffffff';
+                const baseOpacity = 0.15;
+                const lightMult = lum > 0.6 ? Math.max(0.2, 1.0 - (lum - 0.6) * 0.75) : 1.0;
+                const effOpacity = (baseOpacity * lightMult).toFixed(2);
+                const effHoverOpacity = Math.min(1.0, (baseOpacity + 0.08) * lightMult).toFixed(2);
+                const activeBgOpacity = Math.min(1.0, (baseOpacity + 0.16) * lightMult).toFixed(2);
                 const projRule = '\n/* Project: ' + pName + ' */\n' +
                   '[data-swiss-project="' + safeP + '"][data-project-card="true"],\n' +
                   '[data-swiss-project="' + safeP + '"] [data-project-card="true"],\n' +
@@ -691,10 +712,108 @@ func generatePreloadLoaderScript() string {
                   '  color: ' + textColor + ' !important;\n' +
                   '  fill: ' + textColor + ' !important;\n' +
                   '}\n' +
+                  '/* Conversation rows light tint */\n' +
                   '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"],\n' +
-                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"] {\n' +
-                  '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', 0.15) !important;\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"],\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"] {\n' +
+                  '  --sidebar-secondary: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;\n' +
+                  '  --sidebar-muted: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;\n' +
+                  '  --row-bg: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;\n' +
+                  '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;\n' +
+                  '  border: none !important;\n' +
+                  '  border-left: none !important;\n' +
                   '  border-radius: 8px !important;\n' +
+                  '  transition: background-color 0.15s ease !important;\n' +
+                  '}\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover,\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover,\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover {\n' +
+                  '  --row-bg: rgba(' + r + ', ' + g + ', ' + b + ', ' + effHoverOpacity + ') !important;\n' +
+                  '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effHoverOpacity + ') !important;\n' +
+                  '}\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"] > div,\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"] > div,\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"] > div,\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover > div,\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover > div,\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover > div,\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"] a,\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"] a,\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"] a,\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover a,\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover a,\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover a {\n' +
+                  '  background: transparent !important;\n' +
+                  '  background-color: transparent !important;\n' +
+                  '}\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-selected="true"],\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-selected="true"],\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-selected="true"],\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][aria-selected="true"],\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][aria-selected="true"],\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][aria-selected="true"],\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-state="active"],\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-state="active"],\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-state="active"],\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-active="true"],\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-active="true"],\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-active="true"],\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"].bg-accent,\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"].bg-accent,\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"].bg-accent,\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]),\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]),\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:has(a[aria-current="page"]),\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:has(a.active),\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:has(a.active),\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:has(a.active) {\n' +
+                  '  --sidebar-secondary: rgba(' + r + ', ' + g + ', ' + b + ', ' + effOpacity + ') !important;\n' +
+                  '  --sidebar-accent: rgba(' + r + ', ' + g + ', ' + b + ', ' + activeBgOpacity + ') !important;\n' +
+                  '  --accent: rgba(' + r + ', ' + g + ', ' + b + ', ' + activeBgOpacity + ') !important;\n' +
+                  '  --row-bg: rgba(' + r + ', ' + g + ', ' + b + ', ' + activeBgOpacity + ') !important;\n' +
+                  '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + activeBgOpacity + ') !important;\n' +
+                  '  font-weight: 500 !important;\n' +
+                  '}\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-selected="true"]:hover,\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-selected="true"]:hover,\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-selected="true"]:hover,\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][aria-selected="true"]:hover,\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][aria-selected="true"]:hover,\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][aria-selected="true"]:hover,\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-state="active"]:hover,\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-state="active"]:hover,\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-state="active"]:hover,\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"][data-active="true"]:hover,\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"][data-active="true"]:hover,\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"][data-active="true"]:hover,\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"].bg-accent:hover,\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"].bg-accent:hover,\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"].bg-accent:hover,\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]):hover,\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:has(a[aria-current="page"]):hover,\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:has(a[aria-current="page"]):hover,\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:has(a.active):hover,\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:has(a.active):hover,\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:has(a.active):hover {\n' +
+                  '  --row-bg: rgba(' + r + ', ' + g + ', ' + b + ', ' + effHoverOpacity + ') !important;\n' +
+                  '  background-color: rgba(' + r + ', ' + g + ', ' + b + ', ' + effHoverOpacity + ') !important;\n' +
+                  '}\n' +
+                  '/* Action Bar Masking & Hover Truncation */\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"] div[style*="linear-gradient"],\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"] div[style*="linear-gradient"],\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"] div[style*="linear-gradient"],\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"],\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"],\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover div[style*="linear-gradient"] {\n' +
+                  '  background: linear-gradient(to right, transparent 0%, var(--row-bg) 25%) !important;\n' +
+                  '}\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover span.truncate,\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover span.truncate,\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover span.truncate,\n' +
+                  '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover .truncate,\n' +
+                  '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover .truncate,\n' +
+                  '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover .truncate {\n' +
+                  '  max-width: calc(100% - 64px) !important;\n' +
                   '}\n';
                 css += projRule;
                 modified = true;

@@ -23,6 +23,7 @@ import {
   FileText,
   ChevronDown,
   ChevronUp,
+  Power,
 } from 'lucide-react'
 import { api } from '../api'
 
@@ -139,6 +140,20 @@ export const GeminiBridgePage: React.FC = () => {
       setDispatchResult(`Verification failed: ${err?.message || 'Network error'}`)
     } finally {
       setTestingConnection(false)
+    }
+  }
+
+  const handleToggleEnable = async () => {
+    try {
+      const next = !status?.enabled
+      const res = await api.updateBridgeConfig({ enabled: next })
+      if (res?.status) {
+        setStatus(res.status)
+      } else {
+        loadStatus()
+      }
+    } catch (err: any) {
+      alert(`Failed to toggle Gemini Bridge: ${err?.message || 'Unknown error'}`)
     }
   }
 
@@ -350,6 +365,26 @@ export const GeminiBridgePage: React.FC = () => {
             >
               <RefreshCw size={13} className={testingConnection ? 'animate-spin' : ''} />
               Verify Connection
+            </button>
+            <button
+              onClick={handleToggleEnable}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '6px 14px',
+                borderRadius: '6px',
+                border: 'none',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                backgroundColor: status?.enabled ? '#fee2e2' : 'var(--primary-container)',
+                color: status?.enabled ? '#b91c1c' : 'var(--primary)',
+              }}
+            >
+              <Power size={13} />
+              {status?.enabled ? 'Disable Bridge' : 'Enable Bridge'}
             </button>
           </div>
         </div>
