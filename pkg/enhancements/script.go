@@ -92,7 +92,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       clearInterval(window.__swissEnhIntervalId);
     }
     syncConfigFromServer();
-    window.__swissEnhIntervalId = setInterval(syncConfigFromServer, 3000);
+    window.__swissEnhIntervalId = setInterval(() => {
+      syncConfigFromServer();
+      renderContextWindowProgressRing();
+    }, 3000);
 
     function isDarkMode() {
       return document.documentElement.classList.contains("dark") ||
@@ -1494,65 +1497,78 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       return (k >= 10 || Number.isInteger(k) ? Math.round(k) : k.toFixed(1).replace(/\.0$/, "")) + "K";
     }
 
-    let lastTokensFetchTime = 0;
-    let cachedTokensByConv = {};
-    async function fetchActiveConversationTokens(convId) {
-      if (!convId) return;
-      const now = Date.now();
-      if (now - lastTokensFetchTime < 4000) return;
-      lastTokensFetchTime = now;
+    function getConversationIdFromElement(el) {
+      if (!el) return null;
       try {
-        const res = await fetch("http://127.0.0.1:8765/api/tokens/chat-metrics?conversation_id=" + convId, {
+        const box = el.closest ? el.closest('[data-testid="agent-input-box"]') : el;
+        const target = box || el;
+        const fiberKey = Object.keys(target).find(k => k.startsWith("__reactFiber"));
+        if (!fiberKey) return null;
+        let curr = target[fiberKey];
+        while (curr) {
+          if (curr.memoizedProps) {
+            const id = curr.memoizedProps.conversationId || curr.memoizedProps.cascadeId;
+            if (typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+              return id;
+            }
+          }
+          curr = curr.return;
+        }
+      } catch (_) {}
+      return null;
+    }
+
+    let lastTokensFetchTimeByConv = {};
+    let cachedTokensByConv = {};
+    let subagentNameToConvId = {};
+    async function fetchActiveConversationTokens(convId, parentId, agentName) {
+      const cacheKey = convId || (parentId && agentName ? (parentId + ":" + agentName) : null);
+      if (!cacheKey) return;
+      const now = Date.now();
+      if (now - (lastTokensFetchTimeByConv[cacheKey] || 0) < 2500) return;
+      lastTokensFetchTimeByConv[cacheKey] = now;
+      try {
+        let url = "http://127.0.0.1:8765/api/tokens/chat-metrics?";
+        if (convId) {
+          url += "conversation_id=" + encodeURIComponent(convId);
+        } else if (parentId && agentName) {
+          url += "parent_id=" + encodeURIComponent(parentId) + "&agent_name=" + encodeURIComponent(agentName) + "&scope=conversation";
+        } else {
+          return;
+        }
+        const res = await fetch(url, {
           signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined
         });
         if (res.ok) {
           const data = await res.json();
-          if (data && Array.isArray(data.turns) && data.turns.length > 0) {
-            const lastTurn = data.turns[data.turns.length - 1];
-            // Total context consumed in this turn is the prompt context plus turn generation
-            const turnUsage = (lastTurn.input_tokens || 0) + (lastTurn.output_tokens || 0);
-            cachedTokensByConv[convId] = turnUsage;
-            renderContextWindowProgressRing();
-          } else if (data && data.summary && data.summary.requests_count === 0) {
-            cachedTokensByConv[convId] = 0;
-            renderContextWindowProgressRing();
+          const targetId = data.conversation_id || convId;
+          if (targetId) {
+            if (parentId && agentName) {
+              subagentNameToConvId[parentId + ":" + agentName] = targetId;
+            }
+            if (data && Array.isArray(data.turns) && data.turns.length > 0) {
+              const lastTurn = data.turns[data.turns.length - 1];
+              const turnUsage = (lastTurn.input_tokens || 0) + (lastTurn.output_tokens || 0);
+              cachedTokensByConv[targetId] = turnUsage;
+              renderContextWindowProgressRing();
+            } else if (data && data.success && Array.isArray(data.turns) && data.turns.length === 0) {
+              cachedTokensByConv[targetId] = 0;
+              renderContextWindowProgressRing();
+            }
           }
         }
       } catch (_) {}
     }
 
-    function renderContextWindowProgressRing() {
-      const trigger = document.querySelector('[data-testid="model-selector-trigger"]') ||
-                      document.querySelector('button[aria-label*="Select model"]');
-      if (!trigger) {
-        const existing = document.getElementById("swiss-context-window-ring");
-        if (existing) existing.remove();
-        return;
-      }
+    function updateProgressRing(ring, convId, maxTokens) {
+      if (!ring) return;
+      ring.classList.add("swiss-context-window-ring");
+      ring.setAttribute("role", "status");
+      ring.setAttribute("tabindex", "0");
+      ring.style.cssText = "display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 6px; position: relative; user-select: none; flex-shrink: 0; vertical-align: middle;";
 
-      const modelName = trigger.innerText.trim();
-      const maxTokens = getModelContextWindow(modelName);
-
-      const convId = (window.location.pathname || "").replace(/^\/c\//, "").split(/[?#]/)[0];
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (convId && uuidRegex.test(convId)) {
-        fetchActiveConversationTokens(convId);
-      }
-
-      let ring = document.getElementById("swiss-context-window-ring");
-      if (!ring) {
-        ring = document.createElement("div");
-        ring.id = "swiss-context-window-ring";
-        ring.className = "swiss-context-window-ring";
-        ring.setAttribute("role", "status");
-        ring.setAttribute("tabindex", "0");
-        ring.style.cssText = "display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 6px; position: relative; user-select: none; flex-shrink: 0; vertical-align: middle;";
-      }
-
-      // Check whether reliable token data exists from daemon transcript telemetry
       const hasReliableData = Boolean(convId && cachedTokensByConv && typeof cachedTokensByConv[convId] === "number");
       if (!hasReliableData) {
-        // When reliable data is not yet available, grey out the feature cleanly with no artificial numbers
         ring.setAttribute("title", "Context window usage unavailable");
         ring.setAttribute("aria-label", "Context window usage unavailable");
         ring.style.opacity = "0.35";
@@ -1585,13 +1601,103 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           ring.innerHTML = ringHTML;
         }
       }
+    }
 
-      const pillContainer = trigger.closest(".no-focus-agent-input") || trigger.parentElement;
-      const thinkingPill = document.getElementById("swiss-thinking-level-pill");
-      const anchor = (thinkingPill && thinkingPill.parentNode === pillContainer.parentNode) ? thinkingPill : (pillContainer || trigger);
-      if (anchor && anchor.parentNode && (ring.previousElementSibling !== anchor)) {
-        anchor.parentNode.insertBefore(ring, anchor.nextSibling);
+    function renderContextWindowProgressRing() {
+      const parentConvId = (window.location.pathname || "").replace(/^\/c\//, "").split(/[?#]/)[0];
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+      // Part 1: Main Conversation Chat Input (Model Selector Trigger)
+      const trigger = document.querySelector('[data-testid="model-selector-trigger"]') ||
+                      document.querySelector('button[aria-label*="Select model"]');
+      let mainRing = document.getElementById("swiss-context-window-ring");
+      if (trigger) {
+        const modelName = trigger.innerText.trim();
+        const maxTokens = getModelContextWindow(modelName);
+        const convId = getConversationIdFromElement(trigger) || parentConvId;
+        if (convId && uuidRegex.test(convId)) {
+          fetchActiveConversationTokens(convId);
+        }
+        if (!mainRing) {
+          mainRing = document.createElement("div");
+          mainRing.id = "swiss-context-window-ring";
+        }
+        updateProgressRing(mainRing, convId, maxTokens);
+
+        const pillContainer = trigger.closest(".no-focus-agent-input") || trigger.parentElement;
+        const thinkingPill = document.getElementById("swiss-thinking-level-pill");
+        const anchor = (thinkingPill && thinkingPill.parentNode === pillContainer.parentNode) ? thinkingPill : (pillContainer || trigger);
+        if (anchor && anchor.parentNode && (mainRing.previousElementSibling !== anchor)) {
+          anchor.parentNode.insertBefore(mainRing, anchor.nextSibling);
+        }
+      } else if (mainRing) {
+        mainRing.remove();
       }
+
+      // Part 2: Subagent Conversation Chat Input (Agent Name Tag)
+      const agentTags = Array.from(document.querySelectorAll('div[title="Subagent"], div[title="Agent Script"], [data-testid="subagent-name-tag"]'));
+
+      document.querySelectorAll('[data-testid="agent-input-box"]').forEach(box => {
+        const hasSubagentPlaceholder = box.querySelector('[placeholder*="subagent"], [data-placeholder*="subagent"]') ||
+                                       box.innerText.includes("Message subagent");
+        if (hasSubagentPlaceholder) {
+          const candidate = Array.from(box.querySelectorAll('div')).find(d => {
+            const hasIcon = d.querySelector('.google-symbols, svg');
+            const hasText = d.querySelector('span.text-xs, span');
+            const notBtn = !d.querySelector('button') && d.closest('button') === null;
+            return hasIcon && hasText && notBtn && d.innerText.trim().length > 0 && !d.classList.contains("swiss-context-window-ring");
+          });
+          if (candidate && !agentTags.includes(candidate)) {
+            agentTags.push(candidate);
+          }
+        }
+      });
+
+      const activeSubRings = new Set();
+      agentTags.forEach((agentTag, idx) => {
+        if (!agentTag || !agentTag.parentNode) return;
+        const subRingId = "swiss-context-window-ring-sub-" + idx;
+        let subRing = document.getElementById(subRingId);
+        if (!subRing) {
+          subRing = document.createElement("div");
+          subRing.id = subRingId;
+          subRing.classList.add("swiss-context-window-ring-sub");
+        }
+        activeSubRings.add(subRingId);
+
+        let subConvId = getConversationIdFromElement(agentTag);
+        if (subConvId === parentConvId) {
+          subConvId = null;
+        }
+
+        const nameEl = agentTag.querySelector('span:not(.google-symbols)') ||
+                       Array.from(agentTag.querySelectorAll('span')).find(s => !s.classList.contains('google-symbols')) ||
+                       agentTag;
+        const agentName = (nameEl ? nameEl.innerText : agentTag.innerText).trim();
+
+        if (!subConvId && agentName && parentConvId) {
+          const cachedId = subagentNameToConvId[parentConvId + ":" + agentName];
+          if (cachedId) {
+            subConvId = cachedId;
+          } else {
+            subConvId = null;
+            fetchActiveConversationTokens(null, parentConvId, agentName);
+          }
+        } else if (subConvId && uuidRegex.test(subConvId)) {
+          fetchActiveConversationTokens(subConvId);
+        }
+
+        const maxTokens = getModelContextWindow("");
+        updateProgressRing(subRing, subConvId, maxTokens);
+
+        if (agentTag.parentNode && (subRing.previousElementSibling !== agentTag)) {
+          agentTag.parentNode.insertBefore(subRing, agentTag.nextSibling);
+        }
+      });
+
+      document.querySelectorAll("[id^='swiss-context-window-ring-sub-'], .swiss-context-window-ring-sub").forEach(r => {
+        if (!activeSubRings.has(r.id)) r.remove();
+      });
     }
 
     const isSwissLeafElement = (n) =>

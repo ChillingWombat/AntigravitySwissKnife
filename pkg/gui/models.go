@@ -89,6 +89,7 @@ type ProjectItem struct {
 	IsConfigured bool   `json:"is_configured"`
 	Source       string `json:"source"`
 	OrderIndex   int    `json:"order_index"`
+	FolderPath   string `json:"folder_path,omitempty"`
 }
 
 // ArchivedProjectItem represents an archived project with conversation activity metadata.

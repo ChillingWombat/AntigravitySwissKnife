@@ -2,6 +2,7 @@ package github
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -259,6 +260,85 @@ func TestResolveProjectPath(t *testing.T) {
 	gotGlobal := ResolveProjectPath("GLOBAL")
 	if gotGlobal == "" || gotGlobal == "GLOBAL" {
 		t.Errorf("expected ResolveProjectPath('GLOBAL') to resolve to a real path, got %q", gotGlobal)
+	}
+
+	// 5. Resolve project configured in ~/.gemini/config/projects/
+	fakeHome := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", fakeHome)
+	defer os.Setenv("HOME", origHome)
+
+	cfgDir := filepath.Join(fakeHome, ".gemini", "config", "projects")
+	if err := os.MkdirAll(cfgDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	targetFolder := filepath.Join(fakeHome, "ActualProjects", "COMP9007")
+	if err := os.MkdirAll(targetFolder, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	projJSON := fmt.Sprintf(`{
+		"id": "test-unimelb-uuid",
+		"name": "UniMelb - IT",
+		"projectResources": {
+			"resources": [
+				{
+					"folderUri": "file://%s"
+				},
+				{
+					"folderUri": "file://%s"
+				}
+			]
+		}
+	}`, targetFolder, filepath.Join(fakeHome, "SecondaryFolder"))
+	if err := os.WriteFile(filepath.Join(cfgDir, "test-unimelb-uuid.json"), []byte(projJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify top folder is returned when querying by project name
+	topByProjectName := ResolveProjectPath("UniMelb - IT")
+	if topByProjectName != targetFolder {
+		t.Errorf("expected ResolveProjectPath('UniMelb - IT') = %q, got %q", targetFolder, topByProjectName)
+	}
+
+	// Verify top folder is returned when querying by project ID
+	topByID := ResolveProjectPath("test-unimelb-uuid")
+	if topByID != targetFolder {
+		t.Errorf("expected ResolveProjectPath('test-unimelb-uuid') = %q, got %q", targetFolder, topByID)
+	}
+
+	// Verify subpath resolution works with configured project name
+	subpathResolved := ResolveProjectPath(filepath.Join("UniMelb - IT", "Assignment", "spec.pdf"))
+	wantSubpath := filepath.Join(targetFolder, "Assignment", "spec.pdf")
+	if subpathResolved != wantSubpath {
+		t.Errorf("expected subpath resolved %q, got %q", wantSubpath, subpathResolved)
+	}
+
+	// Verify gitFolder format is supported
+	gitTargetFolder := filepath.Join(fakeHome, "GitProjects", "PrivacyAI")
+	if err := os.MkdirAll(gitTargetFolder, 0755); err != nil {
+		t.Fatal(err)
+	}
+	gitProjJSON := fmt.Sprintf(`{
+		"id": "git-proj-uuid",
+		"name": "PrivacyAI",
+		"projectResources": {
+			"resources": [
+				{
+					"gitFolder": {
+						"folderUri": "file://%s",
+						"defaultBranch": "main"
+					}
+				}
+			]
+		}
+	}`, gitTargetFolder)
+	if err := os.WriteFile(filepath.Join(cfgDir, "git-proj-uuid.json"), []byte(gitProjJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+	topGit := ResolveProjectPath("PrivacyAI")
+	if topGit != gitTargetFolder {
+		t.Errorf("expected ResolveProjectPath('PrivacyAI') = %q, got %q", gitTargetFolder, topGit)
 	}
 }
 

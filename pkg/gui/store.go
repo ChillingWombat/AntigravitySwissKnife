@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/github"
 	_ "modernc.org/sqlite"
 )
 
@@ -583,6 +584,28 @@ func (s *Store) DetectProjects() ([]ProjectItem, error) {
 	}
 	s.mu.RUnlock()
 
+	// Also ensure all projects defined in ~/.gemini/config/projects/ are discovered
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		projectsDir := filepath.Join(home, ".gemini", "config", "projects")
+		if entries, err := os.ReadDir(projectsDir); err == nil {
+			for _, entry := range entries {
+				if strings.HasSuffix(entry.Name(), ".json") && !strings.HasSuffix(entry.Name(), ".deleted") {
+					filePath := filepath.Join(projectsDir, entry.Name())
+					if data, err := os.ReadFile(filePath); err == nil {
+						var meta struct {
+							Name string `json:"name"`
+						}
+						if json.Unmarshal(data, &meta) == nil && meta.Name != "" {
+							if _, exists := detectedSet[meta.Name]; !exists {
+								detectedSet[meta.Name] = "config_file"
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	for k := range configured {
 		if _, exists := detectedSet[k]; !exists {
 			detectedSet[k] = "configured"
@@ -596,12 +619,14 @@ func (s *Store) DetectProjects() ([]ProjectItem, error) {
 		if !hasOrder {
 			orderIdx = 9999
 		}
+		folderPath := github.ResolveProjectFolderFromConfig(name)
 		result = append(result, ProjectItem{
 			Name:         name,
 			Color:        color,
 			IsConfigured: color != "",
 			Source:       src,
 			OrderIndex:   orderIdx,
+			FolderPath:   folderPath,
 		})
 	}
 

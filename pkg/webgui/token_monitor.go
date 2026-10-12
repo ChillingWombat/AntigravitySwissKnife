@@ -1501,9 +1501,38 @@ func (s *Server) handleTokensChatMetrics(w http.ResponseWriter, r *http.Request)
 	if convID == "" {
 		convID = strings.TrimSpace(r.URL.Query().Get("id"))
 	}
+	parentID := strings.TrimSpace(r.URL.Query().Get("parent_id"))
+	if parentID == "" {
+		parentID = strings.TrimSpace(r.URL.Query().Get("parent_conversation_id"))
+	}
+	agentName := strings.TrimSpace(r.URL.Query().Get("agent_name"))
+	if convID == "" && parentID != "" && agentName != "" {
+		home, _ := os.UserHomeDir()
+		dbPath := filepath.Join(home, ".gemini", "antigravity", "conversation_summaries.db")
+		if db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=ro", dbPath)); err == nil {
+			defer db.Close()
+			var resolvedID string
+			cteQuery := `
+WITH RECURSIVE descendants(cid) AS (
+    SELECT conversation_id FROM conversation_summaries WHERE parent_conversation_id = ?
+    UNION ALL
+    SELECT cs.conversation_id FROM conversation_summaries cs JOIN descendants d ON cs.parent_conversation_id = d.cid
+)
+SELECT cs.conversation_id FROM conversation_summaries cs
+WHERE cs.conversation_id IN (SELECT cid FROM descendants)
+  AND (cs.agent_name = ? OR cs.title LIKE ?)
+ORDER BY cs.last_modified_time DESC LIMIT 1`
+			row := db.QueryRow(cteQuery, parentID, agentName, "%"+agentName+"%")
+			if err := row.Scan(&resolvedID); err == nil && resolvedID != "" {
+				convID = resolvedID
+			}
+		}
+	}
 	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
 	if scope == "" {
-		if s.guiStore != nil {
+		if parentID != "" && agentName != "" {
+			scope = "conversation"
+		} else if s.guiStore != nil {
 			cfg := s.guiStore.GetConfig()
 			if cfg.ChatTelemetryScope != "" {
 				scope = cfg.ChatTelemetryScope
