@@ -729,6 +729,9 @@ button[data-swiss-divider="true"]:hover .swiss-convo-tabs-pill,
 
 // generateBaseScript generates the base project tags and conversation tabs styling script.
 func generateBaseScript(cfg *Config) string {
+	if cfg == nil {
+		cfg = DefaultConfig()
+	}
 	css := GenerateCSS(cfg)
 	cssJSON, _ := json.Marshal(css)
 	enabled := cfg != nil && cfg.Enabled
