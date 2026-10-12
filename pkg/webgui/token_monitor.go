@@ -1398,8 +1398,6 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 				tps = math.Round((float64(out)/(float64(durMs)/1000.0))*10) / 10
 				totalDurationMs += durMs
 				totalTimedOut += out
-			} else if out > 0 {
-				tps = math.Round((75.0+math.Mod(float64(out)*1.37, 35.0))*10) / 10
 			}
 
 			turns = append(turns, ChatMetricsTurn{

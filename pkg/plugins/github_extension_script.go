@@ -2921,47 +2921,10 @@ func GenerateGitHubExtensionScript() string {
   function renderStageListViewHTML() {
     return ` + "`" + `
       <div class="swiss-gh-workspace-layout">
-        <!-- Column 1: Issues / PRs / Agent Tasks List -->
-        <div class="swiss-gh-col-left">
+        <!-- Issues / PRs / Agent Tasks List (Clean Full-Width View) -->
+        <div class="swiss-gh-col-full">
           <div class="swiss-gh-list" id="swiss-stage-gh-list">
             ${renderCardListHTML(getFilteredItems(false))}
-          </div>
-        </div>
-
-        <!-- Column 2: In-Place Detail Viewer & Editor -->
-        <div class="swiss-gh-col-center" id="swiss-stage-detail-col">
-          ${renderStageDetailHTML(selectedItem)}
-        </div>
-
-        <!-- Column 3: Multi-Agent & Conversation Task Board -->
-        <div class="swiss-gh-col-right">
-          <div class="swiss-agent-board-header">
-            <span>AGY Agents & Conversations (${cachedAgentTasks.length})</span>
-          </div>
-          <div style="overflow-y: auto; flex: 1;">
-            ${cachedAgentTasks.map(t => {
-              const isWorking = t.not_fully_idle || t.status === "working";
-              const workTitle = t.work_item || t.conversation_title || (t.agent_label ? t.agent_label + " Task" : "Agent Task");
-              const issChips = (t.working_issues || []).map(num => '<span class="swiss-gh-label-chip" style="color:#16a34a; background:rgba(34,197,94,0.12); font-size:9.5px; padding:1px 5px;">#' + num + '</span>').join("");
-              const prChips = (t.working_prs || []).map(num => '<span class="swiss-gh-label-chip" style="color:#9333ea; background:rgba(168,85,247,0.12); font-size:9.5px; padding:1px 5px;">PR #' + num + '</span>').join("");
-              return ` + "`" + `
-                <div class="swiss-agent-conv-item">
-                  <div style="display: flex; align-items: center; justify-content: space-between;">
-                    <span class="swiss-agent-task-badge ${t.is_pruned ? "pruned" : (isWorking ? "working" : "idle")}">
-                      <span class="swiss-agent-pulse-dot" style="${isWorking && !t.is_pruned ? "" : "display:none;"}"></span>
-                      ${t.is_pruned ? "Archived" : (isWorking ? "Active" : "Idle")}: ${t.agent_label || "Agent"}
-                    </span>
-                    <button class="swiss-gh-action-btn swiss-btn-stage-focus" data-conv-id="${t.root_parent_conversation_id || t.conversation_id}" data-orig-id="${t.conversation_id}" style="font-size: 9.5px;">${t.is_pruned ? "Archived" : "Focus"}</button>
-                  </div>
-                  <div style="font-size: 11px; font-weight: 500; margin-top: 2px;">${escapeHTML(workTitle)}</div>
-                  ${(issChips || prChips) ? '<div class="swiss-gh-chips-row" style="margin-top:3px; display:flex; flex-wrap:wrap; gap:3px;">' + issChips + prChips + '</div>' : ""}
-                  <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px; font-size: 10px; color: var(--text-muted, #94a3b8);">
-                    <span>${t.bound_issue_number ? "Bound to #" + t.bound_issue_number : "Unbound"}</span>
-                    <button class="swiss-gh-action-btn swiss-btn-stage-bind" data-conv-id="${t.conversation_id}">Bind Task</button>
-                  </div>
-                </div>
-              ` + "`" + `;
-            }).join("")}
           </div>
         </div>
       </div>
@@ -2990,18 +2953,11 @@ func GenerateGitHubExtensionScript() string {
       container.querySelectorAll(".swiss-gh-card").forEach(card => {
         card.addEventListener("click", () => {
           const num = parseInt(card.dataset.itemNum, 10);
-          const item = (activeTab === "prs" ? cachedPRs : cachedIssues).find(i => i.number === num);
-          if (item) {
-            selectedItem = item;
-            const detailCol = document.getElementById("swiss-stage-detail-col");
-            if (detailCol) {
-              detailCol.innerHTML = renderStageDetailHTML(selectedItem);
-              bindStageDetailEvents(detailCol);
-            }
+          if (!isNaN(num)) {
+            openIssueDetailModal(num, false);
           }
         });
       });
-      bindStageDetailEvents(container);
     }
   }
 

@@ -1159,13 +1159,38 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
   color: #f1f5f9;
 }
 
-/* GitHub Workspace 3-Column Layout */
+/* GitHub Workspace Layout */
 .swiss-gh-workspace-layout {
 
   display: flex;
   width: 100%;
   height: 100%;
   overflow: hidden;
+}
+
+.swiss-gh-col-full {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--canvas, #ffffff);
+}
+:is(.dark, [data-theme="dark"]) .swiss-gh-col-full {
+  background: #18191a;
+}
+.swiss-gh-col-full .swiss-gh-list {
+  padding: 16px 20px;
+  gap: 8px;
+}
+.swiss-gh-col-full .swiss-gh-card {
+  padding: 10px 14px;
+  gap: 6px;
+}
+.swiss-gh-col-full .swiss-gh-card-title {
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .swiss-gh-col-left {

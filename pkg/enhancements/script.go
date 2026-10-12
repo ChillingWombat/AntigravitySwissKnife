@@ -1441,30 +1441,46 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       }, { passive: true });
     }
 
-    function getMaxContextWindow(modelName) {
-      if (!modelName) return 1000000;
-      const name = modelName.toLowerCase();
-      if (name.includes("gemini")) {
-        if (name.includes("pro") || name.includes("1.5-pro") || name.includes("2.0-pro") || name.includes("2.5-pro") || name.includes("3-pro") || name.includes("3.8-pro")) {
-          return 2000000;
+    let customModelsListCache = null;
+    let lastCustomModelsFetchTime = 0;
+    async function fetchCustomModelsMetadata() {
+      const now = Date.now();
+      if (customModelsListCache && now - lastCustomModelsFetchTime < 30000) return;
+      lastCustomModelsFetchTime = now;
+      try {
+        const res = await fetch("http://127.0.0.1:8765/api/custom_models", {
+          signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.models)) {
+            customModelsListCache = data.models;
+            renderContextWindowProgressRing();
+          }
         }
-        return 1000000;
+      } catch (_) {}
+    }
+
+    function getModelContextWindow(modelName) {
+      fetchCustomModelsMetadata();
+      if (!modelName) return 1000000;
+      const clean = modelName.toLowerCase().trim();
+
+      // Check user-configured custom models for overridden context window
+      if (customModelsListCache && Array.isArray(customModelsListCache)) {
+        for (const cm of customModelsListCache) {
+          const cmName = (cm.name || "").toLowerCase().trim();
+          const cmDisplay = (cm.display_name || "").toLowerCase().trim();
+          const cmId = (cm.id || "").toLowerCase().trim();
+          if (clean === cmName || clean === cmDisplay || clean === cmId || clean.includes(cmName) || clean.includes(cmDisplay)) {
+            if (typeof cm.context_window === "number" && cm.context_window > 0) {
+              return cm.context_window;
+            }
+          }
+        }
       }
-      if (name.includes("claude")) {
-        return 200000;
-      }
-      if (name.includes("gpt-4") || name.includes("o1") || name.includes("o3") || name.includes("o4")) {
-        return 128000;
-      }
-      if (name.includes("deepseek")) {
-        return 64000;
-      }
-      if (name.includes("qwen") || name.includes("llama")) {
-        return 128000;
-      }
-      if (name.includes("mistral") || name.includes("codestral")) {
-        return 128000;
-      }
+
+      // Standard native models in the current ecosystem (including Gemini in Antigravity) use 1M context window
       return 1000000;
     }
 
@@ -1491,12 +1507,14 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         });
         if (res.ok) {
           const data = await res.json();
-          if (data && data.summary) {
-            const turns = data.turns || [];
-            const lastTurn = turns.length > 0 ? turns[turns.length - 1] : null;
-            const turnIn = lastTurn ? (lastTurn.input_tokens || lastTurn.total_tokens) : 0;
-            const summaryIn = data.summary.input_tokens || (data.summary.input_tokens + data.summary.output_tokens) || 0;
-            cachedTokensByConv[convId] = turnIn > 0 ? turnIn : summaryIn;
+          if (data && Array.isArray(data.turns) && data.turns.length > 0) {
+            const lastTurn = data.turns[data.turns.length - 1];
+            // Total context consumed in this turn is the prompt context plus turn generation
+            const turnUsage = (lastTurn.input_tokens || 0) + (lastTurn.output_tokens || 0);
+            cachedTokensByConv[convId] = turnUsage;
+            renderContextWindowProgressRing();
+          } else if (data && data.summary && data.summary.requests_count === 0) {
+            cachedTokensByConv[convId] = 0;
             renderContextWindowProgressRing();
           }
         }
@@ -1513,25 +1531,13 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       }
 
       const modelName = trigger.innerText.trim();
-      const maxTokens = getMaxContextWindow(modelName);
+      const maxTokens = getModelContextWindow(modelName);
 
       const convId = (window.location.pathname || "").replace(/^\/c\//, "").split(/[?#]/)[0];
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (convId && uuidRegex.test(convId)) {
         fetchActiveConversationTokens(convId);
       }
-
-      let usedTokens = (convId && cachedTokensByConv[convId]) ? cachedTokensByConv[convId] : 0;
-      if (!usedTokens) {
-        const stepCount = document.querySelectorAll('[data-testid="user-input-step"]').length;
-        if (stepCount > 0) {
-          usedTokens = Math.min(maxTokens, Math.round(stepCount * 1250));
-        }
-      }
-
-      const pct = Math.min(100, Math.round((usedTokens / maxTokens) * 100));
-      const formattedUsed = formatTokensUnit(usedTokens);
-      const formattedMax = formatTokensUnit(maxTokens);
-      const tooltipText = pct + "%% (" + formattedUsed + "/" + formattedMax + ")";
 
       let ring = document.getElementById("swiss-context-window-ring");
       if (!ring) {
@@ -1540,27 +1546,49 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         ring.className = "swiss-context-window-ring";
         ring.setAttribute("role", "status");
         ring.setAttribute("tabindex", "0");
-        ring.style.cssText = "display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 6px; position: relative; cursor: pointer; user-select: none; flex-shrink: 0; vertical-align: middle;";
+        ring.style.cssText = "display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 6px; position: relative; user-select: none; flex-shrink: 0; vertical-align: middle;";
       }
 
-      ring.setAttribute("title", tooltipText);
-      ring.setAttribute("aria-label", "Context window used: " + tooltipText);
+      // Check whether reliable token data exists from daemon transcript telemetry
+      const hasReliableData = Boolean(convId && cachedTokensByConv && typeof cachedTokensByConv[convId] === "number");
+      if (!hasReliableData) {
+        // When reliable data is not yet available, grey out the feature cleanly with no artificial numbers
+        ring.setAttribute("title", "Context window usage unavailable");
+        ring.setAttribute("aria-label", "Context window usage unavailable");
+        ring.style.opacity = "0.35";
+        ring.style.cursor = "default";
+        const greyHTML = '<svg width="18" height="18" viewBox="0 0 20 20" style="transform: rotate(-90deg); display: block;">' +
+          '<circle cx="10" cy="10" r="7" fill="none" stroke="rgba(148, 163, 184, 0.25)" stroke-width="2" />' +
+        '</svg>';
+        if (ring.innerHTML !== greyHTML) ring.innerHTML = greyHTML;
+      } else {
+        const usedTokens = cachedTokensByConv[convId];
+        const pct = Math.min(100, Math.round((usedTokens / maxTokens) * 100));
+        const formattedUsed = formatTokensUnit(usedTokens);
+        const formattedMax = formatTokensUnit(maxTokens);
+        const tooltipText = pct + "%% (" + formattedUsed + "/" + formattedMax + ")";
 
-      const circumference = 44;
-      const offset = Math.max(0, circumference - (circumference * pct / 100));
+        ring.setAttribute("title", tooltipText);
+        ring.setAttribute("aria-label", "Context window used: " + tooltipText);
+        ring.style.opacity = "1";
+        ring.style.cursor = "pointer";
 
-      const ringHTML = '<svg width="18" height="18" viewBox="0 0 20 20" style="transform: rotate(-90deg); display: block;">' +
-        '<circle cx="10" cy="10" r="7" fill="none" stroke="rgba(148, 163, 184, 0.3)" stroke-width="2" />' +
-        '<circle cx="10" cy="10" r="7" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-dasharray="44" stroke-dashoffset="' + offset.toFixed(2) + '" style="transition: stroke-dashoffset 0.3s ease;" />' +
-      '</svg>';
+        const circumference = 44;
+        const offset = Math.max(0, circumference - (circumference * pct / 100));
 
-      if (ring.innerHTML !== ringHTML) {
-        ring.innerHTML = ringHTML;
+        const ringHTML = '<svg width="18" height="18" viewBox="0 0 20 20" style="transform: rotate(-90deg); display: block;">' +
+          '<circle cx="10" cy="10" r="7" fill="none" stroke="rgba(148, 163, 184, 0.3)" stroke-width="2" />' +
+          '<circle cx="10" cy="10" r="7" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-dasharray="44" stroke-dashoffset="' + offset.toFixed(2) + '" style="transition: stroke-dashoffset 0.3s ease;" />' +
+        '</svg>';
+
+        if (ring.innerHTML !== ringHTML) {
+          ring.innerHTML = ringHTML;
+        }
       }
 
-      const thinkingPill = document.getElementById("swiss-thinking-level-pill");
       const pillContainer = trigger.closest(".no-focus-agent-input") || trigger.parentElement;
-      const anchor = thinkingPill || pillContainer || trigger;
+      const thinkingPill = document.getElementById("swiss-thinking-level-pill");
+      const anchor = (thinkingPill && thinkingPill.parentNode === pillContainer.parentNode) ? thinkingPill : (pillContainer || trigger);
       if (anchor && anchor.parentNode && (ring.previousElementSibling !== anchor)) {
         anchor.parentNode.insertBefore(ring, anchor.nextSibling);
       }

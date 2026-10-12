@@ -188,8 +188,8 @@ export const BrainCachePage: React.FC = () => {
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
   }
 
-  const totalBytes = breakdown?.total_bytes ?? 1250000000
-  const reclaimableBytes = breakdown?.reclaimable_bytes ?? 780000000
+  const totalBytes = breakdown?.total_bytes ?? 0
+  const reclaimableBytes = breakdown?.reclaimable_bytes ?? 0
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -378,7 +378,7 @@ export const BrainCachePage: React.FC = () => {
               {formatBytes(totalBytes)}
             </div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              {breakdown?.total_files ?? 1420} indexed files
+              {breakdown?.total_files ?? 0} indexed files
             </div>
           </div>
 

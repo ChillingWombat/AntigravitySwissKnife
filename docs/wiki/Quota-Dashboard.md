@@ -21,7 +21,7 @@ Each bucket returns `remainingFraction` (floating point between `0.0` and `1.0`)
 ## 2. Circular Gauge & Horizontal Quota Visualizers
 
 The dashboard presents quota metrics through two synchronized UI primitives:
-- **Circular Gauges**: Positioned at the top of the view for the currently active account. The gauges track primary model buckets (Gemini 3.8 Flash, Gemini 3.8 Flash Lite, Gemini 3.8 Pro, and Claude Opus). Dual concentric SVG rings render 5-hour burst limits on the outer track and weekly reserves on the inner track.
+- **Circular Gauges**: Positioned at the top of the view for the currently active account. The gauges track primary model buckets (Gemini 3.8 Flash, Gemini 3.5 Flash Lite, Gemini 3.1 Pro, and Claude Opus). Dual concentric SVG rings render 5-hour burst limits on the outer track and weekly reserves on the inner track.
 - **Horizontal Quota Bars**: Displayed within each row of the fleet inventory table. These responsive bars display remaining fractions and hover tooltips revealing exact reset horizons, avoiding dedicated table column clutter.
 
 ---
