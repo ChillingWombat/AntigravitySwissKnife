@@ -651,3 +651,41 @@ func TestGenerateEnhancementsScript_ExtensionsMap(t *testing.T) {
 	}
 }
 
+func TestGenerateEnhancementsScript_ContextWindowProgressRing(t *testing.T) {
+	cfg := DefaultConfig()
+	script := GenerateEnhancementsScript(cfg)
+
+	// Verify progress ring function definitions
+	if !strings.Contains(script, "renderContextWindowProgressRing") {
+		t.Errorf("expected script to contain renderContextWindowProgressRing")
+	}
+	if !strings.Contains(script, "getModelContextWindow") {
+		t.Errorf("expected script to contain getModelContextWindow")
+	}
+	if !strings.Contains(script, "formatTokensUnit") {
+		t.Errorf("expected script to contain formatTokensUnit")
+	}
+	if !strings.Contains(script, "swiss-context-window-ring") {
+		t.Errorf("expected script to contain swiss-context-window-ring")
+	}
+
+	// Verify dynamic custom model context window lookup and 1M native default
+	if !strings.Contains(script, "customModelsListCache") || !strings.Contains(script, "/api/custom_models") {
+		t.Errorf("expected script to dynamically check custom models from /api/custom_models")
+	}
+	if !strings.Contains(script, "return 1000000") {
+		t.Errorf("expected script to default native Antigravity models to 1M")
+	}
+
+	// Verify subagent progress ring rendering
+	if !strings.Contains(script, "swiss-context-window-ring-sub") {
+		t.Errorf("expected script to support subagent progress ring rendering")
+	}
+
+	// Verify tooltip percentage and format
+	if !strings.Contains(script, `pct + "% (" + formattedUsed + "/" + formattedMax + ")"`) {
+		t.Errorf("expected script to contain formatted tooltip with used and max context window")
+	}
+}
+
+

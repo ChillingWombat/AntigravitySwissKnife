@@ -3776,9 +3776,27 @@ func GenerateAuxiliaryPluginsScript() string {
       };
       updateNavButtons();
 
+      const resolveProjectFolder = (raw) => {
+        if (!raw || raw === "." || raw === "GLOBAL") return ".";
+        const clean = (raw || "").trim();
+        if (typeof window.__swissGetProjectFolder === "function") {
+          const folder = window.__swissGetProjectFolder(clean);
+          if (folder) return folder;
+        }
+        try {
+          const saved = localStorage.getItem("antigravity_swiss_project_folders");
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (parsed[clean]) return parsed[clean];
+            if (parsed[clean.toLowerCase()]) return parsed[clean.toLowerCase()];
+          }
+        } catch (_) {}
+        return clean;
+      };
+
       // Load files
       const loadFiles = async (dirPath, pushHistory = true) => {
-        let targetPath = (dirPath || "").trim();
+        let targetPath = resolveProjectFolder((dirPath || "").trim());
         if (targetPath.startsWith("file://")) {
           targetPath = targetPath.replace(/^file:\/\//, "");
         }
@@ -4072,7 +4090,7 @@ func GenerateAuxiliaryPluginsScript() string {
           stageFileHistory = [];
           stageFilePath = (stScope && stScope !== "GLOBAL") ? stScope : ".";
         }
-        initialTargetPath = stageFilePath || ((stScope && stScope !== "GLOBAL") ? stScope : ".");
+        initialTargetPath = resolveProjectFolder(stageFilePath || ((stScope && stScope !== "GLOBAL") ? stScope : "."));
         currentFilePath = initialTargetPath;
         fileHistory = stageFileHistory;
       } else {
@@ -4082,7 +4100,7 @@ func GenerateAuxiliaryPluginsScript() string {
           auxFileHistory = [];
           auxFilePath = (activeProj && activeProj !== ".") ? activeProj : ".";
         }
-        initialTargetPath = auxFilePath || ((activeProj && activeProj !== ".") ? activeProj : ".");
+        initialTargetPath = resolveProjectFolder(auxFilePath || ((activeProj && activeProj !== ".") ? activeProj : "."));
         currentFilePath = initialTargetPath;
         fileHistory = auxFileHistory;
       }
