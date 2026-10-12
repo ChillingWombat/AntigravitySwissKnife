@@ -67,19 +67,54 @@ func GenerateGitHubExtensionScript() string {
   } catch (_) {}
   let availableProjects = [];
   let knownProjects = [];
-  let projectFolderMap = {};
-  try {
-    const savedFolders = localStorage.getItem("antigravity_swiss_project_folders");
-    if (savedFolders) {
-      projectFolderMap = JSON.parse(savedFolders) || {};
-    }
-  } catch (_) {}
   let lastInteractedProject = null;
   let lastInteractedConversation = null;
+  const projectFolderMap = new Map();
   try {
     lastInteractedProject = localStorage.getItem("antigravity_swiss_last_project") || null;
     lastInteractedConversation = localStorage.getItem("antigravity_swiss_last_conversation") || null;
+    const savedFolders = localStorage.getItem("antigravity_swiss_project_folders");
+    if (savedFolders) {
+      const parsed = JSON.parse(savedFolders);
+      for (const [k, v] of Object.entries(parsed)) {
+        if (k && v) {
+          projectFolderMap.set(k, v);
+          projectFolderMap.set(k.toLowerCase(), v);
+        }
+      }
+    }
   } catch (_) {}
+
+  function getProjectFolder(nameOrId) {
+    if (!nameOrId || nameOrId === "." || nameOrId === "GLOBAL") return "";
+    const clean = (nameOrId || "").trim();
+    if (projectFolderMap.has(clean)) return projectFolderMap.get(clean);
+    if (projectFolderMap.has(clean.toLowerCase())) return projectFolderMap.get(clean.toLowerCase());
+    try {
+      const saved = localStorage.getItem("antigravity_swiss_project_folders");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed[clean]) return parsed[clean];
+        if (parsed[clean.toLowerCase()]) return parsed[clean.toLowerCase()];
+        for (const [k, v] of Object.entries(parsed)) {
+          if (k && v) {
+            projectFolderMap.set(k, v);
+            projectFolderMap.set(k.toLowerCase(), v);
+          }
+        }
+      }
+    } catch (_) {}
+    const sepIdx = clean.search(/[/\\]/);
+    if (sepIdx > 0) {
+      const prefix = clean.substring(0, sepIdx);
+      const rest = clean.substring(sepIdx + 1);
+      const top = projectFolderMap.get(prefix) || projectFolderMap.get(prefix.toLowerCase());
+      if (top) {
+        return top.replace(/[/\\]+$/, "") + "/" + rest.replace(/^[/\\]+/, "");
+      }
+    }
+    return "";
+  }
 
   let auxRepo = null;
   let auxIssues = null;
@@ -139,14 +174,22 @@ func GenerateGitHubExtensionScript() string {
       Array.from(document.querySelectorAll(".bg-sidebar")).find(el => el.classList.contains("flex-col") || !el.classList.contains("w-full"));
   }
 
-  function addKnownProject(name) {
+  function addKnownProject(name, folderPath = "") {
     const clean = (name || "").trim();
     if (!clean) return;
     if (!availableProjects.includes(clean)) {
       availableProjects.push(clean);
     }
-    if (!knownProjects.some(p => p.name === clean)) {
-      knownProjects.push({ name: clean });
+    const cleanFolder = (folderPath || "").trim();
+    if (cleanFolder) {
+      projectFolderMap.set(clean, cleanFolder);
+      projectFolderMap.set(clean.toLowerCase(), cleanFolder);
+    }
+    const existing = knownProjects.find(p => p.name === clean);
+    if (!existing) {
+      knownProjects.push({ name: clean, folderPath: cleanFolder });
+    } else if (cleanFolder && !existing.folderPath) {
+      existing.folderPath = cleanFolder;
     }
   }
 
@@ -327,7 +370,12 @@ func GenerateGitHubExtensionScript() string {
   }
 
   function getActiveProjectWorkspacePath() {
-    return detectCurrentConversationProject() || lastInteractedProject || (availableProjects.length > 0 ? availableProjects[0] : ".");
+    const projName = detectCurrentConversationProject() || lastInteractedProject || (availableProjects.length > 0 ? availableProjects[0] : ".");
+    if (projName && projName !== "." && projName !== "GLOBAL") {
+      const folder = getProjectFolder(projName);
+      if (folder) return folder;
+    }
+    return projName || ".";
   }
 
   function getEffectiveWorkspacePath(forAux = false) {
@@ -335,47 +383,23 @@ func GenerateGitHubExtensionScript() string {
       return getActiveProjectWorkspacePath();
     }
     if (currentScope && currentScope !== "GLOBAL") {
-      return currentScope;
+      return getProjectFolder(currentScope) || currentScope;
     }
     // For extensions requiring a project when in GLOBAL scope, default to latest interacted project
     if (lastInteractedProject || detectCurrentConversationProject()) {
-      return lastInteractedProject || detectCurrentConversationProject();
+      const p = lastInteractedProject || detectCurrentConversationProject();
+      return getProjectFolder(p) || p;
     }
     if (availableProjects.length > 0) {
-      return availableProjects[0];
+      return getProjectFolder(availableProjects[0]) || availableProjects[0];
     }
     return "GLOBAL";
   }
 
   window.__swissGetMainStageScope = () => currentScope || "GLOBAL";
   window.__swissGetActiveProject = () => getActiveProjectWorkspacePath();
-  window.__swissGetProjectFolder = (name) => {
-    if (!name || name === "." || name === "GLOBAL") return ".";
-    const clean = (name || "").trim();
-    if (projectFolderMap[clean]) return projectFolderMap[clean];
-    if (projectFolderMap[clean.toLowerCase()]) return projectFolderMap[clean.toLowerCase()];
-    try {
-      const saved = localStorage.getItem("antigravity_swiss_project_folders");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed[clean]) return parsed[clean];
-        if (parsed[clean.toLowerCase()]) return parsed[clean.toLowerCase()];
-        for (const k in parsed) {
-          projectFolderMap[k] = parsed[k];
-        }
-      }
-    } catch (_) {}
-    const sepIdx = clean.search(/[/\\]/);
-    if (sepIdx > 0) {
-      const prefix = clean.substring(0, sepIdx);
-      const rest = clean.substring(sepIdx + 1);
-      const top = projectFolderMap[prefix] || projectFolderMap[prefix.toLowerCase()];
-      if (top) {
-        return top.replace(/[/\\]+$/, "") + "/" + rest.replace(/^[/\\]+/, "");
-      }
-    }
-    return "";
-  };
+  window.__swissGetActiveProjectName = () => detectCurrentConversationProject() || lastInteractedProject || "";
+  window.__swissGetProjectFolder = (p) => getProjectFolder(p);
 
   async function fetchAvailableProjects() {
     try {
@@ -383,21 +407,17 @@ func GenerateGitHubExtensionScript() string {
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          const list = data.filter(p => !p.is_archived).map(p => p.name).filter(Boolean);
-          list.forEach(p => addKnownProject(p));
-          let updatedFolders = false;
-          data.forEach(p => {
-            if (p.name && p.folder_path) {
-              projectFolderMap[p.name] = p.folder_path;
-              projectFolderMap[p.name.toLowerCase()] = p.folder_path;
-              updatedFolders = true;
+          const list = data.filter(p => !p.is_archived);
+          list.forEach(p => {
+            if (p && p.name) {
+              addKnownProject(p.name, p.folder_path || p.top_folder || "");
             }
           });
-          if (updatedFolders) {
-            try {
-              localStorage.setItem("antigravity_swiss_project_folders", JSON.stringify(projectFolderMap));
-            } catch (_) {}
-          }
+          try {
+            const obj = {};
+            projectFolderMap.forEach((v, k) => { obj[k] = v; });
+            localStorage.setItem("antigravity_swiss_project_folders", JSON.stringify(obj));
+          } catch (_) {}
         }
       }
     } catch (_) {}
