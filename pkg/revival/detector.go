@@ -167,21 +167,30 @@ func (d *SessionDetector) querySummaryDatabaseForID(dbPath string, targetID stri
 	)
 
 	targetID = strings.TrimSpace(strings.TrimPrefix(targetID, "/c/"))
-	var row *sql.Row
 	if targetID != "" {
 		query := `SELECT conversation_id, title, workspace_uris, parent_conversation_id, nesting_depth, not_fully_idle, status, last_modified_time 
                   FROM conversation_summaries 
                   WHERE conversation_id = ? LIMIT 1;`
-		row = db.QueryRow(query, targetID)
+		row := db.QueryRow(query, targetID)
+		if err := row.Scan(&convID, &title, &workspaceURI, &parentID, &depth, &notFullyIdle, &status, &rawModTime); err != nil {
+			return nil, err
+		}
 	} else {
-		query := `SELECT conversation_id, title, workspace_uris, parent_conversation_id, nesting_depth, not_fully_idle, status, last_modified_time 
+		// Prioritize running / active conversations needing revival first
+		queryRunning := `SELECT conversation_id, title, workspace_uris, parent_conversation_id, nesting_depth, not_fully_idle, status, last_modified_time 
+                  FROM conversation_summaries 
+                  WHERE not_fully_idle != 0 OR status = 'CASCADE_RUN_STATUS_RUNNING'
+                  ORDER BY last_modified_time DESC LIMIT 1;`
+		row := db.QueryRow(queryRunning)
+		if err := row.Scan(&convID, &title, &workspaceURI, &parentID, &depth, &notFullyIdle, &status, &rawModTime); err != nil {
+			queryLatest := `SELECT conversation_id, title, workspace_uris, parent_conversation_id, nesting_depth, not_fully_idle, status, last_modified_time 
                   FROM conversation_summaries 
                   ORDER BY last_modified_time DESC LIMIT 1;`
-		row = db.QueryRow(query)
-	}
-
-	if err := row.Scan(&convID, &title, &workspaceURI, &parentID, &depth, &notFullyIdle, &status, &rawModTime); err != nil {
-		return nil, err
+			row = db.QueryRow(queryLatest)
+			if err := row.Scan(&convID, &title, &workspaceURI, &parentID, &depth, &notFullyIdle, &status, &rawModTime); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	activeSubagentID := ""

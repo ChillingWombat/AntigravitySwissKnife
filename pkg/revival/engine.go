@@ -263,6 +263,34 @@ func (e *Engine) GetRevivalStatus(targetConvID ...string) (*RevivalStatus, error
 	}
 	pending, _ := e.Store.LoadIntent()
 
+	// If there is no active unresumed pending intent on disk, but the detected session requires revival,
+	// synthesize a pending RevivalIntent so auto-continuation can resume running tasks seamlessly.
+	if (pending == nil || pending.Resumed) && session != nil && session.NeedsRevival && session.ConversationID != "" {
+		now := time.Now()
+		var modMillis int64
+		if !session.LastModified.IsZero() {
+			modMillis = session.LastModified.UnixMilli()
+		} else {
+			modMillis = now.UnixMilli()
+		}
+		pending = &RevivalIntent{
+			IntentID:           fmt.Sprintf("auto-revive-%s-%d", session.ConversationID, modMillis),
+			TargetApp:          session.TargetApp,
+			RootConversationID: session.ConversationID,
+			ActiveSubagentID:   session.ActiveSubagentID,
+			TriggerPrompt:      DefaultTriggerPrompt,
+			CreatedAt:          now,
+			Status:             IntentStatusPending,
+			CascadeID:          session.ConversationID,
+			Prompt:             DefaultTriggerPrompt,
+			Timestamp:          modMillis,
+			Attempts:           0,
+			MaxAttempts:        3,
+			TTLSeconds:         600,
+			Resumed:            false,
+		}
+	}
+
 	e.mu.RLock()
 	last := e.lastRevivedAt
 	e.mu.RUnlock()
@@ -295,6 +323,11 @@ func (e *Engine) AcknowledgeContinuation(cascadeID string) error {
 			intent.Status = IntentStatusRevived
 			_ = e.Store.ClearIntent()
 		}
+	} else if cascadeID != "" {
+		now := time.Now()
+		e.mu.Lock()
+		e.lastRevivedAt = &now
+		e.mu.Unlock()
 	}
 	return nil
 }

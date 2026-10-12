@@ -800,27 +800,10 @@ func QueryLatestTopLevelConversationPath() string {
 	return candidate
 }
 
-// CaptureActiveConversationPath inspects the pinned app_storage keys and database first,
-// falling back to live CDP only when necessary, and saves the verified result.
+// CaptureActiveConversationPath inspects the live CDP window first,
+// falling back to pinned app_storage keys and database when headless or detached.
 func (inj *Injector) CaptureActiveConversationPath() string {
-	// 1. Authoritative pinned conversation from app_storage.json
-	if pinned := LoadPinnedConversationPath(); IsValidConversationPath(pinned) {
-		SaveLastConversationPath(pinned)
-		return pinned
-	}
-
-	// 2. Authoritative top-level conversation from conversation_summaries.db
-	if fromDB := QueryLatestTopLevelConversationPath(); IsValidConversationPath(fromDB) {
-		SaveLastConversationPath(fromDB)
-		return fromDB
-	}
-
-	// 3. Saved last conversation path in app_storage.json
-	if saved := LoadLastConversationPath(); IsValidConversationPath(saved) {
-		return saved
-	}
-
-	// 4. Live CDP fallback (strictly verified, never accepts onboarding or test stubs)
+	// 1. Live CDP first (strictly verified from active window)
 	if port, err := inj.FindDevToolsPort(); err == nil && port > 0 {
 		if pages, err := inj.GetPageTargets(port); err == nil {
 			for _, page := range pages {
@@ -842,6 +825,23 @@ func (inj *Injector) CaptureActiveConversationPath() string {
 				}
 			}
 		}
+	}
+
+	// 2. Authoritative pinned conversation from app_storage.json
+	if pinned := LoadPinnedConversationPath(); IsValidConversationPath(pinned) {
+		SaveLastConversationPath(pinned)
+		return pinned
+	}
+
+	// 3. Authoritative top-level conversation from conversation_summaries.db
+	if fromDB := QueryLatestTopLevelConversationPath(); IsValidConversationPath(fromDB) {
+		SaveLastConversationPath(fromDB)
+		return fromDB
+	}
+
+	// 4. Saved last conversation path in app_storage.json
+	if saved := LoadLastConversationPath(); IsValidConversationPath(saved) {
+		return saved
 	}
 
 	return ""

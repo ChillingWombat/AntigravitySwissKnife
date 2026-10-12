@@ -1206,6 +1206,18 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
                 pending = data.pending_intent;
               } else if (data && (data.cascade_id || data.root_conversation_id)) {
                 pending = data;
+              } else if (data && data.active_session && data.active_session.needs_revival && data.active_session.conversation_id) {
+                pending = {
+                  intent_id: "auto-revive-" + data.active_session.conversation_id + "_" + (data.active_session.last_modified ? new Date(data.active_session.last_modified).getTime() : Date.now()),
+                  root_conversation_id: data.active_session.conversation_id,
+                  cascade_id: data.active_session.conversation_id,
+                  trigger_prompt: "Please continue ongoing tasks and subagents.",
+                  prompt: "Please continue ongoing tasks and subagents.",
+                  timestamp: Date.now(),
+                  ttl_seconds: 600,
+                  resumed: false,
+                  status: "pending"
+                };
               }
             }
           }
@@ -1354,25 +1366,41 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           }
           if (!curText.includes(promptText)) {
             editor.focus();
-            const sel = window.getSelection();
-            if (sel) {
-              const range = document.createRange();
-              range.selectNodeContents(editor);
-              sel.removeAllRanges();
-              sel.addRange(range);
-            }
-            document.execCommand("selectAll", false, null);
-            document.execCommand("insertText", false, promptText);
-            const hasInserted = (editor.innerText || "").includes(promptText);
-            if (!hasInserted) {
-              try {
-                editor.dispatchEvent(new InputEvent("beforeinput", {
-                  inputType: "insertText",
-                  data: promptText,
-                  bubbles: true,
-                  cancelable: true
-                }));
-              } catch (_) {}
+            const lex = editor.__lexicalEditor;
+            if (lex && typeof lex.update === "function" && lex._nodes) {
+              lex.update(() => {
+                const ParagraphNode = lex._nodes.get('paragraph')?.klass;
+                const TextNode = lex._nodes.get('text')?.klass;
+                const root = lex._editorState?._nodeMap?.get('root');
+                if (ParagraphNode && TextNode && root) {
+                  root.clear();
+                  const p = new ParagraphNode();
+                  const t = new TextNode(promptText);
+                  p.append(t);
+                  root.append(p);
+                }
+              });
+            } else {
+              const sel = window.getSelection();
+              if (sel) {
+                const range = document.createRange();
+                range.selectNodeContents(editor);
+                sel.removeAllRanges();
+                sel.addRange(range);
+              }
+              document.execCommand("selectAll", false, null);
+              document.execCommand("insertText", false, promptText);
+              const hasInserted = (editor.innerText || "").includes(promptText);
+              if (!hasInserted) {
+                try {
+                  editor.dispatchEvent(new InputEvent("beforeinput", {
+                    inputType: "insertText",
+                    data: promptText,
+                    bubbles: true,
+                    cancelable: true
+                  }));
+                } catch (_) {}
+              }
             }
             editor.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
           }
@@ -1392,6 +1420,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
         (async () => {
           try {
+            await new Promise(r => setTimeout(r, 80));
             let sent = false;
             for (let i = 0; i < 35; i++) {
               const sendBtn = document.querySelector('[data-testid="send-button"]') ||

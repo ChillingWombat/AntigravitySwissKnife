@@ -5655,29 +5655,44 @@ func GenerateAuxiliaryPluginsScript() string {
 
       if (input.isContentEditable) {
         input.focus();
-        const sel = window.getSelection();
-        if (sel) {
-          const range = document.createRange();
-          range.selectNodeContents(input);
-          range.collapse(false);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        }
-        const hasContent = (input.innerText || "").trim().length > 0;
-        const textToInsert = (hasContent ? "\n" : "") + text;
-        try {
-          document.execCommand("insertText", false, textToInsert);
-        } catch (_) {}
-        const hasInserted = (input.innerText || "").includes(text.slice(0, 15));
-        if (!hasInserted) {
+        const lex = input.__lexicalEditor;
+        if (lex && typeof lex.update === "function" && lex._nodes) {
+          lex.update(() => {
+            const ParagraphNode = lex._nodes.get('paragraph')?.klass;
+            const TextNode = lex._nodes.get('text')?.klass;
+            const root = lex._editorState?._nodeMap?.get('root');
+            if (ParagraphNode && TextNode && root) {
+              const p = new ParagraphNode();
+              const t = new TextNode(text);
+              p.append(t);
+              root.append(p);
+            }
+          });
+        } else {
+          const sel = window.getSelection();
+          if (sel) {
+            const range = document.createRange();
+            range.selectNodeContents(input);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+          const hasContent = (input.innerText || "").trim().length > 0;
+          const textToInsert = (hasContent ? "\n" : "") + text;
           try {
-            input.dispatchEvent(new InputEvent("beforeinput", {
-              inputType: "insertText",
-              data: textToInsert,
-              bubbles: true,
-              cancelable: true
-            }));
+            document.execCommand("insertText", false, textToInsert);
           } catch (_) {}
+          const hasInserted = (input.innerText || "").includes(text.slice(0, 15));
+          if (!hasInserted) {
+            try {
+              input.dispatchEvent(new InputEvent("beforeinput", {
+                inputType: "insertText",
+                data: textToInsert,
+                bubbles: true,
+                cancelable: true
+              }));
+            } catch (_) {}
+          }
         }
         input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
 

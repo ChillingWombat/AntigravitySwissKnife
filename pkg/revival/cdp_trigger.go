@@ -139,25 +139,41 @@ func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string,
 				}
 				if (!curText.includes(promptText)) {
 					editor.focus();
-					const sel = window.getSelection();
-					if (sel) {
-						const range = document.createRange();
-						range.selectNodeContents(editor);
-						sel.removeAllRanges();
-						sel.addRange(range);
-					}
-					document.execCommand("selectAll", false, null);
-					document.execCommand("insertText", false, promptText);
-					const hasInserted = (editor.innerText || "").includes(promptText);
-					if (!hasInserted) {
-						try {
-							editor.dispatchEvent(new InputEvent("beforeinput", {
-								inputType: "insertText",
-								data: promptText,
-								bubbles: true,
-								cancelable: true
-							}));
-						} catch (_) {}
+					const lex = editor.__lexicalEditor;
+					if (lex && typeof lex.update === "function" && lex._nodes) {
+						lex.update(() => {
+							const ParagraphNode = lex._nodes.get('paragraph')?.klass;
+							const TextNode = lex._nodes.get('text')?.klass;
+							const root = lex._editorState?._nodeMap?.get('root');
+							if (ParagraphNode && TextNode && root) {
+								root.clear();
+								const p = new ParagraphNode();
+								const t = new TextNode(promptText);
+								p.append(t);
+								root.append(p);
+							}
+						});
+					} else {
+						const sel = window.getSelection();
+						if (sel) {
+							const range = document.createRange();
+							range.selectNodeContents(editor);
+							sel.removeAllRanges();
+							sel.addRange(range);
+						}
+						document.execCommand("selectAll", false, null);
+						document.execCommand("insertText", false, promptText);
+						const hasInserted = (editor.innerText || "").includes(promptText);
+						if (!hasInserted) {
+							try {
+								editor.dispatchEvent(new InputEvent("beforeinput", {
+									inputType: "insertText",
+									data: promptText,
+									bubbles: true,
+									cancelable: true
+								}));
+							} catch (_) {}
+						}
 					}
 					editor.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
 				}
@@ -173,6 +189,8 @@ func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string,
 					editor.dispatchEvent(new Event("change", { bubbles: true }));
 				}
 			}
+
+			await new Promise(r => setTimeout(r, 80));
 
 			// 6. Wait/poll until send button is enabled (Lexical enables it async after processing input)
 			for (let i = 0; i < 35; i++) {

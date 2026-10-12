@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -151,19 +150,6 @@ func (s *Store) LoadIntent() (*RevivalIntent, error) {
 		_ = os.Remove(s.filePath)
 		return nil, nil
 	}
-
-	// Dedupe against pinned conversation (in production config directory):
-	// If intent path does not match pinned last conversation path, and intent is older than 25s, drop it
-	if s.dir == core.GetConfigDir() {
-		if pinned := gui.LoadPinnedConversationPath(); gui.IsValidConversationPath(pinned) {
-			pinnedID := strings.TrimPrefix(pinned, "/c/")
-			if !strings.EqualFold(pinnedID, intent.RootConversationID) && time.Since(intent.CreatedAt) > 25*time.Second {
-				_ = os.Remove(s.filePath)
-				return nil, nil
-			}
-		}
-	}
-
 	return &intent, nil
 }
 
