@@ -2,7 +2,7 @@
 
 ## Repository Architecture & Technology Stack
 - **Companion Daemon**: Headless Go service (`cmd/swiss`, `pkg/...`), loopback HTTP (127.0.0.1:8765), SQLite WAL (`~/.config/antigravity-swiss/swiss.db`), OS keyring integration.
-- **Desktop UI**: Electron shell (`main.js`) + React 19 / TypeScript / Vite frontend (`frontend/src/...`), Tailwind CSS, Lucide icons.
+- **Desktop UI**: Electron shell (`electron/main.js`) + React 19 / TypeScript / Vite frontend (`frontend/src/...`), Tailwind CSS, Lucide icons.
 - **Host Runtime Integration**: CDP automation, DOM script injection into Google Antigravity 2.0 app (`~/.gemini/antigravity`).
 
 ## Global Engineering & Design Invariants
