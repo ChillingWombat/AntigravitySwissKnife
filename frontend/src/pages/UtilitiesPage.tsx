@@ -14,7 +14,6 @@ import type {
   ImportHistoryItem,
 } from '../types'
 import { api } from '../api'
-import { GeminiBridgePage } from './GeminiBridgePage'
 import { BrainCachePage } from './BrainCachePage'
 import { ACPAgentMeshPage } from './ACPAgentMeshPage'
 
@@ -115,30 +114,23 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* ============================================================ */}
-      {/* TAB 0: GEMINI BRIDGE (TWO-WAY AGENT ORCHESTRATION) */}
+      {/* TAB 0: STORAGE MANAGER (BRAIN CACHE OPTIMIZER) */}
       {/* ============================================================ */}
       {activeTab === 0 && (
-        <GeminiBridgePage />
-      )}
-
-      {/* ============================================================ */}
-      {/* TAB 1: STORAGE MANAGER (BRAIN CACHE OPTIMIZER) */}
-      {/* ============================================================ */}
-      {activeTab === 1 && (
         <BrainCachePage />
       )}
 
       {/* ============================================================ */}
-      {/* TAB 2: ACP (AGENT CLIENT PROTOCOL) AGENT MESH */}
+      {/* TAB 1: ACP (AGENT CLIENT PROTOCOL) AGENT MESH */}
       {/* ============================================================ */}
-      {activeTab === 2 && (
+      {activeTab === 1 && (
         <ACPAgentMeshPage />
       )}
 
       {/* ============================================================ */}
-      {/* TAB 3: AGENT CHAT & PROJECT IMPORTER */}
+      {/* TAB 2: AGENT CHAT & PROJECT IMPORTER */}
       {/* ============================================================ */}
-      {activeTab === 3 && (
+      {activeTab === 2 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {importFeedback && (
             <div

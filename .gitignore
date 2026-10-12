@@ -34,7 +34,8 @@ release/*.exe
 dev/*
 !dev/README.md
 scratch/
-tests/
+/tests/
+!frontend/src/tests/
 tests/stress_results.json
 *.test.data
 .pytest_cache/

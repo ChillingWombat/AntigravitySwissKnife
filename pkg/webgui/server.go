@@ -318,6 +318,16 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/bridge/test", s.handleBridgeTest)
 	mux.HandleFunc("/api/bridge/mcp", s.handleBridgeMCP)
 	mux.HandleFunc("/mcp", s.handleBridgeMCP)
+	mux.HandleFunc("/api/bridge/tunnel/start", s.handleBridgeTunnelStart)
+	mux.HandleFunc("/api/bridge/tunnel/stop", s.handleBridgeTunnelStop)
+	mux.HandleFunc("/api/bridge/token/rotate", s.handleBridgeTokenRotate)
+	mux.HandleFunc("/api/bridge/mode", s.handleBridgeMode)
+	mux.HandleFunc("/api/bridge/remote/status", s.handleBridgeRemoteStatus)
+	mux.HandleFunc("/api/bridge/remote/config", s.handleBridgeRemoteConfig)
+	mux.HandleFunc("/api/bridge/remote/pin/rotate", s.handleBridgeRemotePINRotate)
+	mux.HandleFunc("/api/bridge/channels/status", s.handleBridgeChannelsStatus)
+	mux.HandleFunc("/api/bridge/channels/config", s.handleBridgeChannelsConfig)
+	mux.HandleFunc("/api/bridge/channels/test", s.handleBridgeChannelsTest)
 
 	// Quick Memos API
 	mux.HandleFunc("/api/memos", s.handleMemos)
@@ -5429,9 +5439,23 @@ func (s *Server) handleBridgeMCP(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Bridge-Token, X-Pairing-PIN")
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Validate Authentication: Bearer token, Pairing PIN, or query parameters
+	granted, reason := s.bridgeService.ValidateRequest(r)
+	if !granted {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":       "unauthorized",
+			"message":     "Valid Bearer token or pairing PIN required to access Gemini Bridge MCP endpoint.",
+			"reason":      reason,
+			"setup_guide": "Open Antigravity Swiss Knife Desktop > Gemini Bridge tab to view your credentials.",
+		})
 		return
 	}
 
@@ -5469,6 +5493,245 @@ func (s *Server) handleBridgeMCP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+}
+
+func (s *Server) handleBridgeTunnelStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.bridgeService == nil {
+		s.bridgeService, _ = bridge.NewService("")
+	}
+	var req struct {
+		Type      string `json:"type"`
+		CustomURL string `json:"custom_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		req.Type = "quick"
+	}
+	st, err := s.bridgeService.StartTunnel(req.Type, req.CustomURL)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+			"tunnel":  st,
+		})
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"tunnel":  st,
+		"status":  s.bridgeService.GetStatus(),
+	})
+}
+
+func (s *Server) handleBridgeTunnelStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.bridgeService == nil {
+		s.bridgeService, _ = bridge.NewService("")
+	}
+	s.bridgeService.StopTunnel()
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"status":  s.bridgeService.GetStatus(),
+	})
+}
+
+func (s *Server) handleBridgeTokenRotate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.bridgeService == nil {
+		s.bridgeService, _ = bridge.NewService("")
+	}
+	token, pin, err := s.bridgeService.RotateCredentials()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success":     true,
+		"auth_token":  token,
+		"pairing_pin": pin,
+		"status":      s.bridgeService.GetStatus(),
+	})
+}
+
+func (s *Server) handleBridgeMode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.bridgeService == nil {
+		s.bridgeService, _ = bridge.NewService("")
+	}
+	var req struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if err := s.bridgeService.SetOperatingMode(req.Mode); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"status":  s.bridgeService.GetStatus(),
+	})
+}
+
+func (s *Server) handleBridgeRemoteStatus(w http.ResponseWriter, r *http.Request) {
+	if s.bridgeService == nil {
+		s.bridgeService, _ = bridge.NewService("")
+	}
+	activeEmail := ""
+	store, _ := keyring.NewStore("")
+	if store != nil {
+		activeEmail = store.ActiveAccount()
+	}
+	shield := process.NewShield(0)
+	procs, _ := shield.FindAntigravityProcesses()
+	pid := 0
+	if len(procs) > 0 {
+		pid = procs[0].PID
+	}
+	st := s.bridgeService.GetRemoteStatus(activeEmail, pid)
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"status":  st,
+		"config":  s.bridgeService.GetRemoteConfig(),
+	})
+}
+
+func (s *Server) handleBridgeRemoteConfig(w http.ResponseWriter, r *http.Request) {
+	if s.bridgeService == nil {
+		s.bridgeService, _ = bridge.NewService("")
+	}
+	if r.Method == http.MethodGet {
+		writeJSON(w, map[string]interface{}{
+			"success": true,
+			"config":  s.bridgeService.GetRemoteConfig(),
+		})
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var cfg bridge.RemoteControlConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if err := s.bridgeService.UpdateRemoteConfig(cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"config":  s.bridgeService.GetRemoteConfig(),
+	})
+}
+
+func (s *Server) handleBridgeRemotePINRotate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.bridgeService == nil {
+		s.bridgeService, _ = bridge.NewService("")
+	}
+	pin, err := s.bridgeService.RotateRemotePIN()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success":      true,
+		"security_pin": pin,
+		"config":       s.bridgeService.GetRemoteConfig(),
+	})
+}
+
+func (s *Server) handleBridgeChannelsStatus(w http.ResponseWriter, r *http.Request) {
+	if s.bridgeService == nil {
+		s.bridgeService, _ = bridge.NewService("")
+	}
+	st := s.bridgeService.GetChannelsStatus()
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"status":  st,
+	})
+}
+
+func (s *Server) handleBridgeChannelsConfig(w http.ResponseWriter, r *http.Request) {
+	if s.bridgeService == nil {
+		s.bridgeService, _ = bridge.NewService("")
+	}
+	if r.Method == http.MethodGet {
+		writeJSON(w, map[string]interface{}{
+			"success": true,
+			"config":  s.bridgeService.GetChannelsConfig(),
+		})
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var cfg bridge.ChannelsConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if err := s.bridgeService.UpdateChannelsConfig(cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"config":  s.bridgeService.GetChannelsConfig(),
+		"status":  s.bridgeService.GetChannelsStatus(),
+	})
+}
+
+func (s *Server) handleBridgeChannelsTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.bridgeService == nil {
+		s.bridgeService, _ = bridge.NewService("")
+	}
+	var req struct {
+		Channel string `json:"channel"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	msg, err := s.bridgeService.TestChannel(req.Channel)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"message": msg,
+		"status":  s.bridgeService.GetChannelsStatus(),
+	})
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {

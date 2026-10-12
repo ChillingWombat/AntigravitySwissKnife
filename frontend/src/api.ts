@@ -889,5 +889,72 @@ export const api = {
     request<{ success: boolean; message?: string; status?: any }>('/api/bridge/test', {
       method: 'POST',
     }),
+
+  startBridgeTunnel: (data: { type?: string; custom_url?: string }) =>
+    request<{ success: boolean; tunnel?: any; status?: any; error?: string }>('/api/bridge/tunnel/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  stopBridgeTunnel: () =>
+    request<{ success: boolean; status?: any }>('/api/bridge/tunnel/stop', {
+      method: 'POST',
+    }),
+
+  rotateBridgeToken: () =>
+    request<{ success: boolean; auth_token?: string; pairing_pin?: string; status?: any }>(
+      '/api/bridge/token/rotate',
+      {
+        method: 'POST',
+      }
+    ),
+
+  setBridgeMode: (mode: string) =>
+    request<{ success: boolean; status?: any }>('/api/bridge/mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    }),
+
+  // Remote Control Wrapper API (Account-Resilient Antigravity Remote Access)
+  getRemoteControlStatus: () =>
+    request<{ success: boolean; status: any; config: any }>('/api/bridge/remote/status'),
+
+  getRemoteControlConfig: () =>
+    request<{ success: boolean; config: any }>('/api/bridge/remote/config'),
+
+  updateRemoteControlConfig: (config: any) =>
+    request<{ success: boolean; config: any }>('/api/bridge/remote/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    }),
+
+  rotateRemotePIN: () =>
+    request<{ success: boolean; security_pin: string; config: any }>('/api/bridge/remote/pin/rotate', {
+      method: 'POST',
+    }),
+
+  // Multi-Channel Agent Chat Bridge API (WhatsApp, Telegram, Discord)
+  getChannelsStatus: () =>
+    request<{ success: boolean; status: any }>('/api/bridge/channels/status'),
+
+  getChannelsConfig: () =>
+    request<{ success: boolean; config: any }>('/api/bridge/channels/config'),
+
+  updateChannelsConfig: (config: any) =>
+    request<{ success: boolean; config: any; status?: any }>('/api/bridge/channels/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    }),
+
+  testChannel: (channel: 'whatsapp' | 'telegram' | 'discord') =>
+    request<{ success: boolean; message?: string; error?: string; status?: any }>('/api/bridge/channels/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel }),
+    }),
 }
 
