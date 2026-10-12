@@ -304,6 +304,77 @@ func resolveRootParentID(db *sql.DB, parentID string) string {
 	return id
 }
 
+// ResolveProjectFolderFromConfig looks up a project name or ID in ~/.gemini/config/projects/
+// and returns the top folder configured in the project settings.
+func ResolveProjectFolderFromConfig(nameOrID string) string {
+	nameOrID = strings.TrimSpace(nameOrID)
+	if nameOrID == "" {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	projectsDir := filepath.Join(home, ".gemini", "config", "projects")
+	entries, err := os.ReadDir(projectsDir)
+	if err != nil {
+		return ""
+	}
+
+	type projectRes struct {
+		FolderURI string `json:"folderUri"`
+		GitFolder *struct {
+			FolderURI string `json:"folderUri"`
+		} `json:"gitFolder"`
+	}
+	type projectMeta struct {
+		ID               string `json:"id"`
+		Name             string `json:"name"`
+		ProjectResources struct {
+			Resources []projectRes `json:"resources"`
+		} `json:"projectResources"`
+	}
+
+	extractTopFolder := func(meta *projectMeta) string {
+		for _, r := range meta.ProjectResources.Resources {
+			uri := r.FolderURI
+			if uri == "" && r.GitFolder != nil {
+				uri = r.GitFolder.FolderURI
+			}
+			if uri != "" {
+				uPath := strings.TrimPrefix(uri, "file://")
+				if unescaped, err := url.PathUnescape(uPath); err == nil {
+					uPath = unescaped
+				}
+				return filepath.Clean(uPath)
+			}
+		}
+		return ""
+	}
+
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".json") || strings.HasSuffix(entry.Name(), ".deleted") {
+			continue
+		}
+		filePath := filepath.Join(projectsDir, entry.Name())
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			continue
+		}
+		var meta projectMeta
+		if err := json.Unmarshal(data, &meta); err != nil {
+			continue
+		}
+		baseID := strings.TrimSuffix(entry.Name(), ".json")
+		if strings.EqualFold(meta.Name, nameOrID) || strings.EqualFold(meta.ID, nameOrID) || strings.EqualFold(baseID, nameOrID) {
+			if top := extractTopFolder(&meta); top != "" {
+				return top
+			}
+		}
+	}
+	return ""
+}
+
 // ResolveProjectPath resolves a workspace path or bare project name to an absolute directory path when possible.
 func ResolveProjectPath(nameOrPath string) string {
 	p := strings.TrimSpace(nameOrPath)
@@ -323,16 +394,26 @@ func ResolveProjectPath(nameOrPath string) string {
 	if filepath.IsAbs(p) {
 		return filepath.Clean(p)
 	}
+	firstSeg := p
+	rest := ""
+	if idx := strings.IndexAny(p, `/\`); idx >= 0 {
+		firstSeg = p[:idx]
+		rest = p[idx+1:]
+	}
+
+	// 1. Check if firstSeg matches a project configuration in ~/.gemini/config/projects/
+	if top := ResolveProjectFolderFromConfig(firstSeg); top != "" {
+		if rest != "" {
+			return filepath.Join(top, rest)
+		}
+		return top
+	}
+
+	// 2. Check relative to current working directory
 	if wd, err := os.Getwd(); err == nil && wd != "" {
 		candidate := filepath.Join(wd, p)
 		if _, err := os.Stat(candidate); err == nil {
 			return filepath.Clean(candidate)
-		}
-		firstSeg := p
-		rest := ""
-		if idx := strings.IndexAny(p, `/\`); idx >= 0 {
-			firstSeg = p[:idx]
-			rest = p[idx+1:]
 		}
 		curr := wd
 		for i := 0; i < 15 && curr != "" && curr != "/" && curr != "."; i++ {
@@ -372,6 +453,23 @@ func ResolveProjectPath(nameOrPath string) string {
 	if _, err := os.Stat(dbPath); err == nil {
 		if db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=ro", dbPath)); err == nil {
 			defer db.Close()
+			var uriJSON string
+			errQuery := db.QueryRow(`SELECT workspace_uris FROM conversation_summaries WHERE (project_id = ? OR title = ?) AND workspace_uris IS NOT NULL AND workspace_uris != '' ORDER BY last_modified_time DESC LIMIT 1`, firstSeg, firstSeg).Scan(&uriJSON)
+			if errQuery == nil && uriJSON != "" {
+				var uris []string
+				if json.Unmarshal([]byte(uriJSON), &uris) == nil && len(uris) > 0 {
+					uPath := strings.TrimPrefix(uris[0], "file://")
+					if unescaped, err := url.PathUnescape(uPath); err == nil {
+						uPath = unescaped
+					}
+					uPath = filepath.Clean(uPath)
+					if rest != "" {
+						return filepath.Join(uPath, rest)
+					}
+					return uPath
+				}
+			}
+
 			rows, err := db.Query(`SELECT workspace_uris FROM conversation_summaries WHERE workspace_uris IS NOT NULL AND workspace_uris != '' GROUP BY workspace_uris ORDER BY MAX(last_modified_time) DESC`)
 			if err == nil {
 				defer rows.Close()

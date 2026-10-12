@@ -3,6 +3,7 @@ package webgui
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1922,6 +1923,88 @@ func TestCleanUserPath_HomeDir(t *testing.T) {
 	}
 	if res.Path != home {
 		t.Errorf("expected returned path %q, got %q", home, res.Path)
+	}
+}
+
+func TestFilesListProjectFolderSettingDefault(t *testing.T) {
+	fakeHome := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", fakeHome)
+	defer os.Setenv("HOME", origHome)
+
+	cfgDir := filepath.Join(fakeHome, ".gemini", "config", "projects")
+	if err := os.MkdirAll(cfgDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	topFolder := filepath.Join(fakeHome, "UniMelb", "COMP9007 Internet Technologies")
+	if err := os.MkdirAll(topFolder, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(topFolder, "syllabus.pdf"), []byte("syllabus"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	projJSON := fmt.Sprintf(`{
+		"id": "c34ad39b-1fca-46d2-a1e3-e63be0d8eb5a",
+		"name": "UniMelb - IT",
+		"projectResources": {
+			"resources": [
+				{
+					"folderUri": "file://%s"
+				}
+			]
+		}
+	}`, topFolder)
+	if err := os.WriteFile(filepath.Join(cfgDir, "c34ad39b-1fca-46d2-a1e3-e63be0d8eb5a.json"), []byte(projJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// 1. Calling /api/files/list with bare project name "UniMelb - IT" resolves to top folder
+	resp, err := http.Get(baseURL + "/api/files/list?path=" + url.QueryEscape("UniMelb - IT"))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/files/list?path=UniMelb - IT failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	var res struct {
+		Success bool       `json:"success"`
+		Path    string     `json:"path"`
+		Files   []FileItem `json:"files"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&res)
+	resp.Body.Close()
+
+	if !res.Success {
+		t.Fatalf("expected success true when querying bare project name 'UniMelb - IT'")
+	}
+	if res.Path != topFolder {
+		t.Errorf("expected resolved path %q, got %q", topFolder, res.Path)
+	}
+	if len(res.Files) != 1 || res.Files[0].Name != "syllabus.pdf" {
+		t.Errorf("expected 1 file syllabus.pdf, got %+v", res.Files)
+	}
+
+	// 2. Calling /api/files/list with project ID also resolves to top folder
+	resp2, err := http.Get(baseURL + "/api/files/list?path=c34ad39b-1fca-46d2-a1e3-e63be0d8eb5a")
+	if err != nil || resp2.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/files/list with project id failed: err=%v", err)
+	}
+	var res2 struct {
+		Success bool       `json:"success"`
+		Path    string     `json:"path"`
+		Files   []FileItem `json:"files"`
+	}
+	_ = json.NewDecoder(resp2.Body).Decode(&res2)
+	resp2.Body.Close()
+
+	if !res2.Success || res2.Path != topFolder {
+		t.Errorf("expected project id resolution to %q, got success=%v path=%q", topFolder, res2.Success, res2.Path)
 	}
 }
 

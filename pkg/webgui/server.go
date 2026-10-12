@@ -4567,6 +4567,15 @@ func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// If dirPath does not exist or is not a directory, attempt resolving rawPath via project configuration
+	if fi, err := os.Stat(dirPath); err != nil || !fi.IsDir() {
+		if resolved := github.ResolveProjectPath(rawPath); resolved != "" && resolved != dirPath {
+			if fiRes, errRes := os.Stat(resolved); errRes == nil && fiRes.IsDir() {
+				dirPath = resolved
+			}
+		}
+	}
+
 	// If target is a file instead of directory, list its parent directory
 	if fi, err := os.Stat(dirPath); err == nil && !fi.IsDir() {
 		dirPath = filepath.Dir(dirPath)

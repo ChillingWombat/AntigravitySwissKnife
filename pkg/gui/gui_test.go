@@ -647,6 +647,22 @@ func TestDetectProjects(t *testing.T) {
 	if !foundArbitrager {
 		t.Errorf("DetectProjects should have returned Arbitrager")
 	}
+
+	foundUniMelb := false
+	for _, p := range projects {
+		if p.Name == "UniMelb - IT" {
+			foundUniMelb = true
+			if p.FolderPath == "" {
+				t.Errorf("expected UniMelb - IT to have non-empty FolderPath from project folder settings")
+			}
+			if !strings.Contains(p.FolderPath, "COMP9007") {
+				t.Errorf("expected UniMelb - IT FolderPath to contain COMP9007, got %q", p.FolderPath)
+			}
+		}
+	}
+	if !foundUniMelb {
+		t.Errorf("expected UniMelb - IT to be discovered in DetectProjects")
+	}
 }
 
 func TestLiveInjection(t *testing.T) {
