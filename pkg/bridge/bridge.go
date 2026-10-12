@@ -3,6 +3,7 @@ package bridge
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,12 +17,15 @@ import (
 
 // Config holds persistent settings for Gemini Bridge.
 type Config struct {
-	Enabled      bool     `json:"enabled"`
-	Port         int      `json:"port"`
-	TunnelType   string   `json:"tunnel_type"` // "loopback" | "cloudflare" | "tailscale"
-	TunnelURL    string   `json:"tunnel_url"`
-	AuthToken    string   `json:"auth_token"`
-	AllowedTools []string `json:"allowed_tools"`
+	Enabled         bool     `json:"enabled"`
+	Port            int      `json:"port"`
+	OperatingMode   string   `json:"operating_mode"` // "hybrid" | "lead" | "direct"
+	TunnelType      string   `json:"tunnel_type"`    // "quick" | "tailscale" | "loopback" | "custom"
+	TunnelURL       string   `json:"tunnel_url"`
+	AuthToken       string   `json:"auth_token"`
+	PairingPIN      string   `json:"pairing_pin"`
+	AutoStartTunnel bool     `json:"auto_start_tunnel"`
+	AllowedTools    []string `json:"allowed_tools"`
 }
 
 // SurfaceStatus details connectivity to local Antigravity runtime environments.
@@ -40,6 +44,7 @@ type Invocation struct {
 	ID         string                 `json:"id"`
 	Timestamp  string                 `json:"timestamp"`
 	Tool       string                 `json:"tool"`
+	Mode       string                 `json:"mode,omitempty"`
 	Args       map[string]interface{} `json:"args,omitempty"`
 	DurationMs int64                  `json:"duration_ms"`
 	Status     string                 `json:"status"` // "success" | "error"
@@ -47,42 +52,64 @@ type Invocation struct {
 	Error      string                 `json:"error,omitempty"`
 }
 
-// BridgeStatus reports operational health and configuration to UI.
+// BridgeStatus reports operational health and configuration to UI and clients.
 type BridgeStatus struct {
 	Enabled           bool          `json:"enabled"`
+	OperatingMode     string        `json:"operating_mode"`
 	GatewayURL        string        `json:"gateway_url"`
 	TunnelType        string        `json:"tunnel_type"`
 	TunnelOnline      bool          `json:"tunnel_online"`
 	AuthToken         string        `json:"auth_token"`
+	PairingPIN        string        `json:"pairing_pin"`
 	Surfaces          SurfaceStatus `json:"surfaces"`
+	Tunnel            TunnelStatus  `json:"tunnel"`
+	ActiveLeadSession *LeadSession  `json:"active_lead_session,omitempty"`
+	RecentAttempts    []AuthAttempt `json:"recent_attempts,omitempty"`
 	InvocationsCount  int           `json:"invocations_count"`
 	RecentInvocations []Invocation  `json:"recent_invocations"`
 }
 
-// Service manages two-way bridging between Gemini App/Web and Antigravity.
+// Service manages two-way bridging, tunnels, authentication, and execution modes.
 type Service struct {
 	mu          sync.RWMutex
 	config      Config
 	configPath  string
 	invocations []Invocation
 	injector    *gui.Injector
+
+	tunnelMgr   *TunnelManager
+	authMgr     *AuthManager
+	directHdl   *DirectHandler
+	leadHdl     *LeadHandler
+	remoteMgr   *RemoteManager
+	channelsMgr *ChannelsManager
 }
 
 // DefaultConfig initializes recommended default bridge settings.
 func DefaultConfig() Config {
 	return Config{
-		Enabled:    true,
-		Port:       8765,
-		TunnelType: "loopback",
-		TunnelURL:  "http://127.0.0.1:8765/api/bridge/mcp",
-		AuthToken:  "swiss-gemini-bridge-auth-token",
+		Enabled:         true,
+		Port:            8765,
+		OperatingMode:   "hybrid",
+		TunnelType:      "quick",
+		TunnelURL:       "",
+		AuthToken:       GenerateSecureToken(),
+		PairingPIN:      GeneratePairingPIN(),
+		AutoStartTunnel: false,
 		AllowedTools: []string{
-			"antigravity_dispatch_task",
-			"antigravity_list_sessions",
-			"antigravity_get_transcript",
-			"antigravity_inspect_workspace",
-			"antigravity_system_info",
-			"antigravity_computer_use",
+			"antigravity_bridge_set_mode",
+			"antigravity_bridge_get_mode",
+			"antigravity_lead_create_conversation",
+			"antigravity_lead_send_message",
+			"antigravity_lead_get_status",
+			"antigravity_lead_await_response",
+			"antigravity_lead_list_conversations",
+			"local_run_command",
+			"local_read_file",
+			"local_write_file",
+			"local_list_directory",
+			"local_system_info",
+			"local_computer_use",
 		},
 	}
 }
@@ -97,9 +124,69 @@ func NewService(configPath string) (*Service, error) {
 		config:      DefaultConfig(),
 		invocations: make([]Invocation, 0),
 		injector:    gui.NewInjector(0),
+		directHdl:   NewDirectHandler(),
+		leadHdl:     NewLeadHandler(""),
+		remoteMgr:   NewRemoteManager(""),
+		channelsMgr: NewChannelsManager(""),
 	}
 	_ = s.loadConfig()
+
+	s.tunnelMgr = NewTunnelManager(s.config.Port)
+	s.authMgr = NewAuthManager(s.config.AuthToken, s.config.PairingPIN, func(token, pin string) error {
+		s.mu.Lock()
+		s.config.AuthToken = token
+		s.config.PairingPIN = pin
+		s.mu.Unlock()
+		return s.saveConfig()
+	})
+
+	if s.config.AutoStartTunnel && s.config.TunnelType != "loopback" {
+		go func() {
+			_, _ = s.tunnelMgr.Start(s.config.TunnelType, s.config.TunnelURL)
+		}()
+	}
+
 	return s, nil
+}
+
+// GetRemoteStatus returns current remote control status.
+func (s *Service) GetRemoteStatus(email string, pid int) RemoteControlStatus {
+	return s.remoteMgr.GetStatus(email, pid)
+}
+
+// GetRemoteConfig returns current remote control settings.
+func (s *Service) GetRemoteConfig() RemoteControlConfig {
+	return s.remoteMgr.GetConfig()
+}
+
+// UpdateRemoteConfig persists new remote control settings.
+func (s *Service) UpdateRemoteConfig(cfg RemoteControlConfig) error {
+	return s.remoteMgr.UpdateConfig(cfg)
+}
+
+// RotateRemotePIN generates a fresh PIN for remote access.
+func (s *Service) RotateRemotePIN() (string, error) {
+	return s.remoteMgr.RotatePIN()
+}
+
+// GetChannelsStatus returns operational status for WhatsApp, Telegram, Discord.
+func (s *Service) GetChannelsStatus() ChannelsStatus {
+	return s.channelsMgr.GetStatus()
+}
+
+// GetChannelsConfig returns persistent settings for chat channels.
+func (s *Service) GetChannelsConfig() ChannelsConfig {
+	return s.channelsMgr.GetConfig()
+}
+
+// UpdateChannelsConfig updates chat channel settings.
+func (s *Service) UpdateChannelsConfig(cfg ChannelsConfig) error {
+	return s.channelsMgr.UpdateConfig(cfg)
+}
+
+// TestChannel executes connectivity check for a given channel.
+func (s *Service) TestChannel(name string) (string, error) {
+	return s.channelsMgr.TestChannel(name)
 }
 
 func (s *Service) loadConfig() error {
@@ -110,6 +197,15 @@ func (s *Service) loadConfig() error {
 	var c Config
 	if err := json.Unmarshal(data, &c); err != nil {
 		return err
+	}
+	if c.OperatingMode == "" {
+		c.OperatingMode = "hybrid"
+	}
+	if c.AuthToken == "" {
+		c.AuthToken = GenerateSecureToken()
+	}
+	if c.PairingPIN == "" {
+		c.PairingPIN = GeneratePairingPIN()
 	}
 	s.config = c
 	return nil
@@ -132,13 +228,60 @@ func (s *Service) UpdateConfig(c Config) error {
 	return s.saveConfig()
 }
 
+// StartTunnel initiates remote tunneling.
+func (s *Service) StartTunnel(tType, customURL string) (TunnelStatus, error) {
+	st, err := s.tunnelMgr.Start(tType, customURL)
+	s.mu.Lock()
+	s.config.TunnelType = st.Type
+	if st.GatewayURL != "" {
+		s.config.TunnelURL = st.GatewayURL
+	}
+	_ = s.saveConfig()
+	s.mu.Unlock()
+	return st, err
+}
+
+// StopTunnel terminates remote tunneling.
+func (s *Service) StopTunnel() {
+	s.tunnelMgr.Stop()
+	s.mu.Lock()
+	s.config.TunnelType = "loopback"
+	_ = s.saveConfig()
+	s.mu.Unlock()
+}
+
+// RotateCredentials generates a new Bearer token and Pairing PIN.
+func (s *Service) RotateCredentials() (string, string, error) {
+	return s.authMgr.RotateCredentials()
+}
+
+// SetOperatingMode updates the bridge mode ("hybrid" | "lead" | "direct").
+func (s *Service) SetOperatingMode(mode string) error {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode != "hybrid" && mode != "lead" && mode != "direct" {
+		return fmt.Errorf("invalid mode %q: must be 'hybrid', 'lead', or 'direct'", mode)
+	}
+	s.mu.Lock()
+	s.config.OperatingMode = mode
+	_ = s.saveConfig()
+	s.mu.Unlock()
+	return nil
+}
+
+// ValidateRequest checks HTTP authentication.
+func (s *Service) ValidateRequest(r *http.Request) (bool, string) {
+	ip := r.RemoteAddr
+	granted, reason := s.authMgr.ValidateRequest(r)
+	s.authMgr.RecordAttempt(ip, r.Method, granted, reason)
+	return granted, reason
+}
+
 // DetectSurfaces inspects local machine for running or installed Antigravity surfaces.
 func (s *Service) DetectSurfaces() SurfaceStatus {
 	surfaces := SurfaceStatus{
 		AccountResilience: true,
 	}
 
-	// 1. Antigravity 2.0 Desktop IDE
 	if port, err := s.injector.FindDevToolsPort(); err == nil && port > 0 {
 		surfaces.DesktopAppConnected = true
 		surfaces.DesktopCDPPort = port
@@ -147,7 +290,6 @@ func (s *Service) DetectSurfaces() SurfaceStatus {
 		}
 	}
 
-	// 2. Antigravity CLI (agy)
 	if p, err := exec.LookPath("agy"); err == nil {
 		surfaces.AgyCLIInstalled = true
 		surfaces.AgyCLIPath = p
@@ -159,17 +301,8 @@ func (s *Service) DetectSurfaces() SurfaceStatus {
 		}
 	}
 
-	// 3. VS Code / Language Server connection
-	if lsPort := detectLanguageServerPort(); lsPort > 0 {
-		surfaces.VSCodeConnected = true
-	}
-
+	surfaces.VSCodeConnected = true
 	return surfaces
-}
-
-func detectLanguageServerPort() int {
-	// Language server runs with --override_ide_name antigravity or socket
-	return 41223
 }
 
 // GetStatus returns the live snapshot of Gemini Bridge.
@@ -178,7 +311,9 @@ func (s *Service) GetStatus() BridgeStatus {
 	defer s.mu.RUnlock()
 
 	surfaces := s.DetectSurfaces()
-	gatewayURL := s.config.TunnelURL
+	tunnelStatus := s.tunnelMgr.GetStatus()
+
+	gatewayURL := tunnelStatus.GatewayURL
 	if gatewayURL == "" {
 		gatewayURL = fmt.Sprintf("http://127.0.0.1:%d/api/bridge/mcp", s.config.Port)
 	}
@@ -188,11 +323,16 @@ func (s *Service) GetStatus() BridgeStatus {
 
 	return BridgeStatus{
 		Enabled:           s.config.Enabled,
+		OperatingMode:     s.config.OperatingMode,
 		GatewayURL:        gatewayURL,
-		TunnelType:        s.config.TunnelType,
-		TunnelOnline:      true,
-		AuthToken:         s.config.AuthToken,
+		TunnelType:        tunnelStatus.Type,
+		TunnelOnline:      tunnelStatus.Active,
+		AuthToken:         s.authMgr.GetToken(),
+		PairingPIN:        s.authMgr.GetPIN(),
 		Surfaces:          surfaces,
+		Tunnel:            tunnelStatus,
+		ActiveLeadSession: s.leadHdl.GetActiveSession(),
+		RecentAttempts:    s.authMgr.GetRecentAttempts(),
 		InvocationsCount:  len(s.invocations),
 		RecentInvocations: recent,
 	}
@@ -214,111 +354,258 @@ func (s *Service) RecordInvocation(inv Invocation) {
 	}
 }
 
-// ToolManifest returns definitions of the 6 tools exposed to Gemini App / Spark.
+// ToolManifest returns definitions of exposed tools based on OperatingMode.
 func (s *Service) ToolManifest() []map[string]interface{} {
-	return []map[string]interface{}{
-		{
-			"name":        "antigravity_dispatch_task",
-			"description": "Dispatches an instruction or prompt to local Antigravity 2.0 agent or CLI across account rotations.",
+	s.mu.RLock()
+	mode := s.config.OperatingMode
+	s.mu.RUnlock()
+
+	tools := make([]map[string]interface{}, 0)
+
+	// Mode management tools (always exposed)
+	tools = append(tools,
+		map[string]interface{}{
+			"name":        "antigravity_bridge_set_mode",
+			"description": "Switches bridge operational mode between 'direct' (Gemini directly executes tasks on local PC) and 'lead' (Gemini acts as lead/messenger passing tasks to Antigravity and forwarding responses).",
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"prompt": map[string]interface{}{
+					"mode": map[string]interface{}{
 						"type":        "string",
-						"description": "Task or instruction content to submit to local Antigravity agent.",
-					},
-					"target": map[string]interface{}{
-						"type":        "string",
-						"enum":        []string{"desktop", "cli", "auto"},
-						"description": "Target surface for execution.",
-						"default":     "auto",
+						"enum":        []string{"hybrid", "lead", "direct"},
+						"description": "Operating mode to engage.",
 					},
 				},
-				"required": []string{"prompt"},
+				"required": []string{"mode"},
 			},
 		},
-		{
-			"name":        "antigravity_list_sessions",
-			"description": "Lists recent active and archived Antigravity conversations and brain states from local disk.",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"limit": map[string]interface{}{
-						"type":        "integer",
-						"description": "Maximum number of sessions to return (default: 10).",
-						"default":     10,
-					},
-				},
-			},
-		},
-		{
-			"name":        "antigravity_get_transcript",
-			"description": "Fetches turn-by-turn conversation transcript and tool call logs for a specific conversation ID.",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"conversation_id": map[string]interface{}{
-						"type":        "string",
-						"description": "UUID of the conversation session.",
-					},
-					"max_turns": map[string]interface{}{
-						"type":        "integer",
-						"description": "Max turns to retrieve from the end of the transcript.",
-						"default":     5,
-					},
-				},
-				"required": []string{"conversation_id"},
-			},
-		},
-		{
-			"name":        "antigravity_inspect_workspace",
-			"description": "Inspects directory contents, file summaries, or git status of the local active repository.",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"path": map[string]interface{}{
-						"type":        "string",
-						"description": "Relative or absolute directory path to inspect (defaults to current project).",
-					},
-				},
-			},
-		},
-		{
-			"name":        "antigravity_system_info",
-			"description": "Returns host computer metrics, active account quota, and running Antigravity processes.",
+		map[string]interface{}{
+			"name":        "antigravity_bridge_get_mode",
+			"description": "Returns current operational mode, active Antigravity session status, and host metrics.",
 			"inputSchema": map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
 			},
 		},
-		{
-			"name":        "antigravity_computer_use",
-			"description": "Executes local computer use UI automation actions via Agent-S or Obscura.",
+	)
+
+	// Lead / Messenger tools
+	if mode == "hybrid" || mode == "lead" {
+		tools = append(tools,
+			map[string]interface{}{
+				"name":        "antigravity_lead_create_conversation",
+				"description": "Creates a new conversation in local Google Antigravity 2.0 desktop app and submits the initial task prompt. Use this when the user asks you to instruct Antigravity or create a subagent/agent to work on a task.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"prompt": map[string]interface{}{
+							"type":        "string",
+							"description": "Detailed task instructions to dispatch to Antigravity.",
+						},
+						"title": map[string]interface{}{
+							"type":        "string",
+							"description": "Brief title for the new conversation session.",
+							"default":     "Gemini Orchestrated Task",
+						},
+					},
+					"required": []string{"prompt"},
+				},
+			},
+			map[string]interface{}{
+				"name":        "antigravity_lead_send_message",
+				"description": "Sends follow-up directions, corrections, or next assignments into the active Antigravity conversation.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"message": map[string]interface{}{
+							"type":        "string",
+							"description": "Message or follow-up task instructions to send.",
+						},
+						"conversation_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Target conversation ID (optional, defaults to active session).",
+						},
+					},
+					"required": []string{"message"},
+				},
+			},
+			map[string]interface{}{
+				"name":        "antigravity_lead_get_status",
+				"description": "Checks whether Antigravity is actively executing, thinking, or has completed its response.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"conversation_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Conversation ID to inspect (optional, defaults to active session).",
+						},
+					},
+				},
+			},
+			map[string]interface{}{
+				"name":        "antigravity_lead_await_response",
+				"description": "Waits for Antigravity to finish generating its response turn and forwards the full text and generated artifacts back to Gemini chat.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"conversation_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Conversation ID to wait on (optional, defaults to active session).",
+						},
+						"timeout_seconds": map[string]interface{}{
+							"type":        "integer",
+							"description": "Max seconds to wait before returning progress status (default: 60).",
+							"default":     60,
+						},
+					},
+				},
+			},
+			map[string]interface{}{
+				"name":        "antigravity_lead_list_conversations",
+				"description": "Lists recent Antigravity conversations, status, and artifact counts on the local machine.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"limit": map[string]interface{}{
+							"type":        "integer",
+							"description": "Max items to return (default: 10).",
+							"default":     10,
+						},
+					},
+				},
+			},
+		)
+	}
+
+	// Direct Mode tools
+	if mode == "hybrid" || mode == "direct" {
+		tools = append(tools,
+			map[string]interface{}{
+				"name":        "local_run_command",
+				"description": "Directly executes a shell command in the local host environment.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"command": map[string]interface{}{
+							"type":        "string",
+							"description": "Command line to execute.",
+						},
+						"cwd": map[string]interface{}{
+							"type":        "string",
+							"description": "Working directory path.",
+							"default":     ".",
+						},
+						"timeout_seconds": map[string]interface{}{
+							"type":        "integer",
+							"description": "Execution timeout in seconds (default: 30).",
+							"default":     30,
+						},
+					},
+					"required": []string{"command"},
+				},
+			},
+			map[string]interface{}{
+				"name":        "local_read_file",
+				"description": "Reads contents of a file on the local machine.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"path": map[string]interface{}{
+							"type":        "string",
+							"description": "Path to file to read.",
+						},
+						"max_bytes": map[string]interface{}{
+							"type":        "integer",
+							"description": "Maximum bytes to read (default: 102400).",
+							"default":     102400,
+						},
+					},
+					"required": []string{"path"},
+				},
+			},
+			map[string]interface{}{
+				"name":        "local_write_file",
+				"description": "Writes or overwrites a file on the local machine.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"path": map[string]interface{}{
+							"type":        "string",
+							"description": "Target file path.",
+						},
+						"content": map[string]interface{}{
+							"type":        "string",
+							"description": "Text content to write.",
+						},
+					},
+					"required": []string{"path", "content"},
+				},
+			},
+			map[string]interface{}{
+				"name":        "local_list_directory",
+				"description": "Lists contents and file sizes of a local directory.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"path": map[string]interface{}{
+							"type":        "string",
+							"description": "Directory path to list.",
+							"default":     ".",
+						},
+					},
+				},
+			},
+			map[string]interface{}{
+				"name":        "local_system_info",
+				"description": "Returns host OS metrics, CPU, memory, and environment details.",
+				"inputSchema": map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+				},
+			},
+			map[string]interface{}{
+				"name":        "local_computer_use",
+				"description": "Executes local computer use UI automation actions (status, screenshot, click, type).",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"action": map[string]interface{}{
+							"type":        "string",
+							"enum":        []string{"status", "screenshot", "click", "type"},
+							"description": "Action to perform.",
+						},
+					},
+					"required": []string{"action"},
+				},
+			},
+		)
+	}
+
+	// Backward compatibility legacy aliases
+	tools = append(tools,
+		map[string]interface{}{
+			"name":        "antigravity_dispatch_task",
+			"description": "Legacy alias for antigravity_lead_create_conversation.",
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"action": map[string]interface{}{
-						"type":        "string",
-						"enum":        []string{"screenshot", "click", "type", "press_key", "status"},
-						"description": "Computer use action to perform.",
-					},
-					"x": map[string]interface{}{
-						"type":        "integer",
-						"description": "Target X pixel coordinate for click action.",
-					},
-					"y": map[string]interface{}{
-						"type":        "integer",
-						"description": "Target Y pixel coordinate for click action.",
-					},
-					"text": map[string]interface{}{
-						"type":        "string",
-						"description": "Text to type into focused input.",
-					},
+					"prompt": map[string]interface{}{"type": "string"},
+					"target": map[string]interface{}{"type": "string"},
 				},
-				"required": []string{"action"},
+				"required": []string{"prompt"},
 			},
 		},
-	}
+		map[string]interface{}{
+			"name":        "antigravity_list_sessions",
+			"description": "Legacy alias for antigravity_lead_list_conversations.",
+			"inputSchema": map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{"limit": map[string]interface{}{"type": "integer"}},
+			},
+		},
+	)
+
+	return tools
 }
 
 // CallTool executes an MCP tool invocation using real local APIs and state.
@@ -326,27 +613,82 @@ func (s *Service) CallTool(name string, args map[string]interface{}) (string, er
 	start := time.Now()
 	var result string
 	var err error
+	var opMode string
+
+	s.mu.RLock()
+	currentMode := s.config.OperatingMode
+	s.mu.RUnlock()
 
 	switch name {
-	case "antigravity_dispatch_task":
-		result, err = s.executeDispatchTask(args)
-	case "antigravity_list_sessions":
-		result, err = s.executeListSessions(args)
-	case "antigravity_get_transcript":
-		result, err = s.executeGetTranscript(args)
-	case "antigravity_inspect_workspace":
-		result, err = s.executeInspectWorkspace(args)
-	case "antigravity_system_info":
-		result, err = s.executeSystemInfo(args)
-	case "antigravity_computer_use":
-		result, err = s.executeComputerUse(args)
+	// Mode Management
+	case "antigravity_bridge_set_mode":
+		mode, _ := args["mode"].(string)
+		err = s.SetOperatingMode(mode)
+		if err == nil {
+			result = fmt.Sprintf("Bridge operational mode switched to %q", mode)
+		}
+		opMode = "control"
+
+	case "antigravity_bridge_get_mode":
+		st := s.GetStatus()
+		data, _ := json.MarshalIndent(st, "", "  ")
+		result = string(data)
+		opMode = "control"
+
+	// Lead / Messenger tools
+	case "antigravity_lead_create_conversation", "antigravity_dispatch_task":
+		result, err = s.leadHdl.CreateConversation(args)
+		opMode = "lead"
+
+	case "antigravity_lead_send_message":
+		result, err = s.leadHdl.SendMessage(args)
+		opMode = "lead"
+
+	case "antigravity_lead_get_status":
+		result, err = s.leadHdl.GetStatus(args)
+		opMode = "lead"
+
+	case "antigravity_lead_await_response":
+		result, err = s.leadHdl.AwaitResponse(args)
+		opMode = "lead"
+
+	case "antigravity_lead_list_conversations", "antigravity_list_sessions":
+		result, err = s.leadHdl.ListConversations(args)
+		opMode = "lead"
+
+	// Direct Mode tools
+	case "local_run_command":
+		result, err = s.directHdl.RunCommand(args)
+		opMode = "direct"
+
+	case "local_read_file":
+		result, err = s.directHdl.ReadFile(args)
+		opMode = "direct"
+
+	case "local_write_file":
+		result, err = s.directHdl.WriteFile(args)
+		opMode = "direct"
+
+	case "local_list_directory", "antigravity_inspect_workspace":
+		result, err = s.directHdl.ListDirectory(args)
+		opMode = "direct"
+
+	case "local_system_info", "antigravity_system_info":
+		result, err = s.directHdl.SystemInfo()
+		opMode = "direct"
+
+	case "local_computer_use", "antigravity_computer_use":
+		result, err = s.directHdl.ComputerUse(args)
+		opMode = "direct"
+
 	default:
-		err = fmt.Errorf("unknown tool %q", name)
+		err = fmt.Errorf("unknown tool %q in mode %q", name, currentMode)
 	}
 
 	duration := time.Since(start).Milliseconds()
 	inv := Invocation{
 		Tool:       name,
+		Mode:       opMode,
 		Args:       args,
 		DurationMs: duration,
 		Status:     "success",
@@ -359,158 +701,6 @@ func (s *Service) CallTool(name string, args map[string]interface{}) (string, er
 	s.RecordInvocation(inv)
 
 	return result, err
-}
-
-func (s *Service) executeDispatchTask(args map[string]interface{}) (string, error) {
-	prompt, _ := args["prompt"].(string)
-	if strings.TrimSpace(prompt) == "" {
-		return "", fmt.Errorf("prompt argument cannot be empty")
-	}
-
-	// 1. Try injecting prompt via CDP into running Antigravity 2.0 Desktop IDE
-	if port, err := s.injector.FindDevToolsPort(); err == nil && port > 0 {
-		if pages, err := s.injector.GetPageTargets(port); err == nil && len(pages) > 0 {
-			target := pages[0]
-			safePrompt := strings.ReplaceAll(prompt, "`", "\\`")
-			script := fmt.Sprintf(`(() => {
-				const box = document.querySelector('[data-testid="agent-input-box"] [contenteditable="true"]') ||
-				            document.querySelector('[data-lexical-editor="true"][contenteditable="true"]') ||
-				            document.querySelector('textarea[placeholder*="Ask"]');
-				if (!box) return { success: false, reason: "input_not_found" };
-				box.focus();
-				document.execCommand('insertText', false, %q);
-				const sendBtn = document.querySelector('[data-testid="send-button"]') ||
-				                document.querySelector('button[aria-label*="Send"]');
-				if (sendBtn && !sendBtn.disabled) {
-					sendBtn.click();
-					return { success: true, dispatched_to: "desktop_chat" };
-				}
-				return { success: true, dispatched_to: "input_populated" };
-			})()`, safePrompt)
-
-			res, cdpErr := s.injector.ExecuteScript(target.WebSocketDebuggerURL, script)
-			if cdpErr == nil {
-				data, _ := json.Marshal(res)
-				return fmt.Sprintf("Successfully dispatched task to Antigravity 2.0 Desktop: %s", string(data)), nil
-			}
-		}
-	}
-
-	// 2. Fallback: CLI / Hub queue
-	return fmt.Sprintf("Task queued for local execution: %q (Surfaces Ready, Account-Switch Shield Active)", prompt), nil
-}
-
-func (s *Service) executeListSessions(args map[string]interface{}) (string, error) {
-	limit := 10
-	if l, ok := args["limit"].(float64); ok && int(l) > 0 {
-		limit = int(l)
-	}
-
-	brainDir := filepath.Join(os.Getenv("HOME"), ".gemini", "antigravity", "brain")
-	entries, err := os.ReadDir(brainDir)
-	if err != nil {
-		return "[]", nil
-	}
-
-	type SessionItem struct {
-		ID        string `json:"id"`
-		UpdatedAt string `json:"updated_at"`
-		HasLog    bool   `json:"has_log"`
-	}
-	sessions := make([]SessionItem, 0)
-	for i := len(entries) - 1; i >= 0 && len(sessions) < limit; i-- {
-		e := entries[i]
-		if !e.IsDir() {
-			continue
-		}
-		info, _ := e.Info()
-		modTime := ""
-		if info != nil {
-			modTime = info.ModTime().Format("2006-01-02 15:04:05")
-		}
-		logPath := filepath.Join(brainDir, e.Name(), ".system_generated", "logs", "transcript.jsonl")
-		_, logErr := os.Stat(logPath)
-		sessions = append(sessions, SessionItem{
-			ID:        e.Name(),
-			UpdatedAt: modTime,
-			HasLog:    logErr == nil,
-		})
-	}
-
-	data, _ := json.MarshalIndent(sessions, "", "  ")
-	return string(data), nil
-}
-
-func (s *Service) executeGetTranscript(args map[string]interface{}) (string, error) {
-	convID, _ := args["conversation_id"].(string)
-	if convID == "" {
-		return "", fmt.Errorf("conversation_id is required")
-	}
-	transcriptPath := filepath.Join(os.Getenv("HOME"), ".gemini", "antigravity", "brain", convID, ".system_generated", "logs", "transcript.jsonl")
-	data, err := os.ReadFile(transcriptPath)
-	if err != nil {
-		return "", fmt.Errorf("could not read transcript for %s: %w", convID, err)
-	}
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	maxTurns := 5
-	if mt, ok := args["max_turns"].(float64); ok && int(mt) > 0 {
-		maxTurns = int(mt)
-	}
-	if len(lines) > maxTurns {
-		lines = lines[len(lines)-maxTurns:]
-	}
-	return strings.Join(lines, "\n"), nil
-}
-
-func (s *Service) executeInspectWorkspace(args map[string]interface{}) (string, error) {
-	targetPath, _ := args["path"].(string)
-	if targetPath == "" {
-		targetPath = "."
-	}
-	entries, err := os.ReadDir(targetPath)
-	if err != nil {
-		return "", fmt.Errorf("read dir %s: %w", targetPath, err)
-	}
-	files := make([]string, 0)
-	for _, e := range entries {
-		suffix := ""
-		if e.IsDir() {
-			suffix = "/"
-		}
-		files = append(files, e.Name()+suffix)
-	}
-	return strings.Join(files, "\n"), nil
-}
-
-func (s *Service) executeSystemInfo(_ map[string]interface{}) (string, error) {
-	surfaces := s.DetectSurfaces()
-	info := map[string]interface{}{
-		"system":            "Linux",
-		"antigravity_alive": surfaces.DesktopAppConnected,
-		"cdp_port":          surfaces.DesktopCDPPort,
-		"active_title":      surfaces.DesktopActiveTitle,
-		"agy_path":          surfaces.AgyCLIPath,
-		"account_shield":    "Active (survives rotation)",
-		"timestamp":         time.Now().Format(time.RFC3339),
-	}
-	data, _ := json.MarshalIndent(info, "", "  ")
-	return string(data), nil
-}
-
-func (s *Service) executeComputerUse(args map[string]interface{}) (string, error) {
-	action, _ := args["action"].(string)
-	if action == "" {
-		return "", fmt.Errorf("action is required")
-	}
-
-	switch action {
-	case "status":
-		return "Agent-S runtime available at /home/david/.local/share/agent-s/bin/agent_s", nil
-	case "screenshot":
-		return "Screenshot captured via local display subsystem (:0 / wayland-0)", nil
-	default:
-		return fmt.Sprintf("Computer use action %q simulated successfully", action), nil
-	}
 }
 
 // HandleMCPRequest processes standard Model Context Protocol JSON-RPC requests.
@@ -539,11 +729,12 @@ func (s *Service) HandleMCPRequest(reqBytes []byte) ([]byte, error) {
 			},
 			"serverInfo": map[string]interface{}{
 				"name":    "antigravity-gemini-bridge",
-				"version": "1.0.0",
+				"version": "1.6.0",
 			},
+			"instructions": "Gemini Bridge connects you to the user's local PC and Google Antigravity 2.0 app. You have two modes: 1. Direct Mode: work on the local PC directly using local_* tools (run_command, read_file, write_file). 2. Lead/Messenger Mode: act as a lead/coordinator passing tasks to Google Antigravity 2.0 (antigravity_lead_create_conversation, antigravity_lead_send_message, antigravity_lead_await_response), and forward Antigravity's completed responses and artifacts to the user in this chat. Ask the user which mode they prefer if unclear.",
 		}
 	case "notifications/initialized":
-		return nil, nil // No response needed
+		return nil, nil
 	case "tools/list":
 		response["result"] = map[string]interface{}{
 			"tools": s.ToolManifest(),

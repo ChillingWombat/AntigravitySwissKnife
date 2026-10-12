@@ -12,6 +12,7 @@ import { ArchivedProjectsPage } from './pages/ArchivedProjectsPage'
 import { ExtensionsPage } from './pages/ExtensionsPage'
 import { TokenMonitorPage } from './pages/TokenMonitorPage'
 import { UtilitiesPage } from './pages/UtilitiesPage'
+import { BridgePage } from './pages/BridgePage'
 import { AppLockScreen } from './components/AppLockScreen'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import type { AccountState, FleetQuotaSummary, RuleConfig, SystemStatus } from './types'
@@ -19,12 +20,13 @@ import { toAccountState } from './types'
 import { api } from './api'
 
 export const App: React.FC = () => {
-  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 2: Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived, 7: Extensions, 8: Token Monitor, 9: Utilities
+  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 2: Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Bridge
   const [currentTab, setCurrentTab] = useState<number>(0) // 0: Dashboard, 1: FP, 2: Rules
   const [systemSettingsTab, setSystemSettingsTab] = useState<number>(0) // 0: General, 1: Path & Storage, 2: Error & Privacy, 3: About
   const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Auxiliary Panel
   const [availableProjects, setAvailableProjects] = useState<Array<{ name: string; color: string; order: number; is_archived: boolean }>>([])
-  const [utilitiesTab, setUtilitiesTab] = useState<number>(0) // 0: Gemini Bridge, 1: Storage Manager, 2: ACP Agent Mesh, 3: Chat & Project Importer
+  const [utilitiesTab, setUtilitiesTab] = useState<number>(0) // 0: Storage Manager, 1: ACP Agent Mesh, 2: Chat & Project Importer
+  const [bridgeTab, setBridgeTab] = useState<number>(0) // 0: Remote, 1: Gemini, 2: WhatsApp, 3: Telegram, 4: Discord
   const [tokenMonitorTab, setTokenMonitorTab] = useState<number>(0) // 0: Overview, 1: Telemetry & Logs, 2: Token Price
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [fleet, setFleet] = useState<FleetQuotaSummary | null>(null)
@@ -249,7 +251,7 @@ export const App: React.FC = () => {
                     gap: '2px',
                   }}
                 >
-                  {['Gemini Bridge', 'Storage Manager', 'ACP Agent Mesh', 'Chat & Project Importer'].map((tab, idx) => {
+                  {['Storage Manager', 'ACP Agent Mesh', 'Chat & Project Importer'].map((tab, idx) => {
                     const isActive = utilitiesTab === idx
                     return (
                       <button
@@ -265,6 +267,44 @@ export const App: React.FC = () => {
                           boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                           border: 'none',
                           cursor: 'pointer',
+                        }}
+                      >
+                        {tab}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {currentTool === 10 && (
+                /* Bridge Segmented Tabs */
+                <div
+                  style={{
+                    display: 'flex',
+                    backgroundColor: 'var(--tonal)',
+                    borderRadius: '8px',
+                    padding: '3px',
+                    gap: '2px',
+                  }}
+                >
+                  {['Remote', 'Gemini', 'WhatsApp', 'Telegram', 'Discord'].map((tab, idx) => {
+                    const isActive = bridgeTab === idx
+                    return (
+                      <button
+                        key={tab}
+                        onClick={() => setBridgeTab(idx)}
+                        style={{
+                          borderRadius: '6px',
+                          padding: '6px 16px',
+                          fontSize: '12px',
+                          fontWeight: isActive ? 600 : 500,
+                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+                          backgroundColor: isActive ? '#ffffff' : 'transparent',
+                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                          transition: 'all 0.15s ease',
                         }}
                       >
                         {tab}
@@ -366,7 +406,7 @@ export const App: React.FC = () => {
             {currentTool === 4 && <AppEnhancementsPage activeCategoryTab={enhancementTab} />}
             {currentTool === 5 && <ScheduledTemplatesPage />}
             {currentTool === 6 && <ArchivedProjectsPage />}
-            {Boolean(status?.daemon_running) && (currentTool === 7 || currentTool === 10) && (
+            {Boolean(status?.daemon_running) && currentTool === 7 && (
               <ExtensionsPage
                 fallbackProject={availableProjects[0]?.name}
               />
@@ -381,6 +421,12 @@ export const App: React.FC = () => {
               <UtilitiesPage
                 activeTab={utilitiesTab}
                 onTabChange={setUtilitiesTab}
+              />
+            )}
+            {currentTool === 10 && (
+              <BridgePage
+                activeTab={bridgeTab}
+                onTabChange={setBridgeTab}
               />
             )}
           </ErrorBoundary>
