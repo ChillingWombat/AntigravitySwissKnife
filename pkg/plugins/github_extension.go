@@ -481,6 +481,9 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
   border: 1px solid var(--border, #e2e8f0);
   overflow: hidden;
   background-color: var(--card, var(--surface, #ffffff));
+  max-height: 380px;
+  display: flex;
+  flex-direction: column;
 }
 :is(.dark, [data-theme="dark"]) .swiss-gh-conv-group {
   border-color: rgba(255, 255, 255, 0.08);
@@ -503,6 +506,7 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
   padding: 6px 10px;
   background-color: var(--tonal, rgba(0, 0, 0, 0.03));
   border-bottom: 1px solid var(--border, #e2e8f0);
+  flex-shrink: 0;
 }
 :is(.dark, [data-theme="dark"]) .swiss-gh-conv-group-header {
   background-color: rgba(255, 255, 255, 0.03);
@@ -536,6 +540,8 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
 .swiss-gh-conv-group-body {
   max-height: 380px;
   overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .swiss-gh-focused-badge {

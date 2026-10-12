@@ -1475,7 +1475,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           const cmName = (cm.name || "").toLowerCase().trim();
           const cmDisplay = (cm.display_name || "").toLowerCase().trim();
           const cmId = (cm.id || "").toLowerCase().trim();
-          if (clean === cmName || clean === cmDisplay || clean === cmId || clean.includes(cmName) || clean.includes(cmDisplay)) {
+          if (clean === cmName || clean === cmDisplay || clean === cmId || (cmName && clean.includes(cmName)) || (cmDisplay && clean.includes(cmDisplay))) {
             if (typeof cm.context_window === "number" && cm.context_window > 0) {
               return cm.context_window;
             }

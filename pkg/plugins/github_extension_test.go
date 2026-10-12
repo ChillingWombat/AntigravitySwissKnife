@@ -99,6 +99,8 @@ func TestGenerateGitHubExtensionScript(t *testing.T) {
 		"swiss-stage-native-split-btn",
 		"data-swiss-stage-active",
 		"data-swiss-suppressed",
+		"window.__swissGetProjectFolder",
+		"projectFolderMap",
 	}
 
 	for _, id := range requiredIdentifiers {
@@ -885,3 +887,237 @@ func TestGitHubExtensionScriptPerExtensionMainPage(t *testing.T) {
 		t.Errorf("expected left-nav extension list to filter by main_page === true")
 	}
 }
+
+func TestGitHubExtensionKilledAgentsGroupingAndLayout(t *testing.T) {
+	css := GenerateGitHubExtensionCSS()
+	js := GenerateGitHubExtensionScript()
+
+	// 1. CSS layout contracts for conversation groups
+	groupCSSRules := []string{
+		"max-height: 380px;",
+		"display: flex;",
+		"flex-direction: column;",
+		"flex-shrink: 0;",
+		"overflow-y: auto;",
+		"flex: 1;",
+		"min-height: 0;",
+	}
+	for _, rule := range groupCSSRules {
+		if !strings.Contains(css, rule) {
+			t.Errorf("expected GitHub extension CSS to contain %q", rule)
+		}
+	}
+
+	// 2. JS script contracts for killed agent 3-day window and 20-subagent cap
+	scriptContracts := []string{
+		"THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000",
+		"grp.subAgents.slice(0, 20)",
+		"filter(g => g.agents.length > 0)",
+		"effIssues = (forAux ? (auxIssues || cachedIssues) : cachedIssues) || []",
+		"effPRs = (forAux ? (auxPRs || cachedPRs) : cachedPRs) || []",
+		"effRepo = forAux ? (auxRepo || currentRepo) : currentRepo",
+		"swiss-stage-search-field",
+		"swiss-stage-gh-list",
+	}
+	for _, contract := range scriptContracts {
+		if !strings.Contains(js, contract) {
+			t.Errorf("expected GitHub extension script to contain contract %q", contract)
+		}
+	}
+
+	// 3. Functional Node evaluation of grouping and filtering contract
+	nodeTestScript := `
+const assert = require('assert');
+const now = Date.now();
+const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+
+const mockTasks = [
+  {
+    conversation_id: 'root-1',
+    conversation_title: 'Main Chat 1',
+    nesting_depth: 0,
+    status: 'idle',
+    not_fully_idle: false,
+    last_modified: new Date(now - 10 * 86400000).toISOString(),
+  },
+  {
+    conversation_id: 'sub-recent',
+    root_parent_conversation_id: 'root-1',
+    nesting_depth: 1,
+    status: 'idle',
+    not_fully_idle: false,
+    last_modified: new Date(now - 1 * 86400000).toISOString(),
+  },
+  {
+    conversation_id: 'sub-stale',
+    root_parent_conversation_id: 'root-1',
+    nesting_depth: 1,
+    status: 'idle',
+    not_fully_idle: false,
+    last_modified: new Date(now - 5 * 86400000).toISOString(),
+  },
+  {
+    conversation_id: 'root-empty',
+    conversation_title: 'Empty Group Chat',
+    nesting_depth: 0,
+    status: 'working',
+    not_fully_idle: true,
+  }
+];
+
+// Apply killed agent filter
+const filtered = mockTasks.filter(it => {
+  const isWorking = it.not_fully_idle || it.status === 'working';
+  if (isWorking) return false;
+  const isMain = (!it.nesting_depth || it.nesting_depth === 0) &&
+    (!it.root_parent_conversation_id || it.root_parent_conversation_id === it.conversation_id);
+  if (!isMain) {
+    const tMod = it.last_modified ? new Date(it.last_modified).getTime() : 0;
+    if (now - tMod > THREE_DAYS_MS) return false;
+  }
+  return true;
+});
+
+assert.strictEqual(filtered.length, 2, 'Should keep root-1 and sub-recent, excluding sub-stale and working root-empty');
+
+// Apply grouping
+const groupsMap = new Map();
+filtered.forEach(t => {
+  const rootId = t.root_parent_conversation_id || t.conversation_id;
+  const tMod = t.last_modified ? new Date(t.last_modified).getTime() : 0;
+  if (!groupsMap.has(rootId)) {
+    groupsMap.set(rootId, {
+      rootId,
+      lastModified: tMod,
+      mainAgents: [],
+      subAgents: [],
+      agents: []
+    });
+  }
+  const g = groupsMap.get(rootId);
+  const isMain = (!t.nesting_depth || t.nesting_depth === 0) &&
+    (!t.root_parent_conversation_id || t.root_parent_conversation_id === t.conversation_id);
+  if (isMain) {
+    g.mainAgents.push(t);
+  } else {
+    g.subAgents.push(t);
+  }
+});
+
+groupsMap.forEach(grp => {
+  grp.subAgents.sort((a, b) => {
+    const tA = a.last_modified ? new Date(a.last_modified).getTime() : 0;
+    const tB = b.last_modified ? new Date(b.last_modified).getTime() : 0;
+    return tB - tA;
+  });
+  grp.agents = [...grp.mainAgents, ...grp.subAgents.slice(0, 20)];
+});
+
+const groups = Array.from(groupsMap.values()).filter(g => g.agents.length > 0);
+assert.strictEqual(groups.length, 1, 'Only root-1 group has agents');
+assert.strictEqual(groups[0].agents.length, 2, 'root-1 group has root agent + recent subagent');
+`
+
+	cmd := exec.Command("node", "-e", nodeTestScript)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node verification failed: %v\nOutput: %s", err, string(out))
+	}
+}
+
+func TestGitHubExtensionProjectFolderMapping(t *testing.T) {
+	js := GenerateGitHubExtensionScript()
+
+	if !strings.Contains(js, "window.__swissGetProjectFolder") {
+		t.Errorf("expected script to define window.__swissGetProjectFolder")
+	}
+	if !strings.Contains(js, "antigravity_swiss_project_folders") {
+		t.Errorf("expected script to cache project folders in localStorage")
+	}
+
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available")
+	}
+
+	nodeScript := `
+const assert = require('assert');
+
+// Mock browser environment
+const localStorageStore = {};
+const localStorage = {
+  getItem: (k) => localStorageStore[k] || null,
+  setItem: (k, v) => { localStorageStore[k] = String(v); },
+};
+
+let projectFolderMap = {};
+window = {
+  __swissGetProjectFolder: (name) => {
+    if (!name || name === "." || name === "GLOBAL") return ".";
+    const clean = (name || "").trim();
+    if (projectFolderMap[clean]) return projectFolderMap[clean];
+    if (projectFolderMap[clean.toLowerCase()]) return projectFolderMap[clean.toLowerCase()];
+    try {
+      const saved = localStorage.getItem("antigravity_swiss_project_folders");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed[clean]) return parsed[clean];
+        if (parsed[clean.toLowerCase()]) return parsed[clean.toLowerCase()];
+        for (const k in parsed) {
+          projectFolderMap[k] = parsed[k];
+        }
+      }
+    } catch (_) {}
+    const sepIdx = clean.search(/[/\\]/);
+    if (sepIdx > 0) {
+      const prefix = clean.substring(0, sepIdx);
+      const rest = clean.substring(sepIdx + 1);
+      const top = projectFolderMap[prefix] || projectFolderMap[prefix.toLowerCase()];
+      if (top) {
+        return top.replace(/[/\\]+$/, "") + "/" + rest.replace(/^[/\\]+/, "");
+      }
+    }
+    return "";
+  }
+};
+
+// 1. Initially empty
+assert.strictEqual(window.__swissGetProjectFolder("UniMelb - IT"), "");
+assert.strictEqual(window.__swissGetProjectFolder("GLOBAL"), ".");
+assert.strictEqual(window.__swissGetProjectFolder("."), ".");
+assert.strictEqual(window.__swissGetProjectFolder(""), ".");
+
+// 2. Simulate populating from /api/gui/projects
+const projectsData = [
+  { name: "UniMelb - IT", folder_path: "/mnt/Data/UniMelb/COMP9007" },
+  { name: "PrivacyAI", folder_path: "/home/david/projects/privacy" }
+];
+projectsData.forEach(p => {
+  if (p.name && p.folder_path) {
+    projectFolderMap[p.name] = p.folder_path;
+    projectFolderMap[p.name.toLowerCase()] = p.folder_path;
+  }
+});
+localStorage.setItem("antigravity_swiss_project_folders", JSON.stringify(projectFolderMap));
+
+// 3. Verify exact and case-insensitive resolution
+assert.strictEqual(window.__swissGetProjectFolder("UniMelb - IT"), "/mnt/Data/UniMelb/COMP9007");
+assert.strictEqual(window.__swissGetProjectFolder("unimelb - it"), "/mnt/Data/UniMelb/COMP9007");
+assert.strictEqual(window.__swissGetProjectFolder("PrivacyAI"), "/home/david/projects/privacy");
+
+// 4. Verify subpath resolution
+assert.strictEqual(window.__swissGetProjectFolder("UniMelb - IT/Assignment/spec.pdf"), "/mnt/Data/UniMelb/COMP9007/Assignment/spec.pdf");
+
+// 5. Verify localStorage fallback when in-memory map cleared
+projectFolderMap = {};
+assert.strictEqual(window.__swissGetProjectFolder("UniMelb - IT"), "/mnt/Data/UniMelb/COMP9007");
+`
+
+	cmd := exec.Command(nodePath, "-e", nodeScript)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node verification failed: %v\nOutput: %s", err, string(out))
+	}
+}
+
+

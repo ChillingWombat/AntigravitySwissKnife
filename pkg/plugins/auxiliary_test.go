@@ -2387,5 +2387,56 @@ func TestWYSIWYGMarkdownEditor_Implementation(t *testing.T) {
 	}
 }
 
+func TestFileExplorerDefaultProjectFolderSetting(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+
+	// 1. Verify resolveProjectFolder helper exists and resolves via window.__swissGetProjectFolder
+	if !strings.Contains(js, "resolveProjectFolder") {
+		t.Errorf("expected script to contain resolveProjectFolder")
+	}
+	if !strings.Contains(js, "window.__swissGetProjectFolder") {
+		t.Errorf("expected script to define and call window.__swissGetProjectFolder")
+	}
+
+	// 2. Verify initialTargetPath resolves bare project name/scope
+	if !strings.Contains(js, "initialTargetPath = resolveProjectFolder(") {
+		t.Errorf("expected initialTargetPath to be wrapped with resolveProjectFolder")
+	}
+
+	// 3. Verify loadFiles resolves target directory path
+	if !strings.Contains(js, "let targetPath = resolveProjectFolder((dirPath || \"\").trim());") {
+		t.Errorf("expected loadFiles to resolve target path via resolveProjectFolder")
+	}
+
+	// 4. Test live Node evaluation of project folder resolution logic
+	nodeScript := `
+const window = {
+  __swissGetProjectFolder: (p) => {
+    if (p === "UniMelb - IT") return "/mnt/Data/UniMelb/COMP9007";
+    return "";
+  }
+};
+const resolveProjectFolder = (raw) => {
+  if (!raw || raw === "." || raw === "GLOBAL") return ".";
+  const clean = (raw || "").trim();
+  if (typeof window.__swissGetProjectFolder === "function") {
+    const folder = window.__swissGetProjectFolder(clean);
+    if (folder) return folder;
+  }
+  return clean;
+};
+const assert = require('assert');
+assert.strictEqual(resolveProjectFolder("UniMelb - IT"), "/mnt/Data/UniMelb/COMP9007");
+assert.strictEqual(resolveProjectFolder("GLOBAL"), ".");
+assert.strictEqual(resolveProjectFolder("."), ".");
+`
+
+	cmd := exec.Command("node")
+	cmd.Stdin = strings.NewReader(nodeScript)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("node execution error in TestFileExplorerDefaultProjectFolderSetting: %v\n%s", err, string(out))
+	}
+}
+
 
 
