@@ -2325,3 +2325,67 @@ func TestPreviewBrowser_TouchEmulationVisualFeedbackAndDragScroll(t *testing.T) 
 	}
 }
 
+func TestQuickMemos_ImageSupportAndWhiteboard(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	expectedIdentifiers := []string{
+		`id="swiss-m-new-image"`,
+		`<span>Image Memo</span>`,
+		`swiss-m-img-composer`,
+		`id="swiss-m-whiteboard-canvas"`,
+		`id="swiss-m-tool-pen"`,
+		`id="swiss-m-tool-eraser"`,
+		`id="swiss-m-img-upload-btn"`,
+		`id="swiss-m-img-clear-btn"`,
+		`dataURLtoFile`,
+		`insertImageToChatInput`,
+		`m.image_data`,
+	}
+	for _, id := range expectedIdentifiers {
+		if !strings.Contains(js, id) {
+			t.Fatalf("expected script to contain %q for image memos support", id)
+		}
+	}
+}
+
+func TestWYSIWYGMarkdownEditor_Implementation(t *testing.T) {
+	css := GenerateAuxiliaryPluginsCSS()
+	expectedCSS := []string{
+		".swiss-wysiwyg-container",
+		".swiss-wysiwyg-content",
+		".swiss-wysiwyg-raw",
+	}
+	for _, c := range expectedCSS {
+		if !strings.Contains(css, c) {
+			t.Fatalf("expected CSS to contain %q for WYSIWYG editor", c)
+		}
+	}
+
+	js := GenerateAuxiliaryPluginsScript()
+	expectedJS := []string{
+		"openWYSIWYGMarkdownEditor",
+		`id="ctx-file-wysiwyg"`,
+		`<span>WYSIWYG Markdown Editor</span>`,
+		`id="swiss-ed-wysiwyg"`,
+		`id="swiss-wy-bold"`,
+		`id="swiss-wy-italic"`,
+		`id="swiss-wy-list"`,
+		`id="swiss-wy-heading"`,
+		`Ctrl+B`,
+		`Ctrl+I`,
+		`Ctrl+.`,
+		`Ctrl+0`,
+		`Ctrl+S`,
+		`insertUnorderedList`,
+		`formatBlock`,
+		`mdToHtml`,
+		`htmlToMd`,
+	}
+	for _, j := range expectedJS {
+		if !strings.Contains(js, j) {
+			t.Fatalf("expected script to contain %q for WYSIWYG editor", j)
+		}
+	}
+}
+
+
+

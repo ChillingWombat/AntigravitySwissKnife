@@ -2,7 +2,7 @@ export type SearchScope = 'text' | 'all';
 
 export interface MemoItem {
   id: string;
-  type?: 'text' | 'voice' | 'audio';
+  type?: 'text' | 'voice' | 'audio' | 'image';
   title?: string;
   content?: string;
   transcript?: string;
@@ -11,6 +11,8 @@ export interface MemoItem {
   created_at?: string;
   color?: string;
   duration?: string;
+  image_data?: string;
+  imageData?: string;
   project?: string;
   workspace_path?: string;
   [key: string]: any;

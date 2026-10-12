@@ -1430,6 +1430,71 @@ textarea.swiss-prompt-input {
   border-color: #fbbc04;
   color: #fbbc04;
 }
+
+/* WYSIWYG Markdown Editor */
+.swiss-wysiwyg-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--canvas, #ffffff);
+}
+.swiss-wysiwyg-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  outline: none;
+  background: var(--canvas, #ffffff);
+  color: var(--text, #1e293b);
+  line-height: 1.6;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+.swiss-wysiwyg-content h1 { font-size: 20px; font-weight: 700; margin: 12px 0 6px; }
+.swiss-wysiwyg-content h2 { font-size: 17px; font-weight: 700; margin: 10px 0 5px; }
+.swiss-wysiwyg-content h3 { font-size: 15px; font-weight: 600; margin: 8px 0 4px; }
+.swiss-wysiwyg-content h4 { font-size: 14px; font-weight: 600; margin: 6px 0 4px; }
+.swiss-wysiwyg-content h5 { font-size: 13px; font-weight: 600; margin: 6px 0 2px; }
+.swiss-wysiwyg-content h6 { font-size: 12px; font-weight: 600; margin: 4px 0 2px; }
+.swiss-wysiwyg-content p { margin: 0 0 8px; }
+.swiss-wysiwyg-content ul, .swiss-wysiwyg-content ol { padding-left: 20px; margin: 0 0 8px; }
+.swiss-wysiwyg-content li { margin-bottom: 3px; }
+.swiss-wysiwyg-content blockquote {
+  border-left: 2px solid var(--border, #cbd5e1);
+  padding-left: 10px;
+  margin: 6px 0;
+  color: var(--text-muted, #64748b);
+}
+.swiss-wysiwyg-content pre {
+  background: var(--card, #f1f5f9);
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #e2e8f0);
+  font-family: monospace;
+  font-size: 11px;
+  margin: 6px 0;
+  overflow-x: auto;
+}
+.swiss-wysiwyg-content code {
+  background: var(--card, #f1f5f9);
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 11px;
+}
+.swiss-wysiwyg-raw {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  font-family: monospace;
+  font-size: 12px;
+  border: none;
+  outline: none;
+  background: var(--canvas, #ffffff);
+  color: var(--text, #1e293b);
+  resize: none;
+  box-sizing: border-box;
+}
 ` + "\n" + GenerateGitHubExtensionCSS()
 }
 
@@ -3861,7 +3926,7 @@ func GenerateAuxiliaryPluginsScript() string {
               }
 
               const selectedItems = Array.from(selectedPaths).map(p => fileItemsMap.get(p) || { path: p, name: p.split("/").pop(), isDir: false });
-              showFileContextMenu(e.clientX, e.clientY, item, selectedItems, () => loadFiles(currentFilePath, false));
+              showFileContextMenu(e.clientX, e.clientY, item, selectedItems, () => loadFiles(currentFilePath, false), container);
             };
 
             listContainer.appendChild(row);
@@ -4024,6 +4089,330 @@ func GenerateAuxiliaryPluginsScript() string {
       loadFiles(initialTargetPath, false);
     }
 
+    // WYSIWYG Markdown Editor
+    function openWYSIWYGMarkdownEditor(container, path, name) {
+      container.innerHTML = "<div style='padding:12px; font-size:11px; color:#94a3b8;'>Loading markdown file...</div>";
+
+      fetch(API_BASE + "/api/files/read?path=" + encodeURIComponent(path))
+        .then(res => res.json())
+        .then(data => {
+          if (!data.success) {
+            showToast("Error reading markdown file: " + data.error, "error");
+            renderFilesView(container);
+            return;
+          }
+
+          container.innerHTML = "";
+          const editor = document.createElement("div");
+          editor.className = "swiss-editor-container swiss-wysiwyg-container";
+
+          editor.innerHTML = ` + "`" + `
+            <div class="swiss-editor-toolbar" style="display:flex; justify-content:space-between; align-items:center; padding:6px 10px; background:var(--card,#f8fafc); border-bottom:1px solid var(--border,#e2e8f0); gap:8px; flex-wrap:wrap;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <button class="swiss-browser-btn" id="swiss-wy-back"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg><span>Files</span></button>
+                <span style="font-size:11px; font-weight:600; color:var(--text,#1e293b);">${escapeHtml(name)}</span>
+                <span style="font-size:10px; color:#94a3b8; font-family:monospace;">(WYSIWYG)</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                <button type="button" class="swiss-browser-btn" id="swiss-wy-bold" title="Bold (Ctrl+B)" style="padding:3px 7px;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12h9a4 4 0 0 1 0 8H6v-8Z"/><path d="M6 4h8a4 4 0 0 1 0 8H6V4Z"/></svg></button>
+                <button type="button" class="swiss-browser-btn" id="swiss-wy-italic" title="Italic (Ctrl+I)" style="padding:3px 7px;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" x2="10" y1="4" y2="4"/><line x1="14" x2="5" y1="20" y2="20"/><line x1="15" x2="9" y1="4" y2="20"/></svg></button>
+                <button type="button" class="swiss-browser-btn" id="swiss-wy-list" title="Bullet List (Ctrl+.)" style="padding:3px 7px;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg></button>
+                <select id="swiss-wy-heading" title="Header Level (Ctrl+0 to Ctrl+6)" style="font-size:11px; padding:2px 6px; border-radius:4px; border:1px solid var(--border,#cbd5e1); background:var(--canvas,#ffffff); color:var(--text,#1e293b);">
+                  <option value="p">Normal text (Ctrl+0)</option>
+                  <option value="h1">Heading 1 (Ctrl+1)</option>
+                  <option value="h2">Heading 2 (Ctrl+2)</option>
+                  <option value="h3">Heading 3 (Ctrl+3)</option>
+                  <option value="h4">Heading 4 (Ctrl+4)</option>
+                  <option value="h5">Heading 5 (Ctrl+5)</option>
+                  <option value="h6">Heading 6 (Ctrl+6)</option>
+                </select>
+                <div style="width:1px; height:16px; background:var(--border,#cbd5e1); margin:0 2px;"></div>
+                <button type="button" class="swiss-browser-btn" id="swiss-wy-code" title="Inline Code / Pre" style="padding:3px 7px;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></button>
+                <button type="button" class="swiss-browser-btn" id="swiss-wy-mode" title="Toggle Raw Markdown / Visual" style="padding:3px 7px; font-size:10px;"><span>Raw MD</span></button>
+              </div>
+              <div style="display:flex; gap:6px;">
+                <button class="swiss-browser-btn" id="swiss-wy-annotate" title="Annotate selection to chat"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Chat</span></button>
+                <button class="swiss-browser-btn primary" id="swiss-wy-save" title="Save file (Ctrl+S)"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg><span>Save</span></button>
+              </div>
+            </div>
+            <div class="swiss-editor-body" style="flex:1; display:flex; flex-direction:column; overflow:hidden; position:relative;">
+              <div class="swiss-wysiwyg-content" contenteditable="true" spellcheck="false"></div>
+              <textarea class="swiss-wysiwyg-raw" spellcheck="false" style="display:none;"></textarea>
+            </div>
+          ` + "`" + `;
+
+          container.appendChild(editor);
+
+          const visualContent = editor.querySelector(".swiss-wysiwyg-content");
+          const rawTextarea = editor.querySelector(".swiss-wysiwyg-raw");
+          const btnBold = editor.querySelector("#swiss-wy-bold");
+          const btnItalic = editor.querySelector("#swiss-wy-italic");
+          const btnList = editor.querySelector("#swiss-wy-list");
+          const headingSelect = editor.querySelector("#swiss-wy-heading");
+          const btnCode = editor.querySelector("#swiss-wy-code");
+          const btnMode = editor.querySelector("#swiss-wy-mode");
+          const btnBack = editor.querySelector("#swiss-wy-back");
+          const btnSave = editor.querySelector("#swiss-wy-save");
+          const btnAnnotate = editor.querySelector("#swiss-wy-annotate");
+
+          let isRawMode = false;
+
+          const escapeText = (t) => String(t || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+          const formatInline = (t) => {
+            return escapeText(t)
+              .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+              .replace(/__(.+?)__/g, "<b>$1</b>")
+              .replace(/\*(.+?)\*/g, "<i>$1</i>")
+              .replace(/_(.+?)_/g, "<i>$1</i>")
+              .replace(new RegExp("\\x60([^\\x60]+)\\x60", "g"), "<code>$1</code>")
+              .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+          };
+
+          const mdToHtml = (md) => {
+            if (!md) return "<p><br></p>";
+            let html = "";
+            const lines = md.split("\n");
+            let inList = false;
+            let inPre = false;
+            let preContent = "";
+
+            for (let i = 0; i < lines.length; i++) {
+              const line = lines[i];
+
+              if (line.trim().startsWith("\x60\x60\x60")) {
+                if (inPre) {
+                  html += "<pre><code>" + escapeText(preContent) + "</code></pre>";
+                  inPre = false;
+                  preContent = "";
+                } else {
+                  if (inList) { html += "</ul>"; inList = false; }
+                  inPre = true;
+                  preContent = "";
+                }
+                continue;
+              }
+
+              if (inPre) {
+                preContent += (preContent ? "\n" : "") + line;
+                continue;
+              }
+
+              const listMatch = line.match(/^(\s*)[*-]\s+(.*)$/);
+              if (listMatch) {
+                if (!inList) {
+                  html += "<ul>";
+                  inList = true;
+                }
+                html += "<li>" + formatInline(listMatch[2]) + "</li>";
+                continue;
+              } else if (inList) {
+                html += "</ul>";
+                inList = false;
+              }
+
+              const hMatch = line.match(/^(#{1,6})\s+(.*)$/);
+              if (hMatch) {
+                const lvl = hMatch[1].length;
+                html += "<h" + lvl + ">" + formatInline(hMatch[2]) + "</h" + lvl + ">";
+                continue;
+              }
+
+              const bqMatch = line.match(/^>\s+(.*)$/);
+              if (bqMatch) {
+                html += "<blockquote>" + formatInline(bqMatch[1]) + "</blockquote>";
+                continue;
+              }
+
+              if (!line.trim()) {
+                html += "<p><br></p>";
+              } else {
+                html += "<p>" + formatInline(line) + "</p>";
+              }
+            }
+
+            if (inList) html += "</ul>";
+            if (inPre) html += "<pre><code>" + escapeText(preContent) + "</code></pre>";
+            return html || "<p><br></p>";
+          };
+
+          const htmlToMd = (node) => {
+            if (!node) return "";
+            const walk = (n) => {
+              if (n.nodeType === Node.TEXT_NODE) return n.nodeValue;
+              if (n.nodeType !== Node.ELEMENT_NODE) return "";
+
+              const tag = n.tagName.toLowerCase();
+              let childText = "";
+              for (let i = 0; i < n.childNodes.length; i++) {
+                childText += walk(n.childNodes[i]);
+              }
+
+              switch (tag) {
+                case "h1": return "# " + childText.trim() + "\n\n";
+                case "h2": return "## " + childText.trim() + "\n\n";
+                case "h3": return "### " + childText.trim() + "\n\n";
+                case "h4": return "#### " + childText.trim() + "\n\n";
+                case "h5": return "##### " + childText.trim() + "\n\n";
+                case "h6": return "###### " + childText.trim() + "\n\n";
+                case "p":
+                  if (childText.trim() === "") return "\n";
+                  return childText.trim() + "\n\n";
+                case "b":
+                case "strong": return "**" + childText + "**";
+                case "i":
+                case "em": return "*" + childText + "*";
+                case "u": return childText;
+                case "code":
+                  if (n.parentNode && n.parentNode.tagName.toLowerCase() === "pre") return childText;
+                  return "\x60" + childText + "\x60";
+                case "pre": return "\x60\x60\x60\n" + childText.trim() + "\n\x60\x60\x60\n\n";
+                case "ul":
+                case "ol": return childText + "\n";
+                case "li": return "- " + childText.trim() + "\n";
+                case "blockquote": return "> " + childText.trim() + "\n\n";
+                case "a": return "[" + childText + "](" + (n.getAttribute("href") || "") + ")";
+                case "br": return "\n";
+                case "div":
+                  if (childText.trim() === "") return "\n";
+                  return childText + "\n";
+                default: return childText;
+              }
+            };
+
+            let out = "";
+            for (let i = 0; i < node.childNodes.length; i++) {
+              out += walk(node.childNodes[i]);
+            }
+            return out.replace(/\n{3,}/g, "\n\n").trim();
+          };
+
+          visualContent.innerHTML = mdToHtml(data.content || "");
+          rawTextarea.value = data.content || "";
+          setTimeout(() => visualContent.focus(), 40);
+
+          const format = (cmd, val) => {
+            visualContent.focus();
+            document.execCommand(cmd, false, val || null);
+          };
+
+          btnBold.onclick = () => format("bold");
+          btnItalic.onclick = () => format("italic");
+          btnList.onclick = () => format("insertUnorderedList");
+          btnCode.onclick = () => {
+            const sel = window.getSelection();
+            if (sel && sel.toString()) {
+              document.execCommand("insertHTML", false, "<code>" + escapeText(sel.toString()) + "</code>");
+            } else {
+              format("formatBlock", "<pre>");
+            }
+          };
+
+          headingSelect.onchange = () => {
+            const val = headingSelect.value;
+            format("formatBlock", "<" + val + ">");
+          };
+
+          const handleKeyShortcuts = (e) => {
+            const isCmd = e.ctrlKey || e.metaKey;
+            if (!isCmd) return;
+
+            const key = e.key ? e.key.toLowerCase() : "";
+
+            if (key === "b") {
+              e.preventDefault();
+              format("bold");
+              return;
+            }
+
+            if (key === "i") {
+              e.preventDefault();
+              format("italic");
+              return;
+            }
+
+            if (e.key === ".") {
+              e.preventDefault();
+              format("insertUnorderedList");
+              return;
+            }
+
+            if (e.key >= "0" && e.key <= "6") {
+              e.preventDefault();
+              const level = parseInt(e.key, 10);
+              const tag = level === 0 ? "<p>" : "<h" + level + ">";
+              format("formatBlock", tag);
+              headingSelect.value = level === 0 ? "p" : "h" + level;
+              return;
+            }
+
+            if (key === "s") {
+              e.preventDefault();
+              saveDoc();
+              return;
+            }
+          };
+
+          visualContent.addEventListener("keydown", handleKeyShortcuts);
+          rawTextarea.addEventListener("keydown", handleKeyShortcuts);
+
+          btnMode.onclick = () => {
+            if (isRawMode) {
+              visualContent.innerHTML = mdToHtml(rawTextarea.value);
+              rawTextarea.style.display = "none";
+              visualContent.style.display = "block";
+              btnMode.innerHTML = "<span>Raw MD</span>";
+              btnMode.classList.remove("active");
+              visualContent.focus();
+              isRawMode = false;
+            } else {
+              rawTextarea.value = htmlToMd(visualContent);
+              visualContent.style.display = "none";
+              rawTextarea.style.display = "block";
+              btnMode.innerHTML = "<span>Visual</span>";
+              btnMode.classList.add("active");
+              rawTextarea.focus();
+              isRawMode = true;
+            }
+          };
+
+          const saveDoc = async () => {
+            const currentMd = isRawMode ? rawTextarea.value : htmlToMd(visualContent);
+            try {
+              const res = await fetch(API_BASE + "/api/files/write", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ path, content: currentMd })
+              });
+              const rData = await res.json();
+              if (rData.success) {
+                showToast("Markdown saved successfully!");
+              } else {
+                showToast("Save failed: " + (rData.error || "Unknown"), "error");
+              }
+            } catch (err) {
+              showToast("Save error: " + err.message, "error");
+            }
+          };
+
+          btnSave.onclick = saveDoc;
+          btnBack.onclick = () => renderFilesView(container);
+
+          btnAnnotate.onclick = async () => {
+            const sel = window.getSelection();
+            const selectedText = (isRawMode ? rawTextarea.value.substring(rawTextarea.selectionStart, rawTextarea.selectionEnd) : (sel ? sel.toString() : "")).trim();
+            if (!selectedText) {
+              showToast("Select markdown text first, then click Chat!", "warning");
+              return;
+            }
+            const comment = await showSwissPrompt("Enter annotation note for selected snippet:", "Please review this markdown section:");
+            if (comment === null) return;
+            const snippetMsg = "[Annotated Markdown: " + name + "]\nComment: \"" + comment + "\"\n" + "\x60\x60\x60markdown\n" + selectedText + "\n\x60\x60\x60";
+            insertTextToChatInput(snippetMsg);
+            showToast("Annotation snippet injected into Antigravity chat input!");
+          };
+        });
+    }
+
     // In-Place Editor / Annotator for Code & Markdown
     function openInPlaceEditor(container, path, name, type) {
       container.innerHTML = "<div style='padding:12px; font-size:11px; color:#94a3b8;'>Loading file content...</div>";
@@ -4048,6 +4437,7 @@ func GenerateAuxiliaryPluginsScript() string {
                 <span style="font-size:10px; color:#94a3b8; font-family:monospace;">(${type})</span>
               </div>
               <div style="display:flex; gap:6px;">
+                ${(type === "markdown" || (name && (name.toLowerCase().endsWith(".md") || name.toLowerCase().endsWith(".markdown")))) ? '<button class="swiss-browser-btn" id="swiss-ed-wysiwyg" title="Switch to WYSIWYG Editor"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg><span>WYSIWYG</span></button>' : ''}
                 <button class="swiss-browser-btn primary" id="swiss-ed-annotate"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Annotate to Chat</span></button>
                 <button class="swiss-browser-btn" id="swiss-ed-save"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg><span>Save</span></button>
               </div>
@@ -4102,6 +4492,10 @@ func GenerateAuxiliaryPluginsScript() string {
             insertTextToChatInput(snippetMsg);
             showToast("Annotation snippet injected into Antigravity chat input!");
           };
+
+          editor.querySelector("#swiss-ed-wysiwyg")?.addEventListener("click", () => {
+            openWYSIWYGMarkdownEditor(container, path, name);
+          });
         });
     }
 
@@ -4160,15 +4554,21 @@ func GenerateAuxiliaryPluginsScript() string {
     }
 
     // Context Menu for File Operations on Rows
-    function showFileContextMenu(x, y, item, selectedItems, onRefresh) {
+    function showFileContextMenu(x, y, item, selectedItems, onRefresh, container) {
       const isSingle = !selectedItems || selectedItems.length <= 1;
       const targets = (selectedItems && selectedItems.length > 0) ? selectedItems : [item];
       const hasClipboard = swissClipboard.items && swissClipboard.items.length > 0;
+      const isMarkdown = !item.isDir && (item.type === "markdown" || (item.name && (item.name.toLowerCase().endsWith(".md") || item.name.toLowerCase().endsWith(".markdown"))));
 
       const menu = document.createElement("div");
       menu.className = "swiss-context-menu";
 
-      let itemsHtml = '<div class="swiss-context-item" id="ctx-file-copy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><span>Copy</span></div>' +
+      let itemsHtml = "";
+      if (isSingle && isMarkdown) {
+        itemsHtml += '<div class="swiss-context-item" id="ctx-file-wysiwyg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg><span>WYSIWYG Markdown Editor</span></div>' +
+          '<div class="swiss-context-divider"></div>';
+      }
+      itemsHtml += '<div class="swiss-context-item" id="ctx-file-copy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><span>Copy</span></div>' +
         '<div class="swiss-context-item" id="ctx-file-cut"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" x2="8.12" y1="4" y2="15.88"/><line x1="14.47" x2="20" y1="14.48" y2="20"/><line x1="8.12" x2="12" y1="8.12" y2="12"/></svg><span>Cut</span></div>';
       if (item.isDir) {
         itemsHtml += '<div class="swiss-context-item ' + (hasClipboard ? '' : 'disabled') + '" id="ctx-file-paste"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/></svg><span>Paste</span></div>';
@@ -4186,6 +4586,13 @@ func GenerateAuxiliaryPluginsScript() string {
       menu.innerHTML = itemsHtml;
 
       positionContextMenu(menu, x, y);
+
+      menu.querySelector("#ctx-file-wysiwyg")?.addEventListener("click", () => {
+        removeContextMenu();
+        if (container) {
+          openWYSIWYGMarkdownEditor(container, item.path, item.name);
+        }
+      });
 
       menu.querySelector("#ctx-file-copy")?.addEventListener("click", () => {
         swissClipboard = { action: "copy", items: [...targets] };
@@ -4364,8 +4771,9 @@ func GenerateAuxiliaryPluginsScript() string {
       topBar.style.display = "flex";
       topBar.style.gap = "8px";
       topBar.innerHTML = ` + "`" + `
-        <button class="swiss-browser-btn primary" id="swiss-m-new-text" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 12px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span>Text Memo</span></button>
-        <button class="swiss-browser-btn" id="swiss-m-record-audio" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 12px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg><span>Voice Memo</span></button>
+        <button class="swiss-browser-btn primary" id="swiss-m-new-text" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 8px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span>Text Memo</span></button>
+        <button class="swiss-browser-btn" id="swiss-m-record-audio" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 8px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg><span>Voice Memo</span></button>
+        <button class="swiss-browser-btn" id="swiss-m-new-image" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 8px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg><span>Image Memo</span></button>
       ` + "`" + `;
       wrap.appendChild(topBar);
 
@@ -4396,6 +4804,63 @@ func GenerateAuxiliaryPluginsScript() string {
         </div>
       ` + "`" + `;
       wrap.appendChild(composer);
+
+      const imgComposer = document.createElement("div");
+      imgComposer.className = "swiss-memo-img-composer";
+      imgComposer.id = "swiss-m-img-composer";
+      imgComposer.style.display = "none";
+      imgComposer.style.flexDirection = "column";
+      imgComposer.style.gap = "8px";
+      imgComposer.style.border = "1px solid var(--border,#cbd5e1)";
+      imgComposer.style.borderRadius = "8px";
+      imgComposer.style.padding = "8px";
+      imgComposer.style.background = "var(--canvas,#ffffff)";
+      imgComposer.style.marginBottom = "8px";
+      imgComposer.innerHTML = ` + "`" + `
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:11px; font-weight:600; color:var(--text,#1e293b); display:flex; align-items:center; gap:6px;">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+            <span>Whiteboard Sketch &amp; Image Memo</span>
+          </span>
+          <div style="display:flex; gap:4px;">
+            <input type="file" accept="image/*" id="swiss-m-img-file-input" style="display:none;" />
+            <button type="button" class="swiss-browser-btn" id="swiss-m-img-upload-btn" title="Upload Image File" style="padding:3px 6px; font-size:10px;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg><span>Upload</span></button>
+            <button type="button" class="swiss-browser-btn" id="swiss-m-img-clear-btn" title="Clear Canvas" style="padding:3px 6px; font-size:10px;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg><span>Clear</span></button>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; flex-wrap:wrap; padding:4px; background:var(--card,#f8fafc); border-radius:6px; border:1px solid var(--border,#e2e8f0);">
+          <div style="display:flex; align-items:center; gap:4px;">
+            <button type="button" class="swiss-browser-btn active" id="swiss-m-tool-pen" title="Pen Tool" style="padding:3px 6px; font-size:10px;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg><span>Pen</span></button>
+            <button type="button" class="swiss-browser-btn" id="swiss-m-tool-eraser" title="Eraser Tool" style="padding:3px 6px; font-size:10px;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg><span>Eraser</span></button>
+            <select id="swiss-m-brush-size" style="font-size:10px; padding:2px 4px; border-radius:4px; border:1px solid var(--border,#cbd5e1); background:var(--canvas,#ffffff); color:var(--text,#1e293b);">
+              <option value="2">Thin (2px)</option>
+              <option value="4" selected>Normal (4px)</option>
+              <option value="8">Thick (8px)</option>
+            </select>
+          </div>
+          <div id="swiss-m-color-palette" style="display:flex; align-items:center; gap:4px;">
+            <span class="swiss-color-swatch active" data-color="#0f172a" style="width:14px; height:14px; border-radius:50%; background:#0f172a; cursor:pointer; border:2px solid #3b82f6; box-sizing:border-box;"></span>
+            <span class="swiss-color-swatch" data-color="#ef4444" style="width:14px; height:14px; border-radius:50%; background:#ef4444; cursor:pointer; border:1px solid rgba(0,0,0,0.1); box-sizing:border-box;"></span>
+            <span class="swiss-color-swatch" data-color="#3b82f6" style="width:14px; height:14px; border-radius:50%; background:#3b82f6; cursor:pointer; border:1px solid rgba(0,0,0,0.1); box-sizing:border-box;"></span>
+            <span class="swiss-color-swatch" data-color="#10b981" style="width:14px; height:14px; border-radius:50%; background:#10b981; cursor:pointer; border:1px solid rgba(0,0,0,0.1); box-sizing:border-box;"></span>
+            <span class="swiss-color-swatch" data-color="#f59e0b" style="width:14px; height:14px; border-radius:50%; background:#f59e0b; cursor:pointer; border:1px solid rgba(0,0,0,0.1); box-sizing:border-box;"></span>
+            <span class="swiss-color-swatch" data-color="#8b5cf6" style="width:14px; height:14px; border-radius:50%; background:#8b5cf6; cursor:pointer; border:1px solid rgba(0,0,0,0.1); box-sizing:border-box;"></span>
+          </div>
+        </div>
+        <div style="position:relative; width:100%; border:1px solid var(--border,#cbd5e1); border-radius:6px; overflow:hidden; background:#ffffff; box-sizing:border-box;">
+          <canvas id="swiss-m-whiteboard-canvas" width="480" height="260" style="width:100%; height:180px; display:block; cursor:crosshair; background:#ffffff; touch-action:none;"></canvas>
+          <div id="swiss-m-canvas-hint" style="position:absolute; bottom:4px; right:6px; font-size:9px; color:#94a3b8; pointer-events:none; background:rgba(255,255,255,0.85); padding:1px 4px; border-radius:3px;">Paste (Ctrl+V) or draw</div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <input type="text" id="swiss-m-img-title-input" placeholder="Memo Title (optional)..." style="width:100%; padding:4px 8px; font-size:11px; border-radius:4px; border:1px solid var(--border,#cbd5e1); background:var(--canvas,#ffffff); color:var(--text,#1e293b); box-sizing:border-box;" />
+          <input type="text" id="swiss-m-img-caption-input" placeholder="Caption / notes (optional)..." style="width:100%; padding:4px 8px; font-size:11px; border-radius:4px; border:1px solid var(--border,#cbd5e1); background:var(--canvas,#ffffff); color:var(--text,#1e293b); box-sizing:border-box;" />
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:6px;">
+          <button type="button" class="swiss-browser-btn" id="swiss-m-img-cancel"><span>Cancel</span></button>
+          <button type="button" class="swiss-browser-btn primary" id="swiss-m-img-save"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg><span>Save Image Memo</span></button>
+        </div>
+      ` + "`" + `;
+      wrap.appendChild(imgComposer);
 
       const memoList = document.createElement("div");
       memoList.style.display = "flex";
@@ -4464,7 +4929,7 @@ func GenerateAuxiliaryPluginsScript() string {
           if (trimmedQ) {
             memoList.innerHTML = '<div class="swiss-memo-empty-search">No memos found matching "' + escapeHtml(trimmedQ) + '"</div>';
           } else {
-            memoList.innerHTML = "<div style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No memos yet. Click Text Memo or Voice Memo!</div>";
+            memoList.innerHTML = "<div style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No memos yet. Click Text Memo, Voice Memo, or Image Memo!</div>";
           }
           return;
         }
@@ -4482,7 +4947,8 @@ func GenerateAuxiliaryPluginsScript() string {
               </div>
               <span style="font-size:9px; color:#94a3b8; white-space:nowrap;">${escapeHtml(m.created_at || m.createdAt || "")}</span>
             </div>
-            <div style="font-size:11px; color:var(--text,#1e293b); white-space:pre-wrap; margin-bottom:8px;">${escapeHtml(m.content || "")}</div>
+            ${m.image_data ? ('<div style="margin-bottom:6px; border-radius:4px; overflow:hidden; border:1px solid var(--border,#cbd5e1); background:#ffffff; max-height:160px; display:flex; align-items:center; justify-content:center;"><img src="' + escapeHtml(m.image_data) + '" alt="' + escapeHtml(m.title || "Memo Image") + '" style="max-width:100%; max-height:160px; object-fit:contain; display:block;" /></div>') : ""}
+            ${m.content ? ('<div style="font-size:11px; color:var(--text,#1e293b); white-space:pre-wrap; margin-bottom:8px;">' + escapeHtml(m.content) + '</div>') : ""}
             ${m.audio_data ? ('<audio controls src="' + escapeHtml(m.audio_data) + '" style="width:100%; height:24px; margin-bottom:6px; outline:none;"></audio>') : ""}
             <div style="display:flex; justify-content:flex-end; gap:6px;">
               <button class="swiss-browser-btn" id="m-insert" style="padding:2px 6px; font-size:10px;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Chat</span></button>
@@ -4491,11 +4957,24 @@ func GenerateAuxiliaryPluginsScript() string {
           ` + "`" + `;
 
           card.ondragstart = (e) => {
-            e.dataTransfer.setData("text/plain", m.transcript || m.content || "");
+            if (m.image_data) {
+              try {
+                const file = dataURLtoFile(m.image_data, (m.title ? m.title.replace(/[^a-z0-9]/gi, '_') : 'memo') + ".png");
+                if (file) e.dataTransfer.items.add(file);
+              } catch (_) {}
+              e.dataTransfer.setData("text/plain", m.content ? (m.content + "\n" + (m.title || "Memo Image")) : (m.title || "Memo Image"));
+              e.dataTransfer.setData("text/uri-list", m.image_data);
+            } else {
+              e.dataTransfer.setData("text/plain", m.transcript || m.content || "");
+            }
           };
 
           card.querySelector("#m-insert").onclick = () => {
-            insertTextToChatInput(m.transcript || m.content || "");
+            if (m.image_data) {
+              insertImageToChatInput(m.image_data, m.content || m.title || "");
+            } else {
+              insertTextToChatInput(m.transcript || m.content || "");
+            }
           };
 
           card.querySelector("#m-del").onclick = async () => {
@@ -4571,21 +5050,32 @@ func GenerateAuxiliaryPluginsScript() string {
       };
 
       const openComposer = () => {
+        closeImageComposer();
         composer.style.display = "flex";
         setTimeout(() => composerInput.focus(), 30);
       };
 
-      const createAndSaveMemo = async (text, memoType, tags) => {
-        if (!text) return;
-        const trimmed = text.trim();
-        if (!trimmed) return;
-        const titleStr = trimmed.substring(0, 24) + (trimmed.length > 24 ? "..." : "");
+      const createAndSaveMemo = async (text, memoType, tags, imageData, customTitle) => {
+        const trimmed = (text || "").trim();
+        const effType = memoType || "text";
+        if (!trimmed && !imageData) return;
+
+        let titleStr = customTitle || "";
+        if (!titleStr) {
+          if (trimmed) {
+            titleStr = trimmed.substring(0, 24) + (trimmed.length > 24 ? "..." : "");
+          } else {
+            titleStr = effType === "image" ? "Image Memo" : "Memo";
+          }
+        }
+
         const newMemo = {
           id: "memo-" + Date.now(),
           title: titleStr,
           content: trimmed,
-          type: memoType || "text",
+          type: effType,
           tags: tags || ["quick"],
+          image_data: imageData || undefined,
           created_at: new Date().toLocaleString()
         };
         allMemos.unshift(newMemo);
@@ -4601,8 +5091,9 @@ func GenerateAuxiliaryPluginsScript() string {
               id: newMemo.id,
               title: titleStr,
               content: trimmed,
-              type: memoType || "text",
+              type: effType,
               tags: tags || ["quick"],
+              image_data: imageData || undefined,
               created_at: newMemo.created_at,
               workspace_path: mq.wsPath || undefined
             })
@@ -4648,6 +5139,200 @@ func GenerateAuxiliaryPluginsScript() string {
           if (!text.trim()) return;
           closeComposer();
           await createAndSaveMemo(text, "text", ["quick"]);
+        }
+      };
+
+      // Image Composer & Whiteboard Logic
+      const imgTitleInput = imgComposer.querySelector("#swiss-m-img-title-input");
+      const imgCaptionInput = imgComposer.querySelector("#swiss-m-img-caption-input");
+      const imgCancelBtn = imgComposer.querySelector("#swiss-m-img-cancel");
+      const imgSaveBtn = imgComposer.querySelector("#swiss-m-img-save");
+      const imgFileInput = imgComposer.querySelector("#swiss-m-img-file-input");
+      const imgUploadBtn = imgComposer.querySelector("#swiss-m-img-upload-btn");
+      const imgClearBtn = imgComposer.querySelector("#swiss-m-img-clear-btn");
+      const toolPenBtn = imgComposer.querySelector("#swiss-m-tool-pen");
+      const toolEraserBtn = imgComposer.querySelector("#swiss-m-tool-eraser");
+      const brushSizeSelect = imgComposer.querySelector("#swiss-m-brush-size");
+      const colorPalette = imgComposer.querySelector("#swiss-m-color-palette");
+      const whiteboardCanvas = imgComposer.querySelector("#swiss-m-whiteboard-canvas");
+      const canvasCtx = whiteboardCanvas.getContext("2d");
+
+      let isDrawing = false;
+      let lastX = 0;
+      let lastY = 0;
+      let activeTool = "pen";
+      let activeColor = "#0f172a";
+      let activeSize = 4;
+
+      const initWhiteboard = () => {
+        canvasCtx.fillStyle = "#ffffff";
+        canvasCtx.fillRect(0, 0, whiteboardCanvas.width, whiteboardCanvas.height);
+      };
+      initWhiteboard();
+
+      const getCanvasCoords = (e) => {
+        const rect = whiteboardCanvas.getBoundingClientRect();
+        const scaleX = whiteboardCanvas.width / rect.width;
+        const scaleY = whiteboardCanvas.height / rect.height;
+        return [
+          (e.clientX - rect.left) * scaleX,
+          (e.clientY - rect.top) * scaleY
+        ];
+      };
+
+      whiteboardCanvas.onpointerdown = (e) => {
+        e.preventDefault();
+        try { whiteboardCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+        isDrawing = true;
+        const [x, y] = getCanvasCoords(e);
+        lastX = x;
+        lastY = y;
+        canvasCtx.beginPath();
+        canvasCtx.moveTo(x, y);
+      };
+
+      whiteboardCanvas.onpointermove = (e) => {
+        if (!isDrawing) return;
+        e.preventDefault();
+        const [x, y] = getCanvasCoords(e);
+        canvasCtx.beginPath();
+        canvasCtx.moveTo(lastX, lastY);
+        canvasCtx.lineTo(x, y);
+        canvasCtx.lineCap = "round";
+        canvasCtx.lineJoin = "round";
+        if (activeTool === "eraser") {
+          canvasCtx.strokeStyle = "#ffffff";
+          canvasCtx.lineWidth = activeSize * 4;
+        } else {
+          canvasCtx.strokeStyle = activeColor;
+          canvasCtx.lineWidth = activeSize;
+        }
+        canvasCtx.stroke();
+        lastX = x;
+        lastY = y;
+      };
+
+      const stopDrawing = (e) => {
+        if (isDrawing) {
+          isDrawing = false;
+          if (e && e.pointerId) {
+            try { whiteboardCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+          }
+        }
+      };
+      whiteboardCanvas.onpointerup = stopDrawing;
+      whiteboardCanvas.onpointercancel = stopDrawing;
+
+      toolPenBtn.onclick = () => {
+        activeTool = "pen";
+        toolPenBtn.classList.add("active");
+        toolEraserBtn.classList.remove("active");
+      };
+
+      toolEraserBtn.onclick = () => {
+        activeTool = "eraser";
+        toolEraserBtn.classList.add("active");
+        toolPenBtn.classList.remove("active");
+      };
+
+      brushSizeSelect.onchange = () => {
+        activeSize = parseInt(brushSizeSelect.value, 10) || 4;
+      };
+
+      colorPalette.querySelectorAll(".swiss-color-swatch").forEach(swatch => {
+        swatch.onclick = () => {
+          activeColor = swatch.dataset.color || "#0f172a";
+          activeTool = "pen";
+          toolPenBtn.classList.add("active");
+          toolEraserBtn.classList.remove("active");
+          colorPalette.querySelectorAll(".swiss-color-swatch").forEach(s => {
+            s.style.border = s === swatch ? "2px solid #3b82f6" : "1px solid rgba(0,0,0,0.1)";
+            s.classList.toggle("active", s === swatch);
+          });
+        };
+      });
+
+      imgClearBtn.onclick = () => {
+        initWhiteboard();
+      };
+
+      const drawImageToCanvas = (img) => {
+        const cw = whiteboardCanvas.width;
+        const ch = whiteboardCanvas.height;
+        const ratio = Math.min(cw / img.width, ch / img.height, 1);
+        const w = img.width * ratio;
+        const h = img.height * ratio;
+        const x = (cw - w) / 2;
+        const y = (ch - h) / 2;
+        canvasCtx.fillStyle = "#ffffff";
+        canvasCtx.fillRect(0, 0, cw, ch);
+        canvasCtx.drawImage(img, x, y, w, h);
+      };
+
+      imgUploadBtn.onclick = () => {
+        imgFileInput.click();
+      };
+
+      imgFileInput.onchange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (re) => {
+          const img = new Image();
+          img.onload = () => drawImageToCanvas(img);
+          img.src = re.target.result;
+        };
+        reader.readAsDataURL(file);
+      };
+
+      imgComposer.addEventListener("paste", (e) => {
+        if (!e.clipboardData || !e.clipboardData.items) return;
+        for (let i = 0; i < e.clipboardData.items.length; i++) {
+          const item = e.clipboardData.items[i];
+          if (item.type.indexOf("image") !== -1) {
+            e.preventDefault();
+            const blob = item.getAsFile();
+            const reader = new FileReader();
+            reader.onload = (re) => {
+              const img = new Image();
+              img.onload = () => drawImageToCanvas(img);
+              img.src = re.target.result;
+            };
+            reader.readAsDataURL(blob);
+            break;
+          }
+        }
+      });
+
+      const closeImageComposer = () => {
+        imgComposer.style.display = "none";
+        imgTitleInput.value = "";
+        imgCaptionInput.value = "";
+      };
+
+      const openImageComposer = () => {
+        closeComposer();
+        imgComposer.style.display = "flex";
+        setTimeout(() => imgTitleInput.focus(), 30);
+      };
+
+      imgCancelBtn.onclick = () => {
+        closeImageComposer();
+      };
+
+      imgSaveBtn.onclick = async () => {
+        const dataUrl = whiteboardCanvas.toDataURL("image/png");
+        const customTitle = imgTitleInput.value.trim() || "Whiteboard Sketch";
+        const caption = imgCaptionInput.value.trim();
+        closeImageComposer();
+        await createAndSaveMemo(caption, "image", ["image", "sketch"], dataUrl, customTitle);
+      };
+
+      topBar.querySelector("#swiss-m-new-image").onclick = () => {
+        if (imgComposer.style.display === "none") {
+          openImageComposer();
+        } else {
+          closeImageComposer();
         }
       };
 
@@ -4993,6 +5678,60 @@ func GenerateAuxiliaryPluginsScript() string {
         input.selectionStart = input.selectionEnd = input.value.length;
         input.dispatchEvent(new Event("input", { bubbles: true }));
         input.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      input.focus();
+    }
+
+    // Helper: Convert base64 dataURL to File object for Drag and Paste events
+    function dataURLtoFile(dataurl, filename) {
+      if (!dataurl || typeof dataurl !== "string") return null;
+      try {
+        const parts = dataurl.split(",");
+        if (parts.length < 2) return null;
+        const mimeMatch = parts[0].match(/:(.*?);/);
+        const mime = mimeMatch ? mimeMatch[1] : "image/png";
+        const bstr = atob(parts[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        return new File([u8arr], filename || "sketch.png", { type: mime });
+      } catch (_) {
+        return null;
+      }
+    }
+
+    // Helper: Insert image into Antigravity chat input (paste / drop event with File)
+    function insertImageToChatInput(imageDataUrl, caption) {
+      const input = document.querySelector('[data-testid="agent-input-box"] [contenteditable="true"]') ||
+                    document.querySelector('[data-testid="chat-input-textarea"]') ||
+                    document.querySelector('[data-lexical-editor="true"][contenteditable="true"]') ||
+                    document.querySelector('[data-lexical-editor="true"]') ||
+                    document.querySelector('.chat-input-container [contenteditable="true"]') ||
+                    document.querySelector('.lexical-container [contenteditable="true"]') ||
+                    document.querySelector('[role="textbox"][contenteditable="true"]') ||
+                    document.querySelector('textarea[placeholder*="Ask"]') ||
+                    document.querySelector('.chat-input-container textarea') ||
+                    document.querySelector('textarea');
+      if (!input) return;
+
+      const file = dataURLtoFile(imageDataUrl, "memo-image.png");
+      if (file) {
+        try {
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          if (caption) dt.setData("text/plain", caption);
+          const pasteEvt = new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true });
+          input.dispatchEvent(pasteEvt);
+
+          const dropEvt = new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true });
+          input.dispatchEvent(dropEvt);
+        } catch (_) {}
+      }
+
+      if (caption) {
+        insertTextToChatInput(caption);
       }
       input.focus();
     }

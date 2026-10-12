@@ -156,4 +156,37 @@ describe('memoSearch utility', () => {
       assert.equal(trimmed[0].id, 'm-2');
     });
   });
+
+  describe('Image Memos Support', () => {
+    const imageMemos: MemoItem[] = [
+      {
+        id: 'img-1',
+        type: 'image',
+        title: 'Architecture Diagram Whiteboard',
+        content: 'Rough sketch of the bridge daemon architecture',
+        image_data: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+        tags: ['whiteboard', 'diagram', 'sketch'],
+      },
+      {
+        id: 'txt-1',
+        type: 'text',
+        title: 'Meeting Notes',
+        content: 'Discussion about the architecture diagram and bridge daemon',
+        tags: ['notes'],
+      },
+    ];
+
+    it('matches image memos by title, content, or tags in text scope', () => {
+      const titleMatches = filterMemos(imageMemos, 'Whiteboard', 'text');
+      assert.equal(titleMatches.length, 1);
+      assert.equal(titleMatches[0].id, 'img-1');
+
+      const contentMatches = filterMemos(imageMemos, 'bridge daemon', 'text');
+      assert.equal(contentMatches.length, 2);
+
+      const tagMatches = filterMemos(imageMemos, 'sketch', 'text');
+      assert.equal(tagMatches.length, 1);
+      assert.equal(tagMatches[0].id, 'img-1');
+    });
+  });
 });
