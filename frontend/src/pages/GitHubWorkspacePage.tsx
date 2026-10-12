@@ -15,7 +15,6 @@ import {
   Kanban,
   GripVertical,
   Check,
-  CornerDownRight,
 } from 'lucide-react'
 import { api } from '../api'
 import type { KanbanBoard, KanbanCard, KanbanColumn } from '../types'
@@ -1278,15 +1277,15 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
       ) : (
         /* 3-Column Workspace */
         <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
-        {/* Column 1: Items List */}
+        {/* Full-Width Items List (Issues / PRs / AGY Agents) */}
         <div
           style={{
-            width: '360px',
-            borderRight: '1px solid var(--border)',
+            flex: 1,
+            width: '100%',
             display: 'flex',
             flexDirection: 'column',
             overflowY: 'auto',
-            backgroundColor: 'var(--surface-variant)',
+            backgroundColor: 'var(--surface)',
           }}
         >
           {activeTab === 'tasks' ? (
@@ -1455,31 +1454,71 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                                   {agentName}
                                 </span>
                               </div>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  navigateToConversation(item.conversation_id, item.root_parent_conversation_id, item.is_pruned)
-                                }}
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '3px',
-                                  padding: '2px 6px',
-                                  borderRadius: '4px',
-                                  border: '1px solid var(--border)',
-                                  backgroundColor: 'transparent',
-                                  color: 'var(--text-muted)',
-                                  fontSize: '11px',
-                                  fontWeight: 500,
-                                  cursor: 'pointer',
-                                  transition: 'all 0.15s ease',
-                                  flexShrink: 0,
-                                }}
-                                title="Open conversation with this agent"
-                              >
-                                <span>{item.step_count || 0} steps</span>
-                                <ExternalLink size={10} />
-                              </button>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleLabelAgent(item.conversation_id, item.agent_label)
+                                  }}
+                                  style={{
+                                    padding: '2px 6px',
+                                    borderRadius: '4px',
+                                    border: '1px solid var(--border)',
+                                    backgroundColor: 'transparent',
+                                    color: 'var(--text-muted)',
+                                    fontSize: '11px',
+                                    fontWeight: 500,
+                                    cursor: 'pointer',
+                                  }}
+                                  title="Label agent persona"
+                                >
+                                  Label
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleBindTask(item.conversation_id)
+                                  }}
+                                  style={{
+                                    padding: '2px 6px',
+                                    borderRadius: '4px',
+                                    border: '1px solid var(--border)',
+                                    backgroundColor: 'transparent',
+                                    color: 'var(--text-muted)',
+                                    fontSize: '11px',
+                                    fontWeight: 500,
+                                    cursor: 'pointer',
+                                  }}
+                                  title="Bind agent to GitHub issue"
+                                >
+                                  Bind
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    navigateToConversation(item.conversation_id, item.root_parent_conversation_id, item.is_pruned)
+                                  }}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    padding: '2px 6px',
+                                    borderRadius: '4px',
+                                    border: '1px solid var(--border)',
+                                    backgroundColor: 'transparent',
+                                    color: 'var(--text-muted)',
+                                    fontSize: '11px',
+                                    fontWeight: 500,
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s ease',
+                                    flexShrink: 0,
+                                  }}
+                                  title="Open conversation with this agent"
+                                >
+                                  <span>{item.step_count || 0} steps</span>
+                                  <ExternalLink size={10} />
+                                </button>
+                              </div>
                             </div>
 
                             {/* Optional Work Title / Prompt preview */}
@@ -1661,347 +1700,253 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
             )
           }))}
         </div>
+      </div>
+      )}
 
-        {/* Column 2: In-Place Detail Viewer & Editor */}
+      {/* Item Detail / Edit Modal */}
+      {selectedItem && (activeTab === 'issues' || activeTab === 'prs') && (
         <div
           style={{
-            flex: 1,
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
             display: 'flex',
-            flexDirection: 'column',
-            overflowY: 'auto',
-            padding: '24px 32px',
-            backgroundColor: 'var(--surface)',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedItem(null)
           }}
         >
-          {activeTab === 'tasks' && selectedItem ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '4px 10px',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      fontWeight: 700,
-                      backgroundColor: (selectedItem.not_fully_idle || selectedItem.status === 'working')
+          <div
+            style={{
+              width: '680px',
+              maxWidth: '90vw',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              backgroundColor: 'var(--surface)',
+              borderRadius: '10px',
+              padding: '24px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+              boxShadow: '0 8px 30px rgba(0,0,0,0.2)',
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    backgroundColor:
+                      (selectedItem.state || 'open').toLowerCase() === 'open'
                         ? 'rgba(34, 197, 94, 0.15)'
                         : 'rgba(148, 163, 184, 0.15)',
-                      color: (selectedItem.not_fully_idle || selectedItem.status === 'working') ? '#15803d' : '#64748b',
-                    }}
+                    color:
+                      (selectedItem.state || 'open').toLowerCase() === 'open' ? '#16a34a' : '#64748b',
+                  }}
+                >
+                  #{selectedItem.number} {(selectedItem.state || 'open').toUpperCase()}
+                </span>
+                {selectedItem.url && (
+                  <a
+                    href={selectedItem.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#1a73e8' }}
                   >
-                    <Bot size={14} />
-                    {(selectedItem.not_fully_idle || selectedItem.status === 'working') ? 'Active Agent' : 'Idle Agent'}
-                  </span>
-                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
-                    {selectedItem.agent_label || selectedItem.agent_name || 'Agent'}
-                  </span>
-                </div>
-
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    onClick={() => navigateToConversation(selectedItem.conversation_id, selectedItem.root_parent_conversation_id, selectedItem.is_pruned)}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '6px 14px',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      backgroundColor: '#1a73e8',
-                      color: '#fff',
-                      border: 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Focus Conversation
-                  </button>
-                  <button
-                    onClick={() => handleLabelAgent(selectedItem.conversation_id, selectedItem.agent_label)}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      backgroundColor: 'var(--surface-variant)',
-                      border: '1px solid var(--border)',
-                      color: 'var(--text)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Label Persona
-                  </button>
-                  <button
-                    onClick={() => handleBindTask(selectedItem.conversation_id)}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      backgroundColor: 'var(--surface-variant)',
-                      border: '1px solid var(--border)',
-                      color: 'var(--text)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Bind Issue
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>CURRENT WORK ITEM / GOAL</label>
-                <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text)', marginTop: '4px', lineHeight: 1.4 }}>
-                  {selectedItem.work_item || selectedItem.conversation_title || 'No active work item description'}
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
-                <div style={{ padding: '12px', borderRadius: '6px', backgroundColor: 'var(--surface-variant)', border: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>CONVERSATION ID</div>
-                  <div style={{ fontSize: '12px', fontFamily: 'monospace', marginTop: '4px', color: 'var(--text)' }}>
-                    {selectedItem.conversation_id}
-                  </div>
-                </div>
-                <div style={{ padding: '12px', borderRadius: '6px', backgroundColor: 'var(--surface-variant)', border: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>TOTAL STEPS</div>
-                  <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '4px', color: 'var(--text)' }}>
-                    {selectedItem.step_count || 0}
-                  </div>
-                </div>
-                {selectedItem.parent_conversation_id && (
-                  <div style={{ padding: '12px', borderRadius: '6px', backgroundColor: 'var(--surface-variant)', border: '1px solid var(--border)' }}>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>SUBAGENT OF</div>
-                    <div
-                      onClick={() => navigateToConversation(selectedItem.parent_conversation_id)}
-                      style={{ fontSize: '12px', fontFamily: 'monospace', color: '#1a73e8', cursor: 'pointer', marginTop: '4px' }}
-                    >
-                      #{selectedItem.parent_conversation_id.slice(0, 8)} (Click to view)
-                    </div>
-                  </div>
+                    View on GitHub <ExternalLink size={12} />
+                  </a>
                 )}
               </div>
 
-              {/* Working Issues & Pull Requests */}
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
-                <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', marginBottom: '10px' }}>
-                  Linked GitHub Work Items
-                </div>
-                {(!selectedItem.working_issues?.length && !selectedItem.working_prs?.length && !selectedItem.bound_issue_number) ? (
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                    No GitHub issues or PRs currently linked to this agent. Use "Bind Issue" above to link one.
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {selectedItem.bound_issue_number && (
-                      <div
-                        onClick={() => {
-                          const found = issues.find(i => i.number === selectedItem.bound_issue_number)
-                          if (found) {
-                            setActiveTab('issues')
-                            setSelectedItem(found)
-                          }
-                        }}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          padding: '10px 12px',
-                          borderRadius: '6px',
-                          backgroundColor: 'rgba(26, 115, 232, 0.08)',
-                          border: '1px solid rgba(26, 115, 232, 0.2)',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <AlertCircle size={14} color="#1a73e8" />
-                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#1a73e8' }}>
-                          Bound Issue #{selectedItem.bound_issue_number}
-                        </span>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: 'auto' }}>Click to view issue details</span>
-                      </div>
-                    )}
-                    {(selectedItem.working_issues || []).filter((n: number) => n !== selectedItem.bound_issue_number).map((n: number) => (
-                      <div
-                        key={`det-iss-${n}`}
-                        onClick={() => {
-                          const found = issues.find(i => i.number === n)
-                          if (found) {
-                            setActiveTab('issues')
-                            setSelectedItem(found)
-                          }
-                        }}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          padding: '10px 12px',
-                          borderRadius: '6px',
-                          backgroundColor: 'rgba(34, 197, 94, 0.08)',
-                          border: '1px solid rgba(34, 197, 94, 0.2)',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <AlertCircle size={14} color="#16a34a" />
-                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#16a34a' }}>
-                          Active Issue #{n}
-                        </span>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: 'auto' }}>Click to view issue details</span>
-                      </div>
-                    ))}
-                    {(selectedItem.working_prs || []).map((n: number) => (
-                      <div
-                        key={`det-pr-${n}`}
-                        onClick={() => {
-                          const found = prs.find(p => p.number === n)
-                          if (found) {
-                            setActiveTab('prs')
-                            setSelectedItem(found)
-                          }
-                        }}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          padding: '10px 12px',
-                          borderRadius: '6px',
-                          backgroundColor: 'rgba(168, 85, 247, 0.08)',
-                          border: '1px solid rgba(168, 85, 247, 0.2)',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <GitPullRequest size={14} color="#9333ea" />
-                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#9333ea' }}>
-                          Active Pull Request #{n}
-                        </span>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: 'auto' }}>Click to view PR details</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : selectedItem ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span
-                    style={{
-                      padding: '4px 10px',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      fontWeight: 700,
-                      backgroundColor:
-                        (selectedItem.state || 'open').toLowerCase() === 'open'
-                          ? 'rgba(34, 197, 94, 0.15)'
-                          : 'rgba(148, 163, 184, 0.15)',
-                      color:
-                        (selectedItem.state || 'open').toLowerCase() === 'open' ? '#16a34a' : '#64748b',
-                    }}
-                  >
-                    #{selectedItem.number} {(selectedItem.state || 'open').toUpperCase()}
-                  </span>
-                  {selectedItem.url && (
-                    <a
-                      href={selectedItem.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#1a73e8' }}
-                    >
-                      View on GitHub <ExternalLink size={12} />
-                    </a>
-                  )}
-                </div>
-
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    onClick={handleCopyPromptContext}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '6px 12px',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      backgroundColor: 'rgba(26, 115, 232, 0.1)',
-                      color: '#1a73e8',
-                      border: 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <Sparkles size={14} /> Copy Context for Agent
-                  </button>
-                  <button
-                    onClick={handleToggleState}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      backgroundColor: 'var(--surface-variant)',
-                      border: '1px solid var(--border)',
-                      color: 'var(--text)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {(selectedItem.state || 'open').toLowerCase() === 'open' ? 'Close Issue' : 'Reopen Issue'}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>TITLE</label>
-                <input
-                  type="text"
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  style={{
-                    width: '100%',
-                    fontSize: '18px',
-                    fontWeight: 600,
-                    padding: '8px 12px',
-                    borderRadius: '6px',
-                    border: '1px solid var(--border)',
-                    backgroundColor: 'var(--surface-variant)',
-                    color: 'var(--text)',
-                    marginTop: '4px',
-                    boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>DESCRIPTION</label>
-                <textarea
-                  value={editBody}
-                  onChange={(e) => setEditBody(e.target.value)}
-                  style={{
-                    width: '100%',
-                    minHeight: '220px',
-                    fontSize: '13px',
-                    fontFamily: 'inherit',
-                    padding: '10px 12px',
-                    borderRadius: '6px',
-                    border: '1px solid var(--border)',
-                    backgroundColor: 'var(--surface-variant)',
-                    color: 'var(--text)',
-                    marginTop: '4px',
-                    resize: 'vertical',
-                    boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
                 <button
-                  onClick={handleSaveIssue}
+                  onClick={handleCopyPromptContext}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '6px',
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    backgroundColor: 'rgba(26, 115, 232, 0.1)',
+                    color: '#1a73e8',
+                    border: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <Sparkles size={14} /> Copy Context for Agent
+                </button>
+                <button
+                  onClick={handleToggleState}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    backgroundColor: 'var(--surface-variant)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {(selectedItem.state || 'open').toLowerCase() === 'open' ? 'Close Issue' : 'Reopen Issue'}
+                </button>
+                <button
+                  onClick={() => setSelectedItem(null)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    backgroundColor: 'transparent',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>TITLE</label>
+              <input
+                type="text"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                style={{
+                  width: '100%',
+                  fontSize: '16px',
+                  fontWeight: 600,
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'var(--surface-variant)',
+                  color: 'var(--text)',
+                  marginTop: '4px',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>DESCRIPTION</label>
+              <textarea
+                value={editBody}
+                onChange={(e) => setEditBody(e.target.value)}
+                style={{
+                  width: '100%',
+                  minHeight: '200px',
+                  fontSize: '13px',
+                  fontFamily: 'inherit',
+                  padding: '10px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'var(--surface-variant)',
+                  color: 'var(--text)',
+                  marginTop: '4px',
+                  resize: 'vertical',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button
+                onClick={() => setSelectedItem(null)}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '6px',
+                  fontSize: '13px',
+                  backgroundColor: 'transparent',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveIssue}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 16px',
+                  borderRadius: '6px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  backgroundColor: '#1a73e8',
+                  color: '#fff',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                <Save size={14} /> Save Changes
+              </button>
+            </div>
+
+            {/* Comments Thread */}
+            <div style={{ marginTop: '8px', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>
+                Comments ({selectedItem.comments ? selectedItem.comments.length : 0})
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px', maxHeight: '160px', overflowY: 'auto' }}>
+                {(selectedItem.comments || []).map((c: any, i: number) => (
+                  <div
+                    key={i}
+                    style={{
+                      padding: '10px',
+                      borderRadius: '6px',
+                      backgroundColor: 'var(--surface-variant)',
+                      border: '1px solid var(--border)',
+                    }}
+                  >
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                      @{c.author}
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>
+                      {c.body}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  type="text"
+                  placeholder="Write a comment..."
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleAddComment()
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '8px 12px',
+                    fontSize: '13px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: 'var(--surface-variant)',
+                    color: 'var(--text)',
+                    outline: 'none',
+                  }}
+                />
+                <button
+                  onClick={handleAddComment}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
                     padding: '8px 16px',
                     borderRadius: '6px',
                     fontSize: '13px',
@@ -2012,279 +1957,12 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                     cursor: 'pointer',
                   }}
                 >
-                  <Save size={14} /> Save Changes
+                  <Send size={14} /> Comment
                 </button>
               </div>
-
-              {/* Comments Thread */}
-              <div style={{ marginTop: '16px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
-                <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>
-                  Comments ({selectedItem.comments ? selectedItem.comments.length : 0})
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
-                  {(selectedItem.comments || []).map((c: any, i: number) => (
-                    <div
-                      key={i}
-                      style={{
-                        padding: '12px',
-                        borderRadius: '6px',
-                        backgroundColor: 'var(--surface-variant)',
-                        border: '1px solid var(--border)',
-                      }}
-                    >
-                      <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
-                        @{c.author}
-                      </div>
-                      <div style={{ fontSize: '13px', color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>
-                        {c.body}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <input
-                    type="text"
-                    placeholder="Write a comment..."
-                    value={commentText}
-                    onChange={(e) => setCommentText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleAddComment()
-                    }}
-                    style={{
-                      flex: 1,
-                      padding: '8px 12px',
-                      fontSize: '13px',
-                      borderRadius: '6px',
-                      border: '1px solid var(--border)',
-                      backgroundColor: 'var(--surface-variant)',
-                      color: 'var(--text)',
-                      outline: 'none',
-                    }}
-                  />
-                  <button
-                    onClick={handleAddComment}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      padding: '8px 16px',
-                      borderRadius: '6px',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      backgroundColor: '#1a73e8',
-                      color: '#fff',
-                      border: 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <Send size={14} /> Comment
-                  </button>
-                </div>
-              </div>
             </div>
-          ) : (
-            <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
-              Select an item to view and edit details
-            </div>
-          )}
-        </div>
-
-        {/* Column 3: Multi-Agent & Conversation Task Tracker */}
-        <div
-          style={{
-            width: '320px',
-            borderLeft: '1px solid var(--border)',
-            display: 'flex',
-            flexDirection: 'column',
-            backgroundColor: 'var(--surface-variant)',
-          }}
-        >
-          <div
-            style={{
-              padding: '12px 16px',
-              borderBottom: '1px solid var(--border)',
-              fontSize: '13px',
-              fontWeight: 700,
-              color: 'var(--text)',
-            }}
-          >
-            AGY Agents ({agentTasks.length})
-          </div>
-          <div style={{ overflowY: 'auto', flex: 1 }}>
-            {agentTasks.map((t) => {
-              const isWorking = t.not_fully_idle || t.status === 'working'
-              const workTitle = t.work_item || t.conversation_title || (t.agent_label ? `${t.agent_label} Task` : 'Agent Task')
-              return (
-                <div
-                  key={t.conversation_id}
-                  style={{
-                    padding: '12px 16px',
-                    borderBottom: '1px solid var(--border)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '4px',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        padding: '2px 8px',
-                        borderRadius: '6px',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        backgroundColor: isWorking ? 'rgba(34, 197, 94, 0.15)' : 'rgba(148, 163, 184, 0.15)',
-                        color: isWorking ? '#15803d' : '#64748b',
-                      }}
-                    >
-                      <Bot size={12} />
-                      {isWorking ? 'Active' : 'Idle'}: {t.agent_label || 'Agent'}
-                    </span>
-                    <button
-                      onClick={() => handleLabelAgent(t.conversation_id, t.agent_label)}
-                      style={{
-                        border: 'none',
-                        background: 'transparent',
-                        color: '#1a73e8',
-                        cursor: 'pointer',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                      }}
-                    >
-                      Label
-                    </button>
-                  </div>
-
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', lineHeight: 1.35 }}>
-                    {workTitle}
-                  </div>
-
-                  {/* Working Issues / PRs Badges */}
-                  {((t.working_issues && t.working_issues.length > 0) || (t.working_prs && t.working_prs.length > 0) || t.bound_issue_number) && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
-                      {t.bound_issue_number && (!t.working_issues || !t.working_issues.includes(t.bound_issue_number)) && (
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                            fontSize: '9.5px',
-                            fontWeight: 600,
-                            padding: '1px 5px',
-                            borderRadius: '4px',
-                            backgroundColor: 'rgba(26, 115, 232, 0.12)',
-                            color: '#1a73e8',
-                          }}
-                        >
-                          <AlertCircle size={9} /> #{t.bound_issue_number}
-                        </span>
-                      )}
-                      {(t.working_issues || []).map((issNum: number) => (
-                        <span
-                          key={`iss-${issNum}`}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                            fontSize: '9.5px',
-                            fontWeight: 600,
-                            padding: '1px 5px',
-                            borderRadius: '4px',
-                            backgroundColor: 'rgba(34, 197, 94, 0.12)',
-                            color: '#16a34a',
-                          }}
-                        >
-                          <AlertCircle size={9} /> #{issNum}
-                        </span>
-                      ))}
-                      {(t.working_prs || []).map((prNum: number) => (
-                        <span
-                          key={`pr-${prNum}`}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                            fontSize: '9.5px',
-                            fontWeight: 600,
-                            padding: '1px 5px',
-                            borderRadius: '4px',
-                            backgroundColor: 'rgba(168, 85, 247, 0.12)',
-                            color: '#9333ea',
-                          }}
-                        >
-                          <GitPullRequest size={9} /> PR #{prNum}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-                    <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--text-muted)' }}>
-                      ID: #{t.conversation_id.slice(0, 8)}
-                    </span>
-                    {t.parent_conversation_id && (
-                      <span style={{ fontSize: '10px', color: '#1a73e8', display: 'flex', alignItems: 'center', gap: '2px' }} title={`Subagent of ${t.parent_conversation_id}`}>
-                        <CornerDownRight size={10} />
-                        <span>Subagent</span>
-                      </span>
-                    )}
-                    {t.is_pruned && (
-                      <span style={{ fontSize: '9.5px', color: '#94a3b8', background: 'rgba(148, 163, 184, 0.2)', padding: '1px 4px', borderRadius: '3px' }} title="Database file missing">
-                        Archived
-                      </span>
-                    )}
-                    <button
-                      onClick={() => { navigateToConversation(t.conversation_id, t.root_parent_conversation_id, t.is_pruned) }}
-                      style={{
-                        border: 'none',
-                        background: 'transparent',
-                        color: t.is_pruned ? '#94a3b8' : '#1a73e8',
-                        cursor: 'pointer',
-                        fontSize: '10px',
-                        fontWeight: 600,
-                        padding: '0 2px',
-                        marginLeft: 'auto',
-                      }}
-                      title={t.is_pruned ? "Conversation database was pruned or archived" : "Focus conversation"}
-                    >
-                      {t.is_pruned ? 'Archived' : 'Focus'}
-                    </button>
-                  </div>
-
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      marginTop: '6px',
-                      fontSize: '11px',
-                      color: 'var(--text-muted)',
-                    }}
-                  >
-                    <span>{t.bound_issue_number ? `Task: #${t.bound_issue_number}` : 'No Issue Bound'}</span>
-                    <button
-                      onClick={() => handleBindTask(t.conversation_id)}
-                      style={{
-                        border: 'none',
-                        background: 'transparent',
-                        color: '#1a73e8',
-                        cursor: 'pointer',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                      }}
-                    >
-                      Bind Task
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
           </div>
         </div>
-      </div>
       )}
 
       {/* New Issue Modal */}
