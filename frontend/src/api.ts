@@ -463,7 +463,7 @@ export const api = {
     }),
 
   getGUIProjects: () =>
-    request<Array<{ name: string; color: string; order: number; is_archived: boolean }>>('/api/gui/projects'),
+    request<Array<{ name: string; color: string; order: number; is_archived: boolean; folder_path?: string }>>('/api/gui/projects'),
 
   getGUIConfig: () => request<GUIConfig>('/api/gui/config'),
 

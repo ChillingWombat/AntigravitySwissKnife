@@ -3789,6 +3789,23 @@ func GenerateAuxiliaryPluginsScript() string {
             const parsed = JSON.parse(saved);
             if (parsed[clean]) return parsed[clean];
             if (parsed[clean.toLowerCase()]) return parsed[clean.toLowerCase()];
+            for (const k in parsed) {
+              if (k.toLowerCase() === clean.toLowerCase()) return parsed[k];
+            }
+            const sepIdx = clean.search(/[/\\]/);
+            if (sepIdx > 0) {
+              const prefix = clean.substring(0, sepIdx);
+              const rest = clean.substring(sepIdx + 1);
+              let top = parsed[prefix] || parsed[prefix.toLowerCase()];
+              if (!top) {
+                for (const k in parsed) {
+                  if (k.toLowerCase() === prefix.toLowerCase()) { top = parsed[k]; break; }
+                }
+              }
+              if (top) {
+                return top.replace(/[/\\]+$/, "") + "/" + rest.replace(/^[/\\]+/, "");
+              }
+            }
           }
         } catch (_) {}
         return clean;
@@ -4090,7 +4107,14 @@ func GenerateAuxiliaryPluginsScript() string {
           stageFileHistory = [];
           stageFilePath = (stScope && stScope !== "GLOBAL") ? stScope : ".";
         }
-        initialTargetPath = resolveProjectFolder(stageFilePath || ((stScope && stScope !== "GLOBAL") ? stScope : "."));
+        let fallbackTarget = stageFilePath || ((stScope && stScope !== "GLOBAL") ? stScope : ".");
+        if (fallbackTarget === "." && typeof window.__swissGetActiveProject === "function") {
+          const actProj = window.__swissGetActiveProject();
+          if (actProj && actProj !== "." && actProj !== "GLOBAL") {
+            fallbackTarget = actProj;
+          }
+        }
+        initialTargetPath = resolveProjectFolder(fallbackTarget);
         currentFilePath = initialTargetPath;
         fileHistory = stageFileHistory;
       } else {

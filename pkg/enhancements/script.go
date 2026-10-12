@@ -1512,7 +1512,27 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         }
       }
 
-      // Standard native models in the current ecosystem (including Gemini in Antigravity) use 1M context window
+      // Dynamic model context window sizes
+      if (clean.includes("claude") || clean.includes("sonnet") || clean.includes("opus") || clean.includes("haiku")) {
+        return 200000;
+      }
+      if (clean.includes("gpt-4") || clean.includes("gpt4") || clean.includes("o1") || clean.includes("o3") || clean.includes("chatgpt")) {
+        return 128000;
+      }
+      if (clean.includes("pro")) {
+        return 2000000;
+      }
+      if (clean.includes("flash")) {
+        return 1000000;
+      }
+      if (clean.includes("deepseek")) {
+        return 64000;
+      }
+      if (clean.includes("mistral") || clean.includes("codestral") || clean.includes("llama")) {
+        return 128000;
+      }
+
+      // Standard native models default in Antigravity
       return 1000000;
     }
 

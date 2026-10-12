@@ -2410,25 +2410,76 @@ func TestFileExplorerDefaultProjectFolderSetting(t *testing.T) {
 
 	// 4. Test live Node evaluation of project folder resolution logic
 	nodeScript := `
-const window = {
+const assert = require('assert');
+
+const storage = {
+  antigravity_swiss_project_folders: JSON.stringify({
+    "UniMelb - IT": "/mnt/Data/UniMelb/COMP9007",
+    "PrivacyAI": "/home/david/projects/privacy"
+  })
+};
+
+const localStorage = {
+  getItem: (k) => storage[k] || null
+};
+
+let mockWindow = {
   __swissGetProjectFolder: (p) => {
     if (p === "UniMelb - IT") return "/mnt/Data/UniMelb/COMP9007";
+    if (p === "UniMelb - IT/Assignment") return "/mnt/Data/UniMelb/COMP9007/Assignment";
     return "";
   }
 };
-const resolveProjectFolder = (raw) => {
+
+const makeResolver = (win) => (raw) => {
   if (!raw || raw === "." || raw === "GLOBAL") return ".";
   const clean = (raw || "").trim();
-  if (typeof window.__swissGetProjectFolder === "function") {
-    const folder = window.__swissGetProjectFolder(clean);
+  if (typeof win.__swissGetProjectFolder === "function") {
+    const folder = win.__swissGetProjectFolder(clean);
     if (folder) return folder;
   }
+  try {
+    const saved = localStorage.getItem("antigravity_swiss_project_folders");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed[clean]) return parsed[clean];
+      if (parsed[clean.toLowerCase()]) return parsed[clean.toLowerCase()];
+      for (const k in parsed) {
+        if (k.toLowerCase() === clean.toLowerCase()) return parsed[k];
+      }
+      const sepIdx = clean.search(/[/\\]/);
+      if (sepIdx > 0) {
+        const prefix = clean.substring(0, sepIdx);
+        const rest = clean.substring(sepIdx + 1);
+        let top = parsed[prefix] || parsed[prefix.toLowerCase()];
+        if (!top) {
+          for (const k in parsed) {
+            if (k.toLowerCase() === prefix.toLowerCase()) { top = parsed[k]; break; }
+          }
+        }
+        if (top) {
+          return top.replace(/[/\\]+$/, "") + "/" + rest.replace(/^[/\\]+/, "");
+        }
+      }
+    }
+  } catch (_) {}
   return clean;
 };
-const assert = require('assert');
-assert.strictEqual(resolveProjectFolder("UniMelb - IT"), "/mnt/Data/UniMelb/COMP9007");
-assert.strictEqual(resolveProjectFolder("GLOBAL"), ".");
-assert.strictEqual(resolveProjectFolder("."), ".");
+
+// 4a. Verify with window.__swissGetProjectFolder
+const resolve1 = makeResolver(mockWindow);
+assert.strictEqual(resolve1("UniMelb - IT"), "/mnt/Data/UniMelb/COMP9007");
+assert.strictEqual(resolve1("UniMelb - IT/Assignment"), "/mnt/Data/UniMelb/COMP9007/Assignment");
+assert.strictEqual(resolve1("GLOBAL"), ".");
+assert.strictEqual(resolve1("."), ".");
+
+// 4b. Verify fallback to localStorage when window.__swissGetProjectFolder is missing
+const resolveFallback = makeResolver({});
+assert.strictEqual(resolveFallback("UniMelb - IT"), "/mnt/Data/UniMelb/COMP9007");
+assert.strictEqual(resolveFallback("unimelb - it"), "/mnt/Data/UniMelb/COMP9007");
+assert.strictEqual(resolveFallback("PrivacyAI/src/main.rs"), "/home/david/projects/privacy/src/main.rs");
+assert.strictEqual(resolveFallback("UniMelb - IT/Assignment/spec.pdf"), "/mnt/Data/UniMelb/COMP9007/Assignment/spec.pdf");
+assert.strictEqual(resolveFallback("UnknownCustomDir"), "UnknownCustomDir");
 `
 
 	cmd := exec.Command("node")

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -343,8 +344,14 @@ func ResolveProjectFolderFromConfig(nameOrID string) string {
 			}
 			if uri != "" {
 				uPath := strings.TrimPrefix(uri, "file://")
+				if strings.HasPrefix(uPath, "localhost/") {
+					uPath = strings.TrimPrefix(uPath, "localhost")
+				}
 				if unescaped, err := url.PathUnescape(uPath); err == nil {
 					uPath = unescaped
+				}
+				if runtime.GOOS == "windows" && len(uPath) >= 3 && uPath[0] == '/' && uPath[2] == ':' {
+					uPath = uPath[1:]
 				}
 				return filepath.Clean(uPath)
 			}
@@ -387,8 +394,14 @@ func ResolveProjectPath(nameOrPath string) string {
 	}
 	if strings.HasPrefix(p, "file://") {
 		p = strings.TrimPrefix(p, "file://")
+		if strings.HasPrefix(p, "localhost/") {
+			p = strings.TrimPrefix(p, "localhost")
+		}
 		if unescaped, err := url.PathUnescape(p); err == nil {
 			p = unescaped
+		}
+		if runtime.GOOS == "windows" && len(p) >= 3 && p[0] == '/' && p[2] == ':' {
+			p = p[1:]
 		}
 	}
 	if filepath.IsAbs(p) {
@@ -459,8 +472,14 @@ func ResolveProjectPath(nameOrPath string) string {
 				var uris []string
 				if json.Unmarshal([]byte(uriJSON), &uris) == nil && len(uris) > 0 {
 					uPath := strings.TrimPrefix(uris[0], "file://")
+					if strings.HasPrefix(uPath, "localhost/") {
+						uPath = strings.TrimPrefix(uPath, "localhost")
+					}
 					if unescaped, err := url.PathUnescape(uPath); err == nil {
 						uPath = unescaped
+					}
+					if runtime.GOOS == "windows" && len(uPath) >= 3 && uPath[0] == '/' && uPath[2] == ':' {
+						uPath = uPath[1:]
 					}
 					uPath = filepath.Clean(uPath)
 					if rest != "" {

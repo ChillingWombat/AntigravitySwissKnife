@@ -620,6 +620,11 @@ func (s *Store) DetectProjects() ([]ProjectItem, error) {
 			orderIdx = 9999
 		}
 		folderPath := github.ResolveProjectFolderFromConfig(name)
+		if folderPath == "" {
+			if resolved := github.ResolveProjectPath(name); filepath.IsAbs(resolved) {
+				folderPath = resolved
+			}
+		}
 		result = append(result, ProjectItem{
 			Name:         name,
 			Color:        color,

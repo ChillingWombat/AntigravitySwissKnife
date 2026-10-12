@@ -102,6 +102,8 @@ func GenerateGitHubExtensionScript() string {
             projectFolderMap.set(k.toLowerCase(), v);
           }
         }
+        if (projectFolderMap.has(clean)) return projectFolderMap.get(clean);
+        if (projectFolderMap.has(clean.toLowerCase())) return projectFolderMap.get(clean.toLowerCase());
       }
     } catch (_) {}
     const sepIdx = clean.search(/[/\\]/);
@@ -2062,7 +2064,7 @@ func GenerateGitHubExtensionScript() string {
 
     activeMainStageExt = extType;
     window.__swissActiveMainStageExt = extType;
-    if (extType === "github" && currentScope === "GLOBAL") {
+    if ((extType === "github" || extType === "files") && currentScope === "GLOBAL") {
       const fallbackProject = lastInteractedProject || (availableProjects.length > 0 ? availableProjects[0] : "");
       if (fallbackProject) {
         currentScope = fallbackProject;
@@ -2315,7 +2317,7 @@ func GenerateGitHubExtensionScript() string {
     const scopeMenu = document.getElementById("swiss-stage-scope-menu");
     if (!scopeBtn || !scopeMenu) return;
 
-    if (activeMainStageExt === "github" && currentScope === "GLOBAL") {
+    if ((activeMainStageExt === "github" || activeMainStageExt === "files") && currentScope === "GLOBAL") {
       const fallbackProject = lastInteractedProject || (availableProjects.length > 0 ? availableProjects[0] : "");
       if (fallbackProject) {
         currentScope = fallbackProject;
@@ -2480,12 +2482,14 @@ func GenerateGitHubExtensionScript() string {
       tab.addEventListener("click", (e) => {
         activeMainStageExt = e.currentTarget.dataset.ext;
         window.__swissActiveMainStageExt = activeMainStageExt;
-        if (activeMainStageExt === "github" && currentScope === "GLOBAL") {
+        if ((activeMainStageExt === "github" || activeMainStageExt === "files") && currentScope === "GLOBAL") {
           const fallback = lastInteractedProject || (availableProjects.length > 0 ? availableProjects[0] : "");
           if (fallback) {
             currentScope = fallback;
             try { localStorage.setItem("antigravity_swiss_extension_scope", fallback); } catch (_) {}
-            fetchRepoData();
+            if (activeMainStageExt === "github") {
+              fetchRepoData();
+            }
           }
         }
         renderMainStageUI();

@@ -677,6 +677,20 @@ func TestGenerateEnhancementsScript_ContextWindowProgressRing(t *testing.T) {
 		t.Errorf("expected script to default native Antigravity models to 1M")
 	}
 
+	// Verify dynamic model context window sizes
+	if !strings.Contains(script, `clean.includes("claude")`) || !strings.Contains(script, "200000") {
+		t.Errorf("expected script to adapt Claude context window to 200K")
+	}
+	if !strings.Contains(script, `clean.includes("gpt-4")`) || !strings.Contains(script, "128000") {
+		t.Errorf("expected script to adapt GPT-4o context window to 128K")
+	}
+	if !strings.Contains(script, `clean.includes("pro")`) || !strings.Contains(script, "2000000") {
+		t.Errorf("expected script to adapt Gemini Pro context window to 2M")
+	}
+	if !strings.Contains(script, `clean.includes("flash")`) || !strings.Contains(script, "1000000") {
+		t.Errorf("expected script to adapt Flash context window to 1M")
+	}
+
 	// Verify subagent progress ring rendering
 	if !strings.Contains(script, "swiss-context-window-ring-sub") {
 		t.Errorf("expected script to support subagent progress ring rendering")
