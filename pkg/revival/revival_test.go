@@ -685,3 +685,93 @@ func TestDetector_CyclicParentPointersTerminateSafely(t *testing.T) {
 		t.Fatalf("cycle detection timed out; possible infinite loop")
 	}
 }
+
+func TestDetector_PrioritizesRunningConversationsOverIdle(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := setupMockSummariesDB(t, tmpDir)
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test sqlite: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now()
+	// An older conversation that is RUNNING
+	_, err = db.Exec(`
+		INSERT INTO conversation_summaries (conversation_id, title, workspace_uris, parent_conversation_id, nesting_depth, not_fully_idle, status, last_modified_time)
+		VALUES ('489a9fe8-5254-4c4c-8a30-a33cffb65821', 'Running Conv', '[]', '', 0, 1, 'CASCADE_RUN_STATUS_RUNNING', ?);
+	`, now.Add(-10*time.Minute).Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("failed to insert running conversation: %v", err)
+	}
+
+	// A more recently modified conversation that is IDLE
+	_, err = db.Exec(`
+		INSERT INTO conversation_summaries (conversation_id, title, workspace_uris, parent_conversation_id, nesting_depth, not_fully_idle, status, last_modified_time)
+		VALUES ('e90b8165-924b-46bc-87bc-7c10aacf3647', 'Idle Conv', '[]', '', 0, 0, 'CASCADE_RUN_STATUS_IDLE', ?);
+	`, now.Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("failed to insert idle conversation: %v", err)
+	}
+
+	detector := &SessionDetector{BaseDir: tmpDir}
+	info, err := detector.Detect("")
+	if err != nil {
+		t.Fatalf("Detect failed: %v", err)
+	}
+	if info == nil {
+		t.Fatalf("expected non-nil active session info")
+	}
+	if info.ConversationID != "489a9fe8-5254-4c4c-8a30-a33cffb65821" {
+		t.Errorf("expected detector to prioritize running conversation 489a9fe8-5254-4c4c-8a30-a33cffb65821, got %q", info.ConversationID)
+	}
+	if !info.NeedsRevival {
+		t.Errorf("expected NeedsRevival to be true for running conversation")
+	}
+}
+
+func TestEngine_GetRevivalStatus_SynthesizesIntentWhenSessionNeedsRevival(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := setupMockSummariesDB(t, tmpDir)
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test sqlite: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now()
+	_, err = db.Exec(`
+		INSERT INTO conversation_summaries (conversation_id, title, workspace_uris, parent_conversation_id, nesting_depth, not_fully_idle, status, last_modified_time)
+		VALUES ('489a9fe8-5254-4c4c-8a30-a33cffb65821', 'Running Conv', '[]', '', 0, 1, 'CASCADE_RUN_STATUS_RUNNING', ?);
+	`, now.Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("failed to insert running conversation: %v", err)
+	}
+
+	engine := NewEngine(tmpDir, 0)
+	engine.Detector.BaseDir = tmpDir
+
+	// Without saving any intent to disk, GetRevivalStatus should synthesize a pending RevivalIntent
+	status, err := engine.GetRevivalStatus("489a9fe8-5254-4c4c-8a30-a33cffb65821")
+	if err != nil {
+		t.Fatalf("GetRevivalStatus failed: %v", err)
+	}
+	if status == nil {
+		t.Fatalf("expected non-nil RevivalStatus")
+	}
+	if status.ActiveSession == nil || !status.ActiveSession.NeedsRevival {
+		t.Fatalf("expected ActiveSession.NeedsRevival to be true")
+	}
+	if status.PendingIntent == nil {
+		t.Fatalf("expected synthesized PendingIntent, got nil")
+	}
+	if status.PendingIntent.RootConversationID != "489a9fe8-5254-4c4c-8a30-a33cffb65821" {
+		t.Errorf("expected RootConversationID = 489a9fe8-5254-4c4c-8a30-a33cffb65821, got %q", status.PendingIntent.RootConversationID)
+	}
+	if status.PendingIntent.TriggerPrompt != DefaultTriggerPrompt {
+		t.Errorf("expected TriggerPrompt = %q, got %q", DefaultTriggerPrompt, status.PendingIntent.TriggerPrompt)
+	}
+}
+
