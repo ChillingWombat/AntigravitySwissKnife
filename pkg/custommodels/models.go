@@ -16,6 +16,7 @@ const (
 	ProviderGemini    ProviderType = "gemini"
 	ProviderCustom    ProviderType = "custom"
 	ProviderLocal     ProviderType = "local"
+	ProviderGCP       ProviderType = "gcp"
 )
 
 // QuotaType defines how remaining usage is calculated.
@@ -41,6 +42,9 @@ type CustomModel struct {
 	ProviderType         ProviderType `json:"provider_type"`
 	BaseURL              string       `json:"base_url"`
 	APIKey               string       `json:"api_key,omitempty"`
+	GCPProjectID         string       `json:"gcp_project_id,omitempty"`
+	GCPRegion            string       `json:"gcp_region,omitempty"`
+	GCPServiceAccountKey string       `json:"gcp_service_account_key,omitempty"`
 	CustomQuotaEndpoint  string       `json:"custom_quota_endpoint,omitempty"`
 	ProjectMappings      []string     `json:"project_mappings"` // Specific projects or ["*"] for all
 	QuotaType            QuotaType    `json:"quota_type"`
@@ -99,6 +103,20 @@ func (m *CustomModel) Validate() error {
 	if m.ProviderType == "" {
 		m.ProviderType = ProviderOpenAI
 	}
+	if m.ProviderType == ProviderGCP {
+		if strings.TrimSpace(m.GCPProjectID) == "" && strings.TrimSpace(m.GCPServiceAccountKey) != "" {
+			if key, err := ParseServiceAccountKey([]byte(m.GCPServiceAccountKey)); err == nil && key.ProjectID != "" {
+				m.GCPProjectID = key.ProjectID
+			}
+		}
+		if strings.TrimSpace(m.BaseURL) == "" {
+			region := strings.TrimSpace(m.GCPRegion)
+			if region == "" {
+				region = "us-central1"
+			}
+			m.BaseURL = BuildVertexAIEndpoint(region, m.GCPProjectID, m.Name)
+		}
+	}
 	if strings.TrimSpace(m.BaseURL) == "" {
 		return errors.New("base_url is required")
 	}
@@ -156,7 +174,7 @@ func (m *CustomModel) CalculatePercentage() (int, bool) {
 			}
 			return int(math.Round(f * 100)), true
 		}
-		if m.TotalBudget > 0 {
+		if m.TotalBudget > 0 && m.PrepaidBalance > 0 {
 			fraction := m.PrepaidBalance / m.TotalBudget
 			if fraction < 0 {
 				fraction = 0
@@ -275,4 +293,16 @@ func SamplePresetModels() []CustomModel {
 			UpdatedAt:       now,
 		},
 	}
+}
+
+// RedactCustomModel returns a copy of CustomModel with sensitive API secrets masked.
+func RedactCustomModel(m CustomModel) CustomModel {
+	r := m
+	if r.APIKey != "" {
+		r.APIKey = "[REDACTED]"
+	}
+	if r.GCPServiceAccountKey != "" {
+		r.GCPServiceAccountKey = "[REDACTED]"
+	}
+	return r
 }

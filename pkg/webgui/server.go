@@ -2,7 +2,9 @@ package webgui
 
 import (
 	"context"
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -67,6 +70,10 @@ type Server struct {
 	quotaPolling       bool
 	testIDEsMu         sync.Mutex
 	testIDEs           []int
+	lazyMu             sync.Mutex
+	authMu             sync.RWMutex
+	sessionTokens      map[string]time.Time
+	desktopSettingsMu  sync.Mutex
 }
 
 // NewServer initializes the web UI server.
@@ -104,7 +111,144 @@ func NewServer(addr string, socketPath string) *Server {
 		bridgeService:      bridgeSvc,
 		addr:               addr,
 		knownWorkspaces:    make(map[string]struct{}),
+		sessionTokens:      make(map[string]time.Time),
 	}
+}
+
+func (s *Server) createSessionToken() string {
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+	if s.sessionTokens == nil {
+		s.sessionTokens = make(map[string]time.Time)
+	}
+	b := make([]byte, 32)
+	_, _ = rand.Read(b)
+	tok := hex.EncodeToString(b)
+	s.sessionTokens[tok] = time.Now().Add(24 * time.Hour)
+	return tok
+}
+
+func (s *Server) isAuthorized(r *http.Request) bool {
+	cfg, err := core.LoadConfig()
+	if err != nil || !cfg.AppPasswordEnabled {
+		return true
+	}
+
+	authHeader := r.Header.Get("Authorization")
+	var candidate string
+	if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+		candidate = strings.TrimSpace(authHeader[7:])
+	}
+	if candidate == "" {
+		candidate = r.Header.Get("X-App-Password")
+	}
+	if candidate == "" {
+		candidate = r.Header.Get("X-Session-Token")
+	}
+	if candidate == "" {
+		candidate = r.URL.Query().Get("password")
+	}
+	if candidate == "" {
+		candidate = r.URL.Query().Get("token")
+	}
+
+	if candidate == "" {
+		return false
+	}
+
+	if cfg.VerifyAppPassword(candidate) {
+		return true
+	}
+
+	s.authMu.RLock()
+	expiry, exists := s.sessionTokens[candidate]
+	s.authMu.RUnlock()
+	if exists && time.Now().Before(expiry) {
+		return true
+	}
+
+	return false
+}
+
+func (s *Server) getBridgeService() *bridge.Service {
+	s.lazyMu.Lock()
+	defer s.lazyMu.Unlock()
+	if s.bridgeService == nil {
+		s.bridgeService, _ = bridge.NewService("")
+	}
+	return s.bridgeService
+}
+
+func (s *Server) getSystemDetector() *system.Detector {
+	s.lazyMu.Lock()
+	defer s.lazyMu.Unlock()
+	if s.systemDetector == nil {
+		s.systemDetector = system.NewDetector()
+	}
+	return s.systemDetector
+}
+
+func (s *Server) getAppReleaseManager() *system.AppReleaseManager {
+	s.lazyMu.Lock()
+	defer s.lazyMu.Unlock()
+	if s.appReleaseManager == nil {
+		s.appReleaseManager = system.NewAppReleaseManager()
+	}
+	return s.appReleaseManager
+}
+
+func (s *Server) getVaultManager() *vault.Manager {
+	s.lazyMu.Lock()
+	defer s.lazyMu.Unlock()
+	if s.vaultManager == nil {
+		s.vaultManager = vault.NewManager("", "")
+	}
+	return s.vaultManager
+}
+
+func (s *Server) getCustomModelsStore() *custommodels.Store {
+	s.lazyMu.Lock()
+	defer s.lazyMu.Unlock()
+	if s.customModelsStore == nil {
+		s.customModelsStore, _ = custommodels.NewStore("")
+	}
+	return s.customModelsStore
+}
+
+func (s *Server) getCustomModelsTester() *custommodels.Tester {
+	s.lazyMu.Lock()
+	defer s.lazyMu.Unlock()
+	if s.customModelsTester == nil {
+		s.customModelsTester = custommodels.NewTester()
+	}
+	return s.customModelsTester
+}
+
+func (s *Server) getGUIStore() *gui.Store {
+	s.lazyMu.Lock()
+	defer s.lazyMu.Unlock()
+	if s.guiStore == nil {
+		s.guiStore, _ = gui.NewStore("")
+	}
+	return s.guiStore
+}
+
+func (s *Server) getEnhancementsStore() *enhancements.Store {
+	s.lazyMu.Lock()
+	defer s.lazyMu.Unlock()
+	if s.enhancementsStore == nil {
+		s.enhancementsStore, _ = enhancements.NewStore("")
+	}
+	return s.enhancementsStore
+}
+
+func (s *Server) getTemplatesStore() *templates.Store {
+	s.lazyMu.Lock()
+	defer s.lazyMu.Unlock()
+	if s.templatesStore == nil {
+		s.templatesStore, _ = templates.NewStore("")
+	}
+	return s.templatesStore
 }
 
 // SetRevivalEngine replaces the revivalEngine on the server (useful for tests).
@@ -229,6 +373,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/gui/desktop/install", s.handleGUIDesktopInstall)
 	mux.HandleFunc("/api/gui/desktop/restore", s.handleGUIDesktopRestore)
 	mux.HandleFunc("/api/gui/desktop/status", s.handleGUIDesktopStatus)
+	mux.HandleFunc("/api/gui/desktop-status", s.handleGUIDesktopStatus)
 	mux.HandleFunc("/api/gui/desktop/persistence", s.handleGUIDesktopPersistence)
 	mux.HandleFunc("/api/desktop/relaunch", s.handleDesktopRelaunch)
 	mux.HandleFunc("/api/gui/desktop/relaunch", s.handleDesktopRelaunch)
@@ -326,6 +471,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/bridge/mode", s.handleBridgeMode)
 	mux.HandleFunc("/api/bridge/remote/status", s.handleBridgeRemoteStatus)
 	mux.HandleFunc("/api/bridge/remote/config", s.handleBridgeRemoteConfig)
+	mux.HandleFunc("/api/bridge/remote/tunnel/start", s.handleBridgeRemoteTunnelStart)
+	mux.HandleFunc("/api/bridge/remote/tunnel/stop", s.handleBridgeRemoteTunnelStop)
 	mux.HandleFunc("/api/bridge/remote/pin/rotate", s.handleBridgeRemotePINRotate)
 	mux.HandleFunc("/api/bridge/channels/status", s.handleBridgeChannelsStatus)
 	mux.HandleFunc("/api/bridge/channels/config", s.handleBridgeChannelsConfig)
@@ -378,7 +525,7 @@ func (s *Server) Start() error {
 	s.addr = l.Addr().String()
 
 	s.httpServer = &http.Server{
-		Handler:      s.corsMiddleware(mux),
+		Handler:      s.corsMiddleware(maxBytesMiddleware(mux, 10*1024*1024)),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -396,6 +543,26 @@ func (s *Server) Stop() error {
 	s.testIDEsMu.Unlock()
 	for _, pid := range pids {
 		_ = core.KillProcessGroup(pid)
+		if proc, errProc := os.FindProcess(pid); errProc == nil {
+			_ = proc.Kill()
+		}
+	}
+	if core.IsRunningTests() || gui.IsTestExecution() {
+		if out, err := exec.Command("pgrep", "-af", "transient").Output(); err == nil {
+			for _, line := range strings.Split(string(out), "\n") {
+				if strings.Contains(line, "transient") && strings.Contains(line, "code") {
+					fields := strings.Fields(line)
+					if len(fields) > 0 {
+						if p, err := strconv.Atoi(fields[0]); err == nil && p > 0 {
+							_ = core.KillProcessGroup(p)
+							if proc, errProc := os.FindProcess(p); errProc == nil {
+								_ = proc.Kill()
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 	if s.httpServer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -410,19 +577,33 @@ func (s *Server) Addr() string {
 	return s.addr
 }
 
+func maxBytesMiddleware(next http.Handler, maxBytes int64) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+var loopbackOriginRegex = regexp.MustCompile(`^https?://(127\.0\.0\.1|localhost|\[::1\])(:[0-9]+)?$`)
+
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Private-Network", "true")
 		origin := r.Header.Get("Origin")
-		if isAllowedLoopbackOrigin(origin) {
-			if origin != "" && origin != "null" {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Credentials", "true")
-			} else {
-				w.Header().Set("Access-Control-Allow-Origin", "*")
+		if origin != "" {
+			if !isAllowedLoopbackOrigin(origin) {
+				if r.Method == http.MethodOptions {
+					w.WriteHeader(http.StatusForbidden)
+					return
+				}
+				http.Error(w, "Forbidden origin", http.StatusForbidden)
+				return
 			}
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Origin, Accept, Access-Control-Request-Private-Network")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Origin, Accept, Access-Control-Request-Private-Network, X-Bridge-Token, X-Pairing-PIN, X-App-Password, X-Session-Token")
 			w.Header().Set("Access-Control-Allow-Private-Network", "true")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 		}
@@ -439,34 +620,28 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 func isAllowedLoopbackOrigin(origin string) bool {
 	origin = strings.TrimSpace(origin)
 	if origin == "" || origin == "null" || origin == "*" {
-		return true
+		return false
 	}
 	lower := strings.ToLower(origin)
-	if strings.HasPrefix(lower, "vscode-app://") ||
-		strings.HasPrefix(lower, "vscode-file://") ||
-		strings.HasPrefix(lower, "vscode-webview://") ||
-		strings.HasPrefix(lower, "vscode-") ||
-		strings.HasPrefix(lower, "vscode:") ||
-		strings.HasPrefix(lower, "antigravity://") ||
-		strings.HasPrefix(lower, "antigravity-") ||
-		strings.HasPrefix(lower, "antigravity") ||
-		strings.HasPrefix(lower, "file://") ||
-		strings.HasPrefix(lower, "electron://") ||
-		strings.HasPrefix(lower, "plugin://") ||
-		strings.HasPrefix(lower, "app://") ||
-		strings.HasPrefix(lower, "devtools://") ||
-		strings.HasPrefix(lower, "chrome-extension://") ||
-		strings.Contains(lower, "127.0.0.1") ||
-		strings.Contains(lower, "localhost") {
+	if lower == "file://" || (strings.HasPrefix(lower, "file:///") && !strings.HasPrefix(lower, "file:////")) {
 		return true
 	}
-	if u, err := url.Parse(origin); err == nil {
-		h := u.Hostname()
-		if h == "127.0.0.1" || h == "localhost" || h == "::1" || h == "0.0.0.0" {
+	for _, scheme := range []string{
+		"vscode-file://",
+		"electron://",
+		"vscode-app://",
+		"vscode-webview://",
+		"antigravity://",
+		"app://",
+		"devtools://",
+		"chrome-extension://",
+		"plugin://",
+	} {
+		if strings.HasPrefix(lower, scheme) {
 			return true
 		}
 	}
-	return false
+	return loopbackOriginRegex.MatchString(lower)
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -513,18 +688,91 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status)
 }
 
+func redactAccount(acc keyring.Account) keyring.Account {
+	r := acc
+	if r.Password != "" {
+		r.Password = "[REDACTED]"
+	}
+	if r.TOTPSecret != "" {
+		r.TOTPSecret = "[REDACTED]"
+	}
+	if r.AccessToken != "" {
+		r.AccessToken = "[REDACTED]"
+	}
+	if r.RefreshToken != "" {
+		r.RefreshToken = "[REDACTED]"
+	}
+	if r.IDToken != "" {
+		r.IDToken = "[REDACTED]"
+	}
+	if r.Credential != nil {
+		c := *r.Credential
+		if c.AccessToken != "" {
+			c.AccessToken = "[REDACTED]"
+		}
+		if c.RefreshToken != "" {
+			c.RefreshToken = "[REDACTED]"
+		}
+		if c.IDToken != "" {
+			c.IDToken = "[REDACTED]"
+		}
+		r.Credential = &c
+	}
+	return r
+}
+
+func redactAccountExport(exp keyring.AccountExport) keyring.AccountExport {
+	r := exp
+	if r.Password != "" {
+		r.Password = "[REDACTED]"
+	}
+	if r.TOTPSecret != "" {
+		r.TOTPSecret = "[REDACTED]"
+	}
+	if r.MFA != "" {
+		r.MFA = "[REDACTED]"
+	}
+	if r.AccessToken != "" {
+		r.AccessToken = "[REDACTED]"
+	}
+	if r.RefreshToken != "" {
+		r.RefreshToken = "[REDACTED]"
+	}
+	if r.OathToken != "" {
+		r.OathToken = "[REDACTED]"
+	}
+	if r.OAuthToken != "" {
+		r.OAuthToken = "[REDACTED]"
+	}
+	return r
+}
+
 func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
-	var accounts []interface{}
+	if r.Method == http.MethodPut || (r.Method == http.MethodPost && r.URL.Query().Get("action") == "update") {
+		s.handleAccountUpdate(w, r)
+		return
+	}
+	var accounts []keyring.Account
 	if err := s.client.Call("swiss.listAccounts", nil, &accounts); err != nil {
 		store, _ := keyring.NewStore("")
 		if store != nil {
-			writeJSON(w, store.ListAccounts())
+			ptrs := store.ListAccounts()
+			accounts = make([]keyring.Account, len(ptrs))
+			for i, p := range ptrs {
+				if p != nil {
+					accounts[i] = *p
+				}
+			}
+		} else {
+			http.Error(w, "failed to list accounts", http.StatusServiceUnavailable)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
-		return
 	}
-	writeJSON(w, accounts)
+	redacted := make([]keyring.Account, len(accounts))
+	for i, a := range accounts {
+		redacted[i] = redactAccount(a)
+	}
+	writeJSON(w, redacted)
 }
 
 func (s *Server) handleAccountsScan(w http.ResponseWriter, r *http.Request) {
@@ -582,7 +830,7 @@ func (s *Server) handleAccountsImport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
+	if r.Method != http.MethodPost && r.Method != http.MethodPut {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -606,16 +854,38 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body, missing email", http.StatusBadRequest)
 		return
 	}
+
+	store, _ := keyring.NewStore("")
+	if store != nil {
+		if existing, _ := store.GetAccount(p.Email); existing != nil {
+			if p.Password == "[REDACTED]" {
+				p.Password = existing.Password
+			}
+			if p.TOTPSecret == "[REDACTED]" {
+				p.TOTPSecret = existing.TOTPSecret
+			}
+			if p.RefreshToken == "[REDACTED]" {
+				p.RefreshToken = existing.RefreshToken
+			}
+			if p.AccessToken == "[REDACTED]" {
+				p.AccessToken = existing.AccessToken
+			}
+		}
+	}
+
 	var res map[string]interface{}
 	if err := s.client.Call("swiss.updateAccount", p, &res); err != nil {
-		store, storeErr := keyring.NewStore("")
-		if storeErr != nil {
-			http.Error(w, storeErr.Error(), http.StatusInternalServerError)
-			return
+		if store == nil {
+			var storeErr error
+			store, storeErr = keyring.NewStore("")
+			if storeErr != nil {
+				http.Error(w, "failed to initialize account store", http.StatusInternalServerError)
+				return
+			}
 		}
 		prevActive := store.ActiveAccount()
 		if err := store.UpdateAccountFull(p.Email, p.Label, p.PlanTier, p.Status, p.Priority, p.Notes, p.Password, p.TOTPSecret, p.RefreshToken, p.Credits, p.EnableCreditOverages, p.AllowClaudeGPT, p.SetActive); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "failed to update account", http.StatusInternalServerError)
 			return
 		}
 		if p.AccessToken != "" {
@@ -723,15 +993,19 @@ func (s *Server) handleAccountsExport(w http.ResponseWriter, r *http.Request) {
 	if err := s.client.Call("swiss.exportAccounts", nil, &exported); err != nil {
 		store, storeErr := keyring.NewStore("")
 		if storeErr != nil {
-			http.Error(w, storeErr.Error(), http.StatusInternalServerError)
+			http.Error(w, "failed to export accounts", http.StatusInternalServerError)
 			return
 		}
 		exported = store.ExportAccounts()
 	}
+	redacted := make([]keyring.AccountExport, len(exported))
+	for i, e := range exported {
+		redacted[i] = redactAccountExport(e)
+	}
 	if r.URL.Query().Get("download") == "1" {
 		w.Header().Set("Content-Disposition", "attachment; filename=\"antigravity_accounts.json\"")
 	}
-	writeJSON(w, exported)
+	writeJSON(w, redacted)
 }
 
 func (s *Server) handleAccountsBatchImport(w http.ResponseWriter, r *http.Request) {
@@ -922,6 +1196,15 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTOTP(w http.ResponseWriter, r *http.Request) {
+	if !s.isAuthorized(r) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":   "unauthorized",
+			"message": "Authentication or app password required to access TOTP verification codes",
+		})
+		return
+	}
 	email := r.URL.Query().Get("email")
 	if r.Method == http.MethodPost {
 		var p struct {
@@ -1525,6 +1808,9 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			if val, ok := p["subagent_model_strategy"].(string); ok {
 				c.SubagentModelStrategy = core.NormalizeSubagentModelStrategy(val)
 			}
+			if val, ok := p["session_resume_prompt"].(string); ok {
+				c.SessionResumePrompt = strings.TrimSpace(val)
+			}
 			if err := c.Save(); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -1535,10 +1821,7 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.systemDetector == nil {
-		s.systemDetector = system.NewDetector()
-	}
-	inst := s.systemDetector.DetectAll()
+	inst := s.getSystemDetector().DetectAll()
 	installedMap := map[string]bool{
 		"desktop": inst != nil && inst.DesktopApp.Installed,
 		"agy":     inst != nil && inst.AgyCLI.Installed,
@@ -1605,6 +1888,7 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			"active_app_accounts":              activeApps,
 			"subagent_custom_models_enabled":   c.GetSubagentCustomModelsEnabled(),
 			"subagent_model_strategy":          subagentStrategy,
+			"session_resume_prompt":            c.GetSessionResumePrompt(),
 			"installed_apps":                   installedMap,
 		}
 	} else if cfg != nil {
@@ -1662,6 +1946,14 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 				cfg["subagent_custom_models_enabled"] = c.GetSubagentCustomModelsEnabled()
 			} else {
 				cfg["subagent_custom_models_enabled"] = false
+			}
+		}
+		if _, ok := cfg["session_resume_prompt"]; !ok {
+			c, _ := core.LoadConfig()
+			if c != nil {
+				cfg["session_resume_prompt"] = c.GetSessionResumePrompt()
+			} else {
+				cfg["session_resume_prompt"] = core.DefaultSessionResumePrompt
 			}
 		}
 	}
@@ -1745,23 +2037,28 @@ func (s *Server) handleAutoSwitch(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGUIConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		var cfg gui.Config
-		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
+
 		var res gui.Config
-		if err := s.client.Call("swiss.setGUIConfig", cfg, &res); err != nil {
+		if err := s.client.Call("swiss.setGUIConfig", json.RawMessage(bodyBytes), &res); err != nil {
 			if s.guiStore != nil {
-				if errUpdate := s.guiStore.UpdateConfig(&cfg); errUpdate != nil {
+				updated, errUpdate := s.guiStore.UpdateConfigPartial(bodyBytes)
+				if errUpdate != nil {
 					http.Error(w, errUpdate.Error(), http.StatusInternalServerError)
 					return
 				}
-				writeJSON(w, s.guiStore.GetConfig())
+				writeJSON(w, updated)
 				return
 			}
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
+		}
+		if s.guiStore != nil {
+			_ = s.guiStore.UpdateConfig(&res)
 		}
 		writeJSON(w, res)
 		return
@@ -1905,11 +2202,12 @@ func (s *Server) handleGUIProjectColorDelete(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) handleGUIProjectsArchived(w http.ResponseWriter, r *http.Request) {
-	if s.guiStore == nil {
+	guiStore := s.getGUIStore()
+	if guiStore == nil {
 		writeJSON(w, []gui.ArchivedProjectItem{})
 		return
 	}
-	archived, err := s.guiStore.GetArchivedProjects()
+	archived, err := guiStore.GetArchivedProjects()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -2020,12 +2318,13 @@ func (s *Server) handleGUIConversationsAutoArchive(w http.ResponseWriter, r *htt
 	}
 	_ = json.NewDecoder(r.Body).Decode(&p)
 
-	if s.guiStore == nil {
+	guiStore := s.getGUIStore()
+	if guiStore == nil {
 		http.Error(w, "gui store not initialized", http.StatusInternalServerError)
 		return
 	}
 
-	result, err := s.guiStore.ArchiveStaleConversations(p.Horizon)
+	result, err := guiStore.ArchiveStaleConversations(p.Horizon)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -2038,10 +2337,11 @@ func (s *Server) handleGUIConversationsPruned(w http.ResponseWriter, r *http.Req
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.vaultManager != nil {
+	vm := s.getVaultManager()
+	if vm != nil {
 		cfg, _ := core.LoadConfig()
 		if cfg == nil || cfg.ConversationVaultEnabled {
-			_, _ = s.vaultManager.Sync()
+			_, _ = vm.Sync()
 		}
 	}
 	pruned := gui.GetPrunedConversationIDs()
@@ -2061,10 +2361,7 @@ func (s *Server) handleVaultStatus(w http.ResponseWriter, r *http.Request) {
 	if cfg != nil {
 		enabled = cfg.ConversationVaultEnabled
 	}
-	if s.vaultManager == nil {
-		s.vaultManager = vault.NewManager("", "")
-	}
-	status, err := s.vaultManager.GetStatus(enabled)
+	status, err := s.getVaultManager().GetStatus(enabled)
 	if err != nil {
 		writeJSON(w, map[string]interface{}{"error": err.Error()})
 		return
@@ -2077,10 +2374,7 @@ func (s *Server) handleVaultSync(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.vaultManager == nil {
-		s.vaultManager = vault.NewManager("", "")
-	}
-	res, err := s.vaultManager.Sync()
+	res, err := s.getVaultManager().Sync()
 	if err != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -2330,18 +2624,12 @@ func (s *Server) handleDesktopLaunch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSystemInstallations(w http.ResponseWriter, r *http.Request) {
-	if s.systemDetector == nil {
-		s.systemDetector = system.NewDetector()
-	}
-	res := s.systemDetector.DetectAll()
+	res := s.getSystemDetector().DetectAll()
 	writeJSON(w, res)
 }
 
 func (s *Server) handleSystemCheckUpdates(w http.ResponseWriter, r *http.Request) {
-	if s.systemDetector == nil {
-		s.systemDetector = system.NewDetector()
-	}
-	res, err := s.systemDetector.CheckUpdates()
+	res, err := s.getSystemDetector().CheckUpdates()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -2350,20 +2638,14 @@ func (s *Server) handleSystemCheckUpdates(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleAppRelease(w http.ResponseWriter, r *http.Request) {
-	if s.appReleaseManager == nil {
-		s.appReleaseManager = system.NewAppReleaseManager()
-	}
 	cfg, _ := core.LoadConfig()
-	info := s.appReleaseManager.GetCachedReleaseInfo(cfg)
+	info := s.getAppReleaseManager().GetCachedReleaseInfo(cfg)
 	writeJSON(w, info)
 }
 
 func (s *Server) handleCheckAppRelease(w http.ResponseWriter, r *http.Request) {
-	if s.appReleaseManager == nil {
-		s.appReleaseManager = system.NewAppReleaseManager()
-	}
 	cfg, _ := core.LoadConfig()
-	info, err := s.appReleaseManager.CheckForUpdates(r.Context(), cfg)
+	info, err := s.getAppReleaseManager().CheckForUpdates(r.Context(), cfg)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -2406,16 +2688,14 @@ func (s *Server) handleAppReleaseUpgrade(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.appReleaseManager == nil {
-		s.appReleaseManager = system.NewAppReleaseManager()
-	}
 	cfg, _ := core.LoadConfig()
-	info, err := s.appReleaseManager.CheckForUpdates(r.Context(), cfg)
+	relMgr := s.getAppReleaseManager()
+	info, err := relMgr.CheckForUpdates(r.Context(), cfg)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	res, err := s.appReleaseManager.ExecuteUpgrade(r.Context(), info)
+	res, err := relMgr.ExecuteUpgrade(r.Context(), info)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -2424,18 +2704,14 @@ func (s *Server) handleAppReleaseUpgrade(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
-	if s.customModelsStore == nil {
-		var err error
-		s.customModelsStore, err = custommodels.NewStore("")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	if s.getCustomModelsStore() == nil {
+		http.Error(w, "custom models store not initialized", http.StatusInternalServerError)
+		return
 	}
 
 	switch r.Method {
 	case http.MethodGet:
-		cfg := s.customModelsStore.GetConfig()
+		cfg := s.customModelsStore.GetConfigRedacted()
 		cfg.InferenceSupported = true
 		if coreCfg, err := core.LoadConfig(); err == nil && coreCfg.DefaultCustomModel != "" {
 			for i := range cfg.Models {
@@ -2515,7 +2791,7 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 		if saved, err := s.customModelsStore.GetModel(m.ID); err == nil && saved != nil {
 			m = *saved
 		}
-		writeJSON(w, map[string]interface{}{"success": true, "model": m})
+		writeJSON(w, map[string]interface{}{"success": true, "model": custommodels.RedactCustomModel(m)})
 	case http.MethodDelete:
 		id := r.URL.Query().Get("id")
 		if id == "" {
@@ -2553,10 +2829,18 @@ func (s *Server) handleCustomModelTest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if s.customModelsTester == nil {
-		s.customModelsTester = custommodels.NewTester()
+	if (m.APIKey == "" || m.APIKey == "[REDACTED]" || m.GCPServiceAccountKey == "" || m.GCPServiceAccountKey == "[REDACTED]") && m.ID != "" {
+		if saved, err := s.customModelsStore.GetModel(m.ID); err == nil && saved != nil {
+			if m.APIKey == "" || m.APIKey == "[REDACTED]" {
+				m.APIKey = saved.APIKey
+			}
+			if m.GCPServiceAccountKey == "" || m.GCPServiceAccountKey == "[REDACTED]" {
+				m.GCPServiceAccountKey = saved.GCPServiceAccountKey
+			}
+		}
 	}
-	res, err := s.customModelsTester.TestEndpoint(m)
+	tester := s.getCustomModelsTester()
+	res, err := tester.TestEndpoint(m)
 	if err != nil {
 		writeJSON(w, res)
 		return
@@ -2577,15 +2861,12 @@ func (s *Server) handleCustomModelBind(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body, missing project", http.StatusBadRequest)
 		return
 	}
-	if s.customModelsStore == nil {
-		var err error
-		s.customModelsStore, err = custommodels.NewStore("")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	store := s.getCustomModelsStore()
+	if store == nil {
+		http.Error(w, "custom models store not initialized", http.StatusInternalServerError)
+		return
 	}
-	if err := s.customModelsStore.BindProject(p.Project, p.ModelID); err != nil {
+	if err := store.BindProject(p.Project, p.ModelID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -2619,15 +2900,12 @@ func (s *Server) handleCustomModelThinkingLevel(w http.ResponseWriter, r *http.R
 		http.Error(w, "invalid request body, missing model_id", http.StatusBadRequest)
 		return
 	}
-	if s.customModelsStore == nil {
-		var err error
-		s.customModelsStore, err = custommodels.NewStore("")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	store := s.getCustomModelsStore()
+	if store == nil {
+		http.Error(w, "custom models store not initialized", http.StatusInternalServerError)
+		return
 	}
-	if err := s.customModelsStore.SetThinkingLevel(p.ModelID, p.Level); err != nil {
+	if err := store.SetThinkingLevel(p.ModelID, p.Level); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -2658,15 +2936,12 @@ func (s *Server) handleCustomModelRefreshQuotas(w http.ResponseWriter, r *http.R
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.customModelsStore == nil {
-		var err error
-		s.customModelsStore, err = custommodels.NewStore("")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	store := s.getCustomModelsStore()
+	if store == nil {
+		http.Error(w, "custom models store not initialized", http.StatusInternalServerError)
+		return
 	}
-	cfg := s.customModelsStore.GetConfig()
+	cfg := store.GetConfig()
 	nowShort := time.Now().Format("2006-01-02 15:04")
 	for i := range cfg.Models {
 		quotaRes := custommodels.DetectAndFetchQuota(cfg.Models[i])
@@ -2684,21 +2959,18 @@ func (s *Server) handleCustomModelRefreshQuotas(w http.ResponseWriter, r *http.R
 			cfg.Models[i].PriceSource = src
 			cfg.Models[i].PriceUpdatedAt = nowShort
 		}
-		_ = s.customModelsStore.SaveModel(cfg.Models[i])
+		_ = store.SaveModel(cfg.Models[i])
 	}
-	writeJSON(w, s.customModelsStore.GetConfig())
+	writeJSON(w, store.GetConfig())
 }
 
 // Enhancements handlers
 
 func (s *Server) handleEnhancements(w http.ResponseWriter, r *http.Request) {
-	if s.enhancementsStore == nil {
-		var err error
-		s.enhancementsStore, err = enhancements.NewStore("")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	store := s.getEnhancementsStore()
+	if store == nil {
+		http.Error(w, "enhancements store not initialized", http.StatusInternalServerError)
+		return
 	}
 
 	if r.Method == http.MethodGet {
@@ -2752,13 +3024,9 @@ func (s *Server) handleEnhancementsApply(w http.ResponseWriter, r *http.Request)
 // Scheduled Task Templates handlers
 
 func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
-	if s.templatesStore == nil {
-		var err error
-		s.templatesStore, err = templates.NewStore("")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	if s.getTemplatesStore() == nil {
+		http.Error(w, "templates store not initialized", http.StatusInternalServerError)
+		return
 	}
 
 	if r.Method != http.MethodGet {
@@ -2781,13 +3049,9 @@ func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTemplatesDeploy(w http.ResponseWriter, r *http.Request) {
-	if s.templatesStore == nil {
-		var err error
-		s.templatesStore, err = templates.NewStore("")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	if s.getTemplatesStore() == nil {
+		http.Error(w, "templates store not initialized", http.StatusInternalServerError)
+		return
 	}
 
 	if r.Method != http.MethodPost {
@@ -2814,13 +3078,9 @@ func (s *Server) handleTemplatesDeploy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTemplatesSidecars(w http.ResponseWriter, r *http.Request) {
-	if s.templatesStore == nil {
-		var err error
-		s.templatesStore, err = templates.NewStore("")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	if s.getTemplatesStore() == nil {
+		http.Error(w, "templates store not initialized", http.StatusInternalServerError)
+		return
 	}
 
 	if r.Method == http.MethodGet {
@@ -2908,13 +3168,9 @@ func (s *Server) handleTemplatesSidecars(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleTemplatesSidecarsUpdate(w http.ResponseWriter, r *http.Request) {
-	if s.templatesStore == nil {
-		var err error
-		s.templatesStore, err = templates.NewStore("")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	if s.getTemplatesStore() == nil {
+		http.Error(w, "templates store not initialized", http.StatusInternalServerError)
+		return
 	}
 	if r.Method != http.MethodPost && r.Method != http.MethodPut {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -3041,11 +3297,13 @@ func (s *Server) handleAuthUnlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !cfg.AppPasswordEnabled {
-		writeJSON(w, map[string]interface{}{"success": true})
+		tok := s.createSessionToken()
+		writeJSON(w, map[string]interface{}{"success": true, "token": tok, "session_token": tok})
 		return
 	}
 	if cfg.VerifyAppPassword(p.Password) {
-		writeJSON(w, map[string]interface{}{"success": true})
+		tok := s.createSessionToken()
+		writeJSON(w, map[string]interface{}{"success": true, "token": tok, "session_token": tok})
 	} else {
 		writeJSON(w, map[string]interface{}{"success": false, "error": "Incorrect password"})
 	}
@@ -3144,6 +3402,8 @@ func (s *Server) handleSettingsStorage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSettingsRuntimeMode(w http.ResponseWriter, r *http.Request) {
+	s.desktopSettingsMu.Lock()
+	defer s.desktopSettingsMu.Unlock()
 	settingsPath := filepath.Join(core.GetConfigDir(), "desktop_settings.json")
 
 	if r.Method == http.MethodGet {
@@ -3178,7 +3438,10 @@ func (s *Server) handleSettingsRuntimeMode(w http.ResponseWriter, r *http.Reques
 		}
 		data["runtime_mode"] = mode
 		if b, err := json.MarshalIndent(data, "", "  "); err == nil {
-			_ = os.WriteFile(settingsPath, b, 0644)
+			tmp := settingsPath + ".tmp"
+			if err := os.WriteFile(tmp, b, 0600); err == nil {
+				_ = os.Rename(tmp, settingsPath)
+			}
 		}
 		writeJSON(w, map[string]interface{}{"success": true, "runtime_mode": mode})
 		return
@@ -3397,7 +3660,7 @@ func (s *Server) handleSettingsDiagnoseIssue(w http.ResponseWriter, r *http.Requ
 	cfg, _ := core.LoadConfig()
 	keyringStore, _ := keyring.NewStore("")
 
-	result, err := system.RunIssueDiagnosis(req, cfg, keyringStore, s.customModelsStore)
+	result, err := system.RunIssueDiagnosis(req, cfg, keyringStore, s.getCustomModelsStore())
 	if err != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -3987,16 +4250,14 @@ func (s *Server) handleCustomModelSecurityAudit(w http.ResponseWriter, r *http.R
 	auditor := custommodels.NewAuditor()
 	report := auditor.RunAudit(m)
 	if strings.TrimSpace(m.ID) != "" {
-		if s.customModelsStore == nil {
-			s.customModelsStore, _ = custommodels.NewStore("")
-		}
-		if s.customModelsStore != nil {
-			if existing, err := s.customModelsStore.GetModel(m.ID); err == nil && existing != nil {
+		cms := s.getCustomModelsStore()
+		if cms != nil {
+			if existing, err := cms.GetModel(m.ID); err == nil && existing != nil {
 				existing.SecurityRiskLevel = report.RiskLevel
 				existing.SecurityAuditScore = report.RiskScore
 				existing.SecurityGrade = report.SecurityGrade
 				existing.LastSecurityAudit = report.AuditedAt
-				_ = s.customModelsStore.SaveModel(*existing)
+				_ = cms.SaveModel(*existing)
 			}
 		}
 	}
@@ -4025,12 +4286,14 @@ func getMemosPath() string {
 	if _, err := os.Stat(target); err == nil {
 		return target
 	}
-	home, _ := os.UserHomeDir()
-	if home != "" {
-		legacy := filepath.Join(home, ".config", "antigravity-swiss", "memos.json")
-		if legacy != target {
-			if _, err := os.Stat(legacy); err == nil {
-				return legacy
+	if !core.IsRunningTests() {
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			legacy := filepath.Join(home, ".config", "antigravity-swiss", "memos.json")
+			if legacy != target {
+				if _, err := os.Stat(legacy); err == nil {
+					return legacy
+				}
 			}
 		}
 	}
@@ -4075,11 +4338,11 @@ func (s *Server) resolveStorageDestination(r *http.Request, storageMode, wsPath 
 			return s.getGlobalMemosPath(), true
 		}
 		dotDir := filepath.Join(wsPath, ".antigravity")
-		if err := os.MkdirAll(dotDir, 0755); err != nil {
+		if err := os.MkdirAll(dotDir, 0700); err != nil {
 			return s.getGlobalMemosPath(), true
 		}
 		testFile := filepath.Join(dotDir, ".write_probe")
-		if err := os.WriteFile(testFile, []byte(""), 0644); err != nil {
+		if err := os.WriteFile(testFile, []byte(""), 0600); err != nil {
 			return s.getGlobalMemosPath(), true
 		}
 		_ = os.Remove(testFile)
@@ -4113,14 +4376,14 @@ func writeMemosFile(p string, memos []MemoItem) error {
 	if memos == nil {
 		memos = []MemoItem{}
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(memos, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(p, data, 0644)
+	return os.WriteFile(p, data, 0600)
 }
 
 func (s *Server) loadAllProjectMemos(currentWs string) []MemoItem {
@@ -4271,6 +4534,105 @@ func cleanUserPath(raw string) string {
 		}
 	}
 	return filepath.Clean(p)
+}
+
+func validateJailedPath(raw string) (string, error) {
+	if strings.ContainsRune(raw, 0) || strings.Contains(raw, "\x00") {
+		return "", fmt.Errorf("access denied: null byte prohibited in path")
+	}
+	lowerRaw := strings.ToLower(raw)
+	if strings.Contains(lowerRaw, "%00") || strings.Contains(lowerRaw, "%2500") {
+		return "", fmt.Errorf("access denied: null byte prohibited in path")
+	}
+	if strings.Contains(lowerRaw, "..%2f") || strings.Contains(lowerRaw, "%2f..") ||
+		strings.Contains(lowerRaw, "..%5c") || strings.Contains(lowerRaw, "%5c..") ||
+		strings.Contains(lowerRaw, "%2e%2e") || strings.Contains(lowerRaw, "%2e.") ||
+		strings.Contains(lowerRaw, ".%2e") || strings.Contains(lowerRaw, "%252e") ||
+		strings.Contains(lowerRaw, "%252f") || strings.Contains(lowerRaw, "%255c") {
+		return "", fmt.Errorf("access denied: encoded path traversal prohibited in path")
+	}
+
+	cleaned := cleanUserPath(raw)
+	if cleaned == "" {
+		return "", fmt.Errorf("empty path")
+	}
+
+	cleaned = filepath.Clean(cleaned)
+	if strings.ContainsRune(cleaned, 0) || strings.Contains(cleaned, "\x00") {
+		return "", fmt.Errorf("access denied: null byte prohibited in path")
+	}
+
+	for _, sysPrefix := range []string{"/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/var", "/bin", "/sbin", "/usr"} {
+		if cleaned == sysPrefix || strings.HasPrefix(cleaned, sysPrefix+"/") {
+			return "", fmt.Errorf("access denied: path inside system directory %q", sysPrefix)
+		}
+	}
+
+	evalPath, err := filepath.EvalSymlinks(cleaned)
+	if err != nil {
+		dir := filepath.Dir(cleaned)
+		if evalDir, errDir := filepath.EvalSymlinks(dir); errDir == nil {
+			evalPath = filepath.Join(evalDir, filepath.Base(cleaned))
+		} else {
+			evalPath = cleaned
+		}
+	}
+	evalPath = filepath.Clean(evalPath)
+
+	for _, sysPrefix := range []string{"/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/var", "/bin", "/sbin", "/usr"} {
+		if evalPath == sysPrefix || strings.HasPrefix(evalPath, sysPrefix+"/") {
+			return "", fmt.Errorf("access denied: path resolves to system directory %q", sysPrefix)
+		}
+	}
+
+	var allowedRoots []string
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if evalHome, errH := filepath.EvalSymlinks(home); errH == nil {
+			allowedRoots = append(allowedRoots, evalHome)
+		} else {
+			allowedRoots = append(allowedRoots, filepath.Clean(home))
+		}
+	}
+	cfgDir := core.GetConfigDir()
+	if cfgDir != "" {
+		if evalCfg, errC := filepath.EvalSymlinks(cfgDir); errC == nil {
+			allowedRoots = append(allowedRoots, evalCfg)
+		} else {
+			allowedRoots = append(allowedRoots, filepath.Clean(cfgDir))
+		}
+	}
+	if wd, err := os.Getwd(); err == nil && wd != "" {
+		if evalWd, errW := filepath.EvalSymlinks(wd); errW == nil {
+			allowedRoots = append(allowedRoots, evalWd)
+		} else {
+			allowedRoots = append(allowedRoots, filepath.Clean(wd))
+		}
+	}
+	tmp := os.TempDir()
+	if tmp != "" {
+		if evalTmp, errT := filepath.EvalSymlinks(tmp); errT == nil {
+			allowedRoots = append(allowedRoots, evalTmp)
+		} else {
+			allowedRoots = append(allowedRoots, filepath.Clean(tmp))
+		}
+	}
+
+	isAllowed := false
+	for _, root := range allowedRoots {
+		if root == "" || root == "/" {
+			continue
+		}
+		if evalPath == root || strings.HasPrefix(evalPath, root+string(filepath.Separator)) {
+			isAllowed = true
+			break
+		}
+	}
+
+	if !isAllowed {
+		return "", fmt.Errorf("access denied: path outside allowed directories: %s", cleaned)
+	}
+
+	return evalPath, nil
 }
 
 func (s *Server) handleMemos(w http.ResponseWriter, r *http.Request) {
@@ -4558,20 +4920,26 @@ func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	dirPath := cleanUserPath(rawPath)
-	if dirPath == "" {
+	if rawPath == "" {
 		if wd, err := os.Getwd(); err == nil && wd != "" {
-			dirPath = wd
+			rawPath = wd
 		} else {
-			dirPath = "."
+			rawPath = "."
 		}
+	}
+	dirPath, errJail := validateJailedPath(rawPath)
+	if errJail != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": errJail.Error(), "path": rawPath, "files": []FileItem{}})
+		return
 	}
 
 	// If dirPath does not exist or is not a directory, attempt resolving rawPath via project configuration
 	if fi, err := os.Stat(dirPath); err != nil || !fi.IsDir() {
 		if resolved := github.ResolveProjectPath(rawPath); resolved != "" && resolved != dirPath {
 			if fiRes, errRes := os.Stat(resolved); errRes == nil && fiRes.IsDir() {
-				dirPath = resolved
+				if jailedRes, errJ := validateJailedPath(resolved); errJ == nil {
+					dirPath = jailedRes
+				}
 			}
 		}
 	}
@@ -4644,9 +5012,9 @@ func (s *Server) handleFilesRead(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	filePath := cleanUserPath(rawPath)
-	if filePath == "" {
-		http.Error(w, "missing path parameter", http.StatusBadRequest)
+	filePath, errJail := validateJailedPath(rawPath)
+	if errJail != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": errJail.Error(), "path": rawPath})
 		return
 	}
 
@@ -4684,13 +5052,20 @@ func (s *Server) handleFilesWrite(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing path parameter", http.StatusBadRequest)
 		return
 	}
-	p.Path = cleanUserPath(p.Path)
-	_ = os.MkdirAll(filepath.Dir(p.Path), 0755)
-	if err := os.WriteFile(p.Path, []byte(p.Content), 0644); err != nil {
+	targetPath, errJail := validateJailedPath(p.Path)
+	if errJail != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": errJail.Error(), "path": p.Path})
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0700); err != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
-	writeJSON(w, map[string]interface{}{"success": true, "path": p.Path, "size": len(p.Content)})
+	if err := os.WriteFile(targetPath, []byte(p.Content), 0600); err != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]interface{}{"success": true, "path": targetPath, "size": len(p.Content)})
 }
 
 func (s *Server) handleFilesRename(w http.ResponseWriter, r *http.Request) {
@@ -4706,13 +5081,21 @@ func (s *Server) handleFilesRename(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing old_path or new_path", http.StatusBadRequest)
 		return
 	}
-	p.OldPath = cleanUserPath(p.OldPath)
-	p.NewPath = cleanUserPath(p.NewPath)
-	if err := os.Rename(p.OldPath, p.NewPath); err != nil {
+	oldPath, errOld := validateJailedPath(p.OldPath)
+	if errOld != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": "old_path: " + errOld.Error()})
+		return
+	}
+	newPath, errNew := validateJailedPath(p.NewPath)
+	if errNew != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": "new_path: " + errNew.Error()})
+		return
+	}
+	if err := os.Rename(oldPath, newPath); err != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
-	writeJSON(w, map[string]interface{}{"success": true, "old_path": p.OldPath, "new_path": p.NewPath})
+	writeJSON(w, map[string]interface{}{"success": true, "old_path": oldPath, "new_path": newPath})
 }
 
 func (s *Server) handleFilesDelete(w http.ResponseWriter, r *http.Request) {
@@ -4740,9 +5123,10 @@ func (s *Server) handleFilesDelete(w http.ResponseWriter, r *http.Request) {
 
 	var deleted []string
 	for _, target := range targets {
-		cPath := cleanUserPath(target)
-		if cPath == "" {
-			continue
+		cPath, errJail := validateJailedPath(target)
+		if errJail != nil {
+			writeJSON(w, map[string]interface{}{"success": false, "error": errJail.Error(), "partial_deleted": deleted})
+			return
 		}
 		if err := os.RemoveAll(cPath); err != nil {
 			writeJSON(w, map[string]interface{}{"success": false, "error": err.Error(), "partial_deleted": deleted})
@@ -4766,29 +5150,33 @@ func (s *Server) handleFilesCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing path", http.StatusBadRequest)
 		return
 	}
-	p.Path = cleanUserPath(p.Path)
+	cPath, errJail := validateJailedPath(p.Path)
+	if errJail != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": errJail.Error()})
+		return
+	}
 	var err error
 	if p.IsDir {
-		err = os.MkdirAll(p.Path, 0755)
+		err = os.MkdirAll(cPath, 0700)
 	} else {
-		_ = os.MkdirAll(filepath.Dir(p.Path), 0755)
-		err = os.WriteFile(p.Path, []byte(""), 0644)
+		_ = os.MkdirAll(filepath.Dir(cPath), 0700)
+		err = os.WriteFile(cPath, []byte(""), 0600)
 	}
 	if err != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
-	writeJSON(w, map[string]interface{}{"success": true, "path": p.Path, "is_dir": p.IsDir})
+	writeJSON(w, map[string]interface{}{"success": true, "path": cPath, "is_dir": p.IsDir})
 }
 
 func copyPathRecursive(src, dst string) error {
-	srcInfo, err := os.Stat(src)
+	srcInfo, err := os.Lstat(src)
 	if err != nil {
 		return err
 	}
 
 	if srcInfo.IsDir() {
-		if err := os.MkdirAll(dst, srcInfo.Mode()|0755); err != nil {
+		if err := os.MkdirAll(dst, 0700); err != nil {
 			return err
 		}
 		entries, err := os.ReadDir(src)
@@ -4805,7 +5193,7 @@ func copyPathRecursive(src, dst string) error {
 		return nil
 	}
 
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
 		return err
 	}
 
@@ -4824,7 +5212,7 @@ func copyPathRecursive(src, dst string) error {
 	}
 	defer srcFile.Close()
 
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode()|0644)
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
@@ -4917,10 +5305,18 @@ func (s *Server) handleFilesCopy(w http.ResponseWriter, r *http.Request) {
 	var results []copyResult
 
 	for _, item := range items {
-		src := cleanUserPath(item.Src)
-		dst := cleanUserPath(item.Dst)
-		if src == "" || dst == "" {
+		if strings.TrimSpace(item.Src) == "" || strings.TrimSpace(item.Dst) == "" {
 			continue
+		}
+		src, errSrc := validateJailedPath(item.Src)
+		if errSrc != nil {
+			writeJSON(w, map[string]interface{}{"success": false, "error": "src: " + errSrc.Error()})
+			return
+		}
+		dst, errDst := validateJailedPath(item.Dst)
+		if errDst != nil {
+			writeJSON(w, map[string]interface{}{"success": false, "error": "dst: " + errDst.Error()})
+			return
 		}
 		targetDst := resolveCopyMoveDst(src, dst, true)
 		if err := copyPathRecursive(src, targetDst); err != nil {
@@ -4981,13 +5377,21 @@ func (s *Server) handleFilesMove(w http.ResponseWriter, r *http.Request) {
 	var results []moveResult
 
 	for _, item := range items {
-		src := cleanUserPath(item.Src)
-		dst := cleanUserPath(item.Dst)
-		if src == "" || dst == "" {
+		if strings.TrimSpace(item.Src) == "" || strings.TrimSpace(item.Dst) == "" {
 			continue
 		}
+		src, errSrc := validateJailedPath(item.Src)
+		if errSrc != nil {
+			writeJSON(w, map[string]interface{}{"success": false, "error": "src: " + errSrc.Error()})
+			return
+		}
+		dst, errDst := validateJailedPath(item.Dst)
+		if errDst != nil {
+			writeJSON(w, map[string]interface{}{"success": false, "error": "dst: " + errDst.Error()})
+			return
+		}
 		targetDst := resolveCopyMoveDst(src, dst, false)
-		_ = os.MkdirAll(filepath.Dir(targetDst), 0755)
+		_ = os.MkdirAll(filepath.Dir(targetDst), 0700)
 		if err := os.Rename(src, targetDst); err != nil {
 			// Cross-device link fallback or directory move fallback
 			if copyErr := copyPathRecursive(src, targetDst); copyErr != nil {
@@ -5020,9 +5424,14 @@ func (s *Server) handleFilesReveal(w http.ResponseWriter, r *http.Request) {
 		Path string `json:"path"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&p)
-	target := cleanUserPath(p.Path)
-	if target == "" {
-		target = "."
+	raw := p.Path
+	if raw == "" {
+		raw = "."
+	}
+	target, errJail := validateJailedPath(raw)
+	if errJail != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": errJail.Error()})
+		return
 	}
 	if fi, err := os.Stat(target); err == nil && !fi.IsDir() {
 		target = filepath.Dir(target)
@@ -5042,9 +5451,14 @@ func (s *Server) handleFilesTerminal(w http.ResponseWriter, r *http.Request) {
 		Path string `json:"path"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&p)
-	dir := cleanUserPath(p.Path)
-	if dir == "" {
-		dir = "."
+	raw := p.Path
+	if raw == "" {
+		raw = "."
+	}
+	dir, errJail := validateJailedPath(raw)
+	if errJail != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": errJail.Error()})
+		return
 	}
 	if fi, err := os.Stat(dir); err == nil && !fi.IsDir() {
 		dir = filepath.Dir(dir)
@@ -5096,9 +5510,14 @@ func (s *Server) handleFilesOpenIDE(w http.ResponseWriter, r *http.Request) {
 		IDE  string `json:"ide"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&p)
-	dir := cleanUserPath(p.Path)
-	if dir == "" {
-		dir = "."
+	rawDir := p.Path
+	if rawDir == "" {
+		rawDir = "."
+	}
+	dir, errJail := validateJailedPath(rawDir)
+	if errJail != nil {
+		writeJSON(w, map[string]interface{}{"success": false, "error": "invalid path: " + errJail.Error()})
+		return
 	}
 	if fi, err := os.Stat(dir); err == nil && !fi.IsDir() {
 		dir = filepath.Dir(dir)
@@ -5114,31 +5533,23 @@ func (s *Server) handleFilesOpenIDE(w http.ResponseWriter, r *http.Request) {
 		targetIDE = "code"
 	}
 
-	norm := strings.ToLower(targetIDE)
-	var primaryBin string
-	switch norm {
-	case "cursor":
-		primaryBin = "cursor"
-	case "windsurf":
-		primaryBin = "windsurf"
-	case "codium", "vscodium":
-		primaryBin = "codium"
-	case "zed":
-		primaryBin = "zed"
-	case "code", "vscode":
-		primaryBin = "code"
-	default:
-		primaryBin = targetIDE
+	canonicalIDE, errIDE := ipc.ValidateIDE(targetIDE)
+	if errIDE != nil {
+		writeJSON(w, map[string]interface{}{
+			"success": false,
+			"error":   "disallowed or invalid IDE: " + errIDE.Error(),
+		})
+		return
 	}
 
-	candidates := []string{primaryBin}
-	if norm == "codium" || norm == "vscodium" {
-		candidates = append(candidates, "vscodium", "codium")
-	} else if norm == "code" || norm == "vscode" {
-		candidates = append(candidates, "code", "vscode")
+	candidates := []string{canonicalIDE}
+	if canonicalIDE == "code" {
+		candidates = append(candidates, "vscode")
+	} else if canonicalIDE == "vscodium" {
+		candidates = append(candidates, "codium")
 	}
 
-	if norm == "code" || norm == "vscode" || p.IDE == "" {
+	if canonicalIDE == "code" || p.IDE == "" {
 		for _, fb := range []string{"cursor", "windsurf", "codium", "vscodium", "zed"} {
 			found := false
 			for _, c := range candidates {
@@ -5166,7 +5577,7 @@ func (s *Server) handleFilesOpenIDE(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]interface{}{
 			"success":  true,
 			"dir":      dir,
-			"ide":      targetIDE,
+			"ide":      canonicalIDE,
 			"launched": launchedCandidate,
 			"spawned":  spawned,
 		})
@@ -5178,19 +5589,18 @@ func (s *Server) handleFilesOpenIDE(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{
 		"success":  spawned,
 		"dir":      dir,
-		"ide":      targetIDE,
+		"ide":      canonicalIDE,
 		"launched": launched,
 	})
 }
 
 func launchIDETarget(dir string, candidates []string) (bool, string) {
 	for _, cand := range candidates {
-		fields := strings.Fields(cand)
-		if len(fields) == 0 {
+		canonical, err := ipc.ValidateIDE(cand)
+		if err != nil {
 			continue
 		}
-		args := append(fields[1:], dir)
-		cmd := exec.Command(fields[0], args...)
+		cmd := exec.Command(canonical, dir)
 		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
 			cmd.Dir = dir
 		}
@@ -5207,16 +5617,16 @@ func launchIDETarget(dir string, candidates []string) (bool, string) {
 // spawned process group is recorded and killed by Server.Stop.
 func (s *Server) launchSandboxedIDE(dir string, candidates []string) (bool, string) {
 	for _, cand := range candidates {
-		fields := strings.Fields(cand)
-		if len(fields) == 0 {
+		canonical, err := ipc.ValidateIDE(cand)
+		if err != nil {
 			continue
 		}
-		args := fields[1:]
-		if isVSCodeFamilyBin(fields[0]) {
+		var args []string
+		if isVSCodeFamilyBin(canonical) {
 			args = append(args, "--transient", "--new-window", "--disable-extensions")
 		}
 		args = append(args, dir)
-		cmd := exec.Command(fields[0], args...)
+		cmd := exec.Command(canonical, args...)
 		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
 			cmd.Dir = dir
 		}
@@ -5257,19 +5667,30 @@ func (s *Server) handleFilesIDEConfig(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			PreferredIDE string `json:"preferred_ide"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
 		ide := strings.TrimSpace(req.PreferredIDE)
 		if ide == "" {
 			ide = "code"
+		}
+		canonicalIDE, errIDE := ipc.ValidateIDE(ide)
+		if errIDE != nil {
+			writeJSON(w, map[string]interface{}{
+				"success": false,
+				"error":   "disallowed IDE: " + errIDE.Error(),
+			})
+			return
 		}
 		cfg, err := core.LoadConfig()
 		if err != nil {
 			cfg = core.DefaultConfig()
 		}
-		_ = cfg.SetPreferredIDE(ide)
+		_ = cfg.SetPreferredIDE(canonicalIDE)
 		writeJSON(w, map[string]interface{}{
 			"success":       true,
-			"preferred_ide": ide,
+			"preferred_ide": canonicalIDE,
 		})
 		return
 	}
@@ -5496,20 +5917,15 @@ func (s *Server) handleBridgeTest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBridgeMCP(w http.ResponseWriter, r *http.Request) {
-	if s.bridgeService == nil {
-		s.bridgeService, _ = bridge.NewService("")
-	}
+	bridgeSvc := s.getBridgeService()
 
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Bridge-Token, X-Pairing-PIN")
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
 	// Validate Authentication: Bearer token, Pairing PIN, or query parameters
-	granted, reason := s.bridgeService.ValidateRequest(r)
+	granted, reason := bridgeSvc.ValidateRequest(r)
 	if !granted {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -5611,19 +6027,21 @@ func (s *Server) handleBridgeTokenRotate(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.bridgeService == nil {
-		s.bridgeService, _ = bridge.NewService("")
+	if !s.isAuthorized(r) {
+		http.Error(w, "unauthorized: authentication required to rotate bridge credentials", http.StatusUnauthorized)
+		return
 	}
-	token, pin, err := s.bridgeService.RotateCredentials()
+	bridgeSvc := s.getBridgeService()
+	token, pin, err := bridgeSvc.RotateCredentials()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "failed to rotate credentials", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, map[string]interface{}{
 		"success":     true,
 		"auth_token":  token,
 		"pairing_pin": pin,
-		"status":      s.bridgeService.GetStatus(),
+		"status":      bridgeSvc.GetStatus(),
 	})
 }
 
@@ -5632,9 +6050,7 @@ func (s *Server) handleBridgeMode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.bridgeService == nil {
-		s.bridgeService, _ = bridge.NewService("")
-	}
+	bridgeSvc := s.getBridgeService()
 	var req struct {
 		Mode string `json:"mode"`
 	}
@@ -5642,20 +6058,18 @@ func (s *Server) handleBridgeMode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	if err := s.bridgeService.SetOperatingMode(req.Mode); err != nil {
+	if err := bridgeSvc.SetOperatingMode(req.Mode); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	writeJSON(w, map[string]interface{}{
 		"success": true,
-		"status":  s.bridgeService.GetStatus(),
+		"status":  bridgeSvc.GetStatus(),
 	})
 }
 
 func (s *Server) handleBridgeRemoteStatus(w http.ResponseWriter, r *http.Request) {
-	if s.bridgeService == nil {
-		s.bridgeService, _ = bridge.NewService("")
-	}
+	bridgeSvc := s.getBridgeService()
 	activeEmail := ""
 	store, _ := keyring.NewStore("")
 	if store != nil {
@@ -5667,22 +6081,20 @@ func (s *Server) handleBridgeRemoteStatus(w http.ResponseWriter, r *http.Request
 	if len(procs) > 0 {
 		pid = procs[0].PID
 	}
-	st := s.bridgeService.GetRemoteStatus(activeEmail, pid)
+	st := bridgeSvc.GetRemoteStatus(activeEmail, pid)
 	writeJSON(w, map[string]interface{}{
 		"success": true,
 		"status":  st,
-		"config":  s.bridgeService.GetRemoteConfig(),
+		"config":  bridgeSvc.GetRemoteConfig(),
 	})
 }
 
 func (s *Server) handleBridgeRemoteConfig(w http.ResponseWriter, r *http.Request) {
-	if s.bridgeService == nil {
-		s.bridgeService, _ = bridge.NewService("")
-	}
+	bridgeSvc := s.getBridgeService()
 	if r.Method == http.MethodGet {
 		writeJSON(w, map[string]interface{}{
 			"success": true,
-			"config":  s.bridgeService.GetRemoteConfig(),
+			"config":  bridgeSvc.GetRemoteConfig(),
 		})
 		return
 	}
@@ -5695,13 +6107,13 @@ func (s *Server) handleBridgeRemoteConfig(w http.ResponseWriter, r *http.Request
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	if err := s.bridgeService.UpdateRemoteConfig(cfg); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := bridgeSvc.UpdateRemoteConfig(cfg); err != nil {
+		http.Error(w, "failed to update remote config", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, map[string]interface{}{
 		"success": true,
-		"config":  s.bridgeService.GetRemoteConfig(),
+		"config":  bridgeSvc.GetRemoteConfig(),
 	})
 }
 
@@ -5722,6 +6134,75 @@ func (s *Server) handleBridgeRemotePINRotate(w http.ResponseWriter, r *http.Requ
 		"success":      true,
 		"security_pin": pin,
 		"config":       s.bridgeService.GetRemoteConfig(),
+	})
+}
+
+func (s *Server) handleBridgeRemoteTunnelStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	bridgeSvc := s.getBridgeService()
+	var req struct {
+		Type      string `json:"type"`
+		CustomURL string `json:"custom_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		req.Type = "quick"
+	}
+	st, err := bridgeSvc.StartRemoteTunnel(req.Type, req.CustomURL)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+			"tunnel":  st,
+		})
+		return
+	}
+	activeEmail := ""
+	store, _ := keyring.NewStore("")
+	if store != nil {
+		activeEmail = store.ActiveAccount()
+	}
+	shield := process.NewShield(0)
+	procs, _ := shield.FindAntigravityProcesses()
+	pid := 0
+	if len(procs) > 0 {
+		pid = procs[0].PID
+	}
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"tunnel":  st,
+		"status":  bridgeSvc.GetRemoteStatus(activeEmail, pid),
+		"config":  bridgeSvc.GetRemoteConfig(),
+	})
+}
+
+func (s *Server) handleBridgeRemoteTunnelStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	bridgeSvc := s.getBridgeService()
+	bridgeSvc.StopRemoteTunnel()
+	activeEmail := ""
+	store, _ := keyring.NewStore("")
+	if store != nil {
+		activeEmail = store.ActiveAccount()
+	}
+	shield := process.NewShield(0)
+	procs, _ := shield.FindAntigravityProcesses()
+	pid := 0
+	if len(procs) > 0 {
+		pid = procs[0].PID
+	}
+	writeJSON(w, map[string]interface{}{
+		"success": true,
+		"tunnel":  bridgeSvc.GetRemoteTunnelStatus(),
+		"status":  bridgeSvc.GetRemoteStatus(activeEmail, pid),
+		"config":  bridgeSvc.GetRemoteConfig(),
 	})
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -13,6 +14,9 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 	_ "modernc.org/sqlite"
 )
+
+// MaxRevivalStaleness defines the maximum age of running records before treating them as stale residue.
+const MaxRevivalStaleness = 2 * time.Hour
 
 // SessionDetector detects the currently active conversation and subagent state.
 type SessionDetector struct {
@@ -35,14 +39,33 @@ func DetectActiveSession(appType string) (*ActiveSessionInfo, error) {
 	return NewSessionDetector().Detect(appType)
 }
 
+// hasDevToolsActivePortFile checks whether DevToolsActivePort exists or ANTIGRAVITY_CDP_PORT is configured.
+func hasDevToolsActivePortFile() bool {
+	if os.Getenv("ANTIGRAVITY_CDP_PORT") != "" {
+		return true
+	}
+	f1 := filepath.Join(core.GetAntigravityHostConfigDir(), "DevToolsActivePort")
+	if _, err := os.Stat(f1); err == nil {
+		return true
+	}
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		f2 := filepath.Join(home, ".config", "antigravity", "DevToolsActivePort")
+		if _, err := os.Stat(f2); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // Detect finds the active session for the given appType ("desktop", "agy", "vscode", or empty).
 func (d *SessionDetector) Detect(appType string) (*ActiveSessionInfo, error) {
 	var dbPath string
 	appType = strings.ToLower(strings.TrimSpace(appType))
 
-	// 1. Live CDP check first if desktop is running on host environment
+	// 1. Live CDP check first if desktop is running and DevToolsActivePort exists
 	isHostEnv := (d.BaseDir == "" || d.BaseDir == core.GetAntigravityDir())
-	if isHostEnv && d.LiveCDPEnabled && (appType == "" || appType == "desktop" || appType == "all") {
+	if isHostEnv && d.LiveCDPEnabled && hasDevToolsActivePortFile() && (appType == "" || appType == "desktop" || appType == "all") {
 		livePath := gui.NewInjector(0).CaptureActiveConversationPath()
 		if livePath != "" && gui.IsValidConversationPath(livePath) {
 			convID := strings.TrimPrefix(livePath, "/c/")
@@ -53,6 +76,9 @@ func (d *SessionDetector) Detect(appType string) (*ActiveSessionInfo, error) {
 			if convID != "" {
 				if info, err := d.DetectForID(convID); err == nil && info != nil {
 					info.TargetApp = appType
+					if !info.LastModified.IsZero() && time.Since(info.LastModified) <= MaxRevivalStaleness {
+						info.NeedsRevival = true
+					}
 					return info, nil
 				}
 			}
@@ -107,6 +133,27 @@ func (d *SessionDetector) DetectForID(convID string) (*ActiveSessionInfo, error)
 	if base == "" {
 		base = core.GetAntigravityDir()
 	}
+
+	// Check live CDP if running on host environment
+	isHostEnv := (d.BaseDir == "" || d.BaseDir == core.GetAntigravityDir())
+	if isHostEnv && d.LiveCDPEnabled && hasDevToolsActivePortFile() {
+		livePath := gui.NewInjector(0).CaptureActiveConversationPath()
+		if livePath != "" && gui.IsValidConversationPath(livePath) {
+			cleanLive := strings.TrimPrefix(livePath, "/c/")
+			if idx := strings.Index(cleanLive, "?"); idx != -1 {
+				cleanLive = cleanLive[:idx]
+			}
+			if strings.EqualFold(strings.TrimSpace(cleanLive), convID) {
+				dbPath := filepath.Join(base, "conversation_summaries.db")
+				if _, err := os.Stat(dbPath); err == nil {
+					if info, err := d.querySummaryDatabaseForID(dbPath, convID); err == nil && info != nil {
+						return info, nil
+					}
+				}
+			}
+		}
+	}
+
 	dbPath := filepath.Join(base, "conversation_summaries.db")
 	if _, err := os.Stat(dbPath); err == nil {
 		info, err := d.querySummaryDatabaseForID(dbPath, convID)
@@ -176,13 +223,20 @@ func (d *SessionDetector) querySummaryDatabaseForID(dbPath string, targetID stri
 			return nil, err
 		}
 	} else {
-		// Prioritize running / active conversations needing revival first
+		// Prioritize running / active conversations needing revival first (if fresh)
 		queryRunning := `SELECT conversation_id, title, workspace_uris, parent_conversation_id, nesting_depth, not_fully_idle, status, last_modified_time 
                   FROM conversation_summaries 
                   WHERE not_fully_idle != 0 OR status = 'CASCADE_RUN_STATUS_RUNNING'
                   ORDER BY last_modified_time DESC LIMIT 1;`
 		row := db.QueryRow(queryRunning)
-		if err := row.Scan(&convID, &title, &workspaceURI, &parentID, &depth, &notFullyIdle, &status, &rawModTime); err != nil {
+		runningFound := false
+		if err := row.Scan(&convID, &title, &workspaceURI, &parentID, &depth, &notFullyIdle, &status, &rawModTime); err == nil {
+			modTime := parseTime(rawModTime)
+			if !modTime.IsZero() && time.Since(modTime) <= MaxRevivalStaleness {
+				runningFound = true
+			}
+		}
+		if !runningFound {
 			queryLatest := `SELECT conversation_id, title, workspace_uris, parent_conversation_id, nesting_depth, not_fully_idle, status, last_modified_time 
                   FROM conversation_summaries 
                   ORDER BY last_modified_time DESC LIMIT 1;`
@@ -194,7 +248,9 @@ func (d *SessionDetector) querySummaryDatabaseForID(dbPath string, targetID stri
 	}
 
 	activeSubagentID := ""
-	needsRevival := (notFullyIdle != 0) || (status == "CASCADE_RUN_STATUS_RUNNING")
+	modTime := parseTime(rawModTime)
+	isFresh := !modTime.IsZero() && time.Since(modTime) <= MaxRevivalStaleness
+	needsRevival := isFresh && ((notFullyIdle != 0) || (status == "CASCADE_RUN_STATUS_RUNNING"))
 
 	rootConvID := convID
 	rootTitle := title
@@ -231,7 +287,9 @@ func (d *SessionDetector) querySummaryDatabaseForID(dbPath string, targetID stri
 				break
 			}
 
-			if pIdle != 0 || pStatus == "CASCADE_RUN_STATUS_RUNNING" {
+			pModTime := parseTime(pMod)
+			pFresh := !pModTime.IsZero() && time.Since(pModTime) <= MaxRevivalStaleness
+			if pFresh && (pIdle != 0 || pStatus == "CASCADE_RUN_STATUS_RUNNING") {
 				needsRevival = true
 			}
 
@@ -254,14 +312,16 @@ func (d *SessionDetector) querySummaryDatabaseForID(dbPath string, targetID stri
 	baseDir := filepath.Dir(dbPath)
 
 	// Check if this root conversation has any running child subagents in the summaries DB
-	subQuery := `SELECT conversation_id, not_fully_idle, status FROM conversation_summaries WHERE parent_conversation_id = ?;`
+	subQuery := `SELECT conversation_id, not_fully_idle, status, last_modified_time FROM conversation_summaries WHERE parent_conversation_id = ?;`
 	if subRows, subErr := db.Query(subQuery, rootConvID); subErr == nil {
 		defer subRows.Close()
 		for subRows.Next() {
-			var subID, subStatus string
+			var subID, subStatus, subMod string
 			var subIdle int
-			if err := subRows.Scan(&subID, &subIdle, &subStatus); err == nil {
-				if subIdle != 0 || subStatus == "CASCADE_RUN_STATUS_RUNNING" || d.checkTrajectoryRunning(baseDir, subID) {
+			if err := subRows.Scan(&subID, &subIdle, &subStatus, &subMod); err == nil {
+				subT := parseTime(subMod)
+				subFresh := !subT.IsZero() && time.Since(subT) <= MaxRevivalStaleness
+				if subFresh && (subIdle != 0 || subStatus == "CASCADE_RUN_STATUS_RUNNING" || d.checkTrajectoryRunning(baseDir, subID)) {
 					needsRevival = true
 					if activeSubagentID == "" {
 						activeSubagentID = subID
@@ -294,13 +354,18 @@ func (d *SessionDetector) querySummaryDatabaseForID(dbPath string, targetID stri
 	}, nil
 }
 
-// checkTrajectoryRunning checks if the latest step in conversations/<id>.db is status 2 (RUNNING).
+// checkTrajectoryRunning checks if the latest step in conversations/<id>.db is status 2 (RUNNING) and recently modified.
 func (d *SessionDetector) checkTrajectoryRunning(baseDir, conversationID string) bool {
 	if conversationID == "" {
 		return false
 	}
 	trajDB := filepath.Join(baseDir, "conversations", conversationID+".db")
-	if _, err := os.Stat(trajDB); err != nil {
+	info, err := os.Stat(trajDB)
+	if err != nil {
+		return false
+	}
+	// Ignore stale trajectories older than MaxRevivalStaleness (crash/kill residue)
+	if time.Since(info.ModTime()) > MaxRevivalStaleness {
 		return false
 	}
 
@@ -361,20 +426,19 @@ func (d *SessionDetector) fallbackToAppStorage() (*ActiveSessionInfo, error) {
 		}
 	}
 
-	// 1. Check pinned_conversations_order
-	if pinnedRaw, ok := rawMap["pinned_conversations_order"].(string); ok && pinnedRaw != "" {
-		var pinned []string
-		if err := json.Unmarshal([]byte(pinnedRaw), &pinned); err == nil && len(pinned) > 0 {
-			for _, p := range pinned {
-				p = strings.TrimSpace(p)
-				if gui.IsValidConversationID(p) {
-					return resolveSession(p, "/c/"+p), nil
-				}
-			}
+	// 1. Check explicit last conversation path first (most recently recorded)
+	if v, ok := rawMap["antigravity_swiss_last_conversation_path"].(string); ok && gui.IsValidConversationPath(v) {
+		convID := strings.TrimPrefix(v, "/c/")
+		if idx := strings.Index(convID, "?"); idx != -1 {
+			convID = convID[:idx]
+		}
+		convID = strings.TrimSpace(convID)
+		if convID != "" && gui.IsValidConversationID(convID) {
+			return resolveSession(convID, v), nil
 		}
 	}
 
-	// 2. Check multi-conversation layout keys: "antigravity-multi-conversation-layout-v3-<cascadeId>"
+	// 2. Check multi-conversation layout keys deterministically
 	const layoutPrefix = "antigravity-multi-conversation-layout-v3-"
 	var candidates []string
 	for k := range rawMap {
@@ -386,6 +450,7 @@ func (d *SessionDetector) fallbackToAppStorage() (*ActiveSessionInfo, error) {
 		}
 	}
 	if len(candidates) > 0 {
+		sort.Strings(candidates)
 		chosen := candidates[0]
 		for _, c := range candidates {
 			if gui.IsUUID(c) {
@@ -396,15 +461,16 @@ func (d *SessionDetector) fallbackToAppStorage() (*ActiveSessionInfo, error) {
 		return resolveSession(chosen, "/c/"+chosen), nil
 	}
 
-	// 3. Check explicit last conversation path
-	if v, ok := rawMap["antigravity_swiss_last_conversation_path"].(string); ok && gui.IsValidConversationPath(v) {
-		convID := strings.TrimPrefix(v, "/c/")
-		if idx := strings.Index(convID, "?"); idx != -1 {
-			convID = convID[:idx]
-		}
-		convID = strings.TrimSpace(convID)
-		if convID != "" && gui.IsValidConversationID(convID) {
-			return resolveSession(convID, v), nil
+	// 3. Fallback to pinned_conversations_order
+	if pinnedRaw, ok := rawMap["pinned_conversations_order"].(string); ok && pinnedRaw != "" {
+		var pinned []string
+		if err := json.Unmarshal([]byte(pinnedRaw), &pinned); err == nil && len(pinned) > 0 {
+			for _, p := range pinned {
+				p = strings.TrimSpace(p)
+				if gui.IsValidConversationID(p) {
+					return resolveSession(p, "/c/"+p), nil
+				}
+			}
 		}
 	}
 

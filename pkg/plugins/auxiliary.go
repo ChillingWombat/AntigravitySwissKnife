@@ -1374,25 +1374,29 @@ textarea.swiss-prompt-input {
   flex-wrap: wrap;
   gap: 8px;
   font-size: 11px;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted, #64748b);
   font-variant-numeric: tabular-nums;
   user-select: none;
   white-space: nowrap;
-  line-height: 1.4;
+  line-height: 1.5;
   margin-right: auto;
+  padding: 2px 0;
+  vertical-align: middle;
 }
 .swiss-inchat-metrics .metric-item {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
+  color: var(--text-muted, #64748b);
 }
 .swiss-inchat-metrics .metric-val {
   font-weight: 600;
-  color: var(--text, #334155);
+  color: var(--text, #1e293b);
 }
 .swiss-inchat-metrics .metric-sep {
-  opacity: 0.35;
-  margin: 0 1px;
+  color: var(--text-muted, #94a3b8);
+  opacity: 0.6;
+  margin: 0 2px;
 }
 .swiss-telemetry-badge {
   display: none !important;
@@ -5570,12 +5574,47 @@ func GenerateAuxiliaryPluginsScript() string {
     let chatTelemetryLastFetch = 0;
 
     async function setupInChatTelemetry() {
+      let convId = "";
       const convMatch = window.location.pathname.match(/\/c\/([a-zA-Z0-9_-]+)/);
-      const convId = convMatch ? convMatch[1] : "";
+      if (convMatch) {
+        convId = convMatch[1];
+      }
+      if (!convId && window.location.hash) {
+        const hashMatch = window.location.hash.match(/\/c\/([a-zA-Z0-9_-]+)/);
+        if (hashMatch) convId = hashMatch[1];
+      }
+      if (!convId) {
+        const el = document.querySelector('[data-testid="agent-input-box"]') || document.querySelector('[data-testid="conversation-view"]');
+        if (el) {
+          try {
+            const fiberKey = Object.keys(el).find(k => k.startsWith("__reactFiber"));
+            if (fiberKey) {
+              let curr = el[fiberKey];
+              while (curr) {
+                if (curr.memoizedProps) {
+                  const id = curr.memoizedProps.conversationId || curr.memoizedProps.cascadeId;
+                  if (typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+                    convId = id;
+                    break;
+                  }
+                }
+                curr = curr.return;
+              }
+            }
+          } catch (_) {}
+        }
+      }
+      if (!convId) {
+        try {
+          const lastPath = localStorage.getItem("antigravity_swiss_last_conversation_path") || "";
+          const m = lastPath.match(/\/c\/([a-zA-Z0-9_-]+)/);
+          if (m) convId = m[1];
+        } catch (_) {}
+      }
       if (!convId) return;
 
       const now = Date.now();
-      if (!chatTelemetryCachedData || (now - chatTelemetryLastFetch) > 4000) {
+      if (!chatTelemetryCachedData || chatTelemetryCachedData.convId !== convId || (now - chatTelemetryLastFetch) > 3000) {
         try {
           const cfgRes = await fetch("http://127.0.0.1:8765/api/gui/config");
           let cfg = {};
@@ -5587,7 +5626,7 @@ func GenerateAuxiliaryPluginsScript() string {
           const metricsRes = await fetch("http://127.0.0.1:8765/api/tokens/chat-metrics?conversation_id=" + encodeURIComponent(convId) + "&scope=" + encodeURIComponent(scope));
           if (metricsRes.ok) {
             const metricsJson = await metricsRes.json();
-            chatTelemetryCachedData = { cfg: cfg, metrics: metricsJson };
+            chatTelemetryCachedData = { convId: convId, cfg: cfg, metrics: metricsJson };
             chatTelemetryLastFetch = now;
           }
         } catch (_) {}
@@ -5612,26 +5651,49 @@ func GenerateAuxiliaryPluginsScript() string {
         input_tokens: 0,
         output_tokens: 0,
         cache_hit_ratio: 0,
-        generation_speed: 76.2,
+        generation_speed: 0,
       };
 
-      const actionRows = document.querySelectorAll("div.flex.w-full.flex-wrap.items-center.justify-between");
-      let turnIdx = 0;
-
+      let actionRows = document.querySelectorAll("div.flex.w-full.flex-wrap.items-center.justify-between");
+      if (!actionRows || actionRows.length === 0) {
+        const copyBtns = document.querySelectorAll('button[aria-label="Copy"], button[aria-label="Good response"], [data-tooltip-id*="copy"]');
+        const set = new Set();
+        copyBtns.forEach(b => {
+          const r = b.closest('div.flex.items-center') || b.closest('div.flex') || b.parentElement;
+          if (r) set.add(r);
+        });
+        actionRows = Array.from(set);
+      }
+      const validActionRows = [];
       actionRows.forEach(row => {
         const hasCopy = row.querySelector('button[aria-label="Copy"]') ||
                         row.querySelector('button[aria-label="Good response"]') ||
                         row.querySelector('button[aria-label="Bad response"]') ||
                         row.querySelector('[data-tooltip-id*="copy"]');
-        if (!hasCopy) return;
+        if (hasCopy) validActionRows.push(row);
+      });
 
-        const turnData = (turnIdx < turns.length) ? turns[turnIdx] : summary;
-        turnIdx++;
+      const offset = (turns.length > validActionRows.length && validActionRows.length > 0)
+        ? turns.length - validActionRows.length
+        : 0;
+
+      validActionRows.forEach((row, i) => {
+        const turnData = (offset + i < turns.length) ? turns[offset + i] : ((i < turns.length) ? turns[i] : summary);
 
         const inputVal = (turnData.input_tokens || 0).toLocaleString();
         const outputVal = (turnData.output_tokens || 0).toLocaleString();
         const cacheVal = (turnData.cache_hit_ratio || 0).toFixed(1) + "%";
-        const speedVal = (turnData.speed_tps || turnData.generation_speed || 76.2).toFixed(1) + " TPS";
+        let rawSpeed = null;
+        if (typeof turnData.speed_tps === 'number' && turnData.speed_tps > 0) {
+          rawSpeed = turnData.speed_tps;
+        } else if (typeof turnData.generation_speed === 'number' && turnData.generation_speed > 0) {
+          rawSpeed = turnData.generation_speed;
+        } else if (turnData.speed_tps && !isNaN(Number(turnData.speed_tps)) && Number(turnData.speed_tps) > 0) {
+          rawSpeed = Number(turnData.speed_tps);
+        } else if (turnData.generation_speed && !isNaN(Number(turnData.generation_speed)) && Number(turnData.generation_speed) > 0) {
+          rawSpeed = Number(turnData.generation_speed);
+        }
+        const speedVal = rawSpeed !== null ? (rawSpeed.toFixed(1) + " TPS") : "— TPS";
 
         const items = [];
         if (showIn) {

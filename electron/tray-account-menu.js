@@ -49,11 +49,17 @@ function computeStandbyScore(acc) {
   const tierInfo = resolveTierInfo(email, acc.plan_tier);
   const q5hCur = typeof acc.quota_5h_current === 'number'
     ? acc.quota_5h_current
-    : (typeof acc.quota_5h_available === 'number' ? acc.quota_5h_available : 1.0);
+    : (typeof acc.quota_5h_available === 'number' ? acc.quota_5h_available : 0.0);
   const q5hAvail = typeof acc.quota_5h_available === 'number' ? acc.quota_5h_available : q5hCur;
-  const q7d = typeof acc.quota_weekly === 'number' ? acc.quota_weekly : 1.0;
-  const r5hSoonness = 0.5;
-  const r7dSoonness = 0.35;
+  const q7d = typeof acc.quota_weekly === 'number' ? acc.quota_weekly : 0.0;
+  let r5hSoonness = 0.5;
+  if (typeof acc.reset_seconds_5h === 'number' && acc.reset_seconds_5h >= 0) {
+    r5hSoonness = Math.max(0, Math.min(1, 1 - (acc.reset_seconds_5h / 18000)));
+  }
+  let r7dSoonness = 0.35;
+  if (typeof acc.reset_seconds_weekly === 'number' && acc.reset_seconds_weekly >= 0) {
+    r7dSoonness = Math.max(0, Math.min(1, 1 - (acc.reset_seconds_weekly / 604800)));
+  }
   return tierInfo.mult * (0.42 * q5hCur + 0.12 * q5hAvail + 0.06 * r5hSoonness + 0.32 * q7d + 0.08 * r7dSoonness);
 }
 

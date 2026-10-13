@@ -773,7 +773,6 @@ export const ScheduledTemplatesPage: React.FC = () => {
             zIndex: 1050,
             padding: '20px',
           }}
-          onClick={() => !isUpdating && setEditingSidecar(null)}
         >
           <div
             className="google-card"
@@ -945,7 +944,6 @@ export const ScheduledTemplatesPage: React.FC = () => {
             justifyContent: 'center',
             zIndex: 1100,
           }}
-          onClick={() => setDeleteConfirmSidecar(null)}
         >
           <div
             className="google-card"

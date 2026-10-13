@@ -268,7 +268,21 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
   const handleCopyTotpCode = () => {
     if (!derivedCode) return
-    navigator.clipboard.writeText(derivedCode)
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(derivedCode).catch(() => {
+        try {
+          const textArea = document.createElement('textarea')
+          textArea.value = derivedCode
+          textArea.style.position = 'fixed'
+          textArea.style.opacity = '0'
+          document.body.appendChild(textArea)
+          textArea.focus()
+          textArea.select()
+          document.execCommand('copy')
+          document.body.removeChild(textArea)
+        } catch (_) {}
+      })
+    }
     setCopiedTotp(true)
     setTimeout(() => setCopiedTotp(false), 1500)
   }
@@ -540,7 +554,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         justifyContent: 'center',
         zIndex: 1000,
       }}
-      onClick={handleClose}
     >
       <div
         className="google-card"
@@ -1081,7 +1094,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                       const pasted = e.clipboardData.getData('text')?.trim()
                       if (pasted && (pasted.includes('code=') || pasted.startsWith('http://') || pasted.startsWith('https://'))) {
                         setManualCallbackUrl(pasted)
-                        handleExchangeManualCallback(pasted)
                       }
                     }}
                     onKeyDown={(e) => {
@@ -1446,7 +1458,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             justifyContent: 'center',
             zIndex: 1100,
           }}
-          onClick={() => setShowDeleteConfirm(false)}
         >
           <div
             className="google-card"

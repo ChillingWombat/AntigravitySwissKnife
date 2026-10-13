@@ -224,6 +224,10 @@ func TestLiveConversations_ZeroFalseOpusAttributions(t *testing.T) {
 		totalChecked++
 		mID, _, _ := detectConversationModelWithTranscript(tPath, convDBPath, nil, nil)
 		if mID == "claude-opus-4-6" {
+			if rawName, ok := extractModelFromTranscript(tPath); ok && strings.Contains(strings.ToLower(rawName), "opus") {
+				// Genuine user selection of Claude Opus in step 0
+				continue
+			}
 			opusCount++
 		} else if strings.HasPrefix(mID, "gemini-") {
 			geminiCount++
@@ -233,5 +237,111 @@ func TestLiveConversations_ZeroFalseOpusAttributions(t *testing.T) {
 	t.Logf("Live conversation telemetry check: total=%d, gemini=%d, opus=%d", totalChecked, geminiCount, opusCount)
 	if opusCount > 0 {
 		t.Fatalf("FAIL: Found %d false claude-opus-4-6 attributions in live conversations! Must be 0.", opusCount)
+	}
+}
+
+func TestTokenMonitor_TPS_ForwardLookahead(t *testing.T) {
+	tmpDir := t.TempDir()
+	tPath := filepath.Join(tmpDir, "transcript.jsonl")
+
+	// Simulating Step 372-374 sequence:
+	// Step 372: previous tool output logged at 10:20:49Z
+	// Step 373: model generation dispatches at 10:20:50Z with 3392 output tokens
+	// Step 374: next tool execution occurs at 10:21:28Z (38 seconds later)
+	step372 := `{"step_index":372,"source":"MODEL","type":"GENERIC","created_at":"2026-10-08T10:20:49Z"}`
+	step373 := `{"step_index":373,"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-10-08T10:20:50Z","input_tokens":5000,"output_tokens":3392}`
+	step374 := `{"step_index":374,"source":"MODEL","type":"GENERIC","created_at":"2026-10-08T10:21:28Z"}`
+
+	content := strings.Join([]string{step372, step373, step374}, "\n") + "\n"
+	if err := os.WriteFile(tPath, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test transcript: %v", err)
+	}
+
+	info, err := os.Stat(tPath)
+	if err != nil {
+		t.Fatalf("failed to stat test transcript: %v", err)
+	}
+
+	stats := parseTranscriptFile(tPath, info)
+	if stats.timedOutputTokens != 3392 {
+		t.Errorf("expected 3392 timed output tokens, got %d", stats.timedOutputTokens)
+	}
+	if stats.totalDurationMs != 38000 {
+		t.Errorf("expected 38000ms duration from forward lookahead, got %dms", stats.totalDurationMs)
+	}
+
+	tps := float64(stats.timedOutputTokens) / (float64(stats.totalDurationMs) / 1000.0)
+	// 3392 / 38s = 89.26 TPS
+	if tps < 85.0 || tps > 95.0 {
+		t.Errorf("expected realistic ~89.3 TPS, got %.2f TPS (must eliminate >700 TPS bug)", tps)
+	}
+	if len(stats.recentSteps) != 1 {
+		t.Fatalf("expected 1 recent step, got %d", len(stats.recentSteps))
+	}
+	if stats.recentSteps[0].durationMs != 38000 {
+		t.Errorf("expected recent step duration 38000ms, got %dms", stats.recentSteps[0].durationMs)
+	}
+}
+
+func TestTokenMonitor_TPS_AccumulatorAlignment(t *testing.T) {
+	tmpDir := t.TempDir()
+	tPath := filepath.Join(tmpDir, "transcript.jsonl")
+
+	// Step 1: 1000 output tokens, followed by next event 20s later -> 50 TPS
+	step1 := `{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-10-08T10:00:00Z","input_tokens":2000,"output_tokens":1000}`
+	step2 := `{"step_index":2,"source":"MODEL","type":"GENERIC","created_at":"2026-10-08T10:00:20Z"}`
+	// Step 3: 500 output tokens, but no subsequent event (unmeasured streaming interval)
+	step3 := `{"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-10-08T10:00:25Z","input_tokens":2000,"output_tokens":500}`
+
+	content := strings.Join([]string{step1, step2, step3}, "\n") + "\n"
+	if err := os.WriteFile(tPath, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test transcript: %v", err)
+	}
+
+	info, err := os.Stat(tPath)
+	if err != nil {
+		t.Fatalf("failed to stat test transcript: %v", err)
+	}
+
+	stats := parseTranscriptFile(tPath, info)
+	if stats.outputTokens != 1500 {
+		t.Errorf("expected 1500 total output tokens, got %d", stats.outputTokens)
+	}
+	// timedOutputTokens MUST only count step 1 (1000 tokens), not step 3
+	if stats.timedOutputTokens != 1000 {
+		t.Errorf("expected 1000 timed output tokens (only measured steps), got %d", stats.timedOutputTokens)
+	}
+	if stats.totalDurationMs != 20000 {
+		t.Errorf("expected 20000ms total duration, got %d", stats.totalDurationMs)
+	}
+
+	calcTPS := float64(stats.timedOutputTokens) / (float64(stats.totalDurationMs) / 1000.0)
+	if calcTPS != 50.0 {
+		t.Errorf("expected strictly 50.0 TPS, got %.2f (accumulator mismatch division prevented)", calcTPS)
+	}
+}
+
+func TestTokenMonitor_TPS_RealisticBounding(t *testing.T) {
+	tmpDir := t.TempDir()
+	tPath := filepath.Join(tmpDir, "transcript.jsonl")
+
+	// Synthetic anomaly: 2000 tokens with artificially small interval (e.g. 500ms -> 4000 TPS)
+	step1 := `{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-10-08T10:00:00Z","duration_ms":500,"input_tokens":2000,"output_tokens":2000}`
+	if err := os.WriteFile(tPath, []byte(step1+"\n"), 0644); err != nil {
+		t.Fatalf("failed to write test transcript: %v", err)
+	}
+
+	info, err := os.Stat(tPath)
+	if err != nil {
+		t.Fatalf("failed to stat test transcript: %v", err)
+	}
+
+	stats := parseTranscriptFile(tPath, info)
+	tps := float64(stats.timedOutputTokens) / (float64(stats.totalDurationMs) / 1000.0)
+	if tps > 350.0 {
+		t.Errorf("generation speed must be bounded to realistic thresholds <= 350 TPS, got %.2f", tps)
+	}
+	if stats.recentSteps[0].durationMs <= 0 {
+		t.Errorf("expected bounded durationMs, got %d", stats.recentSteps[0].durationMs)
 	}
 }

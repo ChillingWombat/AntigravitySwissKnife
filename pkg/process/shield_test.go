@@ -58,6 +58,22 @@ func TestIsProcessAlive(t *testing.T) {
 	}
 }
 
+func TestIsProcessAliveMatching_CmdlineFiltering(t *testing.T) {
+	myPid := os.Getpid()
+	// Own process matches via pid == os.Getpid() bypass
+	if !isProcessAliveMatching(myPid, "test") {
+		t.Fatalf("expected own process to be alive")
+	}
+	// For negative PID
+	if isProcessAliveMatching(-1, "antigravity") {
+		t.Fatalf("expected negative PID to not be alive")
+	}
+	// For an init process (PID 1), which won't contain 'nonexistent_antigravity_token_xyz'
+	if isProcessAliveMatching(1, "nonexistent_antigravity_token_xyz") {
+		t.Fatalf("expected PID 1 to not match nonexistent keyword")
+	}
+}
+
 func TestRelaunchHostIDE_ClosedIDEDoesNotSpawn(t *testing.T) {
 	shield := NewShield(0)
 	shield.SetProcessFinder(func() ([]ProcessInfo, error) {

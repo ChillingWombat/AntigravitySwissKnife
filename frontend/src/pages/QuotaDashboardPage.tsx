@@ -31,7 +31,7 @@ import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 import antigravityLogo from '../assets/antigravity_logo.png'
 
-import { sortAccounts, type SortMode } from '../utils/accountSorting'
+import { sortAccounts, rankStandbyAccounts, type SortMode } from '../utils/accountSorting'
 
 export { sortAccounts, type SortMode }
 
@@ -206,14 +206,22 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
     setIsRefreshing(true)
     try {
       await api.refreshFleetQuota().catch(() => {})
-      // Fleet refresh runs async on the daemon; poll until it reports done.
-      const deadline = Date.now() + 120_000
+      // Fleet refresh runs async on the daemon; poll until it reports done (cap to 30s max, abort on 3 consecutive errors)
+      const deadline = Date.now() + 30_000
+      let consecutiveErrors = 0
       for (;;) {
         await new Promise((r) => setTimeout(r, 1500))
         if (!mountedRef.current) return
         if (Date.now() > deadline) break
-        const f = await api.getFleetQuota().catch(() => null)
-        if (f && !f.refreshing) break
+        const f = await api.getFleetQuota().catch(() => {
+          consecutiveErrors++
+          return null
+        })
+        if (consecutiveErrors >= 3) break
+        if (f) {
+          consecutiveErrors = 0
+          if (!f.refreshing) break
+        }
       }
       if (mountedRef.current) onRefresh()
     } finally {
@@ -400,17 +408,41 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
     a.status?.toUpperCase().includes('BANNED')
   ).length
 
-  const fallback5h = accounts.length > 0 ? (accounts.reduce((sum, a) => sum + (a.quota_5h_available ?? 1), 0) / accounts.length) : 0
-  const fallbackWeekly = accounts.length > 0 ? (accounts.reduce((sum, a) => sum + (a.quota_weekly ?? 1), 0) / accounts.length) : 0
-  const fallback5hClaude = accounts.length > 0 ? (accounts.reduce((sum, a) => sum + (a.quota_5h_claude_gpt ?? 1), 0) / accounts.length) : 0
-  const fallbackWeeklyClaude = accounts.length > 0 ? (accounts.reduce((sum, a) => sum + (a.quota_weekly_claude_gpt ?? 1), 0) / accounts.length) : 0
+  const polledAccounts5h = accounts.filter((a) => typeof a.quota_5h_available === 'number')
+  const fallback5h = polledAccounts5h.length > 0 ? (polledAccounts5h.reduce((sum, a) => sum + (a.quota_5h_available as number), 0) / polledAccounts5h.length) : null
 
-  const gauge5hGemini = (fleet?.fleet_5h_gemini_available ?? fleet?.fleet_5h_available ?? fallback5h) * 100
-  const gaugeWeeklyGemini = (fleet?.fleet_weekly_gemini_available ?? fleet?.fleet_weekly_available ?? fallbackWeekly) * 100
-  const gauge5hClaude = (fleet?.fleet_5h_claude_gpt_available ?? fallback5hClaude) * 100
-  const gaugeWeeklyClaude = (fleet?.fleet_weekly_claude_gpt_available ?? fallbackWeeklyClaude) * 100
-  const gauge5h = (fleet?.fleet_5h_available ?? fallback5h) * 100
-  const gaugeWeekly = (fleet?.fleet_weekly_available ?? fallbackWeekly) * 100
+  const polledAccountsWeekly = accounts.filter((a) => typeof a.quota_weekly === 'number')
+  const fallbackWeekly = polledAccountsWeekly.length > 0 ? (polledAccountsWeekly.reduce((sum, a) => sum + (a.quota_weekly as number), 0) / polledAccountsWeekly.length) : null
+
+  const polledAccountsClaude5h = accounts.filter((a) => typeof a.quota_5h_claude_gpt === 'number')
+  const fallback5hClaude = polledAccountsClaude5h.length > 0 ? (polledAccountsClaude5h.reduce((sum, a) => sum + (a.quota_5h_claude_gpt as number), 0) / polledAccountsClaude5h.length) : null
+
+  const polledAccountsClaudeWeekly = accounts.filter((a) => typeof a.quota_weekly_claude_gpt === 'number')
+  const fallbackWeeklyClaude = polledAccountsClaudeWeekly.length > 0 ? (polledAccountsClaudeWeekly.reduce((sum, a) => sum + (a.quota_weekly_claude_gpt as number), 0) / polledAccountsClaudeWeekly.length) : null
+
+  const raw5hGemini = fleet?.fleet_5h_gemini_available ?? fleet?.fleet_5h_available ?? fallback5h
+  const gauge5hGemini = raw5hGemini !== null && !isNaN(raw5hGemini) ? Math.round(raw5hGemini * 100) : null
+
+  const rawWeeklyGemini = fleet?.fleet_weekly_gemini_available ?? fleet?.fleet_weekly_available ?? fallbackWeekly
+  const gaugeWeeklyGemini = rawWeeklyGemini !== null && !isNaN(rawWeeklyGemini) ? Math.round(rawWeeklyGemini * 100) : null
+
+  const raw5hClaude = fleet?.fleet_5h_claude_gpt_available ?? fallback5hClaude
+  const gauge5hClaude = raw5hClaude !== null && !isNaN(raw5hClaude) ? Math.round(raw5hClaude * 100) : null
+
+  const rawWeeklyClaude = fleet?.fleet_weekly_claude_gpt_available ?? fallbackWeeklyClaude
+  const gaugeWeeklyClaude = rawWeeklyClaude !== null && !isNaN(rawWeeklyClaude) ? Math.round(rawWeeklyClaude * 100) : null
+
+  const raw5h = fleet?.fleet_5h_available ?? fallback5h
+  const gauge5h = raw5h !== null && !isNaN(raw5h) ? Math.round(raw5h * 100) : null
+
+  const rawWeekly = fleet?.fleet_weekly_available ?? fallbackWeekly
+  const gaugeWeekly = rawWeekly !== null && !isNaN(rawWeekly) ? Math.round(rawWeekly * 100) : null
+
+  const nextSwitchCandidate = React.useMemo(() => {
+    if (!autoSwitchOn || sortMode !== 'auto') return null
+    const ranked = rankStandbyAccounts(accounts, threshold, rules?.switch_mode, thresholdWeekly)
+    return ranked.length > 0 ? ranked[0].email : null
+  }, [accounts, autoSwitchOn, sortMode, threshold, rules?.switch_mode, thresholdWeekly])
 
   const handleToggleAutoSwitch = async () => {
     setIsTogglingRules(true)
@@ -1062,7 +1094,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
             </tr>
           </thead>
           <tbody>
-            {sortedAccounts.map((acc, index) => {
+            {sortedAccounts.map((acc) => {
               const accEmailLower = acc.email.toLowerCase()
               const usingApps = isIndividualMode
                 ? installedAppsList.filter((app) => {
@@ -1093,10 +1125,9 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 }
               }
 
-              const isActive = isRowActive
               const current5h = acc.quota_5h_current ?? acc.quota_5h_available ?? 0
               const isHealthy = current5h > threshold && (acc.quota_weekly ?? 0) > thresholdWeekly && !acc.status?.toUpperCase().includes('NEEDS_REAUTH') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('BANNED') && Boolean(acc.refresh_token?.trim())
-              const isNextSwitch = autoSwitchOn && sortMode === 'auto' && !isActive && !acc.status?.toUpperCase().includes('BANNED') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('COOLDOWN') && !acc.status?.toUpperCase().includes('COOLING') && !acc.status?.toUpperCase().includes('NEEDS_REAUTH') && Boolean(acc.refresh_token?.trim()) && index === 1 && isHealthy
+              const isNextSwitch = Boolean(nextSwitchCandidate && acc.email.toLowerCase() === nextSwitchCandidate.toLowerCase())
               return (
                 <tr
                   key={acc.email}
@@ -1584,7 +1615,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
             zIndex: 1000,
             backdropFilter: 'blur(2px)',
           }}
-          onClick={() => setErrorDetailAccount(null)}
         >
           <div
             style={{
@@ -1980,7 +2010,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
             zIndex: 1000,
             backdropFilter: 'blur(2px)',
           }}
-          onClick={() => !isImportingDiscovered && setIsScanModalOpen(false)}
         >
           <div
             style={{

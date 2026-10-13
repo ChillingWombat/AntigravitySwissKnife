@@ -1,4 +1,5 @@
-import type { CustomModel } from '../types'
+import type { CustomModel, ModelInfo } from '../types'
+import { extractCleanModelId } from './modelExtraction.ts'
 
 export type ModelFilterOption = 'all' | 'enabled' | 'disabled'
 
@@ -76,4 +77,38 @@ export function resolveEffectiveCustomModel(
   }
   return valid[0].id.trim()
 }
+
+/**
+ * Filters fetched models by user input query.
+ * Matches case-insensitively against raw ID, cleaned ID, display name, and description.
+ * Supports whitespace-separated multi-token search queries.
+ *
+ * @param models List of fetched ModelInfo objects
+ * @param query Search query from user input
+ * @returns Filtered list of ModelInfo objects
+ */
+export function filterFetchedModels(
+  models: ModelInfo[] = [],
+  query: string = ''
+): ModelInfo[] {
+  if (!models || models.length === 0) return []
+  const trimmed = (query || '').trim().toLowerCase()
+  if (!trimmed) return models
+
+  const tokens = trimmed.split(/\s+/).filter(Boolean)
+  if (tokens.length === 0) return models
+
+  return models.filter((m) => {
+    if (!m) return false
+    const rawId = (m.id || '').toLowerCase()
+    const cleanId = extractCleanModelId(m.id || '').toLowerCase()
+    const displayName = (m.display_name || '').toLowerCase()
+    const description = (m.description || '').toLowerCase()
+
+    const combined = `${rawId} ${cleanId} ${displayName} ${description}`
+
+    return tokens.every((token) => combined.includes(token))
+  })
+}
+
 

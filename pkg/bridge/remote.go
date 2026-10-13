@@ -23,27 +23,31 @@ type RemoteControlConfig struct {
 	Quality           string `json:"quality"` // "high" | "medium" | "low"
 	FrameRate         int    `json:"frame_rate"`
 	AccountResilience bool   `json:"account_resilience"`
+	TunnelType        string `json:"tunnel_type,omitempty"` // "quick" | "tailscale" | "loopback" | "custom"
+	TunnelURL         string `json:"tunnel_url,omitempty"`
 }
 
 // RemoteControlStatus details the live state of the wrapper across account switches.
 type RemoteControlStatus struct {
-	Active                bool   `json:"active"`
-	EndpointURL           string `json:"endpoint_url"`
-	AccountResilience     bool   `json:"account_resilience"`
-	CurrentAntigravityPID int    `json:"current_antigravity_pid"`
-	DevToolsPort          int    `json:"devtools_port"`
-	ActiveGoogleAccount   string `json:"active_google_account"`
-	ClientsCount          int    `json:"clients_count"`
-	LastRotatedAt         string `json:"last_rotated_at,omitempty"`
+	Active                bool         `json:"active"`
+	EndpointURL           string       `json:"endpoint_url"`
+	AccountResilience     bool         `json:"account_resilience"`
+	CurrentAntigravityPID int          `json:"current_antigravity_pid"`
+	DevToolsPort          int          `json:"devtools_port"`
+	ActiveGoogleAccount   string       `json:"active_google_account"`
+	ClientsCount          int          `json:"clients_count"`
+	LastRotatedAt         string       `json:"last_rotated_at,omitempty"`
+	Tunnel                TunnelStatus `json:"tunnel"`
 }
 
 // RemoteManager wraps factory remote control to keep it consistent across account rotations.
 type RemoteManager struct {
-	mu         sync.RWMutex
-	config     RemoteControlConfig
-	configPath string
-	injector   *gui.Injector
+	mu          sync.RWMutex
+	config      RemoteControlConfig
+	configPath  string
+	injector    *gui.Injector
 	lastRotated time.Time
+	tunnelMgr   *TunnelManager
 }
 
 // DefaultRemoteConfig returns standard default remote control settings.
@@ -51,13 +55,15 @@ func DefaultRemoteConfig() RemoteControlConfig {
 	pin, _ := rand.Int(rand.Reader, big.NewInt(900000))
 	pinStr := fmt.Sprintf("%06d", pin.Int64()+100000)
 	return RemoteControlConfig{
-		Enabled:           true,
+		Enabled:           false,
 		BindAddr:          "127.0.0.1",
 		Port:              8766,
 		SecurityPIN:       pinStr,
 		Quality:           "high",
 		FrameRate:         30,
 		AccountResilience: true,
+		TunnelType:        "loopback",
+		TunnelURL:         "",
 	}
 }
 
@@ -72,6 +78,11 @@ func NewRemoteManager(configPath string) *RemoteManager {
 		injector:   gui.NewInjector(0),
 	}
 	_ = rm.load()
+	port := rm.config.Port
+	if port <= 0 {
+		port = 8766
+	}
+	rm.tunnelMgr = NewTunnelManager(port, "/remote")
 	return rm
 }
 
@@ -112,6 +123,33 @@ func (rm *RemoteManager) UpdateConfig(c RemoteControlConfig) error {
 	return rm.save()
 }
 
+// StartTunnel initiates tunneling for remote control.
+func (rm *RemoteManager) StartTunnel(tType, customURL string) (TunnelStatus, error) {
+	st, err := rm.tunnelMgr.Start(tType, customURL)
+	rm.mu.Lock()
+	rm.config.TunnelType = st.Type
+	if st.GatewayURL != "" {
+		rm.config.TunnelURL = st.GatewayURL
+	}
+	_ = rm.save()
+	rm.mu.Unlock()
+	return st, err
+}
+
+// StopTunnel terminates tunneling for remote control.
+func (rm *RemoteManager) StopTunnel() {
+	rm.tunnelMgr.Stop()
+	rm.mu.Lock()
+	rm.config.TunnelType = "loopback"
+	_ = rm.save()
+	rm.mu.Unlock()
+}
+
+// GetTunnelStatus returns the current tunnel status for remote control.
+func (rm *RemoteManager) GetTunnelStatus() TunnelStatus {
+	return rm.tunnelMgr.GetStatus()
+}
+
 // RotatePIN generates a fresh 6-digit PIN.
 func (rm *RemoteManager) RotatePIN() (string, error) {
 	rm.mu.Lock()
@@ -138,6 +176,14 @@ func (rm *RemoteManager) GetStatus(activeEmail string, activePID int) RemoteCont
 		endpoint = fmt.Sprintf("http://127.0.0.1:%d/remote", rm.config.Port)
 	}
 
+	var tSt TunnelStatus
+	if rm.tunnelMgr != nil {
+		tSt = rm.tunnelMgr.GetStatus()
+		if tSt.Active && tSt.GatewayURL != "" {
+			endpoint = tSt.GatewayURL
+		}
+	}
+
 	rotatedStr := ""
 	if !rm.lastRotated.IsZero() {
 		rotatedStr = rm.lastRotated.Format("2006-01-02 15:04:05")
@@ -152,6 +198,7 @@ func (rm *RemoteManager) GetStatus(activeEmail string, activePID int) RemoteCont
 		ActiveGoogleAccount:   activeEmail,
 		ClientsCount:          0,
 		LastRotatedAt:         rotatedStr,
+		Tunnel:                tSt,
 	}
 }
 

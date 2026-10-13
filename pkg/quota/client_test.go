@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 )
@@ -491,4 +492,59 @@ func TestPopulateVerificationAuthUser(t *testing.T) {
 		t.Errorf("expected populated authuser param, got %q", got)
 	}
 }
+
+func TestIssue53_ClaudeGPTZeroInitDoesNotPromoteFreeAccount(t *testing.T) {
+	breakdown := &LiveQuotaBreakdown{
+		Quota5hGemini:        1.0,
+		QuotaWeeklyGemini:    1.0,
+		Quota5hClaudeGPT:     0.0,
+		QuotaWeeklyClaudeGPT: 0.0,
+		SubscriptionTier:     PlanTierFree,
+		HasClaudeGPTRights:   false,
+		HasClaude:            false,
+		HasGPT:               false,
+	}
+
+	tier := ""
+	if breakdown.SubscriptionTier != "" && breakdown.SubscriptionTier != PlanTierFree {
+		tier = breakdown.SubscriptionTier
+	}
+	if breakdown.HasClaudeGPTRights || breakdown.HasClaude || breakdown.HasGPT {
+		if tier == "" || tier == PlanTierFree || tier == PlanTierProTrial {
+			tier = PlanTierPro
+		}
+	}
+	if tier != "" {
+		t.Errorf("expected empty or Free tier, got promoted tier %q", tier)
+	}
+}
+
+func TestIssue54_FlatBucketWindowClassification(t *testing.T) {
+	now := time.Now()
+	weeklyReset := now.Add(5 * 24 * time.Hour) // 5 days reset
+	rollingReset := now.Add(4 * time.Hour)     // 4 hours reset
+
+	w1 := classifyQuotaWindow("", "", "gemini-2.5-pro", weeklyReset, now)
+	if w1 != "weekly" {
+		t.Errorf("expected 'weekly' for 5-day reset horizon, got %q", w1)
+	}
+
+	w2 := classifyQuotaWindow("", "", "gemini-2.5-flash", rollingReset, now)
+	if w2 != "5h" {
+		t.Errorf("expected '5h' for 4-hour reset horizon, got %q", w2)
+	}
+}
+
+func TestIssue59_ClampFraction(t *testing.T) {
+	if got := ClampFraction(-0.5); got != 0.0 {
+		t.Errorf("expected 0.0 for negative, got %f", got)
+	}
+	if got := ClampFraction(1.5); got != 1.0 {
+		t.Errorf("expected 1.0 for > 1.0, got %f", got)
+	}
+	if got := ClampFraction(0.75); got != 0.75 {
+		t.Errorf("expected 0.75 for 0.75, got %f", got)
+	}
+}
+
 

@@ -24,6 +24,10 @@ const (
 	DefaultSocketTimeout                     = 10 * time.Second
 	DefaultShutdownGracePeriod               = 3 * time.Second
 
+	// Warmup and Ignition Constants
+	WarmupMinQuotaFraction    = 0.95
+	WarmupMinIgnitionInterval = 4*time.Hour + 30*time.Minute
+
 	// Account Switcher Modes
 	SwitchModeBalanced           = "balanced"
 	SwitchModeMaxTokens          = "max_tokens"
@@ -51,6 +55,9 @@ const (
 	TargetAppDesktop = "desktop"
 	TargetAppCLI     = "agy"
 	TargetAppVSCode  = "vscode"
+
+	// Session Continuation Prompt
+	DefaultSessionResumePrompt = "Please continue ongoing tasks and subagents."
 
 	// Quota Health Statuses
 	StatusHealthy   = "HEALTHY"
@@ -85,6 +92,11 @@ const (
 func GetConfigDir() string {
 	if dir := os.Getenv("ANTIGRAVITY_SWISS_CONFIG_DIR"); dir != "" {
 		return dir
+	}
+	if IsRunningTests() {
+		testDir := filepath.Join(os.TempDir(), "antigravity-swiss-test-config")
+		_ = os.MkdirAll(testDir, 0700)
+		return testDir
 	}
 	if runtime.GOOS == "windows" {
 		if appData := os.Getenv("APPDATA"); appData != "" {

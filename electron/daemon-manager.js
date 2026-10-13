@@ -26,6 +26,7 @@ class DaemonManager {
     this.isManagedChild = false;
     this.logBuffer = [];
     this.maxLogLines = 50;
+    this.startPromise = null;
   }
 
   /**
@@ -160,6 +161,18 @@ class DaemonManager {
    * otherwise spawns the binary and polls until ready.
    */
   async start() {
+    if (this.startPromise) {
+      return this.startPromise;
+    }
+    this.startPromise = this._startInternal();
+    try {
+      return await this.startPromise;
+    } finally {
+      this.startPromise = null;
+    }
+  }
+
+  async _startInternal() {
     // 1. External Daemon Check: probe /api/status verifying HTTP 200 and status.daemon_running === true
     const existing = await this.checkStatus(800);
     if (existing && existing.daemon_running === true) {
@@ -302,14 +315,27 @@ class DaemonManager {
         try {
           const status = await this.checkStatus(600);
           const pid = status?.daemon_pid || status?.pid;
-          if (pid && typeof pid === 'number') {
-            console.log(`[DaemonManager] Terminating adopted background Go daemon (PID: ${pid}) via SIGTERM...`);
-            try { process.kill(pid, 'SIGTERM'); } catch (_) {}
-            const deadline = Date.now() + 2000;
-            while (Date.now() < deadline) {
-              await new Promise((r) => setTimeout(r, 100));
-              const alive = await this.checkStatus(200);
-              if (!alive) break;
+          if (pid && typeof pid === 'number' && pid > 1 && pid !== process.pid) {
+            let isSwissProcess = true;
+            if (process.platform === 'linux') {
+              try {
+                const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8');
+                isSwissProcess = cmdline.includes('swiss') || cmdline.includes('antigravity');
+              } catch (_) {
+                isSwissProcess = false;
+              }
+            }
+            if (isSwissProcess) {
+              console.log(`[DaemonManager] Terminating adopted background Go daemon (PID: ${pid}) via SIGTERM...`);
+              try { process.kill(pid, 'SIGTERM'); } catch (_) {}
+              const deadline = Date.now() + 2000;
+              while (Date.now() < deadline) {
+                await new Promise((r) => setTimeout(r, 100));
+                const alive = await this.checkStatus(200);
+                if (!alive) break;
+              }
+            } else {
+              console.warn(`[DaemonManager] Refusing to signal PID ${pid}: not confirmed as swiss daemon`);
             }
           }
         } catch (err) {

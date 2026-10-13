@@ -29,7 +29,7 @@ export function sanitizeTotpSecret(secret: string): string {
  */
 export function base32Decode(input: string): Uint8Array {
   const cleaned = sanitizeTotpSecret(input)
-  if (!cleaned) return new Uint8Array(0)
+  if (!cleaned || cleaned.length < 16) return new Uint8Array(0)
 
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
   let bits = 0
@@ -38,7 +38,9 @@ export function base32Decode(input: string): Uint8Array {
 
   for (let i = 0; i < cleaned.length; i++) {
     const val = alphabet.indexOf(cleaned[i])
-    if (val === -1) continue
+    if (val === -1) {
+      return new Uint8Array(0)
+    }
     value = (value << 5) | val
     bits += 5
     if (bits >= 8) {

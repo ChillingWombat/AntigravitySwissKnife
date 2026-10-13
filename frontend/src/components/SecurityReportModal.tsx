@@ -85,7 +85,6 @@ export const SecurityReportModal: React.FC<SecurityReportModalProps> = ({ report
         justifyContent: 'center',
         zIndex: 1100,
       }}
-      onClick={onClose}
     >
       <div
         role="dialog"

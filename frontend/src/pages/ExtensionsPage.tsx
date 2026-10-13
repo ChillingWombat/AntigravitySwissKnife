@@ -3,16 +3,13 @@ import {
   Globe,
   Folder,
   FileText,
-  ExternalLink,
   CheckCircle2,
   AlertTriangle,
-  ArrowLeft,
   PanelLeft,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { GithubIcon } from '../components/GithubIcon'
 import { api } from '../api'
-import { GitHubWorkspacePage } from './GitHubWorkspacePage'
 import type { EnhancementsConfig } from '../types'
 
 const IDE_PRESETS = ['code', 'cursor', 'windsurf', 'codium', 'zed']
@@ -28,10 +25,7 @@ export interface ExtensionsPageProps {
   fallbackProject?: string
 }
 
-export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
-  scope,
-  fallbackProject,
-}) => {
+export const ExtensionsPage: React.FC<ExtensionsPageProps> = () => {
   // --- 1. Extension Visibility Switches (daemon-persisted EnhancementsConfig) ---
   // aux_panel  = available in the IDE's right auxiliary panel
   // main_page  = openable on the main stage via a left-sidebar tab button
@@ -41,10 +35,6 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
 
   // --- 2. Extension Specific Settings State ---
   // GitHub Workspace
-  const [showWorkspaceModal, setShowWorkspaceModal] = useState<boolean>(false)
-  const [workspaceDefaultView, setWorkspaceDefaultView] = useState<'kanban' | 'list'>(() => {
-    return (localStorage.getItem('antigravity_workspace_default_view') as 'kanban' | 'list') || 'kanban'
-  })
   const [auxAgentScope, setAuxAgentScope] = useState<'all' | 'focused'>(() => {
     return (localStorage.getItem('antigravity_github_aux_agent_scope') as 'all' | 'focused') || 'all'
   })
@@ -328,39 +318,6 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
     return map[id.toLowerCase()] || id || 'VS Code'
   }
 
-  // --- Fullscreen View for GitHub Workspace if requested ---
-  if (showWorkspaceModal) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 4px' }}>
-          <button
-            onClick={() => setShowWorkspaceModal(false)}
-            className="btn-pill-tonal"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 14px', fontSize: '12px', fontWeight: 600 }}
-          >
-            <ArrowLeft size={14} />
-            <span>Back to Extensions</span>
-          </button>
-          <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)' }}>
-            GitHub Workspace Active View
-          </div>
-        </div>
-        <div
-          style={{
-            flex: 1,
-            backgroundColor: 'var(--card, #ffffff)',
-            borderRadius: '10px',
-            border: '1px solid var(--border)',
-            overflow: 'hidden',
-            minHeight: '680px',
-            height: 'calc(100vh - 140px)',
-          }}
-        >
-          <GitHubWorkspacePage scope={scope} fallbackProject={fallbackProject} />
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
@@ -487,65 +444,8 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
           {/* Extension Settings & Actions */}
           {(githubVis.aux_panel || githubVis.main_page) && (
             <div style={{ marginTop: '4px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                  Default View:
-                </span>
-                <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--tonal)', padding: '2px', borderRadius: '6px' }}>
-                  <button
-                    onClick={() => {
-                      setWorkspaceDefaultView('kanban')
-                      localStorage.setItem('antigravity_workspace_default_view', 'kanban')
-                    }}
-                    style={{
-                      border: 'none',
-                      padding: '4px 8px',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      fontWeight: workspaceDefaultView === 'kanban' ? 600 : 500,
-                      backgroundColor: workspaceDefaultView === 'kanban' ? 'var(--accent, var(--primary, #1a73e8))' : 'transparent',
-                      color: workspaceDefaultView === 'kanban' ? 'var(--accent-foreground, #ffffff)' : 'var(--text-muted)',
-                      boxShadow: workspaceDefaultView === 'kanban' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    Kanban Board
-                  </button>
-                  <button
-                    onClick={() => {
-                      setWorkspaceDefaultView('list')
-                      localStorage.setItem('antigravity_workspace_default_view', 'list')
-                    }}
-                    style={{
-                      border: 'none',
-                      padding: '4px 8px',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      fontWeight: workspaceDefaultView === 'list' ? 600 : 500,
-                      backgroundColor: workspaceDefaultView === 'list' ? 'var(--accent, var(--primary, #1a73e8))' : 'transparent',
-                      color: workspaceDefaultView === 'list' ? 'var(--accent-foreground, #ffffff)' : 'var(--text-muted)',
-                      boxShadow: workspaceDefaultView === 'list' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    List View
-                  </button>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setShowWorkspaceModal(true)}
-                className="btn-pill-primary"
-                style={{ padding: '6px 14px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
-              >
-                <ExternalLink size={13} />
-                <span>Open Full Workspace</span>
-              </button>
-
               {/* Auxiliary Panel AGY Agents Display Settings */}
-              <div style={{ width: '100%', paddingTop: '10px', marginTop: '4px', borderTop: '1px dashed var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+              <div style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
                     Aux AGY Agents:

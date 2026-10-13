@@ -1,18 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import {
-  MessageSquare,
-  Power,
-  ShieldCheck,
   RotateCw,
   Check,
-  HelpCircle,
+  Power,
   Eye,
   EyeOff,
-  Radio,
-  Clock,
-  Layers,
-  Settings2,
 } from 'lucide-react'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 
 export const WhatsAppBridgePage: React.FC = () => {
@@ -128,511 +122,290 @@ export const WhatsAppBridgePage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* 1. Header & Enable Bar */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          backgroundColor: '#ffffff',
-          borderRadius: '12px',
-          padding: '18px 24px',
-          border: '1px solid var(--border)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '10px',
-              backgroundColor: '#dcfce7',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <MessageSquare size={24} color="#15803d" />
-          </div>
+      {/* 1. Overview, Live Status & Enable Toggle */}
+      <div className="google-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <h2
-                style={{
-                  fontSize: '17px',
-                  fontWeight: 600,
-                  margin: 0,
-                  color: 'var(--text)',
-                  whiteSpace: 'nowrap',
-                }}
-              >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                 WhatsApp Agent Chat Bridge
               </h2>
-              <span
-                style={{
-                  fontSize: '11px',
-                  padding: '2px 8px',
-                  borderRadius: '12px',
-                  fontWeight: 600,
-                  whiteSpace: 'nowrap',
-                  backgroundColor: waStatus.enabled ? '#dcfce7' : 'var(--tonal)',
-                  color: waStatus.enabled ? '#15803d' : 'var(--text-muted)',
-                }}
-              >
+              <span className={`badge-chip ${waStatus.enabled ? 'badge-green' : 'badge-neutral'}`}>
                 {waStatus.enabled ? (waStatus.connected ? 'Connected' : 'Listening') : 'Disabled'}
               </span>
             </div>
-            <p
-              style={{
-                fontSize: '13px',
-                color: 'var(--text-muted)',
-                margin: '4px 0 0 0',
-              }}
-            >
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
               Direct bidirectional chat channel between WhatsApp and local Antigravity autonomous agents.
             </p>
           </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              onClick={handleTestConnection}
+              disabled={loading}
+              className="btn-pill-tonal"
+            >
+              <RotateCw size={14} className={loading ? 'animate-spin' : ''} />
+              <span>Test Bridge</span>
+            </button>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
+              <span style={{ whiteSpace: 'nowrap' }}>Enable Bridge</span>
+              <ToggleSwitch
+                checked={Boolean(config.whatsapp.enabled)}
+                onChange={handleToggleEnable}
+              />
+            </label>
+          </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <button
-            onClick={handleTestConnection}
-            disabled={loading}
+        {testResult && (
+          <div
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '8px 14px',
-              borderRadius: '20px',
-              border: '1px solid var(--border)',
-              backgroundColor: '#ffffff',
-              fontSize: '13px',
-              fontWeight: 500,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            <RotateCw size={14} className={loading ? 'animate-spin' : ''} />
-            Test Bridge
-          </button>
-          <button
-            onClick={handleToggleEnable}
-            style={{
+              padding: '10px 14px',
+              borderRadius: '8px',
+              border: `1px solid ${testResult.success ? '#bbf7d0' : '#fecaca'}`,
+              backgroundColor: testResult.success ? 'var(--green-bg)' : 'var(--red-bg)',
+              fontSize: '12px',
+              color: testResult.success ? 'var(--green)' : 'var(--red)',
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              padding: '8px 16px',
-              borderRadius: '20px',
-              border: 'none',
-              fontSize: '13px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              backgroundColor: config.whatsapp.enabled ? '#fee2e2' : 'var(--primary-container)',
-              color: config.whatsapp.enabled ? '#b91c1c' : 'var(--primary)',
+              marginBottom: '16px',
             }}
           >
-            <Power size={15} />
-            {config.whatsapp.enabled ? 'Disable Channel' : 'Enable Channel'}
-          </button>
-        </div>
-      </div>
-
-      {/* 2. Status & Metric Cards */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
-          gap: '12px',
-        }}
-      >
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '10px',
-            padding: '14px 16px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <Radio size={16} color="var(--primary)" />
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Connection Status
-            </span>
-          </div>
-          <div style={{ fontSize: '15px', fontWeight: 600, color: waStatus.enabled ? '#16a34a' : 'var(--text-muted)' }}>
-            {waStatus.status_text || (waStatus.enabled ? 'Online' : 'Standby')}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            {config.whatsapp.mode.toUpperCase()} Transport
-          </div>
-        </div>
-
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '10px',
-            padding: '14px 16px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <Layers size={16} color="var(--primary)" />
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Identity & Phone
-            </span>
-          </div>
-          <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {waStatus.identity || (config.whatsapp.phone_number_id ? `ID: ${config.whatsapp.phone_number_id}` : 'Local MCP Bridge')}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Verified sender target
-          </div>
-        </div>
-
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '10px',
-            padding: '14px 16px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <ShieldCheck size={16} color="var(--primary)" />
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Whitelisted Senders
-            </span>
-          </div>
-          <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text)' }}>
-            {config.whatsapp.allowed_numbers?.length > 0 ? `${config.whatsapp.allowed_numbers.length} Numbers` : 'Open (Any Sender)'}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Access policy enforcement
-          </div>
-        </div>
-
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '10px',
-            padding: '14px 16px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <Clock size={16} color="var(--primary)" />
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Last Interaction
-            </span>
-          </div>
-          <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-            {waStatus.last_message_at || 'Never'}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Bidirectional message log
-          </div>
-        </div>
-      </div>
-
-      {testResult && (
-        <div
-          style={{
-            padding: '12px 16px',
-            borderRadius: '8px',
-            border: `1px solid ${testResult.success ? '#bbf7d0' : '#fecaca'}`,
-            backgroundColor: testResult.success ? '#f0fdf4' : '#fef2f2',
-            fontSize: '13px',
-            color: testResult.success ? '#15803d' : '#b91c1c',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          {testResult.success ? <Check size={16} /> : <Power size={16} />}
-          <span>{testResult.message || testResult.error}</span>
-        </div>
-      )}
-
-      {/* 3. Settings Form */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          borderRadius: '12px',
-          padding: '20px 24px',
-          border: '1px solid var(--border)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '16px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Settings2 size={18} color="var(--primary)" />
-          <h3 style={{ fontSize: '15px', fontWeight: 600, margin: 0, color: 'var(--text)' }}>
-            WhatsApp Channel Settings
-          </h3>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
-          <div>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-              Integration Mode
-            </label>
-            <select
-              value={config.whatsapp.mode}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  whatsapp: { ...config.whatsapp, mode: e.target.value },
-                })
-              }
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
-                fontSize: '13px',
-                backgroundColor: '#ffffff',
-                boxSizing: 'border-box',
-              }}
-            >
-              <option value="mcp">Local MCP Server (whatsapp-mcp via Baileys/Web)</option>
-              <option value="cloud_api">Meta Cloud API (Official Graph API)</option>
-              <option value="webhook">Custom Inbound Webhook</option>
-            </select>
-          </div>
-
-          <div>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-              Phone Number ID / Sender ID
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. 108234812398402 (leave blank for local MCP)"
-              value={config.whatsapp.phone_number_id}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  whatsapp: { ...config.whatsapp, phone_number_id: e.target.value },
-                })
-              }
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
-                fontSize: '13px',
-                boxSizing: 'border-box',
-              }}
-            />
-          </div>
-        </div>
-
-        {config.whatsapp.mode === 'cloud_api' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
-            <div>
-              <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-                Meta Permanent Access Token
-              </label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  type={showToken ? 'text' : 'password'}
-                  placeholder="EAA..."
-                  value={config.whatsapp.access_token}
-                  onChange={(e) =>
-                    setConfig({
-                      ...config,
-                      whatsapp: { ...config.whatsapp, access_token: e.target.value },
-                    })
-                  }
-                  style={{
-                    width: '100%',
-                    padding: '8px 40px 8px 12px',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border)',
-                    fontSize: '13px',
-                    boxSizing: 'border-box',
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowToken(!showToken)}
-                  style={{
-                    position: 'absolute',
-                    right: '10px',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: 'var(--text-muted)',
-                  }}
-                >
-                  {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-                Webhook Verification Token
-              </label>
-              <input
-                type="text"
-                value={config.whatsapp.verify_token}
-                onChange={(e) =>
-                  setConfig({
-                    ...config,
-                    whatsapp: { ...config.whatsapp, verify_token: e.target.value },
-                  })
-                }
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: '8px',
-                  border: '1px solid var(--border)',
-                  fontSize: '13px',
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
+            {testResult.success ? <Check size={14} /> : <Power size={14} />}
+            <span>{testResult.message || testResult.error}</span>
           </div>
         )}
 
-        <div>
-          <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-            Allowed Phone Numbers (Whitelist)
-          </label>
-          <input
-            type="text"
-            placeholder="+1234567890, +61400000000 (leave blank to allow all paired contacts)"
-            value={allowedNumbersStr}
-            onChange={(e) => setAllowedNumbersStr(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '8px 12px',
-              borderRadius: '8px',
-              border: '1px solid var(--border)',
-              fontSize: '13px',
-              boxSizing: 'border-box',
-            }}
-          />
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-            Comma-separated international numbers with country code. Only whitelisted numbers can issue prompts to Antigravity agents.
-          </span>
-        </div>
+        {/* Status Metrics Grid (harmonized with BrainCachePage & TokenMonitorPage) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              Connection Status
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: waStatus.enabled ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
+              {waStatus.status_text || (waStatus.enabled ? 'Online' : 'Standby')}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              {config.whatsapp.mode.toUpperCase()} Transport
+            </div>
+          </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
-          <button
-            onClick={handleSaveConfig}
-            disabled={loading}
-            style={{
-              padding: '8px 18px',
-              borderRadius: '20px',
-              border: 'none',
-              fontSize: '13px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              backgroundColor: 'var(--primary)',
-              color: '#ffffff',
-            }}
-          >
-            Save Settings
-          </button>
-          {saveSuccess && (
-            <span style={{ fontSize: '12px', color: '#16a34a', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Check size={14} /> WhatsApp settings saved
-            </span>
-          )}
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              Verified Identity
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {waStatus.identity || (config.whatsapp.phone_number_id ? `ID: ${config.whatsapp.phone_number_id}` : 'Local MCP Bridge')}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Verified sender target
+            </div>
+          </div>
+
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              Whitelisted Senders
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
+              {config.whatsapp.allowed_numbers?.length > 0 ? `${config.whatsapp.allowed_numbers.length} Numbers` : 'Open (Any Sender)'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Allowed Phone Numbers policy
+            </div>
+          </div>
+
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              Last Interaction
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
+              {waStatus.last_message_at || 'Never'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Bidirectional message log
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* 4. Guidance Section */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          borderRadius: '12px',
-          padding: '20px 24px',
-          border: '1px solid var(--border)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <HelpCircle size={18} color="var(--primary)" />
-          <h3 style={{ fontSize: '15px', fontWeight: 600, margin: 0, color: 'var(--text)' }}>
-            WhatsApp Bridge Setup Guidance
-          </h3>
+      {/* 2. Channel Configuration Settings */}
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
+          Channel Configuration
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                Integration Mode
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Select transport architecture for inbound and outbound messages.
+              </div>
+              <select
+                value={config.whatsapp.mode}
+                onChange={(e) =>
+                  setConfig({
+                    ...config,
+                    whatsapp: { ...config.whatsapp, mode: e.target.value },
+                  })
+                }
+                style={{ width: '100%' }}
+              >
+                <option value="mcp">Local MCP Server (whatsapp-mcp via Baileys/Web)</option>
+                <option value="cloud_api">Meta Cloud API (Official Graph API)</option>
+                <option value="webhook">Custom Inbound Webhook</option>
+              </select>
+            </div>
+
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                Phone Number ID / Sender ID
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Target sender identifier for cloud API or webhook routing.
+              </div>
+              <input
+                type="text"
+                placeholder="e.g. 108234812398402 (leave blank for local MCP)"
+                value={config.whatsapp.phone_number_id}
+                onChange={(e) =>
+                  setConfig({
+                    ...config,
+                    whatsapp: { ...config.whatsapp, phone_number_id: e.target.value },
+                  })
+                }
+                style={{ width: '100%' }}
+              />
+            </div>
+          </div>
+
+          {config.whatsapp.mode === 'cloud_api' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                  Meta Permanent Access Token
+                </div>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showToken ? 'text' : 'password'}
+                    placeholder="EAA..."
+                    value={config.whatsapp.access_token}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        whatsapp: { ...config.whatsapp, access_token: e.target.value },
+                      })
+                    }
+                    style={{ width: '100%', paddingRight: '36px' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowToken(!showToken)}
+                    style={{
+                      position: 'absolute',
+                      right: '10px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: 'var(--text-muted)',
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                  >
+                    {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                  Webhook Verification Token
+                </div>
+                <input
+                  type="text"
+                  value={config.whatsapp.verify_token}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      whatsapp: { ...config.whatsapp, verify_token: e.target.value },
+                    })
+                  }
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </div>
+          )}
+
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+              Allowed Phone Numbers (Whitelist)
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+              Comma-separated international numbers with country code. Only whitelisted numbers can issue prompts to Antigravity agents.
+            </div>
+            <input
+              type="text"
+              placeholder="+1234567890, +61400000000 (leave blank to allow all paired contacts)"
+              value={allowedNumbersStr}
+              onChange={(e) => setAllowedNumbersStr(e.target.value)}
+              style={{ width: '100%' }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
+            <button
+              onClick={handleSaveConfig}
+              disabled={loading}
+              className="btn-pill-primary"
+            >
+              Save Settings
+            </button>
+            {saveSuccess && (
+              <span style={{ fontSize: '12px', color: 'var(--green)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <Check size={14} /> WhatsApp settings saved
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 3. Architecture & Guidance */}
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
+          Architecture & Guidance
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-            <span
-              style={{
-                width: '22px',
-                height: '22px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--primary-container)',
-                color: 'var(--primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '12px',
-                fontWeight: 700,
-                flexShrink: 0,
-              }}
-            >
-              1
-            </span>
-            <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.5 }}>
-              <strong>Choose Your Mode:</strong> The default <code>Local MCP Server</code> uses the built-in WhatsApp MCP driver (which connects through WhatsApp Web session stored in your keyring). Meta Cloud API connects directly to Meta's Business Platform for high-volume automated routing.
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
+              Integration Architecture
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+              The default Local MCP Server connects through a persistent WhatsApp Web session stored securely in your OS keyring. Meta Cloud API connects directly to Meta's Business Platform for high-volume automated routing.
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-            <span
-              style={{
-                width: '22px',
-                height: '22px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--primary-container)',
-                color: 'var(--primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '12px',
-                fontWeight: 700,
-                flexShrink: 0,
-              }}
-            >
-              2
-            </span>
-            <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.5 }}>
-              <strong>Whitelist Numbers:</strong> To ensure privacy and security, specify your personal phone number in the whitelist. Messages from non-whitelisted numbers will be dropped silently without starting agent tasks.
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
+              Access Control & Whitelisting
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+              Specify trusted international phone numbers in Allowed Phone Numbers to restrict access. Messages from non-whitelisted numbers are ignored without launching agent tasks.
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-            <span
-              style={{
-                width: '22px',
-                height: '22px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--primary-container)',
-                color: 'var(--primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '12px',
-                fontWeight: 700,
-                flexShrink: 0,
-              }}
-            >
-              3
-            </span>
-            <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.5 }}>
-              <strong>Agent Conversations:</strong> When you send a message via WhatsApp, Antigravity creates an autonomous session on your local host, runs the required tools, and forwards conversational answers and execution results back into your WhatsApp chat.
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
+              Autonomous Agent Execution
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+              Inbound messages initiate local Antigravity sessions across configured tools. Step outputs and conversational responses are routed back to your WhatsApp chat in real time.
             </div>
           </div>
         </div>

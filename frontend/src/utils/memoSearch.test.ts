@@ -63,10 +63,8 @@ describe('memoSearch utility', () => {
     });
 
     it('handles undefined or null array gracefully', () => {
-      // @ts-expect-error test invalid parameter
-      assert.deepEqual(filterMemos(null, 'test'), []);
-      // @ts-expect-error test invalid parameter
-      assert.deepEqual(filterMemos(undefined, 'test'), []);
+      assert.deepEqual(filterMemos(null as any, 'test'), []);
+      assert.deepEqual(filterMemos(undefined as any, 'test'), []);
     });
   });
 

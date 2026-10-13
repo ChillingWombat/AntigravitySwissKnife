@@ -7,7 +7,7 @@ export const FIVE_HOUR_WINDOW_SECONDS = 18000.0
 export const WEEKLY_WINDOW_SECONDS = 604800.0
 export const MIN_PROACTIVE_SWITCH_DWELL_SECONDS = 600.0 // 10 minutes
 
-export function clamp01(val?: number): number {
+export function clamp01(val?: number | null): number {
   if (val === undefined || val === null || isNaN(val)) return 0
   return Math.max(0, Math.min(1, val))
 }
@@ -229,7 +229,7 @@ export function extractAccountMetrics(acc: AccountState, mode: SwitchMode): Acco
   }
 
   let q5hAvail = computeEffective5hAvailable(q5hCur, sec5h)
-  if (acc.quota_5h_available > q5hAvail && sec5h <= 0) {
+  if (typeof acc.quota_5h_available === 'number' && acc.quota_5h_available > q5hAvail && sec5h <= 0) {
     q5hAvail = clamp01(acc.quota_5h_available)
   }
 

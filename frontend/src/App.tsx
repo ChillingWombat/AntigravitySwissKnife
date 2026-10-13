@@ -92,23 +92,46 @@ export const App: React.FC = () => {
     checkAuth()
     loadAllData()
     // Listen for navigation requests from Electron system tray context menu
+    let unsubNavigate: (() => void) | undefined
     const electronAPI = (window as any).electronAPI
     if (electronAPI?.onNavigate) {
-      electronAPI.onNavigate((toolIdx: number) => {
-        if (typeof toolIdx === 'number') {
-          if (toolIdx === 10) {
+      unsubNavigate = electronAPI.onNavigate((target: number | string) => {
+        if (typeof target === 'string') {
+          const namedRouteMap: Record<string, number> = {
+            quota: 0,
+            dashboard: 0,
+            enhancements: 2,
+            settings: 2,
+            cache: 3,
+            fingerprints: 4,
+            models: 5,
+            bridge: 6,
+            logs: 7,
+          }
+          if (namedRouteMap[target.toLowerCase()] !== undefined) {
+            setCurrentTool(namedRouteMap[target.toLowerCase()])
+            return
+          }
+        }
+        if (typeof target === 'number' && !isNaN(target) && target >= 0 && target <= 10) {
+          if (target === 10) {
             setCurrentTool(7)
-          } else if (toolIdx === 1) {
+          } else if (target === 1) {
             setCurrentTool(0)
           } else {
-            setCurrentTool(toolIdx)
+            setCurrentTool(target)
           }
         }
       })
     }
     // Poll status and fleet metrics periodically
     const interval = setInterval(loadAllData, 10000)
-    return () => clearInterval(interval)
+    return () => {
+      if (typeof unsubNavigate === 'function') {
+        unsubNavigate()
+      }
+      clearInterval(interval)
+    }
   }, [])
 
   useEffect(() => {
@@ -287,7 +310,7 @@ export const App: React.FC = () => {
                     gap: '2px',
                   }}
                 >
-                  {['Remote', 'Gemini', 'WhatsApp', 'Telegram & Discord'].map((tab, idx) => {
+                  {['Remote', 'Gemini', 'WhatsApp', 'Telegram', 'Discord'].map((tab, idx) => {
                     const isActive = bridgeTab === idx
                     return (
                       <button
@@ -368,7 +391,7 @@ export const App: React.FC = () => {
         >
           <ErrorBoundary>
             {currentTool === 0 && (
-              <>
+              <ErrorBoundary>
                 {currentTab === 0 && (
                   <QuotaDashboardPage
                     fleet={fleet}
@@ -391,43 +414,69 @@ export const App: React.FC = () => {
                     onSaved={loadAllData}
                   />
                 )}
-              </>
+              </ErrorBoundary>
             )}
 
             {currentTool === 2 && (
-              <SystemSettingsPage
-                status={status}
-                onRefresh={loadAllData}
-                activeTab={systemSettingsTab}
-                onTabChange={setSystemSettingsTab}
-              />
+              <ErrorBoundary>
+                <SystemSettingsPage
+                  status={status}
+                  onRefresh={loadAllData}
+                  activeTab={systemSettingsTab}
+                  onTabChange={setSystemSettingsTab}
+                />
+              </ErrorBoundary>
             )}
-            {currentTool === 3 && <CustomModelsPage />}
-            {currentTool === 4 && <AppEnhancementsPage activeCategoryTab={enhancementTab} />}
-            {currentTool === 5 && <ScheduledTemplatesPage />}
-            {currentTool === 6 && <ArchivedProjectsPage />}
+            {currentTool === 3 && (
+              <ErrorBoundary>
+                <CustomModelsPage />
+              </ErrorBoundary>
+            )}
+            {currentTool === 4 && (
+              <ErrorBoundary>
+                <AppEnhancementsPage activeCategoryTab={enhancementTab} />
+              </ErrorBoundary>
+            )}
+            {currentTool === 5 && (
+              <ErrorBoundary>
+                <ScheduledTemplatesPage />
+              </ErrorBoundary>
+            )}
+            {currentTool === 6 && (
+              <ErrorBoundary>
+                <ArchivedProjectsPage />
+              </ErrorBoundary>
+            )}
             {Boolean(status?.daemon_running) && currentTool === 7 && (
-              <ExtensionsPage
-                fallbackProject={availableProjects[0]?.name}
-              />
+              <ErrorBoundary>
+                <ExtensionsPage
+                  fallbackProject={availableProjects[0]?.name}
+                />
+              </ErrorBoundary>
             )}
             {currentTool === 8 && (
-              <TokenMonitorPage
-                activeTab={tokenMonitorTab}
-                onTabChange={setTokenMonitorTab}
-              />
+              <ErrorBoundary>
+                <TokenMonitorPage
+                  activeTab={tokenMonitorTab}
+                  onTabChange={setTokenMonitorTab}
+                />
+              </ErrorBoundary>
             )}
             {currentTool === 9 && (
-              <UtilitiesPage
-                activeTab={utilitiesTab}
-                onTabChange={setUtilitiesTab}
-              />
+              <ErrorBoundary>
+                <UtilitiesPage
+                  activeTab={utilitiesTab}
+                  onTabChange={setUtilitiesTab}
+                />
+              </ErrorBoundary>
             )}
             {currentTool === 10 && (
-              <BridgePage
-                activeTab={bridgeTab}
-                onTabChange={setBridgeTab}
-              />
+              <ErrorBoundary>
+                <BridgePage
+                  activeTab={bridgeTab}
+                  onTabChange={setBridgeTab}
+                />
+              </ErrorBoundary>
             )}
           </ErrorBoundary>
         </main>

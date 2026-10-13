@@ -2,6 +2,7 @@ package quota
 
 import (
 	crand "crypto/rand"
+	"math"
 	"math/big"
 	"math/rand"
 	"strings"
@@ -111,6 +112,9 @@ func GetStandbyDynamicTiers() []DynamicFrequencyTier {
 
 // ResolveActiveDynamicInterval calculates the active polling interval based on remaining fraction and threshold.
 func ResolveActiveDynamicInterval(remainingFraction float64, autoSwitchThreshold float64) time.Duration {
+	if math.IsNaN(remainingFraction) || math.IsInf(remainingFraction, 0) {
+		return ActiveIntervalCritical
+	}
 	if remainingFraction < 0 {
 		return ActiveIntervalLow // unknown, default to 60s
 	}
@@ -135,6 +139,9 @@ func ResolveActiveDynamicInterval(remainingFraction float64, autoSwitchThreshold
 
 // ResolveStandbyDynamicInterval calculates the standby polling interval based on remaining fraction.
 func ResolveStandbyDynamicInterval(remainingFraction float64) time.Duration {
+	if math.IsNaN(remainingFraction) || math.IsInf(remainingFraction, 0) {
+		return StandbyIntervalRecovering
+	}
 	if remainingFraction < 0 {
 		return StandbyIntervalRecovering // unknown, default to 5m
 	}
@@ -209,24 +216,26 @@ func ExtractRemaining5HFraction(s *QuotaSummary) (float64, bool) {
 	if s == nil {
 		return 0, false
 	}
+	if s.ErrorStatus != "" || s.ErrorMessage != "" {
+		return 0, false
+	}
+	if math.IsNaN(s.Quota5hFraction) || math.IsInf(s.Quota5hFraction, 0) {
+		return 0.0, true
+	}
 	if s.Quota5hFraction > 0 {
-		return s.Quota5hFraction, true
+		return ClampFraction(s.Quota5hFraction), true
 	}
 	// Check models if Quota5hFraction was not set directly
 	if len(s.Models) > 0 {
 		for _, m := range s.Models {
 			mLower := strings.ToLower(m.ModelName)
-			if !strings.Contains(mLower, "weekly") {
-				return m.Fraction, true
+			if !strings.Contains(mLower, "weekly") && !strings.Contains(mLower, "7d") {
+				return ClampFraction(m.Fraction), true
 			}
 		}
 	}
-	// Fallback to weekly quota if only weekly model quota exists
-	if s.QuotaWeeklyFraction > 0 {
-		return s.QuotaWeeklyFraction, true
-	}
-	// If no error status and last polled is not zero, fraction 0.0 is genuinely exhausted quota
-	if s.ErrorStatus == "" && s.ErrorMessage == "" && !s.LastPolled.IsZero() {
+	// If account was polled and clean, fraction 0.0 is genuinely exhausted quota
+	if !s.LastPolled.IsZero() {
 		return 0.0, true
 	}
 	return 0, false

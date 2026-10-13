@@ -98,6 +98,21 @@ func TestCustomModel_Validate(t *testing.T) {
 	if len(m.ProjectMappings) == 0 || m.ProjectMappings[0] != "*" {
 		t.Errorf("expected default project mappings to [*]")
 	}
+
+	// GCP model auto-derives BaseURL
+	mGCP := CustomModel{
+		ID:           "test-gcp",
+		Name:         "gemini-2.5-flash",
+		ProviderType: ProviderGCP,
+		GCPProjectID: "my-gcp-proj",
+		GCPRegion:    "us-central1",
+	}
+	if err := mGCP.Validate(); err != nil {
+		t.Errorf("expected valid GCP model with auto BaseURL, got: %v", err)
+	}
+	if !strings.Contains(mGCP.BaseURL, "us-central1-aiplatform.googleapis.com") {
+		t.Errorf("expected generated Vertex AI BaseURL, got %s", mGCP.BaseURL)
+	}
 }
 
 func TestStore_CRUDAndBindings(t *testing.T) {
@@ -495,6 +510,9 @@ func TestFetchModelPricing_HierarchyAndNullFallback(t *testing.T) {
 	if src != PriceSourceProvider || inP == nil || outP == nil {
 		t.Fatalf("expected official provider pricing for gemini-3.8-flash, got src=%q in=%v out=%v", src, inP, outP)
 	}
+	if *inP != 0.75 || *outP != 3.75 || cacheP == nil || *cacheP != 0.075 {
+		t.Fatalf("expected official pricing 0.75/0.075/3.75 for gemini-3.8-flash, got in=%v cache=%v out=%v", inP, cacheP, outP)
+	}
 
 	// 2. 3rd-Party Backup when not in provider
 	inP, cacheP, outP, src = FetchModelPricing(t.Context(), "qwen-2.5-coder-32b", "custom", "", "")
@@ -512,6 +530,91 @@ func TestFetchModelPricing_HierarchyAndNullFallback(t *testing.T) {
 	}
 	if inP != nil || cacheP != nil || outP != nil {
 		t.Fatalf("expected nil price pointers for unknown model, got in=%v cache=%v out=%v", inP, cacheP, outP)
+	}
+}
+
+func TestFetchModelPricing_DynamicGoogleGeminiPricing(t *testing.T) {
+	origGoogle := GoogleGeminiPricingURL
+	origDocs := GoogleGeminiDocsPricingURL
+	defer func() {
+		GoogleGeminiPricingURL = origGoogle
+		GoogleGeminiDocsPricingURL = origDocs
+		ResetGoogleGeminiPricingCache()
+	}()
+
+	mockHTML := `<!doctype html>
+<html>
+<body>
+<div class="models-section">
+  <h2 id="gemini-3.8-flash" data-text="Gemini 3.8 Flash">Gemini 3.8 Flash</h2>
+  <em><a href="/gemini-api/docs/models/gemini-3.8-flash"><code>gemini-3.8-flash</code></a></em>
+</div>
+<table class="pricing-table">
+  <thead>
+    <tr><th></th><th>Free Tier</th><th>Paid Tier</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Input price</td><td>Free</td><td>$0.75 through December 31, 2026.</td></tr>
+    <tr><td>Output price (including thinking)</td><td>Free</td><td>$3.75 per 1M tokens.</td></tr>
+    <tr><td>Context caching price</td><td>Free</td><td>$0.075 per 1M tokens.</td></tr>
+  </tbody>
+</table>
+
+<div class="models-section">
+  <h2 id="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</h2>
+  <em><code>gemini-3.1-pro</code></em>
+</div>
+<table class="pricing-table">
+  <tbody>
+    <tr><td>Input price</td><td>Free</td><td>$2.00</td></tr>
+    <tr><td>Output price</td><td>Free</td><td>$12.00</td></tr>
+    <tr><td>Context caching price</td><td>Free</td><td>$0.20</td></tr>
+  </tbody>
+</table>
+</body>
+</html>`
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(mockHTML))
+	}))
+	defer mockServer.Close()
+
+	GoogleGeminiPricingURL = mockServer.URL
+	GoogleGeminiDocsPricingURL = mockServer.URL
+	ResetGoogleGeminiPricingCache()
+
+	// 1. Verify dynamic fetch and parsing of Gemini 3.8 Flash
+	inP, cacheP, outP, src := FetchModelPricing(t.Context(), "gemini-3.8-flash", "gemini", "", "")
+	if src != PriceSourceProvider {
+		t.Fatalf("expected PriceSourceProvider, got %q", src)
+	}
+	if inP == nil || *inP != 0.75 || cacheP == nil || *cacheP != 0.075 || outP == nil || *outP != 3.75 {
+		t.Fatalf("unexpected dynamic prices for gemini-3.8-flash: in=%v cache=%v out=%v", inP, cacheP, outP)
+	}
+
+	// 2. Verify thinking / tiered alias: gemini-3.8-flash-high maps to dynamic gemini-3.8-flash
+	inP, cacheP, outP, src = FetchModelPricing(t.Context(), "gemini-3.8-flash-high", "gemini", "", "")
+	if src != PriceSourceProvider || inP == nil || *inP != 0.75 || outP == nil || *outP != 3.75 {
+		t.Fatalf("unexpected dynamic prices for gemini-3.8-flash-high: in=%v out=%v", inP, outP)
+	}
+
+	// 3. Verify Gemini 3.1 Pro
+	inP, cacheP, outP, src = FetchModelPricing(t.Context(), "gemini-3.1-pro", "gemini", "", "")
+	if src != PriceSourceProvider || inP == nil || *inP != 2.00 || outP == nil || *outP != 12.00 {
+		t.Fatalf("unexpected dynamic prices for gemini-3.1-pro: in=%v out=%v", inP, outP)
+	}
+
+	// 4. Test offline fallback to official specifications
+	mockServer.Close()
+	ResetGoogleGeminiPricingCache()
+
+	inP, cacheP, outP, src = FetchModelPricing(t.Context(), "gemini-3.8-flash", "gemini", "", "")
+	if src != PriceSourceProvider {
+		t.Fatalf("expected PriceSourceProvider on fallback, got %q", src)
+	}
+	if inP == nil || *inP != 0.75 || outP == nil || *outP != 3.75 {
+		t.Fatalf("unexpected fallback prices for gemini-3.8-flash: in=%v out=%v", inP, outP)
 	}
 }
 
@@ -710,5 +813,45 @@ func TestCustomModel_InferenceSupportedContract(t *testing.T) {
 		t.Errorf("expected generated script with false config to enforce inference_supported true")
 	}
 }
+
+func TestDetectAndFetchQuota_GCP(t *testing.T) {
+	m := CustomModel{
+		ProviderType: ProviderGCP,
+		BaseURL:      "https://us-central1-aiplatform.googleapis.com",
+		Name:         "gemini-2.5-flash",
+	}
+	res := DetectAndFetchQuota(m)
+	if res.QuotaType != QuotaTypeQuota || res.QuotaValue != "GCP Managed" {
+		t.Errorf("expected QuotaTypeQuota with 'GCP Managed', got type=%s value=%s", res.QuotaType, res.QuotaValue)
+	}
+}
+
+func TestOpenCodeEndpointResolution(t *testing.T) {
+	ep1 := ResolveEndpoint(ProviderCustom, "https://opencode.ai/zen/go", "deepseek-v4-flash")
+	if ep1 != "https://opencode.ai/zen/go/v1/chat/completions" {
+		t.Errorf("expected https://opencode.ai/zen/go/v1/chat/completions, got %s", ep1)
+	}
+	ep2 := ResolveEndpoint(ProviderOpenAI, "https://opencode.ai/zen/go", "deepseek-v4-flash")
+	if ep2 != "https://opencode.ai/zen/go/v1/chat/completions" {
+		t.Errorf("expected https://opencode.ai/zen/go/v1/chat/completions, got %s", ep2)
+	}
+}
+
+func TestOpenCodeQuotaLiveDetection(t *testing.T) {
+	m := CustomModel{
+		ProviderType: ProviderOpenAI,
+		BaseURL:      "https://opencode.ai/zen/go",
+		APIKey:       "oc_sk_da7cccd32ee8_Y87ZRKcQU8ErRhBnZRwPxd8IsGqmYkE2",
+		Name:         "deepseek-v4-flash",
+	}
+	res := DetectAndFetchQuota(m)
+	if res.QuotaType != QuotaTypeQuota {
+		t.Errorf("expected OpenCode quota type 'quota', got %s", res.QuotaType)
+	}
+	if res.QuotaValue != "Sub Required" && !strings.Contains(res.QuotaValue, "models") {
+		t.Errorf("expected 'Sub Required' or models count, got %s", res.QuotaValue)
+	}
+}
+
 
 

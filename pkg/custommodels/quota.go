@@ -373,14 +373,27 @@ var ProviderQuotaRegistry = []ProviderQuotaRegistryEntry{
 		EndpointFunc: func(baseURL string) string {
 			clean := strings.TrimRight(baseURL, "/")
 			if strings.HasSuffix(clean, "/v1") {
-				clean = strings.TrimSuffix(clean, "/v1")
+				return clean + "/usage"
 			}
-			return clean + "/api/user/usage"
+			return clean + "/v1/usage"
 		},
 		FetchFunc: func(ctx context.Context, client *http.Client, endpoint string, apiKey string) (*QuotaResult, error) {
-			candidateEndpoints := []string{endpoint}
-			clean := strings.TrimSuffix(endpoint, "/api/user/usage")
-			candidateEndpoints = append(candidateEndpoints, clean+"/v1/usage", clean+"/usage", "https://opencode.ai/api/user/usage")
+			clean := strings.TrimSuffix(endpoint, "/v1/usage")
+			clean = strings.TrimSuffix(clean, "/usage")
+			clean = strings.TrimSuffix(clean, "/api/user/usage")
+
+			candidateEndpoints := []string{
+				clean + "/v1/usage",
+				clean + "/usage",
+				clean + "/v1/models",
+				clean + "/models",
+			}
+			if !strings.Contains(clean, "/zen/go") {
+				candidateEndpoints = append(candidateEndpoints,
+					clean+"/zen/go/v1/usage",
+					clean+"/zen/go/v1/models",
+				)
+			}
 
 			for _, ep := range candidateEndpoints {
 				req, err := http.NewRequestWithContext(ctx, "GET", ep, nil)
@@ -397,7 +410,34 @@ var ProviderQuotaRegistry = []ProviderQuotaRegistryEntry{
 				if err != nil {
 					continue
 				}
-				defer resp.Body.Close()
+
+				body, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+
+				if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+					var errResp struct {
+						Type  string `json:"type"`
+						Error struct {
+							Type    string `json:"type"`
+							Message string `json:"message"`
+						} `json:"error"`
+						Message string `json:"message"`
+					}
+					if json.Unmarshal(body, &errResp) == nil {
+						msg := errResp.Error.Message
+						if msg == "" {
+							msg = errResp.Message
+						}
+						if strings.Contains(strings.ToLower(msg), "subscription") {
+							return &QuotaResult{
+								QuotaType:  QuotaTypeQuota,
+								QuotaValue: "Sub Required",
+								Message:    msg,
+							}, nil
+						}
+					}
+					continue
+				}
 
 				if resp.StatusCode != http.StatusOK {
 					continue
@@ -407,7 +447,6 @@ var ProviderQuotaRegistry = []ProviderQuotaRegistryEntry{
 					return rl, nil
 				}
 
-				body, _ := io.ReadAll(resp.Body)
 				var ocData struct {
 					Data struct {
 						Balance      json.RawMessage `json:"balance"`
@@ -472,6 +511,20 @@ var ProviderQuotaRegistry = []ProviderQuotaRegistryEntry{
 							Message:    fmt.Sprintf("OpenCode quota: %s tokens", formatTokens(q)),
 						}, nil
 					}
+				}
+
+				// Check for models list response
+				var mList struct {
+					Data []struct {
+						ID string `json:"id"`
+					} `json:"data"`
+				}
+				if json.Unmarshal(body, &mList) == nil && len(mList.Data) > 0 {
+					return &QuotaResult{
+						QuotaType:  QuotaTypeQuota,
+						QuotaValue: fmt.Sprintf("%d models", len(mList.Data)),
+						Message:    fmt.Sprintf("OpenCode active (%d models)", len(mList.Data)),
+					}, nil
 				}
 			}
 			return nil, fmt.Errorf("no balance or quota found in opencode response")
@@ -646,6 +699,15 @@ func DetectAndFetchQuota(model CustomModel) QuotaResult {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
+	// 0. ProviderGCP models use GCP project-level quota
+	if model.ProviderType == ProviderGCP {
+		return QuotaResult{
+			QuotaType:  QuotaTypeQuota,
+			QuotaValue: "GCP Managed",
+			Message:    "Google Cloud Platform Vertex AI Managed",
+		}
+	}
 
 	// 0. Check custom quota endpoint if explicitly specified
 	if strings.TrimSpace(model.CustomQuotaEndpoint) != "" {

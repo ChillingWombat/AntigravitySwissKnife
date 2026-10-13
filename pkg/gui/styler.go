@@ -243,6 +243,18 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
 }
 
 /* Universal fix: normalize all conversation-row-sidebar child containers so hover never renders inner background mismatch */
+[data-testid="conversation-row-sidebar"] {
+  --row-bg: var(--sidebar-accent, rgba(0, 0, 0, 0.04));
+}
+:is(.dark, [data-theme="dark"]) [data-testid="conversation-row-sidebar"] {
+  --row-bg: var(--sidebar-accent, rgba(255, 255, 255, 0.06));
+}
+[data-testid="conversation-row-sidebar"]:hover {
+  --row-bg: rgba(0, 0, 0, 0.06);
+}
+:is(.dark, [data-theme="dark"]) [data-testid="conversation-row-sidebar"]:hover {
+  --row-bg: rgba(255, 255, 255, 0.08);
+}
 [data-testid="conversation-row-sidebar"] > div,
 [data-testid="conversation-row-sidebar"]:hover > div,
 [data-testid="conversation-row-sidebar"] a,
@@ -250,6 +262,16 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
 [data-testid="conversation-row-sidebar"] .flex,
 [data-testid="conversation-row-sidebar"]:hover .flex {
   background: transparent !important;
+  background-color: transparent !important;
+}
+[data-testid="conversation-row-sidebar"] div[style*="linear-gradient"],
+[data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"] {
+  background: linear-gradient(to right, transparent 0%, var(--row-bg) 25%) !important;
+}
+[data-testid="conversation-row-sidebar"] [class*="action"],
+[data-testid="conversation-row-sidebar"]:hover [class*="action"],
+[data-testid="conversation-row-sidebar"] [data-testid*="action"],
+[data-testid="conversation-row-sidebar"]:hover [data-testid*="action"] {
   background-color: transparent !important;
 }
 `)
@@ -583,6 +605,7 @@ button[data-swiss-divider="true"]:hover {
   background: transparent !important;
 }
 .swiss-convo-tabs-divider {
+  position: relative !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -596,7 +619,23 @@ button[data-swiss-divider="true"]:hover {
   background: transparent !important;
   overflow: visible !important;
 }
+.swiss-convo-tabs-divider::before {
+  content: "" !important;
+  position: absolute !important;
+  left: 6px !important;
+  right: 6px !important;
+  top: 50% !important;
+  height: 1px !important;
+  background-color: rgba(148, 163, 184, 0.35) !important;
+  z-index: 1 !important;
+  pointer-events: none !important;
+}
+[data-theme="dark"] .swiss-convo-tabs-divider::before,
+.dark .swiss-convo-tabs-divider::before {
+  background-color: rgba(148, 163, 184, 0.22) !important;
+}
 .swiss-convo-tabs-pill {
+  position: relative !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -605,11 +644,15 @@ button[data-swiss-divider="true"]:hover {
   color: #64748b !important;
   font-size: 8px !important;
   line-height: 1 !important;
-  background: transparent !important;
+  background: var(--card-bg, #ffffff) !important;
   transition: all 0.18s ease !important;
   z-index: 3 !important;
   padding: 0 !important;
   margin: 0 auto !important;
+}
+[data-theme="dark"] .swiss-convo-tabs-pill,
+.dark .swiss-convo-tabs-pill {
+  background: var(--card-bg, #1e1e1e) !important;
 }
 .swiss-convo-tabs-triangle {
   display: inline-block !important;
@@ -666,11 +709,7 @@ button[data-swiss-divider="true"]:hover {
   background: transparent !important;
   z-index: 3 !important;
   pointer-events: none !important;
-}
-[data-index]:has(button[data-swiss-divider="true"]) .swiss-project-spacer-line,
-[data-index]:has(button[data-swiss-divider="true"]) .swiss-project-bottom-spacer {
-  display: none !important;
-}
+/* Divider line for show more/less projects is preserved */
 [data-theme="dark"] .swiss-project-spacer-line,
 .dark .swiss-project-spacer-line {
   border-top-color: rgba(148, 163, 184, 0.22) !important;

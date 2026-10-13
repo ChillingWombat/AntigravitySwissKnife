@@ -2,6 +2,7 @@ package quota
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -41,13 +42,13 @@ type GenerationConfig struct {
 
 // Build1TokenKeepAliveJSON serializes a minimal ping payload to activate the next horizon.
 func Build1TokenKeepAliveJSON() ([]byte, error) {
-	return Build1TokenKeepAliveJSONWithModelAndProject("gemini-3-flash", "aicode-consumers")
+	return Build1TokenKeepAliveJSONWithModelAndProject("gemini-3.8-flash-high", "aicode-consumers")
 }
 
 // Build1TokenKeepAliveJSONWithModelAndProject creates a keep-alive payload with custom model and project.
 func Build1TokenKeepAliveJSONWithModelAndProject(model, project string) ([]byte, error) {
 	if model == "" {
-		model = "gemini-3-flash"
+		model = "gemini-3.8-flash-high"
 	}
 	if project == "" {
 		project = "aicode-consumers"
@@ -171,18 +172,36 @@ func Send1TokenKeepAliveProbe(accessToken string) error {
 
 // Send1TokenKeepAliveProbeWithProject dispatches a 1-token keep-alive ping payload with a specified project.
 func Send1TokenKeepAliveProbeWithProject(accessToken string, project string) error {
+	return Send1TokenKeepAliveProbeWithContext(context.Background(), accessToken, project)
+}
+
+// Send1TokenKeepAliveProbeWithContext dispatches a 1-token keep-alive ping payload bounded by context timeout,
+// aborting immediately on authentication rejection (401/403).
+func Send1TokenKeepAliveProbeWithContext(ctx context.Context, accessToken string, project string) error {
 	if accessToken == "" {
 		return fmt.Errorf("empty access token")
 	}
-	payload, err := Build1TokenKeepAliveJSONWithModelAndProject("gemini-3-flash", project)
+	if project == "" {
+		project = "aicode-consumers"
+	}
+	payload, err := Build1TokenKeepAliveJSONWithModelAndProject("gemini-3.8-flash-high", project)
 	if err != nil {
 		return err
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	client := &http.Client{Timeout: 5 * time.Second}
 	var lastErr error
 	for _, endpoint := range CloudCodeGenerateContentURLs {
-		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
+		select {
+		case <-probeCtx.Done():
+			return probeCtx.Err()
+		default:
+		}
+
+		req, err := http.NewRequestWithContext(probeCtx, http.MethodPost, endpoint, bytes.NewReader(payload))
 		if err != nil {
 			lastErr = err
 			continue
@@ -201,6 +220,10 @@ func Send1TokenKeepAliveProbeWithProject(accessToken string, project string) err
 
 		if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
 			return nil
+		}
+		// Issue 55: Abort probe loop immediately on 401 or 403 status
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return fmt.Errorf("probe rejected with status %d (aborting fallback endpoints)", resp.StatusCode)
 		}
 		lastErr = fmt.Errorf("endpoint %s returned status %d", endpoint, resp.StatusCode)
 	}
@@ -233,5 +256,9 @@ func IgniteAccountPostReset(acc *keyring.Account, store *keyring.Store) error {
 	if token == "" {
 		return fmt.Errorf("no access token available for account %s", acc.Email)
 	}
-	return Send1TokenKeepAliveProbe(token)
+	project := "aicode-consumers"
+	if pCtx, err := FetchProjectAndTier(token); err == nil && pCtx != nil && pCtx.ProjectID != "" {
+		project = pCtx.ProjectID
+	}
+	return Send1TokenKeepAliveProbeWithProject(token, project)
 }

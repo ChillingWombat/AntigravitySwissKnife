@@ -1206,18 +1206,6 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
                 pending = data.pending_intent;
               } else if (data && (data.cascade_id || data.root_conversation_id)) {
                 pending = data;
-              } else if (data && data.active_session && data.active_session.needs_revival && data.active_session.conversation_id) {
-                pending = {
-                  intent_id: "auto-revive-" + data.active_session.conversation_id + "_" + (data.active_session.last_modified ? new Date(data.active_session.last_modified).getTime() : Date.now()),
-                  root_conversation_id: data.active_session.conversation_id,
-                  cascade_id: data.active_session.conversation_id,
-                  trigger_prompt: "Please continue ongoing tasks and subagents.",
-                  prompt: "Please continue ongoing tasks and subagents.",
-                  timestamp: Date.now(),
-                  ttl_seconds: 600,
-                  resumed: false,
-                  status: "pending"
-                };
               }
             }
           }
@@ -1239,14 +1227,13 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         const convID = pending.root_conversation_id || pending.cascade_id;
         if (!convID || pending.resumed || pending.status === "revived") return;
 
-        const intentKey = pending.intent_id || (convID + "_" + (pending.timestamp || pending.created_at || "0"));
+        const intentKey = pending.intent_id || ("auto-revive-" + convID);
         window.__swissDispatchedIntents = window.__swissDispatchedIntents || {};
         if (window.__swissDispatchedIntents[intentKey]) {
           return;
         }
 
         // Strictly validate convID: reject non-UUID stubs (test-webgui-conv, test, etc.)
-        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         if (!uuidRegex.test(convID)) {
           console.warn("[SwissKnife AutoRevival] Rejecting invalid non-UUID intent:", convID);
           try { localStorage.removeItem("antigravity_swiss_pending_continuation"); } catch (_) {}
@@ -1255,7 +1242,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         }
 
         try {
-          if (sessionStorage.getItem("antigravity_swiss_revived_intent_" + intentKey)) {
+          if (sessionStorage.getItem("antigravity_swiss_revived_intent_" + intentKey) ||
+              sessionStorage.getItem("antigravity_swiss_revived_conv_" + convID)) {
             window.__swissDispatchedIntents[intentKey] = Date.now();
             await ackContinuation(convID);
             return;
@@ -1264,7 +1252,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
         // Check TTL & creation timestamp (default 300s for desktop revival)
         const ttl = (pending.ttl_seconds || 300) * 1000;
-        const createdAt = pending.timestamp ? Number(pending.timestamp) : (pending.created_at ? new Date(pending.created_at).getTime() : 0);
+        const createdAt = pending.created_at ? new Date(pending.created_at).getTime() : (pending.timestamp ? Number(pending.timestamp) : 0);
         if (!createdAt || isNaN(createdAt) || (now - createdAt > ttl) || (createdAt > now + 60000)) {
           try { localStorage.removeItem("antigravity_swiss_pending_continuation"); } catch (_) {}
           await ackContinuation(convID);
@@ -1288,7 +1276,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         }
 
         // If another conversation view is currently generating, retain intent until it finishes
-        const activeGenerating = document.querySelector('[data-testid="agent-generating"], [data-testid="stop-button"]');
+        const activeGenerating = document.querySelector('[data-testid="agent-generating"], [data-testid="stop-button"], button[aria-label*="Stop execution" i], button[aria-label*="Stop Subagent" i]');
         if (activeGenerating && !curPath.startsWith(targetPath)) {
           return;
         }
@@ -1304,32 +1292,80 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             navLink.click();
             return;
           }
+          if (window.__TSR_ROUTER__ && typeof window.__TSR_ROUTER__.navigate === "function") {
+            try {
+              window.__TSR_ROUTER__.navigate({ to: targetPath });
+              return;
+            } catch (_) {}
+          }
           window.location.assign(targetPath);
           return;
         }
 
         // 2. Verify conversation view and input editor are mounted
         const convView = document.querySelector('[data-testid="conversation-view"]');
-        const editor = document.querySelector('[data-testid="agent-input-box"] [contenteditable="true"]') ||
+        const editor = document.querySelector('div[aria-label="Message input"][contenteditable="true"]') ||
+                       document.querySelector('[data-testid="agent-input-box"] [contenteditable="true"]') ||
                        document.querySelector('[data-lexical-editor="true"][contenteditable="true"]') ||
                        document.querySelector('.lexical-container [contenteditable="true"]') ||
                        document.querySelector('[data-testid="chat-input-textarea"]') ||
                        document.querySelector('textarea[placeholder*="Ask"]');
         if (!convView || !editor) return;
 
-        // 3. Verify agent is not actively generating or has queued messages
-        const isBusyOrQueued = Array.from(document.querySelectorAll("*")).some(el =>
-          el.children.length === 0 && (
-            el.textContent.includes("Queued Messages") ||
-            el.textContent.includes("Sends after agent finishes")
+        // 3. Check if conversation is already active: generating, running subagents, or has queued messages
+        const hasQueued = Boolean(
+          document.querySelector('[data-testid="queued-messages-expand-button"]') ||
+          document.querySelector('button[aria-label*="Collapse queued messages" i]') ||
+          document.querySelector('button[aria-label*="Send now:" i]') ||
+          Array.from(document.querySelectorAll("*")).some(el =>
+            el.children.length === 0 && (
+              el.textContent.includes("Queued Messages") ||
+              el.textContent.includes("Sends after agent finishes")
+            )
           )
         );
-        const cancelBtn = document.querySelector('[data-tooltip-id="input-send-button-cancel-tooltip"]');
-        const pendingSend = document.querySelector('[data-testid="send-button-pending"]');
-        const generating = document.querySelector('[data-testid="agent-generating"], [data-testid="stop-button"]');
-        if (isBusyOrQueued || cancelBtn || pendingSend || generating) {
-          // Conversation is currently in progress; wait for it to become idle.
-          // Do not ack or clear interval!
+
+        const hasRunningSubagents = Boolean(
+          document.querySelector('button[aria-label*="Stop Subagent" i]') ||
+          document.querySelector('button[data-tooltip-id^="stop-subagent-"]') ||
+          Array.from(document.querySelectorAll("*")).some(el =>
+            el.children.length === 0 && /(\d+)\s+subagents?\s+running/i.test(el.textContent)
+          )
+        );
+
+        const isGenerating = Boolean(
+          document.querySelector('button[aria-label*="Cancel" i]') ||
+          document.querySelector('button[aria-label*="Stop execution" i]') ||
+          document.querySelector('button[aria-label*="Stop" i]') ||
+          document.querySelector('[data-tooltip-id="input-send-button-cancel-tooltip"]') ||
+          document.querySelector('[data-tooltip-id*="cancel-tooltip"]') ||
+          document.querySelector('[data-tooltip-id*="stop-tooltip"]') ||
+          document.querySelector('[data-testid*="cancel"]') ||
+          document.querySelector('[data-testid*="stop"]') ||
+          document.querySelector('[data-testid="send-button-pending"]') ||
+          document.querySelector('[data-testid="agent-generating"]')
+        );
+
+        if (hasQueued || hasRunningSubagents || isGenerating) {
+          // Conversation is ALREADY active and executing! Do NOT inject or queue continuation prompts!
+          window.__swissDispatchedIntents[intentKey] = Date.now();
+          try {
+            sessionStorage.setItem("antigravity_swiss_revived_intent_" + intentKey, "true");
+            sessionStorage.setItem("antigravity_swiss_revived_conv_" + convID, "true");
+          } catch (_) {}
+
+          // Clean up any accidentally queued duplicate revival prompt
+          const queuedDelBtn = document.querySelector('button[aria-label*="Delete: Please continue ongoing tasks and subagents." i]') ||
+                               document.querySelector('button[aria-label*="Remove: Please continue ongoing tasks and subagents." i]');
+          if (queuedDelBtn) {
+            try {
+              queuedDelBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+              queuedDelBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+              queuedDelBtn.click();
+            } catch (_) {}
+          }
+
+          await ackContinuation(convID);
           return;
         }
 
@@ -1337,7 +1373,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         const triggerPrompt = pending.trigger_prompt !== undefined ? pending.trigger_prompt : (pending.prompt !== undefined ? pending.prompt : "");
         if (!triggerPrompt || triggerPrompt.trim() === '') {
           window.__swissDispatchedIntents[intentKey] = Date.now();
-          try { sessionStorage.setItem("antigravity_swiss_revived_intent_" + intentKey, "true"); } catch (_) {}
+          try {
+            sessionStorage.setItem("antigravity_swiss_revived_intent_" + intentKey, "true");
+            sessionStorage.setItem("antigravity_swiss_revived_conv_" + convID, "true");
+          } catch (_) {}
           await ackContinuation(convID);
           return;
         }
@@ -1346,7 +1385,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         const interactBtn = document.querySelector('[data-testid="interaction-continue-button"]');
         if (interactBtn && !interactBtn.disabled) {
           window.__swissDispatchedIntents[intentKey] = Date.now();
-          try { sessionStorage.setItem("antigravity_swiss_revived_intent_" + intentKey, "true"); } catch (_) {}
+          try {
+            sessionStorage.setItem("antigravity_swiss_revived_intent_" + intentKey, "true");
+            sessionStorage.setItem("antigravity_swiss_revived_conv_" + convID, "true");
+          } catch (_) {}
           autoRevivalInFlight = true;
           interactBtn.click();
           await ackContinuation(convID);
@@ -1361,7 +1403,14 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         if (editor.isContentEditable) {
           const curText = (editor.innerText || "").trim();
           if (curText.length > 0 && !curText.includes(promptText)) {
+            // User is actively typing their own prompt; revival satisfied, protect user draft!
             autoRevivalInFlight = false;
+            window.__swissDispatchedIntents[intentKey] = Date.now();
+            try {
+              sessionStorage.setItem("antigravity_swiss_revived_intent_" + intentKey, "true");
+              sessionStorage.setItem("antigravity_swiss_revived_conv_" + convID, "true");
+            } catch (_) {}
+            await ackContinuation(convID);
             return;
           }
           if (!curText.includes(promptText)) {
@@ -1408,6 +1457,12 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           const curVal = (editor.value || "").trim();
           if (curVal.length > 0 && !curVal.includes(promptText)) {
             autoRevivalInFlight = false;
+            window.__swissDispatchedIntents[intentKey] = Date.now();
+            try {
+              sessionStorage.setItem("antigravity_swiss_revived_intent_" + intentKey, "true");
+              sessionStorage.setItem("antigravity_swiss_revived_conv_" + convID, "true");
+            } catch (_) {}
+            await ackContinuation(convID);
             return;
           }
           if (!curVal.includes(promptText)) {
@@ -1421,35 +1476,164 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         (async () => {
           try {
             await new Promise(r => setTimeout(r, 80));
+
+            // Check before sending that conversation didn't become busy
+            const isCurrentlyBusy = () => Boolean(
+              document.querySelector('button[aria-label*="Cancel" i]') ||
+              document.querySelector('button[aria-label*="Stop execution" i]') ||
+              document.querySelector('button[aria-label*="Stop Subagent" i]') ||
+              document.querySelector('button[aria-label*="Stop" i]') ||
+              document.querySelector('[data-tooltip-id*="cancel-tooltip"]') ||
+              document.querySelector('[data-tooltip-id*="stop-tooltip"]') ||
+              document.querySelector('[data-testid*="cancel"]') ||
+              document.querySelector('[data-testid*="stop"]') ||
+              document.querySelector('[data-testid="queued-messages-expand-button"]') ||
+              Array.from(document.querySelectorAll("*")).some(el =>
+                el.children.length === 0 && /(\d+)\s+subagents?\s+running/i.test(el.textContent)
+              )
+            );
+
+            if (isCurrentlyBusy()) {
+              autoRevivalInFlight = false;
+              window.__swissDispatchedIntents[intentKey] = Date.now();
+              try {
+                sessionStorage.setItem("antigravity_swiss_revived_intent_" + intentKey, "true");
+                sessionStorage.setItem("antigravity_swiss_revived_conv_" + convID, "true");
+              } catch (_) {}
+              await ackContinuation(convID);
+              return;
+            }
+
+            const isEditorCleared = () => {
+              const cur = (editor.isContentEditable ? (editor.innerText || "") : (editor.value || "")).trim();
+              return cur.length === 0 || !cur.includes(promptText);
+            };
+
+            const dispatchEnter = () => {
+              try {
+                editor.focus();
+                const evOpts = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true };
+                editor.dispatchEvent(new KeyboardEvent("keydown", evOpts));
+                editor.dispatchEvent(new KeyboardEvent("keypress", evOpts));
+                editor.dispatchEvent(new KeyboardEvent("keyup", evOpts));
+              } catch (_) {}
+            };
+
+            const submitForm = () => {
+              try {
+                const form = editor.closest('form');
+                if (form) {
+                  if (typeof form.requestSubmit === "function") {
+                    form.requestSubmit();
+                    return true;
+                  } else {
+                    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+                    return true;
+                  }
+                }
+              } catch (_) {}
+              return false;
+            };
+
+            const isCancelOrStop = (btn) => {
+              if (!btn) return true;
+              const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+              const testid = (btn.getAttribute('data-testid') || '').toLowerCase();
+              const tooltip = (btn.getAttribute('data-tooltip-id') || '').toLowerCase();
+              return aria.includes('cancel') || aria.includes('stop') ||
+                testid.includes('cancel') || testid.includes('stop') ||
+                tooltip.includes('cancel') || tooltip.includes('stop');
+            };
+
+            const findSendButton = () => {
+              const direct = document.querySelector('[data-testid="send-button"]') ||
+                document.querySelector('[data-tooltip-id="input-send-button-send-tooltip"]') ||
+                document.querySelector('[data-tooltip-id*="send-tooltip"]') ||
+                document.querySelector('button[aria-label*="Send" i]') ||
+                document.querySelector('button[aria-label*="Submit" i]') ||
+                document.querySelector('.chat-input-toolbar button:last-child');
+              if (direct && !isCancelOrStop(direct)) return direct;
+
+              const container = editor.closest('form') ||
+                editor.closest('.lexical-container')?.parentElement ||
+                editor.closest('[data-testid*="input"]')?.parentElement ||
+                editor.parentElement?.parentElement;
+              if (container) {
+                const btnInContainer = container.querySelector('button[type="submit"]') ||
+                  container.querySelector('button[aria-label*="Send" i]') ||
+                  container.querySelector('[data-testid*="send"]');
+                if (btnInContainer && !isCancelOrStop(btnInContainer)) return btnInContainer;
+              }
+
+              const allButtons = Array.from(document.querySelectorAll('button'));
+              for (const btn of allButtons) {
+                if (isCancelOrStop(btn)) continue;
+                const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+                const testid = (btn.getAttribute('data-testid') || '').toLowerCase();
+                const tooltip = (btn.getAttribute('data-tooltip-id') || '').toLowerCase();
+                if (aria.includes('send') || testid.includes('send') || tooltip.includes('send') || btn.type === 'submit') {
+                  return btn;
+                }
+              }
+              return null;
+            };
+
+            const triggerClick = (btn) => {
+              if (!btn) return false;
+              try {
+                if (btn.disabled) {
+                  btn.disabled = false;
+                  btn.removeAttribute('disabled');
+                }
+                btn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, composed: true }));
+                btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, composed: true }));
+                btn.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, composed: true }));
+                btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, composed: true }));
+                btn.click();
+                return true;
+              } catch (_) {
+                try { btn.click(); return true; } catch (_) { return false; }
+              }
+            };
+
             let sent = false;
-            for (let i = 0; i < 35; i++) {
-              const sendBtn = document.querySelector('[data-testid="send-button"]') ||
-                              document.querySelector('[data-tooltip-id*="send-tooltip"]') ||
-                              document.querySelector('button[aria-label*="Send" i]') ||
-                              document.querySelector('.chat-input-toolbar button:last-child');
-              if (sendBtn && !sendBtn.disabled && !sendBtn.matches('[data-tooltip-id="input-send-button-cancel-tooltip"]')) {
-                sendBtn.click();
+            for (let i = 0; i < 25; i++) {
+              if (isCurrentlyBusy() || isEditorCleared()) {
                 sent = true;
                 break;
               }
-              await new Promise(r => setTimeout(r, 100));
-            }
 
-            if (!sent) {
-              const finalBtn = document.querySelector('[data-testid="send-button"]') ||
-                              document.querySelector('[data-tooltip-id*="send-tooltip"]') ||
-                              document.querySelector('button[aria-label*="Send" i]') ||
-                              document.querySelector('.chat-input-toolbar button:last-child');
-              if (finalBtn && !finalBtn.matches('[data-tooltip-id="input-send-button-cancel-tooltip"]')) {
-                finalBtn.disabled = false;
-                finalBtn.click();
+              const sendBtn = findSendButton();
+              if (sendBtn) {
+                triggerClick(sendBtn);
+              }
+
+              dispatchEnter();
+              submitForm();
+
+              await new Promise(r => setTimeout(r, 80));
+
+              if (isCurrentlyBusy() || isEditorCleared()) {
                 sent = true;
+                break;
               }
             }
 
-            if (sent) {
+            // Clean up any accidentally queued duplicate revival prompt
+            const queuedDelBtn = document.querySelector('button[aria-label*="Delete: Please continue ongoing tasks and subagents." i]') ||
+                                 document.querySelector('button[aria-label*="Remove: Please continue ongoing tasks and subagents." i]');
+            if (queuedDelBtn) {
+              try {
+                triggerClick(queuedDelBtn);
+              } catch (_) {}
+            }
+
+            if (sent || isCurrentlyBusy() || isEditorCleared()) {
               window.__swissDispatchedIntents[intentKey] = Date.now();
-              try { sessionStorage.setItem("antigravity_swiss_revived_intent_" + intentKey, "true"); } catch (_) {}
+              try {
+                sessionStorage.setItem("antigravity_swiss_revived_intent_" + intentKey, "true");
+                sessionStorage.setItem("antigravity_swiss_revived_conv_" + convID, "true");
+              } catch (_) {}
               await ackContinuation(convID);
             }
           } catch (err) {
@@ -1465,13 +1649,20 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       }
     }
 
-    if (!window.__swissRevivalInterval) {
-      window.__swissRevivalInterval = setInterval(checkAndExecuteConversationRevival, 2500);
+    if (window.__swissRevivalInterval) {
+      clearInterval(window.__swissRevivalInterval);
+    }
+    window.__swissRevivalInterval = setInterval(checkAndExecuteConversationRevival, 2500);
+    if (!window.__swissRevivalPopstateBound) {
+      window.__swissRevivalPopstateBound = true;
       window.addEventListener("popstate", () => {
-        setTimeout(checkAndExecuteConversationRevival, 300);
+        if (typeof window.__swissCheckRevival === "function") {
+          setTimeout(window.__swissCheckRevival, 300);
+        }
         setTimeout(renderContextWindowProgressRing, 300);
       }, { passive: true });
     }
+    window.__swissCheckRevival = checkAndExecuteConversationRevival;
 
     let customModelsListCache = null;
     let lastCustomModelsFetchTime = 0;
@@ -1597,11 +1788,11 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             }
             if (data && Array.isArray(data.turns) && data.turns.length > 0) {
               const lastTurn = data.turns[data.turns.length - 1];
-              const turnUsage = (lastTurn.input_tokens || 0) + (lastTurn.output_tokens || 0);
+              const turnUsage = lastTurn.context_tokens || ((lastTurn.input_tokens || 0) + (lastTurn.output_tokens || 0));
               cachedTokensByConv[targetId] = turnUsage;
               renderContextWindowProgressRing();
             } else if (data && data.success) {
-              const sumUsage = data.summary ? ((data.summary.input_tokens || 0) + (data.summary.output_tokens || 0)) : 0;
+              const sumUsage = data.summary ? (data.summary.context_tokens || ((data.summary.input_tokens || 0) + (data.summary.output_tokens || 0))) : 0;
               cachedTokensByConv[targetId] = sumUsage;
               renderContextWindowProgressRing();
             }

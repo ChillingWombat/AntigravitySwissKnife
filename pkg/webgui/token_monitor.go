@@ -89,9 +89,10 @@ type cachedTranscriptStats struct {
 	freshInput      int64
 	cachedInput     int64
 	outputTokens    int64
-	requests        int
-	totalDurationMs int64
-	lastActive      time.Time
+	requests          int
+	totalDurationMs   int64
+	timedOutputTokens int64
+	lastActive        time.Time
 	isSubagent      bool
 	agentRole       string
 	recentSteps     []rawStepEvent
@@ -276,96 +277,145 @@ func parseTranscriptFile(tPath string, info os.FileInfo) cachedTranscriptStats {
 	buf := make([]byte, 0, 128*1024)
 	scanner.Buffer(buf, 4*1024*1024)
 
-	var prevStepTime time.Time
+	type transcriptItem struct {
+		stepIndex       int
+		itemType        string
+		timestamp       time.Time
+		hasTokens       bool
+		inputTokens     int64
+		cacheReadTokens int64
+		outputTokens    int64
+		durationMs      int64
+	}
+
+	var items []transcriptItem
 	for scanner.Scan() {
 		line := scanner.Bytes()
-		if !bytes.Contains(line, []byte("input_tokens")) && !bytes.Contains(line, []byte("output_tokens")) {
-			continue
+		if !stats.isSubagent {
+			if bytes.Contains(line, []byte("subagent_reminder")) ||
+				bytes.Contains(line, []byte("You are running as a subagent")) ||
+				bytes.Contains(line, []byte("You are a pipeline coordinator")) ||
+				bytes.Contains(line, []byte("delegate to your worker subagents")) ||
+				(bytes.Contains(line, []byte("sender=")) && (bytes.Contains(line, []byte("MESSAGE_PRIORITY")) || bytes.Contains(line, []byte("priority=")))) {
+				stats.isSubagent = true
+				stats.agentRole = "Sub-Agent"
+			}
 		}
-		var entry struct {
-			Type                string `json:"type"`
-			StepIndex           int    `json:"step_index"`
-			CreatedAt           string `json:"created_at"`
-			ThinkingDuration    string `json:"thinking_duration"`
-			ThinkingDurationOld string `json:"thinking_Duration"`
-			DurationMs          int64  `json:"duration_ms"`
-			InputTokens         int64  `json:"input_tokens"`
-			OutputTokens        int64  `json:"output_tokens"`
-			CacheReadTokens     int64  `json:"cache_read_tokens"`
-		}
-		if err := json.Unmarshal(line, &entry); err != nil {
-			continue
-		}
-		if bytes.Contains(line, []byte("invoke_subagent")) {
-			stats.isSubagent = false
+		if bytes.Contains(line, []byte("invoke_subagent")) && !stats.isSubagent {
 			stats.agentRole = "Main Agent"
-		} else if bytes.Contains(line, []byte("subagent_reminder")) {
-			stats.isSubagent = true
-			stats.agentRole = "Sub-Agent"
-		}
-		if entry.InputTokens <= 0 && entry.OutputTokens <= 0 && entry.CacheReadTokens <= 0 {
-			continue
 		}
 
-		stats.freshInput += entry.InputTokens
-		stats.cachedInput += entry.CacheReadTokens
-		stats.outputTokens += entry.OutputTokens
-		stats.requests++
-
-		stepTime := info.ModTime()
-		if entry.CreatedAt != "" {
-			if t, err := time.Parse(time.RFC3339Nano, entry.CreatedAt); err == nil {
-				stepTime = t
-				if t.After(stats.lastActive) {
-					stats.lastActive = t
-				}
-			} else if t, err := time.Parse(time.RFC3339, entry.CreatedAt); err == nil {
-				stepTime = t
-				if t.After(stats.lastActive) {
-					stats.lastActive = t
+		var lineTime struct {
+			CreatedAt string `json:"created_at"`
+		}
+		var parsedTime time.Time
+		if bytes.Contains(line, []byte("created_at")) {
+			if err := json.Unmarshal(line, &lineTime); err == nil && lineTime.CreatedAt != "" {
+				if t, err := time.Parse(time.RFC3339Nano, lineTime.CreatedAt); err == nil {
+					parsedTime = t
+				} else if t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", lineTime.CreatedAt); err == nil {
+					parsedTime = t
+				} else if t, err := time.Parse(time.RFC3339, lineTime.CreatedAt); err == nil {
+					parsedTime = t
 				}
 			}
+		}
+		if parsedTime.IsZero() {
+			parsedTime = info.ModTime()
+		}
+		if parsedTime.After(stats.lastActive) {
+			stats.lastActive = parsedTime
+		}
+
+		hasTokens := bytes.Contains(line, []byte("input_tokens")) || bytes.Contains(line, []byte("output_tokens")) || bytes.Contains(line, []byte("cache_read_tokens"))
+		var entry struct {
+			Type            string `json:"type"`
+			StepIndex       int    `json:"step_index"`
+			DurationMs      int64  `json:"duration_ms"`
+			InputTokens     int64  `json:"input_tokens"`
+			OutputTokens    int64  `json:"output_tokens"`
+			CacheReadTokens int64  `json:"cache_read_tokens"`
+		}
+		if hasTokens {
+			if err := json.Unmarshal(line, &entry); err == nil {
+				if entry.InputTokens > 0 || entry.OutputTokens > 0 || entry.CacheReadTokens > 0 {
+					stats.freshInput += entry.InputTokens
+					stats.cachedInput += entry.CacheReadTokens
+					stats.outputTokens += entry.OutputTokens
+					stats.requests++
+
+					items = append(items, transcriptItem{
+						stepIndex:       entry.StepIndex,
+						itemType:        entry.Type,
+						timestamp:       parsedTime,
+						hasTokens:       true,
+						inputTokens:     entry.InputTokens,
+						cacheReadTokens: entry.CacheReadTokens,
+						outputTokens:    entry.OutputTokens,
+						durationMs:      entry.DurationMs,
+					})
+					continue
+				}
+			}
+		}
+
+		items = append(items, transcriptItem{
+			stepIndex: entry.StepIndex,
+			itemType:  entry.Type,
+			timestamp: parsedTime,
+			hasTokens: false,
+		})
+	}
+
+	for i := 0; i < len(items); i++ {
+		item := items[i]
+		if !item.hasTokens {
+			continue
 		}
 
 		var durMs int64
-		if entry.ThinkingDuration != "" {
-			if d, err := time.ParseDuration(entry.ThinkingDuration); err == nil && d > 0 {
-				durMs = d.Milliseconds()
-			}
-		} else if entry.ThinkingDurationOld != "" {
-			if d, err := time.ParseDuration(entry.ThinkingDurationOld); err == nil && d > 0 {
-				durMs = d.Milliseconds()
+		if item.durationMs > 0 {
+			durMs = item.durationMs
+		} else if item.outputTokens > 0 {
+			// Forward lookahead interval: nextStepTime.Sub(curStepTime) measuring actual streaming response duration
+			for j := i + 1; j < len(items) && j <= i+6; j++ {
+				nextItem := items[j]
+				if nextItem.timestamp.After(item.timestamp) {
+					diff := nextItem.timestamp.Sub(item.timestamp).Milliseconds()
+					if diff >= 200 && diff <= 600000 {
+						impliedTPS := float64(item.outputTokens) / (float64(diff) / 1000.0)
+						if impliedTPS >= 3.0 && impliedTPS <= 350.0 {
+							durMs = diff
+							break
+						}
+					}
+				}
 			}
 		}
-		if durMs <= 0 && entry.DurationMs > 0 {
-			durMs = entry.DurationMs
-		}
-		if durMs <= 0 && !prevStepTime.IsZero() && stepTime.After(prevStepTime) {
-			diff := stepTime.Sub(prevStepTime).Milliseconds()
-			if diff >= 200 && diff <= 120000 {
-				durMs = diff
-			}
-		}
-		prevStepTime = stepTime
 
-		if durMs <= 0 && entry.OutputTokens > 0 {
-			// Estimate realistic execution duration with natural variance based on token volume
-			speedBase := 75.0 + math.Mod(float64(entry.OutputTokens)*1.37, 35.0)
-			durMs = int64(math.Round(float64(entry.OutputTokens) / speedBase * 1000.0))
-			if durMs < 50 {
-				durMs = 50
+		if durMs > 0 && item.outputTokens > 0 {
+			rawTPS := float64(item.outputTokens) / (float64(durMs) / 1000.0)
+			if rawTPS >= 3.0 && rawTPS <= 350.0 {
+				stats.totalDurationMs += durMs
+				stats.timedOutputTokens += item.outputTokens
+			} else if rawTPS > 350.0 {
+				// Bound realistic generation speed
+				clampedDurMs := int64(math.Ceil(float64(item.outputTokens) / 220.0 * 1000.0))
+				durMs = clampedDurMs
+				stats.totalDurationMs += clampedDurMs
+				stats.timedOutputTokens += item.outputTokens
+			} else {
+				// unmeasured / stalled step (< 3 TPS)
+				durMs = 0
 			}
-		}
-		if durMs > 0 {
-			stats.totalDurationMs += durMs
 		}
 
 		stats.recentSteps = append(stats.recentSteps, rawStepEvent{
-			stepIndex:   entry.StepIndex,
-			createdAt:   stepTime,
-			freshInput:  entry.InputTokens,
-			cachedInput: entry.CacheReadTokens,
-			output:      entry.OutputTokens,
+			stepIndex:   item.stepIndex,
+			createdAt:   item.timestamp,
+			freshInput:  item.inputTokens,
+			cachedInput: item.cacheReadTokens,
+			output:      item.outputTokens,
 			durationMs:  durMs,
 		})
 		if len(stats.recentSteps) > 15 {
@@ -676,8 +726,15 @@ func resolveProjectFromURI(uris []string) (projectName, workspacePath string) {
 	return "Unassigned Sessions", "local://unassigned"
 }
 
-func readConversationWorkspaceMap(summariesDB string) map[string][]string {
-	out := make(map[string][]string)
+type conversationSummaryMeta struct {
+	workspaceURIs []string
+	parentConvID  string
+	nestingDepth  int
+	agentName     string
+}
+
+func readConversationMetadataMap(summariesDB string) map[string]conversationSummaryMeta {
+	out := make(map[string]conversationSummaryMeta)
 	if _, err := os.Stat(summariesDB); err != nil {
 		return out
 	}
@@ -687,15 +744,16 @@ func readConversationWorkspaceMap(summariesDB string) map[string][]string {
 	}
 	defer db.Close()
 
-	rows, err := db.Query("SELECT conversation_id, COALESCE(workspace_uris, '') FROM conversation_summaries")
+	rows, err := db.Query("SELECT conversation_id, COALESCE(workspace_uris, ''), COALESCE(parent_conversation_id, ''), nesting_depth, COALESCE(agent_name, '') FROM conversation_summaries")
 	if err != nil {
 		return out
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var convID, urisJSON string
-		if err := rows.Scan(&convID, &urisJSON); err != nil || convID == "" {
+		var convID, urisJSON, parentConvID, agentName string
+		var nestingDepth int
+		if err := rows.Scan(&convID, &urisJSON, &parentConvID, &nestingDepth, &agentName); err != nil || convID == "" {
 			continue
 		}
 		var uris []string
@@ -704,7 +762,21 @@ func readConversationWorkspaceMap(summariesDB string) map[string][]string {
 				uris = []string{urisJSON}
 			}
 		}
-		out[convID] = uris
+		out[convID] = conversationSummaryMeta{
+			workspaceURIs: uris,
+			parentConvID:  parentConvID,
+			nestingDepth:  nestingDepth,
+			agentName:     agentName,
+		}
+	}
+	return out
+}
+
+func readConversationWorkspaceMap(summariesDB string) map[string][]string {
+	meta := readConversationMetadataMap(summariesDB)
+	out := make(map[string][]string, len(meta))
+	for k, v := range meta {
+		out[k] = v.workspaceURIs
 	}
 	return out
 }
@@ -750,7 +822,7 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 	brainDir := filepath.Join(dataDir, "brain")
 	convDir := filepath.Join(dataDir, "conversations")
 	summariesDB := filepath.Join(dataDir, "conversation_summaries.db")
-	workspaceMap := readConversationWorkspaceMap(summariesDB)
+	metaMap := readConversationMetadataMap(summariesDB)
 
 	// Build lookup map of pricing records by lowercase ModelID
 	pricingByModel := make(map[string]custommodels.ModelPricingRecord, len(pricingRecords))
@@ -857,9 +929,30 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			// Resolve project workspace from conversation_summaries.db
-			uris := workspaceMap[convID]
+			// Resolve project workspace and agent role from conversation_summaries.db
+			meta := metaMap[convID]
+			uris := meta.workspaceURIs
 			projName, projPath := resolveProjectFromURI(uris)
+
+			isSub := tStats.isSubagent
+			agentRole := tStats.agentRole
+			if meta, ok := metaMap[convID]; ok {
+				if meta.parentConvID != "" || meta.nestingDepth > 0 || meta.agentName != "" {
+					isSub = true
+					if meta.agentName != "" {
+						agentRole = meta.agentName
+					} else if agentRole == "" || agentRole == "Main Agent" {
+						agentRole = "Sub-Agent"
+					}
+				} else {
+					isSub = false
+					agentRole = "Main Agent"
+				}
+			} else {
+				if !isSub && agentRole == "" {
+					agentRole = "Main Agent"
+				}
+			}
 
 			// Resolve actual model from transcript or conversations/<convID>.db
 			convDBPath := filepath.Join(convDir, convID+".db")
@@ -946,9 +1039,9 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 			totalCostUSD += convCost
 			totalSavedUSD += convSaved
 			totalRequests += tStats.requests
-			if tStats.totalDurationMs > 0 {
+			if tStats.totalDurationMs > 0 && tStats.timedOutputTokens > 0 {
 				totalDurationMs += tStats.totalDurationMs
-				totalTimedOutputTokens += tStats.outputTokens
+				totalTimedOutputTokens += tStats.timedOutputTokens
 			}
 
 			// Aggregate by Model
@@ -972,9 +1065,9 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 			ma.requests += tStats.requests
 			ma.costUSD += convCost
 			ma.savedUSD += convSaved
-			if tStats.totalDurationMs > 0 {
+			if tStats.totalDurationMs > 0 && tStats.timedOutputTokens > 0 {
 				ma.durationMs += tStats.totalDurationMs
-				ma.timedOutput += tStats.outputTokens
+				ma.timedOutput += tStats.timedOutputTokens
 			}
 
 			// Aggregate by Project
@@ -1021,8 +1114,8 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 					classification:  pRec.Classification,
 					costUSD:         stepCost,
 					priceConfigured: priceConfigured,
-					isSubagent:      tStats.isSubagent,
-					agentRole:       tStats.agentRole,
+					isSubagent:      isSub,
+					agentRole:       agentRole,
 				})
 			}
 		}
@@ -1057,7 +1150,11 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 		}
 		avgTPS := 0.0
 		if ma.durationMs > 0 && ma.timedOutput > 0 {
-			avgTPS = math.Round((float64(ma.timedOutput)/(float64(ma.durationMs)/1000.0))*10) / 10
+			rawTPS := float64(ma.timedOutput) / (float64(ma.durationMs) / 1000.0)
+			if rawTPS > 350.0 {
+				rawTPS = 350.0
+			}
+			avgTPS = math.Round(rawTPS*10) / 10
 		}
 		modelBreakdowns = append(modelBreakdowns, TokenModelBreakdown{
 			InternalID:       ma.internalID,
@@ -1142,9 +1239,11 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 	for idx, st := range allRecentSteps {
 		tps := 0.0
 		if st.durationMs > 0 && st.output > 0 {
-			tps = math.Round((float64(st.output)/(float64(st.durationMs)/1000.0))*10) / 10
-		} else if st.output > 0 {
-			tps = math.Round((75.0+math.Mod(float64(st.output)*1.37, 35.0))*10) / 10
+			rawTPS := float64(st.output) / (float64(st.durationMs) / 1000.0)
+			if rawTPS > 350.0 {
+				rawTPS = 350.0
+			}
+			tps = math.Round(rawTPS*10) / 10
 		}
 		tsStr := st.createdAt.Local().Format("2006-01-02 15:04:05")
 		telemetryEvents = append(telemetryEvents, TokenTelemetryEvent{
@@ -1170,7 +1269,11 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 
 	avgTPS := 0.0
 	if totalDurationMs > 0 && totalTimedOutputTokens > 0 {
-		avgTPS = math.Round((float64(totalTimedOutputTokens)/(float64(totalDurationMs)/1000.0))*10) / 10
+		rawTPS := float64(totalTimedOutputTokens) / (float64(totalDurationMs) / 1000.0)
+		if rawTPS > 350.0 {
+			rawTPS = 350.0
+		}
+		avgTPS = math.Round(rawTPS*10) / 10
 	} else if len(telemetryEvents) > 0 {
 		sum := 0.0
 		count := 0
@@ -1181,7 +1284,11 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if count > 0 {
-			avgTPS = math.Round((sum/float64(count))*10) / 10
+			rawTPS := sum / float64(count)
+			if rawTPS > 350.0 {
+				rawTPS = 350.0
+			}
+			avgTPS = math.Round(rawTPS*10) / 10
 		}
 	}
 
@@ -1296,6 +1403,7 @@ type ChatMetricsTurn struct {
 	InputTokens   int64   `json:"input_tokens"`
 	OutputTokens  int64   `json:"output_tokens"`
 	CachedTokens  int64   `json:"cached_tokens"`
+	ContextTokens int64   `json:"context_tokens,omitempty"`
 	CacheHitRatio float64 `json:"cache_hit_ratio"`
 	SpeedTPS      float64 `json:"speed_tps"`
 }
@@ -1305,6 +1413,7 @@ type ChatMetricsSummary struct {
 	InputTokens     int64   `json:"input_tokens"`
 	OutputTokens    int64   `json:"output_tokens"`
 	CachedTokens    int64   `json:"cached_tokens"`
+	ContextTokens   int64   `json:"context_tokens,omitempty"`
 	CacheHitRatio   float64 `json:"cache_hit_ratio"`
 	GenerationSpeed float64 `json:"generation_speed"`
 }
@@ -1353,7 +1462,7 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 		CreatedAt        string `json:"created_at"`
 	}
 
-	var lastCreated time.Time
+	var parsedSteps []jsonStep
 	for _, l := range lines {
 		l = strings.TrimSpace(l)
 		if l == "" {
@@ -1363,22 +1472,81 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 		if err := json.Unmarshal([]byte(l), &st); err != nil {
 			continue
 		}
+		parsedSteps = append(parsedSteps, st)
+	}
 
+	type turnAcc struct {
+		startStepIndex int
+		inputTokens    int64
+		cachedTokens   int64
+		outputTokens   int64
+		contextTokens  int64
+		durationMs     int64
+		stepCount      int
+	}
+
+	var curTurn turnAcc
+	flushTurn := func() {
+		if curTurn.stepCount == 0 {
+			return
+		}
+		turnInput := curTurn.inputTokens
+		hitRatio := 0.0
+		if turnInput > 0 {
+			hitRatio = math.Round((float64(curTurn.cachedTokens)/float64(turnInput)*100.0)*10) / 10
+		}
+		tps := 0.0
+		if curTurn.durationMs > 0 && curTurn.outputTokens > 0 {
+			rawTPS := float64(curTurn.outputTokens) / (float64(curTurn.durationMs) / 1000.0)
+			if rawTPS > 350.0 {
+				rawTPS = 350.0
+			}
+			tps = math.Round(rawTPS*10) / 10
+		}
+		turns = append(turns, ChatMetricsTurn{
+			StepIndex:     curTurn.startStepIndex,
+			InputTokens:   turnInput,
+			OutputTokens:  curTurn.outputTokens,
+			CachedTokens:  curTurn.cachedTokens,
+			ContextTokens: curTurn.contextTokens,
+			CacheHitRatio: hitRatio,
+			SpeedTPS:      tps,
+		})
+		curTurn = turnAcc{}
+	}
+
+	var lastCreated time.Time
+	for i := 0; i < len(parsedSteps); i++ {
+		st := parsedSteps[i]
 		curTime, _ := time.Parse(time.RFC3339Nano, st.CreatedAt)
 		if curTime.IsZero() {
 			curTime, _ = time.Parse("2006-01-02 15:04:05.999999999-07:00", st.CreatedAt)
+		}
+		if curTime.IsZero() {
+			curTime, _ = time.Parse(time.RFC3339, st.CreatedAt)
+		}
+
+		// Turn boundary: User messages or external turn initiators finalize the prior assistant turn
+		if st.Source == "USER_EXPLICIT" || st.Type == "USER_INPUT" || strings.Contains(st.Source, "USER") {
+			flushTurn()
+			if !curTime.IsZero() {
+				lastCreated = curTime
+			}
+			continue
+		}
+		if (st.Source == "SYSTEM" || st.Source == "SYSTEM_SDK") && st.Type == "SYSTEM_MESSAGE" && curTurn.stepCount > 0 {
+			flushTurn()
+			if !curTime.IsZero() {
+				lastCreated = curTime
+			}
+			continue
 		}
 
 		if st.Source == "MODEL" && st.Type == "PLANNER_RESPONSE" {
 			inFresh := st.InputTokens
 			cached := st.CacheReadTokens
 			out := st.OutputTokens
-			turnInput := inFresh + cached
-
-			hitRatio := 0.0
-			if turnInput > 0 {
-				hitRatio = math.Round((float64(cached)/float64(turnInput)*100.0)*10) / 10
-			}
+			stepInput := inFresh + cached
 
 			durMs := st.DurationMs
 			if durMs <= 0 && st.ThinkingDuration != "" {
@@ -1386,30 +1554,62 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 					durMs = d.Milliseconds()
 				}
 			}
-			if durMs <= 0 && !lastCreated.IsZero() && !curTime.IsZero() {
+			// 1. Prior-step interval (step-completion timestamping convention)
+			if durMs <= 0 && !lastCreated.IsZero() && !curTime.IsZero() && curTime.After(lastCreated) {
 				diff := curTime.Sub(lastCreated).Milliseconds()
-				if diff > 100 && diff < 300000 {
+				if diff >= 200 && diff <= 600000 {
 					durMs = diff
 				}
 			}
+			// 2. Next-step lookahead interval (step-start timestamping convention)
+			if durMs <= 0 && !curTime.IsZero() && i+1 < len(parsedSteps) {
+				nextSt := parsedSteps[i+1]
+				nextTime, _ := time.Parse(time.RFC3339Nano, nextSt.CreatedAt)
+				if nextTime.IsZero() {
+					nextTime, _ = time.Parse("2006-01-02 15:04:05.999999999-07:00", nextSt.CreatedAt)
+				}
+				if nextTime.IsZero() {
+					nextTime, _ = time.Parse(time.RFC3339, nextSt.CreatedAt)
+				}
+				if !nextTime.IsZero() && nextTime.After(curTime) {
+					diffNext := nextTime.Sub(curTime).Milliseconds()
+					isNextUser := nextSt.Source == "USER_EXPLICIT" || nextSt.Type == "USER_INPUT" || strings.Contains(nextSt.Source, "USER")
+					if !isNextUser {
+						// Autonomous intermediate step (tool execution)
+						if diffNext >= 200 && diffNext <= 600000 {
+							durMs = diffNext
+						}
+					} else {
+						// Final step followed by user response: count if within 2 minutes and plausible speed
+						if diffNext >= 200 && diffNext <= 120000 && out > 0 {
+							impliedTPS := float64(out) / (float64(diffNext) / 1000.0)
+							if impliedTPS >= 3.0 && impliedTPS <= 350.0 {
+								durMs = diffNext
+							}
+						}
+					}
+				}
+			}
 
-			tps := 0.0
+			if curTurn.stepCount == 0 {
+				curTurn.startStepIndex = st.StepIndex
+			}
+			// Prompt tokens of the turn represent the active prompt context of the latest step in this turn
+			curTurn.inputTokens = stepInput
+			curTurn.cachedTokens = cached
+			curTurn.outputTokens += out
+			curTurn.contextTokens = stepInput + out
+			curTurn.stepCount++
+			if durMs > 0 {
+				curTurn.durationMs += durMs
+			}
+
 			if durMs > 0 && out > 0 {
-				tps = math.Round((float64(out)/(float64(durMs)/1000.0))*10) / 10
 				totalDurationMs += durMs
 				totalTimedOut += out
 			}
 
-			turns = append(turns, ChatMetricsTurn{
-				StepIndex:     st.StepIndex,
-				InputTokens:   turnInput,
-				OutputTokens:  out,
-				CachedTokens:  cached,
-				CacheHitRatio: hitRatio,
-				SpeedTPS:      tps,
-			})
-
-			totalIn += turnInput
+			totalIn += stepInput
 			totalOut += out
 			totalCached += cached
 		}
@@ -1418,6 +1618,7 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 			lastCreated = curTime
 		}
 	}
+	flushTurn()
 
 	// If aggregated scope is requested, accumulate subagents
 	if strings.EqualFold(scope, "aggregated") {
@@ -1462,7 +1663,11 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 
 	overallSpeed := 0.0
 	if totalDurationMs > 0 && totalTimedOut > 0 {
-		overallSpeed = math.Round((float64(totalTimedOut)/(float64(totalDurationMs)/1000.0))*10) / 10
+		rawSpeed := float64(totalTimedOut) / (float64(totalDurationMs) / 1000.0)
+		if rawSpeed > 220.0 {
+			rawSpeed = 220.0
+		}
+		overallSpeed = math.Round(rawSpeed*10) / 10
 	} else if len(turns) > 0 {
 		sum := 0.0
 		count := 0
@@ -1473,8 +1678,17 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 			}
 		}
 		if count > 0 {
-			overallSpeed = math.Round((sum/float64(count))*10) / 10
+			rawSpeed := sum / float64(count)
+			if rawSpeed > 220.0 {
+				rawSpeed = 220.0
+			}
+			overallSpeed = math.Round(rawSpeed*10) / 10
 		}
+	}
+
+	var latestContext int64
+	if len(turns) > 0 {
+		latestContext = turns[len(turns)-1].ContextTokens
 	}
 
 	return &ChatMetricsResponse{
@@ -1485,6 +1699,7 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 			InputTokens:     totalIn,
 			OutputTokens:    totalOut,
 			CachedTokens:    totalCached,
+			ContextTokens:   latestContext,
 			CacheHitRatio:   overallHitRatio,
 			GenerationSpeed: overallSpeed,
 		},

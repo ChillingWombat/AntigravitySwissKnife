@@ -60,3 +60,59 @@ func TestIPCServerAndClientRoundtrip(t *testing.T) {
 		t.Errorf("expected error for nonexistent method")
 	}
 }
+
+func TestValidateIDE(t *testing.T) {
+	validCases := []struct {
+		input    string
+		expected string
+	}{
+		{"antigravity", "antigravity"},
+		{"code", "code"},
+		{"vscode", "code"},
+		{"cursor", "cursor"},
+		{"windsurf", "windsurf"},
+		{"trae", "trae"},
+		{"vscodium", "vscodium"},
+		{"codium", "codium"},
+		{"zed", "zed"},
+		{"", "code"},
+		{"  cursor  ", "cursor"},
+		{"code.exe", "code"},
+	}
+
+	for _, tc := range validCases {
+		res, err := ValidateIDE(tc.input)
+		if err != nil {
+			t.Errorf("ValidateIDE(%q) unexpected error: %v", tc.input, err)
+		}
+		if res != tc.expected {
+			t.Errorf("ValidateIDE(%q) = %q, want %q", tc.input, res, tc.expected)
+		}
+		if !IsAllowedIDE(tc.input) {
+			t.Errorf("IsAllowedIDE(%q) = false, want true", tc.input)
+		}
+	}
+
+	invalidCases := []string{
+		"echo-pwned-marker",
+		"rm -rf /",
+		"code; rm -rf /",
+		"code && malicious",
+		"code | cat",
+		"`id`",
+		"$(whoami)",
+		"/usr/bin/python",
+		"evil_ide",
+	}
+
+	for _, input := range invalidCases {
+		res, err := ValidateIDE(input)
+		if err == nil {
+			t.Errorf("ValidateIDE(%q) expected error, got %q", input, res)
+		}
+		if IsAllowedIDE(input) {
+			t.Errorf("IsAllowedIDE(%q) = true, want false", input)
+		}
+	}
+}
+

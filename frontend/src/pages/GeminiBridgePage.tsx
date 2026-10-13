@@ -8,24 +8,20 @@ import {
   Send,
   RefreshCw,
   ShieldCheck,
-  Globe,
-  Wrench,
-  Clock,
   Laptop,
   Code2,
   KeyRound,
   Network,
   Play,
   Square,
-  Sparkles,
   Bot,
   Layers,
   FileText,
   ChevronDown,
   ChevronUp,
-  Power,
 } from 'lucide-react'
 import { api } from '../api'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 
 interface BridgeStatusData {
   enabled: boolean
@@ -128,16 +124,19 @@ export const GeminiBridgePage: React.FC = () => {
     return () => clearInterval(timer)
   }, [])
 
+  const [actionFeedback, setActionFeedback] = useState<{ text: string; isError: boolean } | null>(null)
+
   const handleTestConnection = async () => {
     try {
       setTestingConnection(true)
+      setActionFeedback(null)
       const res = await api.testBridgeConnection()
       if (res && res.status) {
         setStatus(res.status)
       }
-      setDispatchResult(res.message || 'Connection verified')
+      setActionFeedback({ text: res?.message || 'Gemini Bridge connection verified successfully.', isError: false })
     } catch (err: any) {
-      setDispatchResult(`Verification failed: ${err?.message || 'Network error'}`)
+      setActionFeedback({ text: `Verification failed: ${err?.message || 'Network error'}`, isError: true })
     } finally {
       setTestingConnection(false)
     }
@@ -152,14 +151,19 @@ export const GeminiBridgePage: React.FC = () => {
       } else {
         loadStatus()
       }
+      setActionFeedback({
+        text: next ? 'Gemini Bridge enabled.' : 'Gemini Bridge disabled.',
+        isError: false,
+      })
     } catch (err: any) {
-      alert(`Failed to toggle Gemini Bridge: ${err?.message || 'Unknown error'}`)
+      setActionFeedback({ text: `Failed to toggle Gemini Bridge: ${err?.message || 'Unknown error'}`, isError: true })
     }
   }
 
   const handleStartTunnel = async () => {
     try {
       setTunnelActionLoading(true)
+      setActionFeedback(null)
       const res = await api.startBridgeTunnel({
         type: tunnelType,
         custom_url: customTunnelURL,
@@ -169,8 +173,9 @@ export const GeminiBridgePage: React.FC = () => {
       } else {
         loadStatus()
       }
+      setActionFeedback({ text: 'Remote access tunnel started successfully.', isError: false })
     } catch (err: any) {
-      alert(`Tunnel failed to start: ${err?.message || 'Unknown error'}`)
+      setActionFeedback({ text: `Tunnel failed to start: ${err?.message || 'Unknown error'}`, isError: true })
     } finally {
       setTunnelActionLoading(false)
     }
@@ -179,33 +184,34 @@ export const GeminiBridgePage: React.FC = () => {
   const handleStopTunnel = async () => {
     try {
       setTunnelActionLoading(true)
+      setActionFeedback(null)
       const res = await api.stopBridgeTunnel()
       if (res?.status) {
         setStatus(res.status)
       } else {
         loadStatus()
       }
+      setActionFeedback({ text: 'Remote access tunnel stopped.', isError: false })
     } catch (err: any) {
-      alert(`Failed to stop tunnel: ${err?.message || 'Unknown error'}`)
+      setActionFeedback({ text: `Failed to stop tunnel: ${err?.message || 'Unknown error'}`, isError: true })
     } finally {
       setTunnelActionLoading(false)
     }
   }
 
   const handleRotateCredentials = async () => {
-    if (!confirm('Rotate bridge authentication token and pairing PIN? Remote clients must be updated with the new credentials.')) {
-      return
-    }
     try {
       setRotatingAuth(true)
+      setActionFeedback(null)
       const res = await api.rotateBridgeToken()
       if (res?.status) {
         setStatus(res.status)
       } else {
         loadStatus()
       }
+      setActionFeedback({ text: 'Bridge credentials rotated successfully. Update your remote client configuration.', isError: false })
     } catch (err: any) {
-      alert(`Credential rotation failed: ${err?.message || 'Unknown error'}`)
+      setActionFeedback({ text: `Credential rotation failed: ${err?.message || 'Unknown error'}`, isError: true })
     } finally {
       setRotatingAuth(false)
     }
@@ -214,6 +220,7 @@ export const GeminiBridgePage: React.FC = () => {
   const handleSetMode = async (newMode: string) => {
     try {
       setModeLoading(true)
+      setActionFeedback(null)
       const res = await api.setBridgeMode(newMode)
       if (res?.status) {
         setStatus(res.status)
@@ -221,7 +228,7 @@ export const GeminiBridgePage: React.FC = () => {
         loadStatus()
       }
     } catch (err: any) {
-      alert(`Failed to set mode: ${err?.message || 'Unknown error'}`)
+      setActionFeedback({ text: `Failed to set mode: ${err?.message || 'Unknown error'}`, isError: true })
     } finally {
       setModeLoading(false)
     }
@@ -283,120 +290,123 @@ export const GeminiBridgePage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* 1. Header & Live Gateway Status */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          border: '1px solid var(--border)',
-          borderRadius: '10px',
-          padding: '20px',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+      {/* 1. Overview, Live Status & Enable Toggle */}
+      <div className="google-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
-              <Radio size={18} color="var(--primary)" />
-              <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
-                Gemini Bridge (F41 / M15)
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                Gemini Agent Chat Bridge
+              </h2>
+              <span className={`badge-chip ${status?.enabled ? 'badge-green' : 'badge-neutral'}`}>
+                {status?.enabled ? 'Online' : 'Disabled'}
               </span>
-              <span
-                style={{
-                  backgroundColor: status?.enabled ? '#e6f4ea' : '#fce8e6',
-                  color: status?.enabled ? '#137333' : '#c5221f',
-                  padding: '2px 8px',
-                  borderRadius: '10px',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {status?.enabled ? 'Online (Streamable HTTP)' : 'Disabled'}
-              </span>
-              <span
-                style={{
-                  backgroundColor: isTunnelActive ? '#e8f0fe' : '#f1f3f4',
-                  color: isTunnelActive ? '#1a73e8' : '#5f6368',
-                  padding: '2px 8px',
-                  borderRadius: '10px',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {isTunnelActive ? `Remote Internet: ${status?.tunnel?.type.toUpperCase()}` : 'Local Intranet Only'}
-              </span>
-              <span
-                style={{
-                  backgroundColor: '#fef7e0',
-                  color: '#b06000',
-                  padding: '2px 8px',
-                  borderRadius: '10px',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                Mode: {currentMode.toUpperCase()}
+              <span className={`badge-chip ${isTunnelActive ? 'badge-blue' : 'badge-neutral'}`}>
+                {isTunnelActive ? (status?.tunnel?.type || 'tunnel').toUpperCase() : 'Loopback'}
               </span>
             </div>
-            <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>
-              Two-way agent orchestration connecting Gemini App / Web (Gemini Spark) to local Antigravity surfaces across account rotations.
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+              Two-way agent orchestration connecting Gemini App / Web to local Antigravity surfaces across account rotations.
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <button
               onClick={handleTestConnection}
               disabled={testingConnection}
-              style={{
-                backgroundColor: 'transparent',
-                border: '1px solid var(--border)',
-                borderRadius: '6px',
-                padding: '6px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
-                color: 'var(--text)',
-                cursor: testingConnection ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                whiteSpace: 'nowrap',
-              }}
+              className="btn-pill-tonal"
             >
-              <RefreshCw size={13} className={testingConnection ? 'animate-spin' : ''} />
-              Verify Connection
+              <RefreshCw size={14} className={testingConnection ? 'animate-spin' : ''} />
+              <span>Verify Bridge</span>
             </button>
-            <button
-              onClick={handleToggleEnable}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '6px 14px',
-                borderRadius: '6px',
-                border: 'none',
-                fontSize: '12px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                backgroundColor: status?.enabled ? '#fee2e2' : 'var(--primary-container)',
-                color: status?.enabled ? '#b91c1c' : 'var(--primary)',
-              }}
-            >
-              <Power size={13} />
-              {status?.enabled ? 'Disable Bridge' : 'Enable Bridge'}
-            </button>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
+              <span style={{ whiteSpace: 'nowrap' }}>Enable Bridge</span>
+              <ToggleSwitch
+                checked={Boolean(status?.enabled)}
+                onChange={handleToggleEnable}
+              />
+            </label>
+          </div>
+        </div>
+
+        {actionFeedback && (
+          <div
+            style={{
+              padding: '10px 14px',
+              borderRadius: '8px',
+              border: `1px solid ${actionFeedback.isError ? '#fecaca' : '#bbf7d0'}`,
+              backgroundColor: actionFeedback.isError ? 'var(--red-bg)' : 'var(--green-bg)',
+              fontSize: '12px',
+              color: actionFeedback.isError ? 'var(--red)' : 'var(--green)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              marginBottom: '16px',
+            }}
+          >
+            {actionFeedback.isError ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />}
+            <span>{actionFeedback.text}</span>
+          </div>
+        )}
+
+        {/* Status Metrics Grid (harmonized with Remote, WhatsApp, Telegram, Discord, and BrainCache) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '16px' }}>
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              Gateway Status
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: status?.enabled ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
+              {status?.enabled ? 'Streamable HTTP' : 'Standby'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Port 8765 MCP Server
+            </div>
+          </div>
+
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              Operating Mode
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
+              {currentMode.toUpperCase()}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Direct / Lead / Hybrid
+            </div>
+          </div>
+
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              Remote Internet Pipe
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: isTunnelActive ? 'var(--primary)' : 'var(--text-muted)', marginTop: '4px' }}>
+              {isTunnelActive ? (status?.tunnel?.type || 'active').toUpperCase() : 'Local Loopback'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              {isTunnelActive ? 'Cloudflare / Tailscale' : 'Home Intranet Only'}
+            </div>
+          </div>
+
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              Desktop Surface
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: status?.surfaces?.desktop_app_connected ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
+              {status?.surfaces?.desktop_app_connected ? 'CDP Connected' : 'Standby'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Port {status?.surfaces?.desktop_cdp_port || 35779}
+            </div>
           </div>
         </div>
 
         {/* Live Gateway URL & Copy */}
         <div
           style={{
-            marginTop: '16px',
-            backgroundColor: '#f8f9fa',
+            backgroundColor: 'var(--canvas)',
             borderRadius: '8px',
             border: '1px solid var(--border)',
-            padding: '12px 16px',
+            padding: '12px 14px',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
@@ -405,7 +415,7 @@ export const GeminiBridgePage: React.FC = () => {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '320px', flex: 1 }}>
-            <Globe size={16} color="var(--primary)" />
+            <Radio size={16} color="var(--primary)" />
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
               Active Endpoint:
             </span>
@@ -417,27 +427,15 @@ export const GeminiBridgePage: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
               onClick={() => copyToClipboard(status?.gateway_url || '', setCopiedUrl)}
-              style={{
-                backgroundColor: copiedUrl ? '#e6f4ea' : '#ffffff',
-                border: '1px solid var(--border)',
-                borderRadius: '6px',
-                padding: '5px 12px',
-                fontSize: '12px',
-                fontWeight: 600,
-                color: copiedUrl ? '#137333' : 'var(--text)',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                whiteSpace: 'nowrap',
-              }}
+              className="btn-pill-tonal"
+              style={{ padding: '6px 12px', fontSize: '12px' }}
             >
-              {copiedUrl ? <CheckCircle2 size={13} /> : <Copy size={13} />}
-              {copiedUrl ? 'Copied' : 'Copy Endpoint'}
+              {copiedUrl ? <CheckCircle2 size={13} color="var(--green)" /> : <Copy size={13} />}
+              <span>{copiedUrl ? 'Copied' : 'Copy Endpoint'}</span>
             </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <ShieldCheck size={16} color="#137333" />
-              <span style={{ fontSize: '12px', fontWeight: 600, color: '#137333', whiteSpace: 'nowrap' }}>
+              <ShieldCheck size={16} color="var(--green)" />
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--green)', whiteSpace: 'nowrap' }}>
                 Account Shield Active
               </span>
             </div>
@@ -446,24 +444,14 @@ export const GeminiBridgePage: React.FC = () => {
       </div>
 
       {/* 2. Zero-Setup Remote Tunneling */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          border: '1px solid var(--border)',
-          borderRadius: '10px',
-          padding: '20px',
-        }}
-      >
+      <div className="google-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-              <Network size={16} color="var(--primary)" />
-              <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
-                Remote Internet Access (Zero-Setup & Zero-Signup)
-              </span>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '4px' }}>
+              Remote Internet Access (Zero-Setup)
             </div>
             <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
-              Connect from Gemini App on your mobile phone or web when away from home. Users require zero account signups and zero external configurations.
+              Connect from Gemini App on mobile phone or web when away from home with zero external account signups.
             </p>
           </div>
 
@@ -472,45 +460,19 @@ export const GeminiBridgePage: React.FC = () => {
               <button
                 onClick={handleStopTunnel}
                 disabled={tunnelActionLoading}
-                style={{
-                  backgroundColor: '#fce8e6',
-                  border: '1px solid #f5c2c7',
-                  borderRadius: '6px',
-                  padding: '7px 16px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#c5221f',
-                  cursor: tunnelActionLoading ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  whiteSpace: 'nowrap',
-                }}
+                className="btn-pill-danger"
               >
                 <Square size={13} />
-                {tunnelActionLoading ? 'Stopping...' : 'Stop Remote Access'}
+                <span>{tunnelActionLoading ? 'Stopping...' : 'Stop Remote Access'}</span>
               </button>
             ) : (
               <button
                 onClick={handleStartTunnel}
                 disabled={tunnelActionLoading}
-                style={{
-                  backgroundColor: 'var(--primary)',
-                  border: 'none',
-                  borderRadius: '6px',
-                  padding: '7px 16px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#ffffff',
-                  cursor: tunnelActionLoading ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  whiteSpace: 'nowrap',
-                }}
+                className="btn-pill-primary"
               >
                 <Play size={13} />
-                {tunnelActionLoading ? 'Connecting...' : 'Start Remote Access'}
+                <span>{tunnelActionLoading ? 'Connecting...' : 'Start Remote Access'}</span>
               </button>
             )}
           </div>
@@ -524,15 +486,18 @@ export const GeminiBridgePage: React.FC = () => {
               padding: '12px',
               borderRadius: '8px',
               border: tunnelType === 'quick' ? '2px solid var(--primary)' : '1px solid var(--border)',
-              backgroundColor: tunnelType === 'quick' ? '#f8fafd' : '#ffffff',
+              backgroundColor: tunnelType === 'quick' ? 'var(--canvas)' : '#ffffff',
               cursor: 'pointer',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
-                Quick Tunnel (Recommended)
-              </span>
-              <span style={{ fontSize: '11px', fontWeight: 600, color: '#137333', backgroundColor: '#e6f4ea', padding: '1px 6px', borderRadius: '4px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Network size={14} color="var(--primary)" />
+                <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
+                  Quick Tunnel (Recommended)
+                </span>
+              </div>
+              <span className="badge-chip badge-green">
                 Zero Signup
               </span>
             </div>
@@ -547,7 +512,7 @@ export const GeminiBridgePage: React.FC = () => {
               padding: '12px',
               borderRadius: '8px',
               border: tunnelType === 'tailscale' ? '2px solid var(--primary)' : '1px solid var(--border)',
-              backgroundColor: tunnelType === 'tailscale' ? '#f8fafd' : '#ffffff',
+              backgroundColor: tunnelType === 'tailscale' ? 'var(--canvas)' : '#ffffff',
               cursor: 'pointer',
             }}
           >
@@ -555,7 +520,7 @@ export const GeminiBridgePage: React.FC = () => {
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
                 Tailscale Network
               </span>
-              <span style={{ fontSize: '11px', fontWeight: 600, color: '#1a73e8', backgroundColor: '#e8f0fe', padding: '1px 6px', borderRadius: '4px' }}>
+              <span className="badge-chip badge-blue">
                 Private VPN
               </span>
             </div>
@@ -570,7 +535,7 @@ export const GeminiBridgePage: React.FC = () => {
               padding: '12px',
               borderRadius: '8px',
               border: tunnelType === 'loopback' ? '2px solid var(--primary)' : '1px solid var(--border)',
-              backgroundColor: tunnelType === 'loopback' ? '#f8fafd' : '#ffffff',
+              backgroundColor: tunnelType === 'loopback' ? 'var(--canvas)' : '#ffffff',
               cursor: 'pointer',
             }}
           >
@@ -578,7 +543,7 @@ export const GeminiBridgePage: React.FC = () => {
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
                 Local Intranet (Loopback)
               </span>
-              <span style={{ fontSize: '11px', fontWeight: 600, color: '#5f6368', backgroundColor: '#f1f3f4', padding: '1px 6px', borderRadius: '4px' }}>
+              <span className="badge-chip badge-neutral">
                 Home WiFi
               </span>
             </div>
@@ -633,7 +598,7 @@ export const GeminiBridgePage: React.FC = () => {
               style={{
                 marginTop: '8px',
                 padding: '12px',
-                backgroundColor: '#f8f9fa',
+                backgroundColor: 'var(--canvas)',
                 borderRadius: '6px',
                 border: '1px solid var(--border)',
                 fontSize: '11px',
@@ -652,21 +617,11 @@ export const GeminiBridgePage: React.FC = () => {
       </div>
 
       {/* 3. Authentication & First-Time Setup */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          border: '1px solid var(--border)',
-          borderRadius: '10px',
-          padding: '20px',
-        }}
-      >
+      <div className="google-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-              <KeyRound size={16} color="var(--primary)" />
-              <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
-                Authentication & Pairing Credentials
-              </span>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '4px' }}>
+              Authentication & Pairing Credentials
             </div>
             <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
               Required when initialising or accessing the MCP on Gemini. Unauthenticated requests are rejected with 401 Unauthorized.
@@ -677,43 +632,17 @@ export const GeminiBridgePage: React.FC = () => {
             <button
               onClick={handleRotateCredentials}
               disabled={rotatingAuth}
-              style={{
-                backgroundColor: 'transparent',
-                border: '1px solid var(--border)',
-                borderRadius: '6px',
-                padding: '6px 12px',
-                fontSize: '12px',
-                fontWeight: 600,
-                color: 'var(--text)',
-                cursor: rotatingAuth ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                whiteSpace: 'nowrap',
-              }}
+              className="btn-pill-tonal"
             >
               <RefreshCw size={12} className={rotatingAuth ? 'animate-spin' : ''} />
-              Rotate Credentials
+              <span>Rotate Credentials</span>
             </button>
             <button
               onClick={() => copyToClipboard(mcpConfigSnippet, setCopiedConfig)}
-              style={{
-                backgroundColor: copiedConfig ? '#e6f4ea' : 'var(--tonal)',
-                border: '1px solid var(--border)',
-                borderRadius: '6px',
-                padding: '6px 12px',
-                fontSize: '12px',
-                fontWeight: 600,
-                color: copiedConfig ? '#137333' : 'var(--text)',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                whiteSpace: 'nowrap',
-              }}
+              className="btn-pill-tonal"
             >
-              {copiedConfig ? <CheckCircle2 size={13} /> : <Copy size={13} />}
-              {copiedConfig ? 'Copied' : 'Copy JSON Config'}
+              {copiedConfig ? <CheckCircle2 size={13} color="var(--green)" /> : <Copy size={13} />}
+              <span>{copiedConfig ? 'Copied' : 'Copy JSON Config'}</span>
             </button>
           </div>
         </div>
@@ -723,32 +652,25 @@ export const GeminiBridgePage: React.FC = () => {
           <div
             style={{
               padding: '14px',
-              backgroundColor: '#f8f9fa',
+              backgroundColor: 'var(--canvas)',
               borderRadius: '8px',
               border: '1px solid var(--border)',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
-                Pairing PIN (Quick First-Time Setup)
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <KeyRound size={14} color="var(--primary)" />
+                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                  Pairing PIN (Quick Setup)
+                </span>
+              </div>
               <button
                 onClick={() => copyToClipboard(status?.pairing_pin || '', setCopiedPIN)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: copiedPIN ? '#137333' : 'var(--primary)',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  whiteSpace: 'nowrap',
-                }}
+                className="btn-pill-tonal"
+                style={{ padding: '3px 8px', fontSize: '11px' }}
               >
-                {copiedPIN ? <CheckCircle2 size={12} /> : <Copy size={12} />}
-                {copiedPIN ? 'Copied' : 'Copy PIN'}
+                {copiedPIN ? <CheckCircle2 size={12} color="var(--green)" /> : <Copy size={12} />}
+                <span>{copiedPIN ? 'Copied' : 'Copy PIN'}</span>
               </button>
             </div>
             <div style={{ fontSize: '24px', letterSpacing: '4px', fontWeight: 700, color: 'var(--text)', fontFamily: 'monospace' }}>
@@ -763,7 +685,7 @@ export const GeminiBridgePage: React.FC = () => {
           <div
             style={{
               padding: '14px',
-              backgroundColor: '#f8f9fa',
+              backgroundColor: 'var(--canvas)',
               borderRadius: '8px',
               border: '1px solid var(--border)',
             }}
@@ -774,21 +696,11 @@ export const GeminiBridgePage: React.FC = () => {
               </span>
               <button
                 onClick={() => copyToClipboard(status?.auth_token || '', setCopiedToken)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: copiedToken ? '#137333' : 'var(--primary)',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  whiteSpace: 'nowrap',
-                }}
+                className="btn-pill-tonal"
+                style={{ padding: '3px 8px', fontSize: '11px' }}
               >
-                {copiedToken ? <CheckCircle2 size={12} /> : <Copy size={12} />}
-                {copiedToken ? 'Copied' : 'Copy Token'}
+                {copiedToken ? <CheckCircle2 size={12} color="var(--green)" /> : <Copy size={12} />}
+                <span>{copiedToken ? 'Copied' : 'Copy Token'}</span>
               </button>
             </div>
             <code style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', wordBreak: 'break-all' }}>
@@ -806,7 +718,7 @@ export const GeminiBridgePage: React.FC = () => {
             style={{
               margin: 0,
               padding: '12px',
-              backgroundColor: '#f8f9fa',
+              backgroundColor: 'var(--canvas)',
               borderRadius: '6px',
               border: '1px solid var(--border)',
               fontFamily: 'monospace',
@@ -821,19 +733,9 @@ export const GeminiBridgePage: React.FC = () => {
       </div>
 
       {/* 4. Operational Mode Selection (Direct vs Lead/Messenger) */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          border: '1px solid var(--border)',
-          borderRadius: '10px',
-          padding: '20px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-          <Bot size={16} color="var(--primary)" />
-          <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
-            Gemini Operating Role & Mode
-          </span>
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '4px' }}>
+          Gemini Operating Role & Mode
         </div>
         <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'var(--text-muted)' }}>
           Configure whether Gemini in your chat works directly on the local machine or acts as a lead/messenger dispatching tasks to Antigravity and forwarding responses.
@@ -847,12 +749,12 @@ export const GeminiBridgePage: React.FC = () => {
               padding: '14px',
               borderRadius: '8px',
               border: currentMode === 'hybrid' ? '2px solid var(--primary)' : '1px solid var(--border)',
-              backgroundColor: currentMode === 'hybrid' ? '#f8fafd' : '#ffffff',
+              backgroundColor: currentMode === 'hybrid' ? 'var(--canvas)' : '#ffffff',
               cursor: modeLoading ? 'not-allowed' : 'pointer',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-              <Sparkles size={16} color="var(--primary)" />
+              <Bot size={16} color="var(--primary)" />
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
                 Hybrid Mode (Recommended)
               </span>
@@ -869,7 +771,7 @@ export const GeminiBridgePage: React.FC = () => {
               padding: '14px',
               borderRadius: '8px',
               border: currentMode === 'lead' ? '2px solid var(--primary)' : '1px solid var(--border)',
-              backgroundColor: currentMode === 'lead' ? '#f8fafd' : '#ffffff',
+              backgroundColor: currentMode === 'lead' ? 'var(--canvas)' : '#ffffff',
               cursor: modeLoading ? 'not-allowed' : 'pointer',
             }}
           >
@@ -891,7 +793,7 @@ export const GeminiBridgePage: React.FC = () => {
               padding: '14px',
               borderRadius: '8px',
               border: currentMode === 'direct' ? '2px solid var(--primary)' : '1px solid var(--border)',
-              backgroundColor: currentMode === 'direct' ? '#f8fafd' : '#ffffff',
+              backgroundColor: currentMode === 'direct' ? 'var(--canvas)' : '#ffffff',
               cursor: modeLoading ? 'not-allowed' : 'pointer',
             }}
           >
@@ -911,7 +813,7 @@ export const GeminiBridgePage: React.FC = () => {
         <div
           style={{
             marginTop: '14px',
-            backgroundColor: '#f8f9fa',
+            backgroundColor: 'var(--canvas)',
             borderRadius: '8px',
             border: '1px solid var(--border)',
             padding: '12px 14px',
@@ -934,40 +836,24 @@ export const GeminiBridgePage: React.FC = () => {
 
       {/* 5. Live Antigravity Lead / Messenger Monitor */}
       {status?.active_lead_session && (
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            border: '1px solid var(--border)',
-            borderRadius: '10px',
-            padding: '20px',
-          }}
-        >
+        <div className="google-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+              Active Antigravity Lead Session
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Layers size={16} color="var(--primary)" />
-              <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
-                Active Antigravity Lead Session
-              </span>
               <span
-                style={{
-                  backgroundColor: status.active_lead_session.status === 'completed' ? '#e6f4ea' : '#e8f0fe',
-                  color: status.active_lead_session.status === 'completed' ? '#137333' : '#1a73e8',
-                  padding: '2px 8px',
-                  borderRadius: '10px',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  whiteSpace: 'nowrap',
-                }}
+                className={`badge-chip ${status.active_lead_session.status === 'completed' ? 'badge-green' : 'badge-blue'}`}
               >
                 {status.active_lead_session.status === 'completed' ? 'Completed & Forwarded' : 'Generating in Antigravity...'}
               </span>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                Conversation: <code>{status.active_lead_session.conversation_id}</code>
+              </span>
             </div>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              Conversation: <code>{status.active_lead_session.conversation_id}</code>
-            </span>
           </div>
 
-          <div style={{ padding: '12px', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '10px' }}>
+          <div style={{ padding: '12px', backgroundColor: 'var(--canvas)', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '10px' }}>
             <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '2px' }}>
               Last Dispatched Prompt:
             </div>
@@ -991,13 +877,7 @@ export const GeminiBridgePage: React.FC = () => {
                   {status.active_lead_session.artifacts.map((art) => (
                     <span
                       key={art}
-                      style={{
-                        padding: '1px 6px',
-                        backgroundColor: '#f1f3f4',
-                        borderRadius: '4px',
-                        fontSize: '11px',
-                        color: 'var(--text)',
-                      }}
+                      className="badge-chip badge-neutral"
                     >
                       {art}
                     </span>
@@ -1018,14 +898,7 @@ export const GeminiBridgePage: React.FC = () => {
         }}
       >
         {/* Surface 1: Desktop App */}
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            border: '1px solid var(--border)',
-            borderRadius: '10px',
-            padding: '16px',
-          }}
-        >
+        <div className="google-card" style={{ padding: '16px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Laptop size={16} color="var(--primary)" />
@@ -1033,15 +906,9 @@ export const GeminiBridgePage: React.FC = () => {
                 Antigravity 2.0 Desktop
               </span>
             </div>
-            {status?.surfaces?.desktop_app_connected ? (
-              <span style={{ fontSize: '11px', color: '#137333', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <CheckCircle2 size={13} /> CDP Connected
-              </span>
-            ) : (
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <AlertCircle size={13} /> Standby
-              </span>
-            )}
+            <span className={`badge-chip ${status?.surfaces?.desktop_app_connected ? 'badge-green' : 'badge-neutral'}`}>
+              {status?.surfaces?.desktop_app_connected ? 'CDP Connected' : 'Standby'}
+            </span>
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
             Port: <code style={{ color: 'var(--text)' }}>{status?.surfaces?.desktop_cdp_port || '35779'}</code>
@@ -1054,14 +921,7 @@ export const GeminiBridgePage: React.FC = () => {
         </div>
 
         {/* Surface 2: CLI */}
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            border: '1px solid var(--border)',
-            borderRadius: '10px',
-            padding: '16px',
-          }}
-        >
+        <div className="google-card" style={{ padding: '16px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Terminal size={16} color="var(--primary)" />
@@ -1069,15 +929,9 @@ export const GeminiBridgePage: React.FC = () => {
                 Antigravity CLI (agy)
               </span>
             </div>
-            {status?.surfaces?.agy_cli_installed ? (
-              <span style={{ fontSize: '11px', color: '#137333', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <CheckCircle2 size={13} /> Ready
-              </span>
-            ) : (
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 500 }}>
-                Not on PATH
-              </span>
-            )}
+            <span className={`badge-chip ${status?.surfaces?.agy_cli_installed ? 'badge-green' : 'badge-neutral'}`}>
+              {status?.surfaces?.agy_cli_installed ? 'Ready' : 'Not on PATH'}
+            </span>
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
             Path: <code style={{ color: 'var(--text)' }}>{status?.surfaces?.agy_cli_path || '~/.local/bin/agy'}</code>
@@ -1085,14 +939,7 @@ export const GeminiBridgePage: React.FC = () => {
         </div>
 
         {/* Surface 3: VS Code Extension */}
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            border: '1px solid var(--border)',
-            borderRadius: '10px',
-            padding: '16px',
-          }}
-        >
+        <div className="google-card" style={{ padding: '16px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Code2 size={16} color="var(--primary)" />
@@ -1100,8 +947,8 @@ export const GeminiBridgePage: React.FC = () => {
                 VS Code Extension
               </span>
             </div>
-            <span style={{ fontSize: '11px', color: '#137333', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <CheckCircle2 size={13} /> Port 41223
+            <span className="badge-chip badge-green">
+              Port 41223
             </span>
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
@@ -1111,22 +958,13 @@ export const GeminiBridgePage: React.FC = () => {
       </div>
 
       {/* 7. Test Dispatch Console */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          border: '1px solid var(--border)',
-          borderRadius: '10px',
-          padding: '20px',
-        }}
-      >
-        <div style={{ marginBottom: '12px' }}>
-          <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
-            Test Remote Task Dispatch
-          </span>
-          <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-            Simulate a remote request from Gemini App to steer local Antigravity.
-          </p>
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '4px' }}>
+          Test Remote Task Dispatch
         </div>
+        <p style={{ margin: '0 0 12px', fontSize: '12px', color: 'var(--text-muted)' }}>
+          Simulate a remote request from Gemini App to steer local Antigravity.
+        </p>
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
           <select
@@ -1168,23 +1006,10 @@ export const GeminiBridgePage: React.FC = () => {
           <button
             onClick={handleDispatch}
             disabled={dispatching || !testPrompt.trim()}
-            style={{
-              backgroundColor: 'var(--primary)',
-              border: 'none',
-              borderRadius: '6px',
-              padding: '8px 18px',
-              fontSize: '12px',
-              fontWeight: 600,
-              color: '#ffffff',
-              cursor: dispatching ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              whiteSpace: 'nowrap',
-            }}
+            className="btn-pill-primary"
           >
             <Send size={13} />
-            {dispatching ? 'Dispatching...' : 'Dispatch Task'}
+            <span>{dispatching ? 'Dispatching...' : 'Dispatch Task'}</span>
           </button>
         </div>
 
@@ -1192,7 +1017,7 @@ export const GeminiBridgePage: React.FC = () => {
           <div
             style={{
               padding: '10px 14px',
-              backgroundColor: '#f8f9fa',
+              backgroundColor: 'var(--canvas)',
               border: '1px solid var(--border)',
               borderRadius: '6px',
               fontSize: '12px',
@@ -1207,19 +1032,9 @@ export const GeminiBridgePage: React.FC = () => {
       </div>
 
       {/* 8. Exposed Tools Catalog */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          border: '1px solid var(--border)',
-          borderRadius: '10px',
-          padding: '20px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-          <Wrench size={16} color="var(--primary)" />
-          <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
-            Exposed Model Context Protocol Tools
-          </span>
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
+          Exposed Model Context Protocol Tools
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
@@ -1279,14 +1094,8 @@ export const GeminiBridgePage: React.FC = () => {
                   {tool.name}
                 </code>
                 <span
-                  style={{
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    padding: '1px 6px',
-                    borderRadius: '4px',
-                    backgroundColor: tool.type === 'Lead' ? '#e8f0fe' : '#e6f4ea',
-                    color: tool.type === 'Lead' ? '#1a73e8' : '#137333',
-                  }}
+                  className={`badge-chip ${tool.type === 'Lead' ? 'badge-blue' : 'badge-green'}`}
+                  style={{ fontSize: '10px', padding: '1px 6px' }}
                 >
                   {tool.type}
                 </span>
@@ -1299,20 +1108,10 @@ export const GeminiBridgePage: React.FC = () => {
         </div>
       </div>
 
-      {/* 9. Recent Invocations & Auth Audit Logs */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          border: '1px solid var(--border)',
-          borderRadius: '10px',
-          padding: '20px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-          <Clock size={16} color="var(--primary)" />
-          <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
-            Remote Invocations & Access Audit ({status?.invocations_count || 0})
-          </span>
+      {/* 9. Recent Invocations & Access Audit Logs */}
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
+          Remote Invocations & Access Audit ({status?.invocations_count || 0})
         </div>
 
         <div style={{ overflowX: 'auto' }}>
@@ -1336,7 +1135,7 @@ export const GeminiBridgePage: React.FC = () => {
                 </tr>
               ) : (
                 status.recent_invocations.map((inv) => (
-                  <tr key={inv.id} style={{ borderBottom: '1px solid #f1f3f4' }}>
+                  <tr key={inv.id} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ padding: '8px 10px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                       {inv.timestamp}
                     </td>
@@ -1350,17 +1149,7 @@ export const GeminiBridgePage: React.FC = () => {
                       {inv.duration_ms}ms
                     </td>
                     <td style={{ padding: '8px 10px' }}>
-                      <span
-                        style={{
-                          backgroundColor: inv.status === 'success' ? '#e6f4ea' : '#fce8e6',
-                          color: inv.status === 'success' ? '#137333' : '#c5221f',
-                          padding: '2px 8px',
-                          borderRadius: '10px',
-                          fontSize: '11px',
-                          fontWeight: 600,
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
+                      <span className={`badge-chip ${inv.status === 'success' ? 'badge-green' : 'badge-red'}`}>
                         {inv.status}
                       </span>
                     </td>

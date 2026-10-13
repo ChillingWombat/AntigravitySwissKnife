@@ -80,6 +80,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   const [subagentStrategy, setSubagentStrategy] = useState<SubagentModelStrategy>(
     initialRules?.subagent_model_strategy || 'default_custom_only'
   )
+  const [sessionResumePrompt, setSessionResumePrompt] = useState<string>(
+    initialRules?.session_resume_prompt || 'Please continue ongoing tasks and subagents.'
+  )
 
   // Dynamic available model lists (fetched automatically from running IDE / CloudCode)
   const [geminiModelOptions, setGeminiModelOptions] = useState<AvailableModelItem[]>([])
@@ -299,6 +302,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     if (initialRules.subagent_model_strategy) {
       setSubagentStrategy(initialRules.subagent_model_strategy)
     }
+    if (initialRules.session_resume_prompt !== undefined) {
+      setSessionResumePrompt(initialRules.session_resume_prompt)
+    }
   }, [initialRules])
 
   useEffect(() => {
@@ -438,6 +444,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       multi_app_sync_mode: isSingleAppOrLess ? 'shared' : multiAppSyncMode,
       subagent_custom_models_enabled: subagentCustomModelsEnabled,
       subagent_model_strategy: subagentStrategy,
+      session_resume_prompt: sessionResumePrompt,
     }
     const serialized = JSON.stringify(payload)
     if (lastSentPayloadRef.current === null) {
@@ -1345,6 +1352,48 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
         </label>
       </div>
 
+      {/* Session Resumption Prompt */}
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '12px' }}>
+          Session Resumption Prompt
+        </div>
+        <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+          Custom Resume Message Sent to Agents
+        </div>
+        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '12px', lineHeight: 1.5 }}>
+          Custom prompt dispatched to active and revived agent sessions following an automated account switch.
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <textarea
+            value={sessionResumePrompt}
+            onChange={(e) => setSessionResumePrompt(e.target.value)}
+            rows={2}
+            placeholder="Please continue ongoing tasks and subagents."
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              fontSize: '13px',
+              borderRadius: '8px',
+              border: '1px solid var(--border)',
+              backgroundColor: 'var(--canvas)',
+              color: 'var(--text)',
+              fontFamily: 'inherit',
+              resize: 'vertical',
+            }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              className="google-button google-button-secondary"
+              style={{ fontSize: '11px', padding: '4px 10px', height: '28px', whiteSpace: 'nowrap' }}
+              onClick={() => setSessionResumePrompt('Please continue ongoing tasks and subagents.')}
+            >
+              Reset to Default
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* 6. Account Data Export & Import (JSON) */}
       <div className="google-card">
         <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
@@ -1594,7 +1643,6 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             justifyContent: 'center',
             zIndex: 1100,
           }}
-          onClick={() => setShowPasteModal(false)}
         >
           <div
             className="google-card"

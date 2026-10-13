@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Plus,
@@ -18,6 +18,9 @@ import {
   ShieldAlert,
   ChevronDown,
   ChevronRight,
+  KeyRound,
+  Upload,
+  ExternalLink,
 } from 'lucide-react'
 import type {
   CustomModel,
@@ -31,9 +34,11 @@ import type {
 import { CircularGauge } from '../components/CircularGauge'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { SecurityReportModal } from '../components/SecurityReportModal'
+import { GoogleCloudLogoIcon } from '../components/AcpBrandIcons'
 import { auditModelSecurity } from '../utils/securityAudit'
 import {
   filterModels,
+  filterFetchedModels,
   computeModelFilterStats,
   type ModelFilterOption,
 } from '../utils/modelFilter'
@@ -51,6 +56,9 @@ import { api } from '../api'
 
 const inferProviderType = (url: string): ProviderType => {
   const lower = (url || '').toLowerCase()
+  if (lower.includes('aiplatform.googleapis.com')) {
+    return 'gcp'
+  }
   if (lower.includes('anthropic.com') || lower.endsWith('/messages')) {
     return 'anthropic'
   }
@@ -134,6 +142,10 @@ export const CustomModelsPage: React.FC = () => {
   const modelContainerRef = useRef<HTMLDivElement>(null)
   const reasoningContainerRef = useRef<HTMLDivElement>(null)
 
+  const filteredFetchedModels = useMemo(() => {
+    return filterFetchedModels(fetchedModels, modelName)
+  }, [fetchedModels, modelName])
+
   // Modal Test & Save States
   const [modalTesting, setModalTesting] = useState<boolean>(false)
   const [modalTestResult, setModalTestResult] = useState<TestResult | null>(null)
@@ -144,6 +156,208 @@ export const CustomModelsPage: React.FC = () => {
   const [modalAuditResult, setModalAuditResult] = useState<SecurityAuditReport | null>(null)
   const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false)
   const [activeReportForView, setActiveReportForView] = useState<SecurityAuditReport | null>(null)
+
+  // GCP Modal States
+  const [isGcpModalOpen, setIsGcpModalOpen] = useState<boolean>(false)
+  const [gcpJsonContent, setGcpJsonContent] = useState<string>('')
+  const [gcpParsedKey, setGcpParsedKey] = useState<any | null>(null)
+  const [gcpParseError, setGcpParseError] = useState<string | null>(null)
+  const [gcpProjectId, setGcpProjectId] = useState<string>('')
+  const [gcpClientEmail, setGcpClientEmail] = useState<string>('')
+  const [gcpRegion, setGcpRegion] = useState<string>('us-central1')
+  const [gcpCustomModel, setGcpCustomModel] = useState<string>('')
+  const [gcpDisplayName, setGcpDisplayName] = useState<string>('Gemini 2.5 Flash (GCP Vertex)')
+  const [gcpTesting, setGcpTesting] = useState<boolean>(false)
+  const [gcpTestResult, setGcpTestResult] = useState<TestResult | null>(null)
+  const [gcpSaving, setGcpSaving] = useState<boolean>(false)
+  const [gcpError, setGcpError] = useState<string | null>(null)
+  const gcpFileInputRef = useRef<HTMLInputElement>(null)
+
+  const openAddGcpModal = () => {
+    setGcpJsonContent('')
+    setGcpParsedKey(null)
+    setGcpParseError(null)
+    setGcpProjectId('')
+    setGcpClientEmail('')
+    setGcpRegion('us-central1')
+    setGcpCustomModel('')
+    setGcpDisplayName('Gemini 2.5 Flash (GCP Vertex)')
+    setGcpTesting(false)
+    setGcpTestResult(null)
+    setGcpSaving(false)
+    setGcpError(null)
+    setIsGcpModalOpen(true)
+  }
+
+  const handleGcpJsonChange = (raw: string) => {
+    setGcpJsonContent(raw)
+    setGcpTestResult(null)
+    if (!raw.trim()) {
+      setGcpParsedKey(null)
+      setGcpParseError(null)
+      return
+    }
+    try {
+      const parsed = JSON.parse(raw)
+      if (parsed.type !== 'service_account') {
+        setGcpParseError('Key type must be "service_account" (found: ' + (parsed.type || 'none') + ')')
+        setGcpParsedKey(null)
+        return
+      }
+      if (!parsed.private_key || !parsed.client_email) {
+        setGcpParseError('Missing required fields: client_email or private_key in service account JSON')
+        setGcpParsedKey(null)
+        return
+      }
+      setGcpParsedKey(parsed)
+      setGcpParseError(null)
+      if (parsed.project_id) {
+        setGcpProjectId(parsed.project_id)
+      }
+      if (parsed.client_email) {
+        setGcpClientEmail(parsed.client_email)
+      }
+    } catch (err: any) {
+      setGcpParseError(`Invalid JSON: ${err.message}`)
+      setGcpParsedKey(null)
+    }
+  }
+
+  const handleGcpFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const content = event.target?.result as string
+      if (content) {
+        handleGcpJsonChange(content)
+      }
+    }
+    reader.readAsText(file)
+  }
+
+  const handleTestGcpConnection = async () => {
+    if (!gcpJsonContent.trim()) {
+      setGcpError('Service account JSON key is required to test GCP connection.')
+      return
+    }
+    if (!gcpParsedKey) {
+      setGcpError('Please enter a valid Service Account JSON key.')
+      return
+    }
+    const effModel = gcpCustomModel.trim()
+    if (!effModel) {
+      setGcpError('Model identifier name is required.')
+      return
+    }
+    const project = gcpProjectId.trim() || gcpParsedKey.project_id
+    if (!project) {
+      setGcpError('Project ID is required.')
+      return
+    }
+
+    setGcpTesting(true)
+    setGcpError(null)
+    setGcpTestResult(null)
+
+    const draftGcpModel: CustomModel = {
+      id: 'gcp-test-draft',
+      name: effModel,
+      display_name: gcpDisplayName.trim() || effModel,
+      provider_type: 'gcp',
+      base_url: `https://${gcpRegion}-aiplatform.googleapis.com`,
+      gcp_project_id: project,
+      gcp_region: gcpRegion,
+      gcp_service_account_key: gcpJsonContent.trim(),
+      project_mappings: ['*'],
+      quota_type: 'quota',
+      quota_value: 'GCP Managed',
+      prepaid_balance: 0,
+      total_budget: 0,
+      quota_fraction: null,
+      is_default: false,
+      enabled: true,
+    }
+
+    try {
+      const res = await api.testCustomModel(draftGcpModel)
+      setGcpTestResult(res)
+      if (!res.success) {
+        setGcpError(`GCP Vertex AI test failed: ${res.message}`)
+      }
+    } catch (err: any) {
+      setGcpError(`GCP test connection failed: ${err.message}`)
+      setGcpTestResult({
+        success: false,
+        status_code: 0,
+        latency_ms: 0,
+        message: err.message,
+        endpoint: draftGcpModel.base_url,
+      })
+    } finally {
+      setGcpTesting(false)
+    }
+  }
+
+  const handleSaveGcpModel = async () => {
+    if (!gcpJsonContent.trim()) {
+      setGcpError('Service account JSON key is required.')
+      return
+    }
+    if (!gcpParsedKey) {
+      setGcpError('Please provide a valid service account JSON key.')
+      return
+    }
+    const effModel = gcpCustomModel.trim()
+    if (!effModel) {
+      setGcpError('Model identifier is required.')
+      return
+    }
+    const project = gcpProjectId.trim() || gcpParsedKey.project_id
+    if (!project) {
+      setGcpError('Project ID is required.')
+      return
+    }
+
+    setGcpSaving(true)
+    setGcpError(null)
+
+    const isClaude = effModel.toLowerCase().includes('claude')
+    const finalModel: CustomModel = {
+      id: `gcp-${effModel.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`,
+      name: effModel,
+      display_name: gcpDisplayName.trim() || `${effModel} (GCP Vertex)`,
+      provider_type: 'gcp',
+      base_url: `https://${gcpRegion}-aiplatform.googleapis.com`,
+      gcp_project_id: project,
+      gcp_region: gcpRegion,
+      gcp_service_account_key: gcpJsonContent.trim(),
+      project_mappings: ['*'],
+      quota_type: gcpTestResult?.quota_result?.quota_type || 'quota',
+      quota_value: gcpTestResult?.quota_result?.quota_value || 'GCP Managed',
+      balance_value: gcpTestResult?.quota_result?.quota_type === 'balance' ? gcpTestResult.quota_result.quota_value : undefined,
+      prepaid_balance: 0,
+      total_budget: 0,
+      quota_fraction: null,
+      is_default: false,
+      enabled: true,
+      context_window: isClaude ? 200000 : 1048576,
+      supports_thinking: true,
+      thinking_levels: ['low', 'medium', 'high'],
+      thinking_level: 'high',
+      notes: `GCP Vertex AI (${gcpRegion}) - Project ${project} via ${gcpClientEmail || 'Service Account'}`,
+    }
+
+    try {
+      await api.saveCustomModel(finalModel)
+      setIsGcpModalOpen(false)
+      await loadData()
+    } catch (err: any) {
+      setGcpError(`Failed to save GCP model: ${err.message}`)
+    } finally {
+      setGcpSaving(false)
+    }
+  }
 
   const [rulesDefaultCustom, setRulesDefaultCustom] = useState<string>('')
 
@@ -658,6 +872,9 @@ export const CustomModelsPage: React.FC = () => {
       provider_type: effectiveProvider,
       base_url: baseUrl.trim(),
       api_key: apiKey.trim(),
+      gcp_project_id: editingModel?.gcp_project_id,
+      gcp_region: editingModel?.gcp_region,
+      gcp_service_account_key: editingModel?.gcp_service_account_key,
       custom_quota_endpoint: customQuotaEndpoint.trim() || undefined,
       project_mappings: ['*'],
       quota_type: quotaType,
@@ -899,21 +1116,24 @@ export const CustomModelsPage: React.FC = () => {
       {portalTarget &&
         createPortal(
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button onClick={openAddModal} className="btn-pill-primary" style={{ padding: '7px 16px', fontSize: '12px' }}>
+            <button onClick={openAddModal} className="btn-pill-primary" style={{ padding: '7px 16px', fontSize: '12px', whiteSpace: 'nowrap' }}>
               <Plus size={14} /> Add Custom Model
+            </button>
+            <button
+              onClick={openAddGcpModal}
+              className="btn-pill-tonal"
+              style={{ padding: '7px 14px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
+            >
+              <GoogleCloudLogoIcon size={15} /> Add GCP Models
             </button>
             <button
               onClick={handleRefreshAllQuotas}
               disabled={refreshingQuotas || loading}
               className="btn-pill-tonal"
-              style={{ padding: '7px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-              title="Auto-query provider endpoints to refresh balances and rate-limit quotas"
+              style={{ padding: '7px 12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+              title="Refresh Quotas"
             >
-              <RefreshCw size={13} className={refreshingQuotas ? 'spin' : ''} />
-              <span style={{ fontSize: '12px' }}>{refreshingQuotas ? 'Refreshing...' : 'Refresh Quotas'}</span>
-            </button>
-            <button onClick={loadData} disabled={loading} className="btn-pill-tonal" style={{ padding: '7px 12px' }} title="Reload Models">
-              <RefreshCw size={14} className={loading && !refreshingQuotas ? 'spin' : ''} />
+              <RefreshCw size={14} className={refreshingQuotas ? 'spin' : ''} />
             </button>
           </div>,
           portalTarget
@@ -995,38 +1215,38 @@ export const CustomModelsPage: React.FC = () => {
             const qType = (m.quota_type || '').toLowerCase()
 
             if (qType === 'balance' || qType === 'cost_based') {
-              if (m.balance_value && m.balance_value.trim()) {
-                gaugeTitle = `Balance: ${m.balance_value}`
-              } else if (m.prepaid_balance > 0) {
-                gaugeTitle = `Balance: $${m.prepaid_balance.toFixed(2)}`
-              } else {
-                gaugeTitle = 'Balance'
-              }
-
               if (m.quota_fraction !== null && m.quota_fraction !== undefined) {
                 gaugePct = Math.max(0, Math.min(100, Math.round(m.quota_fraction * 100)))
                 emptyGrey = false
-              } else if (m.total_budget > 0) {
+                gaugeTitle = m.balance_value && m.balance_value.trim() ? `Balance: ${m.balance_value}` : 'Balance'
+              } else if (m.total_budget > 0 && m.prepaid_balance > 0) {
                 gaugePct = Math.max(0, Math.min(100, Math.round((m.prepaid_balance / m.total_budget) * 100)))
                 emptyGrey = false
+                gaugeTitle = m.balance_value && m.balance_value.trim()
+                  ? `Balance: ${m.balance_value}`
+                  : `Balance: $${m.prepaid_balance.toFixed(2)}`
+              } else if (m.balance_value && m.balance_value.trim()) {
+                emptyGrey = true
+                gaugePct = null
+                gaugeTitle = `Balance: ${m.balance_value}`
               } else {
                 emptyGrey = true
                 gaugePct = null
+                gaugeTitle = 'N/A'
               }
             } else if (qType === 'quota' || qType === 'quota_based') {
-              if (m.quota_value && m.quota_value.trim()) {
-                gaugeTitle = `Quota: ${m.quota_value}`
-              } else {
-                // If endpoint only returns a percentage value, then show 'Quota'
-                gaugeTitle = 'Quota'
-              }
-
               if (m.quota_fraction !== null && m.quota_fraction !== undefined) {
                 gaugePct = Math.max(0, Math.min(100, Math.round(m.quota_fraction * 100)))
                 emptyGrey = false
+                gaugeTitle = m.quota_value && m.quota_value.trim() ? `Quota: ${m.quota_value}` : 'Quota'
+              } else if (m.quota_value && m.quota_value.trim()) {
+                emptyGrey = true
+                gaugePct = null
+                gaugeTitle = `Quota: ${m.quota_value}`
               } else {
                 emptyGrey = true
                 gaugePct = null
+                gaugeTitle = 'N/A'
               }
             } else {
               emptyGrey = true
@@ -1353,7 +1573,6 @@ export const CustomModelsPage: React.FC = () => {
             justifyContent: 'center',
             zIndex: 1000,
           }}
-          onClick={() => setIsModalOpen(false)}
         >
           <div
             className="google-card"
@@ -1434,9 +1653,7 @@ export const CustomModelsPage: React.FC = () => {
                       onChange={(e) => {
                         const val = e.target.value
                         setModelName(val)
-                        if (val.trim()) {
-                          setShowModelDropdown(false)
-                        } else if (fetchedModels.length > 0) {
+                        if (fetchedModels.length > 0) {
                           setShowModelDropdown(true)
                         }
                         const detected = detectThinkingLevels(val)
@@ -1445,13 +1662,21 @@ export const CustomModelsPage: React.FC = () => {
                         }
                       }}
                       onClick={() => {
-                        if (!modelName.trim() && fetchedModels.length > 0) {
+                        if (fetchedModels.length > 0) {
                           setShowModelDropdown(true)
                         }
                       }}
                       onFocus={() => {
-                        if (!modelName.trim() && fetchedModels.length > 0) {
+                        if (fetchedModels.length > 0) {
                           setShowModelDropdown(true)
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          if (showModelDropdown) {
+                            e.stopPropagation()
+                            setShowModelDropdown(false)
+                          }
                         }
                       }}
                       style={{ width: '100%', fontSize: '12px', padding: '8px 10px', fontFamily: 'monospace' }}
@@ -1474,7 +1699,11 @@ export const CustomModelsPage: React.FC = () => {
                         }}
                       >
                         <div style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 600, color: 'var(--text-subtle)', borderBottom: '1px solid #f1f3f4', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span>Available Models ({fetchedModels.length})</span>
+                          <span>
+                            {modelName.trim()
+                              ? `Available Models (${filteredFetchedModels.length} of ${fetchedModels.length})`
+                              : `Available Models (${fetchedModels.length})`}
+                          </span>
                           <button
                             type="button"
                             onClick={(e) => {
@@ -1482,58 +1711,65 @@ export const CustomModelsPage: React.FC = () => {
                               setShowModelDropdown(false)
                             }}
                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px' }}
+                            title="Close dropdown"
                           >
                             <X size={12} />
                           </button>
                         </div>
-                        {fetchedModels.map((m) => {
-                          const cleanId = extractCleanModelId(m.id || '')
-                          const ctx = extractContextWindow(m.id, m) || m.context_window
-                          const levels = detectThinkingLevels(cleanId, m)
-                          return (
-                            <div
-                              key={m.id}
-                              onClick={() => {
-                                handleSelectFetchedModel(m.id)
-                                setShowModelDropdown(false)
-                              }}
-                              style={{
-                                padding: '8px 12px',
-                                fontSize: '12px',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                fontFamily: 'monospace',
-                                borderBottom: '1px solid #f8f9fa',
-                                transition: 'background 0.15s ease',
-                              }}
-                              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f1f3f4')}
-                              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                            >
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
-                                <span style={{ fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                  {cleanId}
-                                </span>
-                                {m.display_name && m.display_name !== cleanId && (
-                                  <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{m.display_name}</span>
-                                )}
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-                                {ctx && (
-                                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', backgroundColor: '#f1f3f4', padding: '2px 6px', borderRadius: '4px' }}>
-                                    {ctx.toLocaleString()} ctx
+                        {filteredFetchedModels.length > 0 ? (
+                          filteredFetchedModels.map((m) => {
+                            const cleanId = extractCleanModelId(m.id || '')
+                            const ctx = extractContextWindow(m.id, m) || m.context_window
+                            const levels = detectThinkingLevels(cleanId, m)
+                            return (
+                              <div
+                                key={m.id}
+                                onClick={() => {
+                                  handleSelectFetchedModel(m.id)
+                                  setShowModelDropdown(false)
+                                }}
+                                style={{
+                                  padding: '8px 12px',
+                                  fontSize: '12px',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  fontFamily: 'monospace',
+                                  borderBottom: '1px solid #f8f9fa',
+                                  transition: 'background 0.15s ease',
+                                }}
+                                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f1f3f4')}
+                                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                              >
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+                                  <span style={{ fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {cleanId}
                                   </span>
-                                )}
-                                {levels.length > 0 && (
-                                  <span style={{ fontSize: '10px', color: '#137333', backgroundColor: '#e6f4ea', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
-                                    Thinking
-                                  </span>
-                                )}
+                                  {m.display_name && m.display_name !== cleanId && (
+                                    <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{m.display_name}</span>
+                                  )}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                                  {ctx && (
+                                    <span style={{ fontSize: '10px', color: 'var(--text-muted)', backgroundColor: '#f1f3f4', padding: '2px 6px', borderRadius: '4px' }}>
+                                      {ctx.toLocaleString()} ctx
+                                    </span>
+                                  )}
+                                  {levels.length > 0 && (
+                                    <span style={{ fontSize: '10px', color: '#137333', backgroundColor: '#e6f4ea', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                                      Thinking
+                                    </span>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          )
-                        })}
+                            )
+                          })
+                        ) : (
+                          <div style={{ padding: '12px', textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>
+                            No models match "{modelName.trim()}"
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -2400,7 +2636,6 @@ export const CustomModelsPage: React.FC = () => {
             justifyContent: 'center',
             zIndex: 1100,
           }}
-          onClick={() => setDeleteConfirmModel(null)}
         >
           <div
             className="google-card"
@@ -2440,6 +2675,291 @@ export const CustomModelsPage: React.FC = () => {
               >
                 {modalSaving ? 'Deleting...' : 'Delete Model'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add GCP Vertex AI Model Modal */}
+      {isGcpModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.45)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1050,
+          }}
+        >
+          <div
+            className="google-card"
+            style={{
+              width: '640px',
+              maxWidth: '92vw',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              padding: '24px',
+              boxShadow: 'var(--shadow-md)',
+              backgroundColor: '#ffffff',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <GoogleCloudLogoIcon size={24} />
+                <div>
+                  <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text)', margin: 0 }}>
+                    Add GCP Vertex AI Model
+                  </h2>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    Connect Google Cloud Vertex AI models via Service Account JSON key
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsGcpModalOpen(false)}
+                className="btn-pill-tonal"
+                style={{ padding: '6px' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Callout Instructions */}
+            <div
+              style={{
+                backgroundColor: 'rgba(26, 115, 232, 0.04)',
+                border: '1px solid rgba(26, 115, 232, 0.2)',
+                borderRadius: '8px',
+                padding: '12px 14px',
+                marginBottom: '16px',
+                fontSize: '12px',
+                lineHeight: 1.5,
+                color: 'var(--text)',
+              }}
+            >
+              <div style={{ fontWeight: 600, color: 'var(--primary)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <KeyRound size={14} /> Service Account Setup in GCP Console
+              </div>
+              <ol style={{ margin: 0, paddingLeft: '18px', color: 'var(--text-muted)', fontSize: '11.5px' }}>
+                <li>Go to <strong>IAM &amp; Admin &gt; Service Accounts</strong> in Google Cloud Console.</li>
+                <li>Create or select a Service Account and grant the <strong>Agent Platform User</strong> (<code style={{ fontSize: '11px', backgroundColor: 'rgba(0,0,0,0.05)', padding: '1px 4px', borderRadius: '3px' }}>roles/aiplatform.user</code>) role.</li>
+                <li>Under <strong>IAM &amp; Admin &gt; Organization Policies</strong> (or Group Policy), ensure <code style={{ fontSize: '11px', backgroundColor: 'rgba(0,0,0,0.05)', padding: '1px 4px', borderRadius: '3px' }}>iam.disableServiceAccountKeyCreation</code> is <strong>disabled / not enforced</strong> to permit service account key generation.</li>
+                <li>Under the Service Account <strong>Keys</strong> tab, click <strong>Add Key &gt; Create new key &gt; JSON</strong> and download the key file.</li>
+                <li>Upload or paste the key contents below to authenticate and build Vertex AI / Agent Platform endpoints.</li>
+              </ol>
+            </div>
+
+            {/* JSON Key Upload / Paste */}
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                  Service Account JSON Key:
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input
+                    type="file"
+                    ref={gcpFileInputRef}
+                    accept=".json,application/json"
+                    style={{ display: 'none' }}
+                    onChange={handleGcpFileUpload}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => gcpFileInputRef.current?.click()}
+                    className="btn-pill-tonal"
+                    style={{ padding: '4px 10px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <Upload size={12} /> Upload JSON Key
+                  </button>
+                </div>
+              </div>
+              <textarea
+                placeholder='Paste your GCP Service Account JSON key here ({"type": "service_account", "project_id": ...})'
+                value={gcpJsonContent}
+                onChange={(e) => handleGcpJsonChange(e.target.value)}
+                rows={5}
+                style={{
+                  width: '100%',
+                  fontSize: '11.5px',
+                  fontFamily: 'monospace',
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  border: gcpParseError ? '1px solid #b3261e' : '1px solid var(--border)',
+                  outline: 'none',
+                  resize: 'vertical',
+                  boxSizing: 'border-box',
+                }}
+              />
+              {gcpParseError && (
+                <div style={{ fontSize: '11px', color: '#b3261e', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <AlertCircle size={12} /> {gcpParseError}
+                </div>
+              )}
+              {gcpParsedKey && (
+                <div style={{ fontSize: '11px', color: '#137333', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <CheckCircle2 size={12} /> Valid service account for {gcpClientEmail || gcpParsedKey.client_email}
+                </div>
+              )}
+            </div>
+
+            {/* Project ID & Region Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                  GCP Project ID:
+                </label>
+                <input
+                  type="text"
+                  placeholder="Auto-detected from JSON key"
+                  value={gcpProjectId}
+                  onChange={(e) => setGcpProjectId(e.target.value)}
+                  style={{ width: '100%', fontSize: '12px', padding: '8px 10px', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                  Vertex AI Region:
+                </label>
+                <select
+                  value={gcpRegion}
+                  onChange={(e) => setGcpRegion(e.target.value)}
+                  style={{ width: '100%', fontSize: '12px', padding: '8px 10px', boxSizing: 'border-box' }}
+                >
+                  <option value="us-central1">us-central1 (Iowa - Recommended)</option>
+                  <option value="us-east4">us-east4 (N. Virginia)</option>
+                  <option value="us-west1">us-west1 (Oregon)</option>
+                  <option value="europe-west1">europe-west1 (Belgium)</option>
+                  <option value="europe-west4">europe-west4 (Netherlands)</option>
+                  <option value="asia-northeast1">asia-northeast1 (Tokyo)</option>
+                  <option value="asia-southeast1">asia-southeast1 (Singapore)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Model ID Manual Input with External Link to Model Garden */}
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <span>Model ID:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = 'https://console.cloud.google.com/agent-platform/model-garden'
+                      const electronOpen = (window as any).electronAPI?.openExternal
+                      if (electronOpen) electronOpen(url)
+                      else window.open(url, '_blank', 'noopener,noreferrer')
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      color: 'var(--primary)',
+                    }}
+                    title="Open Google Cloud Model Garden (console.cloud.google.com/agent-platform/model-garden)"
+                  >
+                    <ExternalLink size={13} />
+                  </button>
+                </label>
+              </div>
+              <input
+                type="text"
+                placeholder="Enter Model ID (e.g. gemini-2.5-flash or meta/llama-3.3-70b-instruct)"
+                value={gcpCustomModel}
+                onChange={(e) => {
+                  setGcpCustomModel(e.target.value)
+                  if (!gcpDisplayName || gcpDisplayName === gcpCustomModel) {
+                    setGcpDisplayName(e.target.value)
+                  }
+                }}
+                style={{ width: '100%', fontSize: '12px', padding: '8px 10px', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            {/* Display Name */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                Display Name in Antigravity:
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Gemini 2.5 Flash (GCP Vertex)"
+                value={gcpDisplayName}
+                onChange={(e) => setGcpDisplayName(e.target.value)}
+                style={{ width: '100%', fontSize: '12px', padding: '8px 10px', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            {/* Error & Test Feedback */}
+            {gcpError && (
+              <div style={{ padding: '10px 14px', borderRadius: '6px', backgroundColor: '#fce8e6', color: '#b3261e', fontSize: '12px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <AlertCircle size={14} style={{ flexShrink: 0 }} />
+                <span>{gcpError}</span>
+              </div>
+            )}
+
+            {gcpTestResult && (
+              <div
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: '6px',
+                  backgroundColor: gcpTestResult.success ? '#e6f4ea' : '#fce8e6',
+                  color: gcpTestResult.success ? '#137333' : '#b3261e',
+                  fontSize: '12px',
+                  marginBottom: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                {gcpTestResult.success ? <CheckCircle2 size={14} style={{ flexShrink: 0 }} /> : <AlertCircle size={14} style={{ flexShrink: 0 }} />}
+                <span>
+                  {gcpTestResult.success
+                    ? `Connection successful! (${gcpTestResult.latency_ms}ms) - Model responded correctly.`
+                    : `Connection test failed: ${gcpTestResult.message}`}
+                </span>
+              </div>
+            )}
+
+            {/* Modal Footer */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+              <button
+                type="button"
+                onClick={handleTestGcpConnection}
+                disabled={gcpTesting || !gcpParsedKey}
+                className="btn-pill-tonal"
+                style={{ padding: '7px 16px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                {gcpTesting ? <Loader2 size={13} className="spin" /> : <Zap size={13} />}
+                <span>{gcpTesting ? 'Testing Vertex...' : 'Test Connection'}</span>
+              </button>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsGcpModalOpen(false)}
+                  className="btn-pill-tonal"
+                  style={{ padding: '7px 18px', fontSize: '12px' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveGcpModel}
+                  disabled={gcpSaving || !gcpParsedKey}
+                  className="btn-pill-primary"
+                  style={{ padding: '7px 20px', fontSize: '12px' }}
+                >
+                  {gcpSaving ? 'Importing...' : 'Add Model'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

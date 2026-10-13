@@ -1,0 +1,382 @@
+package custommodels
+
+import (
+	"bytes"
+	"context"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+)
+
+// ServiceAccountKey represents the parsed Google Cloud service account JSON key file.
+type ServiceAccountKey struct {
+	Type                    string `json:"type"`
+	ProjectID               string `json:"project_id"`
+	PrivateKeyID            string `json:"private_key_id"`
+	PrivateKey              string `json:"private_key"`
+	ClientEmail             string `json:"client_email"`
+	ClientID                string `json:"client_id"`
+	AuthURI                 string `json:"auth_uri,omitempty"`
+	TokenURI                string `json:"token_uri,omitempty"`
+	AuthProviderX509CertURL string `json:"auth_provider_x509_cert_url,omitempty"`
+	ClientX509CertURL       string `json:"client_x509_cert_url,omitempty"`
+}
+
+// ParseServiceAccountKey parses and validates a GCP service account JSON key string or bytes.
+func ParseServiceAccountKey(data []byte) (*ServiceAccountKey, error) {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, errors.New("service account json key is empty")
+	}
+
+	var key ServiceAccountKey
+	if err := json.Unmarshal(data, &key); err != nil {
+		return nil, fmt.Errorf("invalid json: %w", err)
+	}
+
+	if key.Type != "service_account" {
+		return nil, errors.New("not a valid service_account key (type field must be 'service_account')")
+	}
+	if strings.TrimSpace(key.PrivateKey) == "" {
+		return nil, errors.New("missing private_key in service account json")
+	}
+	if strings.TrimSpace(key.ClientEmail) == "" {
+		return nil, errors.New("missing client_email in service account json")
+	}
+	if strings.TrimSpace(key.ProjectID) == "" {
+		return nil, errors.New("missing project_id in service account json")
+	}
+
+	return &key, nil
+}
+
+// parseRSAPrivateKey extracts an RSA private key from PEM bytes (PKCS#8 or PKCS#1).
+func parseRSAPrivateKey(pemStr string) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode([]byte(pemStr))
+	if block == nil {
+		return nil, errors.New("failed to decode pem block from private key")
+	}
+
+	// Try PKCS#8 format (standard for modern Google service account keys)
+	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err == nil {
+		rsaKey, ok := key.(*rsa.PrivateKey)
+		if !ok {
+			return nil, errors.New("pkcs8 key is not an rsa private key")
+		}
+		return rsaKey, nil
+	}
+
+	// Try PKCS#1 format fallback
+	rsaKey, err1 := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err1 == nil {
+		return rsaKey, nil
+	}
+
+	return nil, fmt.Errorf("failed to parse rsa private key: pkcs8 error: %v, pkcs1 error: %v", err, err1)
+}
+
+// GenerateGCPAccessToken mints a fresh Google Cloud OAuth2 access token using the service account key.
+func GenerateGCPAccessToken(ctx context.Context, key *ServiceAccountKey) (string, error) {
+	rsaKey, err := parseRSAPrivateKey(key.PrivateKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse private key: %w", err)
+	}
+
+	tokenURI := strings.TrimSpace(key.TokenURI)
+	if tokenURI == "" {
+		tokenURI = "https://oauth2.googleapis.com/token"
+	}
+
+	now := time.Now().Unix()
+	headerJSON := `{"alg":"RS256","typ":"JWT"}`
+	headerEnc := base64.RawURLEncoding.EncodeToString([]byte(headerJSON))
+
+	claimsMap := map[string]interface{}{
+		"iss":   key.ClientEmail,
+		"scope": "https://www.googleapis.com/auth/cloud-platform",
+		"aud":   tokenURI,
+		"exp":   now + 3600,
+		"iat":   now,
+	}
+	claimsBytes, err := json.Marshal(claimsMap)
+	if err != nil {
+		return "", err
+	}
+	claimsEnc := base64.RawURLEncoding.EncodeToString(claimsBytes)
+
+	toSign := headerEnc + "." + claimsEnc
+	hashed := sha256.Sum256([]byte(toSign))
+	sig, err := rsa.SignPKCS1v15(rand.Reader, rsaKey, crypto.SHA256, hashed[:])
+	if err != nil {
+		return "", fmt.Errorf("failed to sign jwt: %w", err)
+	}
+	sigEnc := base64.RawURLEncoding.EncodeToString(sig)
+	signedJWT := toSign + "." + sigEnc
+
+	// Exchange signed JWT with Google token endpoint
+	form := url.Values{}
+	form.Set("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer")
+	form.Set("assertion", signedJWT)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURI, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("token endpoint request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("google token endpoint returned HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+	if err := json.Unmarshal(bodyBytes, &tokenResp); err != nil {
+		return "", fmt.Errorf("failed to parse token response: %w", err)
+	}
+	if tokenResp.AccessToken == "" {
+		return "", errors.New("token response missing access_token")
+	}
+
+	return tokenResp.AccessToken, nil
+}
+
+// BuildVertexAIEndpoint constructs the REST endpoint URL for a Vertex AI model.
+func BuildVertexAIEndpoint(region, projectID, modelName string) string {
+	region = strings.TrimSpace(region)
+	if region == "" {
+		region = "us-central1"
+	}
+	projectID = strings.TrimSpace(projectID)
+	modelName = strings.TrimSpace(modelName)
+
+	if strings.Contains(strings.ToLower(modelName), "claude") {
+		return fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:streamRawPredict",
+			region, projectID, region, modelName)
+	}
+	return fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/%s:generateContent",
+		region, projectID, region, modelName)
+}
+
+// TestGCPModel tests connectivity to the GCP Vertex AI model using the Service Account credentials.
+func TestGCPModel(ctx context.Context, saKeyJSON string, projectID, region, modelName string) (*TestResult, error) {
+	start := time.Now()
+	saKey, err := ParseServiceAccountKey([]byte(saKeyJSON))
+	if err != nil {
+		return &TestResult{
+			Success:   false,
+			LatencyMs: time.Since(start).Milliseconds(),
+			Message:   fmt.Sprintf("Invalid Service Account Key: %v", err),
+		}, nil
+	}
+
+	if projectID == "" {
+		projectID = saKey.ProjectID
+	}
+	if region == "" {
+		region = "us-central1"
+	}
+	if modelName == "" {
+		modelName = "gemini-2.5-flash"
+	}
+
+	accessToken, err := GenerateGCPAccessToken(ctx, saKey)
+	if err != nil {
+		return &TestResult{
+			Success:   false,
+			LatencyMs: time.Since(start).Milliseconds(),
+			Message:   fmt.Sprintf("Authentication failed: %v", err),
+		}, nil
+	}
+
+	endpoint := BuildVertexAIEndpoint(region, projectID, modelName)
+
+	// Send a lightweight test ping request to Vertex AI
+	var reqBody []byte
+	if strings.Contains(strings.ToLower(modelName), "claude") {
+		reqBody, _ = json.Marshal(map[string]interface{}{
+			"anthropic_version": "vertex-2023-10-16",
+			"max_tokens":        1,
+			"messages": []map[string]string{
+				{"role": "user", "content": "ping"},
+			},
+		})
+	} else {
+		reqBody, _ = json.Marshal(map[string]interface{}{
+			"contents": []map[string]interface{}{
+				{
+					"role": "user",
+					"parts": []map[string]string{
+						{"text": "ping"},
+					},
+				},
+			},
+			"generationConfig": map[string]interface{}{
+				"maxOutputTokens": 1,
+			},
+		})
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(reqBody))
+	if err != nil {
+		return &TestResult{
+			Success:   false,
+			LatencyMs: time.Since(start).Milliseconds(),
+			Endpoint:  endpoint,
+			Message:   fmt.Sprintf("Failed to construct request: %v", err),
+		}, nil
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+accessToken)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(httpReq)
+	latency := time.Since(start).Milliseconds()
+	if err != nil {
+		return &TestResult{
+			Success:   false,
+			LatencyMs: latency,
+			Endpoint:  endpoint,
+			Message:   fmt.Sprintf("Vertex AI connection failed: %v", err),
+		}, nil
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusOK {
+		billingDesc := "Google Cloud Platform Vertex AI Managed"
+		balanceVal := "Active (GCP Billing)"
+		if bInfo, bErr := FetchGCPBillingInfo(ctx, saKey, projectID); bErr == nil && bInfo != nil {
+			if bInfo.BillingEnabled {
+				billingDesc = fmt.Sprintf("Billing Account: %s", bInfo.BillingAccountName)
+				balanceVal = bInfo.StatusMessage
+			} else {
+				billingDesc = bInfo.StatusMessage
+				balanceVal = "Disabled / No Account"
+			}
+		}
+
+		return &TestResult{
+			Success:    true,
+			StatusCode: resp.StatusCode,
+			LatencyMs:  latency,
+			Endpoint:   endpoint,
+			Message:    "OK",
+			QuotaResult: &QuotaResult{
+				QuotaType:    QuotaTypeBalance,
+				QuotaValue:   balanceVal,
+				BalanceValue: balanceVal,
+				Message:      billingDesc,
+			},
+		}, nil
+	}
+
+	// Parse GCP error message
+	var gcpErr struct {
+		Error struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+			Status  string `json:"status"`
+		} `json:"error"`
+	}
+	errMsg := fmt.Sprintf("HTTP %d", resp.StatusCode)
+	if json.Unmarshal(bodyBytes, &gcpErr) == nil && gcpErr.Error.Message != "" {
+		errMsg = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, gcpErr.Error.Message)
+	}
+
+	return &TestResult{
+		Success:    false,
+		StatusCode: resp.StatusCode,
+		LatencyMs:  latency,
+		Endpoint:   endpoint,
+		Message:    errMsg,
+	}, nil
+}
+
+// GCPBillingInfo reports the Cloud Billing status and associated billing account.
+type GCPBillingInfo struct {
+	Name               string `json:"name"`
+	ProjectID          string `json:"projectId"`
+	BillingAccountName string `json:"billingAccountName"`
+	BillingEnabled     bool   `json:"billingEnabled"`
+	StatusMessage      string `json:"statusMessage"`
+}
+
+// FetchGCPBillingInfo queries the Google Cloud Billing API for the project's billing status.
+func FetchGCPBillingInfo(ctx context.Context, saKey *ServiceAccountKey, projectID string) (*GCPBillingInfo, error) {
+	if saKey == nil {
+		return nil, errors.New("service account key is required")
+	}
+	if projectID == "" {
+		projectID = saKey.ProjectID
+	}
+	if projectID == "" {
+		return nil, errors.New("project ID is required")
+	}
+
+	accessToken, err := GenerateGCPAccessToken(ctx, saKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate access token for billing check: %w", err)
+	}
+
+	billingURL := fmt.Sprintf("https://cloudbilling.googleapis.com/v1/projects/%s/billingInfo", url.PathEscape(projectID))
+	req, err := http.NewRequestWithContext(ctx, "GET", billingURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("billing api request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return &GCPBillingInfo{
+			ProjectID:      projectID,
+			BillingEnabled: false,
+			StatusMessage:  fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(bytes.TrimSpace(bodyBytes))),
+		}, nil
+	}
+
+	var info GCPBillingInfo
+	if err := json.Unmarshal(bodyBytes, &info); err != nil {
+		return nil, fmt.Errorf("failed to parse billing info response: %w", err)
+	}
+	if info.BillingEnabled {
+		acctName := info.BillingAccountName
+		if parts := strings.Split(acctName, "/"); len(parts) > 1 {
+			acctName = parts[len(parts)-1]
+		}
+		info.StatusMessage = fmt.Sprintf("Active (Account: %s)", acctName)
+	} else {
+		info.StatusMessage = "No billing account linked"
+	}
+	return &info, nil
+}

@@ -62,18 +62,39 @@ func isMockFixtureEmail(email string) bool {
 	return norm == "target@gmail.com" || norm == "test.import.user@gmail.com" || strings.HasPrefix(norm, "mock_")
 }
 
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
 // sanitizeAndDeduplicateLocked heals invalid formats and ensures no two accounts share any hardware identifier.
 func (s *Store) sanitizeAndDeduplicateLocked() bool {
 	changed := false
 	isHostDefault := s.isDefaultHostStoreLocked()
 
-	emails := make([]string, 0, len(s.profiles))
-	for em := range s.profiles {
-		if isHostDefault && isMockFixtureEmail(em) {
-			delete(s.profiles, em)
+	normalizedProfiles := make(map[string]*DeviceProfile, len(s.profiles))
+	for em, prof := range s.profiles {
+		norm := normalizeEmail(em)
+		if isHostDefault && isMockFixtureEmail(norm) {
 			changed = true
 			continue
 		}
+		if norm != em {
+			changed = true
+		}
+		if existing, ok := normalizedProfiles[norm]; ok && existing != nil {
+			changed = true
+			continue
+		}
+		if prof != nil && prof.AccountEmail != norm {
+			prof.AccountEmail = norm
+			changed = true
+		}
+		normalizedProfiles[norm] = prof
+	}
+	s.profiles = normalizedProfiles
+
+	emails := make([]string, 0, len(s.profiles))
+	for em := range s.profiles {
 		emails = append(emails, em)
 	}
 	sort.Strings(emails)
@@ -148,6 +169,7 @@ func (s *Store) sanitizeAndDeduplicateLocked() bool {
 }
 
 func (s *Store) hasCollisionLocked(excludeEmail string, candidate *DeviceProfile) (string, bool) {
+	excludeEmail = normalizeEmail(excludeEmail)
 	for em, existing := range s.profiles {
 		if em == excludeEmail || existing == nil {
 			continue
@@ -169,6 +191,7 @@ func (s *Store) hasCollisionLocked(excludeEmail string, candidate *DeviceProfile
 }
 
 func (s *Store) generateUniqueLocked(email string) (*DeviceProfile, error) {
+	email = normalizeEmail(email)
 	for attempt := 0; attempt < 16; attempt++ {
 		prof, err := GenerateRandom()
 		if err != nil {
@@ -202,6 +225,7 @@ func (s *Store) save() error {
 
 // GetProfile returns the profile associated with the email, or nil if none exists.
 func (s *Store) GetProfile(email string) *DeviceProfile {
+	email = normalizeEmail(email)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	prof := s.profiles[email]
@@ -215,6 +239,7 @@ func (s *Store) GetProfile(email string) *DeviceProfile {
 
 // GetOrCreateProfile retrieves or creates a valid, unique random profile for an email.
 func (s *Store) GetOrCreateProfile(email string) (*DeviceProfile, error) {
+	email = normalizeEmail(email)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -242,6 +267,7 @@ func (s *Store) GetOrCreateProfile(email string) (*DeviceProfile, error) {
 
 // SetProfile associates and persists a profile for an email, rejecting cross-account ID collisions.
 func (s *Store) SetProfile(email string, profile *DeviceProfile) error {
+	email = normalizeEmail(email)
 	if err := profile.Validate(); err != nil {
 		return err
 	}

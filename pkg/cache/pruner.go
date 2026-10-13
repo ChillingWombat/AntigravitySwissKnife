@@ -66,7 +66,7 @@ func (p *Pruner) Prune(opts PruneOptions) (*PruneResult, error) {
 	hasAgeCutoff := opts.MinAgeDays > 0
 	var cutoff time.Time
 	if hasAgeCutoff {
-		cutoff = time.Now().Add(-time.Duration(opts.MinAgeDays*24) * time.Hour)
+		cutoff = time.Now().Add(-time.Duration(opts.MinAgeDays * float64(24*time.Hour)))
 	}
 
 	var totalRemainingBytes int64
@@ -82,7 +82,7 @@ func (p *Pruner) Prune(opts PruneOptions) (*PruneResult, error) {
 
 		// Active Conversation Shield Check:
 		// If the conversation path contains the active cascade ID, shield it!
-		if opts.ActiveCascadeID != "" && strings.Contains(rel, opts.ActiveCascadeID) {
+		if opts.ActiveCascadeID != "" && (containsPathSegment(rel, opts.ActiveCascadeID) || strings.Contains(rel, opts.ActiveCascadeID)) {
 			res.SkippedShield++
 			totalRemainingBytes += size
 			return nil
@@ -110,11 +110,14 @@ func (p *Pruner) Prune(opts PruneOptions) (*PruneResult, error) {
 				res.FilesDeleted++
 				return nil
 			}
-			remainingPrunable = append(remainingPrunable, prunableFile{
-				path:    path,
-				size:    size,
-				modTime: info.ModTime(),
-			})
+			// When hasAgeCutoff is true (MinAgeDays > 0), MaxSizeGB must never prune files younger than cutoff
+			if !hasAgeCutoff {
+				remainingPrunable = append(remainingPrunable, prunableFile{
+					path:    path,
+					size:    size,
+					modTime: info.ModTime(),
+				})
+			}
 		}
 		totalRemainingBytes += size
 		return nil
@@ -127,9 +130,9 @@ func (p *Pruner) Prune(opts PruneOptions) (*PruneResult, error) {
 	}
 
 	// Enforce MaxSizeGB cap if configured
-	if opts.MaxSizeGB > 0 {
+	if opts.MaxSizeGB > 0 && len(remainingPrunable) > 0 {
 		maxBytes := int64(opts.MaxSizeGB * 1024 * 1024 * 1024)
-		if totalRemainingBytes > maxBytes && len(remainingPrunable) > 0 {
+		if totalRemainingBytes > maxBytes {
 			sort.Slice(remainingPrunable, func(i, j int) bool {
 				return remainingPrunable[i].modTime.Before(remainingPrunable[j].modTime)
 			})

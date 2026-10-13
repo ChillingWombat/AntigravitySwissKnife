@@ -1,18 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import {
-  MessageSquareCode,
-  Power,
-  ShieldCheck,
   RotateCw,
   Check,
-  HelpCircle,
+  Power,
   Eye,
   EyeOff,
-  Radio,
-  Clock,
-  Layers,
-  Settings2,
 } from 'lucide-react'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 
 export const DiscordBridgePage: React.FC = () => {
@@ -136,255 +130,128 @@ export const DiscordBridgePage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* 1. Header & Enable Bar */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          backgroundColor: '#ffffff',
-          borderRadius: '12px',
-          padding: '18px 24px',
-          border: '1px solid var(--border)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '10px',
-              backgroundColor: '#ede9fe',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <MessageSquareCode size={24} color="#7c3aed" />
-          </div>
+      {/* 1. Overview, Live Status & Enable Toggle */}
+      <div className="google-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <h2
-                style={{
-                  fontSize: '17px',
-                  fontWeight: 600,
-                  margin: 0,
-                  color: 'var(--text)',
-                  whiteSpace: 'nowrap',
-                }}
-              >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                 Discord Agent Chat Bridge
               </h2>
-              <span
-                style={{
-                  fontSize: '11px',
-                  padding: '2px 8px',
-                  borderRadius: '12px',
-                  fontWeight: 600,
-                  whiteSpace: 'nowrap',
-                  backgroundColor: dsStatus.enabled ? '#dcfce7' : 'var(--tonal)',
-                  color: dsStatus.enabled ? '#15803d' : 'var(--text-muted)',
-                }}
-              >
-                {dsStatus.enabled ? (dsStatus.connected ? 'Gateway Connected' : 'Gateway Ready') : 'Disabled'}
+              <span className={`badge-chip ${dsStatus.enabled ? 'badge-green' : 'badge-neutral'}`}>
+                {dsStatus.enabled ? (dsStatus.connected ? 'Connected' : 'Listening') : 'Disabled'}
               </span>
             </div>
-            <p
-              style={{
-                fontSize: '13px',
-                color: 'var(--text-muted)',
-                margin: '4px 0 0 0',
-              }}
-            >
-              Control Antigravity autonomous agents and stream execution logs into Discord channels and DMs.
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+              Direct bidirectional chat channel between Discord bots and local Antigravity autonomous agents.
             </p>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              onClick={handleTestConnection}
+              disabled={loading}
+              className="btn-pill-tonal"
+            >
+              <RotateCw size={14} className={loading ? 'animate-spin' : ''} />
+              <span>Test Bot</span>
+            </button>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
+              <span style={{ whiteSpace: 'nowrap' }}>Enable Bridge</span>
+              <ToggleSwitch
+                checked={Boolean(config.discord.enabled)}
+                onChange={handleToggleEnable}
+              />
+            </label>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <button
-            onClick={handleTestConnection}
-            disabled={loading}
+        {testResult && (
+          <div
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '8px 14px',
-              borderRadius: '20px',
-              border: '1px solid var(--border)',
-              backgroundColor: '#ffffff',
-              fontSize: '13px',
-              fontWeight: 500,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            <RotateCw size={14} className={loading ? 'animate-spin' : ''} />
-            Test Bot
-          </button>
-          <button
-            onClick={handleToggleEnable}
-            style={{
+              padding: '10px 14px',
+              borderRadius: '8px',
+              border: `1px solid ${testResult.success ? '#bbf7d0' : '#fecaca'}`,
+              backgroundColor: testResult.success ? 'var(--green-bg)' : 'var(--red-bg)',
+              fontSize: '12px',
+              color: testResult.success ? 'var(--green)' : 'var(--red)',
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              padding: '8px 16px',
-              borderRadius: '20px',
-              border: 'none',
-              fontSize: '13px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              backgroundColor: config.discord.enabled ? '#fee2e2' : 'var(--primary-container)',
-              color: config.discord.enabled ? '#b91c1c' : 'var(--primary)',
+              marginBottom: '16px',
             }}
           >
-            <Power size={15} />
-            {config.discord.enabled ? 'Disable Channel' : 'Enable Channel'}
-          </button>
-        </div>
-      </div>
+            {testResult.success ? <Check size={14} /> : <Power size={14} />}
+            <span>{testResult.message || testResult.error}</span>
+          </div>
+        )}
 
-      {/* 2. Status Cards */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
-          gap: '12px',
-        }}
-      >
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '10px',
-            padding: '14px 16px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <Radio size={16} color="var(--primary)" />
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+        {/* Status Metrics Grid (harmonized with BrainCachePage & TokenMonitorPage) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
               Gateway Status
-            </span>
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: dsStatus.enabled ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
+              {dsStatus.status_text || (dsStatus.enabled ? 'Gateway Ready' : 'Standby')}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Discord Gateway v10
+            </div>
           </div>
-          <div style={{ fontSize: '15px', fontWeight: 600, color: dsStatus.enabled ? '#16a34a' : 'var(--text-muted)' }}>
-            {dsStatus.status_text || (dsStatus.enabled ? 'Gateway Ready' : 'Standby')}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Discord WebSocket Gateway v10
-          </div>
-        </div>
 
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '10px',
-            padding: '14px 16px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <Layers size={16} color="var(--primary)" />
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
               Application ID
-            </span>
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {config.discord.application_id || 'Unconfigured'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Developer Portal App ID
+            </div>
           </div>
-          <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {config.discord.application_id || 'Unset'}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Developer Portal App ID
-          </div>
-        </div>
 
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '10px',
-            padding: '14px 16px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <ShieldCheck size={16} color="var(--primary)" />
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Whitelisted Channels
-            </span>
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              Allowed Channel IDs
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
+              {config.discord.allowed_channels?.length > 0 ? `${config.discord.allowed_channels.length} Allowed` : 'All Guild Channels'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Restricts bot channels
+            </div>
           </div>
-          <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text)' }}>
-            {config.discord.allowed_channels?.length > 0 ? `${config.discord.allowed_channels.length} Channels` : 'All Guild Channels'}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Security scope filter
-          </div>
-        </div>
 
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '10px',
-            padding: '14px 16px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <Clock size={16} color="var(--primary)" />
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
               Last Message
-            </span>
-          </div>
-          <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-            {dsStatus.last_message_at || 'Never'}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Discord event listener
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
+              {dsStatus.last_message_at || 'Never'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Latest agent dispatch
+            </div>
           </div>
         </div>
       </div>
 
-      {testResult && (
-        <div
-          style={{
-            padding: '12px 16px',
-            borderRadius: '8px',
-            border: `1px solid ${testResult.success ? '#bbf7d0' : '#fecaca'}`,
-            backgroundColor: testResult.success ? '#f0fdf4' : '#fef2f2',
-            fontSize: '13px',
-            color: testResult.success ? '#15803d' : '#b91c1c',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          {testResult.success ? <Check size={16} /> : <Power size={16} />}
-          <span>{testResult.message || testResult.error}</span>
-        </div>
-      )}
-
-      {/* 3. Settings Form */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          borderRadius: '12px',
-          padding: '20px 24px',
-          border: '1px solid var(--border)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '16px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Settings2 size={18} color="var(--primary)" />
-          <h3 style={{ fontSize: '15px', fontWeight: 600, margin: 0, color: 'var(--text)' }}>
-            Discord Bot Settings
-          </h3>
+      {/* 2. Bot Configuration Settings */}
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
+          Bot Configuration
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
               Discord Bot Token
-            </label>
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+              Token generated under the Bot tab in the Discord Developer Portal.
+            </div>
             <div style={{ position: 'relative' }}>
               <input
                 type={showToken ? 'text' : 'password'}
@@ -396,14 +263,7 @@ export const DiscordBridgePage: React.FC = () => {
                     discord: { ...config.discord, bot_token: e.target.value },
                   })
                 }
-                style={{
-                  width: '100%',
-                  padding: '8px 40px 8px 12px',
-                  borderRadius: '8px',
-                  border: '1px solid var(--border)',
-                  fontSize: '13px',
-                  boxSizing: 'border-box',
-                }}
+                style={{ width: '100%', paddingRight: '36px' }}
               />
               <button
                 type="button"
@@ -417,6 +277,8 @@ export const DiscordBridgePage: React.FC = () => {
                   border: 'none',
                   cursor: 'pointer',
                   color: 'var(--text-muted)',
+                  display: 'flex',
+                  alignItems: 'center',
                 }}
               >
                 {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -425,9 +287,12 @@ export const DiscordBridgePage: React.FC = () => {
           </div>
 
           <div>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-              Application ID / Client ID
-            </label>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+              Application ID (Client ID)
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+              Discord Developer Portal General Information Application ID.
+            </div>
             <input
               type="text"
               placeholder="e.g. 1092837465019283"
@@ -438,178 +303,92 @@ export const DiscordBridgePage: React.FC = () => {
                   discord: { ...config.discord, application_id: e.target.value },
                 })
               }
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
-                fontSize: '13px',
-                boxSizing: 'border-box',
-              }}
+              style={{ width: '100%' }}
             />
           </div>
-        </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
-          <div>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-              Allowed Channel IDs (Whitelist)
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. 119283746501928374, 998877665544 (leave blank for all)"
-              value={allowedChannelsStr}
-              onChange={(e) => setAllowedChannelsStr(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
-                fontSize: '13px',
-                boxSizing: 'border-box',
-              }}
-            />
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-              Comma-separated numerical Discord channel IDs where the bot is permitted to respond.
-            </span>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                Allowed Channel IDs (Whitelist)
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Comma-separated Discord channel IDs. Leave blank to allow any channel the bot is added to.
+              </div>
+              <input
+                type="text"
+                placeholder="e.g. 119283746501928374, 998877665544 (leave blank for all)"
+                value={allowedChannelsStr}
+                onChange={(e) => setAllowedChannelsStr(e.target.value)}
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                Allowed User IDs (Whitelist)
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Comma-separated Discord user IDs. Leave blank to allow all server members.
+              </div>
+              <input
+                type="text"
+                placeholder="e.g. 3344556677889900 (leave blank to allow all)"
+                value={allowedUsersStr}
+                onChange={(e) => setAllowedUsersStr(e.target.value)}
+                style={{ width: '100%' }}
+              />
+            </div>
           </div>
 
-          <div>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-              Allowed User IDs (Whitelist)
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. 3344556677889900 (leave blank to allow all server members)"
-              value={allowedUsersStr}
-              onChange={(e) => setAllowedUsersStr(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
-                fontSize: '13px',
-                boxSizing: 'border-box',
-              }}
-            />
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-              Restricts agent invocation to specific Discord user accounts.
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
+            <button
+              onClick={handleSaveConfig}
+              disabled={loading}
+              className="btn-pill-primary"
+            >
+              Save Settings
+            </button>
+            {saveSuccess && (
+              <span style={{ fontSize: '12px', color: 'var(--green)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <Check size={14} /> Discord settings saved
+              </span>
+            )}
           </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
-          <button
-            onClick={handleSaveConfig}
-            disabled={loading}
-            style={{
-              padding: '8px 18px',
-              borderRadius: '20px',
-              border: 'none',
-              fontSize: '13px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              backgroundColor: 'var(--primary)',
-              color: '#ffffff',
-            }}
-          >
-            Save Settings
-          </button>
-          {saveSuccess && (
-            <span style={{ fontSize: '12px', color: '#16a34a', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Check size={14} /> Discord settings saved
-            </span>
-          )}
         </div>
       </div>
 
-      {/* 4. Guidance Section */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          borderRadius: '12px',
-          padding: '20px 24px',
-          border: '1px solid var(--border)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <HelpCircle size={18} color="var(--primary)" />
-          <h3 style={{ fontSize: '15px', fontWeight: 600, margin: 0, color: 'var(--text)' }}>
-            Discord Bot Setup Guidance
-          </h3>
+      {/* 3. Architecture & Guidance */}
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
+          Architecture & Guidance
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-            <span
-              style={{
-                width: '22px',
-                height: '22px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--primary-container)',
-                color: 'var(--primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '12px',
-                fontWeight: 700,
-                flexShrink: 0,
-              }}
-            >
-              1
-            </span>
-            <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.5 }}>
-              <strong>Create Application & Bot:</strong> Visit the Discord Developer Portal, click <em>New Application</em>, and navigate to the <em>Bot</em> section. Reset and copy your Bot Token.
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
+              Create Application & Bot
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+              Visit the Discord Developer Portal, click <em>New Application</em>, navigate to the <em>Bot</em> section, reset and copy your Bot Token into Discord Bot Token above.
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-            <span
-              style={{
-                width: '22px',
-                height: '22px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--primary-container)',
-                color: 'var(--primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '12px',
-                fontWeight: 700,
-                flexShrink: 0,
-              }}
-            >
-              2
-            </span>
-            <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.5 }}>
-              <strong>Enable Privileged Intents:</strong> Under the Bot tab in the Developer Portal, toggle on <em>Message Content Intent</em> so the bot can read instructions in whitelisted channels.
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
+              Privileged Gateway Intents
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+              Under the Bot tab in the Developer Portal, enable <em>Message Content Intent</em> so the bot can read instructions in whitelisted channels and direct messages.
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-            <span
-              style={{
-                width: '22px',
-                height: '22px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--primary-container)',
-                color: 'var(--primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '12px',
-                fontWeight: 700,
-                flexShrink: 0,
-              }}
-            >
-              3
-            </span>
-            <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.5 }}>
-              <strong>Invite & Converse:</strong> Under OAuth2 URL Generator, check <code>bot</code> scope with <code>Send Messages</code> and <code>Read Message History</code>. Invite the bot to your server, mention it or DM it, and command Antigravity from Discord!
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
+              OAuth2 Invite & Permissions
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+              Under OAuth2 URL Generator, select <code>bot</code> scope with <code>Send Messages</code> and <code>Read Message History</code>. Invite the bot to your server, mention it or DM it, and command Antigravity from Discord.
             </div>
           </div>
         </div>

@@ -102,6 +102,27 @@ func (s *Shield) IsProtected(pid int) bool {
 	if pid == os.Getpid() {
 		return true
 	}
+	// Parent process (e.g. Electron shell) is always protected
+	if ppid := os.Getppid(); ppid > 1 && pid == ppid {
+		return true
+	}
+	// Any Swiss Knife companion or UI process is ALWAYS protected
+	if runtime.GOOS == "linux" {
+		cmdlineBytes, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+		if err == nil {
+			cmdline := strings.ToLower(strings.ReplaceAll(string(cmdlineBytes), "\x00", " "))
+			if strings.Contains(cmdline, "swiss") || strings.Contains(cmdline, "antigravity-swiss") {
+				return true
+			}
+		}
+		commBytes, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
+		if err == nil {
+			comm := strings.ToLower(strings.TrimSpace(string(commBytes)))
+			if strings.Contains(comm, "swiss") {
+				return true
+			}
+		}
+	}
 	return false
 }
 
@@ -142,9 +163,16 @@ func (s *Shield) FindAntigravityProcesses() ([]ProcessInfo, error) {
 			continue
 		}
 		cmdline := strings.ReplaceAll(string(cmdlineBytes), "\x00", " ")
-		if strings.Contains(strings.ToLower(cmdline), "antigravity") {
+		lowerCmdline := strings.ToLower(cmdline)
+		if strings.Contains(lowerCmdline, "swiss") || strings.Contains(lowerCmdline, "antigravity-swiss") {
+			continue
+		}
+		if strings.Contains(lowerCmdline, "antigravity") {
 			commBytes, _ := os.ReadFile(filepath.Join("/proc", entry.Name(), "comm"))
 			comm := strings.TrimSpace(string(commBytes))
+			if strings.Contains(strings.ToLower(comm), "swiss") {
+				continue
+			}
 
 			isHost := (s.protectedPID > 0 && pid == s.protectedPID)
 			results = append(results, ProcessInfo{
@@ -275,11 +303,13 @@ func (s *Shield) LaunchHostIDE() error {
 	}
 
 	// Clear stale Chromium/Electron singleton locks & DevTools port file if dead
-	hostConfigDir := core.GetAntigravityHostConfigDir()
-	_ = os.Remove(filepath.Join(hostConfigDir, "SingletonLock"))
-	_ = os.Remove(filepath.Join(hostConfigDir, "SingletonSocket"))
-	_ = os.Remove(filepath.Join(hostConfigDir, "SingletonCookie"))
-	_ = os.Remove(filepath.Join(hostConfigDir, "DevToolsActivePort"))
+	if !s.IsAntigravityRunning() {
+		hostConfigDir := core.GetAntigravityHostConfigDir()
+		_ = os.Remove(filepath.Join(hostConfigDir, "SingletonLock"))
+		_ = os.Remove(filepath.Join(hostConfigDir, "SingletonSocket"))
+		_ = os.Remove(filepath.Join(hostConfigDir, "SingletonCookie"))
+		_ = os.Remove(filepath.Join(hostConfigDir, "DevToolsActivePort"))
+	}
 
 	binPath := core.GetAntigravityBinaryPath()
 	var cmd *exec.Cmd
@@ -351,17 +381,18 @@ func (s *Shield) RelaunchHostIDE() error {
 	revEngine := s.getRevivalEngine()
 	revIntent, _ := revEngine.CapturePreSwitchState("desktop")
 
+	// Phase 1: Graceful SIGTERM to main IDE processes so Electron triggers before-quit
 	for _, pid := range mainPIDs {
 		if proc, findErr := os.FindProcess(pid); findErr == nil {
 			_ = proc.Signal(syscall.SIGTERM)
 		}
 	}
-	// Poll for graceful exit up to 6.5 seconds (Electron before-quit waits up to 5s for language_server)
+	// Poll for main process graceful exit up to 6.5 seconds (Electron before-quit waits up to 5s for language_server)
 	for i := 0; i < 65; i++ {
 		time.Sleep(100 * time.Millisecond)
 		anyAlive := false
 		for _, pid := range mainPIDs {
-			if isProcessAlive(pid) {
+			if isProcessAliveMatching(pid, "antigravity") {
 				anyAlive = true
 				break
 			}
@@ -372,7 +403,7 @@ func (s *Shield) RelaunchHostIDE() error {
 	}
 	// Force terminate any remaining main processes
 	for _, pid := range mainPIDs {
-		if isProcessAlive(pid) {
+		if isProcessAliveMatching(pid, "antigravity") {
 			if proc, findErr := os.FindProcess(pid); findErr == nil {
 				_ = proc.Kill()
 			}
@@ -380,18 +411,20 @@ func (s *Shield) RelaunchHostIDE() error {
 	}
 	time.Sleep(300 * time.Millisecond)
 
-	// Ensure no orphaned language_server processes remain holding SQLite locks
+	// Phase 2: Give language_server up to 4.5-5.0 seconds to checkpoint SQLite (Issue 22)
 	if lsProcs, lsErr := s.FindLanguageServerProcesses(); lsErr == nil && len(lsProcs) > 0 {
 		for _, lp := range lsProcs {
-			if proc, findErr := os.FindProcess(lp.PID); findErr == nil {
-				_ = proc.Signal(syscall.SIGTERM)
+			if !s.IsProtected(lp.PID) {
+				if proc, findErr := os.FindProcess(lp.PID); findErr == nil {
+					_ = proc.Signal(syscall.SIGTERM)
+				}
 			}
 		}
-		for i := 0; i < 5; i++ {
+		for i := 0; i < 45; i++ {
 			time.Sleep(100 * time.Millisecond)
 			anyLS := false
 			for _, lp := range lsProcs {
-				if isProcessAlive(lp.PID) {
+				if !s.IsProtected(lp.PID) && isProcessAliveMatching(lp.PID, "language_server") {
 					anyLS = true
 					break
 				}
@@ -401,7 +434,7 @@ func (s *Shield) RelaunchHostIDE() error {
 			}
 		}
 		for _, lp := range lsProcs {
-			if isProcessAlive(lp.PID) {
+			if !s.IsProtected(lp.PID) && isProcessAliveMatching(lp.PID, "language_server") {
 				if proc, findErr := os.FindProcess(lp.PID); findErr == nil {
 					_ = proc.Kill()
 				}
@@ -409,8 +442,71 @@ func (s *Shield) RelaunchHostIDE() error {
 		}
 	}
 
+	// Phase 3: Terminate surviving Electron child processes (Issue 21)
+	if activeProcs, aErr := s.findAntigravityProcessesInternal(); aErr == nil {
+		var survivingChildren []int
+		for _, p := range activeProcs {
+			lower := strings.ToLower(p.Cmdline)
+			if !s.IsProtected(p.PID) && !strings.Contains(lower, "swiss") && isProcessAliveMatching(p.PID, "antigravity") {
+				survivingChildren = append(survivingChildren, p.PID)
+			}
+		}
+		if len(survivingChildren) > 0 {
+			for _, pid := range survivingChildren {
+				if proc, findErr := os.FindProcess(pid); findErr == nil {
+					_ = proc.Signal(syscall.SIGTERM)
+				}
+			}
+			for i := 0; i < 15; i++ {
+				time.Sleep(100 * time.Millisecond)
+				anyChild := false
+				for _, pid := range survivingChildren {
+					if isProcessAliveMatching(pid, "antigravity") {
+						anyChild = true
+						break
+					}
+				}
+				if !anyChild {
+					break
+				}
+			}
+			for _, pid := range survivingChildren {
+				if isProcessAliveMatching(pid, "antigravity") {
+					if proc, findErr := os.FindProcess(pid); findErr == nil {
+						_ = proc.Kill()
+					}
+				}
+			}
+		}
+	}
+
+	// Phase 4: Verify all Antigravity and language_server processes have exited before unlinking singleton files (Issue 24)
+	for i := 0; i < 20; i++ {
+		procsLeft, _ := s.findAntigravityProcessesInternal()
+		lsLeft, _ := s.FindLanguageServerProcesses()
+		alive := false
+		for _, p := range procsLeft {
+			if !s.IsProtected(p.PID) && isProcessAliveMatching(p.PID, "antigravity") {
+				alive = true
+				break
+			}
+		}
+		if !alive {
+			for _, lp := range lsLeft {
+				if !s.IsProtected(lp.PID) && isProcessAliveMatching(lp.PID, "language_server") {
+					alive = true
+					break
+				}
+			}
+		}
+		if !alive {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
 	// Settle file handles and clear any stale Chromium/Electron singleton locks & DevTools port file
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 	hostConfigDir := core.GetAntigravityHostConfigDir()
 	_ = os.Remove(filepath.Join(hostConfigDir, "SingletonLock"))
 	_ = os.Remove(filepath.Join(hostConfigDir, "SingletonSocket"))
@@ -492,12 +588,40 @@ func isZombieProcess(pid int) bool {
 }
 
 func isProcessAlive(pid int) bool {
+	return isProcessAliveMatching(pid)
+}
+
+func isProcessAliveMatching(pid int, keywords ...string) bool {
 	if pid <= 0 {
 		return false
 	}
 	if runtime.GOOS == "linux" {
-		_, err := os.Stat(fmt.Sprintf("/proc/%d", pid))
-		return err == nil && !isZombieProcess(pid)
+		procDir := fmt.Sprintf("/proc/%d", pid)
+		if _, err := os.Stat(procDir); err != nil {
+			return false
+		}
+		if isZombieProcess(pid) {
+			return false
+		}
+		if len(keywords) > 0 && pid != os.Getpid() {
+			cmdlineBytes, err := os.ReadFile(filepath.Join(procDir, "cmdline"))
+			if err != nil {
+				return false
+			}
+			cmdline := strings.ToLower(strings.ReplaceAll(string(cmdlineBytes), "\x00", " "))
+			if strings.Contains(cmdline, "swiss") || strings.Contains(cmdline, "antigravity-swiss") {
+				return false
+			}
+			matched := false
+			for _, kw := range keywords {
+				if strings.Contains(cmdline, strings.ToLower(kw)) {
+					matched = true
+					break
+				}
+			}
+			return matched
+		}
+		return true
 	}
 	proc, err := os.FindProcess(pid)
 	if err != nil {

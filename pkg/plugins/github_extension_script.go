@@ -1208,7 +1208,7 @@ func GenerateGitHubExtensionScript() string {
         <button class="swiss-gh-tab-btn ${activeTab === "board" ? "active" : ""}" data-tab="board">Board</button>
         <button class="swiss-gh-tab-btn ${activeTab === "issues" ? "active" : ""}" data-tab="issues">Issues (${effIssues.length})</button>
         <button class="swiss-gh-tab-btn ${activeTab === "prs" ? "active" : ""}" data-tab="prs">PRs (${effPRs.length})</button>
-        <button class="swiss-gh-tab-btn ${activeTab === "tasks" ? "active" : ""}" data-tab="tasks">AGY Agents (${effTasks.filter(t => !t.is_pruned).length})</button>
+        <button class="swiss-gh-tab-btn ${activeTab === "tasks" ? "active" : ""}" data-tab="tasks">AGY Agents (${effTasks.filter(t => !t.is_pruned && (t.not_fully_idle || t.status === "working")).length})</button>
       </div>
       <div class="swiss-gh-search-box" style="display: flex; align-items: center; gap: 6px;">
         <input type="text" class="swiss-gh-search-input" style="flex: 1;" placeholder="Search ${activeTab === "tasks" ? "agents" : activeTab}..." value="${escapeHTML(activeSearch)}" id="swiss-gh-aux-search-field">
@@ -1295,13 +1295,9 @@ func GenerateGitHubExtensionScript() string {
         items = items.filter(it => {
           const isWorking = it.not_fully_idle || it.status === "working";
           if (isWorking) return false;
-          // Only show Main agents or subagents killed within 3 days (<= 72 hours)
-          const isMain = (!it.nesting_depth || it.nesting_depth === 0) &&
-            (!it.root_parent_conversation_id || it.root_parent_conversation_id === it.conversation_id);
-          if (!isMain) {
-            const tMod = it.last_modified ? new Date(it.last_modified).getTime() : 0;
-            if (now - tMod > THREE_DAYS_MS) return false;
-          }
+          // Only show agents killed within 3 days (<= 72 hours) for both main conversations and subagents
+          const tMod = it.last_modified ? new Date(it.last_modified).getTime() : 0;
+          if (tMod <= 0 || (now - tMod > THREE_DAYS_MS)) return false;
           return true;
         });
       }
@@ -1760,15 +1756,29 @@ func GenerateGitHubExtensionScript() string {
                         document.querySelector('[contenteditable="true"]');
     if (lexicalElem) {
       if (typeof lexicalElem.focus === "function") lexicalElem.focus();
-      if (lexicalElem.__lexicalEditor) {
+      const lex = lexicalElem.__lexicalEditor;
+      if (lex && typeof lex.update === "function" && lex._nodes) {
         try {
-          lexicalElem.__lexicalEditor.update(() => {
-            document.execCommand("insertText", false, text);
+          lex.update(() => {
+            const ParagraphNode = lex._nodes.get('paragraph')?.klass;
+            const TextNode = lex._nodes.get('text')?.klass;
+            const root = lex._editorState?._nodeMap?.get('root');
+            if (ParagraphNode && TextNode && root) {
+              root.clear();
+              const p = new ParagraphNode();
+              const t = new TextNode(text);
+              p.append(t);
+              root.append(p);
+            }
           });
+          lexicalElem.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
           return;
         } catch (_) {}
       }
-      document.execCommand("insertText", false, text);
+      try {
+        document.execCommand("insertText", false, text);
+      } catch (_) {}
+      lexicalElem.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
       return;
     }
     const textarea = document.querySelector("textarea");
@@ -2450,7 +2460,7 @@ func GenerateGitHubExtensionScript() string {
                 PRs (${cachedPRs.length})
               </button>
               <button class="swiss-gh-view-btn ${stageViewMode === "list" && effListTab === "tasks" ? "active" : ""}" data-stage-tab="tasks">
-                AGY Agents (${cachedAgentTasks.filter(t => !t.is_pruned).length})
+                AGY Agents (${cachedAgentTasks.filter(t => !t.is_pruned && (t.not_fully_idle || t.status === "working")).length})
               </button>
             </div>
             <button class="swiss-gh-action-btn" id="swiss-stage-gh-refresh" title="Refresh">

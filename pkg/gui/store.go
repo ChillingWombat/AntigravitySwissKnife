@@ -76,6 +76,12 @@ func (s *Store) load() error {
 		if _, ok := raw["color_styling_enabled"]; !ok {
 			cfg.ColorStylingEnabled = true
 		}
+		if _, ok := raw["auto_inject"]; !ok {
+			cfg.AutoInject = true
+		}
+		if _, ok := raw["drag_rearrange_enabled"]; !ok {
+			cfg.DragRearrangeEnabled = true
+		}
 		if _, ok := raw["active_conversation_bold"]; !ok {
 			cfg.ActiveConversationBold = false
 		}
@@ -114,21 +120,33 @@ func (s *Store) load() error {
 		cfg.ConsistentProjectSpacing = true
 		cfg.ConsistentProjectSpacingLine = true
 		cfg.AutoInject = true
-	}
-	if !cfg.ChatTelemetryInputTokens && !cfg.ChatTelemetryOutputTokens && !cfg.ChatTelemetryCacheHitRatio {
+		cfg.DragRearrangeEnabled = true
 		cfg.ChatTelemetryInputTokens = true
 		cfg.ChatTelemetryOutputTokens = true
 		cfg.ChatTelemetryCacheHitRatio = true
 		cfg.ChatTelemetryGenerationSpeed = true
-		if cfg.ChatTelemetryScope == "" {
-			cfg.ChatTelemetryScope = "aggregated"
-		}
+	}
+	if cfg.ChatTelemetryScope == "" {
+		cfg.ChatTelemetryScope = "aggregated"
 	}
 	if cfg.ActiveConversationIndicator == "" {
 		cfg.ActiveConversationIndicator = "background"
 	}
-	if cfg.ProjectColors == nil {
-		cfg.ProjectColors = make(map[string]string)
+	if len(cfg.ProjectColors) == 0 {
+		cfg.ProjectColors = FactoryProjectColors()
+	} else {
+		for k, v := range FactoryProjectColors() {
+			if _, exists := cfg.ProjectColors[k]; !exists {
+				cfg.ProjectColors[k] = v
+			}
+		}
+	}
+	if len(cfg.ProjectOrder) == 0 {
+		cfg.ProjectOrder = []string{
+			"Antigravity Swiss Knife",
+			"Arbitrager",
+			"Obsidian-HomePage",
+		}
 	}
 	if cfg.TintOpacity <= 0 {
 		cfg.TintOpacity = 0.15
@@ -271,6 +289,11 @@ func (s *Store) GetConfig() Config {
 		AutoArchiveConversations:    s.config.AutoArchiveConversations,
 		AutoArchiveHorizon:          s.config.AutoArchiveHorizon,
 		AutoInject:                  s.config.AutoInject,
+		ChatTelemetryInputTokens:     s.config.ChatTelemetryInputTokens,
+		ChatTelemetryOutputTokens:    s.config.ChatTelemetryOutputTokens,
+		ChatTelemetryCacheHitRatio:   s.config.ChatTelemetryCacheHitRatio,
+		ChatTelemetryGenerationSpeed: s.config.ChatTelemetryGenerationSpeed,
+		ChatTelemetryScope:           s.config.ChatTelemetryScope,
 	}
 }
 
@@ -280,8 +303,11 @@ func (s *Store) UpdateConfig(cfg *Config) error {
 	if cfg.ActiveConversationIndicator == "" {
 		cfg.ActiveConversationIndicator = "background"
 	}
-	if cfg.ProjectColors == nil {
-		cfg.ProjectColors = make(map[string]string)
+	if cfg.ChatTelemetryScope == "" {
+		cfg.ChatTelemetryScope = "aggregated"
+	}
+	if cfg.ProjectColors == nil || len(cfg.ProjectColors) == 0 {
+		cfg.ProjectColors = FactoryProjectColors()
 	}
 	if cfg.ArchivedProjects == nil {
 		cfg.ArchivedProjects = []string{}
@@ -319,6 +345,159 @@ func (s *Store) UpdateConfig(cfg *Config) error {
 	}
 
 	return nil
+}
+
+// UpdateConfigPartial selectively updates only the fields explicitly present in rawJSON,
+// preserving existing values for any omitted fields.
+func (s *Store) UpdateConfigPartial(rawJSON []byte) (*GUIConfig, error) {
+	s.mu.Lock()
+	s.reloadIfModifiedLocked()
+
+	var rawMap map[string]json.RawMessage
+	if err := json.Unmarshal(rawJSON, &rawMap); err != nil {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("invalid json payload: %w", err)
+	}
+
+	if s.config == nil {
+		s.config = DefaultConfig()
+	}
+
+	cfg := *s.config
+	if cfg.ProjectColors != nil {
+		colors := make(map[string]string, len(cfg.ProjectColors))
+		for k, v := range cfg.ProjectColors {
+			colors[k] = v
+		}
+		cfg.ProjectColors = colors
+	} else {
+		cfg.ProjectColors = FactoryProjectColors()
+	}
+	if cfg.ProjectOrder != nil {
+		order := make([]string, len(cfg.ProjectOrder))
+		copy(order, cfg.ProjectOrder)
+		cfg.ProjectOrder = order
+	}
+	if cfg.ArchivedProjects != nil {
+		arch := make([]string, len(cfg.ArchivedProjects))
+		copy(arch, cfg.ArchivedProjects)
+		cfg.ArchivedProjects = arch
+	}
+
+	for k, v := range rawMap {
+		switch strings.ToLower(k) {
+		case "enabled":
+			_ = json.Unmarshal(v, &cfg.Enabled)
+		case "color_styling_enabled", "colorstylingenabled":
+			_ = json.Unmarshal(v, &cfg.ColorStylingEnabled)
+		case "solid_left_edge", "solidleftedge":
+			_ = json.Unmarshal(v, &cfg.SolidLeftEdge)
+		case "tint_opacity", "tintopacity":
+			_ = json.Unmarshal(v, &cfg.TintOpacity)
+		case "active_conversation_indicator", "activeconversationindicator":
+			_ = json.Unmarshal(v, &cfg.ActiveConversationIndicator)
+		case "active_conversation_border_width", "activeconversationborderwidth":
+			_ = json.Unmarshal(v, &cfg.ActiveConversationBorderWidth)
+		case "active_conversation_bold", "activeconversationbold":
+			_ = json.Unmarshal(v, &cfg.ActiveConversationBold)
+		case "project_colors", "projectcolors":
+			var incomingColors map[string]string
+			if err := json.Unmarshal(v, &incomingColors); err == nil && incomingColors != nil {
+				for pk, pv := range incomingColors {
+					cfg.ProjectColors[pk] = pv
+				}
+			}
+		case "drag_rearrange_enabled", "dragrearrangeenabled":
+			_ = json.Unmarshal(v, &cfg.DragRearrangeEnabled)
+		case "project_order", "projectorder":
+			var order []string
+			if err := json.Unmarshal(v, &order); err == nil && order != nil {
+				cfg.ProjectOrder = order
+			}
+		case "archived_projects", "archivedprojects":
+			var arch []string
+			if err := json.Unmarshal(v, &arch); err == nil && arch != nil {
+				cfg.ArchivedProjects = arch
+			}
+		case "conversation_tabs_mode", "conversationtabsmode":
+			_ = json.Unmarshal(v, &cfg.ConversationTabsMode)
+		case "conversation_tabs_fixed_limit", "conversationtabsfixedlimit":
+			_ = json.Unmarshal(v, &cfg.ConversationTabsFixedLimit)
+		case "conversation_tabs_age_threshold", "conversationtabsagethreshold":
+			_ = json.Unmarshal(v, &cfg.ConversationTabsAgeThreshold)
+		case "conversation_tabs_min", "conversationtabsmin":
+			_ = json.Unmarshal(v, &cfg.ConversationTabsMin)
+		case "conversation_tabs_max", "conversationtabsmax":
+			_ = json.Unmarshal(v, &cfg.ConversationTabsMax)
+		case "replace_see_all_triangle", "replaceseealltriangle":
+			_ = json.Unmarshal(v, &cfg.ReplaceSeeAllTriangle)
+		case "consistent_project_spacing", "consistentprojectspacing":
+			_ = json.Unmarshal(v, &cfg.ConsistentProjectSpacing)
+		case "consistent_project_spacing_line", "consistentprojectspacingline":
+			_ = json.Unmarshal(v, &cfg.ConsistentProjectSpacingLine)
+		case "auto_archive_conversations", "autoarchiveconversations":
+			_ = json.Unmarshal(v, &cfg.AutoArchiveConversations)
+		case "auto_archive_horizon", "autoarchivehorizon":
+			_ = json.Unmarshal(v, &cfg.AutoArchiveHorizon)
+		case "auto_inject", "autoinject":
+			_ = json.Unmarshal(v, &cfg.AutoInject)
+		case "chat_telemetry_input_tokens", "chattelemetryinputtokens":
+			_ = json.Unmarshal(v, &cfg.ChatTelemetryInputTokens)
+		case "chat_telemetry_output_tokens", "chattelemetryoutputtokens":
+			_ = json.Unmarshal(v, &cfg.ChatTelemetryOutputTokens)
+		case "chat_telemetry_cache_hit_ratio", "chattelemetrycachehitratio":
+			_ = json.Unmarshal(v, &cfg.ChatTelemetryCacheHitRatio)
+		case "chat_telemetry_generation_speed", "chattelemetrygenerationspeed":
+			_ = json.Unmarshal(v, &cfg.ChatTelemetryGenerationSpeed)
+		case "chat_telemetry_scope", "chattelemetryscope":
+			_ = json.Unmarshal(v, &cfg.ChatTelemetryScope)
+		}
+	}
+
+	if cfg.ActiveConversationIndicator == "" {
+		cfg.ActiveConversationIndicator = "background"
+	}
+	if cfg.ChatTelemetryScope == "" {
+		cfg.ChatTelemetryScope = "aggregated"
+	}
+	if cfg.TintOpacity <= 0 {
+		cfg.TintOpacity = 0.15
+	}
+	if cfg.ConversationTabsMode == "" {
+		cfg.ConversationTabsMode = "dynamic"
+	}
+	if cfg.ConversationTabsFixedLimit <= 0 || cfg.ConversationTabsFixedLimit > 10 {
+		cfg.ConversationTabsFixedLimit = 6
+	}
+	if cfg.ConversationTabsAgeThreshold == "" {
+		cfg.ConversationTabsAgeThreshold = "14d"
+	}
+	if cfg.ConversationTabsMin <= 0 {
+		cfg.ConversationTabsMin = 3
+	}
+	if cfg.ConversationTabsMax <= 0 {
+		cfg.ConversationTabsMax = 6
+	}
+	if cfg.AutoArchiveHorizon == "" {
+		cfg.AutoArchiveHorizon = "14d"
+	}
+	if len(cfg.ProjectColors) == 0 {
+		cfg.ProjectColors = FactoryProjectColors()
+	}
+
+	s.config = &cfg
+	s.mu.Unlock()
+
+	if err := s.Save(); err != nil {
+		return nil, err
+	}
+
+	if cfg.AutoInject {
+		_, _ = s.Apply()
+	}
+
+	res := s.GetConfig()
+	return &res, nil
 }
 
 // SetProjectColor sets or updates the color for a specific project.
@@ -681,6 +860,10 @@ func (s *Store) DeactivateOnDaemonStop(keepVisualEffects bool) error {
 			if (st) st.style.display = "none";
 			const aux = document.getElementById("swiss-aux-container");
 			if (aux) aux.style.display = "none";
+			if (window.__swissRevivalInterval) {
+				clearInterval(window.__swissRevivalInterval);
+				window.__swissRevivalInterval = null;
+			}
 		} catch (_) {}
 		return true;
 	})()`
@@ -738,6 +921,11 @@ func (s *Store) RestoreFactoryDefaults() (*ApplyResult, error) {
 // GetDesktopStatus returns current installation and backup status of desktop loader.
 func (s *Store) GetDesktopStatus() DesktopStatus {
 	return s.desktopManager.GetStatus()
+}
+
+// GetInjector returns the underlying Injector instance.
+func (s *Store) GetInjector() *Injector {
+	return s.injector
 }
 
 // SetDesktopManager sets a custom DesktopManager (useful for unit testing).

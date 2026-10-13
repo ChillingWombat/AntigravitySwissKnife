@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -160,13 +161,13 @@ func (m *Manager) Sync() (*VaultSyncResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if err := os.MkdirAll(m.vaultDir, 0755); err != nil {
+	if err := os.MkdirAll(m.vaultDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create vault dir: %w", err)
 	}
-	if err := os.MkdirAll(m.conversationsDir, 0755); err != nil {
+	if err := os.MkdirAll(m.conversationsDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to ensure conversations dir: %w", err)
 	}
-	if err := os.MkdirAll(m.vaultAnnoDir, 0755); err != nil {
+	if err := os.MkdirAll(m.vaultAnnoDir, 0700); err != nil {
 		_ = err
 	}
 
@@ -313,12 +314,32 @@ func (m *Manager) Sync() (*VaultSyncResult, error) {
 	}, nil
 }
 
+var reValidConversationID = regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)
+
+func validateConversationID(conversationID string) (string, error) {
+	cid := strings.TrimSpace(conversationID)
+	cid = strings.TrimSuffix(cid, ".db")
+	if cid == "" {
+		return "", fmt.Errorf("empty conversation ID")
+	}
+	if strings.Contains(cid, "..") || strings.ContainsAny(cid, "/\\") {
+		return "", fmt.Errorf("path traversal rejected in conversation ID: %q", conversationID)
+	}
+	if !reValidConversationID.MatchString(cid) {
+		return "", fmt.Errorf("invalid conversation ID %q: must match ^[a-zA-Z0-9_\\-]+$", conversationID)
+	}
+	return cid, nil
+}
+
 // RestoreConversation restores a single conversation from the vault if missing from live directory.
 func (m *Manager) RestoreConversation(conversationID string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cid := strings.TrimSuffix(conversationID, ".db")
+	cid, err := validateConversationID(conversationID)
+	if err != nil {
+		return false, err
+	}
 	vaultPath := filepath.Join(m.vaultDir, cid+".db")
 	livePath := filepath.Join(m.conversationsDir, cid+".db")
 
@@ -344,7 +365,10 @@ func (m *Manager) VaultConversation(conversationID string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cid := strings.TrimSuffix(conversationID, ".db")
+	cid, err := validateConversationID(conversationID)
+	if err != nil {
+		return false, err
+	}
 	livePath := filepath.Join(m.conversationsDir, cid+".db")
 	vaultPath := filepath.Join(m.vaultDir, cid+".db")
 
@@ -356,7 +380,7 @@ func (m *Manager) VaultConversation(conversationID string) (bool, error) {
 		return false, nil // Already vaulted
 	}
 
-	if err := os.MkdirAll(m.vaultDir, 0755); err != nil {
+	if err := os.MkdirAll(m.vaultDir, 0700); err != nil {
 		return false, err
 	}
 
@@ -374,6 +398,7 @@ func linkOrCopy(src, dst string) error {
 
 	// Attempt native filesystem hardlink (works on Linux, macOS APFS, Windows NTFS)
 	if err := os.Link(src, dst); err == nil {
+		_ = os.Chmod(dst, 0600)
 		return nil
 	}
 
@@ -384,11 +409,11 @@ func linkOrCopy(src, dst string) error {
 	}
 	defer srcFile.Close()
 
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
 		return err
 	}
 
-	dstFile, err := os.Create(dst)
+	dstFile, err := os.OpenFile(dst, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
@@ -398,5 +423,8 @@ func linkOrCopy(src, dst string) error {
 		return err
 	}
 
-	return dstFile.Sync()
+	if err := dstFile.Sync(); err != nil {
+		return err
+	}
+	return os.Chmod(dst, 0600)
 }

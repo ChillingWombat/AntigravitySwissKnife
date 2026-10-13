@@ -823,6 +823,14 @@ func TestGenerateAuxiliaryPluginsScript_MemoViewAndTelemetryBadge(t *testing.T) 
 		}
 	}
 
+	// Invariant: zero artificial numbers / zero dummy data. Never hardcode 76.2 TPS fallback!
+	if strings.Contains(js, "76.2") {
+		t.Errorf("script contains forbidden hardcoded fallback TPS '76.2'")
+	}
+	if !strings.Contains(js, "— TPS") {
+		t.Errorf("expected script to contain '— TPS' fallback for unmeasured speed")
+	}
+
 	// Strict verification: ensure no decorative emojis exist in script
 	forbiddenEmojis := []string{
 		"🎙️", "💬", "💾", "✏️", "📋", "🗑️", "📂", "⚡", "📁", "📜", "📝", "📕", "📄", "⏹️",

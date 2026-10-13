@@ -135,7 +135,7 @@ func TestAdversarial_1TokenPayload_ExactJSONStructure(t *testing.T) {
 		t.Fatalf("Build1TokenKeepAliveJSON failed: %v", err)
 	}
 
-	expectedJSON := `{"project":"aicode-consumers","model":"gemini-3-flash","request":{"contents":[{"role":"user","parts":[{"text":"ping"}]}],"generationConfig":{"maxOutputTokens":1}}}`
+	expectedJSON := `{"project":"aicode-consumers","model":"gemini-3.8-flash-high","request":{"contents":[{"role":"user","parts":[{"text":"ping"}]}],"generationConfig":{"maxOutputTokens":1}}}`
 	if string(rawJSON) != expectedJSON {
 		t.Errorf("Payload mismatch:\ngot:      %s\nexpected: %s", string(rawJSON), expectedJSON)
 	}
@@ -153,8 +153,8 @@ func TestAdversarial_1TokenPayload_ExactJSONStructure(t *testing.T) {
 	if m["project"] != "aicode-consumers" {
 		t.Errorf("expected project 'aicode-consumers', got %v", m["project"])
 	}
-	if m["model"] != "gemini-3-flash" {
-		t.Errorf("expected model 'gemini-3-flash', got %v", m["model"])
+	if m["model"] != "gemini-3.8-flash-high" {
+		t.Errorf("expected model 'gemini-3.8-flash-high', got %v", m["model"])
 	}
 
 	reqObj, ok := m["request"].(map[string]interface{})

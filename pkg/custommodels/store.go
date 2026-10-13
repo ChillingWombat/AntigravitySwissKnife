@@ -130,6 +130,24 @@ func (s *Store) GetConfig() Config {
 	}
 }
 
+// GetConfigRedacted returns a deep copy of the configuration with sensitive secrets masked.
+func (s *Store) GetConfigRedacted() Config {
+	cfg := s.GetConfig()
+	for i := range cfg.Models {
+		cfg.Models[i] = RedactCustomModel(cfg.Models[i])
+	}
+	return cfg
+}
+
+// ListModelsRedacted returns all configured custom models with secrets masked.
+func (s *Store) ListModelsRedacted() []CustomModel {
+	models := s.ListModels()
+	for i := range models {
+		models[i] = RedactCustomModel(models[i])
+	}
+	return models
+}
+
 // ListModels returns all configured custom models.
 func (s *Store) ListModels() []CustomModel {
 	s.mu.RLock()
@@ -196,6 +214,12 @@ func (s *Store) SaveModel(m CustomModel) error {
 	found := false
 	for i, existing := range s.config.Models {
 		if existing.ID == m.ID {
+			if m.APIKey == "" || m.APIKey == "[REDACTED]" {
+				m.APIKey = existing.APIKey
+			}
+			if m.GCPServiceAccountKey == "" || m.GCPServiceAccountKey == "[REDACTED]" {
+				m.GCPServiceAccountKey = existing.GCPServiceAccountKey
+			}
 			if existing.InternalID > 0 {
 				m.InternalID = existing.InternalID
 			} else if m.InternalID <= 0 {

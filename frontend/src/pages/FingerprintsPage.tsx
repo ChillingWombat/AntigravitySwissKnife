@@ -50,7 +50,7 @@ export const FingerprintsPage: React.FC<FingerprintsPageProps> = ({ accounts }) 
 
   useEffect(() => {
     loadProfiles()
-  }, [])
+  }, [accounts])
 
   const generateRandomProfile = () => {
     const randomHex = (len: number) =>
@@ -253,7 +253,7 @@ export const FingerprintsPage: React.FC<FingerprintsPageProps> = ({ accounts }) 
                       color: 'var(--text-muted)',
                     }}
                   >
-                    {prof ? `${prof.machine_id.slice(0, 16)}...` : 'Virtual Default'}
+                    {prof?.machine_id ? `${prof.machine_id.slice(0, 16)}...` : 'Virtual Default'}
                   </td>
                   <td
                     style={{
@@ -263,7 +263,7 @@ export const FingerprintsPage: React.FC<FingerprintsPageProps> = ({ accounts }) 
                       color: 'var(--text-muted)',
                     }}
                   >
-                    {prof ? `${prof.installation_id.slice(0, 13)}...` : 'Virtual Default'}
+                    {prof?.installation_id ? `${prof.installation_id.slice(0, 13)}...` : 'Virtual Default'}
                   </td>
                   <td style={{ padding: '12px 20px', textAlign: 'right' }}>
                     <span className="badge-chip badge-green">ISOLATED</span>
@@ -288,7 +288,6 @@ export const FingerprintsPage: React.FC<FingerprintsPageProps> = ({ accounts }) 
             justifyContent: 'center',
             zIndex: 1000,
           }}
-          onClick={handleCloseModal}
         >
           <div
             className="google-card"

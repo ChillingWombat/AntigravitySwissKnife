@@ -86,6 +86,16 @@ func GetPresets() []ProviderPreset {
 			PopularModels:  []string{"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"},
 		},
 		{
+			ID:             "gcp",
+			Name:           "Google Cloud Vertex AI",
+			ProviderType:   ProviderGCP,
+			DefaultBaseURL: "",
+			CallingFormat:  "Vertex AI generateContent / streamRawPredict",
+			Description:    "Google Cloud Platform Vertex AI enterprise models authenticated via Service Account JSON key",
+			AuthHeader:     "OAuth2 Bearer token (Service Account JSON)",
+			PopularModels:  []string{"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "claude-3-7-sonnet@20250219", "claude-3-5-sonnet@20241022"},
+		},
+		{
 			ID:             "ollama",
 			Name:           "Ollama (Local LLM)",
 			ProviderType:   ProviderOpenAI,

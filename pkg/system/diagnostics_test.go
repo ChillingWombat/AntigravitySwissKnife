@@ -124,3 +124,32 @@ func TestRunIssueDiagnosis_CompleteFlow(t *testing.T) {
 		t.Errorf("unexpected issue URL: %s", res.IssueURL)
 	}
 }
+
+func TestSanitizeSensitiveText_AllSecretTypes(t *testing.T) {
+	raw := `Here is my config:
+refresh_token: "1//04abcdefghij1234567890xyz"
+access_token: "ya29.a0AfH6SMA..."
+totp_secret: "JBSWY3DPEHPK3PXP"
+password: "supersecretpassword123"
+raw jwt: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsK88
+`
+	sanitized, count := SanitizeSensitiveText(raw)
+	if count < 5 {
+		t.Errorf("expected at least 5 redacted items, got %d", count)
+	}
+
+	leaks := []string{
+		"1//04abcdefghij1234567890xyz",
+		"ya29.a0AfH6SMA...",
+		"JBSWY3DPEHPK3PXP",
+		"supersecretpassword123",
+		"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsK88",
+	}
+
+	for _, leak := range leaks {
+		if strings.Contains(sanitized, leak) {
+			t.Errorf("found unredacted leak %q in sanitized text: %s", leak, sanitized)
+		}
+	}
+}
+

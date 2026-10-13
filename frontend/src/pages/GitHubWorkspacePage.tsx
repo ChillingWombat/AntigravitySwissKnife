@@ -104,8 +104,16 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
     } catch (_) {}
 
     // 2. Try clicking matching sidebar conversation element in DOM
+    if (!targetId || typeof targetId !== 'string' || !/^[A-Za-z0-9_-]+$/.test(targetId)) {
+      console.warn('Invalid conversation id for navigation:', targetId)
+      return
+    }
+
     const targetSelector = `a[href*="/c/${targetId}"], [data-testid="conversation-row-sidebar"][data-id="${targetId}"], [data-conversation-id="${targetId}"]`
-    let sidebarLink = document.querySelector(targetSelector) as HTMLElement | null
+    let sidebarLink: HTMLElement | null = null
+    try {
+      sidebarLink = document.querySelector(targetSelector) as HTMLElement | null
+    } catch (_) {}
     if (!sidebarLink) {
       try {
         if (window.parent && window.parent !== window) {
@@ -465,13 +473,11 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
         if (agentStatusFilter === 'active' && !isWorking) return false
         if (agentStatusFilter === 'killed' && isWorking) return false
 
-        // Only show Main agents or subagents killed within 3 days (<= 72 hours)
-        const isMain = (!item.nesting_depth || item.nesting_depth === 0) &&
-          (!item.root_parent_conversation_id || item.root_parent_conversation_id === item.conversation_id)
-        if (!isMain && !isWorking) {
+        // Only show agents killed within 3 days (<= 72 hours) for both main conversations and subagents
+        if (agentStatusFilter === 'killed') {
           const tMod = item.last_modified ? new Date(item.last_modified).getTime() : 0
           const threeDaysAgo = Date.now() - 3 * 24 * 60 * 60 * 1000
-          if (tMod < threeDaysAgo) return false
+          if (tMod <= 0 || tMod < threeDaysAgo) return false
         }
       }
       const title = (item.title || item.work_item || item.conversation_title || '').toLowerCase()
@@ -784,7 +790,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                 boxShadow: viewMode === 'list' && activeTab === 'tasks' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
               }}
             >
-              AGY Agents ({agentTasks.filter((t: any) => !t.is_pruned).length})
+              AGY Agents ({agentTasks.filter((t: any) => !t.is_pruned && (t.not_fully_idle || t.status === 'working')).length})
             </button>
           </div>
         </div>
@@ -1714,9 +1720,6 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 1000,
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setSelectedItem(null)
           }}
         >
           <div

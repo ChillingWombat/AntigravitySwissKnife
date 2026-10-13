@@ -36,5 +36,11 @@ describe('TOTP Utility', () => {
 
     const res2 = await generateTOTP('   ')
     assert.equal(res2, null)
+
+    const res3 = await generateTOTP('JBSWY3DPEHPK3PX8') // '8' is invalid in Base32
+    assert.equal(res3, null)
+
+    const res4 = await generateTOTP('TOOSHORT') // Less than 16 chars
+    assert.equal(res4, null)
   })
 })

@@ -7,9 +7,26 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
+
+// SanitizeURL scrubs API keys and authentication tokens from query strings.
+func SanitizeURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	q := u.Query()
+	for _, param := range []string{"key", "api_key", "token", "access_token"} {
+		if q.Has(param) {
+			q.Set(param, "[REDACTED]")
+		}
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
 
 // TestResult represents the outcome of an endpoint connectivity test.
 type TestResult struct {
@@ -37,6 +54,14 @@ func NewTester() *Tester {
 
 // TestEndpoint validates communication with the target model provider endpoint.
 func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if model.ProviderType == ProviderGCP {
+		return TestGCPModel(ctx, model.GCPServiceAccountKey, model.GCPProjectID, model.GCPRegion, model.Name)
+	}
+
 	baseURL := strings.TrimRight(model.BaseURL, "/")
 	if baseURL == "" {
 		return &TestResult{
@@ -44,10 +69,6 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 			Message: "Base URL is empty",
 		}, fmt.Errorf("empty base url")
 	}
-
-	start := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
 	var req *http.Request
 	var err error
@@ -91,21 +112,13 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 		}
 
 	case ProviderGemini:
-		urlWithKey := resolvedURL
-		if model.APIKey != "" && !strings.Contains(urlWithKey, "key=") {
-			sep := "?"
-			if strings.Contains(urlWithKey, "?") {
-				sep = "&"
-			}
-			urlWithKey += sep + "key=" + model.APIKey
-		}
 		payload := map[string]interface{}{
 			"contents": []map[string]interface{}{
 				{"parts": []map[string]string{{"text": "ping"}}},
 			},
 		}
 		data, _ := json.Marshal(payload)
-		req, err = http.NewRequestWithContext(ctx, "POST", urlWithKey, bytes.NewReader(data))
+		req, err = http.NewRequestWithContext(ctx, "POST", resolvedURL, bytes.NewReader(data))
 		if err == nil {
 			req.Header.Set("Content-Type", "application/json")
 			if model.APIKey != "" {
@@ -129,6 +142,7 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 			req.Header.Set("Content-Type", "application/json")
 			if model.APIKey != "" {
 				req.Header.Set("Authorization", "Bearer "+model.APIKey)
+				req.Header.Set("x-api-key", model.APIKey)
 			}
 			req.Header.Set("x-opencode-session", fmt.Sprintf("swiss-test-%d", time.Now().Unix()))
 		}
@@ -150,14 +164,14 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 			return &TestResult{
 				Success:   false,
 				LatencyMs: latency,
-				Endpoint:  req.URL.String(),
+				Endpoint:  SanitizeURL(req.URL.String()),
 				Message:   fmt.Sprintf("Connection refused at %s. Ensure local server (e.g. Ollama or vLLM) is running.", req.URL.Host),
 			}, nil
 		}
 		return &TestResult{
 			Success:   false,
 			LatencyMs: latency,
-			Endpoint:  req.URL.String(),
+			Endpoint:  SanitizeURL(req.URL.String()),
 			Message:   fmt.Sprintf("Network error: %v", err),
 		}, nil
 	}
@@ -167,7 +181,7 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 	res := &TestResult{
 		StatusCode: resp.StatusCode,
 		LatencyMs:  latency,
-		Endpoint:   req.URL.String(),
+		Endpoint:   SanitizeURL(req.URL.String()),
 	}
 
 	// Inspect rate limits or query provider balance/quota
@@ -259,9 +273,23 @@ func ResolveEndpoint(providerType ProviderType, rawBaseURL string, modelName str
 	}
 
 	switch providerType {
+	case ProviderGCP:
+		if baseURL != "" {
+			return baseURL
+		}
+		return BuildVertexAIEndpoint("us-central1", "", modelName)
+
 	case ProviderCustom:
 		trimmed := strings.TrimSpace(rawBaseURL)
 		clean := strings.TrimRight(trimmed, "/")
+		if strings.Contains(clean, "opencode.ai") {
+			if strings.HasSuffix(clean, "/chat/completions") && !strings.Contains(clean, "/v1/") {
+				return strings.Replace(clean, "/chat/completions", "/v1/chat/completions", 1)
+			}
+			if strings.HasSuffix(clean, "/zen/go") {
+				return clean + "/v1/chat/completions"
+			}
+		}
 		// If user entered a direct / full endpoint path:
 		if strings.HasSuffix(clean, "/chat/completions") ||
 			strings.HasSuffix(clean, "/chat/completion") ||
@@ -302,6 +330,14 @@ func ResolveEndpoint(providerType ProviderType, rawBaseURL string, modelName str
 	case ProviderOpenAI, ProviderLocal:
 		fallthrough
 	default:
+		if strings.Contains(baseURL, "opencode.ai") {
+			if strings.HasSuffix(baseURL, "/chat/completions") && !strings.Contains(baseURL, "/v1/") {
+				return strings.Replace(baseURL, "/chat/completions", "/v1/chat/completions", 1)
+			}
+			if strings.HasSuffix(baseURL, "/zen/go") {
+				return baseURL + "/v1/chat/completions"
+			}
+		}
 		// If user entered full completions endpoint directly (with or without trailing s):
 		if strings.HasSuffix(baseURL, "/chat/completions") || strings.HasSuffix(baseURL, "/chat/completion") {
 			return baseURL

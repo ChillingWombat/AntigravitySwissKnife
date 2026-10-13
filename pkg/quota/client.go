@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -525,6 +526,8 @@ type LiveQuotaBreakdown struct {
 	SubscriptionTier       string
 	Credits                float64
 	HasClaudeGPTRights     bool
+	HasClaude              bool
+	HasGPT                 bool
 	ResetTime5h            time.Time
 	ResetTimeWeekly        time.Time
 	ResetHorizonText       string
@@ -532,6 +535,52 @@ type LiveQuotaBreakdown struct {
 	ResetHorizonWeeklyText string
 	ResetSecondsWeekly     float64
 	Models                 []ModelQuota
+}
+
+// ClampFraction clamps quota fractions strictly between 0.0 and 1.0, guarding against NaN and Inf.
+func ClampFraction(f float64) float64 {
+	if math.IsNaN(f) || math.IsInf(f, 0) || f < 0.0 {
+		return 0.0
+	}
+	if f > 1.0 {
+		return 1.0
+	}
+	return f
+}
+
+func parseResetTime(raw string) time.Time {
+	if raw == "" {
+		return time.Time{}
+	}
+	if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+		return t
+	}
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t
+	}
+	return time.Time{}
+}
+
+func classifyQuotaWindow(window, bucketID, modelName string, rTime time.Time, now time.Time) string {
+	w := strings.ToLower(window)
+	bid := strings.ToLower(bucketID)
+	name := strings.ToLower(modelName)
+	if w == "weekly" || strings.Contains(w, "week") || strings.Contains(bid, "weekly") || strings.Contains(bid, "7d") || strings.Contains(name, "weekly") || strings.Contains(name, "7d") {
+		return "weekly"
+	}
+	if w == "5h" || strings.Contains(w, "5h") || strings.Contains(bid, "5h") || strings.Contains(name, "5h") {
+		return "5h"
+	}
+	if !rTime.IsZero() && !now.IsZero() {
+		diff := rTime.Sub(now)
+		if diff > 12*time.Hour {
+			return "weekly"
+		}
+		if diff > 0 && diff <= 6*time.Hour {
+			return "5h"
+		}
+	}
+	return "5h"
 }
 
 // FetchLiveQuota queries Google CloudCode API for real account quota metrics.
@@ -684,6 +733,8 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 				} `json:"groups"`
 				Buckets []struct {
 					ModelID           string  `json:"modelId"`
+					DisplayName       string  `json:"displayName"`
+					Window            string  `json:"window"`
 					RemainingFraction float64 `json:"remainingFraction"`
 					ResetTime         string  `json:"resetTime"`
 				} `json:"buckets"`
@@ -758,8 +809,8 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 			breakdown := &LiveQuotaBreakdown{
 				Quota5hGemini:          1.0,
 				QuotaWeeklyGemini:      1.0,
-				Quota5hClaudeGPT:       1.0,
-				QuotaWeeklyClaudeGPT:   1.0,
+				Quota5hClaudeGPT:       0.0,
+				QuotaWeeklyClaudeGPT:   0.0,
 				ResetHorizonText:       "Ready",
 				ResetHorizonWeeklyText: "Ready",
 				SubscriptionTier:       NormalizePlanTier(subTier),
@@ -770,19 +821,17 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 				for _, g := range res.Groups {
 					gName := strings.ToLower(g.DisplayName)
 					for _, b := range g.Buckets {
-						w := strings.ToLower(b.Window)
+						rTime := parseResetTime(b.ResetTime)
+						remaining := ClampFraction(b.RemainingFraction)
+						w := classifyQuotaWindow(b.Window, b.BucketID, b.DisplayName, rTime, now)
 						bid := strings.ToLower(b.BucketID)
-						var rTime time.Time
-						if b.ResetTime != "" {
-							rTime, _ = time.Parse(time.RFC3339, b.ResetTime)
-						}
 
 						modelItem := ModelQuota{
 							ModelName:    b.DisplayName,
-							Fraction:     b.RemainingFraction,
+							Fraction:     remaining,
 							ResetTime:    rTime,
 							ResetText:    FormatResetHorizon(rTime, now),
-							HealthStatus: ComputeHealth(b.RemainingFraction),
+							HealthStatus: ComputeHealth(remaining),
 						}
 						if modelItem.ModelName == "" {
 							modelItem.ModelName = b.BucketID
@@ -790,15 +839,15 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 						breakdown.Models = append(breakdown.Models, modelItem)
 
 						if strings.Contains(gName, "gemini") {
-							if w == "5h" || strings.Contains(bid, "5h") {
-								breakdown.Quota5hGemini = b.RemainingFraction
+							if w == "5h" {
+								breakdown.Quota5hGemini = remaining
 								breakdown.ResetTime5h = rTime
 								if !rTime.IsZero() && rTime.After(now) {
 									breakdown.ResetSeconds5h = rTime.Sub(now).Seconds()
 									breakdown.ResetHorizonText = FormatResetHorizon(rTime, now)
 								}
-							} else if w == "weekly" || strings.Contains(bid, "weekly") {
-								breakdown.QuotaWeeklyGemini = b.RemainingFraction
+							} else if w == "weekly" {
+								breakdown.QuotaWeeklyGemini = remaining
 								breakdown.ResetTimeWeekly = rTime
 								if !rTime.IsZero() && rTime.After(now) {
 									breakdown.ResetSecondsWeekly = rTime.Sub(now).Seconds()
@@ -807,10 +856,16 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 							}
 						} else if strings.Contains(gName, "claude") || strings.Contains(gName, "gpt") || strings.Contains(bid, "3p") {
 							breakdown.HasClaudeGPTRights = true
-							if w == "5h" || strings.Contains(bid, "5h") {
-								breakdown.Quota5hClaudeGPT = b.RemainingFraction
-							} else if w == "weekly" || strings.Contains(bid, "weekly") {
-								breakdown.QuotaWeeklyClaudeGPT = b.RemainingFraction
+							if strings.Contains(gName, "claude") || strings.Contains(bid, "claude") {
+								breakdown.HasClaude = true
+							}
+							if strings.Contains(gName, "gpt") || strings.Contains(bid, "gpt") {
+								breakdown.HasGPT = true
+							}
+							if w == "5h" {
+								breakdown.Quota5hClaudeGPT = remaining
+							} else if w == "weekly" {
+								breakdown.QuotaWeeklyClaudeGPT = remaining
 							}
 						}
 					}
@@ -821,31 +876,50 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 			// Fallback: flat buckets
 			if len(res.Buckets) > 0 {
 				for _, b := range res.Buckets {
-					var rTime time.Time
-					if b.ResetTime != "" {
-						rTime, _ = time.Parse(time.RFC3339, b.ResetTime)
+					rTime := parseResetTime(b.ResetTime)
+					remaining := ClampFraction(b.RemainingFraction)
+					displayName := b.DisplayName
+					if displayName == "" {
+						displayName = b.ModelID
 					}
+					w := classifyQuotaWindow(b.Window, "", b.ModelID, rTime, now)
+
 					breakdown.Models = append(breakdown.Models, ModelQuota{
-						ModelName:    b.ModelID,
-						Fraction:     b.RemainingFraction,
+						ModelName:    displayName,
+						Fraction:     remaining,
 						ResetTime:    rTime,
 						ResetText:    FormatResetHorizon(rTime, now),
-						HealthStatus: ComputeHealth(b.RemainingFraction),
+						HealthStatus: ComputeHealth(remaining),
 					})
 					name := strings.ToLower(b.ModelID)
-					if strings.Contains(name, "weekly") {
-						breakdown.QuotaWeeklyGemini = b.RemainingFraction
-						breakdown.ResetTimeWeekly = rTime
-						if !rTime.IsZero() && rTime.After(now) {
-							breakdown.ResetSecondsWeekly = rTime.Sub(now).Seconds()
-							breakdown.ResetHorizonWeeklyText = FormatResetHorizon(rTime, now)
+					if strings.Contains(name, "claude") || strings.Contains(name, "gpt") {
+						breakdown.HasClaudeGPTRights = true
+						if strings.Contains(name, "claude") {
+							breakdown.HasClaude = true
+						}
+						if strings.Contains(name, "gpt") {
+							breakdown.HasGPT = true
+						}
+						if w == "weekly" {
+							breakdown.QuotaWeeklyClaudeGPT = remaining
+						} else {
+							breakdown.Quota5hClaudeGPT = remaining
 						}
 					} else {
-						breakdown.Quota5hGemini = b.RemainingFraction
-						breakdown.ResetTime5h = rTime
-						if !rTime.IsZero() && rTime.After(now) {
-							breakdown.ResetSeconds5h = rTime.Sub(now).Seconds()
-							breakdown.ResetHorizonText = FormatResetHorizon(rTime, now)
+						if w == "weekly" {
+							breakdown.QuotaWeeklyGemini = remaining
+							breakdown.ResetTimeWeekly = rTime
+							if !rTime.IsZero() && rTime.After(now) {
+								breakdown.ResetSecondsWeekly = rTime.Sub(now).Seconds()
+								breakdown.ResetHorizonWeeklyText = FormatResetHorizon(rTime, now)
+							}
+						} else {
+							breakdown.Quota5hGemini = remaining
+							breakdown.ResetTime5h = rTime
+							if !rTime.IsZero() && rTime.After(now) {
+								breakdown.ResetSeconds5h = rTime.Sub(now).Seconds()
+								breakdown.ResetHorizonText = FormatResetHorizon(rTime, now)
+							}
 						}
 					}
 				}
@@ -1104,7 +1178,7 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 		if breakdown.Credits > 0 {
 			credits = breakdown.Credits
 		}
-		if breakdown.HasClaudeGPTRights || breakdown.Quota5hClaudeGPT > 0 || breakdown.QuotaWeeklyClaudeGPT > 0 {
+		if breakdown.HasClaudeGPTRights || breakdown.HasClaude || breakdown.HasGPT {
 			if tier == "" || tier == PlanTierFree || tier == PlanTierProTrial {
 				tier = PlanTierPro
 			}
@@ -1155,9 +1229,11 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 		}
 	}
 
-	// Step 7: Anti-Downgrade Safeguard: preserve existing non-free tier if upstream returned Free or transient error
+	// Step 7: Anti-Downgrade Safeguard: preserve existing non-free tier ONLY on transient error or incomplete upstream responses
 	if (tier == "" || tier == PlanTierFree) && acc.PlanTier != "" && acc.PlanTier != PlanTierFree {
-		tier = acc.PlanTier
+		if apiErr != nil || breakdown == nil || (breakdown.SubscriptionTier == "" && len(breakdown.Models) == 0) {
+			tier = acc.PlanTier
+		}
 	}
 	if acc.PlanTier == PlanTierProTrial && tier == PlanTierPro {
 		tier = PlanTierProTrial

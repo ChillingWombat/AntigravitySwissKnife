@@ -11,6 +11,7 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
   const utilsPagePath = path.resolve(__dirname, '../pages/UtilitiesPage.tsx')
   const bridgePagePath = path.resolve(__dirname, '../pages/BridgePage.tsx')
   const remotePagePath = path.resolve(__dirname, '../pages/RemoteControlPage.tsx')
+  const geminiPagePath = path.resolve(__dirname, '../pages/GeminiBridgePage.tsx')
   const waPagePath = path.resolve(__dirname, '../pages/WhatsAppBridgePage.tsx')
   const tgPagePath = path.resolve(__dirname, '../pages/TelegramBridgePage.tsx')
   const dsPagePath = path.resolve(__dirname, '../pages/DiscordBridgePage.tsx')
@@ -20,6 +21,7 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
   const utilsContent = fs.readFileSync(utilsPagePath, 'utf8')
   const bridgeContent = fs.readFileSync(bridgePagePath, 'utf8')
   const remoteContent = fs.readFileSync(remotePagePath, 'utf8')
+  const geminiContent = fs.readFileSync(geminiPagePath, 'utf8')
   const waContent = fs.readFileSync(waPagePath, 'utf8')
   const tgContent = fs.readFileSync(tgPagePath, 'utf8')
   const dsContent = fs.readFileSync(dsPagePath, 'utf8')
@@ -33,9 +35,9 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.ok(navContent.includes('Remote Connect'))
   })
 
-  it('App.tsx contains 4 segmented tabs for Bridge section in exact required order', () => {
+  it('App.tsx contains 5 segmented tabs for Bridge section in exact required order', () => {
     assert.ok(appContent.includes("currentTool === 10"))
-    assert.ok(appContent.includes("['Remote', 'Gemini', 'WhatsApp', 'Telegram & Discord']"))
+    assert.ok(appContent.includes("['Remote', 'Gemini', 'WhatsApp', 'Telegram', 'Discord']"))
     assert.ok(appContent.includes('<BridgePage'))
   })
 
@@ -62,6 +64,9 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.ok(remoteContent.includes('api.rotateRemotePIN'))
     assert.ok(remoteContent.includes('Security PIN'))
     assert.ok(remoteContent.includes('DevTools Port'))
+    assert.ok(remoteContent.includes('google-card'))
+    assert.ok(remoteContent.includes('ToggleSwitch'))
+    assert.ok(remoteContent.includes('badge-chip'))
   })
 
   it('WhatsAppBridgePage enforces David-Design and functional settings', () => {
@@ -71,15 +76,21 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.ok(waContent.includes('api.updateChannelsConfig'))
     assert.ok(waContent.includes("api.testChannel('whatsapp')"))
     assert.ok(waContent.includes('Allowed Phone Numbers'))
+    assert.ok(waContent.includes('google-card'))
+    assert.ok(waContent.includes('ToggleSwitch'))
+    assert.ok(waContent.includes('badge-chip'))
   })
 
   it('TelegramBridgePage enforces David-Design and functional settings', () => {
     assert.strictEqual(emojiRegex.test(tgContent), false, 'TelegramBridgePage must not contain emojis')
     assert.ok(tgContent.includes('Telegram Agent Chat Bridge'))
-    assert.ok(waContent.includes('api.getChannelsStatus'))
+    assert.ok(tgContent.includes('api.getChannelsStatus'))
     assert.ok(tgContent.includes('Bot Token (from @BotFather)'))
     assert.ok(tgContent.includes("api.testChannel('telegram')"))
     assert.ok(tgContent.includes('Allowed Chat IDs'))
+    assert.ok(tgContent.includes('google-card'))
+    assert.ok(tgContent.includes('ToggleSwitch'))
+    assert.ok(tgContent.includes('badge-chip'))
   })
 
   it('DiscordBridgePage enforces David-Design and functional settings', () => {
@@ -89,11 +100,25 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.ok(dsContent.includes('Application ID'))
     assert.ok(dsContent.includes("api.testChannel('discord')"))
     assert.ok(dsContent.includes('Allowed Channel IDs'))
+    assert.ok(dsContent.includes('google-card'))
+    assert.ok(dsContent.includes('ToggleSwitch'))
+    assert.ok(dsContent.includes('badge-chip'))
   })
 
-  it('all 4 new bridge pages eliminate banned AI buzzwords (utilize, supercharge, paradigm shift, delve)', () => {
+  it('GeminiBridgePage enforces David-Design and functional settings', () => {
+    assert.strictEqual(emojiRegex.test(geminiContent), false, 'GeminiBridgePage must not contain emojis')
+    assert.ok(geminiContent.includes('Gemini Agent Chat Bridge'))
+    assert.ok(geminiContent.includes('api.getBridgeStatus'))
+    assert.ok(geminiContent.includes('api.testBridgeConnection'))
+    assert.ok(geminiContent.includes('google-card'))
+    assert.ok(geminiContent.includes('ToggleSwitch'))
+    assert.ok(geminiContent.includes('badge-chip'))
+  })
+
+  it('all 5 bridge pages eliminate banned AI buzzwords (utilize, supercharge, paradigm shift, delve)', () => {
     const pages = [
       { name: 'RemoteControlPage', content: remoteContent },
+      { name: 'GeminiBridgePage', content: geminiContent },
       { name: 'WhatsAppBridgePage', content: waContent },
       { name: 'TelegramBridgePage', content: tgContent },
       { name: 'DiscordBridgePage', content: dsContent },

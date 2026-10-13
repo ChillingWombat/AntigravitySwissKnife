@@ -5,11 +5,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 var (
-	uuidRegex    = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-	machineRegex = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	uuidRegex    = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	machineRegex = regexp.MustCompile(`(?i)^[0-9a-f]{64}$`)
 )
 
 // DeviceProfile holds virtualized hardware and installation telemetry UUIDs.
@@ -74,6 +75,10 @@ func GenerateRandom() (*DeviceProfile, error) {
 
 // Validate checks whether all identifiers in the profile adhere to the expected format.
 func (p *DeviceProfile) Validate() error {
+	p.MachineID = strings.ToLower(strings.TrimSpace(p.MachineID))
+	p.UpdaterID = strings.ToLower(strings.TrimSpace(p.UpdaterID))
+	p.InstallationID = strings.ToLower(strings.TrimSpace(p.InstallationID))
+	p.InstallationUUID = strings.ToLower(strings.TrimSpace(p.InstallationUUID))
 	if !machineRegex.MatchString(p.MachineID) {
 		return fmt.Errorf("invalid machine_id: must be 64-char hex, got %q", p.MachineID)
 	}

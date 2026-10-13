@@ -46,6 +46,20 @@ func NewLeadHandler(brainDir string) *LeadHandler {
 	}
 }
 
+// SetInjector assigns an injector (e.g. for testing with custom DevTools port).
+func (lh *LeadHandler) SetInjector(inj *gui.Injector) {
+	lh.mu.Lock()
+	defer lh.mu.Unlock()
+	lh.injector = inj
+}
+
+// GetInjector returns the currently configured injector.
+func (lh *LeadHandler) GetInjector() *gui.Injector {
+	lh.mu.RLock()
+	defer lh.mu.RUnlock()
+	return lh.injector
+}
+
 // GetActiveSession returns the current tracked lead session.
 func (lh *LeadHandler) GetActiveSession() *LeadSession {
 	lh.mu.RLock()
@@ -80,36 +94,124 @@ func (lh *LeadHandler) CreateConversation(args map[string]interface{}) (string, 
 	}
 
 	target := pages[0]
-	safePrompt := strings.ReplaceAll(prompt, "`", "\\`")
+	for _, p := range pages {
+		if strings.HasPrefix(p.URL, "https://127.0.0.1:") || strings.HasPrefix(p.URL, "http://127.0.0.1:") || strings.HasPrefix(p.URL, "https://localhost:") || strings.HasPrefix(p.URL, "http://localhost:") {
+			target = p
+			break
+		}
+	}
+	promptJSON, err := json.Marshal(prompt)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal prompt: %w", err)
+	}
 
-	// 2. Click "New Conversation" button, then inject prompt and click Send
-	script := fmt.Sprintf(`(() => {
+	// 2. Click "New Conversation" button, then inject prompt into Lexical editor and click Send
+	script := fmt.Sprintf(`(async () => {
 		// Step A: Find and click New Conversation button
-		const newBtn = document.querySelector('[data-testid="new-conversation-button"]') ||
-		               document.querySelector('button[aria-label*="New conversation"]') ||
-		               document.querySelector('button[title*="New conversation"]') ||
+		const newBtn = document.querySelector('[data-testid="app-icon-new-conversation-button"]') ||
+		               document.querySelector('[data-testid="new-conversation-button"]') ||
+		               document.querySelector('[data-testid="new-chat-button"]') ||
+		               document.querySelector('button[aria-label*="New conversation" i]') ||
+		               document.querySelector('button[title*="New conversation" i]') ||
 		               document.querySelector('.new-chat-btn');
 		if (newBtn) {
 			newBtn.click();
+			await new Promise(r => setTimeout(r, 120));
 		}
 
-		// Step B: Wait slightly for input or locate immediately
-		setTimeout(() => {
-			const box = document.querySelector('[data-testid="agent-input-box"] [contenteditable="true"]') ||
-			            document.querySelector('[data-lexical-editor="true"][contenteditable="true"]') ||
-			            document.querySelector('textarea[placeholder*="Ask"]');
-			if (!box) return;
-			box.focus();
-			document.execCommand('insertText', false, %q);
-			const sendBtn = document.querySelector('[data-testid="send-button"]') ||
-			                document.querySelector('button[aria-label*="Send"]');
-			if (sendBtn && !sendBtn.disabled) {
-				sendBtn.click();
-			}
-		}, 300);
+		// Step B: Wait for editor input box to mount
+		let box = null;
+		for (let i = 0; i < 25; i++) {
+			box = document.querySelector('[data-testid="agent-input-box"] [contenteditable="true"]') ||
+			      document.querySelector('[data-lexical-editor="true"][contenteditable="true"]') ||
+			      document.querySelector('.lexical-container [contenteditable="true"]') ||
+			      document.querySelector('[data-testid="chat-input-textarea"]') ||
+			      document.querySelector('textarea[placeholder*="Ask"]');
+			if (box) break;
+			await new Promise(r => setTimeout(r, 80));
+		}
+		if (!box) {
+			return { success: false, reason: "input_not_found" };
+		}
 
-		return { success: true, action: "new_conversation_triggered" };
-	})()`, safePrompt)
+		// Step C: Inject prompt into Lexical editor
+		const promptText = %s;
+		if (box.isContentEditable) {
+			box.focus();
+			const lex = box.__lexicalEditor;
+			if (lex && typeof lex.update === "function" && lex._nodes) {
+				lex.update(() => {
+					const ParagraphNode = lex._nodes.get('paragraph')?.klass;
+					const TextNode = lex._nodes.get('text')?.klass;
+					const root = lex._editorState?._nodeMap?.get('root');
+					if (ParagraphNode && TextNode && root) {
+						root.clear();
+						const p = new ParagraphNode();
+						const t = new TextNode(promptText);
+						p.append(t);
+						root.append(p);
+					}
+				});
+			} else {
+				const sel = window.getSelection();
+				if (sel) {
+					const range = document.createRange();
+					range.selectNodeContents(box);
+					sel.removeAllRanges();
+					sel.addRange(range);
+				}
+				document.execCommand("selectAll", false, null);
+				document.execCommand("insertText", false, promptText);
+				const hasInserted = (box.innerText || "").includes(promptText);
+				if (!hasInserted) {
+					try {
+						box.dispatchEvent(new InputEvent("beforeinput", {
+							inputType: "insertText",
+							data: promptText,
+							bubbles: true,
+							cancelable: true
+						}));
+					} catch (_) {}
+				}
+			}
+			box.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+		} else {
+			box.focus();
+			box.value = promptText;
+			box.dispatchEvent(new Event("input", { bubbles: true }));
+			box.dispatchEvent(new Event("change", { bubbles: true }));
+		}
+
+		// Step D: Wait and poll until Send button is enabled
+		await new Promise(r => setTimeout(r, 80));
+		let sent = false;
+		for (let i = 0; i < 35; i++) {
+			const sendBtn = document.querySelector('[data-testid="send-button"]') ||
+			                document.querySelector('[data-tooltip-id*="send-tooltip"]') ||
+			                document.querySelector('button[aria-label*="Send" i]') ||
+			                document.querySelector('.chat-input-toolbar button:last-child');
+			if (sendBtn && !sendBtn.disabled && !sendBtn.matches('[data-tooltip-id="input-send-button-cancel-tooltip"]')) {
+				sendBtn.click();
+				sent = true;
+				break;
+			}
+			await new Promise(r => setTimeout(r, 100));
+		}
+
+		if (!sent) {
+			const finalBtn = document.querySelector('[data-testid="send-button"]') ||
+			                 document.querySelector('[data-tooltip-id*="send-tooltip"]') ||
+			                 document.querySelector('button[aria-label*="Send" i]') ||
+			                 document.querySelector('.chat-input-toolbar button:last-child');
+			if (finalBtn && !finalBtn.matches('[data-tooltip-id="input-send-button-cancel-tooltip"]')) {
+				finalBtn.disabled = false;
+				finalBtn.click();
+				sent = true;
+			}
+		}
+
+		return { success: true, action: "new_conversation_triggered", dispatched: sent };
+	})()`, string(promptJSON))
 
 	_, cdpErr := lh.injector.ExecuteScript(target.WebSocketDebuggerURL, script)
 	if cdpErr != nil {
@@ -180,23 +282,122 @@ func (lh *LeadHandler) SendMessage(args map[string]interface{}) (string, error) 
 	}
 
 	target := pages[0]
-	safeMsg := strings.ReplaceAll(message, "`", "\\`")
-
-	script := fmt.Sprintf(`(() => {
-		const box = document.querySelector('[data-testid="agent-input-box"] [contenteditable="true"]') ||
-		            document.querySelector('[data-lexical-editor="true"][contenteditable="true"]') ||
-		            document.querySelector('textarea[placeholder*="Ask"]');
-		if (!box) return { success: false, reason: "input_not_found" };
-		box.focus();
-		document.execCommand('insertText', false, %q);
-		const sendBtn = document.querySelector('[data-testid="send-button"]') ||
-		                document.querySelector('button[aria-label*="Send"]');
-		if (sendBtn && !sendBtn.disabled) {
-			sendBtn.click();
-			return { success: true, dispatched: true };
+	for _, p := range pages {
+		if strings.HasPrefix(p.URL, "https://127.0.0.1:") || strings.HasPrefix(p.URL, "http://127.0.0.1:") || strings.HasPrefix(p.URL, "https://localhost:") || strings.HasPrefix(p.URL, "http://localhost:") {
+			target = p
+			break
 		}
-		return { success: true, dispatched: false, reason: "send_button_disabled" };
-	})()`, safeMsg)
+	}
+	msgJSON, err := json.Marshal(message)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal message: %w", err)
+	}
+
+	convPart := ""
+	if convID != "" && gui.IsValidConversationID(convID) {
+		convPart = convID
+	}
+
+	script := fmt.Sprintf(`(async () => {
+		const targetConv = %q;
+		if (targetConv) {
+			const targetPath = "/c/" + targetConv;
+			const curPath = window.location.pathname || "/";
+			if (!curPath.startsWith(targetPath)) {
+				const navLink = document.querySelector('a[href*="' + targetConv + '"]');
+				if (navLink) {
+					navLink.click();
+					await new Promise(r => setTimeout(r, 150));
+				} else {
+					window.location.assign(targetPath);
+					await new Promise(r => setTimeout(r, 200));
+				}
+			}
+		}
+
+		let box = null;
+		for (let i = 0; i < 20; i++) {
+			box = document.querySelector('[data-testid="agent-input-box"] [contenteditable="true"]') ||
+			      document.querySelector('[data-lexical-editor="true"][contenteditable="true"]') ||
+			      document.querySelector('.lexical-container [contenteditable="true"]') ||
+			      document.querySelector('[data-testid="chat-input-textarea"]') ||
+			      document.querySelector('textarea[placeholder*="Ask"]');
+			if (box) break;
+			await new Promise(r => setTimeout(r, 80));
+		}
+		if (!box) return { success: false, reason: "input_not_found" };
+
+		const promptText = %s;
+		if (box.isContentEditable) {
+			box.focus();
+			const lex = box.__lexicalEditor;
+			if (lex && typeof lex.update === "function" && lex._nodes) {
+				lex.update(() => {
+					const ParagraphNode = lex._nodes.get('paragraph')?.klass;
+					const TextNode = lex._nodes.get('text')?.klass;
+					const root = lex._editorState?._nodeMap?.get('root');
+					if (ParagraphNode && TextNode && root) {
+						root.clear();
+						const p = new ParagraphNode();
+						const t = new TextNode(promptText);
+						p.append(t);
+						root.append(p);
+					}
+				});
+			} else {
+				const sel = window.getSelection();
+				if (sel) {
+					const range = document.createRange();
+					range.selectNodeContents(box);
+					sel.removeAllRanges();
+					sel.addRange(range);
+				}
+				document.execCommand("selectAll", false, null);
+				document.execCommand("insertText", false, promptText);
+				const hasInserted = (box.innerText || "").includes(promptText);
+				if (!hasInserted) {
+					try {
+						box.dispatchEvent(new InputEvent("beforeinput", {
+							inputType: "insertText",
+							data: promptText,
+							bubbles: true,
+							cancelable: true
+						}));
+					} catch (_) {}
+				}
+			}
+			box.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+		} else {
+			box.focus();
+			box.value = promptText;
+			box.dispatchEvent(new Event("input", { bubbles: true }));
+			box.dispatchEvent(new Event("change", { bubbles: true }));
+		}
+
+		await new Promise(r => setTimeout(r, 80));
+		for (let i = 0; i < 35; i++) {
+			const sendBtn = document.querySelector('[data-testid="send-button"]') ||
+			                document.querySelector('[data-tooltip-id*="send-tooltip"]') ||
+			                document.querySelector('button[aria-label*="Send" i]') ||
+			                document.querySelector('.chat-input-toolbar button:last-child');
+			if (sendBtn && !sendBtn.disabled && !sendBtn.matches('[data-tooltip-id="input-send-button-cancel-tooltip"]')) {
+				sendBtn.click();
+				return { success: true, dispatched: true };
+			}
+			await new Promise(r => setTimeout(r, 100));
+		}
+
+		const finalBtn = document.querySelector('[data-testid="send-button"]') ||
+		                 document.querySelector('[data-tooltip-id*="send-tooltip"]') ||
+		                 document.querySelector('button[aria-label*="Send" i]') ||
+		                 document.querySelector('.chat-input-toolbar button:last-child');
+		if (finalBtn && !finalBtn.matches('[data-tooltip-id="input-send-button-cancel-tooltip"]')) {
+			finalBtn.disabled = false;
+			finalBtn.click();
+			return { success: true, dispatched: true, forced: true };
+		}
+		return { success: false, dispatched: false, reason: "send_button_disabled" };
+	})()`, convPart, string(msgJSON))
 
 	_, cdpErr := lh.injector.ExecuteScript(target.WebSocketDebuggerURL, script)
 	if cdpErr != nil {
@@ -422,6 +623,9 @@ func (lh *LeadHandler) ListConversations(args map[string]interface{}) (string, e
 }
 
 func (lh *LeadHandler) findMostRecentConversationID() string {
+	if topLevel := gui.QueryLatestTopLevelConversationPath(); gui.IsValidConversationPath(topLevel) {
+		return strings.TrimPrefix(topLevel, "/c/")
+	}
 	entries, err := os.ReadDir(lh.brainDir)
 	if err != nil {
 		return ""

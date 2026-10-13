@@ -1,18 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import {
-  Monitor,
-  ShieldCheck,
   RotateCw,
   Copy,
   Check,
   ExternalLink,
-  Power,
-  Tv,
-  Cpu,
-  Layers,
-  HelpCircle,
-  Settings2,
 } from 'lucide-react'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 
 export const RemoteControlPage: React.FC = () => {
@@ -32,7 +25,7 @@ export const RemoteControlPage: React.FC = () => {
   })
 
   const [config, setConfig] = useState<any>({
-    enabled: true,
+    enabled: false,
     bind_addr: '127.0.0.1',
     port: 8766,
     security_pin: '849201',
@@ -111,220 +104,90 @@ export const RemoteControlPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* 1. Header & Quick Status Bar */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          backgroundColor: '#ffffff',
-          borderRadius: '12px',
-          padding: '18px 24px',
-          border: '1px solid var(--border)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '10px',
-              backgroundColor: 'var(--primary-container)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Monitor size={24} color="var(--primary)" />
-          </div>
+      {/* 1. Header & Live Status Bar */}
+      <div className="google-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <h2
-                style={{
-                  fontSize: '17px',
-                  fontWeight: 600,
-                  margin: 0,
-                  color: 'var(--text)',
-                  whiteSpace: 'nowrap',
-                }}
-              >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                 Antigravity Remote Control Wrapper
               </h2>
-              <span
-                style={{
-                  fontSize: '11px',
-                  padding: '2px 8px',
-                  borderRadius: '12px',
-                  fontWeight: 600,
-                  whiteSpace: 'nowrap',
-                  backgroundColor: status.active ? '#dcfce7' : 'var(--tonal)',
-                  color: status.active ? '#15803d' : 'var(--text-muted)',
-                }}
-              >
+              <span className={`badge-chip ${status.active ? 'badge-green' : 'badge-neutral'}`}>
                 {status.active ? 'Listener Online' : 'Standby'}
               </span>
             </div>
-            <p
-              style={{
-                fontSize: '13px',
-                color: 'var(--text-muted)',
-                margin: '4px 0 0 0',
-              }}
-            >
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
               Wraps Antigravity remote control with persistent session re-binding across Google account switches.
             </p>
           </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
+              <span style={{ whiteSpace: 'nowrap' }}>Enable Remote</span>
+              <ToggleSwitch
+                checked={Boolean(config.enabled)}
+                onChange={handleToggleEnable}
+              />
+            </label>
+          </div>
         </div>
 
-        <button
-          onClick={handleToggleEnable}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '8px 16px',
-            borderRadius: '20px',
-            border: 'none',
-            fontSize: '13px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-            backgroundColor: config.enabled ? '#fee2e2' : 'var(--primary-container)',
-            color: config.enabled ? '#b91c1c' : 'var(--primary)',
-          }}
-        >
-          <Power size={15} />
-          {config.enabled ? 'Disable Remote' : 'Enable Remote'}
-        </button>
-      </div>
-
-      {/* 2. Resilience Invariant & Live Metrics Grid */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
-          gap: '12px',
-        }}
-      >
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '10px',
-            padding: '14px 16px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <ShieldCheck size={16} color="var(--primary)" />
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+        {/* Status Metrics Grid (harmonized with BrainCachePage & TokenMonitorPage) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
               Account Resilience
-            </span>
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: config.account_resilience ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
+              {config.account_resilience ? 'Auto-Rebind Active' : 'Disabled'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Survives account rotations
+            </div>
           </div>
-          <div style={{ fontSize: '15px', fontWeight: 600, color: '#16a34a' }}>
-            {config.account_resilience ? 'Active (Auto-Rebind)' : 'Disabled'}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Survives account rotations
-          </div>
-        </div>
 
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '10px',
-            padding: '14px 16px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <Tv size={16} color="var(--primary)" />
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              DevTools Port
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
+              {status.devtools_port > 0 ? status.devtools_port : 'Idle (Auto)'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
               CDP DevTools Port
-            </span>
+            </div>
           </div>
-          <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text)' }}>
-            {status.devtools_port > 0 ? status.devtools_port : 'Idle (Auto)'}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Live browser automation bridge
-          </div>
-        </div>
 
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '10px',
-            padding: '14px 16px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <Cpu size={16} color="var(--primary)" />
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
               Host Antigravity PID
-            </span>
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
+              {status.current_antigravity_pid > 0 ? status.current_antigravity_pid : 'Idle'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Host process monitored
+            </div>
           </div>
-          <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text)' }}>
-            {status.current_antigravity_pid > 0 ? status.current_antigravity_pid : 'Idle'}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Host process monitored
-          </div>
-        </div>
 
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '10px',
-            padding: '14px 16px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <Layers size={16} color="var(--primary)" />
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
               Active Google Account
-            </span>
-          </div>
-          <div
-            style={{
-              fontSize: '13px',
-              fontWeight: 600,
-              color: 'var(--text)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {status.active_google_account || 'Not signed in'}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Syncs without dropped viewer
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {status.active_google_account || 'Not signed in'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Syncs without dropped viewer
+            </div>
           </div>
         </div>
       </div>
 
-      {/* 3. Connection & Security Card */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          borderRadius: '12px',
-          padding: '20px 24px',
-          border: '1px solid var(--border)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '16px',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h3 style={{ fontSize: '15px', fontWeight: 600, margin: 0, color: 'var(--text)' }}>
-              Remote Access Endpoint & Pairing Security
-            </h3>
-            <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
-              Connect from external browsers or mobile devices using your local network URL and Security PIN.
-            </p>
-          </div>
+      {/* 2. Connection Endpoint & Security Card */}
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
+          Remote Access Endpoint & Pairing Security
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
@@ -349,42 +212,21 @@ export const RemoteControlPage: React.FC = () => {
               </code>
               <button
                 onClick={() => copyToClipboard(status.endpoint_url || `http://${config.bind_addr}:${config.port}/remote`, 'url')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  padding: '5px 10px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border)',
-                  backgroundColor: '#ffffff',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
+                className="btn-pill-tonal"
+                style={{ padding: '6px 12px', fontSize: '12px' }}
               >
-                {copied === 'url' ? <Check size={14} color="#16a34a" /> : <Copy size={14} />}
-                {copied === 'url' ? 'Copied' : 'Copy'}
+                {copied === 'url' ? <Check size={14} color="var(--green)" /> : <Copy size={14} />}
+                <span>{copied === 'url' ? 'Copied' : 'Copy'}</span>
               </button>
               <a
                 href={status.endpoint_url || `http://127.0.0.1:${config.port}/remote`}
                 target="_blank"
                 rel="noreferrer"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  padding: '5px 10px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border)',
-                  backgroundColor: '#ffffff',
-                  fontSize: '12px',
-                  color: 'var(--primary)',
-                  textDecoration: 'none',
-                  whiteSpace: 'nowrap',
-                }}
+                className="btn-pill-outlined"
+                style={{ padding: '6px 12px', fontSize: '12px', textDecoration: 'none' }}
               >
                 <ExternalLink size={14} />
-                Open
+                <span>Open</span>
               </a>
             </div>
           </div>
@@ -408,20 +250,11 @@ export const RemoteControlPage: React.FC = () => {
               <button
                 onClick={handleRotatePIN}
                 disabled={loading}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  padding: 0,
-                  fontSize: '11px',
-                  color: 'var(--primary)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '3px',
-                }}
+                className="btn-pill-tonal"
+                style={{ padding: '3px 8px', fontSize: '11px' }}
               >
-                <RotateCw size={12} />
-                Rotate PIN
+                <RotateCw size={12} className={loading ? 'animate-spin' : ''} />
+                <span>Rotate PIN</span>
               </button>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -438,262 +271,150 @@ export const RemoteControlPage: React.FC = () => {
               </span>
               <button
                 onClick={() => copyToClipboard(config.security_pin, 'pin')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  padding: '4px 8px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border)',
-                  backgroundColor: '#ffffff',
-                  fontSize: '11px',
-                  cursor: 'pointer',
-                  marginLeft: 'auto',
-                }}
+                className="btn-pill-tonal"
+                style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: '11px' }}
               >
-                {copied === 'pin' ? <Check size={12} color="#16a34a" /> : <Copy size={12} />}
-                {copied === 'pin' ? 'Copied' : 'Copy'}
+                {copied === 'pin' ? <Check size={12} color="var(--green)" /> : <Copy size={12} />}
+                <span>{copied === 'pin' ? 'Copied' : 'Copy'}</span>
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 4. Configuration Settings */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          borderRadius: '12px',
-          padding: '20px 24px',
-          border: '1px solid var(--border)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '16px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Settings2 size={18} color="var(--primary)" />
-          <h3 style={{ fontSize: '15px', fontWeight: 600, margin: 0, color: 'var(--text)' }}>
-            Remote Control Settings
-          </h3>
+      {/* 3. Configuration Settings */}
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
+          Remote Configuration
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
-          <div>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-              Listening Port
-            </label>
-            <input
-              type="number"
-              value={config.port}
-              onChange={(e) => setConfig({ ...config, port: parseInt(e.target.value, 10) || 8766 })}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
-                fontSize: '13px',
-                boxSizing: 'border-box',
-              }}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                Listening Port
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                TCP port for remote web app server.
+              </div>
+              <input
+                type="number"
+                value={config.port}
+                onChange={(e) => setConfig({ ...config, port: parseInt(e.target.value, 10) || 8766 })}
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                Bind Address
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Network interface address.
+              </div>
+              <select
+                value={config.bind_addr}
+                onChange={(e) => setConfig({ ...config, bind_addr: e.target.value })}
+                style={{ width: '100%' }}
+              >
+                <option value="127.0.0.1">127.0.0.1 (Loopback only)</option>
+                <option value="0.0.0.0">0.0.0.0 (Local Network LAN)</option>
+              </select>
+            </div>
+
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                Stream Quality
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Screen stream compression preset.
+              </div>
+              <select
+                value={config.quality}
+                onChange={(e) => setConfig({ ...config, quality: e.target.value })}
+                style={{ width: '100%' }}
+              >
+                <option value="high">High (1080p, 30fps)</option>
+                <option value="medium">Medium (720p, 24fps)</option>
+                <option value="low">Low (480p, 15fps)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Account Resilience Toggle (Label Left, Switch Right) */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '12px 14px',
+              backgroundColor: 'var(--canvas)',
+              borderRadius: '8px',
+              border: '1px solid var(--border)',
+            }}
+          >
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                Account-Switch Resilience Mode
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                Automatically retains connected clients and re-attaches CDP session when local Google accounts rotate.
+              </div>
+            </div>
+            <ToggleSwitch
+              checked={Boolean(config.account_resilience)}
+              onChange={() => setConfig({ ...config, account_resilience: !config.account_resilience })}
             />
           </div>
 
-          <div>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-              Bind Address
-            </label>
-            <select
-              value={config.bind_addr}
-              onChange={(e) => setConfig({ ...config, bind_addr: e.target.value })}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
-                fontSize: '13px',
-                backgroundColor: '#ffffff',
-                boxSizing: 'border-box',
-              }}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
+            <button
+              onClick={handleSaveConfig}
+              disabled={loading}
+              className="btn-pill-primary"
             >
-              <option value="127.0.0.1">127.0.0.1 (Loopback only)</option>
-              <option value="0.0.0.0">0.0.0.0 (Local Network LAN)</option>
-            </select>
+              Save Settings
+            </button>
+            {saveSuccess && (
+              <span style={{ fontSize: '12px', color: 'var(--green)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <Check size={14} /> Settings saved successfully
+              </span>
+            )}
           </div>
-
-          <div>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-              Stream Quality
-            </label>
-            <select
-              value={config.quality}
-              onChange={(e) => setConfig({ ...config, quality: e.target.value })}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
-                fontSize: '13px',
-                backgroundColor: '#ffffff',
-                boxSizing: 'border-box',
-              }}
-            >
-              <option value="high">High (1080p, 30fps)</option>
-              <option value="medium">Medium (720p, 24fps)</option>
-              <option value="low">Low (480p, 15fps)</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Account Resilience Toggle */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '12px 14px',
-            backgroundColor: 'var(--canvas)',
-            borderRadius: '8px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-              Account-Switch Resilience Mode
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              Automatically retains connected clients and re-attaches CDP session when local Google accounts rotate.
-            </div>
-          </div>
-          <button
-            onClick={() => setConfig({ ...config, account_resilience: !config.account_resilience })}
-            style={{
-              padding: '6px 14px',
-              borderRadius: '16px',
-              border: 'none',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              backgroundColor: config.account_resilience ? 'var(--primary-container)' : 'var(--tonal)',
-              color: config.account_resilience ? 'var(--primary)' : 'var(--text-muted)',
-            }}
-          >
-            {config.account_resilience ? 'Enabled' : 'Disabled'}
-          </button>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
-          <button
-            onClick={handleSaveConfig}
-            disabled={loading}
-            style={{
-              padding: '8px 18px',
-              borderRadius: '20px',
-              border: 'none',
-              fontSize: '13px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              backgroundColor: 'var(--primary)',
-              color: '#ffffff',
-            }}
-          >
-            Save Settings
-          </button>
-          {saveSuccess && (
-            <span style={{ fontSize: '12px', color: '#16a34a', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Check size={14} /> Settings saved successfully
-            </span>
-          )}
         </div>
       </div>
 
-      {/* 5. Step-by-Step Guidance */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          borderRadius: '12px',
-          padding: '20px 24px',
-          border: '1px solid var(--border)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <HelpCircle size={18} color="var(--primary)" />
-          <h3 style={{ fontSize: '15px', fontWeight: 600, margin: 0, color: 'var(--text)' }}>
-            Guidance & Operating Principles
-          </h3>
+      {/* 4. Step-by-Step Guidance */}
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
+          Architecture & Guidance
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-            <span
-              style={{
-                width: '22px',
-                height: '22px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--primary-container)',
-                color: 'var(--primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '12px',
-                fontWeight: 700,
-                flexShrink: 0,
-              }}
-            >
-              1
-            </span>
-            <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.5 }}>
-              <strong>Zero Invalidation on Account Switch:</strong> Antigravity's factory remote session disconnects when switching accounts because the host Google access token expires. The Swiss Knife wrapper isolates the CDP WebSocket pipe from account tokens, keeping your web session persistent across account swaps.
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
+              Zero Invalidation on Account Switch
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+              Antigravity factory remote session disconnects when switching accounts because the host Google access token expires. The Swiss Knife wrapper isolates the CDP WebSocket pipe from account tokens, keeping your web session persistent across account swaps.
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-            <span
-              style={{
-                width: '22px',
-                height: '22px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--primary-container)',
-                color: 'var(--primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '12px',
-                fontWeight: 700,
-                flexShrink: 0,
-              }}
-            >
-              2
-            </span>
-            <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.5 }}>
-              <strong>Access from Mobile or Second Screen:</strong> When Bind Address is set to <code>0.0.0.0</code> or routed via Cloudflare Quick Tunnel / Tailscale, open the URL on your tablet or smartphone, enter the 6-digit Security PIN once, and monitor or steer agents seamlessly.
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
+              Access from Mobile or Second Screen
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+              When Bind Address is set to <code>0.0.0.0</code> or routed via Cloudflare Quick Tunnel / Tailscale, open the URL on your tablet or smartphone, enter the 6-digit Security PIN once, and monitor or steer agents seamlessly.
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-            <span
-              style={{
-                width: '22px',
-                height: '22px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--primary-container)',
-                color: 'var(--primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '12px',
-                fontWeight: 700,
-                flexShrink: 0,
-              }}
-            >
-              3
-            </span>
-            <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.5 }}>
-              <strong>Security Protocol:</strong> All connections require matching the 6-digit Security PIN. If you need to revoke access immediately, click <em>Rotate PIN</em> to terminate existing view sessions instantly.
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
+              Security Protocol
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+              All connections require matching the 6-digit Security PIN. If you need to revoke access immediately, click <em>Rotate PIN</em> to terminate existing view sessions instantly.
             </div>
           </div>
         </div>

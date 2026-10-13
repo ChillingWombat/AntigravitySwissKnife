@@ -121,6 +121,21 @@ func (s *Server) handleConnection(conn net.Conn) {
 			return
 		}
 
+		if len(line) > 16*1024*1024 {
+			resp := Response{
+				JSONRPC: "2.0",
+				Error: &RPCError{
+					Code:    InvalidRequest,
+					Message: "Request entity too large: message exceeds 16MB limit",
+				},
+				ID: nil,
+			}
+			respBytes, _ := json.Marshal(resp)
+			respBytes = append(respBytes, '\n')
+			_, _ = conn.Write(respBytes)
+			continue
+		}
+
 		resp := s.dispatch(line)
 		respBytes, err := json.Marshal(resp)
 		if err == nil {

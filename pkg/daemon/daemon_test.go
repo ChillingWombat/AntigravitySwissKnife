@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/ipc"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
@@ -221,4 +222,115 @@ func TestDaemonFullLifecycleAndRPC(t *testing.T) {
 		t.Errorf("expected switched true and relaunch_ide true, got %+v", switchRelaunchResp)
 	}
 }
+
+func TestDaemon_GUIConfigPartialUpdateRPC(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tmpDir)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
+	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
+
+	sockPath := filepath.Join(tmpDir, "daemon.sock")
+	cfg := core.DefaultConfig()
+
+	d, err := NewDaemon(cfg, sockPath)
+	if err != nil {
+		t.Fatalf("NewDaemon error: %v", err)
+	}
+
+	if err := d.Start(); err != nil {
+		t.Fatalf("d.Start error: %v", err)
+	}
+	defer d.Stop()
+
+	client := ipc.NewClient(sockPath)
+
+	// Verify initial config
+	var initialGUI gui.Config
+	if err := client.Call("swiss.getGUIConfig", nil, &initialGUI); err != nil {
+		t.Fatalf("swiss.getGUIConfig failed: %v", err)
+	}
+	if !initialGUI.Enabled || !initialGUI.ColorStylingEnabled || !initialGUI.AutoInject {
+		t.Fatalf("expected initial config flags to be true")
+	}
+
+	// Send partial update
+	var updatedGUI gui.Config
+	err = client.Call("swiss.setGUIConfig", map[string]interface{}{
+		"chat_telemetry_generation_speed": false,
+	}, &updatedGUI)
+	if err != nil {
+		t.Fatalf("swiss.setGUIConfig failed: %v", err)
+	}
+
+	if updatedGUI.ChatTelemetryGenerationSpeed {
+		t.Fatalf("expected chat_telemetry_generation_speed to be false")
+	}
+	// Omitted fields must be preserved
+	if !updatedGUI.Enabled || !updatedGUI.ColorStylingEnabled || !updatedGUI.AutoInject || !updatedGUI.ReplaceSeeAllTriangle {
+		t.Fatalf("expected omitted boolean fields to be preserved as true")
+	}
+	if len(updatedGUI.ProjectColors) == 0 {
+		t.Fatalf("expected ProjectColors to be preserved")
+	}
+}
+
+func TestDaemon_MonitorAndInjectGUI_AutoReinstallLoader(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tmpDir)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
+	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
+
+	resourcesDir := filepath.Join(tmpDir, "resources")
+	_ = os.MkdirAll(resourcesDir, 0755)
+	asarPath := filepath.Join(resourcesDir, "app.asar")
+	backupPath := filepath.Join(resourcesDir, "app.asar.factory_backup")
+	_ = os.WriteFile(asarPath, []byte("clean-upstream-asar"), 0644)
+	_ = os.WriteFile(backupPath, []byte("old-backup"), 0644)
+
+	sockPath := filepath.Join(tmpDir, "daemon.sock")
+	cfg := core.DefaultConfig()
+
+	d, err := NewDaemon(cfg, sockPath)
+	if err != nil {
+		t.Fatalf("NewDaemon error: %v", err)
+	}
+
+	// Override desktop manager on GUIStore with test resourcesDir
+	dm := gui.NewDesktopManager(resourcesDir, filepath.Join(tmpDir, "gui.json"), nil)
+	d.GUIStore.SetDesktopManager(dm)
+
+	// Call monitorAndInjectGUI
+	d.monitorAndInjectGUI()
+
+	// Backup must have been refreshed from asarPath!
+	content, err := os.ReadFile(backupPath)
+	if err != nil {
+		t.Fatalf("failed to read backup: %v", err)
+	}
+	if string(content) != "clean-upstream-asar" {
+		t.Fatalf("expected backup to be refreshed to 'clean-upstream-asar', got %q", string(content))
+	}
+}
+
+func TestDaemon_MonitorAndInjectGUI_NoDevToolsNoPanic(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tmpDir)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
+	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
+
+	sockPath := filepath.Join(tmpDir, "daemon.sock")
+	cfg := core.DefaultConfig()
+
+	d, err := NewDaemon(cfg, sockPath)
+	if err != nil {
+		t.Fatalf("NewDaemon error: %v", err)
+	}
+
+	// Should not panic when no DevTools port is available
+	d.monitorAndInjectGUI()
+}
+
 

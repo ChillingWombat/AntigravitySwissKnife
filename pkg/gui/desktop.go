@@ -95,8 +95,9 @@ func (dm *DesktopManager) InstallDesktopLoader() (*ApplyResult, error) {
 		}, fmt.Errorf("app.asar not found at %s", asarPath)
 	}
 
-	// 1. Ensure factory backup exists before any modification
-	if !fileExists(backupPath) {
+	// 1. Ensure factory backup exists and is refreshed from clean upstream app.asar before any modification
+	status := dm.GetStatus()
+	if !status.Installed || !fileExists(backupPath) {
 		if err := copyFile(asarPath, backupPath); err != nil {
 			return &ApplyResult{
 				Success: false,
@@ -332,10 +333,8 @@ func copyFile(src, dst string) error {
 		return err
 	}
 
-	// Preserve permissions
-	if srcInfo, err := os.Stat(src); err == nil {
-		_ = os.Chmod(tmpName, srcInfo.Mode())
-	}
+	// Enforce 0644 permissions so all processes can read the replaced file
+	_ = os.Chmod(tmpName, 0644)
 
 	return os.Rename(tmpName, dst)
 }

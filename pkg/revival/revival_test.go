@@ -773,5 +773,310 @@ func TestEngine_GetRevivalStatus_SynthesizesIntentWhenSessionNeedsRevival(t *tes
 	if status.PendingIntent.TriggerPrompt != DefaultTriggerPrompt {
 		t.Errorf("expected TriggerPrompt = %q, got %q", DefaultTriggerPrompt, status.PendingIntent.TriggerPrompt)
 	}
+	nowMilli := time.Now().UnixMilli()
+	if status.PendingIntent.Timestamp < nowMilli-5000 || status.PendingIntent.Timestamp > nowMilli+5000 {
+		t.Errorf("expected PendingIntent.Timestamp to be close to current time %d, got %d", nowMilli, status.PendingIntent.Timestamp)
+	}
+}
+
+func TestEngine_GetRevivalStatus_CooldownSuppressesIntentSynthesis(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := setupMockSummariesDB(t, tmpDir)
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test sqlite: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now()
+	_, err = db.Exec(`
+		INSERT INTO conversation_summaries (conversation_id, title, workspace_uris, parent_conversation_id, nesting_depth, not_fully_idle, status, last_modified_time)
+		VALUES ('cd7799aa-1122-3344-5566-778899aabbcc', 'Cooldown Conv', '[]', '', 0, 1, 'CASCADE_RUN_STATUS_RUNNING', ?);
+	`, now.Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("failed to insert running conversation: %v", err)
+	}
+
+	engine := NewEngine(tmpDir, 0)
+	engine.Detector.BaseDir = tmpDir
+
+	// 1. Initial status synthesizes intent
+	st1, err := engine.GetRevivalStatus("cd7799aa-1122-3344-5566-778899aabbcc")
+	if err != nil || st1.PendingIntent == nil {
+		t.Fatalf("expected initial synthesized PendingIntent, got err=%v, intent=%v", err, st1.PendingIntent)
+	}
+
+	// 2. Simulate acknowledgement within last 10 seconds (cooldown active)
+	recent := time.Now().Add(-10 * time.Second)
+	engine.mu.Lock()
+	engine.lastRevivedAt = &recent
+	engine.mu.Unlock()
+
+	st2, err := engine.GetRevivalStatus("cd7799aa-1122-3344-5566-778899aabbcc")
+	if err != nil {
+		t.Fatalf("GetRevivalStatus failed: %v", err)
+	}
+	if st2.PendingIntent != nil {
+		t.Errorf("expected cooldown to suppress synthesized intent, but got %v", st2.PendingIntent)
+	}
+
+	// 3. Simulate acknowledgement 50 seconds ago (cooldown expired)
+	expired := time.Now().Add(-50 * time.Second)
+	engine.mu.Lock()
+	engine.lastRevivedAt = &expired
+	engine.mu.Unlock()
+
+	st3, err := engine.GetRevivalStatus("cd7799aa-1122-3344-5566-778899aabbcc")
+	if err != nil {
+		t.Fatalf("GetRevivalStatus failed: %v", err)
+	}
+	if st3.PendingIntent == nil {
+		t.Errorf("expected expired cooldown to allow synthesized intent again, got nil")
+	}
+}
+
+func TestEngine_AcknowledgeContinuation_SuppressesIntentForConversation(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := setupMockSummariesDB(t, tmpDir)
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test sqlite: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now()
+	_, err = db.Exec(`
+		INSERT INTO conversation_summaries (conversation_id, title, workspace_uris, parent_conversation_id, nesting_depth, not_fully_idle, status, last_modified_time)
+		VALUES ('aa112233-4455-6677-8899-aabbccddeeff', 'Acked Conv', '[]', '', 0, 1, 'CASCADE_RUN_STATUS_RUNNING', ?);
+	`, now.Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("failed to insert running conversation: %v", err)
+	}
+
+	engine := NewEngine(tmpDir, 0)
+	engine.Detector.BaseDir = tmpDir
+
+	// 1. Initial status synthesizes intent
+	st1, err := engine.GetRevivalStatus("aa112233-4455-6677-8899-aabbccddeeff")
+	if err != nil || st1.PendingIntent == nil {
+		t.Fatalf("expected initial synthesized PendingIntent, got err=%v, intent=%v", err, st1.PendingIntent)
+	}
+
+	// 2. Acknowledge continuation for this conversation
+	if err := engine.AcknowledgeContinuation("aa112233-4455-6677-8899-aabbccddeeff"); err != nil {
+		t.Fatalf("AcknowledgeContinuation failed: %v", err)
+	}
+
+	// 3. Even if global cooldown is expired (simulated 2 minutes ago), the specific conversation remains suppressed
+	oldTime := time.Now().Add(-2 * time.Minute)
+	engine.mu.Lock()
+	engine.lastRevivedAt = &oldTime
+	engine.mu.Unlock()
+
+	st2, err := engine.GetRevivalStatus("aa112233-4455-6677-8899-aabbccddeeff")
+	if err != nil {
+		t.Fatalf("GetRevivalStatus failed: %v", err)
+	}
+	if st2.PendingIntent != nil {
+		t.Errorf("expected AcknowledgeContinuation to suppress intent synthesis for conversation, but got %v", st2.PendingIntent)
+	}
+}
+
+func TestEngine_RevivedMapExpiresAfter10Minutes(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := setupMockSummariesDB(t, tmpDir)
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test sqlite: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now()
+	convID := "bb223344-5566-7788-99aa-bbccddeeff00"
+	_, err = db.Exec(`
+		INSERT INTO conversation_summaries (conversation_id, title, workspace_uris, parent_conversation_id, nesting_depth, not_fully_idle, status, last_modified_time)
+		VALUES (?, 'Expired Cooldown Conv', '[]', '', 0, 1, 'CASCADE_RUN_STATUS_RUNNING', ?);
+	`, convID, now.Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("failed to insert running conversation: %v", err)
+	}
+
+	engine := NewEngine(tmpDir, 0)
+	engine.Detector.BaseDir = tmpDir
+
+	// Simulate revived 11 minutes ago (exceeding 10-minute cooldown)
+	elevenMinAgo := time.Now().Add(-11 * time.Minute)
+	engine.mu.Lock()
+	engine.lastRevivedAt = &elevenMinAgo
+	engine.revivedMap[convID] = elevenMinAgo
+	engine.mu.Unlock()
+
+	status, err := engine.GetRevivalStatus(convID)
+	if err != nil {
+		t.Fatalf("GetRevivalStatus failed: %v", err)
+	}
+	if status.PendingIntent == nil {
+		t.Errorf("expected 11-minute-old cooldown to expire and allow new revival intent synthesis, got nil")
+	}
+
+	engine.mu.RLock()
+	_, stillInMap := engine.revivedMap[convID]
+	engine.mu.RUnlock()
+	if stillInMap {
+		t.Errorf("expected expired entry to be pruned from revivedMap")
+	}
+}
+
+func TestEngine_StaleRunningIgnoredByFreshnessFilter(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := setupMockSummariesDB(t, tmpDir)
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test sqlite: %v", err)
+	}
+	defer db.Close()
+
+	// Insert row modified 3 hours ago with RUNNING status (stale kill residue)
+	threeHoursAgo := time.Now().Add(-3 * time.Hour)
+	convID := "cc334455-6677-8899-aabb-ccddeeff0011"
+	_, err = db.Exec(`
+		INSERT INTO conversation_summaries (conversation_id, title, workspace_uris, parent_conversation_id, nesting_depth, not_fully_idle, status, last_modified_time)
+		VALUES (?, 'Stale Dead Conv', '[]', '', 0, 1, 'CASCADE_RUN_STATUS_RUNNING', ?);
+	`, convID, threeHoursAgo.Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("failed to insert stale conversation: %v", err)
+	}
+
+	detector := NewSessionDetector()
+	detector.BaseDir = tmpDir
+	detector.LiveCDPEnabled = false
+
+	session, err := detector.DetectForID(convID)
+	if err != nil {
+		t.Fatalf("DetectForID failed: %v", err)
+	}
+	if session.NeedsRevival {
+		t.Errorf("expected stale 3-hour-old RUNNING status to NOT need revival, but NeedsRevival was true")
+	}
+}
+
+func TestStore_AttemptsIncrementAndEnforcement(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewStore(tmpDir)
+
+	intent := &RevivalIntent{
+		IntentID:           "test-attempt-intent",
+		RootConversationID: "dd445566-7788-99aa-bbcc-ddeeff001122",
+		Status:             IntentStatusPending,
+		Attempts:           0,
+		MaxAttempts:        2,
+	}
+	if err := store.SaveIntent(intent); err != nil {
+		t.Fatalf("SaveIntent failed: %v", err)
+	}
+
+	// Increment attempts
+	att1, err := store.IncrementAttempts("test-attempt-intent")
+	if err != nil || att1 != 1 {
+		t.Fatalf("expected attempt 1, got %d, err: %v", att1, err)
+	}
+
+	// Verify persisted on disk
+	loaded, err := store.LoadIntent()
+	if err != nil || loaded == nil || loaded.Attempts != 1 {
+		t.Fatalf("expected loaded Attempts = 1, got %v", loaded)
+	}
+
+	att2, err := store.IncrementAttempts("test-attempt-intent")
+	if err != nil || att2 != 2 {
+		t.Fatalf("expected attempt 2, got %d, err: %v", att2, err)
+	}
+
+	loaded, err = store.LoadIntent()
+	if err != nil || loaded == nil || loaded.Attempts != 2 {
+		t.Fatalf("expected loaded Attempts = 2, got %v", loaded)
+	}
+
+	// Verify engine enforces max attempts
+	engine := NewEngine(tmpDir, 0)
+	err = engine.ExecutePostRelaunchRevival(loaded)
+	if err == nil {
+		t.Errorf("expected ExecutePostRelaunchRevival to error when attempts >= MaxAttempts, got nil")
+	}
+}
+
+func TestEngine_FailedIntentRetryAndRecovery(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := setupMockSummariesDB(t, tmpDir)
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test sqlite: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now()
+	convID := "ee556677-8899-aabb-ccdd-eeff00112233"
+	_, err = db.Exec(`
+		INSERT INTO conversation_summaries (conversation_id, title, workspace_uris, parent_conversation_id, nesting_depth, not_fully_idle, status, last_modified_time)
+		VALUES (?, 'Retry Conv', '[]', '', 0, 1, 'CASCADE_RUN_STATUS_RUNNING', ?);
+	`, convID, now.Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("failed to insert running conversation: %v", err)
+	}
+
+	engine := NewEngine(tmpDir, 0)
+	engine.Detector.BaseDir = tmpDir
+
+	// Save a failed intent that failed 20s ago with 1 attempt
+	failedIntent := &RevivalIntent{
+		IntentID:           "test-failed-intent",
+		RootConversationID: convID,
+		Status:             IntentStatusFailed,
+		Attempts:           1,
+		MaxAttempts:        2,
+		CreatedAt:          time.Now().Add(-20 * time.Second),
+	}
+	if err := engine.Store.SaveIntent(failedIntent); err != nil {
+		t.Fatalf("SaveIntent failed: %v", err)
+	}
+
+	status, err := engine.GetRevivalStatus(convID)
+	if err != nil {
+		t.Fatalf("GetRevivalStatus failed: %v", err)
+	}
+	if status.PendingIntent == nil {
+		t.Errorf("expected failed intent with attempts < MaxAttempts to allow retry, got nil")
+	}
+}
+
+func TestEngine_AcknowledgeContinuation_EmptyOrMismatchGuard(t *testing.T) {
+	tmpDir := t.TempDir()
+	engine := NewEngine(tmpDir, 0)
+
+	// 1. Empty cascadeID must error
+	if err := engine.AcknowledgeContinuation(""); err == nil {
+		t.Errorf("expected error for empty cascadeID, got nil")
+	}
+
+	// 2. Mismatched cascadeID must not clear existing intent
+	intent := &RevivalIntent{
+		IntentID:           "active-intent",
+		RootConversationID: "ff667788-99aa-bbcc-ddee-ff0011223344",
+		Status:             IntentStatusPending,
+	}
+	if err := engine.Store.SaveIntent(intent); err != nil {
+		t.Fatalf("SaveIntent failed: %v", err)
+	}
+
+	err := engine.AcknowledgeContinuation("00000000-0000-0000-0000-000000000000")
+	if err == nil {
+		t.Errorf("expected error acknowledging mismatched cascadeID, got nil")
+	}
+
+	// Verify original intent was not cleared
+	loaded, _ := engine.Store.LoadIntent()
+	if loaded == nil || loaded.IntentID != "active-intent" {
+		t.Errorf("expected active intent to remain untouched after mismatched ack, got %v", loaded)
+	}
 }
 

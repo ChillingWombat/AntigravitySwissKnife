@@ -186,3 +186,65 @@ func TestVaultManualDeletionSyncsToVault(t *testing.T) {
 	}
 }
 
+func TestVaultPathTraversal(t *testing.T) {
+	tmpDir := t.TempDir()
+	convDir := filepath.Join(tmpDir, "conversations")
+	vaultDir := filepath.Join(tmpDir, "vault")
+	_ = os.MkdirAll(convDir, 0700)
+	_ = os.MkdirAll(vaultDir, 0700)
+
+	mgr := NewManager(convDir, vaultDir)
+
+	maliciousIDs := []string{
+		"../../etc/passwd",
+		"../secret",
+		"/etc/shadow",
+		"conv/nested/attack",
+		"conv;rm -rf /",
+		"",
+		" ",
+	}
+
+	for _, badID := range maliciousIDs {
+		ok, err := mgr.RestoreConversation(badID)
+		if err == nil || ok {
+			t.Errorf("RestoreConversation(%q) expected error and ok=false, got ok=%v, err=%v", badID, ok, err)
+		}
+
+		ok, err = mgr.VaultConversation(badID)
+		if err == nil || ok {
+			t.Errorf("VaultConversation(%q) expected error and ok=false, got ok=%v, err=%v", badID, ok, err)
+		}
+	}
+}
+
+func TestVaultFilePermissions(t *testing.T) {
+	tmpDir := t.TempDir()
+	convDir := filepath.Join(tmpDir, "conversations")
+	vaultDir := filepath.Join(tmpDir, "vault")
+	_ = os.MkdirAll(convDir, 0700)
+	_ = os.MkdirAll(vaultDir, 0700)
+
+	cName := "valid-conv-123.db"
+	liveFile := filepath.Join(convDir, cName)
+	_ = os.WriteFile(liveFile, []byte("data"), 0644)
+
+	mgr := NewManager(convDir, vaultDir)
+	ok, err := mgr.VaultConversation("valid-conv-123")
+	if err != nil || !ok {
+		t.Fatalf("VaultConversation failed: %v", err)
+	}
+
+	vaultFile := filepath.Join(vaultDir, cName)
+	fi, err := os.Stat(vaultFile)
+	if err != nil {
+		t.Fatalf("stat vaulted file failed: %v", err)
+	}
+
+	// Verify permissions strictly 0600
+	if fi.Mode().Perm() != 0600 {
+		t.Errorf("expected 0600 file permissions on vaulted file, got %o", fi.Mode().Perm())
+	}
+}
+
+

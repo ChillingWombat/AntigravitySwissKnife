@@ -267,7 +267,16 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
     }
   }
 
+  const isValidHexColor = (c?: string) => {
+    if (!c) return true
+    return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(c.trim())
+  }
+
   const handleSaveAndApply = async () => {
+    if (config?.prompt_jump_bar?.custom_color && !isValidHexColor(config.prompt_jump_bar.custom_color)) {
+      setStatusMsg({ text: 'Invalid hex color format for prompt jump bar (expected e.g. #0b57d0)', type: 'error' })
+      return
+    }
     try {
       setSaving(true)
       setApplying(true)
@@ -603,7 +612,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               width: '18px',
                               height: '18px',
                               borderRadius: '4px',
-                              background: jb.custom_color || '#0b57d0',
+                              background: isValidHexColor(jb.custom_color) ? (jb.custom_color || '#0b57d0') : '#0b57d0',
                               border: '1px solid #cbd5e1',
                             }}
                           />
@@ -1498,6 +1507,16 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
 
               {/* Horizontal Divider Line between Simplicity Zone and Fixed Number Zone */}
               <div style={{ height: '1px', backgroundColor: 'var(--border, #e2e8f0)', margin: '2px 0' }} />
+
+              {/* Header above Fixed vs Dynamic */}
+              <div style={{ marginTop: '12px', marginBottom: '8px' }}>
+                <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>
+                  Visible Conversation Tabs
+                </h4>
+                <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Choose how conversation tabs are retained in the sidebar: either cap at a fixed number or dynamically preserve recent sessions.
+                </p>
+              </div>
 
               {/* Option 1: Fixed Limit */}
               <div

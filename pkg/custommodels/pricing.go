@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -79,7 +81,23 @@ var (
 	thirdPartyCacheMu sync.RWMutex
 	thirdPartyCache   map[string]rawPriceEntry
 	thirdPartyCacheAt time.Time
+
+	// Configurable Google Gemini pricing URLs (overridable in tests).
+	GoogleGeminiPricingURL     = "https://ai.google.dev/pricing"
+	GoogleGeminiDocsPricingURL = "https://ai.google.dev/gemini-api/docs/pricing"
+
+	googlePricingCacheMu sync.RWMutex
+	googlePricingCache   map[string]rawPriceEntry
+	googlePricingCacheAt time.Time
 )
+
+// ResetGoogleGeminiPricingCache clears the dynamic Google Gemini pricing cache for unit tests.
+func ResetGoogleGeminiPricingCache() {
+	googlePricingCacheMu.Lock()
+	defer googlePricingCacheMu.Unlock()
+	googlePricingCache = nil
+	googlePricingCacheAt = time.Time{}
+}
 
 type rawPriceEntry struct {
 	inPerM     float64
@@ -147,7 +165,16 @@ func FetchModelPricing(ctx context.Context, modelID, provider, baseURL, apiKey s
 		}
 	}
 
-	// 1B. Official Model Provider published pricing specifications (Google, Anthropic, OpenAI, DeepSeek)
+	// 1B. Dynamic Google Gemini pricing page (ai.google.dev/pricing or ai.google.dev/gemini-api/docs/pricing)
+	cleanLower := strings.ToLower(cleanID)
+	provLower := strings.ToLower(provider)
+	if strings.Contains(cleanLower, "gemini") || provLower == "gemini" || provLower == "google" {
+		if inP, cacheP, outP, ok := lookupDynamicGooglePricing(ctx, cleanID); ok {
+			return inP, cacheP, outP, PriceSourceProvider
+		}
+	}
+
+	// 1C. Official Model Provider published pricing specifications (Google, Anthropic, OpenAI, DeepSeek fallback)
 	if inP, cacheP, outP, ok := lookupOfficialProviderPricing(cleanID, provider); ok {
 		return inP, cacheP, outP, PriceSourceProvider
 	}
@@ -323,34 +350,36 @@ func lookupOfficialProviderPricing(modelID, provider string) (*float64, *float64
 	}
 	exactRates := map[string]rate{
 		// Google Gemini 3.8 / 3.7 / 3.6 / 3.5 Flash series
-		"gemini-3.8-flash-high":   {0.15, 0.0375, 0.60},
-		"gemini-3.8-flash-medium": {0.15, 0.0375, 0.60},
-		"gemini-3.8-flash-low":    {0.15, 0.0375, 0.60},
-		"gemini-3.8-flash":        {0.15, 0.0375, 0.60},
-		"gemini-3.8-flash-tiered": {0.15, 0.0375, 0.60},
-		"gemini-3.7-flash-high":   {0.15, 0.0375, 0.60},
-		"gemini-3.7-flash-medium": {0.15, 0.0375, 0.60},
-		"gemini-3.7-flash-low":    {0.15, 0.0375, 0.60},
-		"gemini-3.7-flash":        {0.15, 0.0375, 0.60},
-		"gemini-3.6-flash-high":   {0.15, 0.0375, 0.60},
-		"gemini-3.6-flash-medium": {0.15, 0.0375, 0.60},
-		"gemini-3.6-flash-low":    {0.15, 0.0375, 0.60},
-		"gemini-3.6-flash":        {0.15, 0.0375, 0.60},
-		"gemini-3.5-flash":        {0.10, 0.025, 0.40},
-		"gemini-3.5-flash-lite":   {0.075, 0.01875, 0.30},
-		"gemini-3-flash":          {0.15, 0.0375, 0.60},
-		"gemini-3-flash-high":     {0.15, 0.0375, 0.60},
-		"gemini-3-flash-medium":   {0.15, 0.0375, 0.60},
-		"gemini-3-flash-low":      {0.15, 0.0375, 0.60},
-		"gemini-3-flash-agent":    {0.15, 0.0375, 0.60},
+		"gemini-3.8-flash-high":   {0.75, 0.075, 3.75},
+		"gemini-3.8-flash-medium": {0.75, 0.075, 3.75},
+		"gemini-3.8-flash-low":    {0.75, 0.075, 3.75},
+		"gemini-3.8-flash":        {0.75, 0.075, 3.75},
+		"gemini-3.8-flash-tiered": {0.75, 0.075, 3.75},
+		"gemini-3.7-flash-high":   {0.75, 0.075, 3.75},
+		"gemini-3.7-flash-medium": {0.75, 0.075, 3.75},
+		"gemini-3.7-flash-low":    {0.75, 0.075, 3.75},
+		"gemini-3.7-flash":        {0.75, 0.075, 3.75},
+		"gemini-3.6-flash-high":   {0.75, 0.075, 3.75},
+		"gemini-3.6-flash-medium": {0.75, 0.075, 3.75},
+		"gemini-3.6-flash-low":    {0.75, 0.075, 3.75},
+		"gemini-3.6-flash":        {0.75, 0.075, 3.75},
+		"gemini-3.5-flash":        {0.75, 0.075, 3.75},
+		"gemini-3.5-flash-lite":   {0.30, 0.03, 2.50},
+		"gemini-3.1-flash-lite":   {0.25, 0.025, 1.50},
+		"gemini-3-flash":          {0.50, 0.05, 3.00},
+		"gemini-3-flash-high":     {0.50, 0.05, 3.00},
+		"gemini-3-flash-medium":   {0.50, 0.05, 3.00},
+		"gemini-3-flash-low":      {0.50, 0.05, 3.00},
+		"gemini-3-flash-agent":    {0.50, 0.05, 3.00},
 		// Google Gemini 3.1 Pro / 2.5 Pro / 2.5 Flash
-		"gemini-pro-agent":   {1.25, 0.3125, 5.00},
-		"gemini-3.1-pro-high": {1.25, 0.3125, 5.00},
-		"gemini-3.1-pro-low":  {1.25, 0.3125, 5.00},
-		"gemini-3.1-pro":      {1.25, 0.3125, 5.00},
-		"gemini-2.5-pro":      {1.25, 0.3125, 5.00},
-		"gemini-2.5-flash":    {0.075, 0.01875, 0.30},
-		"gemini-2.0-flash":    {0.10, 0.025, 0.40},
+		"gemini-pro-agent":        {2.00, 0.20, 12.00},
+		"gemini-3.1-pro-high":     {2.00, 0.20, 12.00},
+		"gemini-3.1-pro-low":      {2.00, 0.20, 12.00},
+		"gemini-3.1-pro":          {2.00, 0.20, 12.00},
+		"gemini-2.5-pro":          {1.25, 0.125, 10.00},
+		"gemini-2.5-flash":        {0.30, 0.03, 2.50},
+		"gemini-2.5-flash-lite":   {0.10, 0.01, 0.40},
+		"gemini-2.0-flash":        {0.10, 0.025, 0.40},
 		// Anthropic Claude 4.6 / 3.7 / 3.5
 		"claude-sonnet-4-6":          {3.00, 0.30, 15.00},
 		"claude-opus-4-6-thinking":   {15.00, 1.50, 75.00},
@@ -508,6 +537,191 @@ func fetchThirdPartyCatalogs(ctx context.Context) map[string]rawPriceEntry {
 	}
 
 	return res
+}
+
+var (
+	h2Regex     = regexp.MustCompile(`(?i)<h2\s+id="([^"]+)"[^>]*>(.*?)</h2>`)
+	tableRegex  = regexp.MustCompile(`(?i)<table\s+class="pricing-table"[^>]*>(.*?)</table>`)
+	trRegex     = regexp.MustCompile(`(?i)<tr>(.*?)</tr>`)
+	tdRegex     = regexp.MustCompile(`(?i)<td[^>]*>(.*?)</td>`)
+	dollarRegex = regexp.MustCompile(`\$([0-9]+(?:\.[0-9]+)?)`)
+	codeRegex   = regexp.MustCompile(`(?i)<code[^>]*>([^<]+)</code>`)
+	tagRegex    = regexp.MustCompile(`<[^>]*>`)
+)
+
+func stripHTML(s string) string {
+	return tagRegex.ReplaceAllString(s, "")
+}
+
+func parseGoogleGeminiPricingHTML(html string) map[string]rawPriceEntry {
+	res := make(map[string]rawPriceEntry)
+	matches := h2Regex.FindAllStringSubmatchIndex(html, -1)
+	for i, m := range matches {
+		h2ID := strings.ToLower(strings.TrimSpace(html[m[2]:m[3]]))
+		endIdx := len(html)
+		if i+1 < len(matches) {
+			endIdx = matches[i+1][0]
+		}
+		chunk := html[m[1]:endIdx]
+
+		tableMatch := tableRegex.FindStringSubmatch(chunk)
+		if len(tableMatch) < 2 {
+			continue
+		}
+		tableHTML := tableMatch[1]
+
+		var inPrice, cachePrice, outPrice *float64
+		rows := trRegex.FindAllStringSubmatch(tableHTML, -1)
+		for _, row := range rows {
+			cells := tdRegex.FindAllStringSubmatch(row[1], -1)
+			if len(cells) < 2 {
+				continue
+			}
+			lbl := strings.ToLower(stripHTML(cells[0][1]))
+			paidText := cells[len(cells)-1][1]
+			dollars := dollarRegex.FindAllStringSubmatch(paidText, -1)
+			if len(dollars) == 0 {
+				continue
+			}
+			val, err := strconv.ParseFloat(dollars[0][1], 64)
+			if err != nil {
+				continue
+			}
+			if strings.Contains(lbl, "input price") {
+				inPrice = &val
+			} else if strings.Contains(lbl, "output price") {
+				outPrice = &val
+			} else if strings.Contains(lbl, "context caching") {
+				cachePrice = &val
+			}
+		}
+
+		if inPrice != nil || outPrice != nil {
+			var inVal, cacheVal, outVal float64
+			if inPrice != nil {
+				inVal = *inPrice
+			}
+			if outPrice != nil {
+				outVal = *outPrice
+			}
+			if cachePrice != nil {
+				cacheVal = *cachePrice
+			} else {
+				cacheVal = inVal * 0.10
+			}
+
+			entry := rawPriceEntry{
+				inPerM:     inVal,
+				cachedPerM: cacheVal,
+				outPerM:    outVal,
+			}
+			res[h2ID] = entry
+
+			headerChunk := chunk
+			if tIdx := strings.Index(strings.ToLower(chunk), "<table"); tIdx != -1 {
+				headerChunk = chunk[:tIdx]
+			}
+			codes := codeRegex.FindAllStringSubmatch(headerChunk, -1)
+			for _, c := range codes {
+				codeID := strings.ToLower(strings.TrimSpace(c[1]))
+				if codeID != "" {
+					res[codeID] = entry
+				}
+			}
+		}
+	}
+	return res
+}
+
+func fetchGoogleGeminiPricing(ctx context.Context) map[string]rawPriceEntry {
+	urls := []string{}
+	if GoogleGeminiPricingURL != "" {
+		urls = append(urls, GoogleGeminiPricingURL)
+	}
+	if GoogleGeminiDocsPricingURL != "" && GoogleGeminiDocsPricingURL != GoogleGeminiPricingURL {
+		urls = append(urls, GoogleGeminiDocsPricingURL)
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	for _, targetURL := range urls {
+		reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, targetURL, nil)
+		if err != nil {
+			cancel()
+			continue
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+		resp, err := client.Do(req)
+		if err != nil {
+			cancel()
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		cancel()
+
+		if resp.StatusCode != http.StatusOK || len(body) == 0 {
+			continue
+		}
+
+		parsed := parseGoogleGeminiPricingHTML(string(body))
+		if len(parsed) > 0 {
+			return parsed
+		}
+	}
+	return nil
+}
+
+func lookupDynamicGooglePricing(ctx context.Context, modelID string) (*float64, *float64, *float64, bool) {
+	googlePricingCacheMu.RLock()
+	cached := googlePricingCache
+	fresh := cached != nil && time.Since(googlePricingCacheAt) < 1*time.Hour
+	googlePricingCacheMu.RUnlock()
+
+	if !fresh {
+		fetched := fetchGoogleGeminiPricing(ctx)
+		if len(fetched) > 0 {
+			googlePricingCacheMu.Lock()
+			googlePricingCache = fetched
+			googlePricingCacheAt = time.Now()
+			cached = fetched
+			googlePricingCacheMu.Unlock()
+		}
+	}
+
+	if len(cached) == 0 {
+		return nil, nil, nil, false
+	}
+
+	target := strings.ToLower(strings.TrimSpace(modelID))
+	target = strings.TrimPrefix(target, "models/")
+	target = strings.TrimPrefix(target, "google/")
+
+	// 1. Exact match
+	if e, ok := cached[target]; ok {
+		return floatPtr(e.inPerM), floatPtr(e.cachedPerM), floatPtr(e.outPerM), true
+	}
+
+	// 2. Try stripping thinking / tiered suffixes: -high, -medium, -low, -thinking, -tiered, -off
+	stripped := target
+	for _, suffix := range []string{"-high", "-medium", "-low", "-thinking", "-tiered", "-off"} {
+		if strings.HasSuffix(stripped, suffix) {
+			stripped = strings.TrimSuffix(stripped, suffix)
+			if e, ok := cached[stripped]; ok {
+				return floatPtr(e.inPerM), floatPtr(e.cachedPerM), floatPtr(e.outPerM), true
+			}
+		}
+	}
+
+	// 3. Short name without path
+	if idx := strings.LastIndex(target, "/"); idx != -1 {
+		short := target[idx+1:]
+		if e, ok := cached[short]; ok {
+			return floatPtr(e.inPerM), floatPtr(e.cachedPerM), floatPtr(e.outPerM), true
+		}
+	}
+
+	return nil, nil, nil, false
 }
 
 // allocateInternalIDLocked returns a strictly increasing unique internal ID.

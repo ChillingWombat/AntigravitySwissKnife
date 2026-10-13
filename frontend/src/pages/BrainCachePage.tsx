@@ -498,7 +498,6 @@ export const BrainCachePage: React.FC = () => {
             justifyContent: 'center',
             zIndex: 1100,
           }}
-          onClick={() => setShowPruneConfirm(false)}
         >
           <div
             className="google-card"

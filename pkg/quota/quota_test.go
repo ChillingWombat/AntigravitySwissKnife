@@ -43,8 +43,8 @@ func Test1TokenPayloadStructure(t *testing.T) {
 	if parsed["project"] != "aicode-consumers" {
 		t.Errorf("expected project 'aicode-consumers', got %v", parsed["project"])
 	}
-	if parsed["model"] != "gemini-3-flash" {
-		t.Errorf("expected model 'gemini-3-flash', got %v", parsed["model"])
+	if parsed["model"] != "gemini-3.8-flash-high" {
+		t.Errorf("expected model 'gemini-3.8-flash-high', got %v", parsed["model"])
 	}
 
 	reqObj, ok := parsed["request"].(map[string]interface{})

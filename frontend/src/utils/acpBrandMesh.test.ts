@@ -48,11 +48,10 @@ describe('ACP Agent Mesh & Official Brand SVG Icons (Requirement 3.1)', () => {
     }
   })
 
-  it('verifies AcpBrandIcons.tsx contains clean vector SVGs with zero emojis or raster images', () => {
+  it('verifies AcpBrandIcons.tsx contains official brand logos with zero emojis', () => {
     const brandContent = fs.readFileSync(brandIconsPath, 'utf8')
     assert.ok(!hasDecorativeEmojis(brandContent), 'AcpBrandIcons.tsx must not contain emojis')
-    assert.ok(!brandContent.includes('<img'), 'AcpBrandIcons.tsx must only use vector SVGs, not raster images')
-    assert.ok(brandContent.includes('<svg'), 'AcpBrandIcons.tsx must render SVG elements')
+    assert.ok(brandContent.includes('assets/logo/'), 'AcpBrandIcons.tsx must reference real logos from assets folder')
     assert.ok(brandContent.includes('AntigravityLogoIcon'))
     assert.ok(brandContent.includes('AntigravityCliIcon'))
     assert.ok(brandContent.includes('DevinLogoIcon'))
@@ -62,6 +61,7 @@ describe('ACP Agent Mesh & Official Brand SVG Icons (Requirement 3.1)', () => {
     assert.ok(brandContent.includes('CodexLogoIcon'))
     assert.ok(brandContent.includes('ClaudeCodeLogoIcon'))
     assert.ok(brandContent.includes('CursorLogoIcon'))
+    assert.ok(brandContent.includes('GoogleCloudLogoIcon'))
     assert.ok(brandContent.includes('getAcpBrandIcon'))
     assert.ok(brandContent.includes('default:'))
   })

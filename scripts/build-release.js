@@ -270,16 +270,20 @@ function buildMacOS(options = {}) {
   buildGoBinary('darwin', 'arm64', releaseGoArm);
   buildGoBinary('darwin', 'amd64', releaseGoIntel);
 
-  const goBinMac = path.join(binDir, 'swiss');
+  const goBinMac = path.join(binDir, 'darwin-arm64', 'swiss');
+  ensureDir(path.dirname(goBinMac));
   buildGoBinary('darwin', 'arm64', goBinMac);
 
   // 2. Package Electron App for macOS
   log('Packaging Electron application for macOS (arm64 & x64)...');
-  let builderArgs = '--mac dmg --x64 --arm64';
+  const isDarwinHost = process.platform === 'darwin';
+  let builderArgs = (isDarwinHost && !options.portable && !options.unpacked)
+    ? '--mac dmg --x64 --arm64'
+    : '--mac zip --x64 --arm64 -c.mac.target=zip';
   if (options.unpacked) {
-    builderArgs = '--mac --x64 --arm64 --dir';
+    builderArgs = '--mac --x64 --arm64 --dir -c.mac.target=dir';
   } else if (options.portable) {
-    builderArgs = '--mac zip --x64 --arm64';
+    builderArgs = '--mac zip --x64 --arm64 -c.mac.target=zip';
   }
   run(`npx electron-builder ${builderArgs} -c.directories.output="${macReleaseDir}"`, rootDir);
 

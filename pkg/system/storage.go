@@ -246,6 +246,15 @@ func GetStorageInfo(cfg *core.Config) *StorageInfo {
 
 // SaveAppPath updates custom configured path for desktop, agy, or vscode.
 func SaveAppPath(appType, path string, cfg *core.Config) (*StorageInfo, error) {
+	if path != "" {
+		trimmed := strings.TrimSpace(path)
+		if !filepath.IsAbs(trimmed) {
+			return nil, fmt.Errorf("app path must be an absolute path: %q", path)
+		}
+		if _, err := os.Stat(trimmed); err != nil {
+			return nil, fmt.Errorf("app executable not found at path: %w", err)
+		}
+	}
 	if err := cfg.SetAppPath(appType, path); err != nil {
 		return nil, err
 	}
@@ -254,6 +263,15 @@ func SaveAppPath(appType, path string, cfg *core.Config) (*StorageInfo, error) {
 
 // SaveAccountOverride sets or clears executable override for an account.
 func SaveAccountOverride(appType, email, path string, cfg *core.Config) (*StorageInfo, error) {
+	if path != "" {
+		trimmed := strings.TrimSpace(path)
+		if !filepath.IsAbs(trimmed) {
+			return nil, fmt.Errorf("account override path must be an absolute path: %q", path)
+		}
+		if _, err := os.Stat(trimmed); err != nil {
+			return nil, fmt.Errorf("override executable not found at path: %w", err)
+		}
+	}
 	if err := cfg.SetAccountOverride(appType, email, path); err != nil {
 		return nil, err
 	}

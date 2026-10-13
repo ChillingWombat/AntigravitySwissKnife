@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
@@ -76,6 +77,12 @@ func IsTestExecution() bool {
 	return false
 }
 
+var (
+	devtoolsPortCacheMu sync.Mutex
+	cachedDevToolsPort  int
+	cachedPortExpiresAt time.Time
+)
+
 // FindDevToolsPort reads the active remote debugging port of Antigravity and verifies it is responsive.
 func (inj *Injector) FindDevToolsPort() (int, error) {
 	if inj.customPort > 0 {
@@ -85,6 +92,29 @@ func (inj *Injector) FindDevToolsPort() (int, error) {
 	// Under unit tests, never connect to the live host IDE when customPort is not specified
 	if IsTestExecution() {
 		return 0, fmt.Errorf("unit test mode: skipped connecting to live host DevTools port")
+	}
+
+	devtoolsPortCacheMu.Lock()
+	if cachedDevToolsPort > 0 && time.Now().Before(cachedPortExpiresAt) {
+		p := cachedDevToolsPort
+		devtoolsPortCacheMu.Unlock()
+		if inj.isPortLive(p) {
+			return p, nil
+		}
+		devtoolsPortCacheMu.Lock()
+		cachedDevToolsPort = 0
+		cachedPortExpiresAt = time.Time{}
+		devtoolsPortCacheMu.Unlock()
+	} else {
+		devtoolsPortCacheMu.Unlock()
+	}
+
+	cacheSuccess := func(port int) int {
+		devtoolsPortCacheMu.Lock()
+		cachedDevToolsPort = port
+		cachedPortExpiresAt = time.Now().Add(5 * time.Second)
+		devtoolsPortCacheMu.Unlock()
+		return port
 	}
 
 	// 1. Check DevToolsActivePort in Antigravity host config dir and alternatives
@@ -99,7 +129,7 @@ func (inj *Injector) FindDevToolsPort() (int, error) {
 				portStr := strings.TrimSpace(lines[0])
 				if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
 					if inj.isPortLive(p) {
-						return p, nil
+						return cacheSuccess(p), nil
 					}
 				}
 			}
@@ -110,7 +140,7 @@ func (inj *Injector) FindDevToolsPort() (int, error) {
 	if pStr := os.Getenv("ANTIGRAVITY_CDP_PORT"); pStr != "" {
 		if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
 			if inj.isPortLive(p) {
-				return p, nil
+				return cacheSuccess(p), nil
 			}
 		}
 	}
@@ -118,7 +148,7 @@ func (inj *Injector) FindDevToolsPort() (int, error) {
 	// 3. Scan common DevTools debugging ports (9222-9230)
 	for p := 9222; p <= 9230; p++ {
 		if inj.isPortLive(p) {
-			return p, nil
+			return cacheSuccess(p), nil
 		}
 	}
 
@@ -145,7 +175,7 @@ func (inj *Injector) GetPageTargets(port int) ([]DevToolsTarget, error) {
 
 	var pages []DevToolsTarget
 	for _, t := range targets {
-		if t.Type == "page" && t.WebSocketDebuggerURL != "" {
+		if (t.Type == "page" || t.Type == "webview" || t.Type == "app") && t.WebSocketDebuggerURL != "" {
 			pages = append(pages, t)
 		}
 	}
@@ -170,7 +200,7 @@ func (inj *Injector) ExecuteCDPCommand(wsURLStr string, method string, params ma
 		return nil, fmt.Errorf("failed to connect to CDP websocket: %w", err)
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(6 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
 
 	// WebSocket handshake
 	reqPath := u.Path
@@ -661,6 +691,28 @@ func IsValidConversationPath(p string) bool {
 	return false
 }
 
+func lockAppStorage(storagePath string) (*os.File, error) {
+	hostDir := filepath.Dir(storagePath)
+	_ = os.MkdirAll(hostDir, 0755)
+	lockPath := storagePath + ".lock"
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if err := core.LockFile(f); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+func unlockAppStorage(f *os.File) {
+	if f != nil {
+		_ = core.UnlockFile(f)
+		_ = f.Close()
+	}
+}
+
 // SaveLastConversationPath persists the last active conversation path in app_storage.json.
 func SaveLastConversationPath(convPath string) {
 	if !IsValidConversationPath(convPath) {
@@ -668,6 +720,10 @@ func SaveLastConversationPath(convPath string) {
 	}
 	hostDir := core.GetAntigravityHostConfigDir()
 	storagePath := filepath.Join(hostDir, "app_storage.json")
+
+	fl, _ := lockAppStorage(storagePath)
+	defer unlockAppStorage(fl)
+
 	rawMap := make(map[string]interface{})
 	if data, err := os.ReadFile(storagePath); err == nil {
 		_ = json.Unmarshal(data, &rawMap)
@@ -683,7 +739,7 @@ func SaveLastConversationPath(convPath string) {
 		return
 	}
 	_ = os.MkdirAll(hostDir, 0755)
-	tmpPath := storagePath + ".conv.tmp"
+	tmpPath := fmt.Sprintf("%s.%d.conv.tmp", storagePath, os.Getpid())
 	if err := os.WriteFile(tmpPath, updated, 0644); err == nil {
 		_ = os.Rename(tmpPath, storagePath)
 	}
@@ -780,12 +836,12 @@ func QueryLatestTopLevelConversationPath() string {
 			return ""
 		}
 	}
-	db, err := sql.Open("sqlite", dbPath)
+	connStr := fmt.Sprintf("file:%s?mode=ro&_busy_timeout=5000&_query_only=true", filepath.ToSlash(dbPath))
+	db, err := sql.Open("sqlite", connStr)
 	if err != nil {
 		return ""
 	}
 	defer db.Close()
-	_, _ = db.Exec("PRAGMA busy_timeout = 2000;")
 
 	var convID string
 	err = db.QueryRow(`SELECT conversation_id FROM conversation_summaries WHERE parent_conversation_id = '' AND nesting_depth = 0 ORDER BY last_modified_time DESC LIMIT 1`).Scan(&convID)
@@ -801,28 +857,56 @@ func QueryLatestTopLevelConversationPath() string {
 }
 
 // CaptureActiveConversationPath inspects the live CDP window first,
-// falling back to pinned app_storage keys and database when headless or detached.
+// prioritizing focused windows, and falling back to pinned app_storage keys and database when headless or detached.
 func (inj *Injector) CaptureActiveConversationPath() string {
 	// 1. Live CDP first (strictly verified from active window)
 	if port, err := inj.FindDevToolsPort(); err == nil && port > 0 {
 		if pages, err := inj.GetPageTargets(port); err == nil {
+			var focusedCandidate string
+			var anyCandidate string
 			for _, page := range pages {
 				if page.WebSocketDebuggerURL != "" {
-					res, err := inj.ExecuteScript(page.WebSocketDebuggerURL, `window.location.pathname + window.location.search`)
+					res, err := inj.ExecuteScript(page.WebSocketDebuggerURL, `(() => {
+						try {
+							return {
+								path: window.location.pathname + window.location.search,
+								focused: Boolean(document.hasFocus && document.hasFocus())
+							};
+						} catch (_) {
+							return { path: window.location.pathname, focused: false };
+						}
+					})()`)
 					if err == nil && res != nil {
-						if v, ok := res["value"].(string); ok && IsValidConversationPath(v) {
-							SaveLastConversationPath(v)
-							return strings.TrimSpace(v)
+						val := res
+						if v, ok := res["value"].(map[string]interface{}); ok {
+							val = v
+						}
+						pathStr, _ := val["path"].(string)
+						focused, _ := val["focused"].(bool)
+						if IsValidConversationPath(pathStr) {
+							if focused {
+								focusedCandidate = strings.TrimSpace(pathStr)
+								break
+							} else if anyCandidate == "" {
+								anyCandidate = strings.TrimSpace(pathStr)
+							}
 						}
 					}
 				}
 				if u, err := url.Parse(page.URL); err == nil {
 					reqURI := u.RequestURI()
-					if IsValidConversationPath(reqURI) {
-						SaveLastConversationPath(reqURI)
-						return reqURI
+					if IsValidConversationPath(reqURI) && anyCandidate == "" {
+						anyCandidate = reqURI
 					}
 				}
+			}
+			chosen := focusedCandidate
+			if chosen == "" {
+				chosen = anyCandidate
+			}
+			if chosen != "" {
+				SaveLastConversationPath(chosen)
+				return chosen
 			}
 		}
 	}

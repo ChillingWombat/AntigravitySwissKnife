@@ -88,7 +88,7 @@ type Service struct {
 // DefaultConfig initializes recommended default bridge settings.
 func DefaultConfig() Config {
 	return Config{
-		Enabled:         true,
+		Enabled:         false,
 		Port:            8765,
 		OperatingMode:   "hybrid",
 		TunnelType:      "quick",
@@ -117,7 +117,18 @@ func DefaultConfig() Config {
 // NewService instantiates a Gemini Bridge manager.
 func NewService(configPath string) (*Service, error) {
 	if configPath == "" {
-		configPath = filepath.Join(core.GetConfigDir(), "gemini_bridge.json")
+		configDir := core.GetConfigDir()
+		defaultPath := filepath.Join(configDir, "gemini_bridge.json")
+		aliasPath := filepath.Join(configDir, "bridge.json")
+		if _, err := os.Stat(aliasPath); err == nil {
+			if _, err := os.Stat(defaultPath); os.IsNotExist(err) {
+				configPath = aliasPath
+			} else {
+				configPath = defaultPath
+			}
+		} else {
+			configPath = defaultPath
+		}
 	}
 	s := &Service{
 		configPath:  configPath,
@@ -131,7 +142,7 @@ func NewService(configPath string) (*Service, error) {
 	}
 	_ = s.loadConfig()
 
-	s.tunnelMgr = NewTunnelManager(s.config.Port)
+	s.tunnelMgr = NewTunnelManager(s.config.Port, "/api/bridge/mcp")
 	s.authMgr = NewAuthManager(s.config.AuthToken, s.config.PairingPIN, func(token, pin string) error {
 		s.mu.Lock()
 		s.config.AuthToken = token
@@ -192,6 +203,24 @@ func (s *Service) TestChannel(name string) (string, error) {
 func (s *Service) loadConfig() error {
 	data, err := os.ReadFile(s.configPath)
 	if err != nil {
+		// Try alias if primary config file is not found
+		dir := filepath.Dir(s.configPath)
+		base := filepath.Base(s.configPath)
+		var aliasPath string
+		if base == "gemini_bridge.json" {
+			aliasPath = filepath.Join(dir, "bridge.json")
+		} else if base == "bridge.json" {
+			aliasPath = filepath.Join(dir, "gemini_bridge.json")
+		}
+		if aliasPath != "" {
+			if aliasData, aliasErr := os.ReadFile(aliasPath); aliasErr == nil {
+				data = aliasData
+				err = nil
+				s.configPath = aliasPath
+			}
+		}
+	}
+	if err != nil {
 		return err
 	}
 	var c Config
@@ -218,6 +247,13 @@ func (s *Service) saveConfig() error {
 		return err
 	}
 	return os.WriteFile(s.configPath, data, 0644)
+}
+
+// GetConfig returns current bridge configuration.
+func (s *Service) GetConfig() Config {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.config
 }
 
 // UpdateConfig updates and persists bridge configuration.
@@ -248,6 +284,21 @@ func (s *Service) StopTunnel() {
 	s.config.TunnelType = "loopback"
 	_ = s.saveConfig()
 	s.mu.Unlock()
+}
+
+// StartRemoteTunnel initiates remote tunneling for remote control.
+func (s *Service) StartRemoteTunnel(tType, customURL string) (TunnelStatus, error) {
+	return s.remoteMgr.StartTunnel(tType, customURL)
+}
+
+// StopRemoteTunnel terminates remote tunneling for remote control.
+func (s *Service) StopRemoteTunnel() {
+	s.remoteMgr.StopTunnel()
+}
+
+// GetRemoteTunnelStatus returns current remote control tunnel status.
+func (s *Service) GetRemoteTunnelStatus() TunnelStatus {
+	return s.remoteMgr.GetTunnelStatus()
 }
 
 // RotateCredentials generates a new Bearer token and Pairing PIN.

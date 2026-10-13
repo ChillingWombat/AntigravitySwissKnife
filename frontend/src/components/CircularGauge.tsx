@@ -19,7 +19,7 @@ export const CircularGauge: React.FC<CircularGaugeProps> = ({
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
 
-  const hasValue = percentage !== null && !emptyGrey && percentage >= 0
+  const hasValue = percentage !== null && percentage !== undefined && !emptyGrey && !isNaN(percentage) && percentage >= 0
   const clamped = hasValue ? Math.max(0, Math.min(100, Math.round(percentage as number))) : 0
   const strokeDashoffset = circumference - (clamped / 100) * circumference
 

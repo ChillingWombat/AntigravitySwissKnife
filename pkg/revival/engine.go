@@ -19,15 +19,27 @@ type Engine struct {
 	CDPTrigger    *CDPTrigger
 	mu            sync.RWMutex
 	lastRevivedAt *time.Time
+	revivedMap    map[string]time.Time
 }
 
 // NewEngine creates a new Engine instance.
 func NewEngine(configDir string, customCDPPort int) *Engine {
 	return &Engine{
-		Store:      NewStore(configDir),
-		Detector:   NewSessionDetector(),
-		CDPTrigger: NewCDPTrigger(customCDPPort),
+		Store:         NewStore(configDir),
+		Detector:      NewSessionDetector(),
+		CDPTrigger:    NewCDPTrigger(customCDPPort),
+		revivedMap:    make(map[string]time.Time),
 	}
+}
+
+func (e *Engine) getPrompt() string {
+	cfg, err := core.LoadConfig()
+	if err == nil && cfg != nil {
+		if p := cfg.GetSessionResumePrompt(); p != "" {
+			return p
+		}
+	}
+	return DefaultTriggerPrompt
 }
 
 // CapturePreSwitchState captures active conversation state before credential changes or app restarts,
@@ -53,7 +65,7 @@ func (e *Engine) CapturePreSwitchState(targetApp string) (*RevivalIntent, error)
 	intentID := fmt.Sprintf("intent-%d", time.Now().UnixNano())
 	now := time.Now()
 
-	prompt := DefaultTriggerPrompt
+	prompt := e.getPrompt()
 	if !session.NeedsRevival {
 		prompt = ""
 	}
@@ -69,8 +81,8 @@ func (e *Engine) CapturePreSwitchState(targetApp string) (*RevivalIntent, error)
 		Prompt:             prompt,
 		Timestamp:          now.UnixMilli(),
 		Attempts:           0,
-		MaxAttempts:        2,
-		TTLSeconds:         600,
+		MaxAttempts:        DefaultMaxAttempts,
+		TTLSeconds:         DefaultTTLSeconds,
 		Resumed:            false,
 	}
 
@@ -103,6 +115,15 @@ func (e *Engine) ExecutePostRelaunchRevival(intent *RevivalIntent) error {
 		return nil
 	}
 
+	maxAttempts := intent.MaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = DefaultMaxAttempts
+	}
+	if intent.Attempts >= maxAttempts {
+		_ = e.Store.UpdateStatus(intent.IntentID, IntentStatusFailed)
+		return fmt.Errorf("max revival attempts (%d) reached for intent %s", maxAttempts, intent.IntentID)
+	}
+
 	_ = e.Store.UpdateStatus(intent.IntentID, IntentStatusReviving)
 	targetApp := strings.ToLower(strings.TrimSpace(intent.TargetApp))
 
@@ -116,14 +137,22 @@ func (e *Engine) ExecutePostRelaunchRevival(intent *RevivalIntent) error {
 	}
 
 	if err != nil {
-		intent.Attempts++
-		_ = e.Store.UpdateStatus(intent.IntentID, IntentStatusFailed)
+		attempts, _ := e.Store.IncrementAttempts(intent.IntentID)
+		intent.Attempts = attempts
+		_ = e.Store.UpdateStatus(intent.IntentID, IntentStatusFailed, attempts)
 		return err
 	}
 
 	now := time.Now()
 	e.mu.Lock()
 	e.lastRevivedAt = &now
+	if e.revivedMap == nil {
+		e.revivedMap = make(map[string]time.Time)
+	}
+	if intent.RootConversationID != "" {
+		cleaned := strings.TrimPrefix(intent.RootConversationID, "/c/")
+		e.revivedMap[cleaned] = now
+	}
 	e.mu.Unlock()
 
 	intent.Resumed = true
@@ -139,11 +168,9 @@ func (e *Engine) executeDesktopRevival(intent *RevivalIntent) error {
 
 	targetPath := "/c/" + strings.TrimPrefix(intent.RootConversationID, "/c/")
 
-	// Asynchronously ensure URL routing only in non-test mode with a valid target path
+	// Sequentially ensure URL routing before prompt injection
 	if !gui.IsTestExecution() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" && !core.IsRunningTests() && gui.IsValidConversationPath(targetPath) {
-		go func() {
-			_ = gui.NewInjector(e.CDPTrigger.CustomPort).RestoreConversationPath(targetPath, 25*time.Second)
-		}()
+		_ = gui.NewInjector(e.CDPTrigger.CustomPort).RestoreConversationPath(targetPath, 15*time.Second)
 	}
 
 	prompt := strings.TrimSpace(intent.TriggerPrompt)
@@ -227,7 +254,7 @@ func (e *Engine) ReviveConversation(targetApp string, conversationID string, for
 
 	prompt := forcePrompt
 	if prompt == "" {
-		prompt = DefaultTriggerPrompt
+		prompt = e.getPrompt()
 	}
 
 	now := time.Now()
@@ -242,8 +269,8 @@ func (e *Engine) ReviveConversation(targetApp string, conversationID string, for
 		Prompt:             prompt,
 		Timestamp:          now.UnixMilli(),
 		Attempts:           0,
-		MaxAttempts:        2,
-		TTLSeconds:         600,
+		MaxAttempts:        DefaultMaxAttempts,
+		TTLSeconds:         DefaultTTLSeconds,
 		Resumed:            false,
 	}
 
@@ -263,71 +290,119 @@ func (e *Engine) GetRevivalStatus(targetConvID ...string) (*RevivalStatus, error
 	}
 	pending, _ := e.Store.LoadIntent()
 
-	// If there is no active unresumed pending intent on disk, but the detected session requires revival,
-	// synthesize a pending RevivalIntent so auto-continuation can resume running tasks seamlessly.
-	if (pending == nil || pending.Resumed) && session != nil && session.NeedsRevival && session.ConversationID != "" {
-		now := time.Now()
-		var modMillis int64
-		if !session.LastModified.IsZero() {
-			modMillis = session.LastModified.UnixMilli()
-		} else {
-			modMillis = now.UnixMilli()
+	e.mu.Lock()
+	now := time.Now()
+	// Prune expired cooldown entries
+	for k, v := range e.revivedMap {
+		if now.Sub(v) > RevivalCooldownDuration {
+			delete(e.revivedMap, k)
 		}
-		pending = &RevivalIntent{
-			IntentID:           fmt.Sprintf("auto-revive-%s-%d", session.ConversationID, modMillis),
-			TargetApp:          session.TargetApp,
-			RootConversationID: session.ConversationID,
-			ActiveSubagentID:   session.ActiveSubagentID,
-			TriggerPrompt:      DefaultTriggerPrompt,
-			CreatedAt:          now,
-			Status:             IntentStatusPending,
-			CascadeID:          session.ConversationID,
-			Prompt:             DefaultTriggerPrompt,
-			Timestamp:          modMillis,
-			Attempts:           0,
-			MaxAttempts:        3,
-			TTLSeconds:         600,
-			Resumed:            false,
+	}
+	last := e.lastRevivedAt
+	var targetRevivedAt *time.Time
+	if session != nil && session.ConversationID != "" && e.revivedMap != nil {
+		cleanID := strings.TrimPrefix(session.ConversationID, "/c/")
+		if t, ok := e.revivedMap[cleanID]; ok {
+			targetRevivedAt = &t
+		}
+	}
+	e.mu.Unlock()
+
+	// Enforce 10-minute cooldown expiration
+	convRevivedRecently := targetRevivedAt != nil && time.Since(*targetRevivedAt) < RevivalCooldownDuration
+	// Global cooldown (45s) after any revival action
+	globalCooldown := last != nil && time.Since(*last) < GlobalRevivalCooldownDuration
+	recentlyRevived := globalCooldown || convRevivedRecently
+
+	if recentlyRevived && pending != nil && strings.HasPrefix(pending.IntentID, "auto-revive-") {
+		_ = e.Store.ClearIntent()
+		pending = nil
+	}
+
+	canRetryFailed := false
+	if pending != nil && pending.Status == IntentStatusFailed {
+		maxAttempts := pending.MaxAttempts
+		if maxAttempts <= 0 {
+			maxAttempts = DefaultMaxAttempts
+		}
+		if pending.Attempts < maxAttempts && time.Since(pending.CreatedAt) > 15*time.Second {
+			canRetryFailed = true
+		} else if time.Since(pending.CreatedAt) > 60*time.Second {
+			_ = e.Store.ClearIntent()
+			pending = nil
 		}
 	}
 
-	e.mu.RLock()
-	last := e.lastRevivedAt
-	e.mu.RUnlock()
+	// Synthesize and atomically persist intent if needed
+	if !recentlyRevived && (pending == nil || pending.Resumed || canRetryFailed) && session != nil && session.NeedsRevival && session.ConversationID != "" {
+		now := time.Now()
+		prompt := e.getPrompt()
+		pending = &RevivalIntent{
+			IntentID:           fmt.Sprintf("auto-revive-%s", strings.TrimPrefix(session.ConversationID, "/c/")),
+			TargetApp:          session.TargetApp,
+			RootConversationID: session.ConversationID,
+			ActiveSubagentID:   session.ActiveSubagentID,
+			TriggerPrompt:      prompt,
+			CreatedAt:          now,
+			Status:             IntentStatusPending,
+			CascadeID:          session.ConversationID,
+			Prompt:             prompt,
+			Timestamp:          now.UnixMilli(),
+			Attempts:           0,
+			MaxAttempts:        DefaultMaxAttempts,
+			TTLSeconds:         DefaultTTLSeconds,
+			Resumed:            false,
+		}
+		_ = e.Store.SaveIntent(pending)
+	}
 
-	success := (last != nil) || (pending != nil && pending.Status == IntentStatusRevived)
+	var lastCopy *time.Time
+	if last != nil {
+		t := *last
+		lastCopy = &t
+	}
+	success := (pending != nil && pending.Status == IntentStatusRevived) || (last != nil && time.Since(*last) < GlobalRevivalCooldownDuration)
 
 	return &RevivalStatus{
 		ActiveSession: session,
 		PendingIntent: pending,
-		LastRevivedAt: last,
+		LastRevivedAt: lastCopy,
 		Success:       success,
 	}, nil
 }
 
 // AcknowledgeContinuation marks the pending intent as resumed and cleans up.
 func (e *Engine) AcknowledgeContinuation(cascadeID string) error {
+	cleanedTarget := strings.TrimPrefix(strings.TrimSpace(cascadeID), "/c/")
+	if cleanedTarget == "" {
+		return fmt.Errorf("cascadeID cannot be empty")
+	}
+
 	intent, err := e.Store.LoadIntent()
 	if err != nil {
 		return err
 	}
-	if intent != nil {
-		cleanedTarget := strings.TrimPrefix(strings.TrimSpace(cascadeID), "/c/")
-		cleanedRoot := strings.TrimPrefix(strings.TrimSpace(intent.RootConversationID), "/c/")
-		if cascadeID == "" || cleanedTarget == cleanedRoot || intent.CascadeID == cascadeID {
-			now := time.Now()
-			e.mu.Lock()
-			e.lastRevivedAt = &now
-			e.mu.Unlock()
-			intent.Resumed = true
-			intent.Status = IntentStatusRevived
-			_ = e.Store.ClearIntent()
-		}
-	} else if cascadeID != "" {
-		now := time.Now()
-		e.mu.Lock()
-		e.lastRevivedAt = &now
-		e.mu.Unlock()
+	if intent == nil {
+		return nil
 	}
+
+	cleanedRoot := strings.TrimPrefix(strings.TrimSpace(intent.RootConversationID), "/c/")
+	cleanedCascade := strings.TrimPrefix(strings.TrimSpace(intent.CascadeID), "/c/")
+	if cleanedTarget != cleanedRoot && cleanedTarget != cleanedCascade {
+		return fmt.Errorf("acknowledged cascade ID %q does not match active intent %q", cleanedTarget, cleanedRoot)
+	}
+
+	now := time.Now()
+	e.mu.Lock()
+	e.lastRevivedAt = &now
+	if e.revivedMap == nil {
+		e.revivedMap = make(map[string]time.Time)
+	}
+	e.revivedMap[cleanedTarget] = now
+	e.mu.Unlock()
+
+	intent.Resumed = true
+	intent.Status = IntentStatusRevived
+	_ = e.Store.ClearIntent()
 	return nil
 }

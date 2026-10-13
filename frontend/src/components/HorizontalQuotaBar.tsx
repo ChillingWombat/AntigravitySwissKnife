@@ -2,7 +2,7 @@ import React from 'react'
 import { COMPONENT_TOKENS } from '../utils/layoutTokens'
 
 interface HorizontalQuotaBarProps {
-  fraction: number // 0.0 to 1.0
+  fraction: number | null | undefined // 0.0 to 1.0, or null if untracked
   height?: number
   maxWidth?: number | string
   title?: string
@@ -16,10 +16,11 @@ export const HorizontalQuotaBar: React.FC<HorizontalQuotaBarProps> = ({
   title,
   disabled = false,
 }) => {
-  const pct = disabled ? 0 : Math.max(0, Math.min(100, Math.round(fraction * 100)))
+  const isUntracked = disabled || fraction === null || fraction === undefined || isNaN(fraction)
+  const pct = isUntracked ? 0 : Math.max(0, Math.min(100, Math.round((fraction as number) * 100)))
 
   let barColor = '#137333' // Google green
-  if (disabled) {
+  if (isUntracked) {
     barColor = '#9aa0a6'
   } else if (pct < 20) {
     barColor = '#b3261e' // Exhausted red
@@ -61,11 +62,11 @@ export const HorizontalQuotaBar: React.FC<HorizontalQuotaBarProps> = ({
         style={{
           fontSize: '11px',
           fontWeight: 700,
-          color: disabled ? 'var(--text-muted)' : 'var(--text)',
+          color: isUntracked ? 'var(--text-muted)' : 'var(--text)',
           whiteSpace: 'nowrap',
         }}
       >
-        {disabled ? '--%' : `${pct}%`}
+        {isUntracked ? 'N/A' : `${pct}%`}
       </span>
     </div>
   )

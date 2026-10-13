@@ -1,18 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import {
-  Send,
-  Power,
-  ShieldCheck,
   RotateCw,
   Check,
-  HelpCircle,
+  Power,
   Eye,
   EyeOff,
-  Radio,
-  Clock,
-  Layers,
-  Settings2,
 } from 'lucide-react'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 
 export const TelegramBridgePage: React.FC = () => {
@@ -127,484 +121,273 @@ export const TelegramBridgePage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* 1. Header & Enable Bar */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          backgroundColor: '#ffffff',
-          borderRadius: '12px',
-          padding: '18px 24px',
-          border: '1px solid var(--border)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '10px',
-              backgroundColor: '#e0f2fe',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Send size={24} color="#0284c7" />
-          </div>
+      {/* 1. Overview, Live Status & Enable Toggle */}
+      <div className="google-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <h2
-                style={{
-                  fontSize: '17px',
-                  fontWeight: 600,
-                  margin: 0,
-                  color: 'var(--text)',
-                  whiteSpace: 'nowrap',
-                }}
-              >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                 Telegram Agent Chat Bridge
               </h2>
-              <span
-                style={{
-                  fontSize: '11px',
-                  padding: '2px 8px',
-                  borderRadius: '12px',
-                  fontWeight: 600,
-                  whiteSpace: 'nowrap',
-                  backgroundColor: tgStatus.enabled ? '#dcfce7' : 'var(--tonal)',
-                  color: tgStatus.enabled ? '#15803d' : 'var(--text-muted)',
-                }}
-              >
-                {tgStatus.enabled ? (tgStatus.connected ? 'Connected' : 'Polling Active') : 'Disabled'}
+              <span className={`badge-chip ${tgStatus.enabled ? 'badge-green' : 'badge-neutral'}`}>
+                {tgStatus.enabled ? (tgStatus.connected ? 'Connected' : 'Listening') : 'Disabled'}
               </span>
             </div>
-            <p
-              style={{
-                fontSize: '13px',
-                color: 'var(--text-muted)',
-                margin: '4px 0 0 0',
-              }}
-            >
-              Control Antigravity autonomous agents and receive real-time answers via a private Telegram bot.
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+              Direct bidirectional chat channel between Telegram bots and local Antigravity autonomous agents.
             </p>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              onClick={handleTestConnection}
+              disabled={loading}
+              className="btn-pill-tonal"
+            >
+              <RotateCw size={14} className={loading ? 'animate-spin' : ''} />
+              <span>Test Bot</span>
+            </button>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
+              <span style={{ whiteSpace: 'nowrap' }}>Enable Bridge</span>
+              <ToggleSwitch
+                checked={Boolean(config.telegram.enabled)}
+                onChange={handleToggleEnable}
+              />
+            </label>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <button
-            onClick={handleTestConnection}
-            disabled={loading}
+        {testResult && (
+          <div
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '8px 14px',
-              borderRadius: '20px',
-              border: '1px solid var(--border)',
-              backgroundColor: '#ffffff',
-              fontSize: '13px',
-              fontWeight: 500,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            <RotateCw size={14} className={loading ? 'animate-spin' : ''} />
-            Test Bot
-          </button>
-          <button
-            onClick={handleToggleEnable}
-            style={{
+              padding: '10px 14px',
+              borderRadius: '8px',
+              border: `1px solid ${testResult.success ? '#bbf7d0' : '#fecaca'}`,
+              backgroundColor: testResult.success ? 'var(--green-bg)' : 'var(--red-bg)',
+              fontSize: '12px',
+              color: testResult.success ? 'var(--green)' : 'var(--red)',
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              padding: '8px 16px',
-              borderRadius: '20px',
-              border: 'none',
-              fontSize: '13px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              backgroundColor: config.telegram.enabled ? '#fee2e2' : 'var(--primary-container)',
-              color: config.telegram.enabled ? '#b91c1c' : 'var(--primary)',
+              marginBottom: '16px',
             }}
           >
-            <Power size={15} />
-            {config.telegram.enabled ? 'Disable Channel' : 'Enable Channel'}
-          </button>
-        </div>
-      </div>
+            {testResult.success ? <Check size={14} /> : <Power size={14} />}
+            <span>{testResult.message || testResult.error}</span>
+          </div>
+        )}
 
-      {/* 2. Status Cards */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
-          gap: '12px',
-        }}
-      >
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '10px',
-            padding: '14px 16px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <Radio size={16} color="var(--primary)" />
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+        {/* Status Metrics Grid (harmonized with BrainCachePage & TokenMonitorPage) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
               Bot Status
-            </span>
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: tgStatus.enabled ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
+              {tgStatus.status_text || (tgStatus.enabled ? 'Long Polling Active' : 'Standby')}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              {config.telegram.polling ? 'Zero-Port Polling' : 'Webhook Mode'}
+            </div>
           </div>
-          <div style={{ fontSize: '15px', fontWeight: 600, color: tgStatus.enabled ? '#16a34a' : 'var(--text-muted)' }}>
-            {tgStatus.status_text || (tgStatus.enabled ? 'Long Polling Active' : 'Standby')}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            {config.telegram.polling ? 'Zero-Port Polling' : 'Webhook Mode'}
-          </div>
-        </div>
 
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '10px',
-            padding: '14px 16px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <Layers size={16} color="var(--primary)" />
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
               Bot Identity
-            </span>
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {tgStatus.identity || (config.telegram.bot_token ? 'Configured Token' : 'Unconfigured')}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Telegram Bot Father API
+            </div>
           </div>
-          <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {tgStatus.identity || (config.telegram.bot_token ? 'Configured Token' : 'Unconfigured')}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Telegram Bot Father API
-          </div>
-        </div>
 
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '10px',
-            padding: '14px 16px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <ShieldCheck size={16} color="var(--primary)" />
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
               Allowed Chat IDs
-            </span>
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
+              {config.telegram.allowed_chat_ids?.length > 0 ? `${config.telegram.allowed_chat_ids.length} Allowed` : 'Open Whitelist'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Restricts bot interaction
+            </div>
           </div>
-          <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text)' }}>
-            {config.telegram.allowed_chat_ids?.length > 0 ? `${config.telegram.allowed_chat_ids.length} Allowed` : 'Open Whitelist'}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Restricts bot interaction
-          </div>
-        </div>
 
-        <div
-          style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '10px',
-            padding: '14px 16px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <Clock size={16} color="var(--primary)" />
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
               Last Message
-            </span>
-          </div>
-          <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-            {tgStatus.last_message_at || 'Never'}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Latest agent dispatch
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
+              {tgStatus.last_message_at || 'Never'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Latest agent dispatch
+            </div>
           </div>
         </div>
       </div>
 
-      {testResult && (
-        <div
-          style={{
-            padding: '12px 16px',
-            borderRadius: '8px',
-            border: `1px solid ${testResult.success ? '#bbf7d0' : '#fecaca'}`,
-            backgroundColor: testResult.success ? '#f0fdf4' : '#fef2f2',
-            fontSize: '13px',
-            color: testResult.success ? '#15803d' : '#b91c1c',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          {testResult.success ? <Check size={16} /> : <Power size={16} />}
-          <span>{testResult.message || testResult.error}</span>
-        </div>
-      )}
-
-      {/* 3. Settings Form */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          borderRadius: '12px',
-          padding: '20px 24px',
-          border: '1px solid var(--border)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '16px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Settings2 size={18} color="var(--primary)" />
-          <h3 style={{ fontSize: '15px', fontWeight: 600, margin: 0, color: 'var(--text)' }}>
-            Telegram Bot Settings
-          </h3>
+      {/* 2. Bot Configuration Settings */}
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
+          Bot Configuration
         </div>
 
-        <div>
-          <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-            Bot Token (from @BotFather)
-          </label>
-          <div style={{ position: 'relative' }}>
-            <input
-              type={showToken ? 'text' : 'password'}
-              placeholder="e.g. 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
-              value={config.telegram.bot_token}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  telegram: { ...config.telegram, bot_token: e.target.value },
-                })
-              }
-              style={{
-                width: '100%',
-                padding: '8px 40px 8px 12px',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
-                fontSize: '13px',
-                boxSizing: 'border-box',
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => setShowToken(!showToken)}
-              style={{
-                position: 'absolute',
-                right: '10px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: 'var(--text-muted)',
-              }}
-            >
-              {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-              Transport Method
-            </label>
-            <select
-              value={config.telegram.polling ? 'polling' : 'webhook'}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  telegram: { ...config.telegram, polling: e.target.value === 'polling' },
-                })
-              }
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
-                fontSize: '13px',
-                backgroundColor: '#ffffff',
-                boxSizing: 'border-box',
-              }}
-            >
-              <option value="polling">Long Polling (Zero setup, no ports needed)</option>
-              <option value="webhook">Inbound Webhook</option>
-            </select>
-          </div>
-
-          {!config.telegram.polling && (
-            <div>
-              <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-                Webhook URL
-              </label>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+              Bot Token (from @BotFather)
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+              API token generated by Telegram's official @BotFather bot for your custom assistant.
+            </div>
+            <div style={{ position: 'relative' }}>
               <input
-                type="text"
-                placeholder="https://your-domain.com/api/bridge/telegram/webhook"
-                value={config.telegram.webhook_url}
+                type={showToken ? 'text' : 'password'}
+                placeholder="e.g. 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+                value={config.telegram.bot_token}
                 onChange={(e) =>
                   setConfig({
                     ...config,
-                    telegram: { ...config.telegram, webhook_url: e.target.value },
+                    telegram: { ...config.telegram, bot_token: e.target.value },
                   })
                 }
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: '8px',
-                  border: '1px solid var(--border)',
-                  fontSize: '13px',
-                  boxSizing: 'border-box',
-                }}
+                style={{ width: '100%', paddingRight: '36px' }}
               />
+              <button
+                type="button"
+                onClick={() => setShowToken(!showToken)}
+                style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--text-muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
             </div>
-          )}
-        </div>
+          </div>
 
-        <div>
-          <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-            Allowed Chat IDs / User Whitelist
-          </label>
-          <input
-            type="text"
-            placeholder="e.g. 123456789, @yourusername (leave blank to allow any authenticated user)"
-            value={allowedChatIdsStr}
-            onChange={(e) => setAllowedChatIdsStr(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '8px 12px',
-              borderRadius: '8px',
-              border: '1px solid var(--border)',
-              fontSize: '13px',
-              boxSizing: 'border-box',
-            }}
-          />
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-            Comma-separated numerical Telegram Chat IDs. Prevents unauthorized users from commanding local Antigravity agents.
-          </span>
-        </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                Delivery Mode
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Long polling requires zero open inbound firewall ports.
+              </div>
+              <select
+                value={config.telegram.polling ? 'polling' : 'webhook'}
+                onChange={(e) =>
+                  setConfig({
+                    ...config,
+                    telegram: { ...config.telegram, polling: e.target.value === 'polling' },
+                  })
+                }
+                style={{ width: '100%' }}
+              >
+                <option value="polling">Long Polling (Zero Network Configuration)</option>
+                <option value="webhook">Webhook (Direct Inbound Push)</option>
+              </select>
+            </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
-          <button
-            onClick={handleSaveConfig}
-            disabled={loading}
-            style={{
-              padding: '8px 18px',
-              borderRadius: '20px',
-              border: 'none',
-              fontSize: '13px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              backgroundColor: 'var(--primary)',
-              color: '#ffffff',
-            }}
-          >
-            Save Settings
-          </button>
-          {saveSuccess && (
-            <span style={{ fontSize: '12px', color: '#16a34a', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Check size={14} /> Telegram settings saved
-            </span>
-          )}
+            {!config.telegram.polling && (
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                  Webhook URL
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                  Publicly reachable HTTPS endpoint for Telegram push notifications.
+                </div>
+                <input
+                  type="text"
+                  placeholder="https://your-domain.com/api/telegram"
+                  value={config.telegram.webhook_url}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      telegram: { ...config.telegram, webhook_url: e.target.value },
+                    })
+                  }
+                  style={{ width: '100%' }}
+                />
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+              Allowed Chat IDs (Whitelist)
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+              Comma-separated numeric user or group IDs. Leave empty to allow any chat that interacts with your bot.
+            </div>
+            <input
+              type="text"
+              placeholder="e.g. 12345678, 98765432 (leave blank to allow all)"
+              value={allowedChatIdsStr}
+              onChange={(e) => setAllowedChatIdsStr(e.target.value)}
+              style={{ width: '100%' }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
+            <button
+              onClick={handleSaveConfig}
+              disabled={loading}
+              className="btn-pill-primary"
+            >
+              Save Settings
+            </button>
+            {saveSuccess && (
+              <span style={{ fontSize: '12px', color: 'var(--green)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <Check size={14} /> Telegram settings saved
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* 4. Guidance Section */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          borderRadius: '12px',
-          padding: '20px 24px',
-          border: '1px solid var(--border)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <HelpCircle size={18} color="var(--primary)" />
-          <h3 style={{ fontSize: '15px', fontWeight: 600, margin: 0, color: 'var(--text)' }}>
-            Telegram Bot Setup Guidance
-          </h3>
+      {/* 3. Architecture & Guidance */}
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
+          Architecture & Guidance
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-            <span
-              style={{
-                width: '22px',
-                height: '22px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--primary-container)',
-                color: 'var(--primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '12px',
-                fontWeight: 700,
-                flexShrink: 0,
-              }}
-            >
-              1
-            </span>
-            <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.5 }}>
-              <strong>Create Your Bot:</strong> Open Telegram and send <code>/newbot</code> to <code>@BotFather</code>. Follow the prompts to assign a name and handle. BotFather will provide an HTTP API token.
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
+              Bot Token Setup
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+              Open Telegram and search for <code>@BotFather</code>. Send <code>/newbot</code>, follow the prompts to choose a name and username, and paste the generated API token into Bot Token above.
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-            <span
-              style={{
-                width: '22px',
-                height: '22px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--primary-container)',
-                color: 'var(--primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '12px',
-                fontWeight: 700,
-                flexShrink: 0,
-              }}
-            >
-              2
-            </span>
-            <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.5 }}>
-              <strong>Long Polling Simplicity:</strong> Keep <code>Long Polling</code> selected. It establishes an outbound TLS connection to Telegram servers so you don't need any public IP, port forward, or reverse proxy.
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
+              Zero-Port Long Polling
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+              Long Polling opens an outbound connection to Telegram's cloud servers. It requires zero router port-forwarding, zero dynamic DNS, and zero reverse proxy configuration.
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-            <span
-              style={{
-                width: '22px',
-                height: '22px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--primary-container)',
-                color: 'var(--primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '12px',
-                fontWeight: 700,
-                flexShrink: 0,
-              }}
-            >
-              3
-            </span>
-            <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.5 }}>
-              <strong>Chat Whitelisting:</strong> Add your numerical Telegram user ID to the whitelist to prevent external users from querying your local system. Send <code>/start</code> to your bot in Telegram to begin chatting with Antigravity agents!
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
+              Chat Whitelisting & Privacy
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+              Add your numerical Telegram user ID to Allowed Chat IDs to prevent unauthorized queries. Send <code>/start</code> to your bot in Telegram to begin chatting with Antigravity agents.
             </div>
           </div>
         </div>

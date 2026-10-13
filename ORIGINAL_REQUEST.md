@@ -123,3 +123,94 @@ Execute under David-Wish Track 1:
 - [ ] All Go tests (`go test -count=1 ./...`) pass green.
 - [ ] All frontend unit tests (`npm test --prefix frontend`) pass green.
 - [ ] Branch pushed upstream with remote synchronization intact.
+
+
+## 2026-10-13T16:07:36Z
+
+Comprehensive UI polish, GCP model integration enhancements, remote tunnel and sidecar repair, token telemetry accuracy fix, customizable session resumption prompt, and conversation tab hover styling in Antigravity Swiss Knife.
+
+Working directory: /mnt/Data/Projects/Antigravity Swiss Knife
+Integrity mode: development
+
+## Requirements
+
+### R1. Modal Backdrop Click Dismissal Prevention
+All popup modal dialogs (including Add Account, Edit Account, Add Custom Model, Add GCP Model, Security Report, Discovered Accounts, and Delete confirmations) must not exit when clicking outside the window on the backdrop. They must only close when the user clicks the explicit close ('X') or cancel button.
+
+### R2. Official GCP Logo for 'Add GCP Models'
+Replace the approximate vector icon with the official Google Cloud Platform logo from `assets/logo/GCP.png` for the 'Add GCP Models' button and associated GCP cards.
+
+### R3. Real Logos for ACP Utility Section Agents
+Replace synthetic icons in the ACP utility mesh section with the real logos provided in `assets/logo/`:
+- `Antigravity_CLI.webp` for Antigravity CLI
+- `claude.svg` for Claude Code
+- `codex.jpeg` for OpenAI Codex
+- `deepseek.png` for DeepSeek
+- `devin.png` for Devin
+- `opencode.png` for OpenCode
+- `pi.png` for Inflection Pi
+- `images.jpeg` (Cursor logo) for Cursor Editor Agent
+- `antigravity_logo.png` for Antigravity 2.0
+
+### R4. GCP Model Setup: Direct Model ID Entry & Model Garden Link
+Remove preset model buttons from the Add GCP Model modal. The user enters the Model ID manually in an input field. Add an external link icon after the Model ID header linking to `https://console.cloud.google.com/agent-platform/model-garden`.
+
+### R5. Updated GCP Instructions & Credit Balance Display
+1. Update GCP setup instructions: replace the legacy Vertex AI User role with the **Agent Platform User** (`roles/aiplatform.user`) role, and instruct the user to ensure `iam.disableServiceAccountKeyCreation` is disabled/not enforced in organization/group policy.
+2. Query and display the GCP credit balance / billing account status for GCP models via Google Cloud Billing API (`projects/{projectID}/billingInfo`).
+
+### R6. GitHub Workspace Settings Cleanup
+1. Remove the non-functional 'List View' default view setting from the GitHub Workspace section in ExtensionsPage.
+2. Remove the 'Open Full Workspace' button and its full-screen in-app modal.
+
+### R7. Default Off for Remote Control and Gemini Bridge
+Configure the default state of the enable toggles for both Remote Control (`remote_control.json` / `RemoteControlConfig`) and Gemini Bridge (`bridge.json` / `Config`) to `false` (off).
+
+### R8. Remote Intranet/Internet Tunnel Settings & Quick Tunnel Sidecar Fix
+1. Fix the `startQuickTunnel` deadlock bug in `pkg/bridge/tunnel.go` where `cloudflared` URL scanner blocked on mutex locks, causing the 12-second timeout failure.
+2. Provide dedicated remote tunnel settings (Quick Tunnel via cloudflared sidecar, Tailscale, Local Intranet loopback, and Custom URL) for both Gemini Bridge and Remote Control so users on remote networks can connect seamlessly.
+
+### R9. Accurate Token Generation Speed (TPS) Calculation
+Investigate and resolve token generation speed calculation issues in `token_monitor.go` where reported generation speeds erroneously exceed realistic limits (>700 TPS), ensuring duration and output token timings correctly measure streaming intervals.
+
+### R10. 'Visible Conversation Tabs' Header
+Add a dedicated header titled `Visible Conversation Tabs` above the fixed number vs. dynamic conversation tab hide controls.
+
+### R11. Session Resumption Reliability & Customizable Resume Prompt Setting
+1. Diagnose why the automatic session resume prompt failed to send on account switches and ensure reliable CDP/IPC delivery.
+2. Add a new setting in the Settings tab of Account Switcher allowing the user to view and customize the resumption prompt sent to agents when resuming sessions.
+
+### R12. Conversation Tab Hover Background Uniformity
+Fix the recurring issue where the conversation tab row in the sidebar displays mismatched/split background colors while hovering (where the action button cluster and gradient mask display a different background color from the row tint). Ensure the entire hovered tab maintains a seamless, uniform background color matching `--row-bg`.
+
+## Acceptance Criteria
+
+### Modal & UI Interactions
+- [ ] Clicking the backdrop of any popup modal does not dismiss it; only the close button or cancel button closes the window.
+- [ ] 'Add GCP Models' displays the real GCP logo image from `assets/logo/GCP.png`.
+- [ ] ACP Mesh cards render real product logos for Antigravity CLI, Claude, Codex, DeepSeek, Devin, OpenCode, Pi, and Cursor.
+- [ ] Add GCP Model modal contains direct Model ID input with external link icon opening Google Cloud Model Garden.
+- [ ] GCP setup instructions cite Agent Platform User role and group policy key creation requirements.
+- [ ] GCP custom models show credit balance / billing status where available.
+- [ ] List View setting and 'Open Full Workspace' button removed from GitHub workspace settings.
+- [ ] Remote Control and Gemini Bridge enable buttons default to off.
+- [ ] Header 'Visible Conversation Tabs' displayed above conversation tab hide controls.
+- [ ] Settings tab includes customizable session resumption prompt input with persistence.
+- [ ] Hovered conversation tabs in the sidebar display a uniform background color across the entire row, action bar, and fade gradient.
+
+### Backend & Service Integrity
+- [ ] `pkg/bridge/tunnel.go` quick tunnel starts `cloudflared` without mutex deadlock and extracts public URL cleanly.
+- [ ] Dedicated remote tunnel options functional for Remote Control.
+- [ ] Token monitor TPS calculation accurately bounds generation speed to realistic thresholds.
+- [ ] `go test ./...` passes across modified packages.
+- [ ] Frontend builds cleanly with zero TypeScript errors (`npm run build`).
+
+
+## 2026-10-14T03:28:56Z
+
+Additional issues reported by user and from forensic audit (conversation 3caf6b1a-4d05-4285-8c67-58b628bac5ec):
+1. Restore horizontal divider lines between projects in sidebar for projects with show more / show less buttons.
+2. Fix AGY agent tabs in GitHub Workspace: prevent "AGY Agents (780)" badge inflation, fix broken page rendering / empty horizontal striped lines when switched to Killed category, exclude killed subagents older than 3 days, and cap group cards at 20.
+3. Fix session resume reliability: in `pkg/revival/cdp_trigger.go`, prevent `cleanupQueuedDuplicate()` from deleting the queued resume prompt when `isBusy()` is true. Add customizable resume prompt setting in Account Switcher Settings tab.
+4. Fix Windows cross-compilation failure caused by direct `syscall.Flock` usage.
+5. Deduplicate concurrent post-relaunch revival dispatches across `pkg/process/shield.go` and `pkg/daemon/daemon.go`.

@@ -261,6 +261,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
         if (low === "anthropic") return "Anthropic";
         if (low === "ollama") return "Local";
         if (low === "gemini") return "Gemini";
+        if (low === "gcp") return "Google Cloud";
         if (low === "openrouter") return "OpenRouter";
         if (low === "groq") return "Groq";
         if (low === "mistral") return "Mistral";
@@ -343,11 +344,20 @@ func GenerateCustomModelsScript(cfg *Config) string {
             };
 
             let quotaText = "";
-            if (m.quota_type === "cost_based" && m.total_budget > 0) {
-              const pct = Math.round((m.prepaid_balance / m.total_budget) * 100);
-              quotaText = "$" + m.prepaid_balance.toFixed(2) + " (" + pct + "%%)";
-            } else if (m.quota_type === "quota_based" && m.quota_fraction != null) {
-              quotaText = Math.round(m.quota_fraction * 100) + "%%";
+            const qType = (m.quota_type || "").toLowerCase();
+            if ((qType === "balance" || qType === "cost_based") && (m.balance_value || (m.total_budget > 0 && m.prepaid_balance > 0))) {
+              if (m.balance_value) {
+                quotaText = m.balance_value;
+              } else {
+                const pct = Math.round((m.prepaid_balance / m.total_budget) * 100);
+                quotaText = "$" + m.prepaid_balance.toFixed(2) + " (" + pct + "%%)";
+              }
+            } else if ((qType === "quota" || qType === "quota_based") && (m.quota_value || m.quota_fraction != null)) {
+              if (m.quota_value) {
+                quotaText = m.quota_value;
+              } else if (m.quota_fraction != null) {
+                quotaText = Math.round(m.quota_fraction * 100) + "%%";
+              }
             }
 
             const providerLabel = formatProvider(m.provider_type);
@@ -456,23 +466,34 @@ func GenerateCustomModelsScript(cfg *Config) string {
           let hasInfo = false;
           let subtitle = "API quota";
 
-          if (m.quota_type === "cost_based") {
-            if (m.total_budget > 0) {
-              pct = Math.min(100, Math.max(0, Math.round((m.prepaid_balance / m.total_budget) * 100)));
-              hasInfo = true;
-              subtitle = "$" + m.prepaid_balance.toFixed(2) + " of $" + m.total_budget.toFixed(2) + " prepaid deposit left";
-            } else {
-              hasInfo = false;
-              subtitle = "Cost-based (Untracked balance)";
-            }
-          } else if (m.quota_type === "quota_based") {
+          const qType = (m.quota_type || "").toLowerCase();
+          if (qType === "balance" || qType === "cost_based") {
             if (m.quota_fraction != null) {
               pct = Math.min(100, Math.max(0, Math.round(m.quota_fraction * 100)));
               hasInfo = true;
-              subtitle = pct + "%% rate limit quota remaining";
+              subtitle = (m.balance_value ? m.balance_value + " • " : "") + pct + "%% balance left";
+            } else if (m.total_budget > 0 && m.prepaid_balance > 0) {
+              pct = Math.min(100, Math.max(0, Math.round((m.prepaid_balance / m.total_budget) * 100)));
+              hasInfo = true;
+              subtitle = "$" + m.prepaid_balance.toFixed(2) + " of $" + m.total_budget.toFixed(2) + " prepaid deposit left";
+            } else if (m.balance_value) {
+              hasInfo = false;
+              subtitle = "Balance: " + m.balance_value;
             } else {
               hasInfo = false;
-              subtitle = "Quota-based (Untracked)";
+              subtitle = "Balance (Untracked)";
+            }
+          } else if (qType === "quota" || qType === "quota_based") {
+            if (m.quota_fraction != null) {
+              pct = Math.min(100, Math.max(0, Math.round(m.quota_fraction * 100)));
+              hasInfo = true;
+              subtitle = (m.quota_value ? m.quota_value + " • " : "") + pct + "%% rate limit quota remaining";
+            } else if (m.quota_value) {
+              hasInfo = false;
+              subtitle = "Quota: " + m.quota_value;
+            } else {
+              hasInfo = false;
+              subtitle = "Quota (Untracked)";
             }
           } else {
             hasInfo = false;

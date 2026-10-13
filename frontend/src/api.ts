@@ -36,11 +36,23 @@ import type {
   AcpAgentInstance,
 } from './types'
 
+function formatErrorMessage(rawText: string, status: number): string {
+  if (!rawText) return `Request failed with status ${status}`
+  const trimmed = rawText.trim()
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (parsed.error && typeof parsed.error === 'string') return parsed.error
+    if (parsed.message && typeof parsed.message === 'string') return parsed.message
+  } catch (_) {}
+  const singleLine = trimmed.split('\n')[0].replace(/^(error:\s*|failed to\s*)/i, '').trim()
+  return singleLine.slice(0, 200) || `Request failed with status ${status}`
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, options)
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(text || `Request failed with status ${res.status}`)
+    throw new Error(formatErrorMessage(text, res.status))
   }
   return res.json() as Promise<T>
 }

@@ -127,13 +127,13 @@ export interface AccountState {
   is_active: boolean
   active_apps?: Array<'desktop' | 'agy' | 'vscode'>
   status: 'ACTIVE' | 'STANDBY' | 'COOLDOWN' | 'COOLING' | 'ERROR' | 'BANNED' | string
-  quota_5h_current?: number
-  quota_5h_available: number
+  quota_5h_current?: number | null
+  quota_5h_available?: number | null
   reset_seconds?: number
-  quota_weekly: number
+  quota_weekly?: number | null
   reset_seconds_weekly?: number
-  quota_5h_claude_gpt?: number
-  quota_weekly_claude_gpt?: number
+  quota_5h_claude_gpt?: number | null
+  quota_weekly_claude_gpt?: number | null
   reset_horizon_text: string
   reset_horizon_weekly_text?: string
   has_mfa: boolean
@@ -193,12 +193,12 @@ export function toAccountState(acc: any, activeEmail?: string): AccountState {
 }
 
 export interface FleetQuotaSummary {
-  fleet_5h_available: number
-  fleet_weekly_available: number
-  fleet_5h_gemini_available?: number
-  fleet_weekly_gemini_available?: number
-  fleet_5h_claude_gpt_available?: number
-  fleet_weekly_claude_gpt_available?: number
+  fleet_5h_available: number | null
+  fleet_weekly_available: number | null
+  fleet_5h_gemini_available?: number | null
+  fleet_weekly_gemini_available?: number | null
+  fleet_5h_claude_gpt_available?: number | null
+  fleet_weekly_claude_gpt_available?: number | null
   total_accounts: number
   active_account: string
   accounts: AccountState[]
@@ -233,6 +233,7 @@ export interface RuleConfig {
   active_app_accounts?: Record<string, string>
   subagent_custom_models_enabled?: boolean
   subagent_model_strategy?: SubagentModelStrategy
+  session_resume_prompt?: string
   installed_apps?: InstalledAppsStatus
 }
 
@@ -332,7 +333,7 @@ export interface VaultSyncResult {
   message: string
 }
 
-export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'custom' | 'local'
+export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'custom' | 'local' | 'gcp'
 export type QuotaType = 'na' | 'balance' | 'quota' | 'cost_based' | 'quota_based' | 'none'
 
 export interface QuotaResult {
@@ -357,6 +358,9 @@ export interface CustomModel {
   provider_type: ProviderType
   base_url: string
   api_key?: string
+  gcp_project_id?: string
+  gcp_region?: string
+  gcp_service_account_key?: string
   custom_quota_endpoint?: string
   project_mappings: string[]
   quota_type: QuotaType

@@ -58,6 +58,7 @@ type Config struct {
 	ActiveAppAccounts          map[string]string            `json:"active_app_accounts,omitempty"`
 	SubagentCustomModelsEnabled bool                        `json:"subagent_custom_models_enabled"`
 	SubagentModelStrategy      string                       `json:"subagent_model_strategy"`
+	SessionResumePrompt        string                       `json:"session_resume_prompt,omitempty"`
 
 	mu sync.RWMutex `json:"-"`
 }
@@ -233,6 +234,19 @@ func (c *Config) VerifyAppPassword(password string) bool {
 		return true
 	}
 	return VerifyAppPassword(password, c.AppPasswordHash)
+}
+
+// GetSessionResumePrompt returns the configured prompt for resuming sessions, falling back to default.
+func (c *Config) GetSessionResumePrompt() string {
+	if c == nil {
+		return "Please continue ongoing tasks and subagents."
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if strings.TrimSpace(c.SessionResumePrompt) == "" {
+		return "Please continue ongoing tasks and subagents."
+	}
+	return strings.TrimSpace(c.SessionResumePrompt)
 }
 
 // GetAppPath returns custom configured path for the specified app type.

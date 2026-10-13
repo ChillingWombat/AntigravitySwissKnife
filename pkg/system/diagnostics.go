@@ -40,12 +40,15 @@ type DiagnosticResult struct {
 }
 
 var (
-	reEmail       = regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`)
-	reBearer      = regexp.MustCompile(`(?i)(bearer\s+)[a-zA-Z0-9_\-\.]{15,}`)
-	reGitHubToken = regexp.MustCompile(`gh[pousr]_[A-Za-z0-9_]{16,}`)
-	reGoogleKey   = regexp.MustCompile(`AIza[0-9A-Za-z\-_]{35}`)
-	reOpenAIKey   = regexp.MustCompile(`sk-[a-zA-Z0-9\-_]{20,}`)
-	reHomePath    = regexp.MustCompile(`/(?:home|Users)/[a-zA-Z0-9_\-]+`)
+	reEmail              = regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`)
+	reBearer             = regexp.MustCompile(`(?i)(bearer\s+)[a-zA-Z0-9_\-\.]{15,}`)
+	reJWT                = regexp.MustCompile(`\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\b`)
+	reGoogleRefreshToken = regexp.MustCompile(`\b1//[0-9A-Za-z\-_]{20,}\b`)
+	reKeyValueSecrets    = regexp.MustCompile(`(?i)(["']?(?:refresh_token|access_token|id_token|totp_secret|client_secret|password|client_id|oauth_token|secret|token|api_key|apikey)["']?\s*[:=]\s*["']?)[^"',\s}]{4,}(["']?)`)
+	reGitHubToken        = regexp.MustCompile(`gh[pousr]_[A-Za-z0-9_]{16,}`)
+	reGoogleKey          = regexp.MustCompile(`AIza[0-9A-Za-z\-_]{35}`)
+	reOpenAIKey          = regexp.MustCompile(`sk-[a-zA-Z0-9\-_]{20,}`)
+	reHomePath           = regexp.MustCompile(`/(?:home|Users)/[a-zA-Z0-9_\-]+`)
 )
 
 // SanitizeSensitiveText strips and redacts emails, auth tokens, passwords, and sensitive system paths.
@@ -55,6 +58,29 @@ func SanitizeSensitiveText(raw string) (string, int) {
 	out := reBearer.ReplaceAllStringFunc(raw, func(_ string) string {
 		redactedCount++
 		return "Bearer [REDACTED_AUTH_TOKEN]"
+	})
+
+	out = reJWT.ReplaceAllStringFunc(out, func(_ string) string {
+		redactedCount++
+		return "[REDACTED_JWT_TOKEN]"
+	})
+
+	out = reGoogleRefreshToken.ReplaceAllStringFunc(out, func(_ string) string {
+		redactedCount++
+		return "[REDACTED_REFRESH_TOKEN]"
+	})
+
+	out = reKeyValueSecrets.ReplaceAllStringFunc(out, func(match string) string {
+		redactedCount++
+		sub := reKeyValueSecrets.FindStringSubmatch(match)
+		if len(sub) >= 2 {
+			quote := ""
+			if len(sub) >= 3 {
+				quote = sub[2]
+			}
+			return sub[1] + "[REDACTED_SECRET]" + quote
+		}
+		return "[REDACTED_SECRET]"
 	})
 
 	out = reGitHubToken.ReplaceAllStringFunc(out, func(_ string) string {

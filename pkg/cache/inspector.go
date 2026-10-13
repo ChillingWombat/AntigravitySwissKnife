@@ -62,13 +62,13 @@ func (ins *Inspector) ScanBreakdown(minAgeDays float64) (*Breakdown, error) {
 func (ins *Inspector) ScanBreakdownWithLimit(minAgeDays float64, maxSizeBytes int64) (*Breakdown, error) {
 	bd := &Breakdown{
 		Categories:   make(map[string]CategoryStats),
-		SafeToDelete: true,
+		SafeToDelete: false,
 	}
 
 	var cutoff time.Time
 	hasAgeCutoff := minAgeDays > 0
 	if hasAgeCutoff {
-		cutoff = time.Now().Add(-time.Duration(minAgeDays*24) * time.Hour)
+		cutoff = time.Now().Add(-time.Duration(minAgeDays * float64(24*time.Hour)))
 	}
 
 	// Categories to track
@@ -108,7 +108,7 @@ func (ins *Inspector) ScanBreakdownWithLimit(minAgeDays float64, maxSizeBytes in
 		if catKey != "other" {
 			if hasAgeCutoff && info.ModTime().Before(cutoff) {
 				bd.ReclaimableBytes += size
-			} else {
+			} else if !hasAgeCutoff {
 				remainingPrunable = append(remainingPrunable, prunableCandidate{
 					size:    size,
 					modTime: info.ModTime(),
@@ -139,8 +139,8 @@ func (ins *Inspector) ScanBreakdownWithLimit(minAgeDays float64, maxSizeBytes in
 
 	bd.TotalBytes = bd.BrainTotalBytes + bd.ConversationsTotalBytes
 
-	if maxSizeBytes > 0 {
-		projectedRemaining := bd.TotalBytes - bd.ReclaimableBytes
+	if maxSizeBytes > 0 && !hasAgeCutoff {
+		projectedRemaining := bd.BrainTotalBytes - bd.ReclaimableBytes
 		if projectedRemaining > maxSizeBytes && len(remainingPrunable) > 0 {
 			sort.Slice(remainingPrunable, func(i, j int) bool {
 				return remainingPrunable[i].modTime.Before(remainingPrunable[j].modTime)
@@ -154,6 +154,8 @@ func (ins *Inspector) ScanBreakdownWithLimit(minAgeDays float64, maxSizeBytes in
 			}
 		}
 	}
+
+	bd.SafeToDelete = bd.ReclaimableBytes > 0
 
 	for k, v := range categories {
 		bd.Categories[k] = *v

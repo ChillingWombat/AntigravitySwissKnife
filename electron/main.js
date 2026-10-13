@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification, nativeImage } = require('electron');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
@@ -15,8 +15,8 @@ const {
   buildTrayMenuTemplate,
 } = require('./tray-account-menu');
 
-// Ensure Chromium sandbox switches are applied on Linux before initialization
-if (process.platform === 'linux' && app && app.commandLine) {
+// Only append no-sandbox switches if explicitly requested via environment variable
+if (process.platform === 'linux' && process.env.ELECTRON_NO_SANDBOX === '1' && app && app.commandLine) {
   app.commandLine.appendSwitch('no-sandbox');
   app.commandLine.appendSwitch('disable-setuid-sandbox');
 }
@@ -95,15 +95,24 @@ function setRuntimeModeSetting(mode) {
   }
 }
 
+let teardownPromise = null;
+
 // Teardown routing depending on runtime mode
 async function teardownDaemonForAppExit() {
-  const mode = getRuntimeModeSetting();
-  console.log(`[App] Teardown daemon for app exit. Runtime mode: ${mode}`);
-  if (mode === 'daemon') {
-    daemonManager.detach();
-  } else {
-    await daemonManager.stop({ force: true });
+  if (teardownPromise) {
+    return teardownPromise;
   }
+  teardownPromise = (async () => {
+    isStoppingDaemon = true;
+    const mode = getRuntimeModeSetting();
+    console.log(`[App] Teardown daemon for app exit. Runtime mode: ${mode}`);
+    if (mode === 'daemon') {
+      daemonManager.detach();
+    } else {
+      await daemonManager.stop({ force: true });
+    }
+  })();
+  return teardownPromise;
 }
 
 // Port configuration
@@ -153,15 +162,66 @@ function getIconPath() {
   return undefined;
 }
 
+function getWindowIcon() {
+  const iconPath = path.join(__dirname, '..', 'assets', 'icons', 'icon_256x256.png');
+  if (fs.existsSync(iconPath)) {
+    return iconPath;
+  }
+  return getIconPath();
+}
+
+function getTrayIcon() {
+  const isMac = process.platform === 'darwin';
+  const isWin = process.platform === 'win32';
+
+  const preferredFile = isMac
+    ? path.join(__dirname, '..', 'assets', 'icons', 'icon_24x24.png')
+    : isWin
+      ? path.join(__dirname, '..', 'assets', 'icons', 'icon_16x16.png')
+      : path.join(__dirname, '..', 'assets', 'icons', 'icon_24x24.png');
+
+  let img;
+  if (fs.existsSync(preferredFile)) {
+    img = nativeImage.createFromPath(preferredFile);
+  } else {
+    const rawPath = getIconPath();
+    if (rawPath) {
+      img = nativeImage.createFromPath(rawPath);
+    }
+  }
+
+  if (!img || img.isEmpty()) {
+    return null;
+  }
+
+  // Exact OS standard tray dimensions:
+  // macOS status item icon standard: 18x18 (avoids covering half the top bar)
+  // Windows notification tray icons: 16x16
+  // Linux system tray icons standard: 22x22
+  if (isMac) {
+    return img.resize({ width: 18, height: 18 });
+  } else if (isWin) {
+    return img.resize({ width: 16, height: 16 });
+  } else {
+    return img.resize({ width: 22, height: 22 });
+  }
+}
+
 function switchAccountViaHttp(email) {
   try {
     const req = http.request(`${DAEMON_URL}/api/switch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      timeout: 2000,
+      timeout: 3000,
     }, (res) => {
-      res.on('data', () => {});
+      let body = '';
+      res.on('data', (c) => { body += c; });
       res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          console.log(`[Tray] Switched to account ${email} successfully`);
+        } else {
+          console.error(`[Tray] Switch account failed (status ${res.statusCode}): ${body}`);
+        }
         setTimeout(updateTrayMenu, 500);
       });
     });
@@ -175,10 +235,15 @@ function switchAccountViaHttp(email) {
   }
 }
 
+let isUpdatingTrayMenu = false;
+
 async function updateTrayMenu() {
+  if (isUpdatingTrayMenu) return;
   if (!tray || (typeof tray.isDestroyed === 'function' && tray.isDestroyed())) {
     return;
   }
+  isUpdatingTrayMenu = true;
+  try {
 
   let activeAccount = 'Not Logged In';
   let accountsList = [];
@@ -308,20 +373,21 @@ async function updateTrayMenu() {
     return;
   }
 
-  try {
-    const contextMenu = Menu.buildFromTemplate(template);
-    tray.setContextMenu(contextMenu);
-  } catch (err) {
-    console.error('[Tray] Error setting context menu:', err);
-  }
+  const contextMenu = Menu.buildFromTemplate(template);
+  tray.setContextMenu(contextMenu);
+} catch (err) {
+  console.error('[Tray] Error updating tray menu:', err);
+} finally {
+  isUpdatingTrayMenu = false;
+}
 }
 
 function createTray() {
-  const iconPath = getIconPath();
-  if (!iconPath) return;
+  const trayIcon = getTrayIcon();
+  if (!trayIcon) return;
 
   try {
-    tray = new Tray(iconPath);
+    tray = new Tray(trayIcon);
     tray.setToolTip('Antigravity Swiss Knife');
 
     tray.on('click', () => {
@@ -351,7 +417,12 @@ function createTray() {
 }
 
 async function createWindow() {
-  const iconPath = getIconPath();
+  const windowIcon = getWindowIcon();
+  if (process.platform === 'darwin' && app.dock && windowIcon) {
+    try {
+      app.dock.setIcon(windowIcon);
+    } catch (_) {}
+  }
   const startMinimized = process.argv.includes('--minimized') ||
                          process.argv.includes('--hidden') ||
                          app.getLoginItemSettings().wasOpenedAsHidden;
@@ -365,7 +436,7 @@ async function createWindow() {
     minWidth: 1216,
     minHeight: 684,
     title: 'Antigravity Swiss Knife',
-    icon: iconPath,
+    icon: windowIcon,
     show: !startMinimized,
     autoHideMenuBar: true,
     backgroundColor: '#131314', // Google Gemini dark surface token
@@ -373,26 +444,35 @@ async function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false,
+      sandbox: true,
     },
   });
 
   mainWindow.setMenu(null);
 
-  // Lock 16:9 aspect ratio for windowed resizing
-  mainWindow.setAspectRatio(16 / 9);
+  const isTilingWM = process.platform === 'linux' && Boolean(
+    process.env.SWAYSOCK ||
+    process.env.I3SOCK ||
+    (process.env.XDG_CURRENT_DESKTOP && ['i3', 'sway', 'bspwm', 'xmonad', 'hyprland'].some((wm) => process.env.XDG_CURRENT_DESKTOP.toLowerCase().includes(wm)))
+  );
 
-  // Manage aspect ratio locking across window states
-  mainWindow.on('maximize', () => mainWindow.setAspectRatio(0));
-  mainWindow.on('unmaximize', () => mainWindow.setAspectRatio(16 / 9));
-  mainWindow.on('enter-full-screen', () => mainWindow.setAspectRatio(0));
-  mainWindow.on('leave-full-screen', () => mainWindow.setAspectRatio(16 / 9));
+  if (!isTilingWM) {
+    // Lock 16:9 aspect ratio for windowed resizing
+    mainWindow.setAspectRatio(16 / 9);
+
+    // Manage aspect ratio locking across window states
+    mainWindow.on('maximize', () => mainWindow.setAspectRatio(0));
+    mainWindow.on('unmaximize', () => mainWindow.setAspectRatio(16 / 9));
+    mainWindow.on('enter-full-screen', () => mainWindow.setAspectRatio(0));
+    mainWindow.on('leave-full-screen', () => mainWindow.setAspectRatio(16 / 9));
+  }
 
   // Intercept window close ('X'): default is to minimize to system tray unless close_to_tray is disabled
   mainWindow.on('close', async (event) => {
     if (!isQuitting) {
       const closeToTray = getCloseToTraySetting();
-      if (closeToTray) {
+      const hasTray = Boolean(tray && (typeof tray.isDestroyed !== 'function' || !tray.isDestroyed()));
+      if (closeToTray && hasTray) {
         event.preventDefault();
         mainWindow.hide();
         if (tray && process.platform === 'win32') {
@@ -431,17 +511,46 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
-  // Load backend web GUI URL with resilient retry
-  mainWindow.loadURL(DAEMON_URL).catch(() => {
-    console.log('[Window] Waiting for daemon URL and retrying loadURL...');
-    setTimeout(() => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.loadURL(DAEMON_URL).catch((err) => {
-          console.error('[Window] Failed to load URL:', err.message);
-        });
+  // Load backend web GUI URL with resilient retry loop
+  const loadDaemonUrlWithRetry = async (maxRetries = 10, delayMs = 1000) => {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      try {
+        await mainWindow.loadURL(DAEMON_URL);
+        return;
+      } catch (err) {
+        if (attempt === maxRetries) {
+          console.error('[Window] Exhausted retries loading daemon URL:', err.message);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Antigravity Swiss Knife - Connecting</title>
+  <style>
+    body { background: #131314; color: #e3e3e3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    h2 { margin-bottom: 8px; font-weight: 500; }
+    p { color: #8e918f; font-size: 14px; margin-bottom: 24px; }
+    button { background: #1a73e8; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; }
+    button:hover { background: #1557b0; }
+  </style>
+</head>
+<body>
+  <h2>Connecting to Daemon...</h2>
+  <p>The companion service is starting or unreachable on port 8765.</p>
+  <button onclick="location.href='${DAEMON_URL}'">Retry Connection</button>
+  <script>setTimeout(() => { location.href='${DAEMON_URL}'; }, 3000);</script>
+</body>
+</html>`;
+            mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).catch(() => {});
+          }
+        } else {
+          await new Promise((r) => setTimeout(r, delayMs));
+        }
       }
-    }, 1500);
-  });
+    }
+  };
+  loadDaemonUrlWithRetry();
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -519,8 +628,12 @@ function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('desktop:notify', async (_event, { title, body }) => {
+  ipcMain.handle('desktop:notify', async (_event, params) => {
     if (Notification.isSupported()) {
+      const rawTitle = typeof params?.title === 'string' ? params.title.trim() : '';
+      const rawBody = typeof params?.body === 'string' ? params.body.trim() : '';
+      const title = `[Antigravity Swiss Knife] ${rawTitle.slice(0, 100)}`;
+      const body = rawBody.slice(0, 300);
       new Notification({ title, body, icon: getIconPath() }).show();
       return true;
     }
@@ -529,6 +642,12 @@ function registerIpcHandlers() {
 
   ipcMain.handle('desktop:open-external', async (_event, url) => {
     try {
+      if (typeof url !== 'string') return false;
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        console.warn(`[IPC] desktop:open-external rejected non-http(s) scheme: ${parsed.protocol}`);
+        return false;
+      }
       await shell.openExternal(url);
       return true;
     } catch {
@@ -569,10 +688,11 @@ function registerIpcHandlers() {
           args = ['-a', 'Antigravity'];
         } else if (process.platform === 'linux') {
           const candidates = [
+            '/opt/Antigravity/antigravity',
             '/usr/bin/antigravity',
             '/usr/local/bin/antigravity',
             path.join(os.homedir(), '.local', 'bin', 'antigravity'),
-            path.join(os.homedir(), '.antigravity', 'bin', 'antigravity')
+            path.join(os.homedir(), '.antigravity', 'bin', 'antigravity'),
           ];
           for (const cand of candidates) {
             if (fs.existsSync(cand)) {

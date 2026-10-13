@@ -16,7 +16,7 @@ import (
 type Store struct {
 	dir      string
 	filePath string
-	mu       sync.RWMutex
+	mu       sync.Mutex
 }
 
 // NewStore creates a new Store instance. If dir is empty, it uses the standard config directory.
@@ -35,15 +35,48 @@ func (s *Store) FilePath() string {
 	return s.filePath
 }
 
-// SaveIntent writes the RevivalIntent atomically to disk.
+func (s *Store) lock() (*os.File, error) {
+	if err := os.MkdirAll(s.dir, 0755); err != nil {
+		return nil, err
+	}
+	lockFile := s.filePath + ".lock"
+	f, err := os.OpenFile(lockFile, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if err := core.LockFile(f); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+func (s *Store) unlock(f *os.File) {
+	if f != nil {
+		_ = core.UnlockFile(f)
+		_ = f.Close()
+	}
+}
+
+// SaveIntent writes the RevivalIntent atomically to disk under file and mutex locks.
 func (s *Store) SaveIntent(intent *RevivalIntent) error {
 	if intent == nil {
 		return fmt.Errorf("intent cannot be nil")
 	}
 
+	fl, err := s.lock()
+	if err != nil {
+		return fmt.Errorf("failed to acquire store file lock: %w", err)
+	}
+	defer s.unlock(fl)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.saveIntentInternal(intent)
+}
+
+func (s *Store) saveIntentInternal(intent *RevivalIntent) error {
 	// Fill compatibility fields if missing
 	if intent.CascadeID == "" {
 		intent.CascadeID = intent.RootConversationID
@@ -57,11 +90,11 @@ func (s *Store) SaveIntent(intent *RevivalIntent) error {
 		}
 		intent.Timestamp = intent.CreatedAt.UnixMilli()
 	}
-	if intent.TTLSeconds == 0 {
-		intent.TTLSeconds = 600
+	if intent.TTLSeconds <= 0 {
+		intent.TTLSeconds = DefaultTTLSeconds
 	}
-	if intent.MaxAttempts == 0 {
-		intent.MaxAttempts = 2
+	if intent.MaxAttempts <= 0 {
+		intent.MaxAttempts = DefaultMaxAttempts
 	}
 	if intent.Status == IntentStatusRevived {
 		intent.Resumed = true
@@ -99,9 +132,19 @@ func (s *Store) SaveIntent(intent *RevivalIntent) error {
 // LoadIntent reads and deserializes the pending RevivalIntent from disk.
 // Returns nil, nil if no pending intent exists or if it has expired.
 func (s *Store) LoadIntent() (*RevivalIntent, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	fl, err := s.lock()
+	if err != nil {
+		return nil, fmt.Errorf("failed to acquire store file lock: %w", err)
+	}
+	defer s.unlock(fl)
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.loadIntentInternal()
+}
+
+func (s *Store) loadIntentInternal() (*RevivalIntent, error) {
 	data, err := os.ReadFile(s.filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -125,6 +168,9 @@ func (s *Store) LoadIntent() (*RevivalIntent, error) {
 	if intent.CreatedAt.IsZero() && intent.Timestamp > 0 {
 		intent.CreatedAt = time.UnixMilli(intent.Timestamp)
 	}
+	if intent.MaxAttempts <= 0 {
+		intent.MaxAttempts = DefaultMaxAttempts
+	}
 
 	// Reject invalid conversation ID
 	if !gui.IsValidConversationID(intent.RootConversationID) {
@@ -135,7 +181,7 @@ func (s *Store) LoadIntent() (*RevivalIntent, error) {
 	// Check TTL expiration
 	ttl := intent.TTLSeconds
 	if ttl <= 0 {
-		ttl = 90
+		ttl = DefaultTTLSeconds
 	}
 	if intent.CreatedAt.IsZero() {
 		if info, statErr := os.Stat(s.filePath); statErr == nil {
@@ -155,6 +201,12 @@ func (s *Store) LoadIntent() (*RevivalIntent, error) {
 
 // ClearIntent removes the pending continuation file.
 func (s *Store) ClearIntent() error {
+	fl, err := s.lock()
+	if err != nil {
+		return fmt.Errorf("failed to acquire store file lock: %w", err)
+	}
+	defer s.unlock(fl)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -164,9 +216,18 @@ func (s *Store) ClearIntent() error {
 	return nil
 }
 
-// UpdateStatus updates the status of an active intent.
-func (s *Store) UpdateStatus(intentID string, status IntentStatus) error {
-	intent, err := s.LoadIntent()
+// UpdateStatus updates the status (and optionally attempts) of an active intent.
+func (s *Store) UpdateStatus(intentID string, status IntentStatus, attempts ...int) error {
+	fl, err := s.lock()
+	if err != nil {
+		return fmt.Errorf("failed to acquire store file lock: %w", err)
+	}
+	defer s.unlock(fl)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	intent, err := s.loadIntentInternal()
 	if err != nil {
 		return err
 	}
@@ -178,8 +239,40 @@ func (s *Store) UpdateStatus(intentID string, status IntentStatus) error {
 	}
 
 	intent.Status = status
+	if len(attempts) > 0 && attempts[0] >= 0 {
+		intent.Attempts = attempts[0]
+	}
 	if status == IntentStatusRevived {
 		intent.Resumed = true
 	}
-	return s.SaveIntent(intent)
+	return s.saveIntentInternal(intent)
+}
+
+// IncrementAttempts atomically increments the attempt count of the pending intent.
+func (s *Store) IncrementAttempts(intentID string) (int, error) {
+	fl, err := s.lock()
+	if err != nil {
+		return 0, fmt.Errorf("failed to acquire store file lock: %w", err)
+	}
+	defer s.unlock(fl)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	intent, err := s.loadIntentInternal()
+	if err != nil {
+		return 0, err
+	}
+	if intent == nil {
+		return 0, nil
+	}
+	if intentID != "" && intent.IntentID != intentID {
+		return intent.Attempts, nil
+	}
+
+	intent.Attempts++
+	if err := s.saveIntentInternal(intent); err != nil {
+		return intent.Attempts, err
+	}
+	return intent.Attempts, nil
 }

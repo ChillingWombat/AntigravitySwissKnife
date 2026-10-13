@@ -203,7 +203,14 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
         setChatTelemetryScope(value)
         updates.chat_telemetry_scope = value
       }
-      await api.updateGUIConfig(updates)
+      const updated = await api.updateGUIConfig(updates)
+      if (updated) {
+        if (updated.chat_telemetry_input_tokens !== undefined) setChatTelemetryInputTokens(updated.chat_telemetry_input_tokens)
+        if (updated.chat_telemetry_output_tokens !== undefined) setChatTelemetryOutputTokens(updated.chat_telemetry_output_tokens)
+        if (updated.chat_telemetry_cache_hit_ratio !== undefined) setChatTelemetryCacheHitRatio(updated.chat_telemetry_cache_hit_ratio)
+        if (updated.chat_telemetry_generation_speed !== undefined) setChatTelemetryGenerationSpeed(updated.chat_telemetry_generation_speed)
+        if (updated.chat_telemetry_scope !== undefined) setChatTelemetryScope(updated.chat_telemetry_scope)
+      }
     } catch (err) {
       console.warn('Failed to update in-chat telemetry setting:', err)
     }
@@ -999,7 +1006,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                       />
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                      <span>Speed: {m.avg_tps} TPS</span>
+                      <span>Speed: {m.avg_tps && m.avg_tps > 0 ? `${m.avg_tps} TPS` : '— TPS'}</span>
                       <span>
                         {m.requests} requests • {formatTokens(m.cached_tokens)} cached
                         {m.price_missing ? ' • Price null (set in Token Price)' : ''}
@@ -1527,13 +1534,80 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
               </p>
             </div>
 
+            {/* Scope Switcher: Aggregated vs Main Agent Only (Placed ABOVE the 2x2 grid) */}
+            <div
+              style={{
+                padding: '14px 16px',
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                backgroundColor: '#ffffff',
+                marginBottom: '16px',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                  Main Conversation Metrics Scope
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  Choose whether metrics in the main chat reflect the main agent only or aggregate usage from concurrent subagents.
+                </div>
+              </div>
+              <div style={{ marginTop: '10px' }}>
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    backgroundColor: 'var(--tonal)',
+                    borderRadius: '8px',
+                    padding: '3px',
+                    gap: '2px',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateTelemetrySetting('scope', 'aggregated')}
+                    style={{
+                      borderRadius: '6px',
+                      padding: '6px 14px',
+                      fontSize: '12px',
+                      fontWeight: chatTelemetryScope === 'aggregated' ? 600 : 500,
+                      color: chatTelemetryScope === 'aggregated' ? 'var(--primary)' : 'var(--text-muted)',
+                      backgroundColor: chatTelemetryScope === 'aggregated' ? '#ffffff' : 'transparent',
+                      boxShadow: chatTelemetryScope === 'aggregated' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Aggregated (Main + Sub-agents)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateTelemetrySetting('scope', 'main_only')}
+                    style={{
+                      borderRadius: '6px',
+                      padding: '6px 14px',
+                      fontSize: '12px',
+                      fontWeight: chatTelemetryScope === 'main_only' ? 600 : 500,
+                      color: chatTelemetryScope === 'main_only' ? 'var(--primary)' : 'var(--text-muted)',
+                      backgroundColor: chatTelemetryScope === 'main_only' ? '#ffffff' : 'transparent',
+                      boxShadow: chatTelemetryScope === 'main_only' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Main Agent Only
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* 2x2 Layout of Metric Toggle Subsections */}
             <div
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(2, 1fr)',
                 gap: '12px',
-                marginBottom: '16px',
               }}
             >
               {/* 1. Input Tokens */}
@@ -1618,63 +1692,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                   checked={chatTelemetryGenerationSpeed}
                   onChange={(val: boolean) => handleUpdateTelemetrySetting('speed', val)}
                 />
-              </div>
-            </div>
-
-            {/* Scope Switcher: Aggregated vs Main Agent Only */}
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '14px 16px',
-                border: '1px solid var(--border)',
-                borderRadius: '6px',
-                backgroundColor: '#ffffff',
-              }}
-            >
-              <div>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                  Main Conversation Metrics Scope
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  Choose whether metrics in the main chat reflect the main agent only or aggregate usage from concurrent subagents.
-                </div>
-              </div>
-              <div style={{ display: 'inline-flex', borderRadius: '6px', border: '1px solid var(--border)', overflow: 'hidden' }}>
-                <button
-                  type="button"
-                  onClick={() => handleUpdateTelemetrySetting('scope', 'aggregated')}
-                  style={{
-                    padding: '6px 14px',
-                    fontSize: '12px',
-                    fontWeight: chatTelemetryScope === 'aggregated' ? 700 : 500,
-                    backgroundColor: chatTelemetryScope === 'aggregated' ? 'var(--primary)' : '#ffffff',
-                    color: chatTelemetryScope === 'aggregated' ? '#ffffff' : 'var(--text-muted)',
-                    border: 'none',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  Aggregated (Main + Sub-agents)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleUpdateTelemetrySetting('scope', 'main_only')}
-                  style={{
-                    padding: '6px 14px',
-                    fontSize: '12px',
-                    fontWeight: chatTelemetryScope === 'main_only' ? 700 : 500,
-                    backgroundColor: chatTelemetryScope === 'main_only' ? 'var(--primary)' : '#ffffff',
-                    color: chatTelemetryScope === 'main_only' ? '#ffffff' : 'var(--text-muted)',
-                    border: 'none',
-                    borderLeft: '1px solid var(--border)',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  Main Agent Only
-                </button>
               </div>
             </div>
           </div>
@@ -1820,7 +1837,38 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>{ev.timestamp}</td>
                     <td style={{ padding: '10px 12px' }}>
                       <div style={{ fontWeight: 600, color: 'var(--text)' }}>{ev.project}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{ev.id}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                        <span>{ev.id}</span>
+                        {ev.is_subagent ? (
+                          <span
+                            style={{
+                              fontSize: '10px',
+                              padding: '1px 6px',
+                              borderRadius: '4px',
+                              backgroundColor: '#e0f2fe',
+                              color: '#0369a1',
+                              fontWeight: 600,
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {ev.agent_role || 'Sub-Agent'}
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              fontSize: '10px',
+                              padding: '1px 6px',
+                              borderRadius: '4px',
+                              backgroundColor: '#f1f5f9',
+                              color: '#475569',
+                              fontWeight: 600,
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            Main Agent
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td style={{ padding: '10px 12px', fontWeight: 500, color: 'var(--text)' }}>{ev.model || ev.canonical_id || ev.model_id || 'Model'}</td>
                     <td style={{ padding: '10px 12px' }}>
@@ -1828,7 +1876,9 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                       <span style={{ color: '#137333' }}>{formatTokens(ev.cached_tokens)} cache</span> •{' '}
                       <span>{formatTokens(ev.output_tokens)} out</span>
                     </td>
-                    <td style={{ padding: '10px 12px', fontWeight: 600, color: '#b06000' }}>{ev.tps} TPS</td>
+                    <td style={{ padding: '10px 12px', fontWeight: 600, color: '#b06000' }}>
+                      {ev.tps && ev.tps > 0 ? `${ev.tps} TPS` : '— TPS'}
+                    </td>
                     <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text)' }}>
                       {formatCost(ev.cost_usd)}
                     </td>

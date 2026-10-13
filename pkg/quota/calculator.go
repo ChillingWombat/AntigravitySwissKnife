@@ -438,8 +438,8 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 		curSec := 0.0
 		curWeekly := 0.0
 		curSecWeekly := 0.0
-		cur5hClaude := 1.0
-		curWeeklyClaude := 1.0
+		cur5hClaude := 0.0
+		curWeeklyClaude := 0.0
 		resText := "Not Polled"
 		resWeeklyText := "Not Polled"
 		tier := acc.PlanTier
@@ -496,10 +496,10 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 				}
 			}
 			if s.Quota5hClaudeGPT > 0 {
-				cur5hClaude = s.Quota5hClaudeGPT
+				cur5hClaude = ClampFraction(s.Quota5hClaudeGPT)
 			}
 			if s.QuotaWeeklyClaudeGPT > 0 {
-				curWeeklyClaude = s.QuotaWeeklyClaudeGPT
+				curWeeklyClaude = ClampFraction(s.QuotaWeeklyClaudeGPT)
 			}
 			if s.ResetSeconds5h > 0 {
 				curSec = s.ResetSeconds5h
@@ -546,10 +546,10 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 			cur5h = ca.Quota5h
 			curWeekly = ca.QuotaWeekly
 			if ca.Quota5hClaudeGPT > 0 {
-				cur5hClaude = ca.Quota5hClaudeGPT
+				cur5hClaude = ClampFraction(ca.Quota5hClaudeGPT)
 			}
 			if ca.QuotaWeeklyClaudeGPT > 0 {
-				curWeeklyClaude = ca.QuotaWeeklyClaudeGPT
+				curWeeklyClaude = ClampFraction(ca.QuotaWeeklyClaudeGPT)
 			}
 			if ca.ResetTime5h != "" {
 				if rt, parseErr := time.Parse(time.RFC3339, ca.ResetTime5h); parseErr == nil && rt.After(now) {
@@ -1291,6 +1291,7 @@ func EvaluateAutoSwitchForApp(
 	threshold5h, thresholdWeekly float64,
 	mode string,
 	activeDwellSec float64,
+	assignedInTick ...string,
 ) (bool, *AccountQuotaState, string) {
 	if threshold5h <= 0 {
 		threshold5h = core.DefaultAutoSwitchThresholdFraction
@@ -1361,13 +1362,20 @@ func EvaluateAutoSwitchForApp(
 		return true, &unusedCandidates[0], reason
 	}
 
-	// Phase 2: Fallback to sharing an account used by other apps (excluding currentAppEmail)
+	// Phase 2: Fallback to sharing an account used by other apps (excluding currentAppEmail and assignedInTick)
 	var sharedCandidates []AccountQuotaState
 	currNorm := strings.ToLower(strings.TrimSpace(currentAppEmail))
+	excludedSet := make(map[string]bool)
+	excludedSet[currNorm] = true
+	for _, em := range assignedInTick {
+		if trimmed := strings.ToLower(strings.TrimSpace(em)); trimmed != "" {
+			excludedSet[trimmed] = true
+		}
+	}
 	for _, acc := range accounts {
 		norm := strings.ToLower(strings.TrimSpace(acc.Email))
-		if norm == currNorm {
-			continue // Do not fall back to the depleted self
+		if excludedSet[norm] {
+			continue // Do not fall back to the depleted self or accounts assigned earlier in this rotation tick
 		}
 		if isEligible(acc) {
 			sharedCandidates = append(sharedCandidates, acc)

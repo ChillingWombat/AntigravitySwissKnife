@@ -1472,14 +1472,15 @@ func (s *Store) ActiveAccount() string {
 //     Preserves the current vault active account.
 func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, profileMgr *fingerprint.Store) (*Account, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	detected := ResolveRunningAntigravityAccount(s.homeDir, s.antigravityConfigDir)
 	if detected == nil {
+		defer s.mu.Unlock()
 		// No running account detected on host surfaces.
 		if s.activeEmail != "" {
 			if acc, exists := s.accounts[s.activeEmail]; exists {
-				return acc, nil
+				copyAcc := *acc
+				return &copyAcc, nil
 			}
 		}
 		return nil, nil
@@ -1487,15 +1488,18 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 
 	detectedEmail := strings.TrimSpace(detected.Email)
 	if detectedEmail == "" {
+		s.mu.Unlock()
 		return nil, nil
 	}
 
-	// In-flight manual/auto switch latch: if an account switch occurred within the last 12 seconds,
+	// In-flight manual/auto switch latch: if an account switch occurred within the last 30 seconds,
 	// protect s.activeEmail from being reverted by a stale in-memory session while the IDE respawns.
-	if !s.lastManualSwitchTime.IsZero() && time.Since(s.lastManualSwitchTime) < 12*time.Second {
+	if !s.lastManualSwitchTime.IsZero() && time.Since(s.lastManualSwitchTime) < 30*time.Second {
 		if s.activeEmail != "" && !strings.EqualFold(detectedEmail, s.activeEmail) {
 			if curAcc, ok := s.accounts[s.activeEmail]; ok {
-				return curAcc, nil
+				copyAcc := *curAcc
+				s.mu.Unlock()
+				return &copyAcc, nil
 			}
 		}
 	}
@@ -1507,10 +1511,11 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 		isHostRunning := process.NewShield(0).IsAntigravityRunning()
 		if !isHostRunning {
 			if curAcc, ok := s.accounts[s.activeEmail]; ok {
-				// Re-synchronize on-disk surfaces to the vault's active account so when Antigravity launches,
-				// it opens cleanly with this active account.
-				_ = SyncAllSurfaces(curAcc, allEmails, profileMgr)
-				return curAcc, nil
+				copyAcc := *curAcc
+				s.mu.Unlock()
+				// Issue 33: Synchronize surfaces outside the store mutex lock
+				_ = SyncAllSurfaces(&copyAcc, allEmails, profileMgr)
+				return &copyAcc, nil
 			}
 		}
 	}
@@ -1557,17 +1562,20 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 		}
 		_ = s.save()
 
-		// Only synchronize surfaces if the active account actually changed or had no previous active,
-		// AND target account has non-empty credentials so we don't clobber host files with empty data.
-		if (!isSameActive || prevActive == "") && (targetAcc.RefreshToken != "" || targetAcc.AccessToken != "") {
-			_ = SyncAllSurfaces(targetAcc, allEmails, profileMgr)
-			_ = s.save()
-		} else {
-			_ = SyncAppStorageLoginUser(targetAcc.Email)
-		}
 		copyAcc := *targetAcc
+		needsFullSync := (!isSameActive || prevActive == "") && (targetAcc.RefreshToken != "" || targetAcc.AccessToken != "")
+		s.mu.Unlock()
+
+		// Issue 33: Execute surface sync outside the store mutex lock
+		if needsFullSync {
+			_ = SyncAllSurfaces(&copyAcc, allEmails, profileMgr)
+		} else {
+			_ = SyncAppStorageLoginUser(copyAcc.Email)
+		}
 		return &copyAcc, nil
 	}
+
+	defer s.mu.Unlock()
 
 	// Account is NOT in vault!
 	if !autoImport {

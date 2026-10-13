@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,7 +20,49 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-var tokenRefreshEndpoint = GoogleOAuthTokenURL
+var (
+	tokenRefreshEndpoint = GoogleOAuthTokenURL
+	onTokenRefreshed     func(acc *Account)
+)
+
+// SetTokenRefreshCallback registers a callback invoked immediately when EnsureFreshAccessToken updates tokens.
+func SetTokenRefreshCallback(cb func(acc *Account)) {
+	onTokenRefreshed = cb
+}
+
+// writeAtomic writes data to targetPath atomically via temp file in the same directory, fsync, and rename.
+func writeAtomic(targetPath string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(targetPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	tmpFile, err := os.CreateTemp(dir, "."+filepath.Base(targetPath)+".tmp.*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmpFile.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+
+	if err := tmpFile.Chmod(perm); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Sync(); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+
+	return os.Rename(tmpPath, targetPath)
+}
 
 // isSafeTestWritePath ensures that during automated unit/integration tests,
 // writes to host configuration and token files only occur if targeted within a temporary directory.
@@ -91,6 +134,9 @@ func EnsureFreshAccessToken(acc *Account) bool {
 		acc.TokenExpiry = time.Now().Add(time.Duration(data.ExpiresIn-60) * time.Second)
 	} else {
 		acc.TokenExpiry = time.Now().Add(55 * time.Minute)
+	}
+	if onTokenRefreshed != nil {
+		onTokenRefreshed(acc)
 	}
 	return true
 }
@@ -186,6 +232,28 @@ func WriteSecretServiceToken(acc *Account) error {
 	return nil
 }
 
+func lockAppStorage(storagePath string) (*os.File, error) {
+	hostDir := filepath.Dir(storagePath)
+	_ = os.MkdirAll(hostDir, 0755)
+	lockPath := storagePath + ".lock"
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if err := core.LockFile(f); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+func unlockAppStorage(f *os.File) {
+	if f != nil {
+		_ = core.UnlockFile(f)
+		_ = f.Close()
+	}
+}
+
 // SyncAppStorageLoginUser updates jetski.onboarding.lastLoginUsername in ~/.config/Antigravity/app_storage.json.
 func SyncAppStorageLoginUser(email string) error {
 	if isTestMockEmail(email) {
@@ -194,6 +262,11 @@ func SyncAppStorageLoginUser(email string) error {
 	storagePath := filepath.Join(core.GetAntigravityHostConfigDir(), "app_storage.json")
 	if !isSafeTestWritePath(storagePath) {
 		return nil
+	}
+
+	lockFile, err := lockAppStorage(storagePath)
+	if err == nil {
+		defer unlockAppStorage(lockFile)
 	}
 
 	data, err := os.ReadFile(storagePath)
@@ -219,13 +292,7 @@ func SyncAppStorageLoginUser(email string) error {
 		return err
 	}
 
-	// Write atomically via temporary file
-	tmpPath := storagePath + ".tmp"
-	if err := os.WriteFile(tmpPath, updated, 0644); err != nil {
-		return err
-	}
-
-	return os.Rename(tmpPath, storagePath)
+	return writeAtomic(storagePath, updated, 0644)
 }
 
 // SyncHardwareProfileToDirs writes all 4 virtualized device telemetry identifiers
@@ -241,11 +308,15 @@ func SyncHardwareProfileToDirs(prof *fingerprint.DeviceProfile, antigravityConfi
 		}
 		// 1. Write ~/.config/Antigravity/machineid
 		if prof.MachineID != "" {
-			_ = os.WriteFile(filepath.Join(antigravityConfigDir, "machineid"), []byte(strings.TrimSpace(prof.MachineID)), 0644)
+			if err := writeAtomic(filepath.Join(antigravityConfigDir, "machineid"), []byte(strings.TrimSpace(prof.MachineID)), 0600); err != nil {
+				return err
+			}
 		}
 		// 2. Write ~/.config/Antigravity/.updaterId
 		if prof.UpdaterID != "" {
-			_ = os.WriteFile(filepath.Join(antigravityConfigDir, ".updaterId"), []byte(strings.TrimSpace(prof.UpdaterID)), 0644)
+			if err := writeAtomic(filepath.Join(antigravityConfigDir, ".updaterId"), []byte(strings.TrimSpace(prof.UpdaterID)), 0600); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -255,7 +326,9 @@ func SyncHardwareProfileToDirs(prof *fingerprint.DeviceProfile, antigravityConfi
 		}
 		// 3. Write ~/.gemini/antigravity/installation_id
 		if prof.InstallationID != "" {
-			_ = os.WriteFile(filepath.Join(geminiAntigravityDir, "installation_id"), []byte(strings.TrimSpace(prof.InstallationID)+"\n"), 0644)
+			if err := writeAtomic(filepath.Join(geminiAntigravityDir, "installation_id"), []byte(strings.TrimSpace(prof.InstallationID)+"\n"), 0600); err != nil {
+				return err
+			}
 		}
 		// 4. Update installation_uuid in ~/.gemini/antigravity/antigravity_state.pbtxt
 		if prof.InstallationUUID != "" {
@@ -264,31 +337,25 @@ func SyncHardwareProfileToDirs(prof *fingerprint.DeviceProfile, antigravityConfi
 			existing, err := os.ReadFile(statePath)
 			var updatedContent string
 			if err == nil {
-				lines := strings.Split(string(existing), "\n")
-				replaced := false
-				for i, line := range lines {
-					trimmed := strings.TrimSpace(line)
-					if strings.HasPrefix(trimmed, "installation_uuid:") {
-						lines[i] = uuidLine
-						replaced = true
-					}
-				}
-				if !replaced {
-					if len(lines) > 0 && lines[len(lines)-1] == "" {
-						lines[len(lines)-1] = uuidLine
-						lines = append(lines, "")
+				re := regexp.MustCompile(`(?m)^\s*installation_uuid\s*:\s*.*$`)
+				if re.Match(existing) {
+					updatedContent = re.ReplaceAllString(string(existing), uuidLine)
+				} else {
+					trimmed := strings.TrimRight(string(existing), "\n")
+					if trimmed == "" {
+						updatedContent = uuidLine + "\n"
 					} else {
-						lines = append(lines, uuidLine, "")
+						updatedContent = trimmed + "\n" + uuidLine + "\n"
 					}
 				}
-				updatedContent = strings.Join(lines, "\n")
 			} else if os.IsNotExist(err) {
 				updatedContent = uuidLine + "\n"
+			} else {
+				return err
 			}
 			if updatedContent != "" {
-				tmpPath := statePath + ".tmp"
-				if errWrite := os.WriteFile(tmpPath, []byte(updatedContent), 0644); errWrite == nil {
-					_ = os.Rename(tmpPath, statePath)
+				if err := writeAtomic(statePath, []byte(updatedContent), 0600); err != nil {
+					return err
 				}
 			}
 		}
@@ -308,12 +375,8 @@ func SyncHardwareProfile(email string, profileMgr *fingerprint.Store) error {
 		return err
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	antigravityDir := filepath.Join(home, ".config", "Antigravity")
-	geminiAntigravityDir := filepath.Join(home, ".gemini", "antigravity")
+	antigravityDir := core.GetAntigravityHostConfigDir()
+	geminiAntigravityDir := core.GetAntigravityDir()
 	return SyncHardwareProfileToDirs(prof, antigravityDir, geminiAntigravityDir)
 }
 
@@ -336,7 +399,7 @@ func SyncDesktopStandaloneToken(acc *Account) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(targetPath, data, 0600)
+	return writeAtomic(targetPath, data, 0600)
 }
 
 // SyncCLIOAuthToken writes ~/.gemini/antigravity-cli/antigravity-oauth-token for Antigravity CLI (agy).
@@ -358,7 +421,7 @@ func SyncCLIOAuthToken(acc *Account) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(targetPath, data, 0600)
+	return writeAtomic(targetPath, data, 0600)
 }
 
 // SyncGoogleAccountsJSON writes ~/.gemini/google_accounts.json setting active and old accounts.
@@ -396,7 +459,7 @@ func SyncGoogleAccountsJSON(activeEmail string, allEmails []string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(targetPath, data, 0600)
+	return writeAtomic(targetPath, data, 0600)
 }
 
 // SyncOAuthCredsJSON writes ~/.gemini/oauth_creds.json used across CLI and extensions.
@@ -444,7 +507,7 @@ func SyncOAuthCredsJSON(acc *Account) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(targetPath, data, 0600)
+	return writeAtomic(targetPath, data, 0600)
 }
 
 // writeVarint writes an unsigned varint into a bytes.Buffer according to Protobuf specification.
@@ -634,24 +697,42 @@ func syncSingleVscdb(vscdbPath string, acc *Account) error {
 		return nil
 	}
 
+	execWithRetry := func(query string, args ...interface{}) error {
+		var lastErr error
+		for attempt := 0; attempt < 3; attempt++ {
+			_, lastErr = db.Exec(query, args...)
+			if lastErr == nil {
+				return nil
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		return lastErr
+	}
+
 	// 1. Update userStatus if email is set
 	if acc.Email != "" {
 		sentinel := buildUserStatusSentinel(acc.Email)
 		if sentinel != "" {
-			_, _ = db.Exec("INSERT OR REPLACE INTO ItemTable(key, value) VALUES('antigravityUnifiedStateSync.userStatus', ?)", sentinel)
+			if err := execWithRetry("INSERT OR REPLACE INTO ItemTable(key, value) VALUES('antigravityUnifiedStateSync.userStatus', ?)", sentinel); err != nil {
+				return fmt.Errorf("failed to update userStatus in %s: %w", vscdbPath, err)
+			}
 		}
 	}
 
 	// 2. Update profileUrl if present
 	picture := extractPictureFromIDToken(acc.IDToken)
 	if picture != "" {
-		_, _ = db.Exec("INSERT OR REPLACE INTO ItemTable(key, value) VALUES('antigravity.profileUrl', ?)", picture)
+		if err := execWithRetry("INSERT OR REPLACE INTO ItemTable(key, value) VALUES('antigravity.profileUrl', ?)", picture); err != nil {
+			return fmt.Errorf("failed to update profileUrl in %s: %w", vscdbPath, err)
+		}
 	}
 
 	// 3. Update oauthToken to prevent UI-session hydration mismatch on relaunch
 	oauthSentinel := buildOAuthTokenSentinel(acc)
 	if oauthSentinel != "" {
-		_, _ = db.Exec("INSERT OR REPLACE INTO ItemTable(key, value) VALUES('antigravityUnifiedStateSync.oauthToken', ?)", oauthSentinel)
+		if err := execWithRetry("INSERT OR REPLACE INTO ItemTable(key, value) VALUES('antigravityUnifiedStateSync.oauthToken', ?)", oauthSentinel); err != nil {
+			return fmt.Errorf("failed to update oauthToken in %s: %w", vscdbPath, err)
+		}
 	}
 
 	return nil
@@ -664,15 +745,23 @@ func SyncStateVscdb(acc *Account) error {
 		return nil
 	}
 
+	var errs []string
 	// 1. Antigravity state.vscdb
 	vscdbPathAntigravity := filepath.Join(core.GetAntigravityHostConfigDir(), "User", "globalStorage", "state.vscdb")
-	_ = syncSingleVscdb(vscdbPathAntigravity, acc)
+	if err := syncSingleVscdb(vscdbPathAntigravity, acc); err != nil {
+		errs = append(errs, err.Error())
+	}
 
 	// 2. VS Code state.vscdb (if present)
 	vscdbPathCode := filepath.Join(core.GetVSCodeHostConfigDir(), "User", "globalStorage", "state.vscdb")
-	_ = syncSingleVscdb(vscdbPathCode, acc)
+	if err := syncSingleVscdb(vscdbPathCode, acc); err != nil {
+		errs = append(errs, err.Error())
+	}
 	_ = core.EnsureVSCodeWindowCloseGuard()
 
+	if len(errs) > 0 {
+		return fmt.Errorf("vscdb sync errors: %s", strings.Join(errs, "; "))
+	}
 	return nil
 }
 
@@ -686,23 +775,42 @@ func SyncAllSurfaces(acc *Account, allEmails []string, profileMgr *fingerprint.S
 	// Ensure access token is fresh before writing across all Antigravity surfaces
 	_ = EnsureFreshAccessToken(acc)
 
+	var errs []string
+
 	// 1. Linux Secret Service (VS Code Extension & Electron Keytar)
 	_ = WriteSecretServiceToken(acc)
 
 	// 2. Antigravity 2.0 Desktop App & VS Code Extension Token
-	_ = SyncDesktopStandaloneToken(acc)
-	_ = SyncAppStorageLoginUser(acc.Email)
-	_ = SyncHardwareProfile(acc.Email, profileMgr)
-	_ = SyncStateVscdb(acc)
+	if err := SyncDesktopStandaloneToken(acc); err != nil {
+		errs = append(errs, fmt.Sprintf("desktop token: %v", err))
+	}
+	if err := SyncAppStorageLoginUser(acc.Email); err != nil {
+		errs = append(errs, fmt.Sprintf("app_storage: %v", err))
+	}
+	if err := SyncHardwareProfile(acc.Email, profileMgr); err != nil {
+		errs = append(errs, fmt.Sprintf("hardware profile: %v", err))
+	}
+	if err := SyncStateVscdb(acc); err != nil {
+		errs = append(errs, fmt.Sprintf("state.vscdb: %v", err))
+	}
 
 	// 3. Antigravity CLI (agy)
-	_ = SyncCLIOAuthToken(acc)
-	_ = SyncGoogleAccountsJSON(acc.Email, allEmails)
-	_ = SyncOAuthCredsJSON(acc)
+	if err := SyncCLIOAuthToken(acc); err != nil {
+		errs = append(errs, fmt.Sprintf("cli oauth token: %v", err))
+	}
+	if err := SyncGoogleAccountsJSON(acc.Email, allEmails); err != nil {
+		errs = append(errs, fmt.Sprintf("google_accounts.json: %v", err))
+	}
+	if err := SyncOAuthCredsJSON(acc); err != nil {
+		errs = append(errs, fmt.Sprintf("oauth_creds.json: %v", err))
+	}
 
 	// 4. Cloud Accounts DB (if present)
 	_ = SyncCloudAccountsActiveAccount("", acc.Email)
 
+	if len(errs) > 0 {
+		return fmt.Errorf("surface sync failures: %s", strings.Join(errs, "; "))
+	}
 	return nil
 }
 
@@ -713,17 +821,35 @@ func SyncDesktopSurface(acc *Account, profileMgr *fingerprint.Store, allEmails .
 	}
 	_ = EnsureFreshAccessToken(acc)
 	_ = WriteSecretServiceToken(acc)
-	_ = SyncDesktopStandaloneToken(acc)
-	_ = SyncAppStorageLoginUser(acc.Email)
-	_ = SyncHardwareProfile(acc.Email, profileMgr)
-	_ = SyncStateVscdb(acc)
+
+	var errs []string
+	if err := SyncDesktopStandaloneToken(acc); err != nil {
+		errs = append(errs, fmt.Sprintf("desktop token: %v", err))
+	}
+	if err := SyncAppStorageLoginUser(acc.Email); err != nil {
+		errs = append(errs, fmt.Sprintf("app_storage: %v", err))
+	}
+	if err := SyncHardwareProfile(acc.Email, profileMgr); err != nil {
+		errs = append(errs, fmt.Sprintf("hardware profile: %v", err))
+	}
+	if err := SyncStateVscdb(acc); err != nil {
+		errs = append(errs, fmt.Sprintf("state.vscdb: %v", err))
+	}
 	var emails []string
 	if len(allEmails) > 0 {
 		emails = allEmails[0]
 	}
-	_ = SyncGoogleAccountsJSON(acc.Email, emails)
-	_ = SyncOAuthCredsJSON(acc)
+	if err := SyncGoogleAccountsJSON(acc.Email, emails); err != nil {
+		errs = append(errs, fmt.Sprintf("google_accounts.json: %v", err))
+	}
+	if err := SyncOAuthCredsJSON(acc); err != nil {
+		errs = append(errs, fmt.Sprintf("oauth_creds.json: %v", err))
+	}
 	_ = SyncCloudAccountsActiveAccount("", acc.Email)
+
+	if len(errs) > 0 {
+		return fmt.Errorf("desktop surface sync failures: %s", strings.Join(errs, "; "))
+	}
 	return nil
 }
 
@@ -734,10 +860,24 @@ func SyncCLISurface(acc *Account, allEmails []string) error {
 	}
 	_ = EnsureFreshAccessToken(acc)
 	_ = WriteSecretServiceToken(acc)
-	_ = SyncDesktopStandaloneToken(acc)
-	_ = SyncCLIOAuthToken(acc)
-	_ = SyncGoogleAccountsJSON(acc.Email, allEmails)
-	_ = SyncOAuthCredsJSON(acc)
+
+	var errs []string
+	if err := SyncDesktopStandaloneToken(acc); err != nil {
+		errs = append(errs, fmt.Sprintf("desktop token: %v", err))
+	}
+	if err := SyncCLIOAuthToken(acc); err != nil {
+		errs = append(errs, fmt.Sprintf("cli oauth token: %v", err))
+	}
+	if err := SyncGoogleAccountsJSON(acc.Email, allEmails); err != nil {
+		errs = append(errs, fmt.Sprintf("google_accounts.json: %v", err))
+	}
+	if err := SyncOAuthCredsJSON(acc); err != nil {
+		errs = append(errs, fmt.Sprintf("oauth_creds.json: %v", err))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("cli surface sync failures: %s", strings.Join(errs, "; "))
+	}
 	return nil
 }
 
@@ -748,10 +888,24 @@ func SyncVSCodeSurface(acc *Account) error {
 	}
 	_ = EnsureFreshAccessToken(acc)
 	_ = WriteSecretServiceToken(acc)
-	_ = SyncDesktopStandaloneToken(acc)
-	_ = SyncStateVscdb(acc)
-	_ = SyncCLIOAuthToken(acc)
-	_ = SyncOAuthCredsJSON(acc)
+
+	var errs []string
+	if err := SyncDesktopStandaloneToken(acc); err != nil {
+		errs = append(errs, fmt.Sprintf("desktop token: %v", err))
+	}
+	if err := SyncStateVscdb(acc); err != nil {
+		errs = append(errs, fmt.Sprintf("state.vscdb: %v", err))
+	}
+	if err := SyncCLIOAuthToken(acc); err != nil {
+		errs = append(errs, fmt.Sprintf("cli oauth token: %v", err))
+	}
+	if err := SyncOAuthCredsJSON(acc); err != nil {
+		errs = append(errs, fmt.Sprintf("oauth_creds.json: %v", err))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("vscode surface sync failures: %s", strings.Join(errs, "; "))
+	}
 	return nil
 }
 

@@ -33,6 +33,14 @@ const (
 // DefaultTriggerPrompt is the standard continuation prompt dispatched to the agent composer upon revival.
 const DefaultTriggerPrompt = "Please continue ongoing tasks and subagents."
 
+// Canonical constants for revival intents, attempts, and cooldowns.
+const (
+	DefaultTTLSeconds             = 600
+	DefaultMaxAttempts            = 2
+	RevivalCooldownDuration       = 10 * time.Minute
+	GlobalRevivalCooldownDuration = 45 * time.Second
+)
+
 // RevivalIntent represents an intent to restore and continue a conversation after an account switch or restart.
 type RevivalIntent struct {
 	IntentID           string       `json:"intent_id"`

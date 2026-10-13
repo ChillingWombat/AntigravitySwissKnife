@@ -45,6 +45,7 @@ type Daemon struct {
 	wg             sync.WaitGroup
 	lastSwitchTime time.Time
 	mu             sync.RWMutex
+	switchMu       sync.Mutex
 
 	quotaCache     map[string]*quota.QuotaSummary
 	quotaCacheMu   sync.RWMutex
@@ -71,6 +72,11 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to init keyring store: %w", err)
 	}
+
+	// Issue 32: Persist refreshed access tokens directly to vault on token refresh
+	keyring.SetTokenRefreshCallback(func(acc *keyring.Account) {
+		_ = keyringStore.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
+	})
 
 	fpStore, err := fingerprint.NewStore("")
 	if err != nil {
@@ -113,7 +119,7 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 		cancel:          cancel,
 		lastSwitchTime:  time.Now(),
 		quotaCache:      quota.LoadQuotaCache(),
-		ignitedAccounts: make(map[string]time.Time),
+		ignitedAccounts: loadIgnitedAccounts(),
 		configUpdated:   make(chan struct{}, 1),
 	}
 
@@ -392,6 +398,7 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 
 		if p.SetActive {
+			d.switchMu.Lock()
 			var allEmails []string
 			for _, a := range d.Keyring.ListAccounts() {
 				allEmails = append(allEmails, a.Email)
@@ -400,15 +407,18 @@ func (d *Daemon) registerRPCHandlers() {
 				_ = keyring.SyncAllSurfaces(acc, allEmails, d.Profiles)
 				_ = d.Keyring.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
 				if !strings.EqualFold(prevActive, p.Email) && d.Shield != nil && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+					if d.Revival != nil {
+						_, _ = d.Revival.CapturePreSwitchState(core.TargetAppDesktop)
+					}
 					_ = gui.NewInjector(0).CaptureActiveConversationPath()
-					go func() {
-						time.Sleep(200 * time.Millisecond)
-						_ = d.Shield.RelaunchHostIDE()
-					}()
+					if err := d.Shield.RelaunchHostIDE(); err != nil {
+						log.Printf("[Daemon updateAccount] RelaunchHostIDE error: %v", err)
+					}
 				} else {
 					_, _ = gui.NewInjector(0).RefreshUserStatus()
 				}
 			}
+			d.switchMu.Unlock()
 		}
 
 		res := map[string]interface{}{"success": true, "email": p.Email}
@@ -441,6 +451,7 @@ func (d *Daemon) registerRPCHandlers() {
 		d.removeQuotaSummary(p.Email)
 		newActive := d.Keyring.ActiveAccount()
 		if newActive != "" && !strings.EqualFold(prevActive, newActive) {
+			d.switchMu.Lock()
 			var allEmails []string
 			for _, a := range d.Keyring.ListAccounts() {
 				allEmails = append(allEmails, a.Email)
@@ -449,13 +460,16 @@ func (d *Daemon) registerRPCHandlers() {
 				_ = keyring.SyncAllSurfaces(acc, allEmails, d.Profiles)
 				_ = d.Keyring.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
 				if d.Shield != nil && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+					if d.Revival != nil {
+						_, _ = d.Revival.CapturePreSwitchState(core.TargetAppDesktop)
+					}
 					_ = gui.NewInjector(0).CaptureActiveConversationPath()
-					go func() {
-						time.Sleep(200 * time.Millisecond)
-						_ = d.Shield.RelaunchHostIDE()
-					}()
+					if err := d.Shield.RelaunchHostIDE(); err != nil {
+						log.Printf("[Daemon removeAccount] RelaunchHostIDE error: %v", err)
+					}
 				}
 			}
+			d.switchMu.Unlock()
 		}
 		return map[string]interface{}{"success": true, "removed": p.Email}, nil
 	}
@@ -529,6 +543,9 @@ func (d *Daemon) registerRPCHandlers() {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: "missing required 'email' parameter"}
 		}
 
+		d.switchMu.Lock()
+		defer d.switchMu.Unlock()
+
 		targetApp := strings.ToLower(strings.TrimSpace(p.TargetApp))
 		isIndividual := d.Config.GetMultiAppSyncMode() == core.MultiAppSyncModeIndividual
 		isAll := targetApp == "" || targetApp == core.TargetAppAll || !isIndividual
@@ -562,9 +579,8 @@ func (d *Daemon) registerRPCHandlers() {
 			shouldRelaunch = false
 		}
 
-		var revivalIntent *revival.RevivalIntent
-		if d.Revival != nil {
-			revivalIntent, _ = d.Revival.CapturePreSwitchState(targetApp)
+		if shouldRelaunch && d.Revival != nil {
+			_, _ = d.Revival.CapturePreSwitchState(targetApp)
 		}
 
 		// Synchronize across relevant surfaces
@@ -575,22 +591,18 @@ func (d *Daemon) registerRPCHandlers() {
 				_ = keyring.SyncSurface(targetApp, acc, allEmails, d.Profiles)
 			}
 			_ = d.Keyring.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
-			if !shouldRelaunch {
-				_, _ = gui.NewInjector(0).RefreshUserStatus()
-			}
-			if d.Revival != nil && revivalIntent != nil {
-				go func(it *revival.RevivalIntent) {
-					_ = d.Revival.ExecutePostRelaunchRevival(it)
-				}(revivalIntent)
-			}
 		}
 
-		if shouldRelaunch && d.Shield != nil && d.Shield.IsAntigravityRunning() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
-			_ = gui.NewInjector(0).CaptureActiveConversationPath()
-			go func() {
-				time.Sleep(200 * time.Millisecond)
-				_ = d.Shield.RelaunchHostIDE()
-			}()
+		// Issue 37: Only execute post-relaunch revival when IDE was actually relaunched
+		if shouldRelaunch {
+			if d.Shield != nil && d.Shield.IsAntigravityRunning() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
+				_ = gui.NewInjector(0).CaptureActiveConversationPath()
+				if err := d.Shield.RelaunchHostIDE(); err != nil {
+					log.Printf("[Daemon switchAccount] RelaunchHostIDE error: %v", err)
+				}
+			}
+		} else {
+			_, _ = gui.NewInjector(0).RefreshUserStatus()
 		}
 
 		return map[string]interface{}{
@@ -1043,6 +1055,7 @@ func (d *Daemon) registerRPCHandlers() {
 			"active_app_accounts":              d.Config.GetActiveAppAccounts(),
 			"subagent_custom_models_enabled":   d.Config.GetSubagentCustomModelsEnabled(),
 			"subagent_model_strategy":          d.Config.GetSubagentModelStrategy(),
+			"session_resume_prompt":            d.Config.GetSessionResumePrompt(),
 			"installed_apps":                   installedMap,
 		}, nil
 	}
@@ -1078,6 +1091,7 @@ func (d *Daemon) registerRPCHandlers() {
 			ActiveAppAccounts           *map[string]string `json:"active_app_accounts"`
 			SubagentCustomModelsEnabled *bool              `json:"subagent_custom_models_enabled"`
 			SubagentModelStrategy       *string            `json:"subagent_model_strategy"`
+			SessionResumePrompt         *string            `json:"session_resume_prompt"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: err.Error()}
@@ -1171,6 +1185,9 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 		if p.SubagentModelStrategy != nil {
 			_ = d.Config.SetSubagentModelStrategy(*p.SubagentModelStrategy)
+		}
+		if p.SessionResumePrompt != nil {
+			d.Config.SessionResumePrompt = strings.TrimSpace(*p.SessionResumePrompt)
 		}
 		_ = d.Config.Save()
 		d.mu.Unlock()
@@ -1307,14 +1324,14 @@ func (d *Daemon) registerRPCHandlers() {
 	})
 
 	d.Server.Register("swiss.setGUIConfig", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
-		var cfg gui.Config
-		if err := json.Unmarshal(params, &cfg); err != nil {
+		if d.GUIStore == nil {
+			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: "gui store unavailable"}
+		}
+		updated, err := d.GUIStore.UpdateConfigPartial(params)
+		if err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: err.Error()}
 		}
-		if err := d.GUIStore.UpdateConfig(&cfg); err != nil {
-			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
-		}
-		return d.GUIStore.GetConfig(), nil
+		return updated, nil
 	})
 
 	// 15. GUI Improvements - Projects
@@ -1465,7 +1482,7 @@ func (d *Daemon) Start() error {
 	if d.GUIStore != nil {
 		go func() {
 			time.Sleep(200 * time.Millisecond)
-			_, _ = d.GUIStore.Apply()
+			d.monitorAndInjectGUI()
 		}()
 	}
 	d.wg.Add(1)
@@ -1583,7 +1600,66 @@ func (d *Daemon) calculateNextStandbyInterval(r *rand.Rand) time.Duration {
 	return quota.RollDynamicJitter(minNominal, r)
 }
 
+func (d *Daemon) monitorAndInjectGUI() {
+	if d.GUIStore == nil {
+		return
+	}
+
+	cfg := d.GUIStore.GetConfig()
+	d.mu.RLock()
+	persistentFX := d.Config.PersistentVisualEffects
+	d.mu.RUnlock()
+
+	// a) Checks d.GUIStore.GetDesktopStatus().Installed: if false and auto_inject is enabled, triggers InstallDesktopLoader().
+	if cfg.AutoInject || persistentFX {
+		st := d.GUIStore.GetDesktopStatus()
+		if !st.Installed {
+			_, _ = d.GUIStore.InstallDesktopLoader()
+		}
+	}
+
+	// b) Continuously monitors active CDP page targets on Antigravity DevTools port:
+	// evaluates whether #antigravity-swiss-styles and #antigravity-swiss-dynamic-colors are present in DOM.
+	// If un-injected or missing, automatically triggers d.GUIStore.Apply().
+	inj := d.GUIStore.GetInjector()
+	if inj == nil {
+		inj = gui.NewInjector(0)
+	}
+
+	port, err := inj.FindDevToolsPort()
+	if err != nil || port <= 0 {
+		return
+	}
+
+	pages, err := inj.GetPageTargets(port)
+	if err != nil || len(pages) == 0 {
+		return
+	}
+
+	checkScript := `Boolean(document.getElementById("antigravity-swiss-styles") && document.getElementById("antigravity-swiss-dynamic-colors"))`
+	needsApply := false
+	for _, page := range pages {
+		res, err := inj.ExecuteScript(page.WebSocketDebuggerURL, checkScript)
+		if err != nil {
+			continue
+		}
+		injected, ok := res["value"].(bool)
+		if !ok || !injected {
+			needsApply = true
+			break
+		}
+	}
+
+	if needsApply {
+		_, _ = d.GUIStore.Apply()
+	}
+}
+
 func (d *Daemon) schedulerLoop() {
+	d.runLoop()
+}
+
+func (d *Daemon) runLoop() {
 	defer d.wg.Done()
 
 	d.mu.RLock()
@@ -1605,6 +1681,9 @@ func (d *Daemon) schedulerLoop() {
 	vaultTicker := time.NewTicker(60 * time.Second)
 	defer vaultTicker.Stop()
 
+	guiTicker := time.NewTicker(2500 * time.Millisecond)
+	defer guiTicker.Stop()
+
 	// Warm up fleet quota cache asynchronously in background on startup
 	d.triggerQuotaRefreshAsync()
 
@@ -1620,6 +1699,9 @@ func (d *Daemon) schedulerLoop() {
 		select {
 		case <-d.ctx.Done():
 			return
+
+		case <-guiTicker.C:
+			d.monitorAndInjectGUI()
 
 		case <-vaultTicker.C:
 			d.mu.RLock()
@@ -1716,36 +1798,70 @@ func (d *Daemon) schedulerLoop() {
 							}
 						}
 
+						var assignedInTick []string
+
 						for _, app := range []string{core.TargetAppDesktop, core.TargetAppCLI, core.TargetAppVSCode} {
 							appEmail := d.Config.GetActiveAppAccount(app)
 							if appEmail == "" {
 								continue
 							}
-							shouldSwitch, successor, _ := quota.EvaluateAutoSwitchForApp(states, appEmail, inUseEmails, thresh, threshWeekly, switchMode, activeDwellSec)
+							// Issue 38: Dynamically recompute activeDwellSec per app inside loop
+							var currentAppDwell float64
+							d.mu.RLock()
+							lastSw := d.lastSwitchTime
+							d.mu.RUnlock()
+							if !lastSw.IsZero() {
+								currentAppDwell = time.Since(lastSw).Seconds()
+							}
+
+							shouldSwitch, successor, _ := quota.EvaluateAutoSwitchForApp(states, appEmail, inUseEmails, thresh, threshWeekly, switchMode, currentAppDwell, assignedInTick...)
 							if shouldSwitch && successor != nil && successor.Email != appEmail {
+								// Issue 27: Verify successor candidate with live quota poll before executing switch
 								cAcc, _ := d.Keyring.GetAccount(successor.Email)
 								if cAcc == nil || strings.TrimSpace(cAcc.RefreshToken) == "" {
 									continue
 								}
+								succSum, pErr := quota.PollAndCacheAccount(cAcc, d.Keyring)
+								if succSum != nil {
+									d.setQuotaSummary(successor.Email, succSum)
+									isHealthy := succSum.Quota5hFraction > thresh
+									if succSum.QuotaWeeklyFraction <= threshWeekly && !(succSum.Credits > 0) {
+										isHealthy = false
+									}
+									if !isHealthy {
+										log.Printf("[Daemon Auto-Switch] Candidate %s live quota breached; skipping", successor.Email)
+										continue
+									}
+								} else if pErr != nil {
+									log.Printf("[Daemon Auto-Switch] Failed to poll candidate %s live quota (%v); skipping", successor.Email, pErr)
+									continue
+								}
 
-								_ = d.Config.SetActiveAppAccount(app, successor.Email)
+								d.switchMu.Lock()
+								// Issue 35: Verify Keyring.SetActiveAccount succeeds before committing Config.SetActiveAppAccount
 								if app == core.TargetAppDesktop {
-									_ = d.Keyring.SetActiveAccount(successor.Email)
+									if err := d.Keyring.SetActiveAccount(successor.Email); err != nil {
+										log.Printf("[Daemon Auto-Switch] Alert: failed to activate successor %s in keyring: %v; aborting switch", successor.Email, err)
+										d.switchMu.Unlock()
+										continue
+									}
 									if !strings.EqualFold(d.Keyring.ActiveAccount(), successor.Email) {
 										_ = d.Keyring.SetActiveAccount(successor.Email)
 									}
 									if !strings.EqualFold(d.Keyring.ActiveAccount(), successor.Email) {
 										log.Printf("[Daemon Auto-Switch] Alert: failed to activate successor %s (current: %s); aborting switch", successor.Email, d.Keyring.ActiveAccount())
+										d.switchMu.Unlock()
 										continue
 									}
 								}
+								_ = d.Config.SetActiveAppAccount(app, successor.Email)
+
 								d.mu.Lock()
 								d.lastSwitchTime = time.Now()
 								d.mu.Unlock()
 
-								var revIntent *revival.RevivalIntent
-								if d.Revival != nil {
-									revIntent, _ = d.Revival.CapturePreSwitchState(app)
+								if app == core.TargetAppDesktop && d.Revival != nil {
+									_, _ = d.Revival.CapturePreSwitchState(app)
 								}
 
 								if cAcc, _ := d.Keyring.GetAccount(successor.Email); cAcc != nil {
@@ -1753,24 +1869,17 @@ func (d *Daemon) schedulerLoop() {
 									if cAcc.AccessToken != "" {
 										_ = d.Keyring.UpdateAccountTokensWithExpiry(cAcc.Email, cAcc.AccessToken, cAcc.RefreshToken, cAcc.TokenExpiry)
 									}
+									// Issue 23 & 37: Synchronous relaunch without 200ms guess, and only revive on actual relaunch
 									if app == core.TargetAppDesktop && d.Shield != nil && d.Shield.IsAntigravityRunning() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
 										_ = gui.NewInjector(0).CaptureActiveConversationPath()
-										go func() {
-											time.Sleep(200 * time.Millisecond)
-											if err := d.Shield.RelaunchHostIDE(); err != nil {
-												log.Printf("[Daemon Auto-Switch] RelaunchHostIDE error: %v", err)
-											}
-											if d.Revival != nil && revIntent != nil {
-												time.Sleep(3 * time.Second)
-												_ = d.Revival.ExecutePostRelaunchRevival(revIntent)
-											}
-										}()
-									} else if d.Revival != nil && revIntent != nil {
-										go func(it *revival.RevivalIntent) {
-											_ = d.Revival.ExecutePostRelaunchRevival(it)
-										}(revIntent)
+										if err := d.Shield.RelaunchHostIDE(); err != nil {
+											log.Printf("[Daemon Auto-Switch] RelaunchHostIDE error: %v", err)
+										}
 									}
 								}
+								d.switchMu.Unlock()
+
+								assignedInTick = append(assignedInTick, successor.Email)
 								for idx, em := range inUseEmails {
 									if em == appEmail {
 										inUseEmails[idx] = successor.Email
@@ -1783,27 +1892,50 @@ func (d *Daemon) schedulerLoop() {
 						// Shared mode rotation
 						shouldSwitch, successor, _ := quota.EvaluateAutoSwitchWithThresholds(states, active, thresh, threshWeekly, switchMode, activeDwellSec)
 						if shouldSwitch && successor != nil && successor.Email != active {
+							// Issue 27: Verify successor candidate with live quota poll before executing switch
 							cAcc, _ := d.Keyring.GetAccount(successor.Email)
 							if cAcc == nil || strings.TrimSpace(cAcc.RefreshToken) == "" {
 								continue
 							}
+							succSum, pErr := quota.PollAndCacheAccount(cAcc, d.Keyring)
+							if succSum != nil {
+								d.setQuotaSummary(successor.Email, succSum)
+								isHealthy := succSum.Quota5hFraction > thresh
+								if succSum.QuotaWeeklyFraction <= threshWeekly && !(succSum.Credits > 0) {
+									isHealthy = false
+								}
+								if !isHealthy {
+									log.Printf("[Daemon Auto-Switch] Candidate %s live quota breached; skipping", successor.Email)
+									continue
+								}
+							} else if pErr != nil {
+								log.Printf("[Daemon Auto-Switch] Failed to poll candidate %s live quota (%v); skipping", successor.Email, pErr)
+								continue
+							}
 
-							_ = d.Keyring.SetActiveAccount(successor.Email)
+							d.switchMu.Lock()
+							// Issue 35: Verify Keyring.SetActiveAccount succeeds before committing Config
+							if err := d.Keyring.SetActiveAccount(successor.Email); err != nil {
+								log.Printf("[Daemon Auto-Switch] Alert: failed to activate successor %s in keyring: %v; aborting switch", successor.Email, err)
+								d.switchMu.Unlock()
+								continue
+							}
 							if !strings.EqualFold(d.Keyring.ActiveAccount(), successor.Email) {
 								_ = d.Keyring.SetActiveAccount(successor.Email)
 							}
 							if !strings.EqualFold(d.Keyring.ActiveAccount(), successor.Email) {
 								log.Printf("[Daemon Auto-Switch] Alert: failed to activate successor %s (current: %s); aborting switch", successor.Email, d.Keyring.ActiveAccount())
+								d.switchMu.Unlock()
 								continue
 							}
 							_ = d.Config.SetActiveAppAccount("all", successor.Email)
+
 							d.mu.Lock()
 							d.lastSwitchTime = time.Now()
 							d.mu.Unlock()
 
-							var revIntent *revival.RevivalIntent
 							if d.Revival != nil {
-								revIntent, _ = d.Revival.CapturePreSwitchState(core.TargetAppDesktop)
+								_, _ = d.Revival.CapturePreSwitchState(core.TargetAppDesktop)
 							}
 
 							if cAcc, _ := d.Keyring.GetAccount(successor.Email); cAcc != nil {
@@ -1811,24 +1943,15 @@ func (d *Daemon) schedulerLoop() {
 								if cAcc.AccessToken != "" {
 									_ = d.Keyring.UpdateAccountTokensWithExpiry(cAcc.Email, cAcc.AccessToken, cAcc.RefreshToken, cAcc.TokenExpiry)
 								}
+								// Issue 23 & 37: Synchronous relaunch without 200ms guess, and only revive on actual relaunch
 								if d.Shield != nil && d.Shield.IsAntigravityRunning() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
 									_ = gui.NewInjector(0).CaptureActiveConversationPath()
-									go func() {
-										time.Sleep(200 * time.Millisecond)
-										if err := d.Shield.RelaunchHostIDE(); err != nil {
-											log.Printf("[Daemon Auto-Switch] RelaunchHostIDE error: %v", err)
-										}
-										if d.Revival != nil && revIntent != nil {
-											time.Sleep(3 * time.Second)
-											_ = d.Revival.ExecutePostRelaunchRevival(revIntent)
-										}
-									}()
-								} else if d.Revival != nil && revIntent != nil {
-									go func(it *revival.RevivalIntent) {
-										_ = d.Revival.ExecutePostRelaunchRevival(it)
-									}(revIntent)
+									if err := d.Shield.RelaunchHostIDE(); err != nil {
+										log.Printf("[Daemon Auto-Switch] RelaunchHostIDE error: %v", err)
+									}
 								}
 							}
+							d.switchMu.Unlock()
 						}
 					}
 				}
@@ -2045,7 +2168,7 @@ func (d *Daemon) shouldIgniteAccount(email string, qs *quota.QuotaSummary, thres
 		return false
 	}
 	// Must have 5h quota available to ignite (at least near 100%)
-	if qs.Quota5hFraction < 0.95 {
+	if qs.Quota5hFraction < core.WarmupMinQuotaFraction {
 		return false
 	}
 	// Weekly quota must not be depleted below threshold
@@ -2057,30 +2180,64 @@ func (d *Daemon) shouldIgniteAccount(email string, qs *quota.QuotaSummary, thres
 	lastIgnited, exists := d.ignitedAccounts[strings.ToLower(strings.TrimSpace(email))]
 	d.ignitedMu.RUnlock()
 
-	// If ignited within the last 4.5 hours, do not ignite again
-	if exists && time.Since(lastIgnited) < 4*time.Hour+30*time.Minute {
+	// If ignited within the minimum interval (4.5 hours), do not ignite again
+	if exists && time.Since(lastIgnited) < core.WarmupMinIgnitionInterval {
 		return false
 	}
 
 	// An account needs ignition if its 5h reset timer has NOT started rolling:
-	// When Google hasn't started the timer, ResetSeconds5h is >= 17700 (near 18000s = 5h)
-	// or the model reset time is >= now + 4h55m
-	if qs.ResetSeconds5h >= 17700 {
-		return true
-	}
-	rt := qs.GetResetTime()
-	if !rt.IsZero() && rt.After(time.Now().Add(4*time.Hour+55*time.Minute)) {
+	// When Google hasn't started the timer, ResetSeconds5h is 0, reset time is zero, or text is "Ready".
+	if qs.ResetSeconds5h == 0 || qs.GetResetTime().IsZero() || qs.ResetHorizonText == "Ready" {
 		return true
 	}
 	return false
 }
 
-// recordIgnition records the timestamp an account was successfully ignited.
+func getIgnitedAccountsPath() string {
+	return filepath.Join(core.GetConfigDir(), "ignited_accounts.json")
+}
+
+func loadIgnitedAccounts() map[string]time.Time {
+	path := getIgnitedAccountsPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return make(map[string]time.Time)
+	}
+	var res map[string]time.Time
+	if err := json.Unmarshal(data, &res); err != nil {
+		return make(map[string]time.Time)
+	}
+	if res == nil {
+		res = make(map[string]time.Time)
+	}
+	return res
+}
+
+func saveIgnitedAccounts(accounts map[string]time.Time) error {
+	path := getIgnitedAccountsPath()
+	_ = os.MkdirAll(filepath.Dir(path), 0700)
+	data, err := json.MarshalIndent(accounts, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// recordIgnition records the timestamp an account was successfully ignited and persists it to disk.
 func (d *Daemon) recordIgnition(email string) {
 	d.ignitedMu.Lock()
 	if d.ignitedAccounts == nil {
 		d.ignitedAccounts = make(map[string]time.Time)
 	}
 	d.ignitedAccounts[strings.ToLower(strings.TrimSpace(email))] = time.Now()
+	copyMap := make(map[string]time.Time, len(d.ignitedAccounts))
+	for k, v := range d.ignitedAccounts {
+		copyMap[k] = v
+	}
 	d.ignitedMu.Unlock()
+	_ = saveIgnitedAccounts(copyMap)
 }

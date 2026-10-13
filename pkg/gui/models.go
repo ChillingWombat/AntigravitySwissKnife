@@ -5,6 +5,9 @@ import (
 	"time"
 )
 
+// GUIConfig is an alias for Config to support uniform GUI configuration naming.
+type GUIConfig = Config
+
 // Config holds user customization settings for Antigravity desktop GUI improvements.
 type Config struct {
 	Enabled                     bool              `json:"enabled"`                       // Master toggle for GUI improvements

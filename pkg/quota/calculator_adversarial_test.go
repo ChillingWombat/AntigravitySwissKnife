@@ -308,3 +308,73 @@ func TestAdversarial_EvaluateAutoSwitchForApp_AllExhausted(t *testing.T) {
 		t.Errorf("expected nextAcc to be nil when all exhausted, got %v", nextAcc)
 	}
 }
+
+func TestAdversarial_EvaluateAutoSwitchForApp_Phase2ExcludesAssignedInTick(t *testing.T) {
+	// Account setup: app1 and app2 depleted; shared1 and shared2 healthy
+	accounts := []AccountQuotaState{
+		{
+			Email:          "app1@domain.com",
+			Status:         "ACTIVE",
+			Quota5hCurrent: 0.01,
+			QuotaWeekly:    0.80,
+		},
+		{
+			Email:          "app2@domain.com",
+			Status:         "ACTIVE",
+			Quota5hCurrent: 0.02,
+			QuotaWeekly:    0.80,
+		},
+		{
+			Email:          "shared1@domain.com",
+			Status:         "STANDBY",
+			Quota5hCurrent: 0.90,
+			QuotaWeekly:    0.90,
+		},
+		{
+			Email:          "shared2@domain.com",
+			Status:         "STANDBY",
+			Quota5hCurrent: 0.85,
+			QuotaWeekly:    0.85,
+		},
+	}
+
+	// In use: both app1 and app2 active, shared1 and shared2 active in other services
+	inUseEmails := []string{"app1@domain.com", "app2@domain.com", "shared1@domain.com", "shared2@domain.com"}
+
+	// App 1 switches and claims shared1
+	shouldSwitch1, nextAcc1, _ := EvaluateAutoSwitchForApp(
+		accounts,
+		"app1@domain.com",
+		inUseEmails,
+		0.05,
+		0.05,
+		"balanced",
+		60.0,
+	)
+	if !shouldSwitch1 || nextAcc1 == nil || nextAcc1.Email != "shared1@domain.com" {
+		t.Fatalf("expected app1 to rotate to shared1, got %v", nextAcc1)
+	}
+
+	// App 2 now evaluates in the same tick. Passing assignedInTick="shared1@domain.com"
+	// Phase 2 must NOT assign shared1 again, but must fallback to shared2
+	shouldSwitch2, nextAcc2, _ := EvaluateAutoSwitchForApp(
+		accounts,
+		"app2@domain.com",
+		inUseEmails,
+		0.05,
+		0.05,
+		"balanced",
+		60.0,
+		"shared1@domain.com",
+	)
+	if !shouldSwitch2 || nextAcc2 == nil {
+		t.Fatalf("expected app2 to rotate, got nil")
+	}
+	if nextAcc2.Email == "shared1@domain.com" {
+		t.Fatalf("CRITICAL: app2 converged on shared1@domain.com which was already assigned in this tick!")
+	}
+	if nextAcc2.Email != "shared2@domain.com" {
+		t.Fatalf("expected app2 to select shared2@domain.com, got %s", nextAcc2.Email)
+	}
+}
+

@@ -3,15 +3,16 @@ package keyring
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	_ "modernc.org/sqlite"
 )
 
 const (
@@ -106,31 +107,36 @@ func ReadCloudAccountsDB(homeDir string) ([]DiscoveredCloudAccount, error) {
 		return nil, nil
 	}
 
-	// Query sqlite via python3
-	pyScript := fmt.Sprintf(`import sqlite3, json
-try:
-    con = sqlite3.connect(%q)
-    cur = con.cursor()
-    rows = cur.execute("SELECT email, name, is_active, token_json, quota_json, status FROM accounts").fetchall()
-    print(json.dumps([list(r) for r in rows]))
-except Exception as e:
-    print(json.dumps({"error": str(e)}))
-`, dbPath)
-
-	cmd := exec.Command("python3", "-c", pyScript)
-	out, err := cmd.Output()
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro&_busy_timeout=5000&_query_only=true")
 	if err != nil {
-		return nil, fmt.Errorf("failed to read cloud_accounts.db: %w", err)
+		return nil, fmt.Errorf("failed to open cloud_accounts.db: %w", err)
 	}
+	defer db.Close()
 
-	trimmed := strings.TrimSpace(string(out))
-	if trimmed == "" || strings.HasPrefix(trimmed, "{\"error\":") {
-		return nil, fmt.Errorf("error querying cloud_accounts.db: %s", trimmed)
+	rows, err := db.Query("SELECT email, name, is_active, token_json, quota_json, status FROM accounts")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query cloud_accounts.db: %w", err)
 	}
+	defer rows.Close()
 
 	var rawRows [][]interface{}
-	if err := json.Unmarshal([]byte(trimmed), &rawRows); err != nil {
-		return nil, fmt.Errorf("failed to parse rows: %w", err)
+	for rows.Next() {
+		var email, name, tokenJSON, quotaJSON, status sql.NullString
+		var isActive sql.NullInt64
+		if err := rows.Scan(&email, &name, &isActive, &tokenJSON, &quotaJSON, &status); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		rawRows = append(rawRows, []interface{}{
+			email.String,
+			name.String,
+			float64(isActive.Int64),
+			tokenJSON.String,
+			quotaJSON.String,
+			status.String,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
 	}
 
 	masterKey := os.Getenv("ANTIGRAVITY_MANAGER_MASTER_KEY")
@@ -410,18 +416,14 @@ func SyncCloudAccountsAutoSwitch(homeDir string, enabled bool) error {
 	if enabled {
 		valStr = "true"
 	}
-	pyScript := fmt.Sprintf(`import sqlite3
-try:
-    con = sqlite3.connect(%q, timeout=5.0)
-    con.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('auto_switch_enabled', ?)", (%q,))
-    con.commit()
-    con.close()
-except Exception:
-    pass
-`, dbPath, valStr)
-	cmd := exec.Command("python3", "-c", pyScript)
-	_ = cmd.Run()
-	return nil
+	db, err := sql.Open("sqlite", dbPath+"?_busy_timeout=5000")
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	_, err = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('auto_switch_enabled', ?)", valStr)
+	return err
 }
 
 // SyncCloudAccountsActiveAccount updates is_active in ~/.antigravity-agent/cloud_accounts.db
@@ -440,18 +442,15 @@ func SyncCloudAccountsActiveAccount(homeDir, activeEmail string) error {
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		return nil
 	}
-	pyScript := fmt.Sprintf(`import sqlite3
-try:
-    con = sqlite3.connect(%q, timeout=5.0)
-    con.execute("UPDATE accounts SET is_active = CASE WHEN LOWER(email) = LOWER(?) THEN 1 ELSE 0 END", (%q,))
-    con.commit()
-    con.close()
-except Exception:
-    pass
-`, dbPath, activeEmail)
-	cmd := exec.Command("python3", "-c", pyScript)
-	_ = cmd.Run()
-	return nil
+
+	db, err := sql.Open("sqlite", dbPath+"?_busy_timeout=5000")
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	_, err = db.Exec("UPDATE accounts SET is_active = CASE WHEN LOWER(email) = LOWER(?) THEN 1 ELSE 0 END", activeEmail)
+	return err
 }
 
 func isTrialWarningText(text string) bool {
