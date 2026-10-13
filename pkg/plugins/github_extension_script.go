@@ -372,10 +372,16 @@ func GenerateGitHubExtensionScript() string {
   }
 
   function getActiveProjectWorkspacePath() {
-    const projName = detectCurrentConversationProject() || lastInteractedProject || (availableProjects.length > 0 ? availableProjects[0] : ".");
+    let projName = detectCurrentConversationProject() || lastInteractedProject;
+    if (!projName || projName === "." || projName === "GLOBAL") {
+      if (availableProjects.length > 0) {
+        projName = availableProjects[0];
+      }
+    }
     if (projName && projName !== "." && projName !== "GLOBAL") {
       const folder = getProjectFolder(projName);
       if (folder) return folder;
+      return projName;
     }
     return projName || ".";
   }
@@ -446,48 +452,79 @@ func GenerateGitHubExtensionScript() string {
     setTimeout(() => { if (toast) toast.style.opacity = "0"; }, 2800);
   }
 
-  // 2. Fetch Repo & Workspace Data
+  const workspaceBundleCache = new Map();
+  let fetchRepoDataSeq = 0;
+  let fetchRepoDataTimer = null;
+
+  function debouncedFetchRepoData(delayMs = 120) {
+    if (fetchRepoDataTimer) clearTimeout(fetchRepoDataTimer);
+    fetchRepoDataTimer = setTimeout(() => {
+      fetchRepoData();
+    }, delayMs);
+  }
+
+  // 2. Fetch Repo & Workspace Data concurrently
   async function fetchWorkspaceBundle(wsPathEncoded) {
-    const bundle = { repo: null, issues: [], prs: [], tasks: [], board: null };
-    const resRepo = await fetch("http://127.0.0.1:8765/api/github/repo?workspace_path=" + wsPathEncoded);
-    if (resRepo.ok) {
-      const data = await resRepo.json();
-      if (data.success && data.repo) bundle.repo = data.repo;
-    }
-    const resIssues = await fetch("http://127.0.0.1:8765/api/github/issues?workspace_path=" + wsPathEncoded + "&state=all");
-    if (resIssues.ok) {
-      const data = await resIssues.json();
-      if (data.success && data.issues) bundle.issues = data.issues;
-    }
-    const resPRs = await fetch("http://127.0.0.1:8765/api/github/prs?workspace_path=" + wsPathEncoded + "&state=all");
-    if (resPRs.ok) {
-      const data = await resPRs.json();
-      if (data.success && data.prs) bundle.prs = data.prs;
-    }
-    const resTasks = await fetch("http://127.0.0.1:8765/api/github/agent-tasks?workspace_path=" + wsPathEncoded);
-    if (resTasks.ok) {
-      const data = await resTasks.json();
-      if (data.success && data.tasks) bundle.tasks = data.tasks;
-    }
-    const resKanban = await fetch("http://127.0.0.1:8765/api/github/kanban?workspace_path=" + wsPathEncoded);
-    if (resKanban.ok) {
-      const data = await resKanban.json();
-      if (data.success && data.board) bundle.board = data.board;
-    }
+    const bundle = { repo: null, issues: null, prs: null, tasks: null, board: null };
+    try {
+      const [resRepo, resIssues, resPRs, resTasks, resKanban] = await Promise.all([
+        fetch("http://127.0.0.1:8765/api/github/repo?workspace_path=" + wsPathEncoded).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch("http://127.0.0.1:8765/api/github/issues?workspace_path=" + wsPathEncoded + "&state=all").then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch("http://127.0.0.1:8765/api/github/prs?workspace_path=" + wsPathEncoded + "&state=all").then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch("http://127.0.0.1:8765/api/github/agent-tasks?workspace_path=" + wsPathEncoded).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch("http://127.0.0.1:8765/api/github/kanban?workspace_path=" + wsPathEncoded).then(r => r.ok ? r.json() : null).catch(() => null),
+      ]);
+      if (resRepo && resRepo.success && resRepo.repo) bundle.repo = resRepo.repo;
+      if (resIssues && resIssues.success && Array.isArray(resIssues.issues)) bundle.issues = resIssues.issues;
+      if (resPRs && resPRs.success && Array.isArray(resPRs.prs)) bundle.prs = resPRs.prs;
+      if (resTasks && resTasks.success && Array.isArray(resTasks.tasks)) bundle.tasks = resTasks.tasks;
+      if (resKanban && resKanban.success && resKanban.board) bundle.board = resKanban.board;
+    } catch (_) {}
     return bundle;
   }
 
   async function fetchRepoData() {
+    const seq = ++fetchRepoDataSeq;
     try {
       const stageWs = getEffectiveWorkspacePath(false);
       const auxWs = getEffectiveWorkspacePath(true);
+
+      // Hydrate immediately from in-memory cache to prevent flashing "Detecting repo..."
+      const cachedStage = workspaceBundleCache.get(stageWs);
+      if (cachedStage) {
+        if (cachedStage.repo) currentRepo = cachedStage.repo;
+        if (cachedStage.issues) cachedIssues = cachedStage.issues;
+        if (cachedStage.prs) cachedPRs = cachedStage.prs;
+        if (cachedStage.tasks) cachedAgentTasks = cachedStage.tasks;
+        if (cachedStage.board) cachedKanbanBoard = cachedStage.board;
+      }
+      const cachedAux = workspaceBundleCache.get(auxWs);
+      if (cachedAux) {
+        if (cachedAux.repo) auxRepo = cachedAux.repo;
+        if (cachedAux.issues) auxIssues = cachedAux.issues;
+        if (cachedAux.prs) auxPRs = cachedAux.prs;
+        if (cachedAux.tasks) auxAgentTasks = cachedAux.tasks;
+        if (cachedAux.board) auxKanbanBoard = cachedAux.board;
+      }
+
       const wsPath = encodeURIComponent(stageWs);
       const primary = await fetchWorkspaceBundle(wsPath);
-      currentRepo = primary.repo || null;
-      cachedIssues = primary.issues;
-      cachedPRs = primary.prs;
-      cachedAgentTasks = primary.tasks;
-      cachedKanbanBoard = primary.board || null;
+      if (seq !== fetchRepoDataSeq) return; // Stale async request, drop it
+
+      // Only overwrite if non-null, preserving current state on transient errors
+      if (primary.repo) currentRepo = primary.repo;
+      if (primary.issues !== null) cachedIssues = primary.issues;
+      if (primary.prs !== null) cachedPRs = primary.prs;
+      if (primary.tasks !== null) cachedAgentTasks = primary.tasks;
+      if (primary.board !== null) cachedKanbanBoard = primary.board;
+
+      workspaceBundleCache.set(stageWs, {
+        repo: currentRepo,
+        issues: cachedIssues,
+        prs: cachedPRs,
+        tasks: cachedAgentTasks,
+        board: cachedKanbanBoard,
+      });
 
       if (auxWs === stageWs) {
         auxRepo = currentRepo;
@@ -500,12 +537,20 @@ func GenerateGitHubExtensionScript() string {
         const auxContainer = document.querySelector("#swiss-aux-container");
         if (auxContainer) {
           const auxBundle = await fetchWorkspaceBundle(encodeURIComponent(auxWs));
-          auxRepo = auxBundle.repo || null;
-          auxIssues = auxBundle.issues;
-          auxPRs = auxBundle.prs;
-          auxAgentTasks = auxBundle.tasks;
-          auxKanbanBoard = auxBundle.board || null;
+          if (seq !== fetchRepoDataSeq) return; // Stale async request
+          if (auxBundle.repo) auxRepo = auxBundle.repo;
+          if (auxBundle.issues !== null) auxIssues = auxBundle.issues;
+          if (auxBundle.prs !== null) auxPRs = auxBundle.prs;
+          if (auxBundle.tasks !== null) auxAgentTasks = auxBundle.tasks;
+          if (auxBundle.board !== null) auxKanbanBoard = auxBundle.board;
           lastFetchedAuxWs = auxWs;
+          workspaceBundleCache.set(auxWs, {
+            repo: auxRepo,
+            issues: auxIssues,
+            prs: auxPRs,
+            tasks: auxAgentTasks,
+            board: auxKanbanBoard,
+          });
         }
       }
 
@@ -977,6 +1022,19 @@ func GenerateGitHubExtensionScript() string {
     } catch (_) {}
   }
 
+  function scheduleAuxiliaryReconcile() {
+    const triggerAuxRestore = () => {
+      if (typeof window.setupAuxiliaryTabs === "function") {
+        window.setupAuxiliaryTabs();
+      }
+    };
+    setTimeout(triggerAuxRestore, 20);
+    setTimeout(triggerAuxRestore, 100);
+    setTimeout(triggerAuxRestore, 300);
+    setTimeout(triggerAuxRestore, 600);
+    debouncedFetchRepoData(120);
+  }
+
   // Global listener: clicking any conversation row, chat tab, or /c/ navigation returns to chat
   if (window.__swissChatNavHandler) {
     document.removeEventListener("click", window.__swissChatNavHandler, true);
@@ -1007,6 +1065,9 @@ func GenerateGitHubExtensionScript() string {
     if (typeof window.normalizeNewConversationButton === "function") {
       setTimeout(window.normalizeNewConversationButton, 10);
     }
+    if (convTrigger) {
+      scheduleAuxiliaryReconcile();
+    }
   };
   document.addEventListener("click", window.__swissChatNavHandler, true);
 
@@ -1026,6 +1087,7 @@ func GenerateGitHubExtensionScript() string {
     if (typeof window.normalizeNewConversationButton === "function") {
       setTimeout(window.normalizeNewConversationButton, 10);
     }
+    scheduleAuxiliaryReconcile();
   };
   window.addEventListener("popstate", window.__swissPopstateHandler);
 
@@ -1054,6 +1116,7 @@ func GenerateGitHubExtensionScript() string {
         if (typeof window.normalizeNewConversationButton === "function") {
           setTimeout(window.normalizeNewConversationButton, 10);
         }
+        scheduleAuxiliaryReconcile();
       } catch (_) {}
       return res;
     };
@@ -1077,6 +1140,7 @@ func GenerateGitHubExtensionScript() string {
         if (typeof window.normalizeNewConversationButton === "function") {
           setTimeout(window.normalizeNewConversationButton, 10);
         }
+        scheduleAuxiliaryReconcile();
       } catch (_) {}
       return res;
     };
@@ -1159,19 +1223,20 @@ func GenerateGitHubExtensionScript() string {
     container.innerHTML = "";
 
     const auxWs = getEffectiveWorkspacePath(true);
-    if (lastFetchedAuxWs !== auxWs) {
+    if (auxWs && auxWs !== "." && lastFetchedAuxWs !== auxWs) {
       lastFetchedAuxWs = auxWs;
-      fetchRepoData();
+      debouncedFetchRepoData(50);
     }
 
     const auxView = document.createElement("div");
     auxView.className = "swiss-github-aux-view";
 
     const effRepo = auxRepo || currentRepo;
-    const effIssues = auxIssues || cachedIssues;
-    const effPRs = auxPRs || cachedPRs;
-    const effTasks = auxAgentTasks || cachedAgentTasks;
-    const repoName = effRepo ? (effRepo.full_name || effRepo.FullName || "Detecting repo...") : "Detecting repo...";
+    const effIssues = auxIssues || cachedIssues || [];
+    const effPRs = auxPRs || cachedPRs || [];
+    const effTasks = auxAgentTasks || cachedAgentTasks || [];
+    const projDisplayName = detectCurrentConversationProject() || lastInteractedProject || (availableProjects.length > 0 ? availableProjects[0] : "");
+    const repoName = effRepo ? (effRepo.full_name || effRepo.FullName || projDisplayName || "GitHub Workspace") : (projDisplayName || "GitHub Workspace");
     const branchName = effRepo ? (effRepo.current_branch || effRepo.CurrentBranch || "main") : "main";
     const filteredItems = getFilteredItems(true);
 
@@ -1264,9 +1329,9 @@ func GenerateGitHubExtensionScript() string {
 
   function getFilteredItems(forAux = false) {
     let items = [];
-    const issList = forAux ? (auxIssues || cachedIssues) : cachedIssues;
-    const prList = forAux ? (auxPRs || cachedPRs) : cachedPRs;
-    const taskList = forAux ? (auxAgentTasks || cachedAgentTasks) : cachedAgentTasks;
+    const issList = (forAux ? (auxIssues || cachedIssues) : cachedIssues) || [];
+    const prList = (forAux ? (auxPRs || cachedPRs) : cachedPRs) || [];
+    const taskList = (forAux ? (auxAgentTasks || cachedAgentTasks) : cachedAgentTasks) || [];
     const effTab = (!forAux && activeTab === "board") ? "issues" : activeTab;
     if (effTab === "issues") {
       items = issList;

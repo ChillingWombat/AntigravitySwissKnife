@@ -384,7 +384,7 @@ func parseTranscriptFile(tPath string, info os.FileInfo) cachedTranscriptStats {
 					diff := nextItem.timestamp.Sub(item.timestamp).Milliseconds()
 					if diff >= 200 && diff <= 600000 {
 						impliedTPS := float64(item.outputTokens) / (float64(diff) / 1000.0)
-						if impliedTPS >= 3.0 && impliedTPS <= 350.0 {
+						if impliedTPS >= 3.0 && impliedTPS <= 220.0 {
 							durMs = diff
 							break
 						}
@@ -395,10 +395,10 @@ func parseTranscriptFile(tPath string, info os.FileInfo) cachedTranscriptStats {
 
 		if durMs > 0 && item.outputTokens > 0 {
 			rawTPS := float64(item.outputTokens) / (float64(durMs) / 1000.0)
-			if rawTPS >= 3.0 && rawTPS <= 350.0 {
+			if rawTPS >= 3.0 && rawTPS <= 220.0 {
 				stats.totalDurationMs += durMs
 				stats.timedOutputTokens += item.outputTokens
-			} else if rawTPS > 350.0 {
+			} else if rawTPS > 220.0 {
 				// Bound realistic generation speed
 				clampedDurMs := int64(math.Ceil(float64(item.outputTokens) / 220.0 * 1000.0))
 				durMs = clampedDurMs
@@ -1151,8 +1151,8 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 		avgTPS := 0.0
 		if ma.durationMs > 0 && ma.timedOutput > 0 {
 			rawTPS := float64(ma.timedOutput) / (float64(ma.durationMs) / 1000.0)
-			if rawTPS > 350.0 {
-				rawTPS = 350.0
+			if rawTPS > 220.0 {
+				rawTPS = 220.0
 			}
 			avgTPS = math.Round(rawTPS*10) / 10
 		}
@@ -1240,8 +1240,8 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 		tps := 0.0
 		if st.durationMs > 0 && st.output > 0 {
 			rawTPS := float64(st.output) / (float64(st.durationMs) / 1000.0)
-			if rawTPS > 350.0 {
-				rawTPS = 350.0
+			if rawTPS > 220.0 {
+				rawTPS = 220.0
 			}
 			tps = math.Round(rawTPS*10) / 10
 		}
@@ -1270,8 +1270,8 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 	avgTPS := 0.0
 	if totalDurationMs > 0 && totalTimedOutputTokens > 0 {
 		rawTPS := float64(totalTimedOutputTokens) / (float64(totalDurationMs) / 1000.0)
-		if rawTPS > 350.0 {
-			rawTPS = 350.0
+		if rawTPS > 220.0 {
+			rawTPS = 220.0
 		}
 		avgTPS = math.Round(rawTPS*10) / 10
 	} else if len(telemetryEvents) > 0 {
@@ -1285,8 +1285,8 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 		}
 		if count > 0 {
 			rawTPS := sum / float64(count)
-			if rawTPS > 350.0 {
-				rawTPS = 350.0
+			if rawTPS > 220.0 {
+				rawTPS = 220.0
 			}
 			avgTPS = math.Round(rawTPS*10) / 10
 		}
@@ -1498,8 +1498,8 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 		tps := 0.0
 		if curTurn.durationMs > 0 && curTurn.outputTokens > 0 {
 			rawTPS := float64(curTurn.outputTokens) / (float64(curTurn.durationMs) / 1000.0)
-			if rawTPS > 350.0 {
-				rawTPS = 350.0
+			if rawTPS > 220.0 {
+				rawTPS = 220.0
 			}
 			tps = math.Round(rawTPS*10) / 10
 		}
@@ -1583,7 +1583,7 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 						// Final step followed by user response: count if within 2 minutes and plausible speed
 						if diffNext >= 200 && diffNext <= 120000 && out > 0 {
 							impliedTPS := float64(out) / (float64(diffNext) / 1000.0)
-							if impliedTPS >= 3.0 && impliedTPS <= 350.0 {
+							if impliedTPS >= 3.0 && impliedTPS <= 220.0 {
 								durMs = diffNext
 							}
 						}

@@ -195,4 +195,36 @@ func TestMoveKanbanCardValidation(t *testing.T) {
 	}
 }
 
+func TestServiceCachingAndFallback(t *testing.T) {
+	svc := NewService(nil, nil)
+	repo, err := svc.DetectRepository(".")
+	if err != nil {
+		t.Fatalf("DetectRepository failed: %v", err)
+	}
+	if repo == nil {
+		t.Fatal("expected non-nil repo")
+	}
+
+	// Repeated call within 30s should hit cache
+	cached, err := svc.DetectRepository(".")
+	if err != nil {
+		t.Fatalf("cached DetectRepository failed: %v", err)
+	}
+	if cached.FullName != repo.FullName {
+		t.Errorf("expected cached repo %q, got %q", repo.FullName, cached.FullName)
+	}
+
+	// InvalidateCache should clear cache
+	svc.InvalidateCache()
+
+	// Calling with an invalid directory should fall back to lastGoodRepo
+	fallbackRepo, err := svc.DetectRepository("/non/existent/path/that/cannot/be/git")
+	if err != nil {
+		t.Fatalf("expected fallback to lastGoodRepo, got error: %v", err)
+	}
+	if fallbackRepo.FullName != repo.FullName {
+		t.Errorf("expected fallback repo %q, got %q", repo.FullName, fallbackRepo.FullName)
+	}
+}
+
 

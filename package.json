@@ -100,7 +100,7 @@
         "dmg"
       ],
       "category": "public.app-category.developer-tools",
-      "icon": "assets/logo.png",
+      "icon": "assets/icons/icon_mac.png",
       "extraResources": [
         {
           "from": "bin/swiss",

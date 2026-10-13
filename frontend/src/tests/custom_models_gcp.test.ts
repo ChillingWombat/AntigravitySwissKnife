@@ -86,4 +86,18 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
     assert.ok(pageContent.includes("gaugePct = null"))
     assert.ok(pageContent.includes("emptyGrey = true"))
   })
+
+  it('renders official Google Cloud logo on GCP model cards (R2)', () => {
+    assert.ok(
+      pageContent.includes("m.provider_type === 'gcp'") && pageContent.includes('<GoogleCloudLogoIcon size={16}'),
+      'GCP model cards must render GoogleCloudLogoIcon'
+    )
+  })
+
+  it('displays GCP credit balance in connection test feedback (R5)', () => {
+    assert.ok(
+      pageContent.includes('GCP Credit Balance:'),
+      'GCP test connection feedback must display GCP credit balance'
+    )
+  })
 })

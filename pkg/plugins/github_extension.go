@@ -321,44 +321,67 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
 .swiss-gh-tabs-row {
   display: flex;
   align-items: center;
-  border-bottom: 1px solid var(--border, #e2e8f0);
-  padding: 0 4px;
-  background: transparent;
+  gap: 4px;
+  padding: 4px 6px;
+  background: var(--muted, rgba(0, 0, 0, 0.03));
+  border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+  box-sizing: border-box;
 }
 :is(.dark, [data-theme="dark"]) .swiss-gh-tabs-row {
-  border-color: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .swiss-gh-tab-btn {
   flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
-  padding: 6px 2px;
-  font-size: 10.5px;
+  padding: 5px 8px;
+  font-size: 11px;
   font-weight: 500;
-  color: var(--text-muted, #64748b);
-  border: none;
-  border-bottom: 2px solid transparent;
+  color: var(--muted-foreground, var(--text-muted, #64748b));
+  border: 1px solid transparent;
+  border-radius: 6px;
   background: transparent;
   cursor: pointer;
-  transition: all 0.12s ease;
+  white-space: nowrap;
+  user-select: none;
+  transition: all 0.15s ease;
+  line-height: 16px;
 }
 :is(.dark, [data-theme="dark"]) .swiss-gh-tab-btn {
-  color: #94a3b8;
+  color: var(--muted-foreground, #94a3b8);
 }
 .swiss-gh-tab-btn:hover {
-  color: var(--text, #0f172a);
+  background: var(--secondary, rgba(0, 0, 0, 0.04));
+  color: var(--foreground, #0f172a);
 }
 :is(.dark, [data-theme="dark"]) .swiss-gh-tab-btn:hover {
-  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--foreground, #f8fafc);
 }
 .swiss-gh-tab-btn.active {
-  color: var(--accent, var(--primary, #1a73e8));
-  border-bottom-color: var(--accent, var(--primary, #1a73e8));
-  font-weight: 600;
+  background: var(--card, var(--background, #ffffff)) !important;
+  color: var(--foreground, #0f172a) !important;
+  font-weight: 600 !important;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.08)) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04) !important;
 }
 :is(.dark, [data-theme="dark"]) .swiss-gh-tab-btn.active {
-  color: var(--accent, var(--primary, #8ab4f8));
-  border-bottom-color: var(--accent, var(--primary, #8ab4f8));
+  background: var(--secondary, rgba(255, 255, 255, 0.14)) !important;
+  color: var(--foreground, #f8fafc) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+}
+.swiss-gh-tab-btn.active:hover {
+  background: var(--card, var(--background, #ffffff)) !important;
+  color: var(--foreground, #0f172a) !important;
+}
+:is(.dark, [data-theme="dark"]) .swiss-gh-tab-btn.active:hover {
+  background: var(--secondary, rgba(255, 255, 255, 0.14)) !important;
+  color: var(--foreground, #f8fafc) !important;
 }
 
 /* Search bar */
@@ -434,15 +457,17 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
 }
 
 .swiss-gh-subfilter-btn.active {
-  background-color: var(--accent, var(--primary, #1a73e8)) !important;
-  color: var(--accent-foreground, #ffffff) !important;
+  background-color: var(--card, var(--background, #ffffff)) !important;
+  color: var(--foreground, #0f172a) !important;
   font-weight: 600 !important;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.08)) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
 }
 :is(.dark, [data-theme="dark"]) .swiss-gh-subfilter-btn.active {
-  background-color: var(--accent, var(--primary, #1a73e8)) !important;
-  color: var(--accent-foreground, #ffffff) !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  background-color: var(--secondary, rgba(255, 255, 255, 0.14)) !important;
+  color: var(--foreground, #f8fafc) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
 }
 
 /* Step Counter Link Button */
@@ -1004,14 +1029,24 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
   color: var(--foreground);
 }
 .swiss-main-stage-tab.active {
-  background: var(--card, var(--background));
-  color: var(--foreground);
-  font-weight: 500;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  background: var(--card, var(--background, #ffffff)) !important;
+  color: var(--foreground, #0f172a) !important;
+  font-weight: 600 !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06) !important;
+}
+:is(.dark, [data-theme="dark"]) .swiss-main-stage-tab.active {
+  background: var(--secondary, rgba(255, 255, 255, 0.14)) !important;
+  color: var(--foreground, #f8fafc) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
 }
 .swiss-main-stage-tab.active:hover {
-  background: var(--card, var(--background));
-  color: var(--foreground);
+  background: var(--card, var(--background, #ffffff)) !important;
+  color: var(--foreground, #0f172a) !important;
+}
+:is(.dark, [data-theme="dark"]) .swiss-main-stage-tab.active:hover {
+  background: var(--secondary, rgba(255, 255, 255, 0.14)) !important;
+  color: var(--foreground, #f8fafc) !important;
 }
 
 #swiss-main-stage-body {
@@ -1177,14 +1212,17 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
   color: #94a3b8;
 }
 .swiss-gh-view-btn.active {
-  background: var(--canvas, #ffffff);
-  color: var(--text, #1e293b);
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  background: var(--card, var(--background, #ffffff)) !important;
+  color: var(--foreground, #0f172a) !important;
+  font-weight: 600 !important;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.08)) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06) !important;
 }
 :is(.dark, [data-theme="dark"]) .swiss-gh-view-btn.active {
-  background: #2b2c2f;
-  color: #f1f5f9;
+  background: var(--secondary, rgba(255, 255, 255, 0.14)) !important;
+  color: var(--foreground, #f8fafc) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
 }
 
 /* GitHub Workspace Layout */
@@ -1456,7 +1494,13 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
   color: #8ab4f8;
 }
 .swiss-gh-menu-item.active {
-  font-weight: 600;
+  background: var(--secondary, rgba(0, 0, 0, 0.05)) !important;
+  color: var(--foreground, #0f172a) !important;
+  font-weight: 600 !important;
+}
+:is(.dark, [data-theme="dark"]) .swiss-gh-menu-item.active {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: var(--foreground, #f8fafc) !important;
 }
 .swiss-gh-menu-check {
   font-size: 11px;

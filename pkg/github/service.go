@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -70,23 +71,71 @@ func ghCommand(args ...string) *exec.Cmd {
 
 var gitURLRegex = regexp.MustCompile(`(?:https://github\.com/|git@github\.com:)([^/]+)/([^/\.]+)(?:\.git)?`)
 
+type repoCacheEntry struct {
+	repo      *RepoInfo
+	timestamp time.Time
+}
+
+type issuesCacheEntry struct {
+	issues    []Issue
+	timestamp time.Time
+}
+
+type prsCacheEntry struct {
+	prs       []PullRequest
+	timestamp time.Time
+}
+
 // Service provides high-level GitHub and agent task integration.
 type Service struct {
-	tracker *AgentTracker
-	store   *Store
+	tracker      *AgentTracker
+	store        *Store
+	mu           sync.RWMutex
+	repoCache    map[string]repoCacheEntry
+	issuesCache  map[string]issuesCacheEntry
+	prsCache     map[string]prsCacheEntry
+	lastGoodRepo *RepoInfo
 }
 
 // NewService creates a new Service instance.
 func NewService(tracker *AgentTracker, store *Store) *Service {
 	return &Service{
-		tracker: tracker,
-		store:   store,
+		tracker:     tracker,
+		store:       store,
+		repoCache:   make(map[string]repoCacheEntry),
+		issuesCache: make(map[string]issuesCacheEntry),
+		prsCache:    make(map[string]prsCacheEntry),
 	}
+}
+
+// InvalidateCache clears all in-memory caches.
+func (s *Service) InvalidateCache() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.repoCache = make(map[string]repoCacheEntry)
+	s.issuesCache = make(map[string]issuesCacheEntry)
+	s.prsCache = make(map[string]prsCacheEntry)
+}
+
+// InvalidateWorkItemsCache clears issues and pull request caches when items are modified.
+func (s *Service) InvalidateWorkItemsCache() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.issuesCache = make(map[string]issuesCacheEntry)
+	s.prsCache = make(map[string]prsCacheEntry)
 }
 
 // DetectRepository detects the GitHub repository and branch for the given workspace directory.
 func (s *Service) DetectRepository(workspacePath string) (*RepoInfo, error) {
 	dir := ResolveProjectPath(workspacePath)
+
+	s.mu.RLock()
+	if entry, ok := s.repoCache[dir]; ok && time.Since(entry.timestamp) < 30*time.Second && entry.repo != nil {
+		repo := entry.repo
+		s.mu.RUnlock()
+		return repo, nil
+	}
+	s.mu.RUnlock()
 
 	// 1. Get git remote URL
 	cmdRemote := exec.Command("git", "-C", dir, "remote", "get-url", "origin")
@@ -104,6 +153,18 @@ func (s *Service) DetectRepository(workspacePath string) (*RepoInfo, error) {
 		}
 	}
 	if err != nil {
+		s.mu.RLock()
+		if entry, ok := s.repoCache[dir]; ok && entry.repo != nil {
+			repo := entry.repo
+			s.mu.RUnlock()
+			return repo, nil
+		}
+		if s.lastGoodRepo != nil {
+			repo := s.lastGoodRepo
+			s.mu.RUnlock()
+			return repo, nil
+		}
+		s.mu.RUnlock()
 		return nil, fmt.Errorf("git remote get-url origin failed in %s: %w", dir, err)
 	}
 	remoteURL := strings.TrimSpace(string(outRemote))
@@ -120,14 +181,24 @@ func (s *Service) DetectRepository(workspacePath string) (*RepoInfo, error) {
 	outBranch, _ := cmdBranch.Output()
 	branch := strings.TrimSpace(string(outBranch))
 
-	return &RepoInfo{
+	repo := &RepoInfo{
 		Owner:         owner,
 		Name:          name,
 		FullName:      fmt.Sprintf("%s/%s", owner, name),
 		CurrentBranch: branch,
 		RemoteURL:     remoteURL,
 		WorkspacePath: dir,
-	}, nil
+	}
+
+	s.mu.Lock()
+	if s.repoCache == nil {
+		s.repoCache = make(map[string]repoCacheEntry)
+	}
+	s.repoCache[dir] = repoCacheEntry{repo: repo, timestamp: time.Now()}
+	s.lastGoodRepo = repo
+	s.mu.Unlock()
+
+	return repo, nil
 }
 
 // ListIssues retrieves issues for the repository and enriches them with active agent tasks.
@@ -141,6 +212,15 @@ func (s *Service) ListIssues(repo *RepoInfo, state string, search string) ([]Iss
 		st = "all"
 	}
 
+	cacheKey := fmt.Sprintf("%s:%s:%s", repo.FullName, st, search)
+	s.mu.RLock()
+	if entry, ok := s.issuesCache[cacheKey]; ok && time.Since(entry.timestamp) < 30*time.Second && entry.issues != nil {
+		cached := entry.issues
+		s.mu.RUnlock()
+		return cached, nil
+	}
+	s.mu.RUnlock()
+
 	args := []string{"issue", "list", "--repo", repo.FullName, "--state", st, "--limit", "100",
 		"--json", "number,title,body,state,labels,assignees,author,comments,createdAt,updatedAt,url,closedAt"}
 	if search != "" {
@@ -150,6 +230,13 @@ func (s *Service) ListIssues(repo *RepoInfo, state string, search string) ([]Iss
 	cmd := ghCommand(args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		s.mu.RLock()
+		if entry, ok := s.issuesCache[cacheKey]; ok && entry.issues != nil {
+			cached := entry.issues
+			s.mu.RUnlock()
+			return cached, nil
+		}
+		s.mu.RUnlock()
 		return nil, fmt.Errorf("gh issue list failed: %s: %w", string(out), err)
 	}
 
@@ -230,6 +317,13 @@ func (s *Service) ListIssues(repo *RepoInfo, state string, search string) ([]Iss
 
 		issues = append(issues, iss)
 	}
+
+	s.mu.Lock()
+	if s.issuesCache == nil {
+		s.issuesCache = make(map[string]issuesCacheEntry)
+	}
+	s.issuesCache[cacheKey] = issuesCacheEntry{issues: issues, timestamp: time.Now()}
+	s.mu.Unlock()
 
 	return issues, nil
 }
@@ -344,6 +438,7 @@ func (s *Service) CreateIssue(repo *RepoInfo, req CreateIssueRequest) (*Issue, e
 	parts := strings.Split(urlStr, "/")
 	num, _ := strconv.Atoi(parts[len(parts)-1])
 
+	s.InvalidateWorkItemsCache()
 	return &Issue{
 		Number:    num,
 		Title:     req.Title,
@@ -412,6 +507,8 @@ func (s *Service) UpdateIssue(repo *RepoInfo, number int, req UpdateIssueRequest
 		}
 	}
 
+	s.InvalidateWorkItemsCache()
+
 	// 3. Return refreshed issue
 	detail, err := s.GetIssue(repo, number)
 	if err != nil {
@@ -430,6 +527,7 @@ func (s *Service) AddIssueComment(repo *RepoInfo, number int, body string) error
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("gh issue comment failed: %s: %w", string(out), err)
 	}
+	s.InvalidateWorkItemsCache()
 	return nil
 }
 
@@ -444,12 +542,28 @@ func (s *Service) ListPullRequests(repo *RepoInfo, state string) ([]PullRequest,
 		st = "all"
 	}
 
+	cacheKey := fmt.Sprintf("%s:%s", repo.FullName, st)
+	s.mu.RLock()
+	if entry, ok := s.prsCache[cacheKey]; ok && time.Since(entry.timestamp) < 30*time.Second && entry.prs != nil {
+		cached := entry.prs
+		s.mu.RUnlock()
+		return cached, nil
+	}
+	s.mu.RUnlock()
+
 	args := []string{"pr", "list", "--repo", repo.FullName, "--state", st, "--limit", "100",
 		"--json", "number,title,body,state,isDraft,headRefName,baseRefName,author,labels,assignees,reviewDecision,createdAt,updatedAt,url,mergedAt"}
 
 	cmd := ghCommand(args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		s.mu.RLock()
+		if entry, ok := s.prsCache[cacheKey]; ok && entry.prs != nil {
+			cached := entry.prs
+			s.mu.RUnlock()
+			return cached, nil
+		}
+		s.mu.RUnlock()
 		return nil, fmt.Errorf("gh pr list failed: %s: %w", string(out), err)
 	}
 
@@ -511,6 +625,13 @@ func (s *Service) ListPullRequests(repo *RepoInfo, state string) ([]PullRequest,
 			MergedAt:       r.MergedAt,
 		})
 	}
+
+	s.mu.Lock()
+	if s.prsCache == nil {
+		s.prsCache = make(map[string]prsCacheEntry)
+	}
+	s.prsCache[cacheKey] = prsCacheEntry{prs: prs, timestamp: time.Now()}
+	s.mu.Unlock()
 
 	return prs, nil
 }

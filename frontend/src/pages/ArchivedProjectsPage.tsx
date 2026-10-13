@@ -371,7 +371,6 @@ export const ArchivedProjectsPage: React.FC = () => {
             justifyContent: 'center',
             zIndex: 999999,
           }}
-          onClick={() => setDeleteConfirmProject(null)}
         >
           <div
             style={{

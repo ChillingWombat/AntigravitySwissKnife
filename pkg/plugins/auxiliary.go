@@ -55,21 +55,25 @@ func GenerateAuxiliaryPluginsCSS() string {
   background: rgba(255, 255, 255, 0.08);
   color: #f1f5f9;
 }
-/* Auxiliary Active State Isolation: When a Swiss tab is active, suppress native factory tab highlights */
-[data-swiss-aux-active] button[data-tab-id]:not([data-tab-id^="swiss-"]),
-[data-swiss-aux-active] button:not(.swiss-aux-tab-btn):not([data-tab-id^="swiss-"]) {
+/* Auxiliary Active State Isolation: When a Swiss tab is active, suppress native factory tab highlights in header */
+[data-swiss-aux-header][data-swiss-aux-active] button[data-tab-id]:not([data-tab-id^="swiss-"]),
+[data-swiss-aux-header][data-swiss-aux-active] button:not(.swiss-aux-tab-btn):not([data-tab-id^="swiss-"]),
+[data-swiss-aux-panel][data-swiss-aux-active] > [data-swiss-aux-header] button:not(.swiss-aux-tab-btn):not([data-tab-id^="swiss-"]),
+[data-swiss-aux-active]:not(#swiss-aux-container):not(#swiss-aux-container *) button[data-tab-id]:not([data-tab-id^="swiss-"]) {
   background-color: transparent !important;
   border-color: transparent !important;
   color: var(--secondary-foreground, #71717a) !important;
   box-shadow: none !important;
 }
-[data-swiss-aux-active] button[data-tab-id]:not([data-tab-id^="swiss-"]):hover,
-[data-swiss-aux-active] button:not(.swiss-aux-tab-btn):not([data-tab-id^="swiss-"]):hover {
+[data-swiss-aux-header][data-swiss-aux-active] button[data-tab-id]:not([data-tab-id^="swiss-"]):hover,
+[data-swiss-aux-header][data-swiss-aux-active] button:not(.swiss-aux-tab-btn):not([data-tab-id^="swiss-"]):hover,
+[data-swiss-aux-active]:not(#swiss-aux-container):not(#swiss-aux-container *) button[data-tab-id]:not([data-tab-id^="swiss-"]):hover {
   background-color: var(--muted, rgba(148, 163, 184, 0.15)) !important;
   color: var(--foreground, #1e293b) !important;
 }
-:is(.dark, [data-theme="dark"]) [data-swiss-aux-active] button[data-tab-id]:not([data-tab-id^="swiss-"]):hover,
-:is(.dark, [data-theme="dark"]) [data-swiss-aux-active] button:not(.swiss-aux-tab-btn):not([data-tab-id^="swiss-"]):hover {
+:is(.dark, [data-theme="dark"]) [data-swiss-aux-header][data-swiss-aux-active] button[data-tab-id]:not([data-tab-id^="swiss-"]):hover,
+:is(.dark, [data-theme="dark"]) [data-swiss-aux-header][data-swiss-aux-active] button:not(.swiss-aux-tab-btn):not([data-tab-id^="swiss-"]):hover,
+:is(.dark, [data-theme="dark"]) [data-swiss-aux-active]:not(#swiss-aux-container):not(#swiss-aux-container *) button[data-tab-id]:not([data-tab-id^="swiss-"]):hover {
   background-color: rgba(255, 255, 255, 0.08) !important;
   color: #f1f5f9 !important;
 }
@@ -1729,9 +1733,11 @@ func GenerateAuxiliaryPluginsScript() string {
         return;
       }
       // Find auxiliary panel header strictly matching .shrink-0.flex.items-center[class*="gap-0.5"].border-b
-      const tabHeader = document.querySelector('.shrink-0.flex.items-center[class*="gap-0.5"].border-b') ||
-                        document.querySelector('[data-testid="auxiliary-panel"] .shrink-0.flex.items-center[class*="gap-0.5"].border-b') ||
+      const tabHeader = document.querySelector('[data-testid="auxiliary-panel"] .shrink-0.flex.items-center[class*="gap-0.5"].border-b') ||
                         document.querySelector('.part.auxiliarybar .shrink-0.flex.items-center[class*="gap-0.5"].border-b') ||
+                        document.querySelector('[data-testid="auxiliary-panel"] .shrink-0.flex.items-center.border-b') ||
+                        document.querySelector('.part.auxiliarybar .shrink-0.flex.items-center.border-b') ||
+                        document.querySelector('.shrink-0.flex.items-center[class*="gap-0.5"].border-b') ||
                         document.querySelector('.shrink-0.flex.items-center.border-b');
       if (!tabHeader) return;
 
@@ -1893,91 +1899,82 @@ func GenerateAuxiliaryPluginsScript() string {
           }
         }
 
-        if (activeAuxTab) {
-          const auxPanel = tabHeader.parentElement || document.querySelector('[data-testid="auxiliary-panel"]') || document.querySelector('.part.auxiliarybar');
-          const bodyContainer = auxPanel ? auxPanel.querySelector('.flex-grow.overflow-hidden') : null;
-          const swissContainer = document.querySelector("#swiss-aux-container");
-          if (bodyContainer && swissContainer && swissContainer.parentElement !== bodyContainer) {
-            bodyContainer.appendChild(swissContainer);
+      } else {
+        let dividerLeft = tabHeader.querySelector('.swiss-aux-tabs-divider-left') ||
+                          tabHeader.querySelector('.swiss-aux-tabs-divider:not(.swiss-aux-tabs-divider-right)');
+        if (!dividerLeft) {
+          dividerLeft = document.createElement("div");
+          dividerLeft.className = "swiss-aux-tabs-divider swiss-aux-tabs-divider-left";
+          dividerLeft.style.height = "16px";
+          dividerLeft.style.width = "1px";
+          dividerLeft.style.minWidth = "1px";
+          dividerLeft.style.maxWidth = "1px";
+          dividerLeft.style.flexShrink = "0";
+          dividerLeft.style.backgroundColor = "var(--border, rgba(0, 0, 0, 0.18))";
+          dividerLeft.style.margin = "0 2px";
+          dividerLeft.style.opacity = "1";
+          tabHeader.appendChild(dividerLeft);
+        } else {
+          dividerLeft.style.height = "16px";
+          dividerLeft.style.backgroundColor = "var(--border, rgba(0, 0, 0, 0.18))";
+          dividerLeft.style.margin = "0 2px";
+          dividerLeft.style.opacity = "1";
+        }
+
+        let btnGroup = tabHeader.querySelector('.swiss-aux-btn-group');
+        if (!btnGroup) {
+          btnGroup = document.createElement("div");
+          btnGroup.className = "swiss-aux-btn-group";
+          btnGroup.style.display = "inline-flex";
+          btnGroup.style.alignItems = "center";
+          btnGroup.style.gap = "2px";
+          btnGroup.style.flexShrink = "0";
+          tabHeader.appendChild(btnGroup);
+        }
+
+        let dividerRight = tabHeader.querySelector('.swiss-aux-tabs-divider-right');
+        if (!dividerRight) {
+          dividerRight = document.createElement("div");
+          dividerRight.className = "swiss-aux-tabs-divider swiss-aux-tabs-divider-right";
+          dividerRight.style.height = "16px";
+          dividerRight.style.width = "1px";
+          dividerRight.style.minWidth = "1px";
+          dividerRight.style.maxWidth = "1px";
+          dividerRight.style.flexShrink = "0";
+          dividerRight.style.backgroundColor = "var(--border, rgba(0, 0, 0, 0.18))";
+          dividerRight.style.margin = "0 2px";
+          dividerRight.style.opacity = "1";
+          btnGroup.after(dividerRight);
+        } else {
+          dividerRight.style.height = "16px";
+          dividerRight.style.backgroundColor = "var(--border, rgba(0, 0, 0, 0.18))";
+          dividerRight.style.margin = "0 2px";
+          dividerRight.style.opacity = "1";
+        }
+
+        const curFmt = getAuxTabFormat();
+        tabs.forEach(t => {
+          const btn = document.createElement("button");
+          btn.className = "swiss-aux-tab-btn";
+          // Contract: data-tab-id="swiss-browser" data-tab-id="swiss-files" data-tab-id="swiss-memos" data-tab-id="swiss-github"
+          if (t.id === "browser") btn.setAttribute("data-tab-id", "swiss-browser");
+          else if (t.id === "files") btn.setAttribute("data-tab-id", "swiss-files");
+          else if (t.id === "memos") btn.setAttribute("data-tab-id", "swiss-memos");
+          else if (t.id === "github") btn.setAttribute("data-tab-id", "swiss-github");
+          btn.dataset.swissTab = t.id;
+          updateTabButtonMarkup(btn, t, curFmt);
+          const activeTabTarget = activeAuxTab || localStorage.getItem("antigravity_active_aux_tab");
+          if (activeTabTarget && (btn.getAttribute("data-tab-id") === activeTabTarget || t.id === activeTabTarget || ("swiss-" + t.id) === activeTabTarget)) {
+            btn.classList.add("active");
+            btn.setAttribute("aria-selected", "true");
           }
-        }
-        return;
+          btn.onclick = (e) => {
+            e.stopPropagation();
+            switchAuxTab(t.tabId, true);
+          };
+          btnGroup.appendChild(btn);
+        });
       }
-
-      let dividerLeft = tabHeader.querySelector('.swiss-aux-tabs-divider-left') ||
-                        tabHeader.querySelector('.swiss-aux-tabs-divider:not(.swiss-aux-tabs-divider-right)');
-      if (!dividerLeft) {
-        dividerLeft = document.createElement("div");
-        dividerLeft.className = "swiss-aux-tabs-divider swiss-aux-tabs-divider-left";
-        dividerLeft.style.height = "16px";
-        dividerLeft.style.width = "1px";
-        dividerLeft.style.minWidth = "1px";
-        dividerLeft.style.maxWidth = "1px";
-        dividerLeft.style.flexShrink = "0";
-        dividerLeft.style.backgroundColor = "var(--border, rgba(0, 0, 0, 0.18))";
-        dividerLeft.style.margin = "0 2px";
-        dividerLeft.style.opacity = "1";
-        tabHeader.appendChild(dividerLeft);
-      } else {
-        dividerLeft.style.height = "16px";
-        dividerLeft.style.backgroundColor = "var(--border, rgba(0, 0, 0, 0.18))";
-        dividerLeft.style.margin = "0 2px";
-        dividerLeft.style.opacity = "1";
-      }
-
-      let btnGroup = tabHeader.querySelector('.swiss-aux-btn-group');
-      if (!btnGroup) {
-        btnGroup = document.createElement("div");
-        btnGroup.className = "swiss-aux-btn-group";
-        btnGroup.style.display = "inline-flex";
-        btnGroup.style.alignItems = "center";
-        btnGroup.style.gap = "2px";
-        btnGroup.style.flexShrink = "0";
-        tabHeader.appendChild(btnGroup);
-      }
-
-      let dividerRight = tabHeader.querySelector('.swiss-aux-tabs-divider-right');
-      if (!dividerRight) {
-        dividerRight = document.createElement("div");
-        dividerRight.className = "swiss-aux-tabs-divider swiss-aux-tabs-divider-right";
-        dividerRight.style.height = "16px";
-        dividerRight.style.width = "1px";
-        dividerRight.style.minWidth = "1px";
-        dividerRight.style.maxWidth = "1px";
-        dividerRight.style.flexShrink = "0";
-        dividerRight.style.backgroundColor = "var(--border, rgba(0, 0, 0, 0.18))";
-        dividerRight.style.margin = "0 2px";
-        dividerRight.style.opacity = "1";
-        btnGroup.after(dividerRight);
-      } else {
-        dividerRight.style.height = "16px";
-        dividerRight.style.backgroundColor = "var(--border, rgba(0, 0, 0, 0.18))";
-        dividerRight.style.margin = "0 2px";
-        dividerRight.style.opacity = "1";
-      }
-
-      const curFmt = getAuxTabFormat();
-      tabs.forEach(t => {
-        const btn = document.createElement("button");
-        btn.className = "swiss-aux-tab-btn";
-        // Contract: data-tab-id="swiss-browser" data-tab-id="swiss-files" data-tab-id="swiss-memos" data-tab-id="swiss-github"
-        if (t.id === "browser") btn.setAttribute("data-tab-id", "swiss-browser");
-        else if (t.id === "files") btn.setAttribute("data-tab-id", "swiss-files");
-        else if (t.id === "memos") btn.setAttribute("data-tab-id", "swiss-memos");
-        else if (t.id === "github") btn.setAttribute("data-tab-id", "swiss-github");
-        btn.dataset.swissTab = t.id;
-        updateTabButtonMarkup(btn, t, curFmt);
-        const activeTabTarget = activeAuxTab || localStorage.getItem("antigravity_active_aux_tab");
-        if (activeTabTarget && (btn.getAttribute("data-tab-id") === activeTabTarget || t.id === activeTabTarget || ("swiss-" + t.id) === activeTabTarget)) {
-          btn.classList.add("active");
-          btn.setAttribute("aria-selected", "true");
-        }
-        btn.onclick = (e) => {
-          e.stopPropagation();
-          switchAuxTab(t.tabId);
-        };
-        btnGroup.appendChild(btn);
-      });
 
       // Bind dynamic format update listeners
       if (window.__swissAuxFormatHandler) {
@@ -2010,30 +2007,33 @@ func GenerateAuxiliaryPluginsScript() string {
         if (targetId.startsWith("swiss-")) {
           return;
         }
-        switchAuxTab(null);
+        const isNativeTab = targetBtn.hasAttribute("data-tab-id") || targetBtn.getAttribute("role") === "tab" || targetBtn.hasAttribute("data-tab-index");
+        if (isNativeTab) {
+          switchAuxTab(null);
+        }
       };
       tabHeader.addEventListener("click", tabHeader.__swissHeaderHandler);
 
-      // Restore saved tab state from localStorage
-      const savedTab = localStorage.getItem("antigravity_active_aux_tab");
+      // Restore / reconcile saved tab state from localStorage
+      const savedTab = localStorage.getItem("antigravity_active_aux_tab") || activeAuxTab;
       if (savedTab && savedTab.startsWith("swiss-")) {
-        if (!activeAuxTab || activeAuxTab !== savedTab) {
-          switchAuxTab(savedTab);
-        } else {
-          if (tabHeader) tabHeader.setAttribute("data-swiss-aux-active", savedTab.replace(/^swiss-/, ""));
-          document.querySelectorAll(".swiss-aux-tab-btn").forEach(b => {
-            const isActive = b.getAttribute("data-tab-id") === activeAuxTab;
-            b.classList.toggle("active", isActive);
-            b.setAttribute("aria-selected", isActive ? "true" : "false");
-          });
-        }
+        switchAuxTab(savedTab, false);
       } else {
         if (tabHeader) tabHeader.removeAttribute("data-swiss-aux-active");
+        const auxPanel = (tabHeader && tabHeader.closest('[data-testid="auxiliary-panel"], .part.auxiliarybar, [data-swiss-aux-panel]')) ||
+                         (tabHeader ? tabHeader.parentElement : null) ||
+                         document.querySelector('[data-testid="auxiliary-panel"]') ||
+                         document.querySelector('.part.auxiliarybar');
+        if (auxPanel) auxPanel.removeAttribute("data-swiss-aux-active");
+        const swissContainer = document.querySelector("#swiss-aux-container");
+        if (swissContainer) {
+          swissContainer.style.display = "none";
+        }
       }
     }
 
     // Switch between Swiss tabs and Native factory tabs
-    function switchAuxTab(tabId) {
+    function switchAuxTab(tabId, force = false) {
       const normalizedId = tabId ? (tabId.startsWith("swiss-") ? tabId : ("swiss-" + tabId)) : null;
       activeAuxTab = normalizedId;
 
@@ -2043,15 +2043,24 @@ func GenerateAuxiliaryPluginsScript() string {
         b.setAttribute("aria-selected", isActive ? "true" : "false");
       });
 
-      const tabHeader = document.querySelector('.shrink-0.flex.items-center[class*="gap-0.5"].border-b') ||
-                        document.querySelector('[data-testid="auxiliary-panel"] .shrink-0.flex.items-center[class*="gap-0.5"].border-b') ||
+      const tabHeader = document.querySelector('[data-testid="auxiliary-panel"] .shrink-0.flex.items-center[class*="gap-0.5"].border-b') ||
                         document.querySelector('.part.auxiliarybar .shrink-0.flex.items-center[class*="gap-0.5"].border-b') ||
+                        document.querySelector('[data-testid="auxiliary-panel"] .shrink-0.flex.items-center.border-b') ||
+                        document.querySelector('.part.auxiliarybar .shrink-0.flex.items-center.border-b') ||
+                        document.querySelector('.shrink-0.flex.items-center[class*="gap-0.5"].border-b') ||
                         document.querySelector('.shrink-0.flex.items-center.border-b');
-      const auxPanel = tabHeader ? tabHeader.parentElement : (document.querySelector('[data-testid="auxiliary-panel"]') || document.querySelector('.part.auxiliarybar'));
-      const bodyContainer = auxPanel ? auxPanel.querySelector('.flex-grow.overflow-hidden') : null;
+      const auxPanel = (tabHeader && tabHeader.closest('[data-testid="auxiliary-panel"], .part.auxiliarybar, [data-swiss-aux-panel]')) ||
+                       (tabHeader ? tabHeader.parentElement : null) ||
+                       document.querySelector('[data-testid="auxiliary-panel"]') ||
+                       document.querySelector('.part.auxiliarybar');
+      const bodyContainer = (tabHeader && tabHeader.nextElementSibling) ||
+                            (auxPanel ? auxPanel.querySelector('.flex-grow.overflow-hidden') : null) ||
+                            (tabHeader && tabHeader.parentElement ? tabHeader.parentElement.querySelector('.flex-grow.overflow-hidden') : null) ||
+                            document.querySelector('[data-testid="auxiliary-panel"] .flex-grow.overflow-hidden') ||
+                            document.querySelector('.part.auxiliarybar .flex-grow.overflow-hidden');
       if (!bodyContainer) return;
 
-      let swissContainer = document.querySelector("#swiss-aux-container");
+      let swissContainer = bodyContainer.querySelector("#swiss-aux-container") || document.querySelector("#swiss-aux-container");
       if (!swissContainer) {
         swissContainer = document.createElement("div");
         swissContainer.id = "swiss-aux-container";
@@ -2062,7 +2071,8 @@ func GenerateAuxiliaryPluginsScript() string {
       }
 
       const cleanId = normalizedId ? normalizedId.replace(/^swiss-/, "") : "";
-      if (normalizedId && swissContainer.dataset.renderedTab === cleanId && swissContainer.style.display === "flex") {
+      const otherChildrenVisible = Array.from(bodyContainer.children).some(child => child !== swissContainer && child.style.display !== "none");
+      if (!force && normalizedId && swissContainer.dataset.renderedTab === cleanId && swissContainer.style.display === "flex" && swissContainer.children.length > 0 && !otherChildrenVisible) {
         return;
       }
 
@@ -2091,7 +2101,7 @@ func GenerateAuxiliaryPluginsScript() string {
         }
 
         localStorage.setItem("antigravity_active_aux_tab", normalizedId);
-        if (swissContainer.dataset.renderedTab !== cleanId) {
+        if (swissContainer.dataset.renderedTab !== cleanId || swissContainer.children.length === 0 || force) {
           renderSwissTabContent(swissContainer, cleanId);
         }
       } else {
@@ -5876,6 +5886,7 @@ func GenerateAuxiliaryPluginsScript() string {
     const observer = new MutationObserver((mutations) => {
       // Ignore mutations originating from Swiss elements to prevent feedback loops
       const hasExternal = mutations.some(m => {
+        if (m.type === "attributes" && m.attributeName && m.attributeName.startsWith("data-swiss-")) return false;
         const t = m.target;
         if (t && t.nodeType === 1) {
           if (t.id === "swiss-aux-container" || t.closest?.("#swiss-aux-container")) return false;
@@ -5883,7 +5894,6 @@ func GenerateAuxiliaryPluginsScript() string {
           if (t.classList?.contains("swiss-aux-tab-btn") || t.closest?.(".swiss-aux-tab-btn")) return false;
           if (t.classList?.contains("swiss-aux-tabs-divider") || t.closest?.(".swiss-aux-tabs-divider")) return false;
           if (t.classList?.contains("swiss-aux-btn-group") || t.closest?.(".swiss-aux-btn-group")) return false;
-          if (t.hasAttribute?.("data-swiss-aux-panel") || t.hasAttribute?.("data-swiss-aux-header") || t.hasAttribute?.("data-swiss-aux-active")) return false;
         }
         return true;
       });

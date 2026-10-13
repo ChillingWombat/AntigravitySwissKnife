@@ -333,9 +333,9 @@ export const CustomModelsPage: React.FC = () => {
       gcp_region: gcpRegion,
       gcp_service_account_key: gcpJsonContent.trim(),
       project_mappings: ['*'],
-      quota_type: gcpTestResult?.quota_result?.quota_type || 'quota',
-      quota_value: gcpTestResult?.quota_result?.quota_value || 'GCP Managed',
-      balance_value: gcpTestResult?.quota_result?.quota_type === 'balance' ? gcpTestResult.quota_result.quota_value : undefined,
+      quota_type: gcpTestResult?.quota_result?.quota_type || 'balance',
+      quota_value: gcpTestResult?.quota_result?.quota_value || 'Active (GCP Billing)',
+      balance_value: gcpTestResult?.quota_result?.balance_value || gcpTestResult?.quota_result?.quota_value || 'Active (GCP Billing)',
       prepaid_balance: 0,
       total_budget: 0,
       quota_fraction: null,
@@ -1273,6 +1273,9 @@ export const CustomModelsPage: React.FC = () => {
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                        {(m.provider_type === 'gcp' || (m.base_url && m.base_url.includes('aiplatform.googleapis.com'))) && (
+                          <GoogleCloudLogoIcon size={16} style={{ flexShrink: 0 }} />
+                        )}
                         <h3 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {m.display_name}
                         </h3>
@@ -2920,11 +2923,21 @@ export const CustomModelsPage: React.FC = () => {
                 }}
               >
                 {gcpTestResult.success ? <CheckCircle2 size={14} style={{ flexShrink: 0 }} /> : <AlertCircle size={14} style={{ flexShrink: 0 }} />}
-                <span>
-                  {gcpTestResult.success
-                    ? `Connection successful! (${gcpTestResult.latency_ms}ms) - Model responded correctly.`
-                    : `Connection test failed: ${gcpTestResult.message}`}
-                </span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1 }}>
+                  <span>
+                    {gcpTestResult.success
+                      ? `Connection successful! (${gcpTestResult.latency_ms}ms) - Model responded correctly.`
+                      : `Connection test failed: ${gcpTestResult.message}`}
+                  </span>
+                  {gcpTestResult.success && (gcpTestResult.quota_result?.balance_value || gcpTestResult.quota_result?.quota_value) && (
+                    <div style={{ fontSize: '11px', fontWeight: 600, color: '#137333', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>GCP Credit Balance: {gcpTestResult.quota_result.balance_value || gcpTestResult.quota_result.quota_value}</span>
+                      {gcpTestResult.quota_result.message && gcpTestResult.quota_result.message !== 'OK' && (
+                        <span style={{ fontWeight: 400, opacity: 0.85 }}>({gcpTestResult.quota_result.message})</span>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

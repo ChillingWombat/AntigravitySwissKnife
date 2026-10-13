@@ -513,4 +513,29 @@ describe('Tray Switch Google Account Menu', () => {
       assert.strictEqual(resolveActiveAccountAlias(stringAccounts, 'alice@gmail.com'), 'alice@gmail.com');
     });
   });
+
+  describe('App Icon & Tray Sizing Invariants (R17)', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const mainJs = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
+
+    it('enforces 18x18 template image for macOS status item', () => {
+      assert.ok(mainJs.includes('width: 18, height: 18'), 'macOS tray icon must resize to 18x18');
+      assert.ok(mainJs.includes('setTemplateImage(true)'), 'macOS status item icon must be set as template image');
+    });
+
+    it('enforces 16x16 icon for Windows notification tray', () => {
+      assert.ok(mainJs.includes('width: 16, height: 16'), 'Windows tray icon must resize to 16x16');
+    });
+
+    it('enforces 22x22 icon for Linux system tray standard', () => {
+      assert.ok(mainJs.includes('width: 22, height: 22'), 'Linux tray icon must resize to 22x22');
+    });
+
+    it('enforces ~18% inset scaling on macOS Dock icon', () => {
+      assert.ok(mainJs.includes('Math.round(size.width * 0.82)'), 'macOS Dock icon must apply 0.82 width scaling (18% inset)');
+      assert.ok(mainJs.includes('Math.round(size.height * 0.82)'), 'macOS Dock icon must apply 0.82 height scaling (18% inset)');
+    });
+  });
 });
+

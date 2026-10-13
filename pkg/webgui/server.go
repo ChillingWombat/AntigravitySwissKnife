@@ -4521,15 +4521,21 @@ func cleanUserPath(raw string) string {
 	}
 	// If relative path, check if it exists relative to working directory or resolves to a known project
 	if !filepath.IsAbs(p) {
-		if wd, err := os.Getwd(); err == nil && wd != "" {
-			candidate := filepath.Join(wd, p)
-			if _, err := os.Stat(candidate); err == nil {
-				p = candidate
-			}
-		}
-		if !filepath.IsAbs(p) {
+		if p == "." || p == "" || strings.EqualFold(p, "global") {
 			if resolved := github.ResolveProjectPath(p); filepath.IsAbs(resolved) {
 				p = resolved
+			}
+		} else {
+			if wd, err := os.Getwd(); err == nil && wd != "" {
+				candidate := filepath.Join(wd, p)
+				if _, err := os.Stat(candidate); err == nil {
+					p = candidate
+				}
+			}
+			if !filepath.IsAbs(p) {
+				if resolved := github.ResolveProjectPath(p); filepath.IsAbs(resolved) {
+					p = resolved
+				}
 			}
 		}
 	}

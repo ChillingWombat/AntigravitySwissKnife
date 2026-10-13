@@ -387,13 +387,52 @@ func ResolveProjectFolderFromConfig(nameOrID string) string {
 	return ""
 }
 
+
+func isGitDir(dir string) bool {
+	if dir == "" {
+		return false
+	}
+	dotGit := filepath.Join(dir, ".git")
+	_, err := os.Stat(dotGit)
+	return err == nil
+}
+
+func isAppRuntimeDir(dir string) bool {
+	if dir == "" {
+		return true
+	}
+	clean := filepath.Clean(dir)
+	if isGitDir(clean) {
+		return false
+	}
+	lower := strings.ToLower(clean)
+	if strings.Contains(lower, "antigravity-swiss") {
+		if strings.Contains(lower, ".config") || strings.Contains(lower, ".local") || strings.Contains(lower, "appdata") {
+			return true
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" && clean == filepath.Clean(home) {
+		return true
+	}
+	return false
+}
+
 // ResolveProjectPath resolves a workspace path or bare project name to an absolute directory path when possible.
 func ResolveProjectPath(nameOrPath string) string {
 	p := strings.TrimSpace(nameOrPath)
 	p = strings.Trim(p, "\"'`")
 	if p == "" || p == "." || strings.EqualFold(p, "global") {
 		if wd, err := os.Getwd(); err == nil && wd != "" {
+			if !isAppRuntimeDir(wd) {
+				return filepath.Clean(wd)
+			}
+			if latest := latestWorkspaceFromDB(); latest != "" {
+				return latest
+			}
 			return filepath.Clean(wd)
+		}
+		if latest := latestWorkspaceFromDB(); latest != "" {
+			return latest
 		}
 		return "."
 	}
@@ -556,11 +595,17 @@ func latestWorkspaceFromDB() string {
 		}
 		for _, u := range uris {
 			uPath := strings.TrimPrefix(u, "file://")
+			if strings.HasPrefix(uPath, "localhost/") {
+				uPath = strings.TrimPrefix(uPath, "localhost")
+			}
 			if unescaped, err := url.PathUnescape(uPath); err == nil {
 				uPath = unescaped
 			}
+			if runtime.GOOS == "windows" && len(uPath) >= 3 && uPath[0] == '/' && uPath[2] == ':' {
+				uPath = uPath[1:]
+			}
 			uPath = filepath.Clean(uPath)
-			if fi, err := os.Stat(uPath); err == nil && fi.IsDir() {
+			if isGitDir(uPath) {
 				return uPath
 			}
 		}

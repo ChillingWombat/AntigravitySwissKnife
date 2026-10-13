@@ -177,15 +177,17 @@ describe('Adversarial & State Machine Verification: ArchivedProjectsPage (Milest
       )
     })
 
-    it('safely handles backdrop dismissal while stopping propagation on modal body clicks', () => {
+    it('safely prevents backdrop click dismissal while ensuring cancel button resets state', () => {
       const modalBlockMatch = pageSrc.match(/{\/\* Delete Confirmation Modal \*\/}[\s\S]*?<\/div>\s*\)\}/)
       assert.ok(modalBlockMatch, 'Delete confirmation modal block must exist')
       const modalBlock = modalBlockMatch[0]
 
-      // Backdrop dismissal
+      // Backdrop dismissal prevention (R1 invariant: backdrop click must NOT close dialog)
+      const outerDivMatch = modalBlock.match(/<div[^>]*>/)
+      assert.ok(outerDivMatch, 'Outer backdrop div must exist')
       assert.ok(
-        modalBlock.includes('onClick={() => setDeleteConfirmProject(null)}'),
-        'Clicking outer backdrop closes modal'
+        !outerDivMatch[0].includes('onClick'),
+        'Outer backdrop must NOT have onClick handler (backdrop click dismissal prevention R1)'
       )
 
       // Inner propagation stop

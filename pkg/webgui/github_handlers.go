@@ -15,8 +15,9 @@ func (s *Server) resolveWorkspace(r *http.Request) string {
 	if ws == "" {
 		ws = r.Header.Get("X-Workspace-Path")
 	}
-	if ws == "" {
-		ws = "."
+	trimmed := strings.TrimSpace(ws)
+	if trimmed == "" || trimmed == "." || strings.EqualFold(trimmed, "global") {
+		return github.ResolveProjectPath(trimmed)
 	}
 	return cleanUserPath(ws)
 }
