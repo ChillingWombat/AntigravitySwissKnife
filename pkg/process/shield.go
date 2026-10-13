@@ -108,17 +108,24 @@ func (s *Shield) IsProtected(pid int) bool {
 	}
 	// Any Swiss Knife companion or UI process is ALWAYS protected
 	if runtime.GOOS == "linux" {
+		exePath, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+		if err == nil {
+			exeLower := strings.ToLower(exePath)
+			if strings.Contains(exeLower, "swiss") || strings.Contains(exeLower, "antigravity-swiss") {
+				return true
+			}
+		}
 		cmdlineBytes, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
 		if err == nil {
 			cmdline := strings.ToLower(strings.ReplaceAll(string(cmdlineBytes), "\x00", " "))
-			if strings.Contains(cmdline, "swiss") || strings.Contains(cmdline, "antigravity-swiss") {
+			if strings.Contains(cmdline, "swiss") || strings.Contains(cmdline, "antigravity-swiss") || strings.Contains(cmdline, "antigravity-swi") {
 				return true
 			}
 		}
 		commBytes, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
 		if err == nil {
 			comm := strings.ToLower(strings.TrimSpace(string(commBytes)))
-			if strings.Contains(comm, "swiss") {
+			if strings.Contains(comm, "swiss") || strings.Contains(comm, "antigravity-swi") || strings.HasPrefix(comm, "antigravity-sw") {
 				return true
 			}
 		}
@@ -157,6 +164,15 @@ func (s *Shield) FindAntigravityProcesses() ([]ProcessInfo, error) {
 		if isZombieProcess(pid) {
 			continue
 		}
+		if s.IsProtected(pid) {
+			continue
+		}
+
+		exePath, _ := os.Readlink(filepath.Join("/proc", entry.Name(), "exe"))
+		exeLower := strings.ToLower(exePath)
+		if strings.Contains(exeLower, "swiss") || strings.Contains(exeLower, "antigravity-swiss") {
+			continue
+		}
 
 		cmdlineBytes, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
 		if err != nil {
@@ -164,13 +180,14 @@ func (s *Shield) FindAntigravityProcesses() ([]ProcessInfo, error) {
 		}
 		cmdline := strings.ReplaceAll(string(cmdlineBytes), "\x00", " ")
 		lowerCmdline := strings.ToLower(cmdline)
-		if strings.Contains(lowerCmdline, "swiss") || strings.Contains(lowerCmdline, "antigravity-swiss") {
+		if strings.Contains(lowerCmdline, "swiss") || strings.Contains(lowerCmdline, "antigravity-swiss") || strings.Contains(lowerCmdline, "antigravity-swi") {
 			continue
 		}
 		if strings.Contains(lowerCmdline, "antigravity") {
 			commBytes, _ := os.ReadFile(filepath.Join("/proc", entry.Name(), "comm"))
 			comm := strings.TrimSpace(string(commBytes))
-			if strings.Contains(strings.ToLower(comm), "swiss") {
+			commLower := strings.ToLower(comm)
+			if strings.Contains(commLower, "swiss") || strings.Contains(commLower, "antigravity-swi") || strings.HasPrefix(commLower, "antigravity-sw") {
 				continue
 			}
 
@@ -383,8 +400,10 @@ func (s *Shield) RelaunchHostIDE() error {
 
 	// Phase 1: Graceful SIGTERM to main IDE processes so Electron triggers before-quit
 	for _, pid := range mainPIDs {
-		if proc, findErr := os.FindProcess(pid); findErr == nil {
-			_ = proc.Signal(syscall.SIGTERM)
+		if !s.IsProtected(pid) {
+			if proc, findErr := os.FindProcess(pid); findErr == nil {
+				_ = proc.Signal(syscall.SIGTERM)
+			}
 		}
 	}
 	// Poll for main process graceful exit up to 6.5 seconds (Electron before-quit waits up to 5s for language_server)
@@ -392,7 +411,7 @@ func (s *Shield) RelaunchHostIDE() error {
 		time.Sleep(100 * time.Millisecond)
 		anyAlive := false
 		for _, pid := range mainPIDs {
-			if isProcessAliveMatching(pid, "antigravity") {
+			if !s.IsProtected(pid) && isProcessAliveMatching(pid, "antigravity") {
 				anyAlive = true
 				break
 			}
@@ -403,7 +422,7 @@ func (s *Shield) RelaunchHostIDE() error {
 	}
 	// Force terminate any remaining main processes
 	for _, pid := range mainPIDs {
-		if isProcessAliveMatching(pid, "antigravity") {
+		if !s.IsProtected(pid) && isProcessAliveMatching(pid, "antigravity") {
 			if proc, findErr := os.FindProcess(pid); findErr == nil {
 				_ = proc.Kill()
 			}
@@ -453,15 +472,17 @@ func (s *Shield) RelaunchHostIDE() error {
 		}
 		if len(survivingChildren) > 0 {
 			for _, pid := range survivingChildren {
-				if proc, findErr := os.FindProcess(pid); findErr == nil {
-					_ = proc.Signal(syscall.SIGTERM)
+				if !s.IsProtected(pid) {
+					if proc, findErr := os.FindProcess(pid); findErr == nil {
+						_ = proc.Signal(syscall.SIGTERM)
+					}
 				}
 			}
 			for i := 0; i < 15; i++ {
 				time.Sleep(100 * time.Millisecond)
 				anyChild := false
 				for _, pid := range survivingChildren {
-					if isProcessAliveMatching(pid, "antigravity") {
+					if !s.IsProtected(pid) && isProcessAliveMatching(pid, "antigravity") {
 						anyChild = true
 						break
 					}
@@ -471,7 +492,7 @@ func (s *Shield) RelaunchHostIDE() error {
 				}
 			}
 			for _, pid := range survivingChildren {
-				if isProcessAliveMatching(pid, "antigravity") {
+				if !s.IsProtected(pid) && isProcessAliveMatching(pid, "antigravity") {
 					if proc, findErr := os.FindProcess(pid); findErr == nil {
 						_ = proc.Kill()
 					}
@@ -604,12 +625,22 @@ func isProcessAliveMatching(pid int, keywords ...string) bool {
 			return false
 		}
 		if len(keywords) > 0 && pid != os.Getpid() {
+			exePath, _ := os.Readlink(filepath.Join(procDir, "exe"))
+			exeLower := strings.ToLower(exePath)
+			if strings.Contains(exeLower, "swiss") || strings.Contains(exeLower, "antigravity-swiss") {
+				return false
+			}
+			commBytes, _ := os.ReadFile(filepath.Join(procDir, "comm"))
+			commLower := strings.ToLower(strings.TrimSpace(string(commBytes)))
+			if strings.Contains(commLower, "swiss") || strings.Contains(commLower, "antigravity-swi") || strings.HasPrefix(commLower, "antigravity-sw") {
+				return false
+			}
 			cmdlineBytes, err := os.ReadFile(filepath.Join(procDir, "cmdline"))
 			if err != nil {
 				return false
 			}
 			cmdline := strings.ToLower(strings.ReplaceAll(string(cmdlineBytes), "\x00", " "))
-			if strings.Contains(cmdline, "swiss") || strings.Contains(cmdline, "antigravity-swiss") {
+			if strings.Contains(cmdline, "swiss") || strings.Contains(cmdline, "antigravity-swiss") || strings.Contains(cmdline, "antigravity-swi") {
 				return false
 			}
 			matched := false

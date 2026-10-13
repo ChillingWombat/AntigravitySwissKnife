@@ -118,6 +118,11 @@ func (at *AgentTracker) ListWorkspaceTasks(workspacePath string) ([]AgentTaskSum
 			lastMod, _ = time.Parse("2006-01-02 15:04:05.999999999-07:00", lastModStr)
 		}
 
+		// Filter out killed/idle tasks older than 72 hours (3 days)
+		if !notFullyIdle && !lastMod.IsZero() && time.Since(lastMod) > 72*time.Hour {
+			continue
+		}
+
 		// Determine bound issue number: first check explicit store binding, then infer from title
 		boundIssue := 0
 		if at.store != nil {

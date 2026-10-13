@@ -804,7 +804,8 @@ func generatePreloadLoaderScript() string {
                   '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"],\n' +
                   '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"],\n' +
                   '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover div[style*="linear-gradient"] {\n' +
-                  '  background: linear-gradient(to right, transparent 0%, var(--row-bg) 25%) !important;\n' +
+                  '  background: transparent !important;\n' +
+                  '  background-color: transparent !important;\n' +
                   '}\n' +
                   '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover span.truncate,\n' +
                   '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover span.truncate,\n' +

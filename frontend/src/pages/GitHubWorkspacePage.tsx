@@ -610,8 +610,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
       (typeof window !== 'undefined' && (
         window.location.search.includes('view=aux') ||
         window.location.search.includes('aux=true') ||
-        document.getElementById('swiss-aux-container') ||
-        document.querySelector('[data-testid="auxiliary-panel"]')
+        document.getElementById('swiss-aux-container')
       ))
     )
 
@@ -1127,53 +1126,6 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                                 {isPR ? 'PR #' : '#'}{num} {state.toUpperCase()}
                               </span>
                             </div>
-
-                            {/* Live Agent Task Pulse Indicator */}
-                            {assigned && (
-                              <span
-                                onClick={(e) => {
-                                  if (assigned.conversation_id) {
-                                    e.stopPropagation()
-                                    navigateToConversation(assigned.conversation_id, assigned.root_parent_conversation_id, assigned.is_pruned)
-                                  }
-                                }}
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '5px',
-                                  padding: '2px 6px',
-                                  borderRadius: '10px',
-                                  fontSize: '10px',
-                                  fontWeight: 600,
-                                  cursor: assigned.conversation_id && !assigned.is_pruned ? 'pointer' : 'default',
-                                  backgroundColor: assigned.is_pruned ? 'rgba(148, 163, 184, 0.15)' : assigned.not_fully_idle ? 'rgba(34, 197, 94, 0.12)' : 'rgba(100, 116, 139, 0.12)',
-                                  color: assigned.is_pruned ? '#94a3b8' : assigned.not_fully_idle ? '#15803d' : '#64748b',
-                                  border: assigned.is_pruned ? '1px dashed #94a3b8' : assigned.not_fully_idle ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid transparent',
-                                  opacity: assigned.is_pruned ? 0.75 : 1,
-                                }}
-                                title={assigned.is_pruned
-                                  ? `Agent: ${assigned.agent_label || assigned.agent_name || 'Agent'} [Archived / Pruned]\nConversation database file is missing`
-                                  : `Agent: ${assigned.agent_label || assigned.agent_name || 'Agent'} (${assigned.conversation_id ? assigned.conversation_id.slice(0, 8) : ''})${assigned.parent_conversation_id ? ` · Subagent of ${assigned.parent_conversation_id.slice(0, 8)}` : ''}\nClick to jump to conversation`}
-                              >
-                                {assigned.not_fully_idle && !assigned.is_pruned && (
-                                  <span
-                                    style={{
-                                      width: '6px',
-                                      height: '6px',
-                                      borderRadius: '50%',
-                                      backgroundColor: '#16a34a',
-                                      boxShadow: '0 0 0 2px rgba(34, 197, 94, 0.4)',
-                                    }}
-                                  />
-                                )}
-                                {assigned.is_pruned ? 'Archived' : assigned.not_fully_idle ? 'Working' : 'Idle'}: {assigned.agent_label || 'Agent'}
-                                {assigned.conversation_id && (
-                                  <span style={{ opacity: 0.75, fontFamily: 'monospace', fontSize: '9px' }}>
-                                    [#{assigned.conversation_id.slice(0, 6)}]
-                                  </span>
-                                )}
-                              </span>
-                            )}
                           </div>
 
                           <div
@@ -1187,6 +1139,61 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                           >
                             {title}
                           </div>
+
+                          {/* Live Agent Task Pulse Indicator */}
+                          {assigned && (
+                            <div style={{ display: 'flex', alignItems: 'center', marginTop: '6px' }}>
+                              <span
+                                onClick={(e) => {
+                                  if (assigned.conversation_id) {
+                                    e.stopPropagation()
+                                    navigateToConversation(assigned.conversation_id, assigned.root_parent_conversation_id, assigned.is_pruned)
+                                  }
+                                }}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '5px',
+                                  padding: '2px 7px',
+                                  borderRadius: '10px',
+                                  fontSize: '10px',
+                                  fontWeight: 600,
+                                  cursor: assigned.conversation_id && !assigned.is_pruned ? 'pointer' : 'default',
+                                  backgroundColor: assigned.is_pruned ? 'rgba(148, 163, 184, 0.15)' : assigned.not_fully_idle ? 'rgba(34, 197, 94, 0.12)' : 'rgba(100, 116, 139, 0.12)',
+                                  color: assigned.is_pruned ? '#94a3b8' : assigned.not_fully_idle ? '#15803d' : '#64748b',
+                                  border: assigned.is_pruned ? '1px dashed #94a3b8' : assigned.not_fully_idle ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid transparent',
+                                  opacity: assigned.is_pruned ? 0.75 : 1,
+                                  maxWidth: '100%',
+                                  boxSizing: 'border-box',
+                                }}
+                                title={assigned.is_pruned
+                                  ? `Agent: ${assigned.agent_label || assigned.agent_name || 'Agent'} [Archived / Pruned]\nConversation database file is missing`
+                                  : `Agent: ${assigned.agent_label || assigned.agent_name || 'Agent'} (${assigned.conversation_id ? assigned.conversation_id.slice(0, 8) : ''})${assigned.parent_conversation_id ? ` · Subagent of ${assigned.parent_conversation_id.slice(0, 8)}` : ''}\nClick to jump to conversation`}
+                              >
+                                <Bot size={11} style={{ flexShrink: 0 }} />
+                                {assigned.not_fully_idle && !assigned.is_pruned && (
+                                  <span
+                                    style={{
+                                      width: '6px',
+                                      height: '6px',
+                                      borderRadius: '50%',
+                                      backgroundColor: '#16a34a',
+                                      boxShadow: '0 0 0 2px rgba(34, 197, 94, 0.4)',
+                                      flexShrink: 0,
+                                    }}
+                                  />
+                                )}
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {assigned.is_pruned ? 'Archived' : assigned.not_fully_idle ? 'Working' : 'Idle'}: {assigned.agent_label || 'Agent'}
+                                  {assigned.conversation_id && (
+                                    <span style={{ opacity: 0.75, fontFamily: 'monospace', fontSize: '9px', marginLeft: '4px' }}>
+                                      [#{assigned.conversation_id.slice(0, 6)}]
+                                    </span>
+                                  )}
+                                </span>
+                              </span>
+                            </div>
+                          )}
 
                           {labels && labels.length > 0 && (
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px' }}>
@@ -1643,7 +1650,14 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                       #{item.number}
                     </span>
                   </div>
-                  {assigned && (
+                </div>
+
+                <div style={{ fontSize: '13px', fontWeight: 600, marginTop: '4px', color: 'var(--text)', lineHeight: 1.3 }}>
+                  {item.title}
+                </div>
+
+                {assigned && (
+                  <div style={{ display: 'flex', alignItems: 'center', marginTop: '6px' }}>
                     <span
                       onClick={(e) => {
                         if (assigned.conversation_id) {
@@ -1654,8 +1668,8 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: '4px',
-                        padding: '1px 6px',
+                        gap: '5px',
+                        padding: '2px 7px',
                         borderRadius: '10px',
                         fontSize: '10px',
                         fontWeight: 600,
@@ -1664,25 +1678,37 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                         color: assigned.is_pruned ? '#94a3b8' : assigned.not_fully_idle ? '#15803d' : '#64748b',
                         border: assigned.is_pruned ? '1px dashed #94a3b8' : 'none',
                         opacity: assigned.is_pruned ? 0.75 : 1,
+                        maxWidth: '100%',
+                        boxSizing: 'border-box',
                       }}
                       title={assigned.is_pruned
                         ? `Agent: ${assigned.agent_label || assigned.agent_name || 'Agent'} [Archived / Pruned]\nConversation database file is missing`
                         : `Agent: ${assigned.agent_label || assigned.agent_name || 'Agent'} (${assigned.conversation_id ? assigned.conversation_id.slice(0, 8) : ''})${assigned.parent_conversation_id ? ` · Subagent of ${assigned.parent_conversation_id.slice(0, 8)}` : ''}\nClick to jump to conversation`}
                     >
-                      <Bot size={10} />
-                      {assigned.is_pruned ? `${assigned.agent_label || 'Agent'} [Archived]` : (assigned.agent_label || 'Agent')}
-                      {assigned.conversation_id && (
-                        <span style={{ opacity: 0.75, fontFamily: 'monospace', fontSize: '9px' }}>
-                          [#{assigned.conversation_id.slice(0, 6)}]
-                        </span>
+                      <Bot size={11} style={{ flexShrink: 0 }} />
+                      {assigned.not_fully_idle && !assigned.is_pruned && (
+                        <span
+                          style={{
+                            width: '6px',
+                            height: '6px',
+                            borderRadius: '50%',
+                            backgroundColor: '#16a34a',
+                            boxShadow: '0 0 0 2px rgba(34, 197, 94, 0.4)',
+                            flexShrink: 0,
+                          }}
+                        />
                       )}
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {assigned.is_pruned ? `${assigned.agent_label || 'Agent'} [Archived]` : (assigned.agent_label || 'Agent')}
+                        {assigned.conversation_id && (
+                          <span style={{ opacity: 0.75, fontFamily: 'monospace', fontSize: '9px', marginLeft: '4px' }}>
+                            [#{assigned.conversation_id.slice(0, 6)}]
+                          </span>
+                        )}
+                      </span>
                     </span>
-                  )}
-                </div>
-
-                <div style={{ fontSize: '13px', fontWeight: 600, marginTop: '4px', color: 'var(--text)', lineHeight: 1.3 }}>
-                  {item.title}
-                </div>
+                  </div>
+                )}
 
                 {item.labels && item.labels.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>

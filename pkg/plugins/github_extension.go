@@ -689,15 +689,36 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
 }
 
 /* Agent Working Badge */
+.swiss-gh-card-agent-row {
+  display: flex;
+  align-items: center;
+  margin-top: 6px;
+  margin-bottom: 2px;
+}
+
 .swiss-agent-task-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
+  gap: 5px;
+  padding: 2px 7px;
   border-radius: 12px;
   font-size: 9.5px;
   font-weight: 600;
-  line-height: 1;
+  line-height: 1.2;
+  max-width: 100%;
+  box-sizing: border-box;
+  transition: all 0.15s ease;
+}
+.swiss-agent-badge-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.swiss-agent-task-badge:hover {
+  filter: brightness(0.96);
+}
+:is(.dark, [data-theme="dark"]) .swiss-agent-task-badge:hover {
+  filter: brightness(1.15);
 }
 .swiss-agent-task-badge.working {
   background: rgba(34, 197, 94, 0.12);
@@ -724,6 +745,7 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
   border-radius: 50%;
   background: #16a34a;
   animation: swissPulse 1.8s infinite;
+  flex-shrink: 0;
 }
 :is(.dark, [data-theme="dark"]) .swiss-agent-pulse-dot {
   background: #4ade80;

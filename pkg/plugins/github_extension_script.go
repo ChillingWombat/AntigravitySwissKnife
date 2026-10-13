@@ -1409,7 +1409,6 @@ func GenerateGitHubExtensionScript() string {
       const isAux = Boolean(
         forAux ||
         document.getElementById("swiss-aux-container") ||
-        document.querySelector('[data-testid="auxiliary-panel"]') ||
         window.location.search.includes("view=aux")
       );
 
@@ -1572,8 +1571,9 @@ func GenerateGitHubExtensionScript() string {
           : ("Agent: " + escapeHTML(label) + (shortId ? " [#" + shortId + "]" : "") + subInfo + "&#10;Click to jump to conversation");
         agentHTML = ` + "`" + `
           <span class="swiss-agent-task-badge ${isPruned ? "pruned" : (isWorking ? "working" : "idle")}" data-conv-id="${targetId}" data-orig-id="${assigned.conversation_id || ""}" data-is-pruned="${isPruned ? "true" : "false"}" title="${badgeTitle}" style="cursor: ${isPruned ? "default" : "pointer"}; ${isPruned ? "opacity: 0.75; border: 1px dashed #94a3b8;" : ""}">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg>
             <span class="swiss-agent-pulse-dot" style="${isWorking && !isPruned ? "" : "display:none;"}"></span>
-            ${isPruned ? "Archived" : (isWorking ? "Working" : "Idle")}: ${escapeHTML(label)}${shortId ? " [#" + shortId + "]" : ""}
+            <span class="swiss-agent-badge-text">${isPruned ? "Archived" : (isWorking ? "Working" : "Idle")}: ${escapeHTML(label)}${shortId ? " [#" + shortId + "]" : ""}</span>
           </span>
         ` + "`" + `;
       }
@@ -1587,9 +1587,9 @@ func GenerateGitHubExtensionScript() string {
               <svg width="8" height="12" viewBox="0 0 8 16" fill="currentColor" style="opacity: 0.6; cursor: grab; flex-shrink: 0;" title="Drag into chat"><circle cx="2" cy="2" r="1.2"/><circle cx="6" cy="2" r="1.2"/><circle cx="2" cy="8" r="1.2"/><circle cx="6" cy="8" r="1.2"/><circle cx="2" cy="14" r="1.2"/><circle cx="6" cy="14" r="1.2"/></svg>
               <span class="swiss-gh-num-badge ${badgeClass}">#${num} ${state.toUpperCase()}</span>
             </div>
-            ${agentHTML}
           </div>
           <div class="swiss-gh-card-title">${escapeHTML(title)}</div>
+          ${agentHTML ? '<div class="swiss-gh-card-agent-row">' + agentHTML + '</div>' : ""}
           ${labelsHTML ? '<div class="swiss-gh-chips-row">' + labelsHTML + '</div>' : ""}
           <div class="swiss-gh-card-footer">
             <div class="swiss-gh-card-actions">
@@ -2864,8 +2864,9 @@ func GenerateGitHubExtensionScript() string {
         : ("Agent: " + escapeHTML(label) + (shortId ? " [#" + shortId + "]" : "") + subInfo + "&#10;Click to jump to conversation");
       agentHTML = ` + "`" + `
         <span class="swiss-agent-task-badge ${isPruned ? "pruned" : (isWorking ? "working" : "idle")}" data-conv-id="${targetId}" data-orig-id="${assigned.conversation_id || ""}" data-is-pruned="${isPruned ? "true" : "false"}" title="${badgeTitle}" style="cursor: ${isPruned ? "default" : "pointer"}; ${isPruned ? "opacity: 0.75; border: 1px dashed #94a3b8;" : ""}">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg>
           <span class="swiss-agent-pulse-dot" style="${isWorking && !isPruned ? "" : "display:none;"}"></span>
-          ${isPruned ? "Archived" : (isWorking ? "Working" : "Idle")}: ${escapeHTML(label)}${shortId ? " [#" + shortId + "]" : ""}
+          <span class="swiss-agent-badge-text">${isPruned ? "Archived" : (isWorking ? "Working" : "Idle")}: ${escapeHTML(label)}${shortId ? " [#" + shortId + "]" : ""}</span>
         </span>
       ` + "`" + `;
     }
@@ -2879,9 +2880,9 @@ func GenerateGitHubExtensionScript() string {
             <svg width="8" height="12" viewBox="0 0 8 16" fill="currentColor" style="opacity: 0.6; cursor: grab; flex-shrink: 0;" title="Drag card across columns or into chat"><circle cx="2" cy="2" r="1.2"/><circle cx="6" cy="2" r="1.2"/><circle cx="2" cy="8" r="1.2"/><circle cx="6" cy="8" r="1.2"/><circle cx="2" cy="14" r="1.2"/><circle cx="6" cy="14" r="1.2"/></svg>
             <span class="swiss-gh-num-badge ${badgeClass}">${isPR ? "PR #" : "#"}${num} ${state.toUpperCase()}</span>
           </div>
-          ${agentHTML}
         </div>
         <div class="swiss-gh-card-title">${escapeHTML(title)}</div>
+        ${agentHTML ? '<div class="swiss-gh-card-agent-row">' + agentHTML + '</div>' : ""}
         ${labelsHTML ? '<div class="swiss-gh-chips-row">' + labelsHTML + '</div>' : ""}
         <div class="swiss-gh-card-footer" style="display: flex; justify-content: flex-end; gap: 4px; margin-top: 4px;">
           <button class="swiss-gh-action-btn swiss-btn-send-chat" data-item-num="${num}" data-item-type="${isPR ? "pr" : "issue"}" title="Send to Agent Chat">

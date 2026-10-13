@@ -266,7 +266,8 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
 }
 [data-testid="conversation-row-sidebar"] div[style*="linear-gradient"],
 [data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"] {
-  background: linear-gradient(to right, transparent 0%, var(--row-bg) 25%) !important;
+  background: transparent !important;
+  background-color: transparent !important;
 }
 [data-testid="conversation-row-sidebar"] [class*="action"],
 [data-testid="conversation-row-sidebar"]:hover [class*="action"],
@@ -499,7 +500,8 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
 [data-swiss-project="%s"] [data-testid="conversation-row-sidebar"] div[style*="linear-gradient"],
 [data-swiss-project="%s"][data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"],
 [data-swiss-project="%s"] [data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"] {
-  background: linear-gradient(to right, transparent 0%%, var(--row-bg) 25%%) !important;
+  background: transparent !important;
+  background-color: transparent !important;
 }
 
 /* Prevent conversation title text under action buttons from overlapping on hover */
@@ -709,6 +711,7 @@ button[data-swiss-divider="true"]:hover {
   background: transparent !important;
   z-index: 3 !important;
   pointer-events: none !important;
+}
 /* Divider line for show more/less projects is preserved */
 [data-theme="dark"] .swiss-project-spacer-line,
 .dark .swiss-project-spacer-line {
@@ -1224,10 +1227,9 @@ func generateBaseScript(cfg *Config) string {
             } else if (p.rows.length === 0) {
               spacerIndices.add(p.headerIdx);
             }
-          } else if (!replaceSeeAllTriangle) {
+          } else {
             spacerIndices.add(p.showMoreIdx);
           }
-          // When p.hasShowMore is visible and replaceSeeAllTriangle is true, the divider button itself already contains the horizontal separator line
         });
       } else {
         container.querySelectorAll(".swiss-project-bottom-spacer").forEach(el => el.remove());
@@ -1442,17 +1444,14 @@ func generateBaseScript(cfg *Config) string {
             }
           }
 
-          // Consistent blank spacing below projects without contracted conversation tabs
+          // Consistent blank spacing and divider lines below projects
           let spacer = el.querySelector(".swiss-project-bottom-spacer");
           const hasDividerBtn = Boolean(
             (item && (item.type === "show-more" || item.hasShowMore)) ||
             el.matches('button[data-swiss-divider="true"], [data-swiss-divider="true"], :has(button[data-swiss-divider="true"]), :has([data-swiss-divider="true"])') ||
             el.querySelector('button[data-swiss-divider="true"], [data-swiss-divider="true"]')
           );
-          if (hasDividerBtn) {
-            el.querySelectorAll(".swiss-project-bottom-spacer, .swiss-project-spacer-line").forEach(s => s.remove());
-            if (spacer) { spacer.remove(); spacer = null; }
-          } else if (consistentProjectSpacing && spacerIndices.has(idx)) {
+          if (consistentProjectSpacing && spacerIndices.has(idx)) {
             if (!spacer) {
               spacer = document.createElement("div");
               spacer.className = "swiss-project-bottom-spacer";
@@ -2087,7 +2086,8 @@ func generateBaseScript(cfg *Config) string {
           '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"],' +
           '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover div[style*="linear-gradient"],' +
           '[data-testid="conversation-row-sidebar"][data-swiss-project="' + safeP + '"]:hover div[style*="linear-gradient"] {' +
-          '  background: linear-gradient(to right, transparent 0%%, var(--row-bg) 25%%) !important;' +
+          '  background: transparent !important;' +
+          '  background-color: transparent !important;' +
           '}' +
           '[data-swiss-project="' + safeP + '"][data-testid="conversation-row-sidebar"]:hover span.truncate,' +
           '[data-swiss-project="' + safeP + '"] [data-testid="conversation-row-sidebar"]:hover span.truncate,' +

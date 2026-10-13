@@ -195,11 +195,15 @@ function getTrayIcon() {
   }
 
   // Exact OS standard tray dimensions:
-  // macOS status item icon standard: 18x18 (avoids covering half the top bar)
+  // macOS status item icon standard: 18x18 template image (avoids covering half the top bar)
   // Windows notification tray icons: 16x16
   // Linux system tray icons standard: 22x22
   if (isMac) {
-    return img.resize({ width: 18, height: 18 });
+    const resized = img.resize({ width: 18, height: 18 });
+    if (typeof resized.setTemplateImage === 'function') {
+      resized.setTemplateImage(true);
+    }
+    return resized;
   } else if (isWin) {
     return img.resize({ width: 16, height: 16 });
   } else {
@@ -420,8 +424,19 @@ async function createWindow() {
   const windowIcon = getWindowIcon();
   if (process.platform === 'darwin' && app.dock && windowIcon) {
     try {
-      app.dock.setIcon(windowIcon);
-    } catch (_) {}
+      const docImg = nativeImage.createFromPath(windowIcon);
+      if (!docImg.isEmpty()) {
+        const size = docImg.getSize();
+        const insetWidth = Math.round(size.width * 0.82);
+        const insetHeight = Math.round(size.height * 0.82);
+        const resized = docImg.resize({ width: insetWidth, height: insetHeight });
+        app.dock.setIcon(resized);
+      } else {
+        app.dock.setIcon(windowIcon);
+      }
+    } catch (_) {
+      try { app.dock.setIcon(windowIcon); } catch (__) {}
+    }
   }
   const startMinimized = process.argv.includes('--minimized') ||
                          process.argv.includes('--hidden') ||
