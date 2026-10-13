@@ -4591,6 +4591,25 @@ func validateJailedPath(raw string) (string, error) {
 		}
 	}
 
+	// Deny access to sensitive credentials and shell dotfiles
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		sensitivePaths := []string{
+			filepath.Join(home, ".ssh"),
+			filepath.Join(home, ".aws"),
+			filepath.Join(home, ".gnupg"),
+			filepath.Join(home, ".bashrc"),
+			filepath.Join(home, ".bash_profile"),
+			filepath.Join(home, ".profile"),
+			filepath.Join(home, ".zshrc"),
+			filepath.Join(home, ".config", "gcloud"),
+		}
+		for _, sp := range sensitivePaths {
+			if evalPath == sp || strings.HasPrefix(evalPath, sp+string(filepath.Separator)) {
+				return "", fmt.Errorf("access denied: path resolves to sensitive location %q", sp)
+			}
+		}
+	}
+
 	var allowedRoots []string
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		if evalHome, errH := filepath.EvalSymlinks(home); errH == nil {

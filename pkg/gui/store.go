@@ -234,10 +234,10 @@ func (s *Store) writePersistentFiles(cfg *Config) error {
 	css := GenerateCSS(cfg)
 	script := GenerateScriptWithCustomModels(cfg, nil)
 
-	if err := os.WriteFile(cssPath, []byte(css), 0644); err != nil {
+	if err := os.WriteFile(cssPath, []byte(css), 0600); err != nil {
 		return err
 	}
-	return os.WriteFile(jsPath, []byte(script), 0644)
+	return os.WriteFile(jsPath, []byte(script), 0600)
 }
 
 // SyncPersistentFiles writes persistent_styles.css and persistent_script.js to disk.

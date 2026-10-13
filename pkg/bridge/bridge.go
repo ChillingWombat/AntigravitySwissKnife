@@ -668,7 +668,37 @@ func (s *Service) CallTool(name string, args map[string]interface{}) (string, er
 
 	s.mu.RLock()
 	currentMode := s.config.OperatingMode
+	allowedTools := s.config.AllowedTools
 	s.mu.RUnlock()
+
+	// Enforce AllowedTools restriction
+	if len(allowedTools) > 0 {
+		isAllowed := false
+		for _, t := range allowedTools {
+			if t == name ||
+				(name == "antigravity_dispatch_task" && t == "antigravity_lead_create_conversation") ||
+				(name == "antigravity_list_sessions" && t == "antigravity_lead_list_conversations") ||
+				(name == "antigravity_inspect_workspace" && t == "local_list_directory") ||
+				(name == "antigravity_system_info" && t == "local_system_info") ||
+				(name == "antigravity_computer_use" && t == "local_computer_use") {
+				isAllowed = true
+				break
+			}
+		}
+		if !isAllowed {
+			return "", fmt.Errorf("tool %q is not in the allowed tools list", name)
+		}
+	}
+
+	// Mode compatibility enforcement
+	isDirect := strings.HasPrefix(name, "local_") || name == "antigravity_inspect_workspace" || name == "antigravity_system_info" || name == "antigravity_computer_use"
+	isLead := strings.HasPrefix(name, "antigravity_lead_") || name == "antigravity_dispatch_task" || name == "antigravity_list_sessions"
+	if currentMode == "lead" && isDirect {
+		return "", fmt.Errorf("tool %q is disabled in %q operational mode", name, currentMode)
+	}
+	if currentMode == "direct" && isLead {
+		return "", fmt.Errorf("tool %q is disabled in %q operational mode", name, currentMode)
+	}
 
 	switch name {
 	// Mode Management

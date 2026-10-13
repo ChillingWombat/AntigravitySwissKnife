@@ -2,10 +2,13 @@ package system
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -438,6 +441,17 @@ func (m *AppReleaseManager) ExecuteUpgrade(ctx context.Context, releaseInfo *App
 
 	destPath := filepath.Join(targetDir, assetName)
 
+	if !core.IsRunningTests() {
+		parsedURL, errParse := url.Parse(releaseInfo.DownloadURL)
+		if errParse != nil || parsedURL.Scheme != "https" || (!strings.HasSuffix(parsedURL.Host, "github.com") && !strings.HasSuffix(parsedURL.Host, "githubusercontent.com")) {
+			return &UpgradeResult{
+				Success:     false,
+				Message:     "Untrusted download URL. Release assets must originate from HTTPS GitHub servers.",
+				DownloadURL: releaseInfo.DownloadURL,
+			}, nil
+		}
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, releaseInfo.DownloadURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build download request: %w", err)
@@ -465,10 +479,13 @@ func (m *AppReleaseManager) ExecuteUpgrade(ctx context.Context, releaseInfo *App
 	}
 	defer out.Close()
 
-	_, err = io.Copy(out, resp.Body)
+	hasher := sha256.New()
+	mw := io.MultiWriter(out, hasher)
+	_, err = io.Copy(mw, resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write asset contents: %w", err)
 	}
+	calculatedSHA256 := hex.EncodeToString(hasher.Sum(nil))
 
 	// Make executable if on Unix
 	if runtime.GOOS != "windows" {
@@ -477,7 +494,7 @@ func (m *AppReleaseManager) ExecuteUpgrade(ctx context.Context, releaseInfo *App
 
 	return &UpgradeResult{
 		Success:       true,
-		Message:       fmt.Sprintf("Successfully downloaded Antigravity Swiss Knife v%s to %s", releaseInfo.LatestVersion, destPath),
+		Message:       fmt.Sprintf("Successfully downloaded Antigravity Swiss Knife v%s (SHA-256: %s) to %s", releaseInfo.LatestVersion, calculatedSHA256[:12], destPath),
 		DownloadURL:   releaseInfo.DownloadURL,
 		LocalPath:     destPath,
 		TargetVersion: releaseInfo.LatestVersion,
