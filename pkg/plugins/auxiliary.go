@@ -1372,7 +1372,7 @@ textarea.swiss-prompt-input {
 }
 
 /* In-Chat Real Telemetry Metrics (At Left End of Chat Action Row) */
-.swiss-inchat-metrics {
+[data-testid="conversation-view"] .swiss-inchat-metrics {
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;
@@ -1386,6 +1386,14 @@ textarea.swiss-prompt-input {
   margin-right: auto;
   padding: 2px 0;
   vertical-align: middle;
+}
+[role="dialog"] .swiss-inchat-metrics,
+[aria-modal="true"] .swiss-inchat-metrics,
+.settings-tab-content .swiss-inchat-metrics,
+#swiss-aux-container .swiss-inchat-metrics,
+pre .swiss-inchat-metrics,
+code .swiss-inchat-metrics {
+  display: none !important;
 }
 .swiss-inchat-metrics .metric-item {
   display: inline-flex;
@@ -5595,6 +5603,17 @@ func GenerateAuxiliaryPluginsScript() string {
     let chatTelemetryLastFetch = 0;
 
     async function setupInChatTelemetry() {
+      // 1. Active modal cleanup: purge stray metrics inside dialogs, modals, settings tab content, code blocks, or auxiliary panels
+      document.querySelectorAll('[role="dialog"] .swiss-inchat-metrics, [aria-modal="true"] .swiss-inchat-metrics, .settings-tab-content .swiss-inchat-metrics, [data-testid*="settings"] .swiss-inchat-metrics, [data-testid="models-usage-container"] .swiss-inchat-metrics, #swiss-aux-container .swiss-inchat-metrics, [id^="swiss-aux"] .swiss-inchat-metrics, pre .swiss-inchat-metrics, code .swiss-inchat-metrics, .code-block .swiss-inchat-metrics, [data-testid="agent-input-box"] .swiss-inchat-metrics').forEach(el => el.remove());
+
+      // 2. Strict Container Scoping: Require that conversation view exists and is visible
+      const convoView = document.querySelector('[data-testid="conversation-view"]');
+      if (!convoView || convoView.offsetParent === null || convoView.style.display === "none") {
+        document.querySelectorAll(".swiss-inchat-metrics").forEach(el => el.remove());
+        return;
+      }
+
+      // 3. Resolve active conversation ID without allowing stale localStorage fallback outside active chats
       let convId = "";
       const convMatch = window.location.pathname.match(/\/c\/([a-zA-Z0-9_-]+)/);
       if (convMatch) {
@@ -5605,7 +5624,7 @@ func GenerateAuxiliaryPluginsScript() string {
         if (hashMatch) convId = hashMatch[1];
       }
       if (!convId) {
-        const el = document.querySelector('[data-testid="agent-input-box"]') || document.querySelector('[data-testid="conversation-view"]');
+        const el = convoView.querySelector('[data-testid="agent-input-box"]') || convoView;
         if (el) {
           try {
             const fiberKey = Object.keys(el).find(k => k.startsWith("__reactFiber"));
@@ -5626,13 +5645,51 @@ func GenerateAuxiliaryPluginsScript() string {
         }
       }
       if (!convId) {
-        try {
-          const lastPath = localStorage.getItem("antigravity_swiss_last_conversation_path") || "";
-          const m = lastPath.match(/\/c\/([a-zA-Z0-9_-]+)/);
-          if (m) convId = m[1];
-        } catch (_) {}
+        const hasActiveChat = Boolean(convoView.querySelector('[data-testid="agent-input-box"], textarea, button[aria-label="Good response"], button[aria-label="Bad response"]'));
+        if (hasActiveChat) {
+          try {
+            const lastPath = localStorage.getItem("antigravity_swiss_last_conversation_path") || "";
+            const m = lastPath.match(/\/c\/([a-zA-Z0-9_-]+)/);
+            if (m) convId = m[1];
+          } catch (_) {}
+        }
       }
-      if (!convId) return;
+      if (!convId) {
+        document.querySelectorAll(".swiss-inchat-metrics").forEach(el => el.remove());
+        return;
+      }
+
+      // 4. Query feedback buttons strictly within convoView and anchor to assistant action rows
+      const feedbackButtons = convoView.querySelectorAll('button[aria-label="Good response"], button[aria-label="Bad response"]');
+      const actionRowSet = new Set();
+
+      feedbackButtons.forEach(btn => {
+        const row = btn.closest('.flex.items-center') || btn.closest('.flex') || btn.parentElement;
+        if (!row) return;
+
+        // Apply strict Negative Exclusion Guards:
+        if (row.closest('[role="dialog"], [aria-modal="true"], .settings-tab-content, [data-testid*="settings"], [data-testid="models-usage-container"], #swiss-aux-container, [id^="swiss-aux"], pre, code, .code-block, [data-testid="agent-input-box"]')) {
+          return;
+        }
+
+        // Ensure row is strictly contained within convoView
+        if (!convoView.contains(row)) return;
+
+        actionRowSet.add(row);
+      });
+
+      const validActionRows = Array.from(actionRowSet);
+      if (validActionRows.length === 0) {
+        document.querySelectorAll(".swiss-inchat-metrics").forEach(el => el.remove());
+        return;
+      }
+
+      // Purge any stray metrics not inside validActionRows
+      document.querySelectorAll(".swiss-inchat-metrics").forEach(el => {
+        if (!validActionRows.some(row => row.contains(el))) {
+          el.remove();
+        }
+      });
 
       const now = Date.now();
       if (!chatTelemetryCachedData || chatTelemetryCachedData.convId !== convId || (now - chatTelemetryLastFetch) > 3000) {
@@ -5674,25 +5731,6 @@ func GenerateAuxiliaryPluginsScript() string {
         cache_hit_ratio: 0,
         generation_speed: 0,
       };
-
-      let actionRows = document.querySelectorAll("div.flex.w-full.flex-wrap.items-center.justify-between");
-      if (!actionRows || actionRows.length === 0) {
-        const copyBtns = document.querySelectorAll('button[aria-label="Copy"], button[aria-label="Good response"], [data-tooltip-id*="copy"]');
-        const set = new Set();
-        copyBtns.forEach(b => {
-          const r = b.closest('div.flex.items-center') || b.closest('div.flex') || b.parentElement;
-          if (r) set.add(r);
-        });
-        actionRows = Array.from(set);
-      }
-      const validActionRows = [];
-      actionRows.forEach(row => {
-        const hasCopy = row.querySelector('button[aria-label="Copy"]') ||
-                        row.querySelector('button[aria-label="Good response"]') ||
-                        row.querySelector('button[aria-label="Bad response"]') ||
-                        row.querySelector('[data-tooltip-id*="copy"]');
-        if (hasCopy) validActionRows.push(row);
-      });
 
       const offset = (turns.length > validActionRows.length && validActionRows.length > 0)
         ? turns.length - validActionRows.length
@@ -5913,6 +5951,7 @@ func GenerateAuxiliaryPluginsScript() string {
       if (auxRaf) return;
       auxRaf = requestAnimationFrame(() => {
         auxRaf = null;
+        document.querySelectorAll('[role="dialog"] .swiss-inchat-metrics, [aria-modal="true"] .swiss-inchat-metrics, .settings-tab-content .swiss-inchat-metrics, #swiss-aux-container .swiss-inchat-metrics, pre .swiss-inchat-metrics, code .swiss-inchat-metrics').forEach(el => el.remove());
         setupAuxiliaryTabs();
         setupInChatTelemetry();
       });

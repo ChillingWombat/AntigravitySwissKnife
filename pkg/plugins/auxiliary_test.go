@@ -2496,6 +2496,67 @@ assert.strictEqual(resolveFallback("UnknownCustomDir"), "UnknownCustomDir");
 		t.Fatalf("node execution error in TestFileExplorerDefaultProjectFolderSetting: %v\n%s", err, string(out))
 	}
 }
+func TestInChatTelemetryIsolationAndDualLayerSuppression(t *testing.T) {
+	css := GenerateAuxiliaryPluginsCSS()
+	js := GenerateAuxiliaryPluginsScript()
 
+	// 1. Verify Dual-Layer CSS Scoping & Hard Suppression
+	requiredCSSPatterns := []string{
+		`[data-testid="conversation-view"] .swiss-inchat-metrics`,
+		`[role="dialog"] .swiss-inchat-metrics`,
+		`[aria-modal="true"] .swiss-inchat-metrics`,
+		`.settings-tab-content .swiss-inchat-metrics`,
+		`#swiss-aux-container .swiss-inchat-metrics`,
+		`pre .swiss-inchat-metrics`,
+		`code .swiss-inchat-metrics`,
+		`display: none !important;`,
+		`.swiss-telemetry-badge`,
+	}
+	for _, p := range requiredCSSPatterns {
+		if !strings.Contains(css, p) {
+			t.Errorf("expected CSS to contain pattern %q", p)
+		}
+	}
 
+	// 2. Verify Container Scoping in Script
+	if !strings.Contains(js, `document.querySelector('[data-testid="conversation-view"]')`) {
+		t.Errorf("expected script to strictly scope telemetry to [data-testid=\"conversation-view\"]")
+	}
+	if !strings.Contains(js, `convoView.offsetParent === null`) || !strings.Contains(js, `convoView.style.display === "none"`) {
+		t.Errorf("expected script to verify convoView visibility before injecting metrics")
+	}
+
+	// 3. Verify Feedback Row Anchoring
+	if !strings.Contains(js, `button[aria-label="Good response"]`) || !strings.Contains(js, `button[aria-label="Bad response"]`) {
+		t.Errorf("expected script to query Good response / Bad response feedback buttons")
+	}
+	if !strings.Contains(js, `convoView.contains(row)`) {
+		t.Errorf("expected script to verify action row is contained within convoView")
+	}
+
+	// 4. Verify Strict Negative Exclusion Guards
+	negativeGuards := []string{
+		`[role="dialog"]`,
+		`[aria-modal="true"]`,
+		`.settings-tab-content`,
+		`[data-testid*="settings"]`,
+		`[data-testid="models-usage-container"]`,
+		`#swiss-aux-container`,
+		`[id^="swiss-aux"]`,
+		`pre`,
+		`code`,
+		`.code-block`,
+		`[data-testid="agent-input-box"]`,
+	}
+	for _, guard := range negativeGuards {
+		if !strings.Contains(js, guard) {
+			t.Errorf("expected script to enforce negative exclusion guard for %q", guard)
+		}
+	}
+
+	// 5. Verify Active Modal Cleanup
+	if !strings.Contains(js, `document.querySelectorAll('[role="dialog"] .swiss-inchat-metrics`) {
+		t.Errorf("expected script to execute active modal cleanup on setup and mutations")
+	}
+}
 
