@@ -92,9 +92,8 @@ func TestChallenger_SingleStepConversation(t *testing.T) {
 	}
 
 	// Test GetChatMetricsForConversation
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	metrics, err := GetChatMetricsForConversation(convID, "main")
 	if err != nil {
@@ -644,7 +643,8 @@ func TestChallenger_GetChatMetrics_EdgeCases(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			os.Setenv("HOME", tmpDir)
+			t.Setenv("HOME", tmpDir)
+			t.Setenv("USERPROFILE", tmpDir)
 
 			convID := "test-conv-" + strings.ReplaceAll(tc.name, " ", "-")
 			logDir := filepath.Join(tmpDir, ".gemini", "antigravity", "brain", convID, ".system_generated", "logs")

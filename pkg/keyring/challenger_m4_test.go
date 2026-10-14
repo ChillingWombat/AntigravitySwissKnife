@@ -3,6 +3,7 @@ package keyring
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -59,7 +60,7 @@ trailing_flag: false
 			t.Fatalf("failed to stat file %s: %v", filepath.Base(f), err)
 		}
 		perm := info.Mode().Perm()
-		if perm != 0600 {
+		if runtime.GOOS != "windows" && perm != 0600 {
 			t.Errorf("file %s has permissions %o; want strict 0600", filepath.Base(f), perm)
 		}
 	}
@@ -118,7 +119,7 @@ func TestChallenger_SyncHardwareProfileToDirs_MissingPbtxtCreation(t *testing.T)
 	if err != nil {
 		t.Fatalf("statePath was not created: %v", err)
 	}
-	if info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Errorf("created statePath has perm %o; want 0600", info.Mode().Perm())
 	}
 

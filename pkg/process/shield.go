@@ -608,6 +608,8 @@ func isZombieProcess(pid int) bool {
 	return false
 }
 
+// isProcessAlive checks whether a process is running without relying on proc.Signal(0).
+// On Windows, isSystemProcessAlive delegates to OpenProcess and GetExitCodeProcess (liveness_windows.go).
 func isProcessAlive(pid int) bool {
 	return isProcessAliveMatching(pid)
 }
@@ -654,11 +656,7 @@ func isProcessAliveMatching(pid int, keywords ...string) bool {
 		}
 		return true
 	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	return proc.Signal(syscall.Signal(0)) == nil
+	return isSystemProcessAlive(pid)
 }
 
 

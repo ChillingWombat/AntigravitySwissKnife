@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -286,10 +287,18 @@ func TestAdversarial_SubagentModelStrategy_DaemonRPC(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tmpDir)
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
 
 	sockPath := filepath.Join(tmpDir, "sub.sock")
+	if runtime.GOOS == "windows" && len(sockPath) >= 100 {
+		shortDir, err := os.MkdirTemp("", "sw_*")
+		if err == nil {
+			defer os.RemoveAll(shortDir)
+			sockPath = filepath.Join(shortDir, "d_sub.sock")
+		}
+	}
 	cfg := core.DefaultConfig()
 
 	d, err := NewDaemon(cfg, sockPath)

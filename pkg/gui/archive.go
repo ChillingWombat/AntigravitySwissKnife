@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -64,9 +63,9 @@ func (s *Store) ArchiveStaleConversations(horizon string) (*AutoArchiveResult, e
 	cutoff := time.Now().Add(-dur)
 	cutoffStr := cutoff.UTC().Format("2006-01-02 15:04:05")
 
-	home := os.Getenv("HOME")
-	dbPath := filepath.Join(home, ".gemini", "antigravity", "conversation_summaries.db")
-	annotationsDir := filepath.Join(home, ".gemini", "antigravity", "annotations")
+	antiDir := core.GetAntigravityDir()
+	dbPath := filepath.Join(antiDir, "conversation_summaries.db")
+	annotationsDir := filepath.Join(antiDir, "annotations")
 
 	if _, err := os.Stat(dbPath); err != nil {
 		return &AutoArchiveResult{
@@ -77,73 +76,57 @@ func (s *Store) ArchiveStaleConversations(horizon string) (*AutoArchiveResult, e
 		}, nil
 	}
 
-	// Python script to query candidate conversations older than cutoff,
-	// excluding pinned conversations and already archived ones.
-	pyScript := `
-import sqlite3, os, sys, json, time
-
-db_path = sys.argv[1]
-cutoff_str = sys.argv[2]
-annotations_dir = sys.argv[3]
-
-archived_ids = []
-now_sec = int(time.time())
-
-try:
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    # Find conversations where last_modified_time < cutoff
-    cur.execute("SELECT conversation_id, title, last_modified_time FROM conversation_summaries WHERE last_modified_time < ?", (cutoff_str,))
-    rows = cur.fetchall()
-
-    for row in rows:
-        cid = row[0]
-        if not cid:
-            continue
-
-        pbtxt_path = os.path.join(annotations_dir, f"{cid}.pbtxt")
-        already_archived = False
-        existing_content = ""
-
-        if os.path.exists(pbtxt_path):
-            try:
-                with open(pbtxt_path, "r", encoding="utf-8", errors="ignore") as f:
-                    existing_content = f.read()
-                if "archived:true" in existing_content or "archived: true" in existing_content:
-                    already_archived = True
-            except Exception:
-                pass
-
-        if not already_archived:
-            try:
-                # Append or create archived:true annotation
-                os.makedirs(annotations_dir, exist_ok=True)
-                new_annotation = f'archived:true  archival_status_timestamp:{{seconds:{now_sec}  nanos:0}}'
-                if existing_content.strip():
-                    updated = existing_content.strip() + "  " + new_annotation + "\n"
-                else:
-                    title_clean = (row[1] or "").replace('"', '\\"')
-                    updated = f'title:"{title_clean}"  {new_annotation}\n'
-                with open(pbtxt_path, "w", encoding="utf-8") as f:
-                    f.write(updated)
-                archived_ids.append(cid)
-            except Exception as e:
-                pass
-
-    print(json.dumps(archived_ids))
-except Exception as e:
-    print(json.dumps([]))
-`
-
-	cmd := exec.Command("python3", "-c", pyScript, dbPath, cutoffStr, annotationsDir)
-	out, err := cmd.Output()
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute auto-archive script: %w", err)
+		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
 	}
+	defer db.Close()
+
+	rows, err := db.Query("SELECT conversation_id, title, last_modified_time FROM conversation_summaries WHERE last_modified_time < ?", cutoffStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query conversations: %w", err)
+	}
+	defer rows.Close()
 
 	var archivedIDs []string
-	if err := json.Unmarshal(out, &archivedIDs); err != nil {
-		archivedIDs = []string{}
+	nowSec := time.Now().Unix()
+
+	for rows.Next() {
+		var cid string
+		var title sql.NullString
+		var lastMod sql.NullString
+		if err := rows.Scan(&cid, &title, &lastMod); err != nil {
+			continue
+		}
+		if strings.TrimSpace(cid) == "" {
+			continue
+		}
+
+		pbtxtPath := filepath.Join(annotationsDir, fmt.Sprintf("%s.pbtxt", cid))
+		alreadyArchived := false
+		var existingContent string
+
+		if data, err := os.ReadFile(pbtxtPath); err == nil {
+			existingContent = string(data)
+			if strings.Contains(existingContent, "archived:true") || strings.Contains(existingContent, "archived: true") {
+				alreadyArchived = true
+			}
+		}
+
+		if !alreadyArchived {
+			_ = os.MkdirAll(annotationsDir, 0700)
+			newAnnotation := fmt.Sprintf("archived:true  archival_status_timestamp:{seconds:%d  nanos:0}", nowSec)
+			var updated string
+			if strings.TrimSpace(existingContent) != "" {
+				updated = strings.TrimSpace(existingContent) + "  " + newAnnotation + "\n"
+			} else {
+				titleClean := strings.ReplaceAll(title.String, "\"", "\\\"")
+				updated = fmt.Sprintf("title:\"%s\"  %s\n", titleClean, newAnnotation)
+			}
+			if err := os.WriteFile(pbtxtPath, []byte(updated), 0600); err == nil {
+				archivedIDs = append(archivedIDs, cid)
+			}
+		}
 	}
 
 	// If Antigravity is running, trigger live CDP update to sync the Redux store & sidebar immediately

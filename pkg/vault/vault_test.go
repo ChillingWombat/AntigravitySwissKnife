@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -242,7 +243,7 @@ func TestVaultFilePermissions(t *testing.T) {
 	}
 
 	// Verify permissions strictly 0600
-	if fi.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0600 {
 		t.Errorf("expected 0600 file permissions on vaulted file, got %o", fi.Mode().Perm())
 	}
 }

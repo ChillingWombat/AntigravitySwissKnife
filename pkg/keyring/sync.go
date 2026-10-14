@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -61,7 +62,18 @@ func writeAtomic(targetPath string, data []byte, perm os.FileMode) error {
 		return err
 	}
 
-	return os.Rename(tmpPath, targetPath)
+	for i := 0; i < 50; i++ {
+		err = os.Rename(tmpPath, targetPath)
+		if err == nil {
+			return nil
+		}
+		if runtime.GOOS == "windows" {
+			time.Sleep(time.Duration(5+(i%10)*3) * time.Millisecond)
+			continue
+		}
+		break
+	}
+	return err
 }
 
 // isSafeTestWritePath ensures that during automated unit/integration tests,
@@ -72,6 +84,11 @@ func isSafeTestWritePath(path string) bool {
 	}
 	cleaned := filepath.Clean(path)
 	tempDir := filepath.Clean(os.TempDir())
+	if runtime.GOOS == "windows" {
+		cleanedLower := strings.ToLower(cleaned)
+		tempDirLower := strings.ToLower(tempDir)
+		return strings.HasPrefix(cleanedLower, tempDirLower) || strings.Contains(cleanedLower, "\\temp\\") || strings.Contains(cleanedLower, "\\appdata\\local\\temp")
+	}
 	return strings.HasPrefix(cleaned, tempDir) || strings.HasPrefix(cleaned, "/tmp") || strings.HasPrefix(cleaned, "/private/tmp")
 }
 

@@ -8,9 +8,8 @@ import (
 
 func TestGetChatMetricsForConversation(t *testing.T) {
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	convID := "test-conv-metrics"
 	brainLogDir := filepath.Join(tmpDir, ".gemini", "antigravity", "brain", convID, ".system_generated", "logs")
@@ -61,9 +60,8 @@ func TestGetChatMetricsForConversation(t *testing.T) {
 
 func TestGetChatMetricsForConversation_MultiStepTurnAggregation(t *testing.T) {
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	convID := "test-conv-multistep"
 	brainLogDir := filepath.Join(tmpDir, ".gemini", "antigravity", "brain", convID, ".system_generated", "logs")
@@ -126,9 +124,8 @@ func TestGetChatMetricsForConversation_MultiStepTurnAggregation(t *testing.T) {
 
 func TestGetChatMetricsForConversation_TimestampDurationInference(t *testing.T) {
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	convID := "test-conv-timestamps"
 	brainLogDir := filepath.Join(tmpDir, ".gemini", "antigravity", "brain", convID, ".system_generated", "logs")
@@ -190,9 +187,8 @@ func TestGetChatMetricsForConversation_TimestampDurationInference(t *testing.T) 
 
 func TestGetChatMetricsForConversation_ZeroDurationNoFabrication(t *testing.T) {
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	convID := "test-conv-zerodur"
 	brainLogDir := filepath.Join(tmpDir, ".gemini", "antigravity", "brain", convID, ".system_generated", "logs")
@@ -227,9 +223,8 @@ func TestGetChatMetricsForConversation_ZeroDurationNoFabrication(t *testing.T) {
 
 func TestGetChatMetricsForConversation_RealWorldStepStartTimestamps(t *testing.T) {
 	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	convID := "test-conv-realworld-timestamps"
 	brainLogDir := filepath.Join(tmpDir, ".gemini", "antigravity", "brain", convID, ".system_generated", "logs")

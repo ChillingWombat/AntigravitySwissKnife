@@ -2,6 +2,7 @@ package process
 
 import (
 	"os/exec"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -10,6 +11,9 @@ import (
 // to prove that recycled PIDs (alive PIDs belonging to different processes) are never falsely
 // treated as matching the host IDE or language server.
 func TestChallenge_IsProcessAliveMatching_PIDRecycling(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("PID recycling and cmdline matching via /proc is Linux-specific")
+	}
 	// 1. Boundary: Non-positive PIDs
 	if isProcessAliveMatching(0, "antigravity") {
 		t.Errorf("PID 0 should never be considered alive")
@@ -86,6 +90,9 @@ func TestChallenge_IsProcessAliveMatching_PIDRecycling(t *testing.T) {
 // TestChallenge_ZombieProcessDetection tests that defunct / zombie processes
 // are recognized and not reported as active.
 func TestChallenge_ZombieProcessDetection(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("zombie process detection via /proc is Linux-specific")
+	}
 	// Spawn child that immediately exits while parent delays Wait() to observe zombie state
 	cmd := exec.Command("true")
 	if err := cmd.Start(); err != nil {

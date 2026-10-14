@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -32,7 +33,7 @@ func TestWriteAtomic_PermissionsAndContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to stat file: %v", err)
 	}
-	if info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Fatalf("expected 0600 permissions, got %v", info.Mode().Perm())
 	}
 }
