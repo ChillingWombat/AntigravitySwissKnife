@@ -8,6 +8,7 @@ const electronAPI = {
   setCloseToTraySetting: (enabled) => ipcRenderer.invoke('desktop:set-close-to-tray-setting', enabled),
   getRuntimeModeSetting: () => ipcRenderer.invoke('desktop:get-runtime-mode-setting'),
   setRuntimeModeSetting: (mode) => ipcRenderer.invoke('desktop:set-runtime-mode-setting', mode),
+  getSessionToken: () => ipcRenderer.invoke('desktop:get-session-token'),
   startDaemon: () => ipcRenderer.invoke('desktop:start-daemon'),
   onNavigate: (callback) => {
     if (typeof callback === 'function') {

@@ -17,7 +17,7 @@ import { AppLockScreen } from './components/AppLockScreen'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import type { AccountState, FleetQuotaSummary, RuleConfig, SystemStatus } from './types'
 import { toAccountState } from './types'
-import { api } from './api'
+import { api, setSessionToken, getSessionToken } from './api'
 
 export const App: React.FC = () => {
   const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 2: Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect
@@ -48,9 +48,20 @@ export const App: React.FC = () => {
 
   const checkAuth = async () => {
     try {
+      // Desktop shell: bootstrap the daemon session token directly via IPC so the
+      // lock screen is never needed in the Electron app (it is a browser-access guard).
+      const electronAPI = (window as any).electronAPI
+      if (electronAPI?.getSessionToken) {
+        try {
+          const injected = await electronAPI.getSessionToken()
+          if (injected) setSessionToken(injected)
+        } catch (_) {}
+      }
       const res = await api.getAuthStatus()
       if (res.password_required) {
-        setIsLocked(true)
+        // Keep the lock only when no token can be presented; a stale stored token
+        // will surface as swiss:auth-required via 401 handling instead.
+        if (!getSessionToken()) setIsLocked(true)
       }
     } catch (err) {
       console.error('Auth check error:', err)
@@ -135,6 +146,13 @@ export const App: React.FC = () => {
   }, [])
 
   useEffect(() => {
+    // A 401 that could not be auto-recovered means interactive unlock is needed.
+    const onAuthRequired = () => setIsLocked(true)
+    window.addEventListener('swiss:auth-required', onAuthRequired)
+    return () => window.removeEventListener('swiss:auth-required', onAuthRequired)
+  }, [])
+
+  useEffect(() => {
     if (status && !status.daemon_running && (currentTool === 7 || currentTool === 10)) {
       setCurrentTool(0)
     }
@@ -144,7 +162,14 @@ export const App: React.FC = () => {
   }, [status?.daemon_running, currentTool])
 
   if (isLocked) {
-    return <AppLockScreen onUnlocked={() => setIsLocked(false)} />
+    return (
+      <AppLockScreen
+        onUnlocked={() => {
+          setIsLocked(false)
+          loadAllData()
+        }}
+      />
+    )
   }
 
   return (

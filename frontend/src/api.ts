@@ -48,8 +48,93 @@ function formatErrorMessage(rawText: string, status: number): string {
   return singleLine.slice(0, 200) || `Request failed with status ${status}`
 }
 
+// --- Session token management -----------------------------------------------
+// The daemon enforces loopback auth (P0-50). Web clients authenticate by
+// presenting a session token obtained from /api/auth/unlock, a ?token= one-time
+// link, or the Electron shell. The token is persisted in localStorage so page
+// refreshes keep working; stale tokens are detected via 401, silently re-acquired
+// when no App Password is set, otherwise the lock screen is requested.
+const SESSION_TOKEN_KEY = 'swiss_session_token'
+
+let sessionToken: string | null = null
+try { sessionToken = localStorage.getItem(SESSION_TOKEN_KEY) } catch (_) {}
+
+export function setSessionToken(token: string | null) {
+  const clean = token && token.trim() ? token.trim() : null
+  sessionToken = clean
+  try {
+    if (clean) localStorage.setItem(SESSION_TOKEN_KEY, clean)
+    else localStorage.removeItem(SESSION_TOKEN_KEY)
+  } catch (_) {}
+}
+
+export function getSessionToken(): string | null {
+  return sessionToken
+}
+
+// One-time ?token= link support (e.g. prepared URLs opened in an external or IDE
+// built-in browser). Capture once, then strip it from the address bar.
+try {
+  const parsedUrl = new URL(window.location.href)
+  const urlToken = parsedUrl.searchParams.get('token')
+  if (urlToken) {
+    setSessionToken(urlToken)
+    parsedUrl.searchParams.delete('token')
+    const rest = parsedUrl.searchParams.toString()
+    window.history.replaceState({}, '', parsedUrl.pathname + (rest ? `?${rest}` : '') + parsedUrl.hash)
+  }
+} catch (_) {}
+
+let silentTokenRefresh: Promise<boolean> | null = null
+
+async function trySilentTokenRefresh(): Promise<boolean> {
+  if (!silentTokenRefresh) {
+    silentTokenRefresh = (async () => {
+      try {
+        const statusRes = await fetch('/api/auth/status')
+        if (!statusRes.ok) return false
+        const status = await statusRes.json()
+        if (status?.password_required) return false
+        const unlockRes = await fetch('/api/auth/unlock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: '' }),
+        })
+        if (!unlockRes.ok) return false
+        const data = await unlockRes.json()
+        const tok = data?.token || data?.session_token
+        if (data?.success && tok) {
+          setSessionToken(tok)
+          return true
+        }
+        return false
+      } catch (_) {
+        return false
+      }
+    })().finally(() => { silentTokenRefresh = null })
+  }
+  return silentTokenRefresh
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, options)
+  const doFetch = () => {
+    const headers = new Headers(options?.headers || {})
+    if (sessionToken && !headers.has('X-Session-Token')) {
+      headers.set('X-Session-Token', sessionToken)
+    }
+    return fetch(url, { ...options, headers })
+  }
+
+  let res = await doFetch()
+  if (res.status === 401) {
+    if (await trySilentTokenRefresh()) {
+      res = await doFetch()
+    }
+    if (res.status === 401) {
+      setSessionToken(null)
+      try { window.dispatchEvent(new Event('swiss:auth-required')) } catch (_) {}
+    }
+  }
   if (!res.ok) {
     const text = await res.text()
     throw new Error(formatErrorMessage(text, res.status))
@@ -184,12 +269,21 @@ export const api = {
 
   getAuthStatus: () => request<{ password_required: boolean }>('/api/auth/status'),
 
-  unlockApp: (password: string) =>
-    request<{ success: boolean; error?: string }>('/api/auth/unlock', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
-    }),
+  unlockApp: async (password: string) => {
+    const res = await request<{ success: boolean; error?: string; token?: string; session_token?: string }>(
+      '/api/auth/unlock',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      }
+    )
+    const tok = res.token || res.session_token
+    if (res.success && tok) {
+      setSessionToken(tok)
+    }
+    return res
+  },
 
   getPasswordSettings: () => request<{ enabled: boolean }>('/api/settings/password'),
 
