@@ -84,8 +84,8 @@ Every feature from the Survey phase is mapped to an assigned milestone:
 | M2 | Phase 1: Privacy Sanitization & Factory Defaults | Purge personal project names & paths; dynamic color palette; clean test fixtures. (F02, F03) | M1 | DONE |
 | M3 | Phase 1: Windows DOM Telemetry Isolation | Strict conversation container scoping; negative exclusion guards; feedback row anchoring. (F04, F05, F06) | M1 | DONE |
 | M4 | Phase 2: Systemic P0 Security Hardening | Auth middleware; token redaction; fleet scrubbing; path jail guard; bridge PIN; BYOK; pruner age floor. (F07-F13) | M2, M3 | DONE |
-| M5 | Phase 2: Windows Go Test Suite Stabilization | Fix 9 failing packages: socket limits, USERPROFILE isolation, Win32 liveness, permissions gating, keyring autoimport, revival CLI. (F14-F19) | M4 | PLANNED |
-| M6 | Final Milestone: Full Build & Test Verification | 100% Go test pass across all packages, frontend production build, daemon binary compilation, PR promotion & sync. (F20) | M5 | PLANNED |
+| M5 | Phase 2: Windows Go Test Suite Stabilization | Fix 9 failing packages: socket limits, USERPROFILE isolation, Win32 liveness, permissions gating, keyring autoimport, revival CLI. (F14-F19) | M4 | DONE |
+| M6 | Final Milestone: Full Build & Test Verification | 100% Go test pass across all packages, frontend production build, daemon binary compilation, PR promotion & sync. (F20) | M5 | DONE |
 
 ---
 
