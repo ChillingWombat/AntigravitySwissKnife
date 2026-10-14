@@ -114,7 +114,7 @@ export const renderPlanTierBadge = (tier?: string) => {
         ...style,
         background: 'linear-gradient(135deg, #f3e8fd 0%, #fff8e1 100%)',
         color: '#5c1b8b',
-        border: '1px solid #d1c4e9',
+        border: '1px solid var(--primary)',
         fontWeight: 700,
       }
       break
@@ -1292,7 +1292,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                             borderRadius: '4px',
                             backgroundColor: '#ecfdf5',
                             color: '#059669',
-                            border: '1px solid #a7f3d0',
+                            border: '1px solid var(--border-success)',
                           }}
                           title="AI Credit Overages Enabled"
                         >

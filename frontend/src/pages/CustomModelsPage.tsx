@@ -2788,18 +2788,18 @@ export const CustomModelsPage: React.FC = () => {
                 rows={5}
                 style={{
                   width: '100%',
-                  fontSize: '11.5px',
+                  fontSize: '12px',
                   fontFamily: 'monospace',
                   padding: '8px 10px',
                   borderRadius: '6px',
-                  border: gcpParseError ? '1px solid #b3261e' : '1px solid var(--border)',
+                  border: gcpParseError ? '1px solid var(--border-danger)' : '1px solid var(--border)',
                   outline: 'none',
                   resize: 'vertical',
                   boxSizing: 'border-box',
                 }}
               />
               {gcpParseError && (
-                <div style={{ fontSize: '11px', color: '#b3261e', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--red)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <AlertCircle size={12} /> {gcpParseError}
                 </div>
               )}

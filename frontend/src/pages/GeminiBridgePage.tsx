@@ -20,7 +20,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react'
-import { api } from '../api'
+import { api, isAbortError } from '../api'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 
 interface BridgeStatusData {
@@ -110,6 +110,7 @@ export const GeminiBridgePage: React.FC = () => {
         setTunnelType(res.tunnel.type)
       }
     } catch (err) {
+      if (isAbortError(err)) return
       console.error('Failed to load bridge status:', err)
     } finally {
       setLoading(false)
@@ -334,7 +335,7 @@ export const GeminiBridgePage: React.FC = () => {
             style={{
               padding: '10px 14px',
               borderRadius: '8px',
-              border: `1px solid ${actionFeedback.isError ? 'var(--border-danger, #fad2cf)' : 'var(--border-success, #ceead6)'}`,
+              border: `1px solid ${actionFeedback.isError ? 'var(--border-danger)' : 'var(--border-success)'}`,
               backgroundColor: actionFeedback.isError ? 'var(--red-bg)' : 'var(--green-bg)',
               fontSize: '12px',
               color: actionFeedback.isError ? 'var(--red)' : 'var(--green)',

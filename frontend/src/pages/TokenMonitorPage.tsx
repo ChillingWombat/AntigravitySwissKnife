@@ -12,7 +12,7 @@ import type {
   TokenProjectBreakdown,
   TokenTelemetryEvent,
 } from '../types'
-import { api } from '../api'
+import { api, isAbortError } from '../api'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 
 import {
@@ -174,6 +174,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
         }
       }
     } catch (e) {
+      if (isAbortError(e)) return
       console.error('Error fetching token summary:', e)
     }
   }

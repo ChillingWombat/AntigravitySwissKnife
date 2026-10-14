@@ -1406,9 +1406,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             style={{
               padding: '10px 14px',
               borderRadius: '8px',
-              backgroundColor: importStatus.type === 'success' ? '#e6f4ea' : '#fce8e6',
-              border: `1px solid ${importStatus.type === 'success' ? '#ceead6' : '#fad2cf'}`,
-              color: importStatus.type === 'success' ? '#137333' : '#c5221f',
+              backgroundColor: importStatus.type === 'success' ? 'var(--green-bg)' : 'var(--red-bg)',
+              border: `1px solid ${importStatus.type === 'success' ? 'var(--border-success)' : 'var(--border-danger)'}`,
+              color: importStatus.type === 'success' ? 'var(--green)' : 'var(--red)',
               fontSize: '12px',
               fontWeight: 500,
               display: 'flex',

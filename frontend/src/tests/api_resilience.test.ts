@@ -66,9 +66,22 @@ describe('API Client Resilience & Timeout Handling (Issue #59)', () => {
         await api.getStatus({ timeoutMs: 50 })
       },
       (err: any) => {
-        return isAbortError(err) || err.message.includes('timed out')
+        return isAbortError(err)
       }
     )
+  })
+
+  it('handles 204 No Content and empty responses cleanly without JSON parse error', async () => {
+    globalThis.fetch = (async () => {
+      return {
+        ok: true,
+        status: 204,
+        text: async () => '',
+      } as any
+    }) as any
+
+    const res = await api.getStatus()
+    assert.deepEqual(res, {})
   })
 
   it('cancels pending concurrent polling requests to prevent out-of-order race conditions', async () => {

@@ -108,7 +108,7 @@ export const ArchivedProjectsPage: React.FC = () => {
             fontSize: '13px',
             background: statusMsg.type === 'success' ? '#f0fdf4' : '#fef2f2',
             color: statusMsg.type === 'success' ? '#166534' : '#991b1b',
-            border: `1px solid ${statusMsg.type === 'success' ? '#bbf7d0' : '#fecaca'}`,
+            border: `1px solid ${statusMsg.type === 'success' ? 'var(--border-success)' : 'var(--border-danger)'}`,
           }}
         >
           {statusMsg.type === 'success' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}

@@ -171,7 +171,7 @@ export const DiscordBridgePage: React.FC = () => {
             style={{
               padding: '10px 14px',
               borderRadius: '8px',
-              border: testResult.success ? '1px solid var(--green, #137333)' : '1px solid var(--red, #b3261e)',
+              border: testResult.success ? '1px solid var(--border-success)' : '1px solid var(--border-danger)',
               backgroundColor: testResult.success ? 'var(--green-bg)' : 'var(--red-bg)',
               fontSize: '12px',
               color: testResult.success ? 'var(--green)' : 'var(--red)',
