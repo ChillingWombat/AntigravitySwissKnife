@@ -41,8 +41,8 @@ func TestBridge_LifecycleAndMCP(t *testing.T) {
 	if st.AuthToken == "" {
 		t.Errorf("expected non-empty auth token")
 	}
-	if st.PairingPIN == "" {
-		t.Errorf("expected non-empty pairing PIN")
+	if st.PairingPIN != "******" {
+		t.Errorf("expected redacted pairing PIN '******', got %s", st.PairingPIN)
 	}
 
 	// 2. Test MCP initialize
@@ -135,17 +135,26 @@ func TestBridge_LifecycleAndMCP(t *testing.T) {
 	}
 
 	// 7. Test Auth validation
+	rawToken := svc.GetRawAuthToken()
+	rawPIN := svc.GetRawPairingPIN()
+
 	reqBearer := httptest.NewRequest(http.MethodPost, "/api/bridge/mcp", nil)
-	reqBearer.Header.Set("Authorization", "Bearer "+st.AuthToken)
+	reqBearer.Header.Set("Authorization", "Bearer "+rawToken)
 	granted, _ := svc.ValidateRequest(reqBearer)
 	if !granted {
 		t.Errorf("expected Bearer token authentication granted")
 	}
 
-	reqPIN := httptest.NewRequest(http.MethodPost, "/api/bridge/mcp?pin="+st.PairingPIN, nil)
+	reqPIN := httptest.NewRequest(http.MethodPost, "/api/bridge/mcp?pin="+rawPIN, nil)
 	grantedPIN, _ := svc.ValidateRequest(reqPIN)
 	if !grantedPIN {
 		t.Errorf("expected pairing PIN authentication granted")
+	}
+
+	reqMasked := httptest.NewRequest(http.MethodPost, "/api/bridge/mcp?pin="+st.PairingPIN, nil)
+	grantedMasked, _ := svc.ValidateRequest(reqMasked)
+	if grantedMasked {
+		t.Errorf("expected masked PIN %q to be rejected", st.PairingPIN)
 	}
 
 	reqBad := httptest.NewRequest(http.MethodPost, "/api/bridge/mcp", nil)
@@ -156,7 +165,7 @@ func TestBridge_LifecycleAndMCP(t *testing.T) {
 	}
 
 	// 8. Test Rotate Credentials
-	oldToken := st.AuthToken
+	oldToken := rawToken
 	newToken, newPIN, err := svc.RotateCredentials()
 	if err != nil {
 		t.Fatalf("rotate credentials failed: %v", err)

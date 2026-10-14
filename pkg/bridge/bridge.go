@@ -170,6 +170,11 @@ func (s *Service) GetRemoteConfig() RemoteControlConfig {
 	return s.remoteMgr.GetConfig()
 }
 
+// GetRemoteConfigRedacted returns current remote control settings with SecurityPIN masked.
+func (s *Service) GetRemoteConfigRedacted() RemoteControlConfig {
+	return s.remoteMgr.GetRemoteConfigRedacted()
+}
+
 // UpdateRemoteConfig persists new remote control settings.
 func (s *Service) UpdateRemoteConfig(cfg RemoteControlConfig) error {
 	return s.remoteMgr.UpdateConfig(cfg)
@@ -190,6 +195,11 @@ func (s *Service) GetChannelsConfig() ChannelsConfig {
 	return s.channelsMgr.GetConfig()
 }
 
+// GetChannelsConfigRedacted returns persistent settings for chat channels with secrets masked.
+func (s *Service) GetChannelsConfigRedacted() ChannelsConfig {
+	return s.channelsMgr.GetChannelsConfigRedacted()
+}
+
 // UpdateChannelsConfig updates chat channel settings.
 func (s *Service) UpdateChannelsConfig(cfg ChannelsConfig) error {
 	return s.channelsMgr.UpdateConfig(cfg)
@@ -198,6 +208,16 @@ func (s *Service) UpdateChannelsConfig(cfg ChannelsConfig) error {
 // TestChannel executes connectivity check for a given channel.
 func (s *Service) TestChannel(name string) (string, error) {
 	return s.channelsMgr.TestChannel(name)
+}
+
+// GetRawAuthToken returns the raw unmasked auth token (for internal authentication testing).
+func (s *Service) GetRawAuthToken() string {
+	return s.authMgr.GetToken()
+}
+
+// GetRawPairingPIN returns the raw unmasked pairing PIN (for internal authentication testing).
+func (s *Service) GetRawPairingPIN() string {
+	return s.authMgr.GetPIN()
 }
 
 func (s *Service) loadConfig() error {
@@ -378,8 +398,8 @@ func (s *Service) GetStatus() BridgeStatus {
 		GatewayURL:        gatewayURL,
 		TunnelType:        tunnelStatus.Type,
 		TunnelOnline:      tunnelStatus.Active,
-		AuthToken:         s.authMgr.GetToken(),
-		PairingPIN:        s.authMgr.GetPIN(),
+		AuthToken:         maskToken(s.authMgr.GetToken()),
+		PairingPIN:        "******",
 		Surfaces:          surfaces,
 		Tunnel:            tunnelStatus,
 		ActiveLeadSession: s.leadHdl.GetActiveSession(),
@@ -387,6 +407,16 @@ func (s *Service) GetStatus() BridgeStatus {
 		InvocationsCount:  len(s.invocations),
 		RecentInvocations: recent,
 	}
+}
+
+func maskToken(tok string) string {
+	if tok == "" {
+		return ""
+	}
+	if len(tok) <= 8 {
+		return "[REDACTED]"
+	}
+	return tok[:4] + "..." + tok[len(tok)-4:]
 }
 
 // RecordInvocation saves a remote MCP execution audit record.

@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -115,10 +116,24 @@ func (rm *RemoteManager) GetConfig() RemoteControlConfig {
 	return rm.config
 }
 
+// GetRemoteConfigRedacted returns remote control configuration with SecurityPIN masked.
+func (rm *RemoteManager) GetRemoteConfigRedacted() RemoteControlConfig {
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+	cfg := rm.config
+	if cfg.SecurityPIN != "" {
+		cfg.SecurityPIN = "******"
+	}
+	return cfg
+}
+
 // UpdateConfig persists updated remote control configuration.
 func (rm *RemoteManager) UpdateConfig(c RemoteControlConfig) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
+	if c.SecurityPIN == "******" || c.SecurityPIN == "[REDACTED]" || strings.TrimSpace(c.SecurityPIN) == "" {
+		c.SecurityPIN = rm.config.SecurityPIN
+	}
 	rm.config = c
 	return rm.save()
 }

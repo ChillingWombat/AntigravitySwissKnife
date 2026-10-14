@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -282,6 +283,23 @@ func TestAdversarial_WebGUIEndpoints_EdgeCases(t *testing.T) {
 	defer srv.Stop()
 	baseURL := "http://" + srv.Addr()
 
+	// Helper for authenticated requests
+	doAuthReq := func(method, url string, body []byte) (*http.Response, error) {
+		var bodyReader io.Reader
+		if body != nil {
+			bodyReader = bytes.NewReader(body)
+		}
+		req, err := http.NewRequest(method, url, bodyReader)
+		if err != nil {
+			return nil, err
+		}
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		req.Header.Set("X-Session-Token", srv.GetSessionToken())
+		return http.DefaultClient.Do(req)
+	}
+
 	// 1. POST /api/cache/config with negative values
 	negConfigPayload := map[string]interface{}{
 		"auto_prune_enabled": true,
@@ -289,7 +307,7 @@ func TestAdversarial_WebGUIEndpoints_EdgeCases(t *testing.T) {
 		"max_size_gb":        -5.0,
 	}
 	negBytes, _ := json.Marshal(negConfigPayload)
-	resp, err := http.Post(baseURL+"/api/cache/config", "application/json", bytes.NewReader(negBytes))
+	resp, err := doAuthReq(http.MethodPost, baseURL+"/api/cache/config", negBytes)
 	if err != nil {
 		t.Fatalf("POST /api/cache/config error: %v", err)
 	}
@@ -305,7 +323,7 @@ func TestAdversarial_WebGUIEndpoints_EdgeCases(t *testing.T) {
 	}
 
 	// 2. GET /api/cache/config returns 0.0
-	getResp, err := http.Get(baseURL + "/api/cache/config")
+	getResp, err := doAuthReq(http.MethodGet, baseURL+"/api/cache/config", nil)
 	if err != nil {
 		t.Fatalf("GET /api/cache/config error: %v", err)
 	}
@@ -323,7 +341,7 @@ func TestAdversarial_WebGUIEndpoints_EdgeCases(t *testing.T) {
 		"dry_run":      false,
 	}
 	zeroBytes, _ := json.Marshal(zeroPrunePayload)
-	pruneResp, err := http.Post(baseURL+"/api/cache/prune", "application/json", bytes.NewReader(zeroBytes))
+	pruneResp, err := doAuthReq(http.MethodPost, baseURL+"/api/cache/prune", zeroBytes)
 	if err != nil {
 		t.Fatalf("POST /api/cache/prune error: %v", err)
 	}
@@ -344,7 +362,7 @@ func TestAdversarial_WebGUIEndpoints_EdgeCases(t *testing.T) {
 		"max_size_gb":  -1.0,
 	}
 	negPruneBytes, _ := json.Marshal(negPrunePayload)
-	negPruneResp, err := http.Post(baseURL+"/api/cache/prune", "application/json", bytes.NewReader(negPruneBytes))
+	negPruneResp, err := doAuthReq(http.MethodPost, baseURL+"/api/cache/prune", negPruneBytes)
 	if err != nil {
 		t.Fatalf("POST /api/cache/prune with negative limits error: %v", err)
 	}

@@ -222,3 +222,103 @@ func TestChallenger_CacheInspector_SafeToDeleteFlag(t *testing.T) {
 		t.Errorf("expected SafeToDelete=true when old reclaimable files exist, got false")
 	}
 }
+
+// TestChallenger_CachePruner_24HourSafetyFloor tests that the 24-hour safety floor
+// (DefaultMaxSizeMinAgeDuration = 24 * time.Hour) is strictly enforced under MaxSizeGB mode:
+// 1. Files modified less than 24 hours ago are NEVER deleted, even when MinAgeDays is 0 (Unlimited)
+//    and cache size exceeds MaxSizeGB.
+// 2. When all files are younger than 24 hours, zero files are deleted regardless of disk pressure.
+// 3. Shielded active cascade sessions are never deleted even if older than 24 hours.
+func TestChallenger_CachePruner_24HourSafetyFloor(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "swiss_test_cache_24h_floor_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	brainDir := filepath.Join(tmpDir, "brain")
+	scratchDir := filepath.Join(brainDir, "session-floor", "scratch")
+	if err := os.MkdirAll(scratchDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create test files:
+	// - f48h: 48 hours old (1024 bytes) -> SHOULD be pruned under MaxSizeGB
+	// - f25h: 25 hours old (1024 bytes) -> SHOULD be pruned under MaxSizeGB
+	// - f23h: 23 hours old (1024 bytes) -> MUST NEVER BE PRUNED (< 24h floor)
+	// - f12h: 12 hours old (1024 bytes) -> MUST NEVER BE PRUNED (< 24h floor)
+	// - f1h:  1 hour old   (1024 bytes) -> MUST NEVER BE PRUNED (< 24h floor)
+	// - f10m: 10 mins old  (1024 bytes) -> MUST NEVER BE PRUNED (< 24h floor)
+	payload := make([]byte, 1024)
+	now := time.Now()
+
+	files := map[string]time.Duration{
+		"f48h.bin": 48 * time.Hour,
+		"f25h.bin": 25 * time.Hour,
+		"f23h.bin": 23 * time.Hour,
+		"f12h.bin": 12 * time.Hour,
+		"f1h.bin":  1 * time.Hour,
+		"f10m.bin": 10 * time.Minute,
+	}
+
+	filePaths := make(map[string]string)
+	for name, age := range files {
+		fp := filepath.Join(scratchDir, name)
+		if err := os.WriteFile(fp, payload, 0600); err != nil {
+			t.Fatal(err)
+		}
+		modTime := now.Add(-age)
+		_ = os.Chtimes(fp, modTime, modTime)
+		filePaths[name] = fp
+	}
+
+	// Set tiny MaxSizeGB: 500 bytes (represented in GB)
+	// Total directory size is 6144 bytes > 500 bytes.
+	// Even though remaining size after deleting f48h and f25h will be 4096 bytes (> 500 bytes),
+	// the pruner MUST NOT delete f23h, f12h, f1h, or f10m!
+	tinyMaxSizeGB := float64(500) / float64(1024*1024*1024)
+
+	pruner := NewPruner(brainDir)
+	res, err := pruner.Prune(PruneOptions{
+		MinAgeDays:   0, // Unlimited age mode
+		MaxSizeGB:    tinyMaxSizeGB,
+		PruneScratch: true,
+	})
+	if err != nil {
+		t.Fatalf("Prune error: %v", err)
+	}
+
+	// Exactly 2 files should have been deleted (f48h and f25h)
+	if res.FilesDeleted != 2 {
+		t.Fatalf("expected exactly 2 files deleted (> 24h old), got %d (freed: %d bytes)", res.FilesDeleted, res.BytesReclaimed)
+	}
+
+	// Verify the 2 files older than 24h were deleted
+	for _, oldName := range []string{"f48h.bin", "f25h.bin"} {
+		if _, err := os.Stat(filePaths[oldName]); !os.IsNotExist(err) {
+			t.Errorf("expected %s (> 24h) to be pruned", oldName)
+		}
+	}
+
+	// Verify all 4 files younger than 24 hours are STILL INTACT!
+	for _, youngName := range []string{"f23h.bin", "f12h.bin", "f1h.bin", "f10m.bin"} {
+		if _, err := os.Stat(filePaths[youngName]); err != nil {
+			t.Errorf("CRITICAL SAFETY VIOLATION: file %s (< 24h old) was deleted despite 24-hour safety floor: %v", youngName, err)
+		}
+	}
+
+	// Sub-test 2: When ALL remaining files are younger than 24h, subsequent Prune
+	// under extreme MaxSizeGB pressure deletes ZERO files!
+	res2, err := pruner.Prune(PruneOptions{
+		MinAgeDays:   0,
+		MaxSizeGB:    tinyMaxSizeGB,
+		PruneScratch: true,
+	})
+	if err != nil {
+		t.Fatalf("Prune sub-test 2 error: %v", err)
+	}
+	if res2.FilesDeleted != 0 {
+		t.Fatalf("expected 0 files deleted when all files are < 24h old, got %d", res2.FilesDeleted)
+	}
+}
+
