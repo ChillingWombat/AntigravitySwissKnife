@@ -214,3 +214,40 @@ Additional issues reported by user and from forensic audit (conversation 3caf6b1
 3. Fix session resume reliability: in `pkg/revival/cdp_trigger.go`, prevent `cleanupQueuedDuplicate()` from deleting the queued resume prompt when `isBusy()` is true. Add customizable resume prompt setting in Account Switcher Settings tab.
 4. Fix Windows cross-compilation failure caused by direct `syscall.Flock` usage.
 5. Deduplicate concurrent post-relaunch revival dispatches across `pkg/process/shield.go` and `pkg/daemon/daemon.go`.
+
+
+## 2026-10-14T13:55:41Z
+
+This is a single self-contained fix; keep it small and focused.
+
+Fix account cooldown switchability when non-Gemini native model routing is enabled and eliminate credential redaction on JSON export in Antigravity Swiss Knife.
+
+Working directory: d:\Projects\Antigravity Swiss Knife
+Integrity mode: development
+
+## Requirements
+
+### R1. Non-Gemini Quota Cooldown & Switchability
+When `allow_non_gemini_native_models` is enabled, accounts that have exhausted their Gemini quota but still possess available non-Gemini (Claude/GPT) quota must not enter `COOLING` / `COOLDOWN` status. They must remain switchable in the UI (displaying the switch control button and context menu actions) and qualify as eligible standby candidates during manual and automatic account switching. In both the Go backend (`pkg/quota`) and React frontend (`frontend/src`), account state transformation and standby ranking must preserve `quota_5h_claude_gpt` and `quota_weekly_claude_gpt` and evaluate availability across enabled model providers.
+
+### R2. Unredacted Credentials JSON Export
+When accounts and credentials are exported to JSON (via `/api/accounts/export`, file download, clipboard copy, or preview), credentials (passwords, TOTP secrets, access tokens, refresh tokens, and OAuth tokens) must not be replaced with `[REDACTED]`, ensuring the exported file can be used for backup and import restoration.
+
+## Acceptance Criteria
+
+### Quota Status & Switchability
+- [ ] Accounts with depleted Gemini quota and available non-Gemini quota maintain `STANDBY` (or `ACTIVE`) status when `allow_non_gemini_native_models` is true.
+- [ ] Switch controls and context menu switch actions are enabled and functional for these accounts in `QuotaDashboardPage.tsx`.
+- [ ] `toAccountState` in `frontend/src/types.ts` preserves `quota_5h_claude_gpt` and `quota_weekly_claude_gpt`.
+- [ ] Standby ranking and auto-switch algorithms (`pkg/quota/calculator.go` and `frontend/src/utils/accountRanking.ts`) include these accounts as eligible candidates when non-Gemini routing is enabled.
+- [ ] Automated tests verify status calculation, ranking, and UI switchability under dual-engine mode (`go test ./pkg/quota/...` and frontend unit tests).
+
+### Unredacted Export
+- [ ] `/api/accounts/export` returns actual account credentials without `[REDACTED]` masking.
+- [ ] Export preview, clipboard copy, and file download in `SwitcherSettingsPage.tsx` yield valid unredacted JSON suitable for re-import.
+- [ ] Existing tests for batch import and export pass without regression (`go test ./pkg/webgui/...` and `go test ./pkg/keyring/...`).
+
+## Verification Commands
+- `go test ./pkg/quota/... ./pkg/webgui/... ./pkg/keyring/...`
+- `npm run test:run` or `npx vitest run`
+- `npm run build`
