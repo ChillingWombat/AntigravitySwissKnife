@@ -49,6 +49,38 @@ func TestWebGUIServesMinimalistLightHTML(t *testing.T) {
 	}
 }
 
+func TestHealthEndpoints(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	for _, endpoint := range []string{"/health", "/healthz"} {
+		resp, err := http.Get("http://" + srv.Addr() + endpoint)
+		if err != nil {
+			t.Fatalf("http.Get(%s) error: %v", endpoint, err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected %s status 200, got %d", endpoint, resp.StatusCode)
+		}
+
+		var payload map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			t.Fatalf("failed to decode JSON from %s: %v", endpoint, err)
+		}
+
+		if payload["status"] != "ok" {
+			t.Errorf("expected %s status 'ok', got %v", endpoint, payload["status"])
+		}
+		if payload["version"] != core.AppVersion {
+			t.Errorf("expected %s version %s, got %v", endpoint, core.AppVersion, payload["version"])
+		}
+	}
+}
+
 func TestWebGUIEndpoints(t *testing.T) {
 	tempDir := t.TempDir()
 	srv := NewServer("127.0.0.1:0", filepath.Join(tempDir, "isolated.sock"))

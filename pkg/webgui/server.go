@@ -331,6 +331,16 @@ func (s *Server) Start() error {
 		}
 		http.NotFound(w, r)
 	})
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok","version":"` + core.AppVersion + `"}`))
+	})
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok","version":"` + core.AppVersion + `"}`))
+	})
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/accounts", s.handleAccounts)
 	mux.HandleFunc("/api/accounts/scan", s.handleAccountsScan)

@@ -70,7 +70,7 @@ func GetLocalSessionToken() (string, error) {
 func isPublicPath(p string) bool {
 	clean := path.Clean(p)
 	// 1. Root and standard UI static assets
-	if clean == "." || clean == "/" || clean == "/index.html" || clean == "/favicon.ico" || clean == "/healthz" {
+	if clean == "." || clean == "/" || clean == "/index.html" || clean == "/favicon.ico" || clean == "/health" || clean == "/healthz" {
 		return true
 	}
 	// 2. Bundled frontend static assets (CSS, JS, images, logos)
