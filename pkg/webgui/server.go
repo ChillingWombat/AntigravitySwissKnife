@@ -158,6 +158,9 @@ func (s *Server) SetSessionToken(token string) {
 	if token != "" {
 		s.sessionTokens[token] = time.Now().Add(365 * 24 * time.Hour)
 	}
+	if onServerStartHook != nil && s.addr != "" {
+		onServerStartHook(s.addr, token)
+	}
 }
 
 func (s *Server) getBridgeService() *bridge.Service {
@@ -286,6 +289,12 @@ func (s *Server) AddKnownWorkspace(ws string) {
 	}
 	s.knownWorkspaces[clean] = struct{}{}
 }
+
+// Hooks used by test suites to automatically register and deregister active server addresses.
+var (
+	onServerStartHook func(addr, token string)
+	onServerStopHook  func(addr string)
+)
 
 // Start starts listening and serving HTTP requests.
 func (s *Server) Start() error {
@@ -513,6 +522,9 @@ func (s *Server) Start() error {
 		return err
 	}
 	s.addr = l.Addr().String()
+	if onServerStartHook != nil {
+		onServerStartHook(s.addr, s.GetSessionToken())
+	}
 
 	s.httpServer = &http.Server{
 		Handler:      s.corsMiddleware(s.authMiddleware(maxBytesMiddleware(mux, 10*1024*1024))),
@@ -527,6 +539,9 @@ func (s *Server) Start() error {
 
 // Stop gracefully shuts down the web server.
 func (s *Server) Stop() error {
+	if onServerStopHook != nil && s.addr != "" {
+		onServerStopHook(s.addr)
+	}
 	s.testIDEsMu.Lock()
 	pids := s.testIDEs
 	s.testIDEs = nil

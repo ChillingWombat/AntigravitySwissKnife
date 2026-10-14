@@ -47,6 +47,7 @@ func TestAdversarial_ReconcileActiveAccount_UnimportedSessionNoWipe(t *testing.T
 	// Mock external unimported session on disk in app_storage.json
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
 	antigravityDir := filepath.Join(tmpHome, ".config", "Antigravity")
 	_ = os.MkdirAll(antigravityDir, 0755)
 	_ = os.WriteFile(filepath.Join(antigravityDir, "app_storage.json"), []byte(`{"jetski.onboarding.lastLoginUsername":"unimported_intruder@gmail.com"}`), 0644)
@@ -123,6 +124,7 @@ func TestAdversarial_ReconcileActiveAccount_EmptyVaultSafeReturn(t *testing.T) {
 	// Mock external session
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
 	antigravityDir := filepath.Join(tmpHome, ".config", "Antigravity")
 	_ = os.MkdirAll(antigravityDir, 0755)
 	_ = os.WriteFile(filepath.Join(antigravityDir, "app_storage.json"), []byte(`{"jetski.onboarding.lastLoginUsername":"unimported@gmail.com"}`), 0644)
@@ -143,6 +145,7 @@ func TestAdversarial_ReconcileActiveAccount_EmptyVaultSafeReturn(t *testing.T) {
 func TestAdversarial_SyncOfflineSurfaces(t *testing.T) {
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 
 	antigravityDir := filepath.Join(tmpHome, ".config", "Antigravity")
@@ -231,6 +234,7 @@ func TestAdversarial_ReconcileActiveAccount_AutoImport_NeverSwitchesActiveAccoun
 	// Mock rogue intruder session on host surface
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
 	antigravityDir := filepath.Join(tmpHome, ".config", "Antigravity")
 	_ = os.MkdirAll(antigravityDir, 0755)
 	_ = os.WriteFile(filepath.Join(antigravityDir, "app_storage.json"), []byte(`{"jetski.onboarding.lastLoginUsername":"intruder_unimported@domain.com"}`), 0644)

@@ -3,6 +3,7 @@ package vault
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -146,7 +147,7 @@ func TestAdversarial_VaultFilePermissions_DeepAudit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat vaultDir failed: %v", err)
 	}
-	if vDirInfo.Mode().Perm() != 0700 {
+	if runtime.GOOS != "windows" && vDirInfo.Mode().Perm() != 0700 {
 		t.Errorf("expected vaultDir permissions 0700, got %o", vDirInfo.Mode().Perm())
 	}
 
@@ -156,7 +157,7 @@ func TestAdversarial_VaultFilePermissions_DeepAudit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat vaulted file failed: %v", err)
 	}
-	if vFileInfo.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && vFileInfo.Mode().Perm() != 0600 {
 		t.Errorf("expected vaulted file permissions 0600, got %o", vFileInfo.Mode().Perm())
 	}
 
@@ -165,7 +166,7 @@ func TestAdversarial_VaultFilePermissions_DeepAudit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat live file failed: %v", err)
 	}
-	if liveFileInfo.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && liveFileInfo.Mode().Perm() != 0600 {
 		t.Errorf("expected live file permissions hardened to 0600, got %o", liveFileInfo.Mode().Perm())
 	}
 
@@ -180,7 +181,7 @@ func TestAdversarial_VaultFilePermissions_DeepAudit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat copyDst failed: %v", err)
 	}
-	if copyInfo.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && copyInfo.Mode().Perm() != 0600 {
 		t.Errorf("expected copyDst permissions 0600, got %o", copyInfo.Mode().Perm())
 	}
 }

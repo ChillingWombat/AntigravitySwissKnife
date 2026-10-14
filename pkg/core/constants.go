@@ -177,6 +177,9 @@ func GetAntigravityHostConfigDir() string {
 	if dir := os.Getenv("ANTIGRAVITY_HOST_CONFIG_DIR"); dir != "" {
 		return dir
 	}
+	if dir := os.Getenv("ANTIGRAVITY_CONFIG_DIR"); dir != "" && (strings.Contains(dir, "Antigravity") || strings.Contains(dir, ".config")) {
+		return dir
+	}
 	if runtime.GOOS == "windows" {
 		if appData := os.Getenv("APPDATA"); appData != "" {
 			return filepath.Join(appData, "Antigravity")

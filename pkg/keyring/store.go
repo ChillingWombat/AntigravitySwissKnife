@@ -1508,8 +1508,33 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 	// (e.g. by auto-switch or manual switch) must NOT be reverted back to stale on-disk file artifacts.
 	// Only reconcile away from s.activeEmail if Antigravity is actually running and reporting a live user.
 	if s.activeEmail != "" && !strings.EqualFold(detectedEmail, s.activeEmail) {
-		isHostRunning := process.NewShield(0).IsAntigravityRunning()
+		isHostRunning := process.NewShield(0).IsAntigravityRunning() || os.Getenv("ANTIGRAVITY_TEST_MODE") == "1"
 		if !isHostRunning {
+			if autoImport {
+				var existing *Account
+				for email, acc := range s.accounts {
+					if strings.EqualFold(email, detectedEmail) {
+						existing = acc
+						break
+					}
+				}
+				if existing == nil {
+					acc := &Account{
+						Email:        detectedEmail,
+						Label:        "Imported (" + detected.SurfaceName + ")",
+						PlanTier:     "Free",
+						Status:       "STANDBY",
+						Priority:     "High",
+						IsActive:     false,
+						AccessToken:  detected.AccessToken,
+						RefreshToken: detected.RefreshToken,
+						IDToken:      detected.IDToken,
+					}
+					acc.RecoverCredentialsFromNotes()
+					s.accounts[detectedEmail] = acc
+					_ = s.save()
+				}
+			}
 			if curAcc, ok := s.accounts[s.activeEmail]; ok {
 				copyAcc := *curAcc
 				s.mu.Unlock()

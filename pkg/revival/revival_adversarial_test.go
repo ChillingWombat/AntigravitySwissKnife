@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -738,7 +739,11 @@ run().catch(err => {
 });
 `, convID, capturedScript, convID, capturedScript, convID, capturedScript)
 
-	cmd := exec.Command("node", "-e", nodeHarness)
+	scriptPath := filepath.Join(t.TempDir(), "sim_harness.js")
+	if err := os.WriteFile(scriptPath, []byte(nodeHarness), 0644); err != nil {
+		t.Fatalf("failed to write node harness script: %v", err)
+	}
+	cmd := exec.Command("node", scriptPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Node.js simulation failed: %v\nOutput:\n%s", err, string(out))

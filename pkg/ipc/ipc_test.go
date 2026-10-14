@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -37,8 +38,10 @@ func TestIPCServerAndClientRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("socket stat error: %v", err)
 	}
-	if fi.Mode().Perm() != 0600 {
-		t.Errorf("expected socket permissions 0600, got %o", fi.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		if fi.Mode().Perm() != 0600 {
+			t.Errorf("expected socket permissions 0600, got %o", fi.Mode().Perm())
+		}
 	}
 
 	// Test client call

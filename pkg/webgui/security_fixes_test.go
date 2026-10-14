@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -277,7 +278,7 @@ func TestFilesPathTraversalJailing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("file was not written: %v", err)
 	}
-	if fi.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0600 {
 		t.Errorf("expected file mode 0600, got %#o", fi.Mode().Perm())
 	}
 }

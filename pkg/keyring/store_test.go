@@ -151,6 +151,7 @@ func TestMultiSurfaceResolutionAndAutoImport(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	configDir := filepath.Join(tmpDir, ".config", "Antigravity")
 	_ = os.MkdirAll(configDir, 0755)
@@ -890,6 +891,7 @@ func TestEnsureFreshAccessToken_RefreshesExpiredOrUnknownExpiry(t *testing.T) {
 
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
 	if err := SyncOAuthCredsJSON(validAcc); err != nil {
 		t.Fatalf("SyncOAuthCredsJSON error: %v", err)
 	}
@@ -1023,6 +1025,7 @@ func TestEnsureFreshAccessToken_FailedRefreshClearsStaleExpiryAndAppStorageTos(t
 	// Verify SyncAppStorageLoginUser sets jetski.onboarding.lastLoginIsGcpTos
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
 	cfgDir := filepath.Join(tmpHome, ".config", "Antigravity")
 	if err := os.MkdirAll(cfgDir, 0755); err != nil {
 		t.Fatal(err)
@@ -1076,6 +1079,7 @@ func TestReconcileActiveAccount_DoesNotWipeActiveAccountWhenUnrecognizedDetected
 	// Mock environment where Antigravity detects an external unimported session
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
 	antigravityDir := filepath.Join(tmpHome, ".config", "Antigravity")
 	_ = os.MkdirAll(antigravityDir, 0755)
 	_ = os.WriteFile(filepath.Join(antigravityDir, "app_storage.json"), []byte(`{"jetski.onboarding.lastLoginUsername":"external-unimported@gmail.com"}`), 0644)
@@ -1129,6 +1133,7 @@ func TestReconcileActiveAccount_AutoImportDoesNotSwitchActiveAccount(t *testing.
 	// Mock host surface with charlie
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
 	antigravityDir := filepath.Join(tmpHome, ".config", "Antigravity")
 	_ = os.MkdirAll(antigravityDir, 0755)
 	_ = os.WriteFile(filepath.Join(antigravityDir, "app_storage.json"), []byte(`{"jetski.onboarding.lastLoginUsername":"charlie@domain.com"}`), 0644)
@@ -1178,6 +1183,7 @@ func TestReconcileActiveAccount_EmptyVaultAutoImportsAsActive(t *testing.T) {
 	// Mock host surface with charlie
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
 	antigravityDir := filepath.Join(tmpHome, ".config", "Antigravity")
 	_ = os.MkdirAll(antigravityDir, 0755)
 	_ = os.WriteFile(filepath.Join(antigravityDir, "app_storage.json"), []byte(`{"jetski.onboarding.lastLoginUsername":"charlie@domain.com"}`), 0644)
