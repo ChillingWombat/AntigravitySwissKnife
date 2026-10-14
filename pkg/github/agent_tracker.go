@@ -747,12 +747,36 @@ func loadSelfReportedTasks(workspacePath string) map[string]SelfReportedTask {
 
 // ReportAgentTask saves a self-reported agent task to disk so that it's reliably discovered.
 func ReportAgentTask(workspacePath string, task SelfReportedTask) error {
-	if task.ConversationID == "" {
-		return fmt.Errorf("conversation_id is required")
+	task.ConversationID = strings.TrimSpace(task.ConversationID)
+	if task.ConversationID == "" || strings.Contains(task.ConversationID, "\x00") || strings.Contains(task.ConversationID, "..") ||
+		filepath.Base(task.ConversationID) != task.ConversationID || strings.ContainsAny(task.ConversationID, `/\`) {
+		return fmt.Errorf("invalid conversation_id: contains forbidden characters or path traversal")
 	}
+
 	targetDir := ""
-	if workspacePath != "" && workspacePath != "." && workspacePath != "GLOBAL" {
-		targetDir = filepath.Join(workspacePath, ".antigravity")
+	cleanWs := filepath.Clean(strings.TrimSpace(workspacePath))
+	isSafeWs := false
+	if cleanWs != "" && cleanWs != "." && cleanWs != "GLOBAL" && !strings.Contains(cleanWs, "\x00") {
+		lowerWs := strings.ToLower(cleanWs)
+		isSystem := false
+		for _, sysPrefix := range []string{"/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/var", "/bin", "/sbin", "/usr", "c:\\windows", "c:\\program files", "c:\\program files (x86)"} {
+			if lowerWs == sysPrefix || strings.HasPrefix(lowerWs, sysPrefix+string(filepath.Separator)) {
+				isSystem = true
+				break
+			}
+		}
+		if cleanWs == "/" || cleanWs == "\\" || (len(cleanWs) == 3 && cleanWs[1] == ':' && (cleanWs[2] == '\\' || cleanWs[2] == '/')) {
+			isSystem = true
+		}
+		if !isSystem {
+			if fi, err := os.Stat(cleanWs); err == nil && fi.IsDir() {
+				isSafeWs = true
+			}
+		}
+	}
+
+	if isSafeWs {
+		targetDir = filepath.Join(cleanWs, ".antigravity")
 	} else {
 		targetDir = core.GetConfigDir()
 	}

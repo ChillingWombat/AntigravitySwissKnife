@@ -41,6 +41,11 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         if (typeof window !== "undefined" && window.fetch) {
           const res = await fetch("http://127.0.0.1:8765/api/enhancements");
           if (res.ok) {
+            if (typeof window.setSwissDaemonOnline === "function") {
+              window.setSwissDaemonOnline(true);
+            } else {
+              window.__swissDaemonOnline = true;
+            }
             const loaded = await res.json();
             if (loaded) {
               enhConfig = loaded;
@@ -1763,7 +1768,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     let cachedTokensByConv = {};
     let subagentNameToConvId = {};
     async function fetchActiveConversationTokens(convId, parentId, agentName) {
-      if (window.__swissDaemonOnline === false) return;
+      if (window.__swissDaemonOnline === false || !window.__swissDaemonOnline) return;
       const cacheKey = convId || (parentId && agentName ? (parentId + ":" + agentName) : null);
       if (!cacheKey) return;
       const now = Date.now();
@@ -1834,7 +1839,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
     function updateProgressRing(ring, convId, maxTokens) {
       if (!ring) return;
-      if (window.__swissDaemonOnline === false) {
+      if (window.__swissDaemonOnline === false || !window.__swissDaemonOnline) {
         ring.remove();
         return;
       }
@@ -1881,7 +1886,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     }
 
     function renderContextWindowProgressRing() {
-      if (window.__swissDaemonOnline === false) {
+      if (window.__swissDaemonOnline === false || !window.__swissDaemonOnline) {
         const existingMain = document.getElementById("swiss-context-window-ring");
         if (existingMain) existingMain.remove();
         document.querySelectorAll("[id^='swiss-context-window-ring-sub-'], .swiss-context-window-ring, .swiss-context-window-ring-sub").forEach(r => r.remove());

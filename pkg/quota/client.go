@@ -10,11 +10,43 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 )
+
+var (
+	accountMutationMu sync.Mutex
+	quotaBackoffMu    sync.RWMutex
+	quotaBackoffUntil time.Time
+)
+
+func recordQuotaBackoff(d time.Duration) {
+	quotaBackoffMu.Lock()
+	defer quotaBackoffMu.Unlock()
+	until := time.Now().Add(d)
+	if until.After(quotaBackoffUntil) {
+		quotaBackoffUntil = until
+	}
+}
+
+func checkQuotaBackoff() time.Duration {
+	quotaBackoffMu.RLock()
+	defer quotaBackoffMu.RUnlock()
+	if time.Now().Before(quotaBackoffUntil) {
+		return time.Until(quotaBackoffUntil)
+	}
+	return 0
+}
+
+// ResetQuotaBackoffForTesting clears any active quota backoff timer (useful for unit tests).
+func ResetQuotaBackoffForTesting() {
+	quotaBackoffMu.Lock()
+	defer quotaBackoffMu.Unlock()
+	quotaBackoffUntil = time.Time{}
+}
 
 const (
 	GoogleTokenRefreshURL     = "https://oauth2.googleapis.com/token"
@@ -614,6 +646,15 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 		return nil, fmt.Errorf("empty access token")
 	}
 
+	if remaining := checkQuotaBackoff(); remaining > 0 {
+		return nil, &QuotaAPIError{
+			StatusCode: http.StatusTooManyRequests,
+			Status:     "ERROR",
+			Reason:     "RATE_LIMITED",
+			Message:    fmt.Sprintf("Rate limited by Google CloudCode API. Retrying in %v", remaining.Round(time.Second)),
+		}
+	}
+
 	if project == "" {
 		project = "aicode-consumers"
 	}
@@ -682,6 +723,34 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 						if msg == "" {
 							msg = "Session expired or unauthenticated."
 						}
+					} else if resp.StatusCode == http.StatusTooManyRequests || errPayload.Error.Status == "RESOURCE_EXHAUSTED" {
+						errStatus = "ERROR"
+						if reason == "" {
+							reason = "RATE_LIMITED"
+						}
+						if msg == "" {
+							msg = "Rate limit exceeded. Backing off before retrying."
+						}
+						backoffDur := 5 * time.Second
+						retryAfter := resp.Header.Get("Retry-After")
+						if retryAfter != "" {
+							if secs, err := strconv.Atoi(retryAfter); err == nil && secs > 0 {
+								backoffDur = time.Duration(secs) * time.Second
+							} else if t, err := http.ParseTime(retryAfter); err == nil && t.After(time.Now()) {
+								backoffDur = time.Until(t)
+							}
+						}
+						if backoffDur > 60*time.Second {
+							backoffDur = 60 * time.Second
+						}
+						recordQuotaBackoff(backoffDur)
+						return nil, &QuotaAPIError{
+							StatusCode: resp.StatusCode,
+							Status:     errStatus,
+							Reason:     reason,
+							Message:    msg,
+							ActionURL:  actionURL,
+						}
 					}
 					lastAPIError = &QuotaAPIError{
 						StatusCode: resp.StatusCode,
@@ -692,6 +761,27 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 					}
 					if reason == "VALIDATION_REQUIRED" || errStatus == "BANNED" || resp.StatusCode == http.StatusUnauthorized || errPayload.Error.Status == "UNAUTHENTICATED" {
 						return nil, lastAPIError
+					}
+				}
+				if resp.StatusCode == http.StatusTooManyRequests {
+					backoffDur := 5 * time.Second
+					retryAfter := resp.Header.Get("Retry-After")
+					if retryAfter != "" {
+						if secs, err := strconv.Atoi(retryAfter); err == nil && secs > 0 {
+							backoffDur = time.Duration(secs) * time.Second
+						} else if t, err := http.ParseTime(retryAfter); err == nil && t.After(time.Now()) {
+							backoffDur = time.Until(t)
+						}
+					}
+					if backoffDur > 60*time.Second {
+						backoffDur = 60 * time.Second
+					}
+					recordQuotaBackoff(backoffDur)
+					return nil, &QuotaAPIError{
+						StatusCode: http.StatusTooManyRequests,
+						Status:     "ERROR",
+						Reason:     "RATE_LIMITED",
+						Message:    "Rate limit exceeded (HTTP 429).",
 					}
 				}
 				if resp.StatusCode == http.StatusForbidden && attempt == 0 {
@@ -817,6 +907,13 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 				Credits:                credAmount,
 			}
 
+			if len(res.Groups) == 0 {
+				breakdown.Quota5hGemini = 0.0
+				breakdown.QuotaWeeklyGemini = 0.0
+				breakdown.ResetHorizonText = "Unknown"
+				breakdown.ResetHorizonWeeklyText = "Unknown"
+			}
+
 			if len(res.Groups) > 0 {
 				for _, g := range res.Groups {
 					gName := strings.ToLower(g.DisplayName)
@@ -923,8 +1020,8 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 						}
 					}
 				}
-				return breakdown, nil
 			}
+			return breakdown, nil
 		}
 	}
 
@@ -1121,12 +1218,14 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 			lastTokenRefreshErr = refErr
 		} else if newTok != "" {
 			tokenRefreshed = true
+			accountMutationMu.Lock()
 			acc.AccessToken = newTok
 			acc.TokenExpiry = time.Now().Add(55 * time.Minute)
 			accessToken = newTok
 			if newRefTok != "" {
 				acc.RefreshToken = newRefTok
 			}
+			accountMutationMu.Unlock()
 			pCtx, err = FetchProjectAndTier(accessToken)
 		}
 	}
@@ -1154,12 +1253,14 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 			lastTokenRefreshErr = refErr
 		} else if newTok != "" {
 			tokenRefreshed = true
+			accountMutationMu.Lock()
 			acc.AccessToken = newTok
 			acc.TokenExpiry = time.Now().Add(55 * time.Minute)
 			accessToken = newTok
 			if newRefTok != "" {
 				acc.RefreshToken = newRefTok
 			}
+			accountMutationMu.Unlock()
 			breakdown, qErr = FetchLiveQuotaBreakdown(accessToken, project)
 		}
 	}
@@ -1245,12 +1346,15 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	tier = NormalizePlanTier(tier)
 
 	// Persist detected tier & credits back to account struct
+	accountMutationMu.Lock()
 	acc.PlanTier = tier
 	if credits > 0 {
 		acc.Credits = credits
 	}
+	accountMutationMu.Unlock()
 
 	if breakdown != nil {
+		accountMutationMu.Lock()
 		acc.ErrorMessage = ""
 		if strings.EqualFold(acc.Status, "ERROR") {
 			if acc.IsActive {
@@ -1259,6 +1363,7 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 				acc.Status = "STANDBY"
 			}
 		}
+		accountMutationMu.Unlock()
 
 		minFrac := breakdown.Quota5hGemini
 		if breakdown.QuotaWeeklyGemini < minFrac {
