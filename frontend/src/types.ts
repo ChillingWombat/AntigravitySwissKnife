@@ -147,7 +147,7 @@ export interface AccountState {
   status_reason?: string
 }
 
-export function toAccountState(acc: any, activeEmail?: string): AccountState {
+export function toAccountState(acc: any, activeEmail?: string, allowNonGemini?: boolean): AccountState {
   const email = acc.email || ''
   const isActive = Boolean(
     acc.is_active ||
@@ -160,6 +160,20 @@ export function toAccountState(acc: any, activeEmail?: string): AccountState {
   if (status === 'NEEDS_REAUTH') {
     status = 'ERROR'
   }
+
+  const isNonGeminiEnabled = Boolean(allowNonGemini || acc.allow_non_gemini_native_models)
+  const claude5h = typeof acc.quota_5h_claude_gpt === 'number' ? acc.quota_5h_claude_gpt : (typeof acc.quota_5h_claude === 'number' ? acc.quota_5h_claude : 0)
+  const hasClaudeWeekly = (typeof acc.quota_weekly_claude_gpt === 'number' && acc.quota_weekly_claude_gpt !== null) ||
+                          (typeof acc.quota_weekly_claude === 'number' && acc.quota_weekly_claude !== null)
+  const claudeWeekly = typeof acc.quota_weekly_claude_gpt === 'number' ? acc.quota_weekly_claude_gpt : (typeof acc.quota_weekly_claude === 'number' ? acc.quota_weekly_claude : 0)
+  const hasCredits = Boolean(acc.enable_credit_overages && (acc.credits ?? 0) > 0)
+  const isClaudeWeeklyHealthy = !hasClaudeWeekly || claudeWeekly > 0.05 || hasCredits
+  const hasAvailableNonGemini = claude5h > 0.05 && isClaudeWeeklyHealthy
+
+  if (isNonGeminiEnabled && hasAvailableNonGemini && (status === 'COOLING' || status === 'COOLDOWN')) {
+    status = isActive ? 'ACTIVE' : 'STANDBY'
+  }
+
   if (isActive && status === 'STANDBY') {
     status = 'ACTIVE'
   } else if (!isActive && status === 'ACTIVE') {
@@ -178,6 +192,8 @@ export function toAccountState(acc: any, activeEmail?: string): AccountState {
     quota_5h_current: hasError ? 0.0 : (typeof acc.quota_5h_current === 'number' ? acc.quota_5h_current : 1.0),
     quota_5h_available: hasError ? 0.0 : (typeof acc.quota_5h_available === 'number' ? acc.quota_5h_available : 1.0),
     quota_weekly: hasError ? 0.0 : (typeof acc.quota_weekly === 'number' ? acc.quota_weekly : 1.0),
+    quota_5h_claude_gpt: hasError ? 0.0 : (typeof acc.quota_5h_claude_gpt === 'number' ? acc.quota_5h_claude_gpt : (typeof acc.quota_5h_claude === 'number' ? acc.quota_5h_claude : (acc.quota_5h_claude_gpt === null ? null : undefined))),
+    quota_weekly_claude_gpt: hasError ? 0.0 : (typeof acc.quota_weekly_claude_gpt === 'number' ? acc.quota_weekly_claude_gpt : (typeof acc.quota_weekly_claude === 'number' ? acc.quota_weekly_claude : (acc.quota_weekly_claude_gpt === null ? null : undefined))),
     reset_horizon_text: hasError ? (status === 'BANNED' ? 'Banned' : 'Error') : (acc.reset_horizon_text || 'Ready'),
     reset_horizon_weekly_text: hasError ? (status === 'BANNED' ? 'Banned' : 'Error') : (acc.reset_horizon_weekly_text || 'Ready'),
     has_mfa: Boolean(acc.has_totp || acc.totp_secret),

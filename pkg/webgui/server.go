@@ -1020,14 +1020,10 @@ func (s *Server) handleAccountsExport(w http.ResponseWriter, r *http.Request) {
 		}
 		exported = store.ExportAccounts()
 	}
-	redacted := make([]keyring.AccountExport, len(exported))
-	for i, e := range exported {
-		redacted[i] = redactAccountExport(e)
-	}
 	if r.URL.Query().Get("download") == "1" {
 		w.Header().Set("Content-Disposition", "attachment; filename=\"antigravity_accounts.json\"")
 	}
-	writeJSON(w, redacted)
+	writeJSON(w, exported)
 }
 
 func (s *Server) handleAccountsBatchImport(w http.ResponseWriter, r *http.Request) {
@@ -1638,6 +1634,7 @@ func (s *Server) handleFleetQuota(w http.ResponseWriter, r *http.Request) {
 			threshWeekly := core.DefaultAutoSwitchWeeklyThresholdFraction
 			switchMode := core.DefaultSwitchMode
 			autoImport := false
+			allowNonGemini := false
 			if c, errCfg := core.LoadConfig(); errCfg == nil {
 				if c.AutoSwitchThreshold > 0 {
 					thresh = c.AutoSwitchThreshold
@@ -1649,6 +1646,7 @@ func (s *Server) handleFleetQuota(w http.ResponseWriter, r *http.Request) {
 					switchMode = c.SwitchMode
 				}
 				autoImport = c.AutoImportActiveAccount
+				allowNonGemini = c.AllowNonGeminiNativeModels
 			}
 			var allEmails []string
 			for _, a := range store.ListAccounts() {
@@ -1657,8 +1655,8 @@ func (s *Server) handleFleetQuota(w http.ResponseWriter, r *http.Request) {
 			_, _ = store.ReconcileActiveAccount(autoImport, allEmails, nil)
 			accounts = store.ListAccounts()
 			active = store.ActiveAccount()
-			states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, nil, thresh, threshWeekly)
-			states = quota.SortAccountQuotaStatesWithThresholds(states, active, thresh, threshWeekly, "auto", switchMode)
+			states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, nil, thresh, threshWeekly, allowNonGemini)
+			states = quota.SortAccountQuotaStatesWithThresholds(states, active, thresh, threshWeekly, "auto", switchMode, allowNonGemini)
 			summary = quota.ComputeFleetSummary(states, active)
 			summary.Refreshing = s.isQuotaPolling()
 			if len(quota.LoadQuotaCache()) == 0 && len(accounts) > 0 {

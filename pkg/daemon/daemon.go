@@ -1296,6 +1296,7 @@ func (d *Daemon) registerRPCHandlers() {
 		thresh := d.Config.AutoSwitchThreshold
 		threshWeekly := d.Config.AutoSwitchWeeklyThreshold
 		switchMode := d.Config.SwitchMode
+		allowNonGemini := d.Config.AllowNonGeminiNativeModels
 		d.mu.RUnlock()
 		if thresh <= 0 {
 			thresh = core.DefaultAutoSwitchThresholdFraction
@@ -1306,8 +1307,8 @@ func (d *Daemon) registerRPCHandlers() {
 		if switchMode == "" {
 			switchMode = core.DefaultSwitchMode
 		}
-		states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, thresh, threshWeekly)
-		states = quota.SortAccountQuotaStatesWithThresholds(states, active, thresh, threshWeekly, "auto", switchMode)
+		states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, thresh, threshWeekly, allowNonGemini)
+		states = quota.SortAccountQuotaStatesWithThresholds(states, active, thresh, threshWeekly, "auto", switchMode, allowNonGemini)
 		summary := quota.ComputeFleetSummary(states, active)
 		for i := range summary.Accounts {
 			summary.Accounts[i].Password = ""
@@ -1842,10 +1843,12 @@ func (d *Daemon) runLoop() {
 								succSum, pErr := quota.PollAndCacheAccount(cAcc, d.Keyring)
 								if succSum != nil {
 									d.setQuotaSummary(successor.Email, succSum)
-									isHealthy := succSum.Quota5hFraction > thresh
-									if succSum.QuotaWeeklyFraction <= threshWeekly && !(succSum.Credits > 0) {
-										isHealthy = false
+									hasGeminiHealthy := succSum.Quota5hFraction > thresh && (succSum.QuotaWeeklyFraction > threshWeekly || (cAcc.EnableCreditOverages && succSum.Credits > 0))
+									hasNonGeminiHealthy := false
+									if d.Config.AllowNonGeminiNativeModels {
+										hasNonGeminiHealthy = succSum.Quota5hClaudeGPT > thresh && (succSum.QuotaWeeklyClaudeGPT > threshWeekly || succSum.QuotaWeeklyClaudeGPT == 0 || (cAcc.EnableCreditOverages && succSum.Credits > 0))
 									}
+									isHealthy := hasGeminiHealthy || hasNonGeminiHealthy
 									if !isHealthy {
 										log.Printf("[Daemon Auto-Switch] Candidate %s live quota breached; skipping", successor.Email)
 										continue
@@ -1918,10 +1921,12 @@ func (d *Daemon) runLoop() {
 							succSum, pErr := quota.PollAndCacheAccount(cAcc, d.Keyring)
 							if succSum != nil {
 								d.setQuotaSummary(successor.Email, succSum)
-								isHealthy := succSum.Quota5hFraction > thresh
-								if succSum.QuotaWeeklyFraction <= threshWeekly && !(succSum.Credits > 0) {
-									isHealthy = false
+								hasGeminiHealthy := succSum.Quota5hFraction > thresh && (succSum.QuotaWeeklyFraction > threshWeekly || (cAcc.EnableCreditOverages && succSum.Credits > 0))
+								hasNonGeminiHealthy := false
+								if d.Config.AllowNonGeminiNativeModels {
+									hasNonGeminiHealthy = succSum.Quota5hClaudeGPT > thresh && (succSum.QuotaWeeklyClaudeGPT > threshWeekly || succSum.QuotaWeeklyClaudeGPT == 0 || (cAcc.EnableCreditOverages && succSum.Credits > 0))
 								}
+								isHealthy := hasGeminiHealthy || hasNonGeminiHealthy
 								if !isHealthy {
 									log.Printf("[Daemon Auto-Switch] Candidate %s live quota breached; skipping", successor.Email)
 									continue

@@ -967,6 +967,17 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 						}
 					}
 				}
+				hasWeeklyClaudeBucket := false
+				for _, m := range breakdown.Models {
+					mLower := strings.ToLower(m.ModelName)
+					if (strings.Contains(mLower, "claude") || strings.Contains(mLower, "gpt")) && strings.Contains(mLower, "weekly") {
+						hasWeeklyClaudeBucket = true
+						break
+					}
+				}
+				if !hasWeeklyClaudeBucket && breakdown.QuotaWeeklyClaudeGPT == 0 && breakdown.Quota5hClaudeGPT > 0 {
+					breakdown.QuotaWeeklyClaudeGPT = breakdown.Quota5hClaudeGPT
+				}
 				return breakdown, nil
 			}
 
@@ -1019,6 +1030,17 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 							}
 						}
 					}
+				}
+				hasWeeklyClaudeBucket := false
+				for _, m := range breakdown.Models {
+					mLower := strings.ToLower(m.ModelName)
+					if (strings.Contains(mLower, "claude") || strings.Contains(mLower, "gpt")) && strings.Contains(mLower, "weekly") {
+						hasWeeklyClaudeBucket = true
+						break
+					}
+				}
+				if !hasWeeklyClaudeBucket && breakdown.QuotaWeeklyClaudeGPT == 0 && breakdown.Quota5hClaudeGPT > 0 {
+					breakdown.QuotaWeeklyClaudeGPT = breakdown.Quota5hClaudeGPT
 				}
 			}
 			return breakdown, nil

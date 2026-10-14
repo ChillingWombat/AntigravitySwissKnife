@@ -13,7 +13,7 @@ import {
   sortAccounts,
   computeEffectiveWeeklyAvailable,
 } from './accountRanking.ts'
-import type { AccountState } from '../types.ts'
+import { toAccountState, type AccountState } from '../types.ts'
 
 describe('accountRanking utility', () => {
   describe('parseHorizonTextSeconds', () => {
@@ -767,4 +767,179 @@ describe('accountRanking utility', () => {
       assert.strictEqual(insideWindow, 0.8, '1 hour reset provides 80% replenishment across 5h window')
     })
   })
+
+  describe('dual-engine model routing (allowNonGemini)', () => {
+    it('toAccountState preserves quota_5h_claude_gpt and quota_weekly_claude_gpt', () => {
+      const raw = {
+        email: 'dual@gmail.com',
+        label: 'Dual Account',
+        status: 'STANDBY',
+        quota_5h_current: 0.0,
+        quota_weekly: 0.0,
+        quota_5h_claude_gpt: 0.85,
+        quota_weekly_claude_gpt: 0.90,
+      }
+      const state = toAccountState(raw, '', true)
+      assert.strictEqual(state.quota_5h_claude_gpt, 0.85)
+      assert.strictEqual(state.quota_weekly_claude_gpt, 0.90)
+    })
+
+    it('toAccountState prevents COOLING status when allowNonGemini is enabled and Claude quota is available', () => {
+      const coolingRaw = {
+        email: 'cooling_with_claude@gmail.com',
+        label: 'Cooling Account',
+        status: 'COOLING',
+        quota_5h_current: 0.0,
+        quota_weekly: 0.0,
+        quota_5h_claude_gpt: 0.75,
+        quota_weekly_claude_gpt: 0.80,
+      }
+
+      // Without allowNonGemini: stays COOLING
+      const stateOff = toAccountState(coolingRaw, '', false)
+      assert.strictEqual(stateOff.status, 'COOLING')
+
+      // With allowNonGemini: normalized to STANDBY
+      const stateOn = toAccountState(coolingRaw, '', true)
+      assert.strictEqual(stateOn.status, 'STANDBY')
+
+      // If active: normalized to ACTIVE
+      const activeRaw = { ...coolingRaw, is_active: true }
+      const activeState = toAccountState(activeRaw, 'cooling_with_claude@gmail.com', true)
+      assert.strictEqual(activeState.status, 'ACTIVE')
+    })
+
+    it('extractAccountMetrics derives quota from Claude/GPT when allowNonGemini is true', () => {
+      const acc: AccountState = {
+        email: 'metrics@gmail.com',
+        is_active: false,
+        status: 'STANDBY',
+        quota_5h_current: 0.0,
+        quota_5h_available: 0.0,
+        quota_weekly: 0.0,
+        quota_5h_claude_gpt: 0.82,
+        quota_weekly_claude_gpt: 0.90,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+
+      const metricsOff = extractAccountMetrics(acc, 'balanced', false)
+      assert.strictEqual(metricsOff.q5hCur, 0.0)
+      assert.strictEqual(metricsOff.q7d, 0.0)
+
+      const metricsOn = extractAccountMetrics(acc, 'balanced', true)
+      assert.strictEqual(metricsOn.q5hCur, 0.82)
+      assert.strictEqual(metricsOn.q7d, 0.90)
+      assert.ok(metricsOn.q5hAvail >= 0.80, '5h available reflects Claude quota')
+    })
+
+    it('rankStandbyAccounts includes accounts with depleted Gemini but available Claude quota when allowNonGemini is true', () => {
+      const dualStandby: AccountState = {
+        email: 'claude_hero@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'STANDBY',
+        quota_5h_current: 0.0,
+        quota_weekly: 0.0,
+        quota_5h_claude_gpt: 0.90,
+        quota_weekly_claude_gpt: 0.95,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const geminiStandby: AccountState = {
+        email: 'gemini_hero@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'STANDBY',
+        quota_5h_current: 0.60,
+        quota_weekly: 0.70,
+        quota_5h_claude_gpt: 0.0,
+        quota_weekly_claude_gpt: 0.0,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+
+      // When allowNonGemini = false: dualStandby is excluded
+      const rankedOff = rankStandbyAccounts([dualStandby, geminiStandby], 0.05, 'balanced', 0.05, false)
+      assert.strictEqual(rankedOff.length, 1)
+      assert.strictEqual(rankedOff[0].email, 'gemini_hero@gmail.com')
+
+      // When allowNonGemini = true: dualStandby is included and outranks geminiStandby (90% Claude > 60% Gemini)
+      const rankedOn = rankStandbyAccounts([dualStandby, geminiStandby], 0.05, 'balanced', 0.05, true)
+      assert.strictEqual(rankedOn.length, 2)
+      assert.strictEqual(rankedOn[0].email, 'claude_hero@gmail.com')
+      assert.strictEqual(rankedOn[1].email, 'gemini_hero@gmail.com')
+    })
+
+    it('evaluateAutoSwitch suppresses switch when active account has healthy Claude quota under allowNonGemini', () => {
+      const activeWithClaude: AccountState = {
+        email: 'active@gmail.com',
+        is_active: true,
+        plan_tier: 'Pro',
+        status: 'ACTIVE',
+        quota_5h_current: 0.0,
+        quota_weekly: 0.0,
+        quota_5h_claude_gpt: 0.85,
+        quota_weekly_claude_gpt: 0.90,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const standby: AccountState = {
+        email: 'standby@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'STANDBY',
+        quota_5h_current: 0.80,
+        quota_weekly: 0.80,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+
+      // With routing OFF: active 0% Gemini triggers switch
+      const switchOff = evaluateAutoSwitch([activeWithClaude, standby], 'active@gmail.com', 0.05, 'balanced', 0, 0.05, false)
+      assert.strictEqual(switchOff.shouldSwitch, true)
+      assert.strictEqual(switchOff.successor?.email, 'standby@gmail.com')
+
+      // With routing ON: active 85% Claude suppresses switch
+      const switchOn = evaluateAutoSwitch([activeWithClaude, standby], 'active@gmail.com', 0.05, 'balanced', 0, 0.05, true)
+      assert.strictEqual(switchOn.shouldSwitch, false)
+      assert.strictEqual(switchOn.reason, 'Active account quota is healthy')
+    })
+
+    it('sortAccounts places dual-engine account in Tier 1 when allowNonGemini is true', () => {
+      const dualStandby: AccountState = {
+        email: 'dual@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'STANDBY',
+        quota_5h_current: 0.0,
+        quota_weekly: 0.0,
+        quota_5h_claude_gpt: 0.85,
+        quota_weekly_claude_gpt: 0.90,
+        reset_horizon_text: 'Ready',
+        has_mfa: false,
+      }
+      const geminiDepleted: AccountState = {
+        email: 'depleted@gmail.com',
+        is_active: false,
+        plan_tier: 'Pro',
+        status: 'COOLDOWN',
+        quota_5h_current: 0.0,
+        quota_weekly: 0.0,
+        quota_5h_claude_gpt: 0.0,
+        quota_weekly_claude_gpt: 0.0,
+        reset_horizon_text: 'Resets in 2h',
+        has_mfa: false,
+      }
+
+      // With routing OFF: dualStandby is in Tier 4 (depleted weekly)
+      const sortedOff = sortAccounts([dualStandby, geminiDepleted], '', 0.05, 'auto', 'balanced', 0.05, false)
+      assert.strictEqual(sortedOff[0].email, 'depleted@gmail.com')
+      // With routing ON: dualStandby is promoted to Tier 1 (Healthy Paid Standby)
+      const sortedOn = sortAccounts([dualStandby, geminiDepleted], '', 0.05, 'auto', 'balanced', 0.05, true)
+      assert.strictEqual(sortedOn[0].email, 'dual@gmail.com', 'dualStandby should be first (Tier 1)')
+      assert.strictEqual(sortedOn[1].email, 'depleted@gmail.com')
+    })
+  })
 })
+

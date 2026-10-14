@@ -348,39 +348,80 @@ func PollAndCacheAccount(acc *keyring.Account, store *keyring.Store) (*QuotaSumm
 	return summary, err
 }
 
+var (
+	allowNonGeminiOverride *bool
+	allowNonGeminiMu       sync.RWMutex
+)
+
+// SetAllowNonGeminiOverride sets a process-wide test override for allow_non_gemini_native_models.
+func SetAllowNonGeminiOverride(enabled *bool) {
+	allowNonGeminiMu.Lock()
+	defer allowNonGeminiMu.Unlock()
+	allowNonGeminiOverride = enabled
+}
+
+func isAllowNonGeminiEnabled(explicit ...bool) bool {
+	if len(explicit) > 0 {
+		return explicit[0]
+	}
+	allowNonGeminiMu.RLock()
+	if allowNonGeminiOverride != nil {
+		val := *allowNonGeminiOverride
+		allowNonGeminiMu.RUnlock()
+		return val
+	}
+	allowNonGeminiMu.RUnlock()
+	if cfg, err := core.LoadConfig(); err == nil && cfg != nil {
+		return cfg.AllowNonGeminiNativeModels
+	}
+	return false
+}
+
 // BuildAccountQuotaStates creates AccountQuotaState items from stored accounts.
-func BuildAccountQuotaStates(accounts []*keyring.Account, activeSummary *QuotaSummary) []AccountQuotaState {
-	return BuildAccountQuotaStatesWithThresholds(accounts, activeSummary, core.DefaultAutoSwitchThresholdFraction, core.DefaultAutoSwitchWeeklyThresholdFraction)
+func BuildAccountQuotaStates(accounts []*keyring.Account, activeSummary *QuotaSummary, allowNonGemini ...bool) []AccountQuotaState {
+	return BuildAccountQuotaStatesWithThresholds(accounts, activeSummary, core.DefaultAutoSwitchThresholdFraction, core.DefaultAutoSwitchWeeklyThresholdFraction, allowNonGemini...)
 }
 
 // BuildAccountQuotaStatesWithThreshold creates AccountQuotaState items from stored accounts with custom threshold.
-func BuildAccountQuotaStatesWithThreshold(accounts []*keyring.Account, activeSummary *QuotaSummary, threshold float64) []AccountQuotaState {
-	return BuildAccountQuotaStatesWithThresholds(accounts, activeSummary, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction)
+func BuildAccountQuotaStatesWithThreshold(accounts []*keyring.Account, activeSummary *QuotaSummary, threshold float64, allowNonGemini ...bool) []AccountQuotaState {
+	return BuildAccountQuotaStatesWithThresholds(accounts, activeSummary, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction, allowNonGemini...)
 }
 
 // BuildAccountQuotaStatesWithThresholds creates AccountQuotaState items from stored accounts with custom 5h and weekly thresholds.
-func BuildAccountQuotaStatesWithThresholds(accounts []*keyring.Account, activeSummary *QuotaSummary, threshold5h, thresholdWeekly float64) []AccountQuotaState {
+func BuildAccountQuotaStatesWithThresholds(accounts []*keyring.Account, activeSummary *QuotaSummary, threshold5h, thresholdWeekly float64, allowNonGemini ...bool) []AccountQuotaState {
+	routing := isAllowNonGeminiEnabled(allowNonGemini...)
+	return BuildAccountQuotaStatesWithThresholdsAndRouting(accounts, activeSummary, threshold5h, thresholdWeekly, routing)
+}
+
+// BuildAccountQuotaStatesWithThresholdsAndRouting creates AccountQuotaState items with model routing rules.
+func BuildAccountQuotaStatesWithThresholdsAndRouting(accounts []*keyring.Account, activeSummary *QuotaSummary, threshold5h, thresholdWeekly float64, allowNonGemini bool) []AccountQuotaState {
 	var summaries map[string]*QuotaSummary
 	if activeSummary != nil {
 		summaries = map[string]*QuotaSummary{
 			strings.ToLower(strings.TrimSpace(activeSummary.AccountEmail)): activeSummary,
 		}
 	}
-	return BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, threshold5h, thresholdWeekly)
+	return BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts, summaries, threshold5h, thresholdWeekly, allowNonGemini)
 }
 
 // BuildAccountQuotaStatesFromMap builds account states using live summaries and cached agent db.
-func BuildAccountQuotaStatesFromMap(accounts []*keyring.Account, summaries map[string]*QuotaSummary) []AccountQuotaState {
-	return BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, core.DefaultAutoSwitchThresholdFraction, core.DefaultAutoSwitchWeeklyThresholdFraction)
+func BuildAccountQuotaStatesFromMap(accounts []*keyring.Account, summaries map[string]*QuotaSummary, allowNonGemini ...bool) []AccountQuotaState {
+	return BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, core.DefaultAutoSwitchThresholdFraction, core.DefaultAutoSwitchWeeklyThresholdFraction, allowNonGemini...)
 }
 
 // BuildAccountQuotaStatesFromMapWithThreshold builds account states using live summaries, cached agent db, and custom exhaustion threshold.
-func BuildAccountQuotaStatesFromMapWithThreshold(accounts []*keyring.Account, summaries map[string]*QuotaSummary, threshold float64) []AccountQuotaState {
-	return BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction)
+func BuildAccountQuotaStatesFromMapWithThreshold(accounts []*keyring.Account, summaries map[string]*QuotaSummary, threshold float64, allowNonGemini ...bool) []AccountQuotaState {
+	return BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction, allowNonGemini...)
 }
 
 // BuildAccountQuotaStatesFromMapWithThresholds builds account states using live summaries, cached agent db, and custom exhaustion thresholds.
-func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, summaries map[string]*QuotaSummary, threshold5h, thresholdWeekly float64) []AccountQuotaState {
+func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, summaries map[string]*QuotaSummary, threshold5h, thresholdWeekly float64, allowNonGemini ...bool) []AccountQuotaState {
+	routing := isAllowNonGeminiEnabled(allowNonGemini...)
+	return BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts, summaries, threshold5h, thresholdWeekly, routing)
+}
+
+// BuildAccountQuotaStatesFromMapWithThresholdsAndRouting builds account states using live summaries, cached agent db, custom exhaustion thresholds, and model routing rules.
+func BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts []*keyring.Account, summaries map[string]*QuotaSummary, threshold5h, thresholdWeekly float64, allowNonGemini bool) []AccountQuotaState {
 	if threshold5h <= 0 {
 		threshold5h = core.DefaultAutoSwitchThresholdFraction
 	}
@@ -501,6 +542,19 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 			if s.QuotaWeeklyClaudeGPT > 0 {
 				curWeeklyClaude = ClampFraction(s.QuotaWeeklyClaudeGPT)
 			}
+			if curWeeklyClaude == 0 && cur5hClaude > 0 {
+				hasWeeklyClaudeBucket := false
+				for _, m := range s.Models {
+					mLower := strings.ToLower(m.ModelName)
+					if (strings.Contains(mLower, "claude") || strings.Contains(mLower, "gpt")) && strings.Contains(mLower, "weekly") {
+						hasWeeklyClaudeBucket = true
+						break
+					}
+				}
+				if !hasWeeklyClaudeBucket {
+					curWeeklyClaude = cur5hClaude
+				}
+			}
 			if s.ResetSeconds5h > 0 {
 				curSec = s.ResetSeconds5h
 			}
@@ -550,6 +604,9 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 			}
 			if ca.QuotaWeeklyClaudeGPT > 0 {
 				curWeeklyClaude = ClampFraction(ca.QuotaWeeklyClaudeGPT)
+			}
+			if curWeeklyClaude == 0 && cur5hClaude > 0 && ca.ResetTimeWeekly == "" {
+				curWeeklyClaude = cur5hClaude
 			}
 			if ca.ResetTime5h != "" {
 				if rt, parseErr := time.Parse(time.RFC3339, ca.ResetTime5h); parseErr == nil && rt.After(now) {
@@ -605,13 +662,29 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 			hasPolledData := cur5h > 0 || curWeekly > 0 || curSec > 0 || curSecWeekly > 0 || (resText != "" && resText != "Not Polled") || (summaries != nil && summaries[normEmail] != nil) || inCached
 			if hasPolledData {
 				isBelow := cur5h <= threshold5h || (curWeekly <= thresholdWeekly && !(acc.EnableCreditOverages && credits > 0))
+				if allowNonGemini && isBelow {
+					hasNonGemini := cur5hClaude > threshold5h && (curWeeklyClaude > thresholdWeekly || (acc.EnableCreditOverages && credits > 0))
+					if hasNonGemini {
+						isBelow = false
+					}
+				}
 				if isBelow {
 					status = core.AccountStatusCooling
 				} else if status == core.AccountStatusCooldown || status == core.AccountStatusCooling {
 					status = core.AccountStatusStandby
 				}
-			} else if status == core.AccountStatusCooldown {
-				status = core.AccountStatusCooling
+			} else if status == core.AccountStatusCooldown || status == core.AccountStatusCooling {
+				if allowNonGemini && cur5hClaude > threshold5h && (curWeeklyClaude > thresholdWeekly || (acc.EnableCreditOverages && credits > 0)) {
+					status = core.AccountStatusStandby
+				} else {
+					status = core.AccountStatusCooling
+				}
+			}
+		}
+
+		if acc.IsActive && (status == core.AccountStatusCooldown || status == core.AccountStatusCooling) {
+			if allowNonGemini && cur5hClaude > threshold5h && (curWeeklyClaude > thresholdWeekly || (acc.EnableCreditOverages && credits > 0)) {
+				status = "ACTIVE"
 			}
 		}
 
@@ -943,7 +1016,15 @@ type AccountMetrics struct {
 
 // ExtractAccountMetrics derives normalized values for all 4 metrics and plan tier.
 func ExtractAccountMetrics(acc AccountQuotaState, mode string) AccountMetrics {
+	return ExtractAccountMetricsWithRouting(acc, mode, false)
+}
+
+// ExtractAccountMetricsWithRouting derives normalized values for all 4 metrics and plan tier considering model routing rules.
+func ExtractAccountMetricsWithRouting(acc AccountQuotaState, mode string, allowNonGemini bool) AccountMetrics {
 	q5hCur := clamp01(acc.Quota5hCurrent)
+	if allowNonGemini && acc.Quota5hClaudeGPT > q5hCur {
+		q5hCur = clamp01(acc.Quota5hClaudeGPT)
+	}
 	sec5h := acc.ResetSeconds
 	if sec5h <= 0.0 && acc.ResetHorizonText != "" {
 		sec5h = ParseHorizonTextSeconds(acc.ResetHorizonText)
@@ -969,6 +1050,9 @@ func ExtractAccountMetrics(acc AccountQuotaState, mode string) AccountMetrics {
 	}
 
 	q7d := clamp01(acc.QuotaWeekly)
+	if allowNonGemini && acc.QuotaWeeklyClaudeGPT > q7d {
+		q7d = clamp01(acc.QuotaWeeklyClaudeGPT)
+	}
 	sec7d := acc.ResetSecondsWeekly
 	if sec7d <= 0.0 && acc.ResetHorizonWeeklyText != "" {
 		sec7d = ParseHorizonTextSeconds(acc.ResetHorizonWeeklyText)
@@ -976,7 +1060,8 @@ func ExtractAccountMetrics(acc AccountQuotaState, mode string) AccountMetrics {
 
 	// Cap effective 5h available quota by weekly quota available over 5h window if credit overages are not enabled and weekly quota is depleted
 	hasCreditOverages := acc.EnableCreditOverages && acc.Credits > 0
-	if !hasCreditOverages && q7d <= 0.05 {
+	hasNonGemini := allowNonGemini && acc.Quota5hClaudeGPT > 0.05
+	if !hasCreditOverages && !hasNonGemini && q7d <= 0.05 {
 		availWeeklyIn5h := ComputeEffectiveWeeklyAvailable(q7d, sec7d)
 		q5hAvail = math.Min(q5hAvail, availWeeklyIn5h)
 	}
@@ -1011,8 +1096,13 @@ func ExtractAccountMetrics(acc AccountQuotaState, mode string) AccountMetrics {
 // ComputeAccountRankingScore evaluates an account score according to the active switch mode.
 // Incorporates all 4 metrics (5h remaining, 5h reset time, 7d remaining, 7d reset time) and Plan Tier.
 func ComputeAccountRankingScore(acc AccountQuotaState, threshold float64, mode string) float64 {
+	return ComputeAccountRankingScoreWithRouting(acc, threshold, mode, false)
+}
+
+// ComputeAccountRankingScoreWithRouting evaluates an account score considering non-Gemini routing rules.
+func ComputeAccountRankingScoreWithRouting(acc AccountQuotaState, threshold float64, mode string, allowNonGemini bool) float64 {
 	m := NormalizeSwitchMode(mode)
-	metrics := ExtractAccountMetrics(acc, m)
+	metrics := ExtractAccountMetricsWithRouting(acc, m, allowNonGemini)
 
 	switch m {
 	case SwitchModeMaxContinuous:
@@ -1058,9 +1148,14 @@ func ComputeAccountRankingScore(acc AccountQuotaState, threshold float64, mode s
 
 // CompareStandbyCandidates determines if candidate A should be ranked ahead of candidate B.
 func CompareStandbyCandidates(a, b AccountQuotaState, threshold float64, mode string) bool {
+	return CompareStandbyCandidatesWithRouting(a, b, threshold, mode, false)
+}
+
+// CompareStandbyCandidatesWithRouting determines if candidate A should be ranked ahead of candidate B considering non-Gemini routing rules.
+func CompareStandbyCandidatesWithRouting(a, b AccountQuotaState, threshold float64, mode string, allowNonGemini bool) bool {
 	m := NormalizeSwitchMode(mode)
-	mA := ExtractAccountMetrics(a, m)
-	mB := ExtractAccountMetrics(b, m)
+	mA := ExtractAccountMetricsWithRouting(a, m, allowNonGemini)
+	mB := ExtractAccountMetricsWithRouting(b, m, allowNonGemini)
 
 	// Invariant 1: Free accounts are always ranked last among healthy standby candidates
 	if mA.IsFree != mB.IsFree {
@@ -1087,8 +1182,8 @@ func CompareStandbyCandidates(a, b AccountQuotaState, threshold float64, mode st
 			return tieA > tieB
 		}
 	} else {
-		scoreA := ComputeAccountRankingScore(a, threshold, m)
-		scoreB := ComputeAccountRankingScore(b, threshold, m)
+		scoreA := ComputeAccountRankingScoreWithRouting(a, threshold, m, allowNonGemini)
+		scoreB := ComputeAccountRankingScoreWithRouting(b, threshold, m, allowNonGemini)
 		if math.Abs(scoreA-scoreB) > 0.0005 {
 			return scoreA > scoreB
 		}
@@ -1127,17 +1222,23 @@ func CompareStandbyCandidates(a, b AccountQuotaState, threshold float64, mode st
 }
 
 // RankStandbyAccounts sorts standby accounts in default balanced mode (backwards-compatible).
-func RankStandbyAccounts(accounts []AccountQuotaState, threshold float64) []AccountQuotaState {
-	return RankStandbyAccountsWithThresholds(accounts, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction, SwitchModeBalanced)
+func RankStandbyAccounts(accounts []AccountQuotaState, threshold float64, allowNonGemini ...bool) []AccountQuotaState {
+	return RankStandbyAccountsWithThresholds(accounts, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction, SwitchModeBalanced, allowNonGemini...)
 }
 
 // RankStandbyAccountsWithMode filters eligible standby candidates and sorts them by switch mode.
-func RankStandbyAccountsWithMode(accounts []AccountQuotaState, threshold float64, mode string) []AccountQuotaState {
-	return RankStandbyAccountsWithThresholds(accounts, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction, mode)
+func RankStandbyAccountsWithMode(accounts []AccountQuotaState, threshold float64, mode string, allowNonGemini ...bool) []AccountQuotaState {
+	return RankStandbyAccountsWithThresholds(accounts, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction, mode, allowNonGemini...)
 }
 
 // RankStandbyAccountsWithThresholds filters eligible standby candidates and sorts them by switch mode using custom 5h and weekly thresholds.
-func RankStandbyAccountsWithThresholds(accounts []AccountQuotaState, threshold5h, thresholdWeekly float64, mode string) []AccountQuotaState {
+func RankStandbyAccountsWithThresholds(accounts []AccountQuotaState, threshold5h, thresholdWeekly float64, mode string, allowNonGemini ...bool) []AccountQuotaState {
+	routing := isAllowNonGeminiEnabled(allowNonGemini...)
+	return RankStandbyAccountsWithThresholdsAndRouting(accounts, threshold5h, thresholdWeekly, mode, routing)
+}
+
+// RankStandbyAccountsWithThresholdsAndRouting filters eligible standby candidates considering non-Gemini routing rules.
+func RankStandbyAccountsWithThresholdsAndRouting(accounts []AccountQuotaState, threshold5h, thresholdWeekly float64, mode string, allowNonGemini bool) []AccountQuotaState {
 	if threshold5h <= 0 {
 		threshold5h = core.DefaultAutoSwitchThresholdFraction
 	}
@@ -1152,24 +1253,36 @@ func RankStandbyAccountsWithThresholds(accounts []AccountQuotaState, threshold5h
 			continue
 		}
 		st := strings.ToUpper(acc.Status)
-		if st == "BANNED" || st == "ERROR" || st == "COOLDOWN" || st == "COOLING" || st == "NEEDS_REAUTH" {
+		if st == "BANNED" || st == "ERROR" || st == "NEEDS_REAUTH" {
 			continue
 		}
 		if strings.TrimSpace(acc.RefreshToken) == "" && !core.IsRunningTests() {
 			continue
 		}
-		if acc.Quota5hCurrent <= threshold5h {
+
+		hasGemini5h := acc.Quota5hCurrent > threshold5h
+		hasGeminiWeekly := acc.QuotaWeekly > thresholdWeekly || (acc.EnableCreditOverages && acc.Credits > 0)
+		hasGemini := hasGemini5h && hasGeminiWeekly
+
+		hasNonGemini := false
+		if allowNonGemini {
+			hasNonGemini5h := acc.Quota5hClaudeGPT > threshold5h
+			hasNonGeminiWeekly := acc.QuotaWeeklyClaudeGPT > thresholdWeekly || (acc.EnableCreditOverages && acc.Credits > 0)
+			hasNonGemini = hasNonGemini5h && hasNonGeminiWeekly
+		}
+
+		if (st == "COOLDOWN" || st == "COOLING") && !hasNonGemini {
 			continue
 		}
-		hasWeekly := acc.QuotaWeekly > thresholdWeekly || (acc.EnableCreditOverages && acc.Credits > 0)
-		if !hasWeekly {
+
+		if !hasGemini && !hasNonGemini {
 			continue
 		}
 		candidates = append(candidates, acc)
 	}
 
 	sort.Slice(candidates, func(i, j int) bool {
-		return CompareStandbyCandidates(candidates[i], candidates[j], threshold5h, m)
+		return CompareStandbyCandidatesWithRouting(candidates[i], candidates[j], threshold5h, m, allowNonGemini)
 	})
 
 	return candidates
@@ -1231,12 +1344,18 @@ func ShouldSwitchProactivelyMaxTokens(active, bestStandby AccountQuotaState, thr
 }
 
 // EvaluateAutoSwitch evaluates whether the active account should switch and identifies the best successor (backwards-compatible).
-func EvaluateAutoSwitch(accounts []AccountQuotaState, activeEmail string, threshold float64, mode string, activeDwellSec float64) (bool, *AccountQuotaState, string) {
-	return EvaluateAutoSwitchWithThresholds(accounts, activeEmail, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction, mode, activeDwellSec)
+func EvaluateAutoSwitch(accounts []AccountQuotaState, activeEmail string, threshold float64, mode string, activeDwellSec float64, allowNonGemini ...bool) (bool, *AccountQuotaState, string) {
+	return EvaluateAutoSwitchWithThresholds(accounts, activeEmail, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction, mode, activeDwellSec, allowNonGemini...)
 }
 
 // EvaluateAutoSwitchWithThresholds evaluates whether the active account should switch using both 5h and weekly thresholds.
-func EvaluateAutoSwitchWithThresholds(accounts []AccountQuotaState, activeEmail string, threshold5h, thresholdWeekly float64, mode string, activeDwellSec float64) (bool, *AccountQuotaState, string) {
+func EvaluateAutoSwitchWithThresholds(accounts []AccountQuotaState, activeEmail string, threshold5h, thresholdWeekly float64, mode string, activeDwellSec float64, allowNonGemini ...bool) (bool, *AccountQuotaState, string) {
+	routing := isAllowNonGeminiEnabled(allowNonGemini...)
+	return EvaluateAutoSwitchWithThresholdsAndRouting(accounts, activeEmail, threshold5h, thresholdWeekly, mode, activeDwellSec, routing)
+}
+
+// EvaluateAutoSwitchWithThresholdsAndRouting evaluates auto-switch considering non-Gemini routing rules.
+func EvaluateAutoSwitchWithThresholdsAndRouting(accounts []AccountQuotaState, activeEmail string, threshold5h, thresholdWeekly float64, mode string, activeDwellSec float64, allowNonGemini bool) (bool, *AccountQuotaState, string) {
 	if threshold5h <= 0 {
 		threshold5h = core.DefaultAutoSwitchThresholdFraction
 	}
@@ -1252,7 +1371,7 @@ func EvaluateAutoSwitchWithThresholds(accounts []AccountQuotaState, activeEmail 
 		}
 	}
 
-	ranked := RankStandbyAccountsWithThresholds(accounts, threshold5h, thresholdWeekly, m)
+	ranked := RankStandbyAccountsWithThresholdsAndRouting(accounts, threshold5h, thresholdWeekly, m, allowNonGemini)
 	if len(ranked) == 0 {
 		return false, nil, "No eligible standby accounts above threshold"
 	}
@@ -1263,7 +1382,17 @@ func EvaluateAutoSwitchWithThresholds(accounts []AccountQuotaState, activeEmail 
 	if active != nil {
 		is5hBreached := active.Quota5hCurrent <= threshold5h
 		isWeeklyBreached := active.QuotaWeekly <= thresholdWeekly && !(active.EnableCreditOverages && active.Credits > 0)
-		if is5hBreached || isWeeklyBreached {
+		geminiBreached := is5hBreached || isWeeklyBreached
+
+		shouldSwitch := geminiBreached
+		if allowNonGemini && geminiBreached {
+			hasNonGemini := active.Quota5hClaudeGPT > threshold5h && (active.QuotaWeeklyClaudeGPT > thresholdWeekly || (active.EnableCreditOverages && active.Credits > 0))
+			if hasNonGemini {
+				shouldSwitch = false
+			}
+		}
+
+		if shouldSwitch {
 			var reason string
 			if is5hBreached && isWeeklyBreached {
 				reason = fmt.Sprintf("Active quota (5h: %.1f%%, weekly: %.1f%%) dropped below thresholds (5h: %.1f%%, weekly: %.1f%%)", active.Quota5hCurrent*100, active.QuotaWeekly*100, threshold5h*100, thresholdWeekly*100)
@@ -1300,6 +1429,21 @@ func EvaluateAutoSwitchForApp(
 	activeDwellSec float64,
 	assignedInTick ...string,
 ) (bool, *AccountQuotaState, string) {
+	allowNonGemini := isAllowNonGeminiEnabled()
+	return EvaluateAutoSwitchForAppWithRouting(accounts, currentAppEmail, inUseEmails, threshold5h, thresholdWeekly, mode, activeDwellSec, allowNonGemini, assignedInTick...)
+}
+
+// EvaluateAutoSwitchForAppWithRouting evaluates auto-rotation for a specific application considering non-Gemini routing rules.
+func EvaluateAutoSwitchForAppWithRouting(
+	accounts []AccountQuotaState,
+	currentAppEmail string,
+	inUseEmails []string,
+	threshold5h, thresholdWeekly float64,
+	mode string,
+	activeDwellSec float64,
+	allowNonGemini bool,
+	assignedInTick ...string,
+) (bool, *AccountQuotaState, string) {
 	if threshold5h <= 0 {
 		threshold5h = core.DefaultAutoSwitchThresholdFraction
 	}
@@ -1323,22 +1467,31 @@ func EvaluateAutoSwitchForApp(
 	// Verify quota breach
 	is5hBreached := active.Quota5hCurrent <= threshold5h
 	isWeeklyBreached := active.QuotaWeekly <= thresholdWeekly && !(active.EnableCreditOverages && active.Credits > 0)
-	if !is5hBreached && !isWeeklyBreached {
+	geminiBreached := is5hBreached || isWeeklyBreached
+	if !geminiBreached {
+		return false, nil, "Active account quota is healthy"
+	}
+	if allowNonGemini && active.Quota5hClaudeGPT > threshold5h && (active.QuotaWeeklyClaudeGPT > thresholdWeekly || (active.EnableCreditOverages && active.Credits > 0)) {
 		return false, nil, "Active account quota is healthy"
 	}
 
 	isEligible := func(acc AccountQuotaState) bool {
 		st := strings.ToUpper(acc.Status)
-		if st == "BANNED" || st == "ERROR" || st == "COOLDOWN" || st == "COOLING" || st == "NEEDS_REAUTH" {
+		if st == "BANNED" || st == "ERROR" || st == "NEEDS_REAUTH" {
 			return false
 		}
 		if strings.TrimSpace(acc.RefreshToken) == "" && !core.IsRunningTests() {
 			return false
 		}
-		if acc.Quota5hCurrent <= threshold5h {
+		hasGemini := acc.Quota5hCurrent > threshold5h && (acc.QuotaWeekly > thresholdWeekly || (acc.EnableCreditOverages && acc.Credits > 0))
+		hasNonGemini := false
+		if allowNonGemini {
+			hasNonGemini = acc.Quota5hClaudeGPT > threshold5h && (acc.QuotaWeeklyClaudeGPT > thresholdWeekly || (acc.EnableCreditOverages && acc.Credits > 0))
+		}
+		if (st == "COOLDOWN" || st == "COOLING") && !hasNonGemini {
 			return false
 		}
-		return acc.QuotaWeekly > thresholdWeekly || (acc.EnableCreditOverages && acc.Credits > 0)
+		return hasGemini || hasNonGemini
 	}
 
 	// Build the set of emails currently in use across ANY app
@@ -1363,7 +1516,7 @@ func EvaluateAutoSwitchForApp(
 
 	if len(unusedCandidates) > 0 {
 		sort.Slice(unusedCandidates, func(i, j int) bool {
-			return CompareStandbyCandidates(unusedCandidates[i], unusedCandidates[j], threshold5h, m)
+			return CompareStandbyCandidatesWithRouting(unusedCandidates[i], unusedCandidates[j], threshold5h, m, allowNonGemini)
 		})
 		reason := fmt.Sprintf("App quota depleted; rotated to unused standby account (%s)", unusedCandidates[0].Email)
 		return true, &unusedCandidates[0], reason
@@ -1391,7 +1544,7 @@ func EvaluateAutoSwitchForApp(
 
 	if len(sharedCandidates) > 0 {
 		sort.Slice(sharedCandidates, func(i, j int) bool {
-			return CompareStandbyCandidates(sharedCandidates[i], sharedCandidates[j], threshold5h, m)
+			return CompareStandbyCandidatesWithRouting(sharedCandidates[i], sharedCandidates[j], threshold5h, m, allowNonGemini)
 		})
 		reason := fmt.Sprintf("No unused standby accounts available; falling back to shared account (%s)", sharedCandidates[0].Email)
 		return true, &sharedCandidates[0], reason
@@ -1401,12 +1554,18 @@ func EvaluateAutoSwitchForApp(
 }
 
 // SortAccountQuotaStates sorts all accounts for UI dashboard display in accordance with sortMode and switchMode (backwards-compatible).
-func SortAccountQuotaStates(accounts []AccountQuotaState, activeEmail string, threshold float64, sortMode string, switchMode string) []AccountQuotaState {
-	return SortAccountQuotaStatesWithThresholds(accounts, activeEmail, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction, sortMode, switchMode)
+func SortAccountQuotaStates(accounts []AccountQuotaState, activeEmail string, threshold float64, sortMode string, switchMode string, allowNonGemini ...bool) []AccountQuotaState {
+	return SortAccountQuotaStatesWithThresholds(accounts, activeEmail, threshold, core.DefaultAutoSwitchWeeklyThresholdFraction, sortMode, switchMode, allowNonGemini...)
 }
 
 // SortAccountQuotaStatesWithThresholds sorts all accounts for UI dashboard display using custom 5h and weekly thresholds.
-func SortAccountQuotaStatesWithThresholds(accounts []AccountQuotaState, activeEmail string, threshold5h, thresholdWeekly float64, sortMode string, switchMode string) []AccountQuotaState {
+func SortAccountQuotaStatesWithThresholds(accounts []AccountQuotaState, activeEmail string, threshold5h, thresholdWeekly float64, sortMode string, switchMode string, allowNonGemini ...bool) []AccountQuotaState {
+	routing := isAllowNonGeminiEnabled(allowNonGemini...)
+	return SortAccountQuotaStatesWithThresholdsAndRouting(accounts, activeEmail, threshold5h, thresholdWeekly, sortMode, switchMode, routing)
+}
+
+// SortAccountQuotaStatesWithThresholdsAndRouting sorts all accounts for UI dashboard display considering model routing rules.
+func SortAccountQuotaStatesWithThresholdsAndRouting(accounts []AccountQuotaState, activeEmail string, threshold5h, thresholdWeekly float64, sortMode string, switchMode string, allowNonGemini bool) []AccountQuotaState {
 	if threshold5h <= 0 {
 		threshold5h = core.DefaultAutoSwitchThresholdFraction
 	}
@@ -1516,7 +1675,12 @@ func SortAccountQuotaStatesWithThresholds(accounts []AccountQuotaState, activeEm
 		recoversWeeklyIn5h := hasWeekly || availWeeklyIn5h > thresholdWeekly
 		is5hBelow := cur5h <= threshold5h || st == "COOLDOWN" || st == "COOLING"
 
-		if !is5hBelow && hasWeekly {
+		hasNonGemini := false
+		if allowNonGemini {
+			hasNonGemini = a.Quota5hClaudeGPT > threshold5h && (a.QuotaWeeklyClaudeGPT > thresholdWeekly || (a.EnableCreditOverages && a.Credits > 0))
+		}
+
+		if (!is5hBelow && hasWeekly) || hasNonGemini {
 			if IsFreePlanTier(a.Email, a.PlanTier) {
 				return 2
 			}
@@ -1539,7 +1703,7 @@ func SortAccountQuotaStatesWithThresholds(accounts []AccountQuotaState, activeEm
 
 		// Within Tier 1, Tier 2, or Tier 3: compare by switch mode
 		if tA == 1 || tA == 2 || tA == 3 {
-			return CompareStandbyCandidates(items[i], items[j], threshold5h, swMode)
+			return CompareStandbyCandidatesWithRouting(items[i], items[j], threshold5h, swMode, allowNonGemini)
 		}
 
 		// Within Tier 4 (Weekly Depleted):
