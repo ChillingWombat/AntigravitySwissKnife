@@ -2143,7 +2143,20 @@ func TestAuxiliaryDaemonOfflineHandling(t *testing.T) {
 		t.Errorf("expected daemon offline handler to remove aux button group and dividers")
 	}
 
-	// 4. Verify syntax passes in Node
+	// 4. Verify daemon offline removal of in-chat telemetry metrics
+	if !strings.Contains(js, `document.querySelectorAll(".swiss-inchat-metrics").forEach(el => el.remove())`) {
+		t.Errorf("expected daemon offline handler to remove in-chat telemetry metrics")
+	}
+	if !strings.Contains(js, "chatTelemetryCachedData = null;") {
+		t.Errorf("expected daemon offline handler to clear chatTelemetryCachedData")
+	}
+
+	// 5. Verify setupInChatTelemetry checks window.__swissDaemonOnline === false
+	if !strings.Contains(js, "if (window.__swissDaemonOnline === false)") {
+		t.Errorf("expected setupInChatTelemetry to guard against window.__swissDaemonOnline === false")
+	}
+
+	// 6. Verify syntax passes in Node
 	if nodePath, err := exec.LookPath("node"); err == nil {
 		cmd := exec.Command(nodePath, "--check")
 		cmd.Stdin = strings.NewReader(js)

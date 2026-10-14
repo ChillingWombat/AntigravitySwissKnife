@@ -838,6 +838,10 @@ func (s *Store) DeactivateOnDaemonStop(keepVisualEffects bool) error {
 			const g = document.getElementById("swiss-left-nav-group");
 			if (g) g.remove();
 			document.querySelectorAll(".swiss-aux-btn-group, .swiss-aux-tabs-divider, .swiss-aux-tabs-divider-left, .swiss-aux-tabs-divider-right").forEach(el => el.remove());
+			document.querySelectorAll(".swiss-inchat-metrics").forEach(el => el.remove());
+			const mainRing = document.getElementById("swiss-context-window-ring");
+			if (mainRing) mainRing.remove();
+			document.querySelectorAll("[id^='swiss-context-window-ring-sub-'], .swiss-context-window-ring, .swiss-context-window-ring-sub").forEach(r => r.remove());
 			const st = document.getElementById("swiss-main-stage-container");
 			if (st) st.style.display = "none";
 			const aux = document.getElementById("swiss-aux-container");

@@ -715,4 +715,137 @@ func TestGenerateEnhancementsScript_ContextWindowProgressRing(t *testing.T) {
 	}
 }
 
+func TestGenerateEnhancementsScript_ContextWindowProgressRing_DaemonOffline(t *testing.T) {
+	cfg := DefaultConfig()
+	script := GenerateEnhancementsScript(cfg)
+
+	// 1. Verify daemon offline check inside renderContextWindowProgressRing
+	if !strings.Contains(script, "if (window.__swissDaemonOnline === false)") {
+		t.Errorf("expected renderContextWindowProgressRing to guard against window.__swissDaemonOnline === false")
+	}
+
+	// 2. Verify daemon offline check inside fetchActiveConversationTokens
+	if !strings.Contains(script, "if (window.__swissDaemonOnline === false) return;") {
+		t.Errorf("expected fetchActiveConversationTokens to check daemon offline status before querying API")
+	}
+
+	// 3. Verify window.__swissOnEnhancementsDaemonChanged registration
+	if !strings.Contains(script, "window.__swissOnEnhancementsDaemonChanged = function(online)") {
+		t.Errorf("expected script to register window.__swissOnEnhancementsDaemonChanged")
+	}
+
+	// 4. Verify DOM removal of context rings when daemon is offline
+	if !strings.Contains(script, `existingMain.remove()`) || !strings.Contains(script, `swiss-context-window-ring-sub`) {
+		t.Errorf("expected script to remove existing context rings when daemon is offline")
+	}
+
+	// 5. Node runtime execution test verifying DOM behavior when daemon is offline
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not found, skipping runtime test")
+	}
+
+	harness := `
+class MockElement {
+  constructor(tag, id = "") {
+    this.tagName = tag.toUpperCase();
+    this.id = id;
+    this.classList = new Set();
+    this.style = {};
+    this.attributes = {};
+    this.children = [];
+    this.parentElement = null;
+    this.nextSibling = null;
+    this.previousElementSibling = null;
+    this.innerText = "";
+  }
+  setAttribute(k, v) { this.attributes[k] = v; }
+  getAttribute(k) { return this.attributes[k]; }
+  appendChild(child) {
+    child.parentElement = this;
+    this.children.push(child);
+    return child;
+  }
+  insertBefore(newNode, refNode) {
+    newNode.parentElement = this;
+    const idx = refNode ? this.children.indexOf(refNode) : -1;
+    if (idx === -1) {
+      this.children.push(newNode);
+    } else {
+      this.children.splice(idx, 0, newNode);
+    }
+    newNode.nextSibling = refNode;
+    return newNode;
+  }
+  remove() {
+    if (this.parentElement) {
+      const idx = this.parentElement.children.indexOf(this);
+      if (idx !== -1) this.parentElement.children.splice(idx, 1);
+      this.parentElement = null;
+    }
+  }
+  querySelector(sel) {
+    return this.children.find(c => sel.includes(c.id) || (sel.includes(".") && c.classList.has(sel.replace(".", ""))));
+  }
+  querySelectorAll(sel) {
+    const res = [];
+    for (const c of this.children) {
+      if (c.id && sel.includes(c.id)) res.push(c);
+      else if (sel.includes("swiss-context-window-ring") && (c.classList.has("swiss-context-window-ring") || c.classList.has("swiss-context-window-ring-sub"))) res.push(c);
+    }
+    return res;
+  }
+  closest() { return this.parentElement; }
+}
+const document = {
+  body: new MockElement("body"),
+  createElement: (tag) => new MockElement(tag),
+  getElementById: (id) => {
+    if (id === "swiss-context-window-ring") return document.body.children.find(c => c.id === id) || null;
+    return null;
+  },
+  querySelector: (sel) => {
+    if (sel.includes("model-selector-trigger")) return trigger;
+    return null;
+  },
+  querySelectorAll: (sel) => document.body.querySelectorAll(sel),
+};
+const trigger = new MockElement("div", "trigger");
+trigger.innerText = "Gemini Pro";
+document.body.appendChild(trigger);
+
+const window = {
+  location: { pathname: "/c/11111111-2222-3333-4444-555555555555" },
+  __swissDaemonOnline: false,
+  addEventListener: () => {},
+};
+const assert = require("assert");
+
+` + script + `
+
+// Verify that with __swissDaemonOnline = false, no ring exists
+assert.strictEqual(document.getElementById("swiss-context-window-ring"), null, "ring must not be rendered when daemon is offline");
+
+// Simulate online transition
+window.__swissDaemonOnline = true;
+if (typeof window.__swissOnEnhancementsDaemonChanged === "function") {
+  window.__swissOnEnhancementsDaemonChanged(true);
+}
+// Simulate offline transition
+window.__swissDaemonOnline = false;
+if (typeof window.__swissOnEnhancementsDaemonChanged === "function") {
+  window.__swissOnEnhancementsDaemonChanged(false);
+}
+assert.strictEqual(document.getElementById("swiss-context-window-ring"), null, "ring must be purged when daemon goes offline");
+`
+
+	cmd := exec.Command(nodePath, "-")
+	cmd.Stdin = strings.NewReader(harness)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node execution error in TestGenerateEnhancementsScript_ContextWindowProgressRing_DaemonOffline: %v\n%s", err, string(out))
+	}
+}
+
+
 

@@ -669,7 +669,9 @@ assert.strictEqual(window.__swissActiveMainStageExt, "memos", "re-injection shou
 
 // Verify daemon offline hides left nav group and closes main stage
 let auxDaemonChangedArg = null;
+let enhDaemonChangedArg = null;
 window.__swissOnAuxDaemonChanged = (online) => { auxDaemonChangedArg = online; };
+window.__swissOnEnhancementsDaemonChanged = (online) => { enhDaemonChangedArg = online; };
 window.openSwissMainStage("github");
 assert.ok(document.getElementById("swiss-main-stage-container").style.display === "flex", "main stage should be open");
 assert.ok(document.getElementById("swiss-left-nav-group"), "left nav group should exist before offline");
@@ -678,6 +680,7 @@ window.setSwissDaemonOnline(false);
 assert.strictEqual(document.getElementById("swiss-left-nav-group"), null, "swiss-left-nav-group must be removed when daemon is offline");
 assert.strictEqual(document.getElementById("swiss-main-stage-container").style.display, "none", "main stage must be closed when daemon is offline");
 assert.strictEqual(auxDaemonChangedArg, false, "aux daemon changed notification must be sent with false");
+assert.strictEqual(enhDaemonChangedArg, false, "enh daemon changed notification must be sent with false");
 
 window.setupLeftNavTabs();
 assert.strictEqual(document.getElementById("swiss-left-nav-group"), null, "setupLeftNavTabs must not recreate left nav group when daemon is offline");
@@ -685,6 +688,7 @@ assert.strictEqual(document.getElementById("swiss-left-nav-group"), null, "setup
 window.setSwissDaemonOnline(true);
 assert.ok(document.getElementById("swiss-left-nav-group"), "swiss-left-nav-group must be restored when daemon comes back online");
 assert.strictEqual(auxDaemonChangedArg, true, "aux daemon changed notification must be sent with true");
+assert.strictEqual(enhDaemonChangedArg, true, "enh daemon changed notification must be sent with true");
 
 clearInterval(window.__swissGHNavInterval);
 clearInterval(window.__swissGHFetchInterval);

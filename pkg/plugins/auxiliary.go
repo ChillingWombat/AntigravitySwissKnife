@@ -1733,11 +1733,14 @@ func GenerateAuxiliaryPluginsScript() string {
     window.__swissOnAuxDaemonChanged = function(online) {
       if (!online) {
         document.querySelectorAll(".swiss-aux-btn-group, .swiss-aux-tabs-divider, .swiss-aux-tabs-divider-left, .swiss-aux-tabs-divider-right").forEach(el => el.remove());
+        document.querySelectorAll(".swiss-inchat-metrics").forEach(el => el.remove());
+        chatTelemetryCachedData = null;
         if (activeAuxTab !== null) {
           switchAuxTab(null);
         }
       } else {
         setupAuxiliaryTabs();
+        setupInChatTelemetry();
       }
     };
     window.setupAuxiliaryTabs = function() { setupAuxiliaryTabs(); };
@@ -5603,6 +5606,13 @@ func GenerateAuxiliaryPluginsScript() string {
     let chatTelemetryLastFetch = 0;
 
     async function setupInChatTelemetry() {
+      // 0. Daemon offline guard: suppress and purge all telemetry when daemon is not alive
+      if (window.__swissDaemonOnline === false) {
+        document.querySelectorAll(".swiss-inchat-metrics").forEach(el => el.remove());
+        chatTelemetryCachedData = null;
+        return;
+      }
+
       // 1. Active modal cleanup: purge stray metrics inside dialogs, modals, settings tab content, code blocks, or auxiliary panels
       document.querySelectorAll('[role="dialog"] .swiss-inchat-metrics, [aria-modal="true"] .swiss-inchat-metrics, .settings-tab-content .swiss-inchat-metrics, [data-testid*="settings"] .swiss-inchat-metrics, [data-testid="models-usage-container"] .swiss-inchat-metrics, #swiss-aux-container .swiss-inchat-metrics, [id^="swiss-aux"] .swiss-inchat-metrics, pre .swiss-inchat-metrics, code .swiss-inchat-metrics, .code-block .swiss-inchat-metrics, [data-testid="agent-input-box"] .swiss-inchat-metrics').forEach(el => el.remove());
 
@@ -5694,25 +5704,45 @@ func GenerateAuxiliaryPluginsScript() string {
       const now = Date.now();
       if (!chatTelemetryCachedData || chatTelemetryCachedData.convId !== convId || (now - chatTelemetryLastFetch) > 3000) {
         try {
-          const cfgRes = await fetch("http://127.0.0.1:8765/api/gui/config");
+          const cfgRes = await fetch("http://127.0.0.1:8765/api/gui/config", {
+            signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined
+          });
           let cfg = {};
           if (cfgRes.ok) {
             const cfgJson = await cfgRes.json();
             cfg = cfgJson.config || cfgJson || {};
+          } else {
+            document.querySelectorAll(".swiss-inchat-metrics").forEach(el => el.remove());
+            chatTelemetryCachedData = null;
+            if (typeof window.setSwissDaemonOnline === "function") window.setSwissDaemonOnline(false);
+            return;
           }
           const scope = cfg.chat_telemetry_scope || "aggregated";
-          const metricsRes = await fetch("http://127.0.0.1:8765/api/tokens/chat-metrics?conversation_id=" + encodeURIComponent(convId) + "&scope=" + encodeURIComponent(scope));
+          const metricsRes = await fetch("http://127.0.0.1:8765/api/tokens/chat-metrics?conversation_id=" + encodeURIComponent(convId) + "&scope=" + encodeURIComponent(scope), {
+            signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined
+          });
           if (metricsRes.ok) {
             const metricsJson = await metricsRes.json();
             chatTelemetryCachedData = { convId: convId, cfg: cfg, metrics: metricsJson };
             chatTelemetryLastFetch = now;
+          } else {
+            document.querySelectorAll(".swiss-inchat-metrics").forEach(el => el.remove());
+            chatTelemetryCachedData = null;
+            if (typeof window.setSwissDaemonOnline === "function") window.setSwissDaemonOnline(false);
+            return;
           }
-        } catch (_) {}
+        } catch (_) {
+          document.querySelectorAll(".swiss-inchat-metrics").forEach(el => el.remove());
+          chatTelemetryCachedData = null;
+          if (typeof window.setSwissDaemonOnline === "function") window.setSwissDaemonOnline(false);
+          return;
+        }
       }
 
-      if (!chatTelemetryCachedData || !chatTelemetryCachedData.metrics) return;
-      const { cfg, metrics } = chatTelemetryCachedData;
-      if (!metrics.success) return;
+      if (!chatTelemetryCachedData || !chatTelemetryCachedData.metrics || !chatTelemetryCachedData.metrics.success) {
+        document.querySelectorAll(".swiss-inchat-metrics").forEach(el => el.remove());
+        return;
+      }
 
       const showIn = cfg.chat_telemetry_input_tokens !== false;
       const showOut = cfg.chat_telemetry_output_tokens !== false;
