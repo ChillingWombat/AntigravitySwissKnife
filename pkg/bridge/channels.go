@@ -139,10 +139,42 @@ func (cm *ChannelsManager) GetConfig() ChannelsConfig {
 	return cm.config
 }
 
-// UpdateConfig updates channel settings.
+// GetChannelsConfigRedacted returns current channels settings with bot tokens and secrets masked to [REDACTED].
+func (cm *ChannelsManager) GetChannelsConfigRedacted() ChannelsConfig {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	cfg := cm.config
+	if cfg.WhatsApp.AccessToken != "" {
+		cfg.WhatsApp.AccessToken = "[REDACTED]"
+	}
+	if cfg.WhatsApp.VerifyToken != "" {
+		cfg.WhatsApp.VerifyToken = "[REDACTED]"
+	}
+	if cfg.Telegram.BotToken != "" {
+		cfg.Telegram.BotToken = "[REDACTED]"
+	}
+	if cfg.Discord.BotToken != "" {
+		cfg.Discord.BotToken = "[REDACTED]"
+	}
+	return cfg
+}
+
+// UpdateConfig updates channel settings, preserving existing secrets if incoming values are [REDACTED] or empty.
 func (cm *ChannelsManager) UpdateConfig(c ChannelsConfig) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+	if c.WhatsApp.AccessToken == "[REDACTED]" || c.WhatsApp.AccessToken == "******" || strings.TrimSpace(c.WhatsApp.AccessToken) == "" {
+		c.WhatsApp.AccessToken = cm.config.WhatsApp.AccessToken
+	}
+	if c.WhatsApp.VerifyToken == "[REDACTED]" || c.WhatsApp.VerifyToken == "******" || strings.TrimSpace(c.WhatsApp.VerifyToken) == "" {
+		c.WhatsApp.VerifyToken = cm.config.WhatsApp.VerifyToken
+	}
+	if c.Telegram.BotToken == "[REDACTED]" || c.Telegram.BotToken == "******" || strings.TrimSpace(c.Telegram.BotToken) == "" {
+		c.Telegram.BotToken = cm.config.Telegram.BotToken
+	}
+	if c.Discord.BotToken == "[REDACTED]" || c.Discord.BotToken == "******" || strings.TrimSpace(c.Discord.BotToken) == "" {
+		c.Discord.BotToken = cm.config.Discord.BotToken
+	}
 	cm.config = c
 	return cm.save()
 }

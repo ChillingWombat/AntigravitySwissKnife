@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -22,11 +23,13 @@ type AuthAttempt struct {
 
 // AuthManager manages authentication credentials, pairing PINs, and request validation.
 type AuthManager struct {
-	mu          sync.RWMutex
-	token       string
-	pin         string
-	attempts    []AuthAttempt
-	onSaveCreds func(token, pin string) error
+	mu             sync.RWMutex
+	token          string
+	pin            string
+	attempts       []AuthAttempt
+	onSaveCreds    func(token, pin string) error
+	failedAttempts map[string][]time.Time
+	lockedUntil    map[string]time.Time
 }
 
 // GenerateSecureToken produces a 32-hex-character crypto random string.
@@ -54,10 +57,12 @@ func NewAuthManager(token string, pin string, onSave func(token, pin string) err
 		pin = GeneratePairingPIN()
 	}
 	return &AuthManager{
-		token:       token,
-		pin:         pin,
-		attempts:    make([]AuthAttempt, 0),
-		onSaveCreds: onSave,
+		token:          token,
+		pin:            pin,
+		attempts:       make([]AuthAttempt, 0),
+		onSaveCreds:    onSave,
+		failedAttempts: make(map[string][]time.Time),
+		lockedUntil:    make(map[string]time.Time),
 	}
 }
 
@@ -118,12 +123,54 @@ func (am *AuthManager) GetRecentAttempts() []AuthAttempt {
 	return res
 }
 
-// ValidateRequest checks HTTP request headers and query parameters for valid credentials.
-func (am *AuthManager) ValidateRequest(r *http.Request) (bool, string) {
+// getClientIP extracts the remote client IP address from proxy headers or RemoteAddr.
+func getClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		if len(parts) > 0 {
+			ip := strings.TrimSpace(parts[0])
+			if ip != "" {
+				return ip
+			}
+		}
+	}
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil && host != "" {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+// IsIPLocked checks if a client IP is currently locked out due to brute-force attempts.
+func (am *AuthManager) IsIPLocked(ip string) bool {
 	am.mu.RLock()
+	defer am.mu.RUnlock()
+	until, exists := am.lockedUntil[ip]
+	return exists && time.Now().Before(until)
+}
+
+// ValidateRequest checks HTTP request headers and query parameters for valid credentials.
+// It enforces brute-force protection: 5 failed PIN attempts within 5 minutes locks the client IP for 15 minutes.
+func (am *AuthManager) ValidateRequest(r *http.Request) (bool, string) {
+	clientIP := getClientIP(r)
+
+	am.mu.Lock()
+	defer am.mu.Unlock()
+
+	// Check active lockout
+	if until, locked := am.lockedUntil[clientIP]; locked {
+		if time.Now().Before(until) {
+			return false, "IP temporarily locked due to excessive failed attempts; please try again later"
+		}
+		delete(am.lockedUntil, clientIP)
+		delete(am.failedAttempts, clientIP)
+	}
+
 	expectedToken := am.token
 	expectedPIN := am.pin
-	am.mu.RUnlock()
 
 	// 1. Authorization header (Bearer <token>)
 	if authHeader := r.Header.Get("Authorization"); authHeader != "" {
@@ -131,9 +178,11 @@ func (am *AuthManager) ValidateRequest(r *http.Request) (bool, string) {
 		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
 			bearerToken := strings.TrimSpace(parts[1])
 			if bearerToken == expectedToken {
+				delete(am.failedAttempts, clientIP)
 				return true, "Bearer token verified"
 			}
 			if bearerToken == expectedPIN {
+				delete(am.failedAttempts, clientIP)
 				return true, "Pairing PIN verified via Bearer header"
 			}
 		}
@@ -141,22 +190,44 @@ func (am *AuthManager) ValidateRequest(r *http.Request) (bool, string) {
 
 	// 2. Custom headers
 	if xToken := r.Header.Get("X-Bridge-Token"); xToken != "" && xToken == expectedToken {
+		delete(am.failedAttempts, clientIP)
 		return true, "X-Bridge-Token verified"
 	}
 	if xPin := r.Header.Get("X-Pairing-PIN"); xPin != "" && xPin == expectedPIN {
+		delete(am.failedAttempts, clientIP)
 		return true, "X-Pairing-PIN verified"
 	}
 
 	// 3. Query parameters (for SSE / Streamable HTTP GET where headers may be restricted)
 	q := r.URL.Query()
 	if qToken := q.Get("token"); qToken != "" && qToken == expectedToken {
+		delete(am.failedAttempts, clientIP)
 		return true, "Query token verified"
 	}
 	if qAuth := q.Get("auth"); qAuth != "" && qAuth == expectedToken {
+		delete(am.failedAttempts, clientIP)
 		return true, "Query auth verified"
 	}
 	if qPin := q.Get("pin"); qPin != "" && qPin == expectedPIN {
+		delete(am.failedAttempts, clientIP)
 		return true, "Query pairing PIN verified"
+	}
+
+	// Record failed attempt and evaluate brute force lockout (5 failed attempts within 5 minutes)
+	now := time.Now()
+	cutoff := now.Add(-5 * time.Minute)
+	var recentFails []time.Time
+	for _, t := range am.failedAttempts[clientIP] {
+		if t.After(cutoff) {
+			recentFails = append(recentFails, t)
+		}
+	}
+	recentFails = append(recentFails, now)
+	am.failedAttempts[clientIP] = recentFails
+
+	if len(recentFails) >= 5 {
+		am.lockedUntil[clientIP] = now.Add(15 * time.Minute)
+		return false, "IP locked for 15 minutes due to excessive failed attempts"
 	}
 
 	return false, "Missing or invalid bridge credentials"

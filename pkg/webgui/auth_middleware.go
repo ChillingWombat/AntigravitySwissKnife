@@ -1,0 +1,205 @@
+package webgui
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+)
+
+// GenerateLocalSessionToken generates a 32-byte cryptographically secure random token,
+// writes it to session.token in the application configuration directory with 0600 permissions,
+// and returns the hex-encoded 64-character token string.
+//
+// Parameters: none.
+// Returns:
+//   - string: the 64-character hex-encoded session token.
+//   - error: any file creation or permission error encountered.
+func GenerateLocalSessionToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate random bytes for session token: %w", err)
+	}
+	token := hex.EncodeToString(b)
+	cfgDir := core.GetConfigDir()
+	if err := os.MkdirAll(cfgDir, 0700); err != nil {
+		return "", fmt.Errorf("failed to create configuration directory %q: %w", cfgDir, err)
+	}
+	tokenPath := filepath.Join(cfgDir, "session.token")
+	if err := os.WriteFile(tokenPath, []byte(token), 0600); err != nil {
+		return "", fmt.Errorf("failed to write session token file %q: %w", tokenPath, err)
+	}
+	return token, nil
+}
+
+// GetLocalSessionToken reads the current session token from the configuration directory.
+//
+// Parameters: none.
+// Returns:
+//   - string: the stored session token string.
+//   - error: if file cannot be read or is empty.
+func GetLocalSessionToken() (string, error) {
+	tokenPath := filepath.Join(core.GetConfigDir(), "session.token")
+	data, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return "", err
+	}
+	token := strings.TrimSpace(string(data))
+	if token == "" {
+		return "", fmt.Errorf("session token in %q is empty", tokenPath)
+	}
+	return token, nil
+}
+
+// isPublicPath checks if a requested HTTP URL path is in the unauthenticated public whitelist.
+// Public routes include UI static assets, health checks, authentication unlock endpoints,
+// and independent MCP bridge endpoints that enforce their own authentication layer.
+//
+// Parameters:
+//   - p: URL path from http.Request.
+// Returns:
+//   - bool: true if path is publicly accessible without a session token; false otherwise.
+func isPublicPath(p string) bool {
+	clean := path.Clean(p)
+	// 1. Root and standard UI static assets
+	if clean == "." || clean == "/" || clean == "/index.html" || clean == "/favicon.ico" || clean == "/healthz" {
+		return true
+	}
+	// 2. Bundled frontend static assets (CSS, JS, images, logos)
+	if strings.HasPrefix(clean, "/assets/") || clean == "/assets" {
+		return true
+	}
+	// 3. Authentication status check and unlock endpoints
+	if clean == "/api/auth/status" || clean == "/api/auth/unlock" {
+		return true
+	}
+	// 4. MCP bridge endpoints (protected independently by bridge auth manager)
+	if clean == "/mcp" || strings.HasPrefix(clean, "/mcp/") {
+		return true
+	}
+	if clean == "/api/bridge/mcp" || strings.HasPrefix(clean, "/api/bridge/mcp/") {
+		return true
+	}
+	return false
+}
+
+// validateRequestAuth validates credentials supplied in headers or query parameters.
+// Acceptable credentials include:
+// 1. X-Session-Token header matching the local startup token or an active session token.
+// 2. Authorization: Bearer <token> matching the session token.
+// 3. X-App-Password or query password matching VerifyAppPassword when AppPasswordEnabled is on.
+//
+// Parameters:
+//   - r: incoming http.Request.
+// Returns:
+//   - bool: true if request is authorized; false if unauthorized.
+func (s *Server) validateRequestAuth(r *http.Request) bool {
+	var candidate string
+
+	// 1. Authorization header: "Bearer <token>"
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+		candidate = strings.TrimSpace(authHeader[7:])
+	}
+
+	// 2. X-Session-Token header
+	if candidate == "" {
+		candidate = strings.TrimSpace(r.Header.Get("X-Session-Token"))
+	}
+
+	// 3. X-App-Password header
+	appPasswordCandidate := strings.TrimSpace(r.Header.Get("X-App-Password"))
+
+	// 4. Fallback URL query parameters (for streams / SSE)
+	if candidate == "" {
+		candidate = strings.TrimSpace(r.URL.Query().Get("token"))
+	}
+	if appPasswordCandidate == "" {
+		appPasswordCandidate = strings.TrimSpace(r.URL.Query().Get("password"))
+	}
+
+	// Check candidate against daemon startup session token
+	if candidate != "" {
+		s.authMu.RLock()
+		daemonTok := s.daemonSessionToken
+		s.authMu.RUnlock()
+		if daemonTok != "" && candidate == daemonTok {
+			return true
+		}
+
+		// Check against active sessionTokens cache
+		s.authMu.RLock()
+		expiry, exists := s.sessionTokens[candidate]
+		s.authMu.RUnlock()
+		if exists && time.Now().Before(expiry) {
+			return true
+		}
+
+		// Check against session.token file on disk
+		if diskToken, err := GetLocalSessionToken(); err == nil && diskToken != "" && candidate == diskToken {
+			s.authMu.Lock()
+			if s.sessionTokens == nil {
+				s.sessionTokens = make(map[string]time.Time)
+			}
+			s.sessionTokens[candidate] = time.Now().Add(24 * time.Hour)
+			s.authMu.Unlock()
+			return true
+		}
+	}
+
+	// Check App Password verification if AppPasswordEnabled is configured
+	cfg, err := core.LoadConfig()
+	if err == nil && cfg != nil && cfg.AppPasswordEnabled {
+		if appPasswordCandidate != "" && cfg.VerifyAppPassword(appPasswordCandidate) {
+			return true
+		}
+		if candidate != "" && cfg.VerifyAppPassword(candidate) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// authMiddleware enforces default-deny authentication on all non-whitelisted routes.
+//
+// Parameters:
+//   - next: the downstream http.Handler (e.g. ServeMux).
+// Returns:
+//   - http.Handler: wrapping handler that validates authentication before invoking next.
+func (s *Server) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 1. OPTIONS requests pass through (handled by corsMiddleware)
+		if r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 2. Public whitelist check
+		if isPublicPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 3. Validate request authentication
+		if !s.validateRequestAuth(r) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   "Unauthorized: valid session token or app password required",
+			})
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}

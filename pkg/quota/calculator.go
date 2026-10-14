@@ -662,11 +662,11 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 			Status:                 status,
 			Priority:               prio,
 			Notes:                  acc.Notes,
-			Password:               acc.Password,
-			HasTOTP:                acc.HasTOTP,
-			TOTPSecret:             acc.TOTPSecret,
-			AccessToken:            acc.AccessToken,
-			RefreshToken:           acc.RefreshToken,
+			Password:               "",
+			HasTOTP:                acc.HasTOTP || acc.TOTPSecret != "",
+			TOTPSecret:             "",
+			AccessToken:            "",
+			RefreshToken:           redactTokenIndicator(acc.RefreshToken),
 			Quota5hCurrent:         cur5h,
 			ResetSeconds:           curSec,
 			QuotaWeekly:            curWeekly,
@@ -681,6 +681,13 @@ func BuildAccountQuotaStatesFromMapWithThresholds(accounts []*keyring.Account, s
 	}
 
 	return results
+}
+
+func redactTokenIndicator(token string) string {
+	if strings.TrimSpace(token) == "" {
+		return ""
+	}
+	return "[REDACTED]"
 }
 
 // DetermineDefaultPlanTier computes a membership tier based on explicit tier or email domain/label heuristics.

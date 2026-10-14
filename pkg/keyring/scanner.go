@@ -44,6 +44,21 @@ type DetectedSurfaceAccount struct {
 	IDToken      string `json:"id_token,omitempty"`
 }
 
+// Redacted returns a copy of DetectedSurfaceAccount with all sensitive OAuth tokens explicitly zeroed.
+func (d *DetectedSurfaceAccount) Redacted() *DetectedSurfaceAccount {
+	if d == nil {
+		return nil
+	}
+	return &DetectedSurfaceAccount{
+		Email:        d.Email,
+		Surface:      d.Surface,
+		SurfaceName:  d.SurfaceName,
+		AccessToken:  "",
+		RefreshToken: "",
+		IDToken:      "",
+	}
+}
+
 // Scanner discovers accounts and credentials stored across the local system.
 type Scanner struct {
 	homeDir              string
@@ -336,6 +351,26 @@ func ResolveRunningAntigravityAccount(homeDir, configDir string) *DetectedSurfac
 		return acc
 	}
 	return nil
+}
+
+// ResolveRunningAntigravityAccountRedacted resolves the running Antigravity account with sensitive tokens zeroed.
+func ResolveRunningAntigravityAccountRedacted(homeDir, configDir string) *DetectedSurfaceAccount {
+	acc := ResolveRunningAntigravityAccount(homeDir, configDir)
+	return acc.Redacted()
+}
+
+// DetectAllSurfacesRedacted returns all detected surfaces with sensitive OAuth tokens zeroed.
+func DetectAllSurfacesRedacted(homeDir, configDir string) map[string]*DetectedSurfaceAccount {
+	raw := DetectAllSurfaces(homeDir, configDir)
+	redacted := make(map[string]*DetectedSurfaceAccount, len(raw))
+	for k, v := range raw {
+		if v != nil {
+			redacted[k] = v.Redacted()
+		} else {
+			redacted[k] = nil
+		}
+	}
+	return redacted
 }
 
 // Scan discovers accounts across:

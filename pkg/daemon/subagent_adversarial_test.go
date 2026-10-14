@@ -192,12 +192,23 @@ func TestAdversarial_SubagentModelStrategy_WebGUIRestPersistence(t *testing.T) {
 
 	baseURL := fmt.Sprintf("http://%s", srv.Addr())
 
+	// Helper for authenticated POST requests
+	doAuthPost := func(url string, body []byte) (*http.Response, error) {
+		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Session-Token", srv.GetSessionToken())
+		return http.DefaultClient.Do(req)
+	}
+
 	// Step 1: POST /api/rules with "auto_decide"
 	payloadAuto := map[string]interface{}{
 		"subagent_model_strategy": "auto_decide",
 	}
 	b, _ := json.Marshal(payloadAuto)
-	resp, err := http.Post(baseURL+"/api/rules", "application/json", bytes.NewReader(b))
+	resp, err := doAuthPost(baseURL+"/api/rules", b)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		t.Fatalf("POST auto_decide failed: err=%v, code=%d", err, resp.StatusCode)
 	}
@@ -222,7 +233,7 @@ func TestAdversarial_SubagentModelStrategy_WebGUIRestPersistence(t *testing.T) {
 		"subagent_model_strategy": "invalid_junk_12345",
 	}
 	bJunk, _ := json.Marshal(payloadJunk)
-	respJunk, err := http.Post(baseURL+"/api/rules", "application/json", bytes.NewReader(bJunk))
+	respJunk, err := doAuthPost(baseURL+"/api/rules", bJunk)
 	if err != nil || respJunk.StatusCode != http.StatusOK {
 		t.Fatalf("POST junk failed: err=%v, code=%d", err, respJunk.StatusCode)
 	}
@@ -239,7 +250,7 @@ func TestAdversarial_SubagentModelStrategy_WebGUIRestPersistence(t *testing.T) {
 		"subagent_model_strategy": "",
 	}
 	bEmpty, _ := json.Marshal(payloadEmpty)
-	respEmpty, err := http.Post(baseURL+"/api/rules", "application/json", bytes.NewReader(bEmpty))
+	respEmpty, err := doAuthPost(baseURL+"/api/rules", bEmpty)
 	if err != nil || respEmpty.StatusCode != http.StatusOK {
 		t.Fatalf("POST empty failed: err=%v, code=%d", err, respEmpty.StatusCode)
 	}
@@ -252,12 +263,12 @@ func TestAdversarial_SubagentModelStrategy_WebGUIRestPersistence(t *testing.T) {
 	}
 
 	// Step 4: Re-set to auto_decide, then POST unrelated fields
-	_, _ = http.Post(baseURL+"/api/rules", "application/json", bytes.NewReader(b))
+	_, _ = doAuthPost(baseURL+"/api/rules", b)
 	payloadUnrelated := map[string]interface{}{
 		"auto_switch_enabled": false,
 	}
 	bUnrelated, _ := json.Marshal(payloadUnrelated)
-	respUnrelated, err := http.Post(baseURL+"/api/rules", "application/json", bytes.NewReader(bUnrelated))
+	respUnrelated, err := doAuthPost(baseURL+"/api/rules", bUnrelated)
 	if err != nil || respUnrelated.StatusCode != http.StatusOK {
 		t.Fatalf("POST unrelated failed: err=%v, code=%d", err, respUnrelated.StatusCode)
 	}

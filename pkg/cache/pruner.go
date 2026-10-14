@@ -10,16 +10,21 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
 
+// DefaultMaxSizeMinAgeDuration is the safety floor: files younger than 24 hours
+// are never pruned during size-based capacity reduction to safeguard active sessions.
+const DefaultMaxSizeMinAgeDuration = 24 * time.Hour
+
 // PruneOptions specifies rules and safety constraints for cache cleanup.
 type PruneOptions struct {
-	MinAgeDays      float64 `json:"min_age_days"`
-	OlderThanDays   float64 `json:"older_than_days,omitempty"`
-	MaxSizeGB       float64 `json:"max_size_gb,omitempty"`
-	PruneScratch    bool    `json:"prune_scratch"`
-	PruneSteps      bool    `json:"prune_steps"`
-	PruneTasks      bool    `json:"prune_tasks"`
-	DryRun          bool    `json:"dry_run"`
-	ActiveCascadeID string  `json:"active_cascade_id"`
+	MinAgeDays       float64  `json:"min_age_days"`
+	OlderThanDays    float64  `json:"older_than_days,omitempty"`
+	MaxSizeGB        float64  `json:"max_size_gb,omitempty"`
+	PruneScratch     bool     `json:"prune_scratch"`
+	PruneSteps       bool     `json:"prune_steps"`
+	PruneTasks       bool     `json:"prune_tasks"`
+	DryRun           bool     `json:"dry_run"`
+	ActiveCascadeID  string   `json:"active_cascade_id"`
+	ActiveCascadeIDs []string `json:"active_cascade_ids,omitempty"`
 }
 
 // PruneResult summarizes the space and files reclaimed.
@@ -81,8 +86,8 @@ func (p *Pruner) Prune(opts PruneOptions) (*PruneResult, error) {
 		rel, _ := filepath.Rel(p.BrainDir, path)
 
 		// Active Conversation Shield Check:
-		// If the conversation path contains the active cascade ID, shield it!
-		if opts.ActiveCascadeID != "" && (containsPathSegment(rel, opts.ActiveCascadeID) || strings.Contains(rel, opts.ActiveCascadeID)) {
+		// If the conversation path contains any active cascade ID, shield it!
+		if isShielded(rel, opts) {
 			res.SkippedShield++
 			totalRemainingBytes += size
 			return nil
@@ -101,6 +106,10 @@ func (p *Pruner) Prune(opts PruneOptions) (*PruneResult, error) {
 			if hasAgeCutoff && info.ModTime().Before(cutoff) {
 				if !opts.DryRun {
 					if err := os.Remove(path); err != nil {
+						if isSharingViolation(err) {
+							totalRemainingBytes += size
+							return nil
+						}
 						res.Errors = append(res.Errors, err.Error())
 						totalRemainingBytes += size
 						return nil
@@ -110,8 +119,8 @@ func (p *Pruner) Prune(opts PruneOptions) (*PruneResult, error) {
 				res.FilesDeleted++
 				return nil
 			}
-			// When hasAgeCutoff is true (MinAgeDays > 0), MaxSizeGB must never prune files younger than cutoff
-			if !hasAgeCutoff {
+			// When MaxSizeGB is configured, collect unpruned files for capacity-based pruning
+			if opts.MaxSizeGB > 0 {
 				remainingPrunable = append(remainingPrunable, prunableFile{
 					path:    path,
 					size:    size,
@@ -140,8 +149,19 @@ func (p *Pruner) Prune(opts PruneOptions) (*PruneResult, error) {
 				if totalRemainingBytes <= maxBytes {
 					break
 				}
+				// 24-hour minimum age floor: NEVER prune files modified within the last 24 hours!
+				if time.Since(f.modTime) < DefaultMaxSizeMinAgeDuration {
+					continue
+				}
+				// When MinAgeDays cutoff is also set, never prune files younger than cutoff
+				if hasAgeCutoff && f.modTime.After(cutoff) {
+					continue
+				}
 				if !opts.DryRun {
 					if err := os.Remove(f.path); err != nil {
+						if isSharingViolation(err) {
+							continue
+						}
 						res.Errors = append(res.Errors, err.Error())
 						continue
 					}
@@ -156,4 +176,30 @@ func (p *Pruner) Prune(opts PruneOptions) (*PruneResult, error) {
 	res.FreedBytes = res.BytesReclaimed
 	res.DeletedFiles = res.FilesDeleted
 	return res, nil
+}
+
+// isShielded checks whether a relative cache path belongs to any active cascade session.
+func isShielded(rel string, opts PruneOptions) bool {
+	if opts.ActiveCascadeID != "" {
+		if containsPathSegment(rel, opts.ActiveCascadeID) || strings.Contains(rel, opts.ActiveCascadeID) {
+			return true
+		}
+	}
+	for _, id := range opts.ActiveCascadeIDs {
+		if id != "" && (containsPathSegment(rel, id) || strings.Contains(rel, id)) {
+			return true
+		}
+	}
+	return false
+}
+
+// isSharingViolation checks if an OS error is a Windows file lock or sharing collision.
+func isSharingViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := strings.ToLower(err.Error())
+	return strings.Contains(errStr, "used by another process") ||
+		strings.Contains(errStr, "sharing violation") ||
+		strings.Contains(errStr, "access is denied")
 }

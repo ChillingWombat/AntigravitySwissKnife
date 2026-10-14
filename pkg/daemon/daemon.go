@@ -294,7 +294,7 @@ func (d *Daemon) registerRPCHandlers() {
 			"total_accounts":              len(accounts),
 			"antigravity_running":         len(procs) > 0,
 			"antigravity_pid":             hostPID,
-			"running_antigravity_account": keyring.ResolveRunningAntigravityAccount("", ""),
+			"running_antigravity_account": keyring.ResolveRunningAntigravityAccountRedacted("", ""),
 		}, nil
 	}
 	d.Server.Register("swiss.getStatus", statusHandler)
@@ -1206,8 +1206,8 @@ func (d *Daemon) registerRPCHandlers() {
 			configDir = custom
 		}
 		return map[string]interface{}{
-			"surfaces":               keyring.DetectAllSurfaces(home, configDir),
-			"active_surface_account": keyring.ResolveRunningAntigravityAccount(home, configDir),
+			"surfaces":               keyring.DetectAllSurfacesRedacted(home, configDir),
+			"active_surface_account": keyring.ResolveRunningAntigravityAccountRedacted(home, configDir),
 			"priority_sequence":      []string{"Antigravity 2.0 Desktop", "Antigravity VS Code Extension", "Antigravity CLI"},
 		}, nil
 	})
@@ -1307,6 +1307,14 @@ func (d *Daemon) registerRPCHandlers() {
 		states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, thresh, threshWeekly)
 		states = quota.SortAccountQuotaStatesWithThresholds(states, active, thresh, threshWeekly, "auto", switchMode)
 		summary := quota.ComputeFleetSummary(states, active)
+		for i := range summary.Accounts {
+			summary.Accounts[i].Password = ""
+			summary.Accounts[i].TOTPSecret = ""
+			summary.Accounts[i].AccessToken = ""
+			if strings.TrimSpace(summary.Accounts[i].RefreshToken) != "" {
+				summary.Accounts[i].RefreshToken = "[REDACTED]"
+			}
+		}
 		d.pollingMu.Lock()
 		summary.Refreshing = d.isPollingFleet
 		d.pollingMu.Unlock()

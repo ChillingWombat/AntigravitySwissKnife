@@ -73,6 +73,7 @@ type Server struct {
 	lazyMu             sync.Mutex
 	authMu             sync.RWMutex
 	sessionTokens      map[string]time.Time
+	daemonSessionToken string
 	desktopSettingsMu  sync.Mutex
 }
 
@@ -95,6 +96,11 @@ func NewServer(addr string, socketPath string) *Server {
 	ghService := github.NewService(ghTracker, ghStore)
 	vaultMgr := vault.NewManager("", "")
 	bridgeSvc, _ := bridge.NewService("")
+	localTok, _ := GenerateLocalSessionToken()
+	sessMap := make(map[string]time.Time)
+	if localTok != "" {
+		sessMap[localTok] = time.Now().Add(365 * 24 * time.Hour)
+	}
 	return &Server{
 		client:             client,
 		guiStore:           guiStore,
@@ -111,7 +117,8 @@ func NewServer(addr string, socketPath string) *Server {
 		bridgeService:      bridgeSvc,
 		addr:               addr,
 		knownWorkspaces:    make(map[string]struct{}),
-		sessionTokens:      make(map[string]time.Time),
+		sessionTokens:      sessMap,
+		daemonSessionToken: localTok,
 	}
 }
 
@@ -129,45 +136,27 @@ func (s *Server) createSessionToken() string {
 }
 
 func (s *Server) isAuthorized(r *http.Request) bool {
-	cfg, err := core.LoadConfig()
-	if err != nil || !cfg.AppPasswordEnabled {
-		return true
-	}
+	return s.validateRequestAuth(r)
+}
 
-	authHeader := r.Header.Get("Authorization")
-	var candidate string
-	if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-		candidate = strings.TrimSpace(authHeader[7:])
-	}
-	if candidate == "" {
-		candidate = r.Header.Get("X-App-Password")
-	}
-	if candidate == "" {
-		candidate = r.Header.Get("X-Session-Token")
-	}
-	if candidate == "" {
-		candidate = r.URL.Query().Get("password")
-	}
-	if candidate == "" {
-		candidate = r.URL.Query().Get("token")
-	}
-
-	if candidate == "" {
-		return false
-	}
-
-	if cfg.VerifyAppPassword(candidate) {
-		return true
-	}
-
+// GetSessionToken returns the startup local session token.
+func (s *Server) GetSessionToken() string {
 	s.authMu.RLock()
-	expiry, exists := s.sessionTokens[candidate]
-	s.authMu.RUnlock()
-	if exists && time.Now().Before(expiry) {
-		return true
-	}
+	defer s.authMu.RUnlock()
+	return s.daemonSessionToken
+}
 
-	return false
+// SetSessionToken configures or overrides the active session token (useful for test suites).
+func (s *Server) SetSessionToken(token string) {
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+	s.daemonSessionToken = token
+	if s.sessionTokens == nil {
+		s.sessionTokens = make(map[string]time.Time)
+	}
+	if token != "" {
+		s.sessionTokens[token] = time.Now().Add(365 * 24 * time.Hour)
+	}
 }
 
 func (s *Server) getBridgeService() *bridge.Service {
@@ -525,7 +514,7 @@ func (s *Server) Start() error {
 	s.addr = l.Addr().String()
 
 	s.httpServer = &http.Server{
-		Handler:      s.corsMiddleware(maxBytesMiddleware(mux, 10*1024*1024)),
+		Handler:      s.corsMiddleware(s.authMiddleware(maxBytesMiddleware(mux, 10*1024*1024))),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -682,8 +671,13 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			"total_accounts":              total,
 			"antigravity_running":         hostRunning,
 			"antigravity_pid":             hostPID,
-			"running_antigravity_account": keyring.ResolveRunningAntigravityAccount("", ""),
+			"running_antigravity_account": keyring.ResolveRunningAntigravityAccountRedacted("", ""),
 		}
+	}
+	if accObj, ok := status["running_antigravity_account"].(map[string]interface{}); ok {
+		delete(accObj, "access_token")
+		delete(accObj, "refresh_token")
+		delete(accObj, "id_token")
 	}
 	writeJSON(w, status)
 }
@@ -1632,6 +1626,14 @@ func (s *Server) handleFleetQuota(w http.ResponseWriter, r *http.Request) {
 			summary = quota.ComputeFleetSummary(nil, "")
 		}
 	}
+	for i := range summary.Accounts {
+		summary.Accounts[i].Password = ""
+		summary.Accounts[i].TOTPSecret = ""
+		summary.Accounts[i].AccessToken = ""
+		if strings.TrimSpace(summary.Accounts[i].RefreshToken) != "" {
+			summary.Accounts[i].RefreshToken = "[REDACTED]"
+		}
+	}
 	writeJSON(w, summary)
 }
 
@@ -1983,10 +1985,24 @@ func (s *Server) handleSurfaces(w http.ResponseWriter, r *http.Request) {
 			configDir = custom
 		}
 		res = map[string]interface{}{
-			"surfaces":               keyring.DetectAllSurfaces(home, configDir),
-			"active_surface_account": keyring.ResolveRunningAntigravityAccount(home, configDir),
+			"surfaces":               keyring.DetectAllSurfacesRedacted(home, configDir),
+			"active_surface_account": keyring.ResolveRunningAntigravityAccountRedacted(home, configDir),
 			"priority_sequence":      []string{"Antigravity 2.0 Desktop", "Antigravity VS Code Extension", "Antigravity CLI"},
 		}
+	}
+	if surfaces, ok := res["surfaces"].(map[string]interface{}); ok {
+		for _, sVal := range surfaces {
+			if sObj, ok := sVal.(map[string]interface{}); ok {
+				delete(sObj, "access_token")
+				delete(sObj, "refresh_token")
+				delete(sObj, "id_token")
+			}
+		}
+	}
+	if activeAcc, ok := res["active_surface_account"].(map[string]interface{}); ok {
+		delete(activeAcc, "access_token")
+		delete(activeAcc, "refresh_token")
+		delete(activeAcc, "id_token")
 	}
 	writeJSON(w, res)
 }
@@ -2958,7 +2974,7 @@ func (s *Server) handleCustomModelRefreshQuotas(w http.ResponseWriter, r *http.R
 		}
 		_ = store.SaveModel(cfg.Models[i])
 	}
-	writeJSON(w, store.GetConfig())
+	writeJSON(w, store.GetConfigRedacted())
 }
 
 // Enhancements handlers
@@ -4657,6 +4673,117 @@ func validateJailedPath(raw string) (string, error) {
 	return evalPath, nil
 }
 
+// validateDeletablePath strictly validates paths requested for deletion.
+// In addition to jailing within allowed directories, it prevents destructive wipes by:
+// 1. Explicitly rejecting "", "~", ".", "/", "\", and tilde root shortcuts.
+// 2. Rejecting exact equality with any allowed root (e.g. home directory root, config root, cwd, tmp).
+// 3. Rejecting Windows drive roots (e.g. C:\, D:\, C:) and filesystem roots.
+// 4. Rejecting system directories (/etc, /usr, C:\Windows, C:\Program Files, etc.).
+// 5. Requiring that target is a strict descendant at least 1 directory level below an allowed root.
+func validateDeletablePath(target string) (string, error) {
+	trimmed := strings.TrimSpace(target)
+	trimmed = strings.Trim(trimmed, "\"'`")
+	if trimmed == "" || trimmed == "~" || trimmed == "." || trimmed == "/" || trimmed == "\\" {
+		return "", fmt.Errorf("refusing to delete root or top-level alias: %q", target)
+	}
+	if trimmed == "~/" || trimmed == "~\\" || strings.HasPrefix(trimmed, "~/") || strings.HasPrefix(trimmed, "~\\") {
+		sub := strings.TrimPrefix(strings.TrimPrefix(trimmed, "~/"), "~\\")
+		if strings.TrimSpace(sub) == "" {
+			return "", fmt.Errorf("refusing to delete home directory root: %q", target)
+		}
+	}
+
+	cPath, err := validateJailedPath(target)
+	if err != nil {
+		return "", err
+	}
+
+	cleanPath := filepath.Clean(cPath)
+
+	// 1. Explicitly block Windows drive roots (e.g. C:\, D:\, C:)
+	vol := filepath.VolumeName(cleanPath)
+	if vol != "" {
+		if cleanPath == vol || cleanPath == vol+string(filepath.Separator) || cleanPath == vol+"/" || cleanPath == vol+"\\" {
+			return "", fmt.Errorf("prohibited: cannot delete filesystem volume root: %s", cleanPath)
+		}
+	}
+
+	// 2. Explicitly block Unix root / and top-level aliases
+	if cleanPath == "/" || cleanPath == "\\" || cleanPath == "." {
+		return "", fmt.Errorf("prohibited: cannot delete filesystem root")
+	}
+
+	// 3. Explicitly block system directories
+	systemDirs := []string{
+		"/etc", "/usr", "/var", "/bin", "/sbin", "/boot", "/proc", "/sys", "/dev", "/root",
+		"C:\\Windows", "C:\\Program Files", "C:\\Program Files (x86)", "C:\\ProgramData",
+	}
+	for _, sysDir := range systemDirs {
+		if strings.EqualFold(cleanPath, filepath.Clean(sysDir)) {
+			return "", fmt.Errorf("prohibited: cannot delete system directory: %s", cleanPath)
+		}
+	}
+
+	// 4. Gather allowed roots and test strict descendant requirement
+	var allowedRoots []string
+	if home, errH := os.UserHomeDir(); errH == nil && home != "" {
+		if evalHome, errEH := filepath.EvalSymlinks(home); errEH == nil {
+			allowedRoots = append(allowedRoots, evalHome)
+		} else {
+			allowedRoots = append(allowedRoots, filepath.Clean(home))
+		}
+	}
+	if cfgDir := core.GetConfigDir(); cfgDir != "" {
+		if evalCfg, errEC := filepath.EvalSymlinks(cfgDir); errEC == nil {
+			allowedRoots = append(allowedRoots, evalCfg)
+		} else {
+			allowedRoots = append(allowedRoots, filepath.Clean(cfgDir))
+		}
+	}
+	if wd, errW := os.Getwd(); errW == nil && wd != "" {
+		if evalWd, errEW := filepath.EvalSymlinks(wd); errEW == nil {
+			allowedRoots = append(allowedRoots, evalWd)
+		} else {
+			allowedRoots = append(allowedRoots, filepath.Clean(wd))
+		}
+	}
+	if tmp := os.TempDir(); tmp != "" {
+		if evalTmp, errET := filepath.EvalSymlinks(tmp); errET == nil {
+			allowedRoots = append(allowedRoots, evalTmp)
+		} else {
+			allowedRoots = append(allowedRoots, filepath.Clean(tmp))
+		}
+	}
+
+	// Check if cleanPath is equal to any allowed root
+	for _, root := range allowedRoots {
+		if root == "" || root == "/" || root == "\\" {
+			continue
+		}
+		if strings.EqualFold(cleanPath, root) {
+			return "", fmt.Errorf("prohibited: cannot delete root directory: %s", cleanPath)
+		}
+	}
+
+	// 5. Require strict descendant depth (at least 1 directory level below an allowed root)
+	hasValidParent := false
+	for _, root := range allowedRoots {
+		if root == "" || root == "/" || root == "\\" {
+			continue
+		}
+		rel, errRel := filepath.Rel(root, cleanPath)
+		if errRel == nil && rel != "." && !strings.HasPrefix(rel, "..") && !strings.Contains(rel, "..") {
+			hasValidParent = true
+			break
+		}
+	}
+	if !hasValidParent {
+		return "", fmt.Errorf("prohibited: path is not a safe sub-item of an allowed root: %s", cleanPath)
+	}
+
+	return cleanPath, nil
+}
+
 func (s *Server) handleMemos(w http.ResponseWriter, r *http.Request) {
 	s.memoMu.RLock()
 	defer s.memoMu.RUnlock()
@@ -5145,7 +5272,7 @@ func (s *Server) handleFilesDelete(w http.ResponseWriter, r *http.Request) {
 
 	var deleted []string
 	for _, target := range targets {
-		cPath, errJail := validateJailedPath(target)
+		cPath, errJail := validateDeletablePath(target)
 		if errJail != nil {
 			writeJSON(w, map[string]interface{}{"success": false, "error": errJail.Error(), "partial_deleted": deleted})
 			return
@@ -6107,7 +6234,7 @@ func (s *Server) handleBridgeRemoteStatus(w http.ResponseWriter, r *http.Request
 	writeJSON(w, map[string]interface{}{
 		"success": true,
 		"status":  st,
-		"config":  bridgeSvc.GetRemoteConfig(),
+		"config":  bridgeSvc.GetRemoteConfigRedacted(),
 	})
 }
 
@@ -6116,7 +6243,7 @@ func (s *Server) handleBridgeRemoteConfig(w http.ResponseWriter, r *http.Request
 	if r.Method == http.MethodGet {
 		writeJSON(w, map[string]interface{}{
 			"success": true,
-			"config":  bridgeSvc.GetRemoteConfig(),
+			"config":  bridgeSvc.GetRemoteConfigRedacted(),
 		})
 		return
 	}
@@ -6135,7 +6262,7 @@ func (s *Server) handleBridgeRemoteConfig(w http.ResponseWriter, r *http.Request
 	}
 	writeJSON(w, map[string]interface{}{
 		"success": true,
-		"config":  bridgeSvc.GetRemoteConfig(),
+		"config":  bridgeSvc.GetRemoteConfigRedacted(),
 	})
 }
 
@@ -6246,7 +6373,7 @@ func (s *Server) handleBridgeChannelsConfig(w http.ResponseWriter, r *http.Reque
 	if r.Method == http.MethodGet {
 		writeJSON(w, map[string]interface{}{
 			"success": true,
-			"config":  s.bridgeService.GetChannelsConfig(),
+			"config":  s.bridgeService.GetChannelsConfigRedacted(),
 		})
 		return
 	}
@@ -6265,7 +6392,7 @@ func (s *Server) handleBridgeChannelsConfig(w http.ResponseWriter, r *http.Reque
 	}
 	writeJSON(w, map[string]interface{}{
 		"success": true,
-		"config":  s.bridgeService.GetChannelsConfig(),
+		"config":  s.bridgeService.GetChannelsConfigRedacted(),
 		"status":  s.bridgeService.GetChannelsStatus(),
 	})
 }
