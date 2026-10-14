@@ -241,10 +241,10 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
     }
     if (directAccounts && directAccounts.length > 0) {
       const active = activeAccountEmail || fleet?.active_account || ''
-      return directAccounts.map((a) => toAccountState(a, active))
+      return directAccounts.map((a) => toAccountState(a, active, rules?.allow_non_gemini_native_models))
     }
     return []
-  }, [fleet?.accounts, directAccounts, activeAccountEmail, fleet?.active_account])
+  }, [fleet?.accounts, directAccounts, activeAccountEmail, fleet?.active_account, rules?.allow_non_gemini_native_models])
 
   const pollErrorDetailAccount = React.useCallback(
     async (targetEmail: string, updateUrl: boolean = false): Promise<string | null> => {
@@ -399,7 +399,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
     })
   }
 
-  const sortedAccounts = sortAccounts(accounts, activeAccount, threshold, sortMode, rules?.switch_mode, thresholdWeekly)
+  const sortedAccounts = sortAccounts(accounts, activeAccount, threshold, sortMode, rules?.switch_mode, thresholdWeekly, rules?.allow_non_gemini_native_models)
 
   const errorAccountsCount = accounts.filter((a) =>
     a.status?.toUpperCase().includes('ERROR')
@@ -440,9 +440,9 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
 
   const nextSwitchCandidate = React.useMemo(() => {
     if (!autoSwitchOn || sortMode !== 'auto') return null
-    const ranked = rankStandbyAccounts(accounts, threshold, rules?.switch_mode, thresholdWeekly)
+    const ranked = rankStandbyAccounts(accounts, threshold, rules?.switch_mode, thresholdWeekly, rules?.allow_non_gemini_native_models)
     return ranked.length > 0 ? ranked[0].email : null
-  }, [accounts, autoSwitchOn, sortMode, threshold, rules?.switch_mode, thresholdWeekly])
+  }, [accounts, autoSwitchOn, sortMode, threshold, rules?.switch_mode, thresholdWeekly, rules?.allow_non_gemini_native_models])
 
   const handleToggleAutoSwitch = async () => {
     setIsTogglingRules(true)
@@ -1126,7 +1126,14 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               }
 
               const current5h = acc.quota_5h_current ?? acc.quota_5h_available ?? 0
-              const isHealthy = current5h > threshold && (acc.quota_weekly ?? 0) > thresholdWeekly && !acc.status?.toUpperCase().includes('NEEDS_REAUTH') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('BANNED') && Boolean(acc.refresh_token?.trim())
+              const hasCredits = Boolean(acc.enable_credit_overages && (acc.credits ?? 0) > 0)
+              const hasGeminiHealthy = current5h > threshold && ((acc.quota_weekly ?? 0) > thresholdWeekly || hasCredits)
+              const claude5h = typeof acc.quota_5h_claude_gpt === 'number' ? acc.quota_5h_claude_gpt : 0
+              const hasClaudeWeekly = typeof acc.quota_weekly_claude_gpt === 'number' && acc.quota_weekly_claude_gpt !== null
+              const claudeWeekly = hasClaudeWeekly ? (acc.quota_weekly_claude_gpt as number) : 0
+              const isClaudeWeeklyHealthy = !hasClaudeWeekly || claudeWeekly > thresholdWeekly || hasCredits
+              const hasNonGeminiHealthy = Boolean(rules?.allow_non_gemini_native_models) && claude5h > threshold && isClaudeWeeklyHealthy
+              const isHealthy = (hasGeminiHealthy || hasNonGeminiHealthy) && !acc.status?.toUpperCase().includes('NEEDS_REAUTH') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('BANNED') && Boolean(acc.refresh_token?.trim())
               const isNextSwitch = Boolean(nextSwitchCandidate && acc.email.toLowerCase() === nextSwitchCandidate.toLowerCase())
               return (
                 <tr
@@ -1548,9 +1555,18 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                         )
                       }
 
+                      const st = acc.status?.toUpperCase() || ''
+                      const isCooling = st === 'COOLDOWN' || st === 'COOLING'
+                      const claude5h = typeof acc.quota_5h_claude_gpt === 'number' ? acc.quota_5h_claude_gpt : 0
+                      const hasClaudeWeekly = typeof acc.quota_weekly_claude_gpt === 'number' && acc.quota_weekly_claude_gpt !== null
+                      const claudeWeekly = hasClaudeWeekly ? (acc.quota_weekly_claude_gpt as number) : 0
+                      const hasCredits = Boolean(acc.enable_credit_overages && (acc.credits ?? 0) > 0)
+                      const isClaudeWeeklyHealthy = !hasClaudeWeekly || claudeWeekly > thresholdWeekly || hasCredits
+                      const hasNonGemini = Boolean(rules?.allow_non_gemini_native_models) && claude5h > threshold && isClaudeWeeklyHealthy
+
                       return (
                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                          {(acc.status?.toUpperCase() === 'COOLDOWN' || acc.status?.toUpperCase() === 'COOLING') ? (
+                          {isCooling && !hasNonGemini ? (
                             <span
                               className="badge-chip"
                               style={{
@@ -1841,10 +1857,22 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           >
             <Edit2 size={13} /> Edit Account Details
           </button>
-          {!contextMenu.account.status?.trim().toUpperCase().includes('BANNED') &&
-            !contextMenu.account.status?.trim().toUpperCase().includes('COOLDOWN') &&
-            !contextMenu.account.status?.trim().toUpperCase().includes('COOLING') && (
-            isIndividualMode ? (
+          {(() => {
+            const st = contextMenu.account.status?.trim().toUpperCase() || ''
+            const claude5h = typeof contextMenu.account.quota_5h_claude_gpt === 'number' ? contextMenu.account.quota_5h_claude_gpt : 0
+            const hasClaudeWeekly = typeof contextMenu.account.quota_weekly_claude_gpt === 'number' && contextMenu.account.quota_weekly_claude_gpt !== null
+            const claudeWeekly = hasClaudeWeekly ? (contextMenu.account.quota_weekly_claude_gpt as number) : 0
+            const hasCredits = Boolean(contextMenu.account.enable_credit_overages && (contextMenu.account.credits ?? 0) > 0)
+            const isClaudeWeeklyHealthy = !hasClaudeWeekly || claudeWeekly > thresholdWeekly || hasCredits
+            const hasNonGemini = Boolean(rules?.allow_non_gemini_native_models) && claude5h > threshold && isClaudeWeeklyHealthy
+            const isCooldown = st.includes('COOLDOWN') || st.includes('COOLING')
+            const isBanned = st.includes('BANNED')
+
+            if (isBanned || (isCooldown && !hasNonGemini)) {
+              return null
+            }
+
+            return isIndividualMode ? (
               <>
                 <button
                   onClick={async () => {
@@ -1940,7 +1968,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 </button>
               )
             )
-          )}
+          })()}
           <button
             onClick={() => {
               navigator.clipboard.writeText(contextMenu.account.email)

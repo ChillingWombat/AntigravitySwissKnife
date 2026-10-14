@@ -41,10 +41,10 @@ export const App: React.FC = () => {
     }
     if (directAccounts && directAccounts.length > 0) {
       const active = status?.active_account || fleet?.active_account || ''
-      return directAccounts.map(a => toAccountState(a, active))
+      return directAccounts.map(a => toAccountState(a, active, rules?.allow_non_gemini_native_models))
     }
     return []
-  }, [fleet?.accounts, directAccounts, status?.active_account, fleet?.active_account])
+  }, [fleet?.accounts, directAccounts, status?.active_account, fleet?.active_account, rules?.allow_non_gemini_native_models])
 
   const checkAuth = async () => {
     try {

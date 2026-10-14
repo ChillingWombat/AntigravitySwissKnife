@@ -123,7 +123,7 @@ function compareFleetAccounts(a, b, activeEmail = '') {
   return nameA.localeCompare(nameB);
 }
 
-function isAccountExcludedFromSwitchMenu(acc, threshold5h = 0.10, thresholdWeekly = 0.05) {
+function isAccountExcludedFromSwitchMenu(acc, threshold5h = 0.10, thresholdWeekly = 0.05, allowNonGemini = false) {
   if (!acc) return true;
   const email = (acc.email || (typeof acc === 'string' ? acc : '')).trim();
   if (!email) return true;
@@ -142,28 +142,37 @@ function isAccountExcludedFromSwitchMenu(acc, threshold5h = 0.10, thresholdWeekl
   if (Boolean(acc.has_error)) return true;
   if (acc.status_reason && (acc.status_reason.toUpperCase().includes('ERROR') || acc.status_reason.toUpperCase().includes('FAIL'))) return true;
 
+  const isNonGeminiEnabled = Boolean(allowNonGemini || acc.allow_non_gemini_native_models || acc.allow_claude_gpt);
+  const claude5h = typeof acc.quota_5h_claude_gpt === 'number' ? acc.quota_5h_claude_gpt : 0;
+  const hasClaudeWeekly = typeof acc.quota_weekly_claude_gpt === 'number' && acc.quota_weekly_claude_gpt !== null;
+  const claudeWeekly = hasClaudeWeekly ? acc.quota_weekly_claude_gpt : 0;
+  const hasCredits = Boolean(acc.enable_credit_overages && (acc.credits || 0) > 0);
+  const isClaudeWeeklyHealthy = !hasClaudeWeekly || claudeWeekly > thresholdWeekly || hasCredits;
+  const hasNonGemini = isNonGeminiEnabled && claude5h > threshold5h && isClaudeWeeklyHealthy;
+
   // 3. Cool down / cooling accounts
-  if (st === 'COOLDOWN' || st === 'COOLING' || st.includes('COOL')) return true;
-  if (acc.status_reason && (acc.status_reason.toUpperCase().includes('COOL') || acc.status_reason.toUpperCase().includes('COOLDOWN'))) return true;
+  if ((st === 'COOLDOWN' || st === 'COOLING' || st.includes('COOL')) && !hasNonGemini) return true;
+  if (acc.status_reason && (acc.status_reason.toUpperCase().includes('COOL') || acc.status_reason.toUpperCase().includes('COOLDOWN')) && !hasNonGemini) return true;
 
   // 4. Quota exhaustion below threshold counts as cool down
-  const cur5h = typeof acc.quota_5h_current === 'number'
-    ? acc.quota_5h_current
-    : (typeof acc.quota_5h_available === 'number' ? acc.quota_5h_available : undefined);
-  if (cur5h !== undefined && cur5h <= threshold5h) return true;
+  if (!hasNonGemini) {
+    const cur5h = typeof acc.quota_5h_current === 'number'
+      ? acc.quota_5h_current
+      : (typeof acc.quota_5h_available === 'number' ? acc.quota_5h_available : undefined);
+    if (cur5h !== undefined && cur5h <= threshold5h) return true;
 
-  const weekly = typeof acc.quota_weekly === 'number' ? acc.quota_weekly : undefined;
-  const hasCredits = Boolean(acc.enable_credit_overages && (acc.credits || 0) > 0);
-  if (weekly !== undefined && weekly <= thresholdWeekly && !hasCredits) return true;
+    const weekly = typeof acc.quota_weekly === 'number' ? acc.quota_weekly : undefined;
+    if (weekly !== undefined && weekly <= thresholdWeekly && !hasCredits) return true;
+  }
 
   return false;
 }
 
-function rankAndFilterAccountsForTray(accounts, activeEmail = '', threshold5h = 0.10, thresholdWeekly = 0.05, isPreRanked = false) {
+function rankAndFilterAccountsForTray(accounts, activeEmail = '', threshold5h = 0.10, thresholdWeekly = 0.05, isPreRanked = false, allowNonGemini = false) {
   if (!Array.isArray(accounts)) return [];
 
   // 1. Filter out accounts that are in cool down, have error, or are banned
-  const eligible = accounts.filter((acc) => !isAccountExcludedFromSwitchMenu(acc, threshold5h, thresholdWeekly));
+  const eligible = accounts.filter((acc) => !isAccountExcludedFromSwitchMenu(acc, threshold5h, thresholdWeekly, allowNonGemini));
 
   // 2. If the accounts are already pre-ranked by /api/quota/fleet (daemon SortAccountQuotaStatesWithThresholds),
   // preserve that exact ranking order. Otherwise, sort them to strictly match the Account Fleet table.
@@ -174,8 +183,8 @@ function rankAndFilterAccountsForTray(accounts, activeEmail = '', threshold5h = 
   return eligible.slice().sort((a, b) => compareFleetAccounts(a, b, activeEmail));
 }
 
-function buildSwitchMenuItems(accounts, activeEmail = '', onSwitch, threshold5h = 0.10, thresholdWeekly = 0.05, isPreRanked = false) {
-  const eligible = rankAndFilterAccountsForTray(accounts, activeEmail, threshold5h, thresholdWeekly, isPreRanked);
+function buildSwitchMenuItems(accounts, activeEmail = '', onSwitch, threshold5h = 0.10, thresholdWeekly = 0.05, isPreRanked = false, allowNonGemini = false) {
+  const eligible = rankAndFilterAccountsForTray(accounts, activeEmail, threshold5h, thresholdWeekly, isPreRanked, allowNonGemini);
   const normActive = (activeEmail || '').trim().toLowerCase();
   const effectiveActive = (normActive && normActive !== 'not logged in') ? normActive : '';
 

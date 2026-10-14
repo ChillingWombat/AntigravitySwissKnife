@@ -221,8 +221,11 @@ export interface AccountMetrics {
   priorityRank: number
 }
 
-export function extractAccountMetrics(acc: AccountState, mode: SwitchMode): AccountMetrics {
-  const q5hCur = clamp01(acc.quota_5h_current ?? acc.quota_5h_available)
+export function extractAccountMetrics(acc: AccountState, mode: SwitchMode, allowNonGemini: boolean = false): AccountMetrics {
+  let q5hCur = clamp01(acc.quota_5h_current ?? acc.quota_5h_available)
+  if (allowNonGemini && typeof acc.quota_5h_claude_gpt === 'number' && acc.quota_5h_claude_gpt > q5hCur) {
+    q5hCur = clamp01(acc.quota_5h_claude_gpt)
+  }
   let sec5h = acc.reset_seconds ?? 0
   if (sec5h <= 0 && acc.reset_horizon_text) {
     sec5h = parseHorizonTextSeconds(acc.reset_horizon_text)
@@ -247,7 +250,10 @@ export function extractAccountMetrics(acc: AccountState, mode: SwitchMode): Acco
     }
   }
 
-  const q7d = clamp01(acc.quota_weekly)
+  let q7d = clamp01(acc.quota_weekly)
+  if (allowNonGemini && typeof acc.quota_weekly_claude_gpt === 'number' && acc.quota_weekly_claude_gpt > q7d) {
+    q7d = clamp01(acc.quota_weekly_claude_gpt)
+  }
   let sec7d = acc.reset_seconds_weekly ?? 0
   if (sec7d <= 0 && acc.reset_horizon_weekly_text) {
     sec7d = parseHorizonTextSeconds(acc.reset_horizon_weekly_text)
@@ -255,7 +261,8 @@ export function extractAccountMetrics(acc: AccountState, mode: SwitchMode): Acco
 
   // Cap effective 5h available quota by weekly quota available over 5h window if credit overages are not enabled and weekly quota is depleted
   const hasCredits = Boolean(acc.enable_credit_overages && (acc.credits ?? 0) > 0)
-  if (!hasCredits && q7d <= 0.05) {
+  const hasNonGemini = allowNonGemini && typeof acc.quota_5h_claude_gpt === 'number' && acc.quota_5h_claude_gpt > 0.05
+  if (!hasCredits && !hasNonGemini && q7d <= 0.05) {
     const availWeeklyIn5h = computeEffectiveWeeklyAvailable(q7d, sec7d)
     q5hAvail = Math.min(q5hAvail, availWeeklyIn5h)
   }
@@ -287,9 +294,9 @@ export function extractAccountMetrics(acc: AccountState, mode: SwitchMode): Acco
   }
 }
 
-export function computeAccountRankingScore(acc: AccountState, _threshold: number, mode: SwitchMode): number {
+export function computeAccountRankingScore(acc: AccountState, _threshold: number, mode: SwitchMode, allowNonGemini: boolean = false): number {
   const m = normalizeSwitchMode(mode)
-  const metrics = extractAccountMetrics(acc, m)
+  const metrics = extractAccountMetrics(acc, m, allowNonGemini)
 
   switch (m) {
     case 'max_continuous': {
@@ -343,11 +350,12 @@ export function compareStandbyCandidates(
   a: AccountState,
   b: AccountState,
   threshold: number,
-  mode: SwitchMode
+  mode: SwitchMode,
+  allowNonGemini: boolean = false
 ): number {
   const m = normalizeSwitchMode(mode)
-  const mA = extractAccountMetrics(a, m)
-  const mB = extractAccountMetrics(b, m)
+  const mA = extractAccountMetrics(a, m, allowNonGemini)
+  const mB = extractAccountMetrics(b, m, allowNonGemini)
 
   // Invariant 1: Free accounts are always ranked last among healthy standby candidates
   if (mA.isFree !== mB.isFree) {
@@ -384,8 +392,8 @@ export function compareStandbyCandidates(
       return tieB - tieA
     }
   } else {
-    const scoreA = computeAccountRankingScore(a, threshold, m)
-    const scoreB = computeAccountRankingScore(b, threshold, m)
+    const scoreA = computeAccountRankingScore(a, threshold, m, allowNonGemini)
+    const scoreB = computeAccountRankingScore(b, threshold, m, allowNonGemini)
     if (Math.abs(scoreA - scoreB) > 0.0005) {
       return scoreB - scoreA
     }
@@ -420,7 +428,8 @@ export function rankStandbyAccounts(
   accounts: AccountState[],
   threshold: number,
   mode: SwitchMode = 'balanced',
-  thresholdWeekly: number = 0.05
+  thresholdWeekly: number = 0.05,
+  allowNonGemini: boolean = false
 ): AccountState[] {
   const m = normalizeSwitchMode(mode)
   const candidates: AccountState[] = []
@@ -428,27 +437,41 @@ export function rankStandbyAccounts(
   for (const acc of accounts) {
     if (acc.is_active) continue
     const st = (acc.status || '').toUpperCase()
-    if (st === 'BANNED' || st === 'ERROR' || st === 'COOLDOWN' || st === 'COOLING') continue
+    if (st === 'BANNED' || st === 'ERROR') continue
 
     const cur5h = acc.quota_5h_current ?? acc.quota_5h_available ?? 0
-    if (cur5h <= threshold) continue
-
+    const weekly = acc.quota_weekly ?? 0
     const hasWeekly =
-      (acc.quota_weekly ?? 0) > thresholdWeekly ||
+      weekly > thresholdWeekly ||
       Boolean(acc.enable_credit_overages && (acc.credits ?? 0) > 0)
-    if (!hasWeekly) continue
+    const hasGemini = cur5h > threshold && hasWeekly
+
+    let hasNonGemini = false
+    if (allowNonGemini) {
+      const claude5h = typeof acc.quota_5h_claude_gpt === 'number' ? acc.quota_5h_claude_gpt : 0
+      const hasClaudeWeekly = typeof acc.quota_weekly_claude_gpt === 'number' && acc.quota_weekly_claude_gpt !== null
+      const claudeWeekly = hasClaudeWeekly ? (acc.quota_weekly_claude_gpt as number) : 0
+      const hasCredits = Boolean(acc.enable_credit_overages && (acc.credits ?? 0) > 0)
+      const isClaudeWeeklyHealthy = !hasClaudeWeekly || claudeWeekly > thresholdWeekly || hasCredits
+      hasNonGemini = claude5h > threshold && isClaudeWeeklyHealthy
+    }
+
+    if ((st === 'COOLDOWN' || st === 'COOLING') && !hasNonGemini) continue
+
+    if (!hasGemini && !hasNonGemini) continue
 
     candidates.push(acc)
   }
 
-  return candidates.sort((a, b) => compareStandbyCandidates(a, b, threshold, m))
+  return candidates.sort((a, b) => compareStandbyCandidates(a, b, threshold, m, allowNonGemini))
 }
 
 export function shouldSwitchProactivelyMaxTokens(
   active: AccountState,
   bestStandby: AccountState,
   threshold: number,
-  activeDwellSec: number
+  activeDwellSec: number,
+  allowNonGemini: boolean = false
 ): { shouldSwitch: boolean; reason: string } {
   let sec5hActive = active.reset_seconds ?? 0
   if (sec5hActive <= 0 && active.reset_horizon_text) {
@@ -528,8 +551,8 @@ export function shouldSwitchProactivelyMaxTokens(
   }
 
   // Trigger 4: Standby has meaningful harvest score advantage (> 8%)
-  const scoreActive = computeAccountRankingScore(active, threshold, 'max_tokens')
-  const scoreStandby = computeAccountRankingScore(bestStandby, threshold, 'max_tokens')
+  const scoreActive = computeAccountRankingScore(active, threshold, 'max_tokens', allowNonGemini)
+  const scoreStandby = computeAccountRankingScore(bestStandby, threshold, 'max_tokens', allowNonGemini)
   if (scoreStandby > scoreActive * 1.08) {
     return {
       shouldSwitch: true,
@@ -546,7 +569,8 @@ export function evaluateAutoSwitch(
   threshold: number,
   mode: SwitchMode = 'balanced',
   activeDwellSec = 0,
-  thresholdWeekly: number = 0.05
+  thresholdWeekly: number = 0.05,
+  allowNonGemini: boolean = false
 ): { shouldSwitch: boolean; successor: AccountState | null; reason: string } {
   const m = normalizeSwitchMode(mode)
   const normActive = activeEmail.toLowerCase().trim()
@@ -554,7 +578,7 @@ export function evaluateAutoSwitch(
     (a) => a.is_active || (normActive !== '' && a.email.toLowerCase().trim() === normActive)
   )
 
-  const ranked = rankStandbyAccounts(accounts, threshold, m, thresholdWeekly)
+  const ranked = rankStandbyAccounts(accounts, threshold, m, thresholdWeekly, allowNonGemini)
   if (ranked.length === 0) {
     return { shouldSwitch: false, successor: null, reason: 'No eligible standby accounts above threshold' }
   }
@@ -568,8 +592,22 @@ export function evaluateAutoSwitch(
     const hasWeekly = weekly > thresholdWeekly || Boolean(active.enable_credit_overages && (active.credits ?? 0) > 0)
     const is5hBreached = cur5h <= threshold
     const isWeeklyBreached = !hasWeekly
+    const geminiBreached = is5hBreached || isWeeklyBreached
 
-    if (is5hBreached || isWeeklyBreached) {
+    let shouldSwitch = geminiBreached
+    if (allowNonGemini && geminiBreached) {
+      const claude5h = typeof active.quota_5h_claude_gpt === 'number' ? active.quota_5h_claude_gpt : 0
+      const hasClaudeWeekly = typeof active.quota_weekly_claude_gpt === 'number' && active.quota_weekly_claude_gpt !== null
+      const claudeWeekly = hasClaudeWeekly ? (active.quota_weekly_claude_gpt as number) : 0
+      const hasCredits = Boolean(active.enable_credit_overages && (active.credits ?? 0) > 0)
+      const isClaudeWeeklyHealthy = !hasClaudeWeekly || claudeWeekly > thresholdWeekly || hasCredits
+      const hasNonGemini = claude5h > threshold && isClaudeWeeklyHealthy
+      if (hasNonGemini) {
+        shouldSwitch = false
+      }
+    }
+
+    if (shouldSwitch) {
       let reason: string
       if (is5hBreached && isWeeklyBreached) {
         reason = `Active quota (5h: ${(cur5h * 100).toFixed(1)}%, weekly: ${(weekly * 100).toFixed(1)}%) dropped below thresholds (5h: ${(threshold * 100).toFixed(1)}%, weekly: ${(thresholdWeekly * 100).toFixed(1)}%)`
@@ -584,7 +622,7 @@ export function evaluateAutoSwitch(
 
   // 2. Proactive rotation only in max_tokens mode
   if (m === 'max_tokens' && active) {
-    const proactive = shouldSwitchProactivelyMaxTokens(active, best, threshold, activeDwellSec)
+    const proactive = shouldSwitchProactivelyMaxTokens(active, best, threshold, activeDwellSec, allowNonGemini)
     if (proactive.shouldSwitch) {
       return { shouldSwitch: true, successor: best, reason: proactive.reason }
     }
@@ -599,7 +637,8 @@ export function sortAccounts(
   threshold: number,
   mode: SortMode,
   switchMode?: SwitchMode,
-  thresholdWeekly: number = 0.05
+  thresholdWeekly: number = 0.05,
+  allowNonGemini: boolean = false
 ): AccountState[] {
   const copy = [...accounts]
   const swMode = normalizeSwitchMode(switchMode)
@@ -636,7 +675,13 @@ export function sortAccounts(
 
   if (mode === 'quota_5h') {
     return copy.sort((a, b) => {
-      const diff = (b.quota_5h_available ?? 0) - (a.quota_5h_available ?? 0)
+      let aVal = a.quota_5h_available ?? 0
+      let bVal = b.quota_5h_available ?? 0
+      if (allowNonGemini) {
+        if (typeof a.quota_5h_claude_gpt === 'number') aVal = Math.max(aVal, a.quota_5h_claude_gpt)
+        if (typeof b.quota_5h_claude_gpt === 'number') bVal = Math.max(bVal, b.quota_5h_claude_gpt)
+      }
+      const diff = bVal - aVal
       if (Math.abs(diff) > 0.0001) return diff
       return (b.quota_weekly ?? 0) - (a.quota_weekly ?? 0)
     })
@@ -644,7 +689,13 @@ export function sortAccounts(
 
   if (mode === 'quota_weekly') {
     return copy.sort((a, b) => {
-      const diff = (b.quota_weekly ?? 0) - (a.quota_weekly ?? 0)
+      let aVal = a.quota_weekly ?? 0
+      let bVal = b.quota_weekly ?? 0
+      if (allowNonGemini) {
+        if (typeof a.quota_weekly_claude_gpt === 'number') aVal = Math.max(aVal, a.quota_weekly_claude_gpt)
+        if (typeof b.quota_weekly_claude_gpt === 'number') bVal = Math.max(bVal, b.quota_weekly_claude_gpt)
+      }
+      const diff = bVal - aVal
       if (Math.abs(diff) > 0.0001) return diff
       return (b.quota_5h_available ?? 0) - (a.quota_5h_available ?? 0)
     })
@@ -678,7 +729,16 @@ export function sortAccounts(
     const recoversWeeklyIn5h = hasWeekly || availWeeklyIn5h > thresholdWeekly
     const is5hBelow = cur5h <= threshold || st === 'COOLDOWN' || st === 'COOLING'
 
-    if (!is5hBelow && hasWeekly) {
+    let hasNonGemini = false
+    if (allowNonGemini) {
+      const claude5h = typeof a.quota_5h_claude_gpt === 'number' ? a.quota_5h_claude_gpt : 0
+      const hasClaudeWeekly = typeof a.quota_weekly_claude_gpt === 'number' && a.quota_weekly_claude_gpt !== null
+      const claudeWeekly = hasClaudeWeekly ? (a.quota_weekly_claude_gpt as number) : 0
+      const isClaudeWeeklyHealthy = !hasClaudeWeekly || claudeWeekly > thresholdWeekly || hasCredits
+      hasNonGemini = claude5h > threshold && isClaudeWeeklyHealthy
+    }
+
+    if ((!is5hBelow && hasWeekly) || hasNonGemini) {
       if (isFreePlanTier(a.email, a.plan_tier)) {
         return 2 // Healthy Free Standby
       }
@@ -707,7 +767,7 @@ export function sortAccounts(
 
     // Within Tier 1, Tier 2, or Tier 3: compare using mode-aware standby ranking!
     if (tA === 1 || tA === 2 || tA === 3) {
-      return compareStandbyCandidates(a, b, threshold, swMode)
+      return compareStandbyCandidates(a, b, threshold, swMode, allowNonGemini)
     }
 
     // Within Tier 4 (Weekly Depleted):

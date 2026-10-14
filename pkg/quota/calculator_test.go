@@ -1127,4 +1127,107 @@ func TestEvaluateAutoSwitch_ExcludesNeedsReauth(t *testing.T) {
 	}
 }
 
+func TestNonGeminiCooldownBypassAndRanking(t *testing.T) {
+	accs := []*keyring.Account{
+		{
+			Email:        "dual_engine@google.com",
+			Label:        "Dual Engine Standby",
+			IsActive:     false,
+			PlanTier:     "Pro",
+			RefreshToken: "valid-token-for-test",
+		},
+		{
+			Email:        "gemini_only@google.com",
+			Label:        "Gemini Only Standby",
+			IsActive:     false,
+			PlanTier:     "Pro",
+			RefreshToken: "valid-token-for-test",
+		},
+	}
+
+	summaries := map[string]*QuotaSummary{
+		"dual_engine@google.com": {
+			AccountEmail:         "dual_engine@google.com",
+			Quota5hFraction:      0.00,
+			QuotaWeeklyFraction:  0.00,
+			Quota5hClaudeGPT:     0.85,
+			QuotaWeeklyClaudeGPT: 0.90,
+			ResetSeconds5h:       3 * 3600,
+			ResetHorizonText:     "Resets in 3h",
+		},
+		"gemini_only@google.com": {
+			AccountEmail:         "gemini_only@google.com",
+			Quota5hFraction:      0.60,
+			QuotaWeeklyFraction:  0.70,
+			Quota5hClaudeGPT:     0.00,
+			QuotaWeeklyClaudeGPT: 0.00,
+			ResetSeconds5h:       3 * 3600,
+			ResetHorizonText:     "Resets in 3h",
+		},
+	}
+
+	// 1. When allowNonGemini = false: dual_engine account enters COOLING because Gemini quota is 0%
+	statesRoutingOff := BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accs, summaries, 0.05, 0.05, false)
+	var dualOff, geminiOff *AccountQuotaState
+	for i := range statesRoutingOff {
+		if statesRoutingOff[i].Email == "dual_engine@google.com" {
+			dualOff = &statesRoutingOff[i]
+		} else if statesRoutingOff[i].Email == "gemini_only@google.com" {
+			geminiOff = &statesRoutingOff[i]
+		}
+	}
+	if dualOff == nil || dualOff.Status != core.AccountStatusCooling {
+		t.Fatalf("expected dualOff status COOLING when routing disabled, got %v", dualOff)
+	}
+	if geminiOff == nil || geminiOff.Status != core.AccountStatusStandby {
+		t.Fatalf("expected geminiOff status STANDBY, got %v", geminiOff)
+	}
+
+	// In standby ranking with allowNonGemini = false, dual_engine is excluded
+	rankedOff := RankStandbyAccountsWithThresholdsAndRouting(statesRoutingOff, 0.05, 0.05, "balanced", false)
+	if len(rankedOff) != 1 || rankedOff[0].Email != "gemini_only@google.com" {
+		t.Fatalf("expected only gemini_only in standby ranking when routing off, got %v", rankedOff)
+	}
+
+	// 2. When allowNonGemini = true: dual_engine account maintains STANDBY status
+	statesRoutingOn := BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accs, summaries, 0.05, 0.05, true)
+	var dualOn *AccountQuotaState
+	for i := range statesRoutingOn {
+		if statesRoutingOn[i].Email == "dual_engine@google.com" {
+			dualOn = &statesRoutingOn[i]
+		}
+	}
+	if dualOn == nil || dualOn.Status != core.AccountStatusStandby {
+		t.Fatalf("expected dualOn status STANDBY when routing enabled and Claude quota available, got %v", dualOn)
+	}
+	if dualOn.Quota5hClaudeGPT < 0.80 {
+		t.Errorf("expected dualOn Quota5hClaudeGPT >= 0.80, got %f", dualOn.Quota5hClaudeGPT)
+	}
+
+	// In standby ranking with allowNonGemini = true, dual_engine is included and outranks gemini_only (85% > 60%)
+	rankedOn := RankStandbyAccountsWithThresholdsAndRouting(statesRoutingOn, 0.05, 0.05, "balanced", true)
+	if len(rankedOn) != 2 {
+		t.Fatalf("expected 2 standby candidates when routing on, got %d", len(rankedOn))
+	}
+	if rankedOn[0].Email != "dual_engine@google.com" {
+		t.Errorf("expected top candidate to be dual_engine@google.com (85%% Claude), got %s", rankedOn[0].Email)
+	}
+
+	// 3. Auto-switch evaluation: active account with 0% Gemini and 85% Claude should NOT switch when allowNonGemini = true
+	activeDual := *dualOn
+	activeDual.IsActive = true
+	testAccounts := []AccountQuotaState{activeDual, *geminiOff}
+	shouldSwitch, _, _ := EvaluateAutoSwitchWithThresholdsAndRouting(testAccounts, activeDual.Email, 0.05, 0.05, "balanced", 0, true)
+	if shouldSwitch {
+		t.Errorf("expected active account with available Claude quota not to switch when allowNonGemini=true")
+	}
+
+	// When allowNonGemini = false, activeDual DOES switch
+	shouldSwitchOff, successor, _ := EvaluateAutoSwitchWithThresholdsAndRouting(testAccounts, activeDual.Email, 0.05, 0.05, "balanced", 0, false)
+	if !shouldSwitchOff || successor == nil || successor.Email != "gemini_only@google.com" {
+		t.Errorf("expected active account with 0%% Gemini to switch when allowNonGemini=false, got switch=%v, successor=%v", shouldSwitchOff, successor)
+	}
+}
+
+
 

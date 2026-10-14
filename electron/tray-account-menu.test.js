@@ -106,6 +106,33 @@ describe('Tray Switch Google Account Menu', () => {
       // Plain string email fallback (e.g. unpolled account from keyring)
       assert.strictEqual(isAccountExcludedFromSwitchMenu('plain@gmail.com'), false);
     });
+
+    it('allows accounts with depleted Gemini quota when allowNonGemini is enabled and Claude quota is available', () => {
+      const dualAcc = {
+        email: 'dual@gmail.com',
+        status: 'COOLING',
+        quota_5h_available: 0.02,
+        quota_weekly: 0.01,
+        quota_5h_claude_gpt: 0.85,
+        quota_weekly_claude_gpt: 0.90,
+      };
+      // Without non-Gemini: excluded
+      assert.strictEqual(isAccountExcludedFromSwitchMenu(dualAcc, 0.10, 0.05, false), true);
+      // With non-Gemini enabled: allowed
+      assert.strictEqual(isAccountExcludedFromSwitchMenu(dualAcc, 0.10, 0.05, true), false);
+    });
+
+    it('excludes accounts when both Gemini and Claude quotas are depleted even if allowNonGemini is true', () => {
+      const depletedBoth = {
+        email: 'depleted@gmail.com',
+        status: 'COOLING',
+        quota_5h_available: 0.01,
+        quota_weekly: 0.01,
+        quota_5h_claude_gpt: 0.02,
+        quota_weekly_claude_gpt: 0.02,
+      };
+      assert.strictEqual(isAccountExcludedFromSwitchMenu(depletedBoth, 0.10, 0.05, true), true);
+    });
   });
 
   describe('rankAndFilterAccountsForTray', () => {
@@ -211,6 +238,22 @@ describe('Tray Switch Google Account Menu', () => {
       assert.strictEqual(ranked.length, 1);
       assert.strictEqual(ranked[0].email, 'standby_healthy@gmail.com');
     });
+
+    it('preserves Claude-healthy accounts when allowNonGemini is enabled', () => {
+      const accounts = [
+        { email: 'active@gmail.com', is_active: true, status: 'ACTIVE', quota_5h_available: 0.90, quota_weekly: 0.80, plan_tier: 'Pro' },
+        { email: 'claude_healthy@gmail.com', status: 'COOLING', quota_5h_available: 0.01, quota_weekly: 0.01, quota_5h_claude_gpt: 0.85, quota_weekly_claude_gpt: 0.90, plan_tier: 'Pro' },
+        { email: 'both_cooling@gmail.com', status: 'COOLING', quota_5h_available: 0.01, quota_weekly: 0.01, quota_5h_claude_gpt: 0.01, quota_weekly_claude_gpt: 0.01, plan_tier: 'Pro' },
+      ];
+
+      // Single-engine (allowNonGemini = false): excludes both cooling accounts
+      const single = rankAndFilterAccountsForTray(accounts, 'active@gmail.com', 0.10, 0.05, false, false);
+      assert.deepStrictEqual(single.map(a => a.email), ['active@gmail.com']);
+
+      // Dual-engine (allowNonGemini = true): includes claude_healthy@gmail.com
+      const dual = rankAndFilterAccountsForTray(accounts, 'active@gmail.com', 0.10, 0.05, false, true);
+      assert.deepStrictEqual(dual.map(a => a.email), ['active@gmail.com', 'claude_healthy@gmail.com']);
+    });
   });
 
   describe('buildSwitchMenuItems', () => {
@@ -248,6 +291,25 @@ describe('Tray Switch Google Account Menu', () => {
 
       const items = buildSwitchMenuItems(accounts, 'none@gmail.com');
       assert.strictEqual(items.length, 0);
+    });
+
+    it('creates switchable menu items for Claude-healthy accounts in dual-engine mode', () => {
+      const accounts = [
+        { email: 'active@gmail.com', is_active: true, status: 'ACTIVE', quota_5h_available: 0.85, quota_weekly: 0.85 },
+        { email: 'claude_only@gmail.com', is_active: false, status: 'COOLING', quota_5h_available: 0.01, quota_weekly: 0.01, quota_5h_claude_gpt: 0.80, quota_weekly_claude_gpt: 0.85, plan_tier: 'Pro' },
+      ];
+
+      // In single-engine mode: claude_only is excluded
+      const singleItems = buildSwitchMenuItems(accounts, 'active@gmail.com', () => {}, 0.10, 0.05, false, false);
+      assert.strictEqual(singleItems.length, 1);
+      assert.strictEqual(singleItems[0].label, '✓ active@gmail.com');
+
+      // In dual-engine mode: claude_only is switchable
+      const dualItems = buildSwitchMenuItems(accounts, 'active@gmail.com', () => {}, 0.10, 0.05, false, true);
+      assert.strictEqual(dualItems.length, 2);
+      assert.strictEqual(dualItems[0].label, '✓ active@gmail.com');
+      assert.strictEqual(dualItems[1].label, 'claude_only@gmail.com');
+      assert.strictEqual(dualItems[1].enabled, true);
     });
   });
 

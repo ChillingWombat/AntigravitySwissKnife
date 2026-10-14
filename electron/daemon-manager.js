@@ -131,24 +131,38 @@ class DaemonManager {
    */
   checkStatus(timeoutMs = 1000) {
     return new Promise((resolve) => {
-      const req = http.get(`${this.baseUrl}/api/status`, { timeout: timeoutMs }, (res) => {
-        if (res.statusCode !== 200) {
-          resolve(null);
+      const req = http.get(`${this.baseUrl}/health`, { timeout: timeoutMs }, (res) => {
+        if (res.statusCode === 200) {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            try {
+              const parsed = JSON.parse(data);
+              resolve({ daemon_running: true, ...parsed });
+            } catch {
+              resolve({ daemon_running: true });
+            }
+          });
           return;
         }
-        let data = '';
-        res.on('data', (chunk) => { data += chunk; });
-        res.on('end', () => {
-          try {
-            const parsed = JSON.parse(data);
-            resolve(parsed);
-          } catch {
-            resolve(null);
+        http.get(`${this.baseUrl}/api/status`, { timeout: timeoutMs }, (res2) => {
+          if (res2.statusCode === 200 || res2.statusCode === 401) {
+            resolve({ daemon_running: true });
+            return;
           }
-        });
+          resolve(null);
+        }).on('error', () => resolve(null));
       });
 
-      req.on('error', () => resolve(null));
+      req.on('error', () => {
+        http.get(`${this.baseUrl}/api/status`, { timeout: timeoutMs }, (res2) => {
+          if (res2.statusCode === 200 || res2.statusCode === 401) {
+            resolve({ daemon_running: true });
+            return;
+          }
+          resolve(null);
+        }).on('error', () => resolve(null));
+      });
       req.on('timeout', () => {
         req.destroy();
         resolve(null);
