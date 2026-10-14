@@ -329,7 +329,7 @@ func (s *Shield) RelaunchHostIDE() error {
 		var mainPIDs []int
 		for _, p := range procs {
 			lower := strings.ToLower(p.Cmdline)
-			if (p.Name == "antigravity" || strings.HasSuffix(p.Name, "antigravity")) &&
+			if IsExactAntigravityExecutable(p.Name) &&
 				!strings.Contains(lower, "--type=") &&
 				!strings.Contains(lower, "swiss") {
 				mainPIDs = append(mainPIDs, p.PID)
@@ -352,7 +352,7 @@ func (s *Shield) RelaunchHostIDE() error {
 	if err == nil {
 		for _, p := range procs {
 			lower := strings.ToLower(p.Cmdline)
-			if (p.Name == "antigravity" || strings.HasSuffix(p.Name, "antigravity")) &&
+			if IsExactAntigravityExecutable(p.Name) &&
 				!strings.Contains(lower, "--type=") &&
 				!strings.Contains(lower, "swiss") {
 				mainPIDs = append(mainPIDs, p.PID)
