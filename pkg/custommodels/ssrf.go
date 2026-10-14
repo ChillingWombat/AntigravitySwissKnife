@@ -146,7 +146,7 @@ func NewSafeTransport(provider ProviderType, timeout time.Duration, allowLoopbac
 			}
 
 			// Validate and resolve with SSRF protections
-			rawURL := fmt.Sprintf("http://%s:%s", host, port)
+			rawURL := fmt.Sprintf("http://%s", net.JoinHostPort(host, port))
 			_, validIP, err := ValidateEndpointSSRF(rawURL, provider, allowLoopback)
 			if err != nil {
 				return nil, err
