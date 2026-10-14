@@ -92,7 +92,19 @@ func TestChallenge_WriteAtomic_PartialWriteRaces(t *testing.T) {
 				case <-stopCh:
 					return
 				default:
-					data, rErr := os.ReadFile(targetFile)
+					var data []byte
+					var rErr error
+					for attempt := 0; attempt < 50; attempt++ {
+						data, rErr = os.ReadFile(targetFile)
+						if rErr == nil {
+							break
+						}
+						if runtime.GOOS == "windows" && (strings.Contains(rErr.Error(), "used by another process") || strings.Contains(rErr.Error(), "Access is denied")) {
+							time.Sleep(time.Duration(2+(attempt%10)*2) * time.Millisecond)
+							continue
+						}
+						break
+					}
 					if rErr != nil {
 						select {
 						case errCh <- fmt.Errorf("reader %d encountered read error: %w", readerID, rErr):
