@@ -280,6 +280,22 @@ func TestSecurityRegression_CredentialScrubbingContract(t *testing.T) {
 	if len(exports) == 0 || exports[0].Password != "SensitivePassword123!" {
 		t.Errorf("[EXPORT REGRESSION] Exported item did not retain exact unredacted password")
 	}
+
+	// E. Verify /api/quota/fleet does not leak raw credentials
+	reqFleet := httptest.NewRequest(http.MethodGet, "/api/quota/fleet", nil)
+	reqFleet.Header.Set("X-Session-Token", srv.daemonSessionToken)
+	recFleet := httptest.NewRecorder()
+	handler.ServeHTTP(recFleet, reqFleet)
+
+	if recFleet.Code != http.StatusOK {
+		t.Fatalf("/api/quota/fleet returned HTTP %d, want 200", recFleet.Code)
+	}
+	bodyFleet := recFleet.Body.String()
+	for _, secret := range secretsToCheck {
+		if strings.Contains(bodyFleet, secret) {
+			t.Fatalf("[LEAK REGRESSION] /api/quota/fleet leaked plaintext secret %q", secret)
+		}
+	}
 }
 
 // TestSecurityRegression_PlatformIndependentPathJail validates path jail constraints:

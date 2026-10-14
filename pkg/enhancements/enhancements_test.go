@@ -720,12 +720,12 @@ func TestGenerateEnhancementsScript_ContextWindowProgressRing_DaemonOffline(t *t
 	script := GenerateEnhancementsScript(cfg)
 
 	// 1. Verify daemon offline check inside renderContextWindowProgressRing
-	if !strings.Contains(script, "if (window.__swissDaemonOnline === false)") {
-		t.Errorf("expected renderContextWindowProgressRing to guard against window.__swissDaemonOnline === false")
+	if !strings.Contains(script, "if (window.__swissDaemonOnline === false || !window.__swissDaemonOnline)") {
+		t.Errorf("expected renderContextWindowProgressRing to guard against window.__swissDaemonOnline === false || !window.__swissDaemonOnline")
 	}
 
 	// 2. Verify daemon offline check inside fetchActiveConversationTokens
-	if !strings.Contains(script, "if (window.__swissDaemonOnline === false) return;") {
+	if !strings.Contains(script, "if (window.__swissDaemonOnline === false || !window.__swissDaemonOnline) return;") {
 		t.Errorf("expected fetchActiveConversationTokens to check daemon offline status before querying API")
 	}
 
@@ -737,6 +737,26 @@ func TestGenerateEnhancementsScript_ContextWindowProgressRing_DaemonOffline(t *t
 	// 4. Verify DOM removal of context rings when daemon is offline
 	if !strings.Contains(script, `existingMain.remove()`) || !strings.Contains(script, `swiss-context-window-ring-sub`) {
 		t.Errorf("expected script to remove existing context rings when daemon is offline")
+	}
+
+	// 5. Verify Dual-Layer CSS suppression rules
+	requiredCSS := []string{
+		"html:not(.swiss-daemon-online) #swiss-context-window-ring",
+		"html.swiss-daemon-offline #swiss-context-window-ring",
+		"html:not(.swiss-daemon-online) .swiss-context-window-ring",
+		"html.swiss-daemon-offline .swiss-context-window-ring",
+		"html:not(.swiss-daemon-online) .swiss-inchat-metrics",
+		"html.swiss-daemon-offline .swiss-inchat-metrics",
+	}
+	for _, sel := range requiredCSS {
+		if !strings.Contains(script, sel) {
+			t.Errorf("expected script to contain CSS suppression selector %q", sel)
+		}
+	}
+
+	// 6. Verify auth headers function
+	if !strings.Contains(script, "getSwissAuthHeaders") {
+		t.Errorf("expected script to define getSwissAuthHeaders")
 	}
 
 	// 5. Node runtime execution test verifying DOM behavior when daemon is offline

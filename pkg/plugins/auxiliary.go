@@ -1,5 +1,11 @@
 package plugins
 
+import (
+	"fmt"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+)
+
 // GenerateAuxiliaryPluginsCSS provides the Google-style minimalist CSS for in-app auxiliary panel tabs,
 // browser preview, file explorer, code editor, memo cards, and in-chat token telemetry badges.
 func GenerateAuxiliaryPluginsCSS() string {
@@ -1393,6 +1399,10 @@ html:not(.swiss-daemon-online) #swiss-context-window-ring,
 html.swiss-daemon-offline #swiss-context-window-ring,
 html:not(.swiss-daemon-online) [id^="swiss-context-window-ring-sub-"],
 html.swiss-daemon-offline [id^="swiss-context-window-ring-sub-"],
+html:not(.swiss-daemon-online) .swiss-context-window-ring,
+html.swiss-daemon-offline .swiss-context-window-ring,
+html:not(.swiss-daemon-online) .swiss-context-window-ring-sub,
+html.swiss-daemon-offline .swiss-context-window-ring-sub,
 [role="dialog"] .swiss-inchat-metrics,
 [aria-modal="true"] .swiss-inchat-metrics,
 .settings-tab-content .swiss-inchat-metrics,
@@ -1535,7 +1545,11 @@ code .swiss-inchat-metrics {
 // that mounts the auxiliary tabs, live browser previewer, file explorer with in-place editors, quick memos,
 // and in-chat token telemetry badges.
 func GenerateAuxiliaryPluginsScript() string {
-	return `(() => {
+	var tokenScript string
+	if tok, err := core.GetLocalSessionToken(); err == nil && tok != "" {
+		tokenScript = fmt.Sprintf("if (typeof window !== 'undefined') { window.__SWISS_SESSION_TOKEN__ = %q; try { sessionStorage.setItem('antigravity_swiss_session_token', %q); } catch (_) {} }\n", tok, tok)
+	}
+	return tokenScript + `(() => {
   try {
     if (window.__swissAuxiliaryInitialized) {
       if (window.__swissAuxIntervalId) {
@@ -1555,6 +1569,16 @@ func GenerateAuxiliaryPluginsScript() string {
     window.__swissAuxiliaryInitialized = true;
     if (typeof window.__swissDaemonOnline === "undefined") {
       window.__swissDaemonOnline = false;
+    }
+
+    function getSwissAuthHeaders(customHeaders = {}) {
+      const headers = { "Content-Type": "application/json", ...customHeaders };
+      const tok = (typeof window !== "undefined" && window.__SWISS_SESSION_TOKEN__) ||
+        (typeof sessionStorage !== "undefined" && sessionStorage.getItem("antigravity_swiss_session_token")) || "";
+      if (tok) {
+        headers["X-Session-Token"] = tok;
+      }
+      return headers;
     }
 
     const API_BASE = "http://127.0.0.1:8765";
@@ -1772,7 +1796,7 @@ func GenerateAuxiliaryPluginsScript() string {
 
     // 1. Auxiliary Panel Tab Injector Engine
     function setupAuxiliaryTabs() {
-      if (window.__swissDaemonOnline === false) {
+      if (window.__swissDaemonOnline === false || !window.__swissDaemonOnline) {
         document.querySelectorAll(".swiss-aux-btn-group, .swiss-aux-tabs-divider, .swiss-aux-tabs-divider-left, .swiss-aux-tabs-divider-right").forEach(el => el.remove());
         if (activeAuxTab !== null) {
           switchAuxTab(null);
@@ -5630,7 +5654,7 @@ func GenerateAuxiliaryPluginsScript() string {
 
     async function setupInChatTelemetry() {
       // 0. Daemon offline guard: suppress and purge all telemetry when daemon is not alive
-      if (window.__swissDaemonOnline === false) {
+      if (window.__swissDaemonOnline === false || !window.__swissDaemonOnline) {
         document.querySelectorAll(".swiss-inchat-metrics").forEach(el => el.remove());
         chatTelemetryCachedData = null;
         return;
@@ -5728,6 +5752,7 @@ func GenerateAuxiliaryPluginsScript() string {
       if (!chatTelemetryCachedData || chatTelemetryCachedData.convId !== convId || (now - chatTelemetryLastFetch) > 3000) {
         try {
           const cfgRes = await fetch("http://127.0.0.1:8765/api/gui/config", {
+            headers: getSwissAuthHeaders(),
             signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined
           });
           let cfg = {};
@@ -5737,11 +5762,11 @@ func GenerateAuxiliaryPluginsScript() string {
           } else {
             document.querySelectorAll(".swiss-inchat-metrics").forEach(el => el.remove());
             chatTelemetryCachedData = null;
-            if (typeof window.setSwissDaemonOnline === "function") window.setSwissDaemonOnline(false);
             return;
           }
           const scope = cfg.chat_telemetry_scope || "aggregated";
           const metricsRes = await fetch("http://127.0.0.1:8765/api/tokens/chat-metrics?conversation_id=" + encodeURIComponent(convId) + "&scope=" + encodeURIComponent(scope), {
+            headers: getSwissAuthHeaders(),
             signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined
           });
           if (metricsRes.ok) {
@@ -5751,13 +5776,11 @@ func GenerateAuxiliaryPluginsScript() string {
           } else {
             document.querySelectorAll(".swiss-inchat-metrics").forEach(el => el.remove());
             chatTelemetryCachedData = null;
-            if (typeof window.setSwissDaemonOnline === "function") window.setSwissDaemonOnline(false);
             return;
           }
         } catch (_) {
           document.querySelectorAll(".swiss-inchat-metrics").forEach(el => el.remove());
           chatTelemetryCachedData = null;
-          if (typeof window.setSwissDaemonOnline === "function") window.setSwissDaemonOnline(false);
           return;
         }
       }

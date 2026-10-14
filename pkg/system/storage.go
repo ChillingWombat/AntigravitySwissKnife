@@ -5,9 +5,34 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
+
+var storageMu sync.RWMutex
+
+// GetStorageMode returns the configured storage mode in a thread-safe manner.
+func GetStorageMode(cfg *core.Config) string {
+	storageMu.RLock()
+	defer storageMu.RUnlock()
+	if cfg == nil || cfg.StorageMode == "" {
+		return "system_default"
+	}
+	return cfg.StorageMode
+}
+
+// SetStorageMode updates the storage mode in a thread-safe manner.
+func SetStorageMode(cfg *core.Config, mode string) error {
+	storageMu.Lock()
+	defer storageMu.Unlock()
+	if cfg == nil {
+		return nil
+	}
+	cfg.StorageMode = mode
+	return cfg.Save()
+}
+
 
 // StoragePaths defines the core directories used by the application runtime.
 type StoragePaths struct {
@@ -154,6 +179,12 @@ func GetStoragePaths(configDir string, isPortable bool) StoragePaths {
 
 // GetStorageInfo returns complete storage metadata, paths, and execution type.
 func GetStorageInfo(cfg *core.Config) *StorageInfo {
+	storageMu.RLock()
+	defer storageMu.RUnlock()
+	return getStorageInfoLocked(cfg)
+}
+
+func getStorageInfoLocked(cfg *core.Config) *StorageInfo {
 	execType, execDetail := DetectAppExecutionType()
 
 	sysPaths := GetStoragePaths(core.GetConfigDir(), false)
@@ -366,8 +397,13 @@ func SwitchStorageMode(newMode string, migrateData bool, cfg *core.Config) (*Sto
 		return nil, fmt.Errorf("invalid storage mode %q: must be 'system_default'", newMode)
 	}
 
-	cfg.StorageMode = "system_default"
-	_ = cfg.Save()
+	storageMu.Lock()
+	defer storageMu.Unlock()
 
-	return GetStorageInfo(cfg), nil
+	if cfg != nil {
+		cfg.StorageMode = "system_default"
+		_ = cfg.Save()
+	}
+
+	return getStorageInfoLocked(cfg), nil
 }

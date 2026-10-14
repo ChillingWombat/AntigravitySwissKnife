@@ -2,9 +2,12 @@ package webgui
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
+
+	_ "modernc.org/sqlite"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -595,6 +598,29 @@ func TestWebGUIEnhancementsAndTemplatesEndpoints(t *testing.T) {
 
 func TestWebGUIConversationTabsAndAutoArchiveEndpoints(t *testing.T) {
 	tempDir := t.TempDir()
+
+	// Initialize isolated antigravity environment with conversation summaries database
+	fakeAntiDir := filepath.Join(tempDir, "antigravity")
+	if err := os.MkdirAll(filepath.Join(fakeAntiDir, "annotations"), 0755); err != nil {
+		t.Fatalf("failed to create fakeAntiDir: %v", err)
+	}
+	t.Setenv("ANTIGRAVITY_CONFIG_DIR", fakeAntiDir)
+
+	dbPath := filepath.Join(fakeAntiDir, "conversation_summaries.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("failed to open sqlite database: %v", err)
+	}
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS conversation_summaries (
+		conversation_id TEXT PRIMARY KEY,
+		title TEXT,
+		last_modified_time TEXT
+	);`)
+	_ = db.Close()
+	if err != nil {
+		t.Fatalf("failed to create conversation_summaries table: %v", err)
+	}
+
 	srv := NewServer("127.0.0.1:0", filepath.Join(tempDir, "isolated.sock"))
 	tempStore, err := gui.NewStore(tempDir)
 	if err != nil {

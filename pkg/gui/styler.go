@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/enhancements"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/plugins"
@@ -2684,6 +2685,11 @@ func GenerateScript(cfg *Config) string {
 
 // GenerateScriptWithCustomModels generates the complete script including project tags, custom models, enhancements, and auxiliary plugins.
 func GenerateScriptWithCustomModels(cfg *Config, cmCfg *custommodels.Config) string {
+	var tokenScript string
+	if tok, err := core.GetLocalSessionToken(); err == nil && tok != "" {
+		tokenScript = fmt.Sprintf("if (typeof window !== 'undefined') { window.__SWISS_SESSION_TOKEN__ = %q; try { sessionStorage.setItem('antigravity_swiss_session_token', %q); } catch (_) {} };\n\n", tok, tok)
+	}
+
 	baseScript := generateBaseScript(cfg)
 
 	customScript := custommodels.GenerateCustomModelsScript(cmCfg)
@@ -2697,5 +2703,5 @@ func GenerateScriptWithCustomModels(cfg *Config, cmCfg *custommodels.Config) str
 
 	pluginsScript := plugins.GenerateAuxiliaryPluginsScript()
 
-	return baseScript + ";\n\n" + customScript + ";\n\n" + enhScript + ";\n\n" + pluginsScript + ";"
+	return tokenScript + baseScript + ";\n\n" + customScript + ";\n\n" + enhScript + ";\n\n" + pluginsScript + ";"
 }

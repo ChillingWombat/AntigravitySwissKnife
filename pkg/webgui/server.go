@@ -4634,6 +4634,50 @@ func cleanUserPath(raw string) string {
 	return filepath.Clean(p)
 }
 
+// pathMatchesOrIsSubpath checks if candidate matches root or is inside root, with case-insensitivity on Windows.
+func pathMatchesOrIsSubpath(candidate, root string) bool {
+	candidate = filepath.Clean(candidate)
+	root = filepath.Clean(root)
+	if runtime.GOOS == "windows" {
+		candidate = strings.ToLower(candidate)
+		root = strings.ToLower(root)
+	}
+	if candidate == root {
+		return true
+	}
+	sep := string(filepath.Separator)
+	return strings.HasPrefix(candidate, root+sep)
+}
+
+// isSameOrAncestor checks if ancestorCandidate is equal to child or an ancestor of child.
+func isSameOrAncestor(ancestorCandidate, child string) bool {
+	ancestorCandidate = filepath.Clean(ancestorCandidate)
+	child = filepath.Clean(child)
+
+	if evalA, err := filepath.EvalSymlinks(ancestorCandidate); err == nil {
+		ancestorCandidate = evalA
+	}
+	if evalC, err := filepath.EvalSymlinks(child); err == nil {
+		child = evalC
+	}
+
+	if runtime.GOOS == "windows" {
+		ancestorCandidate = strings.ToLower(ancestorCandidate)
+		child = strings.ToLower(child)
+	}
+
+	if ancestorCandidate == child {
+		return true
+	}
+
+	sep := string(filepath.Separator)
+	if !strings.HasSuffix(ancestorCandidate, sep) {
+		ancestorCandidate += sep
+	}
+
+	return strings.HasPrefix(child, ancestorCandidate)
+}
+
 func validateJailedPath(raw string) (string, error) {
 	if strings.ContainsRune(raw, 0) || strings.Contains(raw, "\x00") {
 		return "", fmt.Errorf("access denied: null byte prohibited in path")
@@ -4666,16 +4710,39 @@ func validateJailedPath(raw string) (string, error) {
 		}
 	}
 
-	evalPath, err := filepath.EvalSymlinks(cleaned)
-	if err != nil {
-		dir := filepath.Dir(cleaned)
-		if evalDir, errDir := filepath.EvalSymlinks(dir); errDir == nil {
-			evalPath = filepath.Join(evalDir, filepath.Base(cleaned))
+	fi, errLstat := os.Lstat(cleaned)
+	isSymlink := errLstat == nil && (fi.Mode()&os.ModeSymlink != 0)
+
+	evalPath, errEval := filepath.EvalSymlinks(cleaned)
+	if errEval != nil {
+		if isSymlink {
+			// Symlink exists on disk but EvalSymlinks failed (e.g. dangling symlink or points to non-existent system file)
+			return "", fmt.Errorf("access denied: unresolvable or dangling symlink: %s", cleaned)
+		}
+		// File does not exist yet; find nearest existing ancestor directory to resolve 8.3 short names and symlinks
+		existing := cleaned
+		for existing != "" && existing != "." && existing != "/" && filepath.VolumeName(existing) != existing {
+			if st, errS := os.Stat(existing); errS == nil && st.IsDir() {
+				break
+			}
+			parent := filepath.Dir(existing)
+			if parent == existing {
+				break
+			}
+			existing = parent
+		}
+		if evalExisting, errEE := filepath.EvalSymlinks(existing); errEE == nil {
+			if rel, errR := filepath.Rel(existing, cleaned); errR == nil {
+				evalPath = filepath.Clean(filepath.Join(evalExisting, rel))
+			} else {
+				evalPath = cleaned
+			}
 		} else {
 			evalPath = cleaned
 		}
+	} else {
+		evalPath = filepath.Clean(evalPath)
 	}
-	evalPath = filepath.Clean(evalPath)
 
 	for _, sysPrefix := range []string{"/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/var", "/bin", "/sbin", "/usr"} {
 		if evalPath == sysPrefix || strings.HasPrefix(evalPath, sysPrefix+"/") {
@@ -4685,53 +4752,54 @@ func validateJailedPath(raw string) (string, error) {
 
 	// Deny access to sensitive credentials and shell dotfiles
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		sensitivePaths := []string{
-			filepath.Join(home, ".ssh"),
-			filepath.Join(home, ".aws"),
-			filepath.Join(home, ".gnupg"),
-			filepath.Join(home, ".bashrc"),
-			filepath.Join(home, ".bash_profile"),
-			filepath.Join(home, ".profile"),
-			filepath.Join(home, ".zshrc"),
-			filepath.Join(home, ".config", "gcloud"),
+		evalHome := home
+		if eh, errH := filepath.EvalSymlinks(home); errH == nil {
+			evalHome = eh
 		}
-		for _, sp := range sensitivePaths {
-			if evalPath == sp || strings.HasPrefix(evalPath, sp+string(filepath.Separator)) {
-				return "", fmt.Errorf("access denied: path resolves to sensitive location %q", sp)
+		for _, h := range []string{home, evalHome} {
+			sensitivePaths := []string{
+				filepath.Join(h, ".ssh"),
+				filepath.Join(h, ".aws"),
+				filepath.Join(h, ".gnupg"),
+				filepath.Join(h, ".bashrc"),
+				filepath.Join(h, ".bash_profile"),
+				filepath.Join(h, ".profile"),
+				filepath.Join(h, ".zshrc"),
+				filepath.Join(h, ".config", "gcloud"),
+			}
+			for _, sp := range sensitivePaths {
+				if pathMatchesOrIsSubpath(evalPath, sp) || pathMatchesOrIsSubpath(cleaned, sp) {
+					return "", fmt.Errorf("access denied: path resolves to sensitive location %q", sp)
+				}
 			}
 		}
 	}
 
 	var allowedRoots []string
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		if evalHome, errH := filepath.EvalSymlinks(home); errH == nil {
-			allowedRoots = append(allowedRoots, evalHome)
-		} else {
-			allowedRoots = append(allowedRoots, filepath.Clean(home))
+	addAllowedRoot := func(r string) {
+		if r == "" {
+			return
 		}
+		c := filepath.Clean(r)
+		allowedRoots = append(allowedRoots, c)
+		if eval, err := filepath.EvalSymlinks(c); err == nil && eval != c {
+			allowedRoots = append(allowedRoots, filepath.Clean(eval))
+		}
+	}
+
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		addAllowedRoot(home)
 	}
 	cfgDir := core.GetConfigDir()
 	if cfgDir != "" {
-		if evalCfg, errC := filepath.EvalSymlinks(cfgDir); errC == nil {
-			allowedRoots = append(allowedRoots, evalCfg)
-		} else {
-			allowedRoots = append(allowedRoots, filepath.Clean(cfgDir))
-		}
+		addAllowedRoot(cfgDir)
 	}
 	if wd, err := os.Getwd(); err == nil && wd != "" {
-		if evalWd, errW := filepath.EvalSymlinks(wd); errW == nil {
-			allowedRoots = append(allowedRoots, evalWd)
-		} else {
-			allowedRoots = append(allowedRoots, filepath.Clean(wd))
-		}
+		addAllowedRoot(wd)
 	}
 	tmp := os.TempDir()
 	if tmp != "" {
-		if evalTmp, errT := filepath.EvalSymlinks(tmp); errT == nil {
-			allowedRoots = append(allowedRoots, evalTmp)
-		} else {
-			allowedRoots = append(allowedRoots, filepath.Clean(tmp))
-		}
+		addAllowedRoot(tmp)
 	}
 
 	isAllowed := false
@@ -4739,7 +4807,7 @@ func validateJailedPath(raw string) (string, error) {
 		if root == "" || root == "/" {
 			continue
 		}
-		if evalPath == root || strings.HasPrefix(evalPath, root+string(filepath.Separator)) {
+		if pathMatchesOrIsSubpath(evalPath, root) || pathMatchesOrIsSubpath(cleaned, root) {
 			isAllowed = true
 			break
 		}
@@ -4749,16 +4817,21 @@ func validateJailedPath(raw string) (string, error) {
 		return "", fmt.Errorf("access denied: path outside allowed directories: %s", cleaned)
 	}
 
-	return evalPath, nil
+	if isSymlink {
+		return evalPath, nil
+	}
+	return cleaned, nil
 }
 
 // validateDeletablePath strictly validates paths requested for deletion.
 // In addition to jailing within allowed directories, it prevents destructive wipes by:
 // 1. Explicitly rejecting "", "~", ".", "/", "\", and tilde root shortcuts.
-// 2. Rejecting exact equality with any allowed root (e.g. home directory root, config root, cwd, tmp).
-// 3. Rejecting Windows drive roots (e.g. C:\, D:\, C:) and filesystem roots.
-// 4. Rejecting system directories (/etc, /usr, C:\Windows, C:\Program Files, etc.).
-// 5. Requiring that target is a strict descendant at least 1 directory level below an allowed root.
+// 2. Explicitly rejecting any candidate containing ".." parent directory traversal.
+// 3. Rejecting exact equality with any allowed root (e.g. home directory root, config root, cwd, tmp).
+// 4. Rejecting Windows drive roots (e.g. C:\, D:\, C:) and filesystem roots.
+// 5. Rejecting system directories (/etc, /usr, C:\Windows, C:\Program Files, etc.).
+// 6. Prohibiting deletion of the current working directory, config directory, or any parent/ancestor directory.
+// 7. Requiring that target is a strict descendant at least 1 directory level below an allowed root.
 func validateDeletablePath(target string) (string, error) {
 	trimmed := strings.TrimSpace(target)
 	trimmed = strings.Trim(trimmed, "\"'`")
@@ -4770,6 +4843,15 @@ func validateDeletablePath(target string) (string, error) {
 		if strings.TrimSpace(sub) == "" {
 			return "", fmt.Errorf("refusing to delete home directory root: %q", target)
 		}
+	}
+
+	// Explicitly reject any candidate containing '..' parent directory traversal
+	lowerTrimmed := strings.ToLower(trimmed)
+	if strings.Contains(target, "..") || strings.Contains(trimmed, "..") ||
+		strings.Contains(lowerTrimmed, "..") || strings.Contains(lowerTrimmed, "%2e") ||
+		strings.Contains(lowerTrimmed, "%252e") || strings.Contains(lowerTrimmed, "..%2f") ||
+		strings.Contains(lowerTrimmed, "..%5c") {
+		return "", fmt.Errorf("prohibited: cannot delete path containing parent traversal '..': %q", target)
 	}
 
 	normalized := filepath.ToSlash(trimmed)
@@ -4791,6 +4873,9 @@ func validateDeletablePath(target string) (string, error) {
 	}
 
 	cleanPath := filepath.Clean(cPath)
+	if strings.Contains(cleanPath, "..") {
+		return "", fmt.Errorf("prohibited: cannot delete path containing parent traversal '..': %s", cleanPath)
+	}
 
 	// 1. Explicitly block Windows drive roots (e.g. C:\, D:\, C:)
 	vol := filepath.VolumeName(cleanPath)
@@ -4816,35 +4901,51 @@ func validateDeletablePath(target string) (string, error) {
 		}
 	}
 
-	// 4. Gather allowed roots and test strict descendant requirement
-	var allowedRoots []string
-	if home, errH := os.UserHomeDir(); errH == nil && home != "" {
-		if evalHome, errEH := filepath.EvalSymlinks(home); errEH == nil {
-			allowedRoots = append(allowedRoots, evalHome)
-		} else {
-			allowedRoots = append(allowedRoots, filepath.Clean(home))
+	// 4. Prohibit deleting current working directory or any of its parent/ancestor directories
+	if wd, errW := os.Getwd(); errW == nil && wd != "" {
+		if isSameOrAncestor(cleanPath, wd) {
+			return "", fmt.Errorf("prohibited: cannot delete working directory or any parent/ancestor directory: %s", cleanPath)
 		}
+	}
+
+	// Prohibit deleting config directory or any of its parent/ancestor directories
+	if cfgDir := core.GetConfigDir(); cfgDir != "" {
+		if isSameOrAncestor(cleanPath, cfgDir) {
+			return "", fmt.Errorf("prohibited: cannot delete configuration directory or any parent/ancestor directory: %s", cleanPath)
+		}
+	}
+
+	// Prohibit deleting user home directory or any of its parent/ancestor directories
+	if home, errH := os.UserHomeDir(); errH == nil && home != "" {
+		if isSameOrAncestor(cleanPath, home) {
+			return "", fmt.Errorf("prohibited: cannot delete user home directory or any parent/ancestor directory: %s", cleanPath)
+		}
+	}
+
+	// 5. Gather allowed roots and test strict descendant requirement
+	var allowedRoots []string
+	addAllowedRoot := func(r string) {
+		if r == "" {
+			return
+		}
+		c := filepath.Clean(r)
+		allowedRoots = append(allowedRoots, c)
+		if eval, err := filepath.EvalSymlinks(c); err == nil && eval != c {
+			allowedRoots = append(allowedRoots, filepath.Clean(eval))
+		}
+	}
+
+	if home, errH := os.UserHomeDir(); errH == nil && home != "" {
+		addAllowedRoot(home)
 	}
 	if cfgDir := core.GetConfigDir(); cfgDir != "" {
-		if evalCfg, errEC := filepath.EvalSymlinks(cfgDir); errEC == nil {
-			allowedRoots = append(allowedRoots, evalCfg)
-		} else {
-			allowedRoots = append(allowedRoots, filepath.Clean(cfgDir))
-		}
+		addAllowedRoot(cfgDir)
 	}
 	if wd, errW := os.Getwd(); errW == nil && wd != "" {
-		if evalWd, errEW := filepath.EvalSymlinks(wd); errEW == nil {
-			allowedRoots = append(allowedRoots, evalWd)
-		} else {
-			allowedRoots = append(allowedRoots, filepath.Clean(wd))
-		}
+		addAllowedRoot(wd)
 	}
 	if tmp := os.TempDir(); tmp != "" {
-		if evalTmp, errET := filepath.EvalSymlinks(tmp); errET == nil {
-			allowedRoots = append(allowedRoots, evalTmp)
-		} else {
-			allowedRoots = append(allowedRoots, filepath.Clean(tmp))
-		}
+		addAllowedRoot(tmp)
 	}
 
 	// Check if cleanPath is equal to any allowed root
@@ -4855,18 +4956,33 @@ func validateDeletablePath(target string) (string, error) {
 		if strings.EqualFold(cleanPath, root) {
 			return "", fmt.Errorf("prohibited: cannot delete root directory: %s", cleanPath)
 		}
+		if evalCP, errE := filepath.EvalSymlinks(cleanPath); errE == nil && strings.EqualFold(evalCP, root) {
+			return "", fmt.Errorf("prohibited: cannot delete root directory: %s", cleanPath)
+		}
 	}
 
-	// 5. Require strict descendant depth (at least 1 directory level below an allowed root)
+	// 6. Require strict descendant depth (at least 1 directory level below an allowed root)
 	hasValidParent := false
 	for _, root := range allowedRoots {
 		if root == "" || root == "/" || root == "\\" {
 			continue
 		}
-		rel, errRel := filepath.Rel(root, cleanPath)
-		if errRel == nil && rel != "." && !strings.HasPrefix(rel, "..") && !strings.Contains(rel, "..") {
-			hasValidParent = true
+		for _, targetCandidate := range []string{cleanPath} {
+			rel, errRel := filepath.Rel(root, targetCandidate)
+			if errRel == nil && rel != "." && !strings.HasPrefix(rel, "..") && !strings.Contains(rel, "..") {
+				hasValidParent = true
+				break
+			}
+		}
+		if hasValidParent {
 			break
+		}
+		if evalCP, errE := filepath.EvalSymlinks(cleanPath); errE == nil && evalCP != cleanPath {
+			rel, errRel := filepath.Rel(root, evalCP)
+			if errRel == nil && rel != "." && !strings.HasPrefix(rel, "..") && !strings.Contains(rel, "..") {
+				hasValidParent = true
+				break
+			}
 		}
 	}
 	if !hasValidParent {

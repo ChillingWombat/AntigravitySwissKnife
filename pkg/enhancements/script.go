@@ -3,6 +3,8 @@ package enhancements
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
 
 // GenerateEnhancementsScript produces client-side JavaScript for Antigravity Desktop & VS Code webviews
@@ -18,10 +20,29 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 		cfgJSON = []byte(`{"enabled":true,"prompt_jump_bar":{"enabled":true,"show_tooltip":true,"focus_pulse":true,"sync_scroll":true,"position":"gutter","dash_width":14,"dash_thickness":2.5,"inactive_thickness":1.5,"color_mode":"default","custom_color":"#0b57d0"},"tool_density_mode":"muted","breaker_line_enabled":true,"default_new_project":"auto"}`)
 	}
 
+	tok, _ := core.GetLocalSessionToken()
+
 	return fmt.Sprintf(`
 /* === Antigravity Swiss Knife: App Enhancements === */
 (() => {
   try {
+    if (typeof window !== "undefined") {
+      const swissToken = %q;
+      if (swissToken) {
+        window.__SWISS_SESSION_TOKEN__ = swissToken;
+        try { sessionStorage.setItem("antigravity_swiss_session_token", swissToken); } catch (_) {}
+      }
+    }
+    function getSwissAuthHeaders() {
+      const headers = { "Content-Type": "application/json" };
+      const tok = (typeof window !== "undefined" && window.__SWISS_SESSION_TOKEN__) ||
+        (typeof sessionStorage !== "undefined" && sessionStorage.getItem("antigravity_swiss_session_token")) || "";
+      if (tok) {
+        headers["X-Session-Token"] = tok;
+      }
+      return headers;
+    }
+
     let enhConfig = %s;
     if (!enhConfig) return;
     if (typeof window !== "undefined") {
@@ -39,8 +60,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     async function syncConfigFromServer() {
       try {
         if (typeof window !== "undefined" && window.fetch) {
-          if (window.__swissDaemonOnline === false) return;
-          const res = await fetch("http://127.0.0.1:8765/api/enhancements");
+          const res = await fetch("http://127.0.0.1:8765/api/enhancements", {
+            headers: getSwissAuthHeaders(),
+            signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined
+          });
           if (res.ok) {
             if (typeof window.setSwissDaemonOnline === "function") {
               window.setSwissDaemonOnline(true);
@@ -84,7 +107,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             }
           }
 
-          const resGui = await fetch("http://127.0.0.1:8765/api/gui/config");
+          const resGui = await fetch("http://127.0.0.1:8765/api/gui/config", {
+            headers: getSwissAuthHeaders(),
+            signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined
+          });
           if (resGui.ok) {
             const loadedGui = await resGui.json();
             if (loadedGui && loadedGui.project_colors) {
@@ -405,6 +431,22 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           `+"`"+`;
         }
       }
+
+      css += `+"`"+`
+        /* Dual-layer daemon offline suppression */
+        html:not(.swiss-daemon-online) #swiss-context-window-ring,
+        html.swiss-daemon-offline #swiss-context-window-ring,
+        html:not(.swiss-daemon-online) [id^="swiss-context-window-ring-sub-"],
+        html.swiss-daemon-offline [id^="swiss-context-window-ring-sub-"],
+        html:not(.swiss-daemon-online) .swiss-context-window-ring,
+        html.swiss-daemon-offline .swiss-context-window-ring,
+        html:not(.swiss-daemon-online) .swiss-context-window-ring-sub,
+        html.swiss-daemon-offline .swiss-context-window-ring-sub,
+        html:not(.swiss-daemon-online) .swiss-inchat-metrics,
+        html.swiss-daemon-offline .swiss-inchat-metrics {
+          display: none !important;
+        }
+      `+"`"+`;
 
       if (styleTag.textContent !== css) {
         styleTag.textContent = css;
@@ -1673,12 +1715,13 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     let customModelsListCache = null;
     let lastCustomModelsFetchTime = 0;
     async function fetchCustomModelsMetadata() {
-      if (window.__swissDaemonOnline === false) return;
+      if (window.__swissDaemonOnline === false || !window.__swissDaemonOnline) return;
       const now = Date.now();
       if (customModelsListCache && now - lastCustomModelsFetchTime < 30000) return;
       lastCustomModelsFetchTime = now;
       try {
         const res = await fetch("http://127.0.0.1:8765/api/custom_models", {
+          headers: getSwissAuthHeaders(),
           signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined
         });
         if (res.ok) {
@@ -1785,6 +1828,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           return;
         }
         const res = await fetch(url, {
+          headers: getSwissAuthHeaders(),
           signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined
         });
         if (res.ok) {
@@ -1805,26 +1849,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               renderContextWindowProgressRing();
             }
           }
-        } else {
-          if (typeof window.setSwissDaemonOnline === "function") {
-            window.setSwissDaemonOnline(false);
-          } else {
-            window.__swissDaemonOnline = false;
-            if (typeof window.__swissOnEnhancementsDaemonChanged === "function") {
-              window.__swissOnEnhancementsDaemonChanged(false);
-            }
-          }
         }
-      } catch (_) {
-        if (typeof window.setSwissDaemonOnline === "function") {
-          window.setSwissDaemonOnline(false);
-        } else {
-          window.__swissDaemonOnline = false;
-          if (typeof window.__swissOnEnhancementsDaemonChanged === "function") {
-            window.__swissOnEnhancementsDaemonChanged(false);
-          }
-        }
-      }
+      } catch (_) {}
     }
 
     window.__swissOnEnhancementsDaemonChanged = function(online) {
@@ -2080,5 +2106,5 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     console.warn("[SwissKnife] Enhancements script exception:", err);
   }
 })();
-`, string(cfgJSON))
+`, tok, string(cfgJSON))
 }

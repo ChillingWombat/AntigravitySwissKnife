@@ -47,16 +47,7 @@ func GenerateLocalSessionToken() (string, error) {
 //   - string: the stored session token string.
 //   - error: if file cannot be read or is empty.
 func GetLocalSessionToken() (string, error) {
-	tokenPath := filepath.Join(core.GetConfigDir(), "session.token")
-	data, err := os.ReadFile(tokenPath)
-	if err != nil {
-		return "", err
-	}
-	token := strings.TrimSpace(string(data))
-	if token == "" {
-		return "", fmt.Errorf("session token in %q is empty", tokenPath)
-	}
-	return token, nil
+	return core.GetLocalSessionToken()
 }
 
 // isPublicPath checks if a requested HTTP URL path is in the unauthenticated public whitelist.
