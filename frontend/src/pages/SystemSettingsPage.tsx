@@ -755,7 +755,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                     padding: '14px 16px',
                     borderRadius: '8px',
                     backgroundColor: runtimeMode === 'app' ? 'var(--accent-subtle, rgba(59, 130, 246, 0.08))' : 'var(--canvas)',
-                    border: runtimeMode === 'app' ? '1px solid var(--accent, #3b82f6)' : '1px solid var(--border, #e2e8f0)',
+                    border: runtimeMode === 'app' ? '1px solid var(--accent, #3b82f6)' : '1px solid var(--border)',
                     cursor: savingRuntimeMode ? 'wait' : 'pointer',
                     transition: 'all 0.15s ease',
                     display: 'flex',
@@ -791,7 +791,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                     padding: '14px 16px',
                     borderRadius: '8px',
                     backgroundColor: runtimeMode === 'daemon' ? 'var(--accent-subtle, rgba(59, 130, 246, 0.08))' : 'var(--canvas)',
-                    border: runtimeMode === 'daemon' ? '1px solid var(--accent, #3b82f6)' : '1px solid var(--border, #e2e8f0)',
+                    border: runtimeMode === 'daemon' ? '1px solid var(--accent, #3b82f6)' : '1px solid var(--border)',
                     cursor: savingRuntimeMode ? 'wait' : 'pointer',
                     transition: 'all 0.15s ease',
                     display: 'flex',
@@ -819,7 +819,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               </div>
             </div>
 
-            <div style={{ height: '1px', backgroundColor: 'var(--border, #e2e8f0)', margin: '16px 0' }} />
+            <div style={{ height: '1px', backgroundColor: 'var(--border)', margin: '16px 0' }} />
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', backgroundColor: 'var(--canvas)', borderRadius: '8px' }}>
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
@@ -833,7 +833,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               />
             </div>
 
-            <div style={{ height: '1px', backgroundColor: 'var(--border, #e2e8f0)', margin: '12px 0' }} />
+            <div style={{ height: '1px', backgroundColor: 'var(--border)', margin: '12px 0' }} />
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', backgroundColor: 'var(--canvas)', borderRadius: '10px' }}>
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
@@ -847,7 +847,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               />
             </div>
 
-            <div style={{ height: '1px', backgroundColor: 'var(--border, #e2e8f0)', margin: '12px 0' }} />
+            <div style={{ height: '1px', backgroundColor: 'var(--border)', margin: '12px 0' }} />
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', backgroundColor: 'var(--canvas)', borderRadius: '10px' }}>
               <div>
@@ -1361,7 +1361,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                 gap: '10px',
                 padding: '12px 16px',
                 backgroundColor: 'var(--green-bg)',
-                border: '1px solid #ceead6',
+                border: '1px solid var(--border-success)',
                 borderRadius: '8px',
                 fontSize: '12px',
                 color: 'var(--green)',

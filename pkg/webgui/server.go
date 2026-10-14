@@ -6157,10 +6157,33 @@ func (s *Server) handleBridgeTest(w http.ResponseWriter, r *http.Request) {
 		s.bridgeService, _ = bridge.NewService("")
 	}
 	st := s.bridgeService.GetStatus()
+	if !st.Enabled {
+		writeJSON(w, map[string]interface{}{
+			"success": false,
+			"status":  st,
+			"message": "Gemini Bridge is currently disabled. Enable the bridge to connect surfaces.",
+		})
+		return
+	}
+
+	activeSurfaces := 0
+	if st.Surfaces.DesktopAppConnected {
+		activeSurfaces++
+	}
+	if st.Surfaces.AgyCLIInstalled {
+		activeSurfaces++
+	}
+	if st.Surfaces.VSCodeConnected {
+		activeSurfaces++
+	}
+
+	msg := fmt.Sprintf("Gemini Bridge verified: %d of 3 local surfaces active (Desktop CDP: %t, CLI: %t, VS Code: %t).",
+		activeSurfaces, st.Surfaces.DesktopAppConnected, st.Surfaces.AgyCLIInstalled, st.Surfaces.VSCodeConnected)
+
 	writeJSON(w, map[string]interface{}{
 		"success": true,
 		"status":  st,
-		"message": "Gemini Bridge connection verified. All local Antigravity surfaces synchronized.",
+		"message": msg,
 	})
 }
 

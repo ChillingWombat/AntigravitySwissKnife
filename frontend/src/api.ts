@@ -48,19 +48,139 @@ function formatErrorMessage(rawText: string, status: number): string {
   return singleLine.slice(0, 200) || `Request failed with status ${status}`
 }
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, options)
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(formatErrorMessage(text, res.status))
-  }
-  return res.json() as Promise<T>
+export interface RequestOptions extends RequestInit {
+  /**
+   * Timeout in milliseconds before the request is aborted.
+   * Defaults to 15,000ms (15 seconds) to prevent stale or hanging connections.
+   */
+  timeoutMs?: number
+  /**
+   * When true (default for GET requests), any pending in-flight request
+   * with the same cancellation key is aborted to prevent out-of-order race conditions.
+   */
+  cancelPrevious?: boolean
+  /**
+   * Unique identifier used to track and cancel concurrent requests.
+   * Defaults to `${method}:${url}`.
+   */
+  cancelKey?: string
 }
 
-export const api = {
-  getStatus: () => request<SystemStatus>('/api/status'),
+/**
+ * Tracks active AbortControllers by key so that concurrent polling requests
+ * can cancel older in-flight requests and prevent race conditions.
+ */
+const inFlightControllers = new Map<string, AbortController>()
 
-  getFleetQuota: () => request<FleetQuotaSummary>('/api/quota/fleet'),
+/**
+ * Cancels a specific in-flight request by key.
+ */
+export function cancelInFlightRequest(key: string): void {
+  const ctrl = inFlightControllers.get(key)
+  if (ctrl) {
+    ctrl.abort(new Error(`Cancelled request for ${key}`))
+    inFlightControllers.delete(key)
+  }
+}
+
+/**
+ * Cancels all active in-flight requests.
+ */
+export function cancelAllInFlightRequests(): void {
+  for (const [key, ctrl] of inFlightControllers.entries()) {
+    ctrl.abort(new Error(`Cancelled request for ${key}`))
+  }
+  inFlightControllers.clear()
+}
+
+/**
+ * Checks whether an error was caused by request abort/cancellation.
+ */
+export function isAbortError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  return (err as any).name === 'AbortError' || (err as any).message?.includes('Aborted') || (err as any).message?.includes('Cancelled')
+}
+
+/**
+ * Dispatches an HTTP request with automatic timeout enforcement, error formatting,
+ * and AbortController cancellation for concurrent polling requests.
+ *
+ * @template T Expected response body type
+ * @param url Target endpoint URL
+ * @param options Request options including HTTP method, headers, timeout, and cancellation controls
+ */
+export async function request<T>(url: string, options?: RequestOptions): Promise<T> {
+  const method = (options?.method || 'GET').toUpperCase()
+  const isGet = method === 'GET'
+  const shouldCancelPrevious = options?.cancelPrevious ?? isGet
+  const cancelKey = options?.cancelKey ?? `${method}:${url}`
+
+  if (shouldCancelPrevious) {
+    const prevCtrl = inFlightControllers.get(cancelKey)
+    if (prevCtrl) {
+      prevCtrl.abort(new Error(`Aborted out-of-order request for ${cancelKey}`))
+      inFlightControllers.delete(cancelKey)
+    }
+  }
+
+  const controller = new AbortController()
+  if (shouldCancelPrevious) {
+    inFlightControllers.set(cancelKey, controller)
+  }
+
+  // Chain external signal if caller provided one
+  if (options?.signal) {
+    if (options.signal.aborted) {
+      controller.abort(options.signal.reason)
+    } else {
+      options.signal.addEventListener('abort', () => {
+        controller.abort(options.signal?.reason)
+      })
+    }
+  }
+
+  const timeoutMs = options?.timeoutMs ?? 15000
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+  let didTimeout = false
+
+  if (timeoutMs > 0) {
+    timeoutId = setTimeout(() => {
+      didTimeout = true
+      controller.abort(new Error(`Request timed out after ${timeoutMs}ms for ${url}`))
+    }, timeoutMs)
+  }
+
+  try {
+    const fetchOptions: RequestInit = {
+      ...options,
+      signal: controller.signal,
+    }
+    const res = await fetch(url, fetchOptions)
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(formatErrorMessage(text, res.status))
+    }
+    return (await res.json()) as T
+  } catch (err: any) {
+    if (didTimeout) {
+      throw new Error(`Request timed out after ${timeoutMs}ms: ${url}`)
+    }
+    throw err
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId)
+    }
+    if (shouldCancelPrevious && inFlightControllers.get(cancelKey) === controller) {
+      inFlightControllers.delete(cancelKey)
+    }
+  }
+}
+
+
+export const api = {
+  getStatus: (options?: RequestOptions) => request<SystemStatus>('/api/status', options),
+
+  getFleetQuota: (options?: RequestOptions) => request<FleetQuotaSummary>('/api/quota/fleet', options),
 
   refreshFleetQuota: () => request<{ status: string }>('/api/quota/refresh', { method: 'POST' }),
 

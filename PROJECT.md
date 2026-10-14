@@ -73,6 +73,14 @@ Every feature from the Survey phase is mapped to an assigned milestone:
 | F18 | `F18_KEYRING_AUTOIMPORT_WRITEATOMIC` | Fix auto-import guard early return in `pkg/keyring/store.go` and add retry backoff for Windows file sharing collisions in `writeAtomic`. | M5 | dev/review HANDOFF P1-22 |
 | F19 | `F19_WIN_REVIVAL_CLI_BUFFER` | Avoid Win32 32KB command line buffer truncation in `pkg/revival` by piping script via stdin or temporary file. | M5 | dev/review HANDOFF §1.1 |
 | F20 | `F20_FULL_BUILD_VERIFICATION` | Clean build of Go backend (`go build ./cmd/swiss`) and frontend (`npm run build`), 100% clean test execution (`go test ./... -count=1`), and PR synchronization. | M6 | ORIGINAL_REQUEST §Acceptance Criteria |
+| F21 | `F21_TOKENIZED_BORDERS` | Replace hardcoded hex borders across frontend files (especially AppEnhancementsPage) with 1px tokenized borders (`border-border`, `var(--border)`). | M7 | Issue #59 |
+| F22 | `F22_CANNED_BRIDGE_STUB_ELIM` | Eliminate canned bridge stubs in pkg/bridge/ (ComputerUse, TestChannel, GetStatus) - real execution or explicit "not configured" status indicators. | M7 | Issue #59 |
+| F23 | `F23_FRONTEND_API_RESILIENCE` | Add timeout handling and AbortController cancellation in frontend/src/api.ts for polling/async requests. | M7 | Issue #59 |
+| F24 | `F24_LAYOUT_INVARIANTS` | Enforce single-line action labels (`white-space: nowrap`) and flex-wrapping tag containers (`flex-wrap: wrap`). | M7 | Issue #59 |
+| F25 | `F25_CI_RACE_WORKFLOW` | GitHub Actions CI workflow running `go test -race ./pkg/...` with CGO enabled. | M8 | Issue #60 |
+| F26 | `F26_FRONTEND_TEST_MODERNIZATION` | Modernize frontend unit tests from source-grep to actual module/component mounting and behavioral assertions. | M8 | Issue #60 |
+| F27 | `F27_SECURITY_REGRESSION_SUITE` | Platform-independent security regression suite for auth middleware, credential scrubbing, and path jail bounds. | M8 | Issue #60 |
+| F28 | `F28_PHASE4_INTEGRATION_VERIFY` | Clean repo-wide test passes, production binary compilation, clean daemon relaunch, and remote PR merges with zero drift. | M9 | Phase 4 |
 
 ---
 
@@ -86,6 +94,9 @@ Every feature from the Survey phase is mapped to an assigned milestone:
 | M4 | Phase 2: Systemic P0 Security Hardening | Auth middleware; token redaction; fleet scrubbing; path jail guard; bridge PIN; BYOK; pruner age floor. (F07-F13) | M2, M3 | DONE |
 | M5 | Phase 2: Windows Go Test Suite Stabilization | Fix 9 failing packages: socket limits, USERPROFILE isolation, Win32 liveness, permissions gating, keyring autoimport, revival CLI. (F14-F19) | M4 | DONE |
 | M6 | Final Milestone: Full Build & Test Verification | 100% Go test pass across all packages, frontend production build, daemon binary compilation, PR promotion & sync. (F20) | M5 | DONE |
+| M7 | Phase 4 Track 1: UI Standards, Stub Elimination & API Resilience | Tokenized borders, canned stub elimination, API resilience, layout invariants. (F21-F24) | M6 | DONE |
+| M8 | Phase 4 Track 2: Test Modernization & Security Regressions | CI race workflow, component-level unit tests, security regression test suite. (F25-F27) | M6 | IN_PROGRESS |
+| M9 | Phase 4 Final Milestone: Integration, Build, Relaunch & Remote Sync | Full test suites, binary compilation, clean process relaunch, remote PR merges with zero drift. (F28) | M7, M8 | PLANNED |
 
 ---
 

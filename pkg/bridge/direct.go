@@ -172,16 +172,64 @@ func (dh *DirectHandler) ComputerUse(args map[string]interface{}) (string, error
 
 	switch action {
 	case "status":
-		return "Computer use actuator ready (:0 / wayland-0 display session)", nil
-	case "screenshot":
-		// Check for scrot / grim / import
+		var availableTools []string
 		for _, tool := range []string{"grim", "scrot", "import"} {
 			if _, err := exec.LookPath(tool); err == nil {
-				return fmt.Sprintf("Screenshot captured via %s", tool), nil
+				availableTools = append(availableTools, tool)
 			}
 		}
-		return "Screenshot captured via default display subsystem", nil
+		if runtime.GOOS == "windows" {
+			availableTools = append(availableTools, "windows-screen-capture")
+		}
+		if len(availableTools) == 0 {
+			return "Computer use actuator not configured: no screen capture tool installed", nil
+		}
+		return fmt.Sprintf("Computer use actuator ready (available tools: %s)", strings.Join(availableTools, ", ")), nil
+
+	case "screenshot":
+		// Genuine capture implementation:
+		// Check for available Linux CLI screenshot utilities
+		for _, tool := range []string{"grim", "scrot", "import"} {
+			if bin, err := exec.LookPath(tool); err == nil {
+				outPath := filepath.Join(os.TempDir(), fmt.Sprintf("bridge_screenshot_%d.png", time.Now().UnixNano()))
+				var cmd *exec.Cmd
+				switch tool {
+				case "grim":
+					cmd = exec.Command(bin, outPath)
+				case "scrot":
+					cmd = exec.Command(bin, outPath)
+				case "import":
+					cmd = exec.Command(bin, "-window", "root", outPath)
+				}
+				if cmd != nil {
+					if err := cmd.Run(); err == nil {
+						if fi, statErr := os.Stat(outPath); statErr == nil && fi.Size() > 0 {
+							return fmt.Sprintf("Screenshot captured via %s to %s (%d bytes)", tool, outPath, fi.Size()), nil
+						}
+					}
+				}
+			}
+		}
+
+		// Windows capture using powershell
+		if runtime.GOOS == "windows" {
+			outPath := filepath.Join(os.TempDir(), fmt.Sprintf("bridge_screenshot_%d.png", time.Now().UnixNano()))
+			psScript := fmt.Sprintf(`Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $b = New-Object Drawing.Bitmap([System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width, [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height); $g = [Drawing.Graphics]::FromImage($b); $g.CopyFromScreen(0,0,0,0,$b.Size); $b.Save('%s', [System.Drawing.Imaging.ImageFormat]::Png); $g.Dispose(); $b.Dispose();`, filepath.ToSlash(outPath))
+			cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", psScript)
+			if err := cmd.Run(); err == nil {
+				if fi, statErr := os.Stat(outPath); statErr == nil && fi.Size() > 0 {
+					return fmt.Sprintf("Screenshot captured via windows-screen-capture to %s (%d bytes)", outPath, fi.Size()), nil
+				}
+			}
+		}
+
+		return "", fmt.Errorf("screenshot capture not configured: no active display or capture utility available (grim/scrot/import/windows-screen-capture)")
+
+	case "click", "type":
+		return "", fmt.Errorf("action %q not configured: UI automation driver not installed", action)
+
 	default:
-		return fmt.Sprintf("Action %q executed successfully", action), nil
+		return "", fmt.Errorf("unsupported computer use action: %s", action)
 	}
 }
+

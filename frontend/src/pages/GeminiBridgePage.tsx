@@ -334,7 +334,7 @@ export const GeminiBridgePage: React.FC = () => {
             style={{
               padding: '10px 14px',
               borderRadius: '8px',
-              border: `1px solid ${actionFeedback.isError ? '#fecaca' : '#bbf7d0'}`,
+              border: `1px solid ${actionFeedback.isError ? 'var(--border-danger, #fad2cf)' : 'var(--border-success, #ceead6)'}`,
               backgroundColor: actionFeedback.isError ? 'var(--red-bg)' : 'var(--green-bg)',
               fontSize: '12px',
               color: actionFeedback.isError ? 'var(--red)' : 'var(--green)',
@@ -947,12 +947,14 @@ export const GeminiBridgePage: React.FC = () => {
                 VS Code Extension
               </span>
             </div>
-            <span className="badge-chip badge-green">
-              Port 41223
+            <span className={`badge-chip ${status?.surfaces?.vscode_connected ? 'badge-green' : 'badge-neutral'}`}>
+              {status?.surfaces?.vscode_connected ? 'Detected' : 'Not Connected'}
             </span>
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-            Language Server socket active and federated.
+            {status?.surfaces?.vscode_connected
+              ? 'VS Code workspace process detected on host.'
+              : 'VS Code process or extension socket not detected.'}
           </div>
         </div>
       </div>

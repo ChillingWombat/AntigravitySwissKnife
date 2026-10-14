@@ -309,7 +309,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
                     fontSize: '12px',
                     fontWeight: 600,
                     cursor: 'pointer',
-                    border: selectedCategory === cat ? '1px solid #0b57d0' : '1px solid #e2e8f0',
+                    border: selectedCategory === cat ? '1px solid var(--primary, #0b57d0)' : '1px solid var(--border)',
                     background: selectedCategory === cat ? '#0b57d0' : '#ffffff',
                     color: selectedCategory === cat ? '#ffffff' : '#475569',
                     transition: 'all 0.15s ease',
@@ -328,7 +328,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
               style={{
                 padding: '7px 14px',
                 borderRadius: '8px',
-                border: '1px solid #cbd5e1',
+                border: '1px solid var(--border)',
                 fontSize: '13px',
                 width: '220px',
                 outline: 'none',
@@ -351,7 +351,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
                 style={{
                   background: '#ffffff',
                   borderRadius: '10px',
-                  border: '1px solid #e2e8f0',
+                  border: '1px solid var(--border)',
                   padding: '20px',
                   cursor: 'pointer',
                   display: 'flex',
@@ -368,7 +368,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
                 onMouseLeave={(e) => {
                   e.currentTarget.style.transform = 'translateY(0)'
                   e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.03)'
-                  e.currentTarget.style.borderColor = '#e2e8f0'
+                  e.currentTarget.style.borderColor = 'var(--border)'
                 }}
               >
                 <div>
@@ -571,7 +571,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
                     width: '100%',
                     padding: '8px 12px',
                     borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
+                    border: '1px solid var(--border)',
                     fontSize: '13px',
                     boxSizing: 'border-box',
                   }}
@@ -598,7 +598,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
                       width: '100%',
                       padding: '8px 12px',
                       borderRadius: '6px',
-                      border: '1px solid #cbd5e1',
+                      border: '1px solid var(--border)',
                       fontSize: '13px',
                       fontFamily: 'monospace',
                       boxSizing: 'border-box',
@@ -619,7 +619,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
                           fontWeight: 600,
                           padding: '2px 7px',
                           borderRadius: '4px',
-                          border: '1px solid #e2e8f0',
+                          border: '1px solid var(--border)',
                           background: cronExpression === preset.cron ? 'var(--tonal)' : 'var(--canvas)',
                           color: cronExpression === preset.cron ? 'var(--primary)' : 'var(--text-muted)',
                           cursor: 'pointer',
@@ -710,7 +710,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
                     width: '100%',
                     padding: '8px 12px',
                     borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
+                    border: '1px solid var(--border)',
                     fontSize: '12px',
                     fontFamily: 'monospace',
                     boxSizing: 'border-box',
@@ -727,7 +727,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
                 style={{
                   padding: '8px 16px',
                   borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
+                  border: '1px solid var(--border)',
                   background: '#ffffff',
                   color: '#475569',
                   fontSize: '13px',
@@ -848,7 +848,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
                     height: '38px',
                     padding: '0 12px',
                     borderRadius: '8px',
-                    border: '1.5px solid var(--border)',
+                    border: '1px solid var(--border)',
                     fontSize: '13px',
                     color: 'var(--text)',
                     boxSizing: 'border-box',
@@ -870,7 +870,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
                     height: '38px',
                     padding: '0 12px',
                     borderRadius: '8px',
-                    border: '1.5px solid var(--border)',
+                    border: '1px solid var(--border)',
                     fontSize: '13px',
                     fontFamily: 'monospace',
                     color: 'var(--text)',
@@ -895,7 +895,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
                     width: '100%',
                     padding: '10px 12px',
                     borderRadius: '8px',
-                    border: '1.5px solid var(--border)',
+                    border: '1px solid var(--border)',
                     fontSize: '13px',
                     lineHeight: 1.5,
                     color: 'var(--text)',

@@ -137,7 +137,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
               style={{
                 backgroundColor: '#e6f4ea',
                 color: '#137333',
-                border: '1px solid #ceead6',
+                border: '1px solid var(--border-success)',
                 borderRadius: '10px',
                 padding: '10px 16px',
                 fontSize: '13px',
@@ -233,7 +233,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                 <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>
                   Execution & Background Sync
                 </label>
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   {(['manual', 'scheduled', 'watch'] as const).map((mode) => (
                     <button
                       key={mode}
@@ -249,6 +249,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                         border: `1px solid ${importSyncMode === mode ? 'var(--primary)' : 'var(--border)'}`,
                         cursor: 'pointer',
                         textTransform: 'capitalize',
+                        whiteSpace: 'nowrap',
                       }}
                     >
                       {mode}
@@ -263,7 +264,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
               <div
                 style={{
                   backgroundColor: '#fef7e0',
-                  border: '1px solid #feefc3',
+                  border: '1px solid var(--border-warning)',
                   borderRadius: '10px',
                   padding: '10px 14px',
                   fontSize: '12px',
@@ -359,7 +360,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                       </tr>
                     ) : (
                       candidates.map((cand) => (
-                      <tr key={cand.id} style={{ borderBottom: '1px solid #f1f3f4' }}>
+                      <tr key={cand.id} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '10px 10px' }}>
                           <input
                             type="checkbox"
@@ -520,7 +521,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                     </tr>
                   ) : (
                     history.map((h) => (
-                      <tr key={h.id} style={{ borderBottom: '1px solid #f1f3f4' }}>
+                      <tr key={h.id} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '8px 10px', color: 'var(--text-muted)' }}>{h.timestamp}</td>
                         <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--text)' }}>{h.source}</td>
                         <td style={{ padding: '8px 10px' }}>{h.conversation_count} conversations</td>

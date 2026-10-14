@@ -111,7 +111,7 @@ export function getTestConnectionButtonPresentation({
           ...LOCKED_GEOMETRY,
           backgroundColor: 'var(--green-bg)',
           color: 'var(--green)',
-          border: '1px solid #ceead6',
+          border: '1px solid var(--border-success)',
           fontWeight: 600,
         },
       }
@@ -131,7 +131,7 @@ export function getTestConnectionButtonPresentation({
         ...LOCKED_GEOMETRY,
         backgroundColor: 'var(--red-bg)',
         color: 'var(--red)',
-        border: '1px solid #fad2cf',
+        border: '1px solid var(--border-danger)',
         fontWeight: 600,
       },
     }

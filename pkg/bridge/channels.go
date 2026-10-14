@@ -3,10 +3,14 @@ package bridge
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
@@ -64,9 +68,11 @@ type ChannelsStatus struct {
 
 // ChannelsManager coordinates WhatsApp, Telegram, and Discord agent bridges.
 type ChannelsManager struct {
-	mu         sync.RWMutex
-	config     ChannelsConfig
-	configPath string
+	mu                 sync.RWMutex
+	config             ChannelsConfig
+	configPath         string
+	HTTPClient         *http.Client
+	verifiedIdentities map[string]string
 }
 
 // DefaultChannelsConfig provides safe defaults.
@@ -103,8 +109,9 @@ func NewChannelsManager(configPath string) *ChannelsManager {
 		configPath = filepath.Join(core.GetConfigDir(), "chat_channels.json")
 	}
 	cm := &ChannelsManager{
-		config:     DefaultChannelsConfig(),
-		configPath: configPath,
+		config:             DefaultChannelsConfig(),
+		configPath:         configPath,
+		verifiedIdentities: make(map[string]string),
 	}
 	_ = cm.load()
 	return cm
@@ -175,6 +182,19 @@ func (cm *ChannelsManager) UpdateConfig(c ChannelsConfig) error {
 	if c.Discord.BotToken == "[REDACTED]" || c.Discord.BotToken == "******" || strings.TrimSpace(c.Discord.BotToken) == "" {
 		c.Discord.BotToken = cm.config.Discord.BotToken
 	}
+
+	if cm.verifiedIdentities != nil {
+		if !c.WhatsApp.Enabled || c.WhatsApp.AccessToken != cm.config.WhatsApp.AccessToken {
+			delete(cm.verifiedIdentities, "whatsapp")
+		}
+		if !c.Telegram.Enabled || c.Telegram.BotToken != cm.config.Telegram.BotToken {
+			delete(cm.verifiedIdentities, "telegram")
+		}
+		if !c.Discord.Enabled || c.Discord.BotToken != cm.config.Discord.BotToken {
+			delete(cm.verifiedIdentities, "discord")
+		}
+	}
+
 	cm.config = c
 	return cm.save()
 }
@@ -185,47 +205,57 @@ func (cm *ChannelsManager) GetStatus() ChannelsStatus {
 	defer cm.mu.RUnlock()
 
 	// WhatsApp
+	waVerified := cm.verifiedIdentities != nil && cm.verifiedIdentities["whatsapp"] != ""
+	waConfigured := strings.TrimSpace(cm.config.WhatsApp.AccessToken) != "" || strings.TrimSpace(cm.config.WhatsApp.PhoneNumberID) != ""
 	waState := ChannelState{
-		Enabled:    cm.config.WhatsApp.Enabled,
-		Connected:  cm.config.WhatsApp.Enabled && (cm.config.WhatsApp.AccessToken != "" || cm.config.WhatsApp.Mode == "mcp"),
-		StatusText: "Standby",
+		Enabled:   cm.config.WhatsApp.Enabled,
+		Connected: cm.config.WhatsApp.Enabled && waVerified,
+		Identity:  cm.getVerifiedIdentity("whatsapp"),
 	}
-	if waState.Connected {
-		waState.StatusText = fmt.Sprintf("Active (%s mode)", strings.ToUpper(cm.config.WhatsApp.Mode))
-	} else if waState.Enabled {
-		waState.StatusText = "Awaiting Token / MCP Configuration"
-	} else {
+	if !waState.Enabled {
 		waState.StatusText = "Disabled"
+	} else if waVerified {
+		waState.StatusText = fmt.Sprintf("Configured (%s mode, Verified)", strings.ToUpper(cm.config.WhatsApp.Mode))
+	} else if waConfigured {
+		waState.StatusText = fmt.Sprintf("Configured (%s mode, Awaiting verification)", strings.ToUpper(cm.config.WhatsApp.Mode))
+	} else {
+		waState.StatusText = "Not configured (awaiting access token)"
 	}
 
 	// Telegram
+	tgVerified := cm.verifiedIdentities != nil && cm.verifiedIdentities["telegram"] != ""
+	tgConfigured := strings.TrimSpace(cm.config.Telegram.BotToken) != ""
 	tgState := ChannelState{
-		Enabled:    cm.config.Telegram.Enabled,
-		Connected:  cm.config.Telegram.Enabled && cm.config.Telegram.BotToken != "",
-		StatusText: "Standby",
+		Enabled:   cm.config.Telegram.Enabled,
+		Connected: cm.config.Telegram.Enabled && tgVerified,
+		Identity:  cm.getVerifiedIdentity("telegram"),
 	}
-	if tgState.Connected {
-		tgState.StatusText = "Bot Gateway Active (Polling)"
-		tgState.Identity = "@AntigravityBridgeBot"
-	} else if tgState.Enabled {
-		tgState.StatusText = "Awaiting Bot Token from @BotFather"
-	} else {
+	if !tgState.Enabled {
 		tgState.StatusText = "Disabled"
+	} else if tgVerified {
+		tgState.StatusText = "Configured (Bot Verified)"
+	} else if tgConfigured {
+		tgState.StatusText = "Configured (Awaiting bot verification)"
+	} else {
+		tgState.StatusText = "Not configured (awaiting bot token from @BotFather)"
 	}
 
 	// Discord
+	dcVerified := cm.verifiedIdentities != nil && cm.verifiedIdentities["discord"] != ""
+	dcConfigured := strings.TrimSpace(cm.config.Discord.BotToken) != ""
 	dcState := ChannelState{
-		Enabled:    cm.config.Discord.Enabled,
-		Connected:  cm.config.Discord.Enabled && cm.config.Discord.BotToken != "",
-		StatusText: "Standby",
+		Enabled:   cm.config.Discord.Enabled,
+		Connected: cm.config.Discord.Enabled && dcVerified,
+		Identity:  cm.getVerifiedIdentity("discord"),
 	}
-	if dcState.Connected {
-		dcState.StatusText = "Gateway Connected (Listening to mentions)"
-		dcState.Identity = "Antigravity#2026"
-	} else if dcState.Enabled {
-		dcState.StatusText = "Awaiting Discord Bot Token"
-	} else {
+	if !dcState.Enabled {
 		dcState.StatusText = "Disabled"
+	} else if dcVerified {
+		dcState.StatusText = "Configured (Bot Verified)"
+	} else if dcConfigured {
+		dcState.StatusText = "Configured (Awaiting gateway verification)"
+	} else {
+		dcState.StatusText = "Not configured (awaiting Discord bot token)"
 	}
 
 	return ChannelsStatus{
@@ -235,34 +265,177 @@ func (cm *ChannelsManager) GetStatus() ChannelsStatus {
 	}
 }
 
-// TestChannel executes connectivity check for a given channel.
+func (cm *ChannelsManager) getVerifiedIdentity(channel string) string {
+	if cm.verifiedIdentities == nil {
+		return ""
+	}
+	return cm.verifiedIdentities[channel]
+}
+
+// TestChannel executes genuine connectivity check for a given channel.
 func (cm *ChannelsManager) TestChannel(channel string) (string, error) {
 	cm.mu.RLock()
-	defer cm.mu.RUnlock()
+	cfg := cm.config
+	client := cm.HTTPClient
+	cm.mu.RUnlock()
+
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
 
 	switch strings.ToLower(channel) {
 	case "whatsapp":
-		if !cm.config.WhatsApp.Enabled {
+		if !cfg.WhatsApp.Enabled {
 			return "", fmt.Errorf("WhatsApp bridge is disabled")
 		}
-		return "WhatsApp connection verified. MCP bridge handler ready.", nil
+		if cfg.WhatsApp.Mode == "cloud_api" || cfg.WhatsApp.AccessToken != "" {
+			token := strings.TrimSpace(cfg.WhatsApp.AccessToken)
+			if token == "" || token == "[REDACTED]" {
+				return "", fmt.Errorf("WhatsApp bridge is not configured: access token is required")
+			}
+			req, err := http.NewRequest(http.MethodGet, "https://graph.facebook.com/v21.0/me", nil)
+			if err != nil {
+				return "", fmt.Errorf("failed to create WhatsApp request: %w", err)
+			}
+			req.Header.Set("Authorization", "Bearer "+token)
+			resp, err := client.Do(req)
+			if err != nil {
+				return "", fmt.Errorf("WhatsApp Graph API connection failed: %w", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+				return "", fmt.Errorf("WhatsApp Graph API returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			}
+			var waResp struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			}
+			cm.mu.Lock()
+			if cm.verifiedIdentities == nil {
+				cm.verifiedIdentities = make(map[string]string)
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&waResp); err == nil && waResp.ID != "" {
+				if waResp.Name != "" {
+					cm.verifiedIdentities["whatsapp"] = waResp.Name
+				} else {
+					cm.verifiedIdentities["whatsapp"] = "WhatsApp Cloud API"
+				}
+				cm.mu.Unlock()
+				return fmt.Sprintf("WhatsApp Cloud API verified. App ID: %s (Name: %s).", waResp.ID, waResp.Name), nil
+			}
+			cm.verifiedIdentities["whatsapp"] = "WhatsApp Cloud API"
+			cm.mu.Unlock()
+			return "WhatsApp Cloud API connection verified.", nil
+		}
+		if cfg.WhatsApp.Mode == "mcp" {
+			if strings.TrimSpace(cfg.WhatsApp.VerifyToken) == "" {
+				return "", fmt.Errorf("WhatsApp MCP bridge is not configured: verify token required")
+			}
+			cm.mu.Lock()
+			if cm.verifiedIdentities == nil {
+				cm.verifiedIdentities = make(map[string]string)
+			}
+			cm.verifiedIdentities["whatsapp"] = "WhatsApp MCP Gateway"
+			cm.mu.Unlock()
+			return "WhatsApp MCP bridge verified. Token configured for webhook handshakes.", nil
+		}
+		return "", fmt.Errorf("WhatsApp bridge mode %q is not configured", cfg.WhatsApp.Mode)
+
 	case "telegram":
-		if !cm.config.Telegram.Enabled {
+		if !cfg.Telegram.Enabled {
 			return "", fmt.Errorf("Telegram bridge is disabled")
 		}
-		if cm.config.Telegram.BotToken == "" {
+		token := strings.TrimSpace(cfg.Telegram.BotToken)
+		if token == "" || token == "[REDACTED]" {
 			return "", fmt.Errorf("Telegram Bot Token is required")
 		}
-		return "Telegram bot token format validated. Polling loop active.", nil
+		resp, err := client.Get(fmt.Sprintf("https://api.telegram.org/bot%s/getMe", url.PathEscape(token)))
+		if err != nil {
+			return "", fmt.Errorf("Telegram API connection failed: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+			return "", fmt.Errorf("Telegram Bot API returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+		var tgResp struct {
+			OK     bool `json:"ok"`
+			Result struct {
+				ID       int64  `json:"id"`
+				Username string `json:"username"`
+				IsBot    bool   `json:"is_bot"`
+			} `json:"result"`
+			Description string `json:"description"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&tgResp); err != nil {
+			return "", fmt.Errorf("failed to parse Telegram API response: %w", err)
+		}
+		if !tgResp.OK {
+			return "", fmt.Errorf("Telegram verification failed: %s", tgResp.Description)
+		}
+
+		botHandle := "@" + tgResp.Result.Username
+		cm.mu.Lock()
+		if cm.verifiedIdentities == nil {
+			cm.verifiedIdentities = make(map[string]string)
+		}
+		cm.verifiedIdentities["telegram"] = botHandle
+		cm.mu.Unlock()
+
+		return fmt.Sprintf("Telegram connection verified. Authenticated as %s (ID: %d).", botHandle, tgResp.Result.ID), nil
+
 	case "discord":
-		if !cm.config.Discord.Enabled {
+		if !cfg.Discord.Enabled {
 			return "", fmt.Errorf("Discord bridge is disabled")
 		}
-		if cm.config.Discord.BotToken == "" {
+		token := strings.TrimSpace(cfg.Discord.BotToken)
+		if token == "" || token == "[REDACTED]" {
 			return "", fmt.Errorf("Discord Bot Token is required")
 		}
-		return "Discord bot token format validated. Privileged gateway intents enabled.", nil
+		req, err := http.NewRequest(http.MethodGet, "https://discord.com/api/v10/users/@me", nil)
+		if err != nil {
+			return "", fmt.Errorf("failed to create Discord request: %w", err)
+		}
+		authHeader := token
+		if !strings.HasPrefix(authHeader, "Bot ") {
+			authHeader = "Bot " + authHeader
+		}
+		req.Header.Set("Authorization", authHeader)
+		resp, err := client.Do(req)
+		if err != nil {
+			return "", fmt.Errorf("Discord API connection failed: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+			return "", fmt.Errorf("Discord API returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+		var dcResp struct {
+			ID            string `json:"id"`
+			Username      string `json:"username"`
+			Discriminator string `json:"discriminator"`
+			Bot           bool   `json:"bot"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&dcResp); err != nil {
+			return "", fmt.Errorf("failed to parse Discord API response: %w", err)
+		}
+		userTag := dcResp.Username
+		if dcResp.Discriminator != "" && dcResp.Discriminator != "0" {
+			userTag = fmt.Sprintf("%s#%s", dcResp.Username, dcResp.Discriminator)
+		}
+
+		cm.mu.Lock()
+		if cm.verifiedIdentities == nil {
+			cm.verifiedIdentities = make(map[string]string)
+		}
+		cm.verifiedIdentities["discord"] = userTag
+		cm.mu.Unlock()
+
+		return fmt.Sprintf("Discord connection verified. Authenticated as %s (ID: %s).", userTag, dcResp.ID), nil
+
 	default:
 		return "", fmt.Errorf("unknown channel %q", channel)
 	}
 }
+

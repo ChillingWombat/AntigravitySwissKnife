@@ -357,10 +357,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               onClick={handleSaveAndApply}
               disabled={saving || applying}
               className="btn-pill-primary"
-              style={{ padding: '7px 18px', fontSize: '12px' }}
+              style={{ padding: '7px 18px', fontSize: '12px', whiteSpace: 'nowrap' }}
             >
               <Save size={14} />
-              <span>{saving || applying ? 'Saving & Applying...' : 'Save & Apply'}</span>
+              <span style={{ whiteSpace: 'nowrap' }}>{saving || applying ? 'Saving & Applying...' : 'Save & Apply'}</span>
             </button>
           </div>,
           portalTarget
@@ -409,7 +409,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
         </div>
 
         {jb.enabled && (
-          <div style={{ borderTop: '1px solid var(--border, #e2e8f0)', paddingTop: '18px' }}>
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '18px' }}>
             {/* Optional interaction setting: Pulse Highlight Target Prompt Card on Jump */}
             <div
               style={{
@@ -418,7 +418,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 justifyContent: 'space-between',
                 background: 'var(--canvas)',
                 borderRadius: '10px',
-                border: '1px solid #e2e8f0',
+                border: '1px solid var(--border)',
                 padding: '12px 16px',
                 marginBottom: '20px',
               }}
@@ -469,7 +469,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   style={{
                     background: 'var(--canvas)',
                     borderRadius: '10px',
-                    border: '1px solid #e2e8f0',
+                    border: '1px solid var(--border)',
                     padding: '16px 20px',
                   }}
                 >
@@ -567,7 +567,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         background: '#ffffff',
                         padding: '14px',
                         borderRadius: '8px',
-                        border: '1px solid #cbd5e1',
+                        border: '1px solid var(--border)',
                         marginTop: '10px',
                       }}
                     >
@@ -575,7 +575,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
                           Presets:
                         </span>
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                           {PRESET_COLORS.map((p) => {
                             const isSel = jb.custom_color?.toLowerCase() === p.hex.toLowerCase()
                             return (
@@ -613,7 +613,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               height: '18px',
                               borderRadius: '4px',
                               background: isValidHexColor(jb.custom_color) ? (jb.custom_color || '#0b57d0') : '#0b57d0',
-                              border: '1px solid #cbd5e1',
+                              border: '1px solid var(--border)',
                             }}
                           />
                           <input
@@ -629,7 +629,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               width: '80px',
                               padding: '3px 6px',
                               borderRadius: '4px',
-                              border: '1px solid #cbd5e1',
+                              border: '1px solid var(--border)',
                               fontSize: '12px',
                               fontFamily: 'monospace',
                             }}
@@ -659,7 +659,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                             padding: '6px',
                             background: 'var(--canvas)',
                             borderRadius: '6px',
-                            border: '1px solid #e2e8f0',
+                            border: '1px solid var(--border)',
                             width: 'fit-content',
                           }}
                         >
@@ -708,7 +708,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   style={{
                     background: 'var(--canvas)',
                     borderRadius: '10px',
-                    border: '1px solid #e2e8f0',
+                    border: '1px solid var(--border)',
                     padding: '16px 20px',
                   }}
                 >
@@ -738,7 +738,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                             width: '70px',
                             padding: '5px 8px',
                             borderRadius: '6px',
-                            border: '1px solid #cbd5e1',
+                            border: '1px solid var(--border)',
                             fontSize: '13px',
                           }}
                         />
@@ -768,7 +768,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                             width: '70px',
                             padding: '5px 8px',
                             borderRadius: '6px',
-                            border: '1px solid #cbd5e1',
+                            border: '1px solid var(--border)',
                             fontSize: '13px',
                           }}
                         />
@@ -798,7 +798,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                             width: '70px',
                             padding: '5px 8px',
                             borderRadius: '6px',
-                            border: '1px solid #cbd5e1',
+                            border: '1px solid var(--border)',
                             fontSize: '13px',
                           }}
                         />
@@ -810,7 +810,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               </div>
 
               {/* VERTICAL DIVIDER */}
-              <div style={{ width: '1px', backgroundColor: 'var(--border, #e2e8f0)', alignSelf: 'stretch' }} />
+              <div style={{ width: '1px', backgroundColor: 'var(--border)', alignSelf: 'stretch' }} />
 
               {/* RIGHT COLUMN: Interactive Gutter Live Preview Component */}
               <div
@@ -819,7 +819,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   boxSizing: 'border-box',
                   background: 'var(--canvas)',
                   borderRadius: '12px',
-                  border: '1px dashed #cbd5e1',
+                  border: '1px dashed var(--border)',
                   padding: '20px',
                   display: 'flex',
                   flexDirection: 'column',
@@ -836,7 +836,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   style={{
                     backgroundColor: '#ffffff',
                     borderRadius: '8px',
-                    border: '1px solid #e2e8f0',
+                    border: '1px solid var(--border)',
                     padding: '20px',
                     display: 'flex',
                     alignItems: 'center',
@@ -934,7 +934,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               style={{
                 padding: '14px 16px',
                 borderRadius: '8px',
-                border: `1.5px solid ${config.tool_density_mode === opt.id ? '#0b57d0' : '#e2e8f0'}`,
+                border: `1px solid ${config.tool_density_mode === opt.id ? 'var(--primary)' : 'var(--border)'}`,
                 background: config.tool_density_mode === opt.id ? '#f0f7ff' : '#ffffff',
                 cursor: 'pointer',
                 transition: 'border-color 0.15s, background 0.15s',
@@ -1029,8 +1029,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         gap: '12px',
                         padding: '12px 14px',
                         borderRadius: '8px',
-                        border: `1.5px solid ${
-                          guiConfig.active_conversation_indicator === 'background' ? '#0b57d0' : '#e2e8f0'
+                        border: `1px solid ${
+                          guiConfig.active_conversation_indicator === 'background' ? 'var(--primary)' : 'var(--border)'
                         }`,
                         background:
                           guiConfig.active_conversation_indicator === 'background' ? '#eff6ff' : '#f8fafc',
@@ -1076,8 +1076,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         gap: '12px',
                         padding: '12px 14px',
                         borderRadius: '8px',
-                        border: `1.5px solid ${
-                          guiConfig.active_conversation_indicator === 'border' ? '#0b57d0' : '#e2e8f0'
+                        border: `1px solid ${
+                          guiConfig.active_conversation_indicator === 'border' ? 'var(--primary)' : 'var(--border)'
                         }`,
                         background:
                           guiConfig.active_conversation_indicator === 'border' ? '#eff6ff' : '#f8fafc',
@@ -1111,7 +1111,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               style={{
                                 padding: '4px 8px',
                                 borderRadius: '6px',
-                                border: '1.5px solid #cbd5e1',
+                                border: '1px solid var(--border)',
                                 background: '#ffffff',
                                 fontSize: '12px',
                                 fontWeight: 600,
@@ -1155,8 +1155,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         gap: '12px',
                         padding: '12px 14px',
                         borderRadius: '8px',
-                        border: `1.5px solid ${
-                          guiConfig.active_conversation_indicator === 'left_bar' ? '#0b57d0' : '#e2e8f0'
+                        border: `1px solid ${
+                          guiConfig.active_conversation_indicator === 'left_bar' ? 'var(--primary)' : 'var(--border)'
                         }`,
                         background:
                           guiConfig.active_conversation_indicator === 'left_bar' ? '#eff6ff' : '#f8fafc',
@@ -1189,7 +1189,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 </div>
 
                 {/* Bold text option with unified divider line */}
-                <div style={{ paddingTop: '10px', borderTop: '1px solid var(--border, #e2e8f0)' }}>
+                <div style={{ paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
                   <label
                     style={{
                       display: 'flex',
@@ -1220,7 +1220,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 </div>
 
                 {/* Opacity slider with unified divider line */}
-                <div style={{ paddingTop: '10px', borderTop: '1px solid var(--border, #e2e8f0)' }}>
+                <div style={{ paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                     <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text)' }}>
                       Conversation Tab Tint Opacity:
@@ -1246,7 +1246,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               </div>
 
               {/* VERTICAL DIVIDER */}
-              <div style={{ width: '1px', backgroundColor: 'var(--border, #e2e8f0)', alignSelf: 'stretch' }} />
+              <div style={{ width: '1px', backgroundColor: 'var(--border)', alignSelf: 'stretch' }} />
 
               {/* Real-time Interactive Preview */}
               <div
@@ -1254,7 +1254,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   width: '360px',
                   boxSizing: 'border-box',
                   background: 'var(--canvas)',
-                  border: '1px solid #e2e8f0',
+                  border: '1px solid var(--border)',
                   borderRadius: '10px',
                   padding: '16px',
                   display: 'flex',
@@ -1273,7 +1273,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 <div
                   style={{
                     background: '#ffffff',
-                    border: '1px solid #cbd5e1',
+                    border: '1px solid var(--border)',
                     borderRadius: '10px',
                     padding: '10px',
                     display: 'flex',
@@ -1445,7 +1445,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 style={{
                   padding: '14px 16px',
                   borderRadius: '8px',
-                  border: '1px solid var(--border, #e2e8f0)',
+                  border: '1px solid var(--border)',
                   background: 'var(--card-bg, #ffffff)',
                   display: 'flex',
                   alignItems: 'center',
@@ -1477,7 +1477,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 style={{
                   padding: '14px 16px',
                   borderRadius: '8px',
-                  border: '1px solid var(--border, #e2e8f0)',
+                  border: '1px solid var(--border)',
                   background: 'var(--card-bg, #ffffff)',
                   display: 'flex',
                   alignItems: 'center',
@@ -1506,7 +1506,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               </div>
 
               {/* Horizontal Divider Line between Simplicity Zone and Fixed Number Zone */}
-              <div style={{ height: '1px', backgroundColor: 'var(--border, #e2e8f0)', margin: '2px 0' }} />
+              <div style={{ height: '1px', backgroundColor: 'var(--border)', margin: '2px 0' }} />
 
               {/* Header above Fixed vs Dynamic */}
               <div style={{ marginTop: '12px', marginBottom: '8px' }}>
@@ -1529,7 +1529,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 style={{
                   padding: '16px',
                   borderRadius: '8px',
-                  border: `1.5px solid ${guiConfig.conversation_tabs_mode === 'fixed' ? '#0b57d0' : '#e2e8f0'}`,
+                  border: `1px solid ${guiConfig.conversation_tabs_mode === 'fixed' ? 'var(--primary)' : 'var(--border)'}`,
                   background: guiConfig.conversation_tabs_mode === 'fixed' ? '#f0f7ff' : 'var(--card-bg, #ffffff)',
                   cursor: 'pointer',
                   transition: 'border-color 0.15s, background 0.15s',
@@ -1566,7 +1566,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       height: '32px',
                       padding: '0 10px',
                       borderRadius: '6px',
-                      border: '1.5px solid #cbd5e1',
+                      border: '1px solid var(--border)',
                       background: '#ffffff',
                       fontSize: '13px',
                       fontWeight: 600,
@@ -1594,7 +1594,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 style={{
                   padding: '16px',
                   borderRadius: '8px',
-                  border: `1.5px solid ${guiConfig.conversation_tabs_mode !== 'fixed' ? '#0b57d0' : '#e2e8f0'}`,
+                  border: `1px solid ${guiConfig.conversation_tabs_mode !== 'fixed' ? 'var(--primary)' : 'var(--border)'}`,
                   background: guiConfig.conversation_tabs_mode !== 'fixed' ? '#f0f7ff' : 'var(--card-bg, #ffffff)',
                   cursor: 'pointer',
                   transition: 'border-color 0.15s, background 0.15s',
@@ -1630,7 +1630,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         height: '32px',
                         padding: '0 10px',
                         borderRadius: '6px',
-                        border: '1.5px solid #cbd5e1',
+                        border: '1px solid var(--border)',
                         background: '#ffffff',
                         fontSize: '13px',
                         fontWeight: 600,
@@ -1662,7 +1662,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           height: '30px',
                           padding: '0 8px',
                           borderRadius: '6px',
-                          border: '1.5px solid #cbd5e1',
+                          border: '1px solid var(--border)',
                           background: '#ffffff',
                           fontSize: '12px',
                           fontWeight: 600,
@@ -1694,7 +1694,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           height: '30px',
                           padding: '0 8px',
                           borderRadius: '6px',
-                          border: '1.5px solid #cbd5e1',
+                          border: '1px solid var(--border)',
                           background: '#ffffff',
                           fontSize: '12px',
                           fontWeight: 600,
@@ -1716,7 +1716,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
             </div>
 
             {/* VERTICAL DIVIDER */}
-            <div style={{ width: '1px', backgroundColor: 'var(--border, #e2e8f0)', alignSelf: 'stretch' }} />
+            <div style={{ width: '1px', backgroundColor: 'var(--border)', alignSelf: 'stretch' }} />
 
             {/* Right column: Interactive Micro-Interaction Preview */}
             <div
@@ -1724,7 +1724,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 width: '360px',
                 boxSizing: 'border-box',
                 borderRadius: '8px',
-                border: '1px solid var(--border, #e2e8f0)',
+                border: '1px solid var(--border)',
                 background: 'var(--canvas)',
                 padding: '16px',
                 display: 'flex',
@@ -1960,7 +1960,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   height: '36px',
                   padding: '0 12px',
                   borderRadius: '6px',
-                  border: '1.5px solid #cbd5e1',
+                  border: '1px solid var(--border)',
                   background: 'var(--card-bg, #ffffff)',
                   fontSize: '13px',
                   fontWeight: 600,
@@ -2054,7 +2054,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 height: '38px',
                 padding: '0 12px',
                 borderRadius: '8px',
-                border: '1.5px solid #cbd5e1',
+                border: '1px solid var(--border)',
                 background: 'var(--canvas)',
                 fontSize: '13px',
                 fontWeight: 600,
@@ -2111,7 +2111,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               gap: '12px',
               padding: '16px',
               borderRadius: '10px',
-              border: `1.5px solid ${(op.aux_tabs_format || 'icon') === 'icon' ? '#0b57d0' : '#e2e8f0'}`,
+              border: `1px solid ${(op.aux_tabs_format || 'icon') === 'icon' ? 'var(--primary)' : 'var(--border)'}`,
               backgroundColor: (op.aux_tabs_format || 'icon') === 'icon' ? '#eff6ff' : '#ffffff',
               cursor: 'pointer',
               transition: 'all 0.15s ease',
@@ -2144,7 +2144,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 backgroundColor: '#f1f5f9',
                 borderRadius: '6px',
                 width: 'fit-content',
-                border: '1px solid #e2e8f0',
+                border: '1px solid var(--border)',
               }}
             >
               <div
@@ -2156,7 +2156,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   justifyContent: 'center',
                   borderRadius: '4px',
                   backgroundColor: '#ffffff',
-                  border: '1px solid #cbd5e1',
+                  border: '1px solid var(--border)',
                   color: 'var(--text)',
                 }}
                 title="Preview Browser"
@@ -2172,7 +2172,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   justifyContent: 'center',
                   borderRadius: '4px',
                   backgroundColor: '#ffffff',
-                  border: '1px solid #cbd5e1',
+                  border: '1px solid var(--border)',
                   color: 'var(--text)',
                 }}
                 title="Files"
@@ -2188,7 +2188,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   justifyContent: 'center',
                   borderRadius: '4px',
                   backgroundColor: '#ffffff',
-                  border: '1px solid #cbd5e1',
+                  border: '1px solid var(--border)',
                   color: 'var(--text)',
                 }}
                 title="Memos"
@@ -2204,7 +2204,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   justifyContent: 'center',
                   borderRadius: '4px',
                   backgroundColor: '#ffffff',
-                  border: '1px solid #cbd5e1',
+                  border: '1px solid var(--border)',
                   color: 'var(--text)',
                 }}
                 title="GitHub"
@@ -2225,7 +2225,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               gap: '12px',
               padding: '16px',
               borderRadius: '10px',
-              border: `1.5px solid ${op.aux_tabs_format === 'icon_and_name' ? '#0b57d0' : '#e2e8f0'}`,
+              border: `1px solid ${op.aux_tabs_format === 'icon_and_name' ? 'var(--primary)' : 'var(--border)'}`,
               backgroundColor: op.aux_tabs_format === 'icon_and_name' ? '#eff6ff' : '#ffffff',
               cursor: 'pointer',
               transition: 'all 0.15s ease',
@@ -2258,7 +2258,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 backgroundColor: '#f1f5f9',
                 borderRadius: '6px',
                 width: 'fit-content',
-                border: '1px solid #e2e8f0',
+                border: '1px solid var(--border)',
               }}
             >
               <div
@@ -2270,7 +2270,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   gap: '5px',
                   borderRadius: '4px',
                   backgroundColor: '#ffffff',
-                  border: '1px solid #cbd5e1',
+                  border: '1px solid var(--border)',
                   color: 'var(--text)',
                   fontSize: '11px',
                   fontWeight: 500,
@@ -2288,7 +2288,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   gap: '5px',
                   borderRadius: '4px',
                   backgroundColor: '#ffffff',
-                  border: '1px solid #cbd5e1',
+                  border: '1px solid var(--border)',
                   color: 'var(--text)',
                   fontSize: '11px',
                   fontWeight: 500,
@@ -2306,7 +2306,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   gap: '5px',
                   borderRadius: '4px',
                   backgroundColor: '#ffffff',
-                  border: '1px solid #cbd5e1',
+                  border: '1px solid var(--border)',
                   color: 'var(--text)',
                   fontSize: '11px',
                   fontWeight: 500,
@@ -2324,7 +2324,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   gap: '5px',
                   borderRadius: '4px',
                   backgroundColor: '#ffffff',
-                  border: '1px solid #cbd5e1',
+                  border: '1px solid var(--border)',
                   color: 'var(--text)',
                   fontSize: '11px',
                   fontWeight: 500,
@@ -2373,7 +2373,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   style={{
                     background: 'var(--canvas)',
                     borderRadius: '10px',
-                    border: '1px solid #e2e8f0',
+                    border: '1px solid var(--border)',
                     padding: '14px 16px',
                   }}
                 >
@@ -2407,7 +2407,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   style={{
                     background: 'var(--canvas)',
                     borderRadius: '10px',
-                    border: '1px solid #e2e8f0',
+                    border: '1px solid var(--border)',
                     padding: '16px 20px',
                   }}
                 >
@@ -2433,7 +2433,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         gap: '8px',
                         padding: '14px',
                         borderRadius: '8px',
-                        border: `1.5px solid ${op.division_style === 'divider_line' ? '#0b57d0' : '#e2e8f0'}`,
+                        border: `1px solid ${op.division_style === 'divider_line' ? 'var(--primary)' : 'var(--border)'}`,
                         backgroundColor: op.division_style === 'divider_line' ? '#eff6ff' : '#ffffff',
                         cursor: 'pointer',
                         transition: 'all 0.15s ease',
@@ -2476,7 +2476,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         gap: '8px',
                         padding: '14px',
                         borderRadius: '8px',
-                        border: `1.5px solid ${op.division_style === 'border_zone' ? '#0b57d0' : '#e2e8f0'}`,
+                        border: `1px solid ${op.division_style === 'border_zone' ? 'var(--primary)' : 'var(--border)'}`,
                         backgroundColor: op.division_style === 'border_zone' ? '#eff6ff' : '#ffffff',
                         cursor: 'pointer',
                         transition: 'all 0.15s ease',
@@ -2514,7 +2514,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     style={{
                       background: 'var(--canvas)',
                       borderRadius: '10px',
-                      border: '1px solid #e2e8f0',
+                      border: '1px solid var(--border)',
                       padding: '16px 20px',
                       display: 'flex',
                       flexDirection: 'column',
@@ -2545,7 +2545,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               gap: '12px',
                               padding: '10px 12px',
                               borderRadius: '8px',
-                              border: `1.5px solid ${op.zone_background_contrast === tone.id ? '#0b57d0' : '#e2e8f0'}`,
+                              border: `1px solid ${op.zone_background_contrast === tone.id ? 'var(--primary)' : 'var(--border)'}`,
                               background: op.zone_background_contrast === tone.id ? '#eff6ff' : '#ffffff',
                               cursor: 'pointer',
                             }}
@@ -2576,7 +2576,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         padding: '12px 14px',
                         background: '#ffffff',
                         borderRadius: '8px',
-                        border: '1px solid #e2e8f0',
+                        border: '1px solid var(--border)',
                       }}
                     >
                       {/* Border Radius */}
@@ -2584,7 +2584,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
                           Border Radius: <strong>{op.zone_border_radius}px</strong>
                         </label>
-                        <div style={{ display: 'flex', gap: '6px' }}>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                           {[6, 8, 10, 14].map((r) => (
                             <button
                               key={r}
@@ -2599,7 +2599,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                 color: op.zone_border_radius === r ? '#ffffff' : '#334155',
                                 backgroundColor: op.zone_border_radius === r ? '#0b57d0' : '#f1f5f9',
                                 border: '1px solid',
-                                borderColor: op.zone_border_radius === r ? '#0b57d0' : '#e2e8f0',
+                                borderColor: op.zone_border_radius === r ? 'var(--primary, #0b57d0)' : 'var(--border)',
                                 cursor: 'pointer',
                               }}
                             >
@@ -2610,14 +2610,14 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       </div>
 
                       {/* Vertical Grey Breaker */}
-                      <div style={{ width: '1px', height: '40px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0' }} />
+                      <div style={{ width: '1px', height: '40px', backgroundColor: 'var(--border)', margin: '0' }} />
 
                       {/* Gap Between Zones */}
                       <div style={{ flex: 1, minWidth: '180px', paddingLeft: '8px' }}>
                         <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
                           Zone Spacing (Gap): <strong>{op.zone_gap}px</strong>
                         </label>
-                        <div style={{ display: 'flex', gap: '6px' }}>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                           {[6, 8, 10, 14].map((g) => (
                             <button
                               key={g}
@@ -2632,7 +2632,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                 color: op.zone_gap === g ? '#ffffff' : '#334155',
                                 backgroundColor: op.zone_gap === g ? '#0b57d0' : '#f1f5f9',
                                 border: '1px solid',
-                                borderColor: op.zone_gap === g ? '#0b57d0' : '#e2e8f0',
+                                borderColor: op.zone_gap === g ? 'var(--primary, #0b57d0)' : 'var(--border)',
                                 cursor: 'pointer',
                               }}
                             >
@@ -2653,7 +2653,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         padding: '12px 14px',
                         background: '#ffffff',
                         borderRadius: '8px',
-                        border: '1px solid #e2e8f0',
+                        border: '1px solid var(--border)',
                       }}
                     >
                       {/* Internal Padding */}
@@ -2661,7 +2661,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
                           Internal Padding: <strong>{op.zone_padding}px</strong>
                         </label>
-                        <div style={{ display: 'flex', gap: '6px' }}>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                           {[8, 10, 12, 16].map((p) => (
                             <button
                               key={p}
@@ -2676,7 +2676,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                 color: op.zone_padding === p ? '#ffffff' : '#334155',
                                 backgroundColor: op.zone_padding === p ? '#0b57d0' : '#f1f5f9',
                                 border: '1px solid',
-                                borderColor: op.zone_padding === p ? '#0b57d0' : '#e2e8f0',
+                                borderColor: op.zone_padding === p ? 'var(--primary, #0b57d0)' : 'var(--border)',
                                 cursor: 'pointer',
                               }}
                             >
@@ -2687,14 +2687,14 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       </div>
 
                       {/* Vertical Grey Breaker */}
-                      <div style={{ width: '1px', height: '40px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0' }} />
+                      <div style={{ width: '1px', height: '40px', backgroundColor: 'var(--border)', margin: '0' }} />
 
                       {/* Border Color */}
                       <div style={{ flex: 1, minWidth: '180px', paddingLeft: '8px' }}>
                         <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
                           Border Color:
                         </label>
-                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                           {[
                             { label: 'Subtle', hex: '#e2e8f0' },
                             { label: 'Slate', hex: '#cbd5e1' },
@@ -2707,7 +2707,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               style={{
                                 padding: '4px 8px',
                                 borderRadius: '6px',
-                                border: `1px solid ${op.zone_border_color === col.hex ? '#0b57d0' : '#e2e8f0'}`,
+                                border: `1px solid ${op.zone_border_color === col.hex ? 'var(--primary)' : 'var(--border)'}`,
                                 background: op.zone_border_color === col.hex ? '#eff6ff' : '#ffffff',
                                 fontSize: '11px',
                                 fontWeight: op.zone_border_color === col.hex ? 700 : 500,
@@ -2725,7 +2725,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               </div>
 
               {/* VERTICAL DIVIDER */}
-              <div style={{ width: '1px', backgroundColor: 'var(--border, #e2e8f0)', alignSelf: 'stretch' }} />
+              <div style={{ width: '1px', backgroundColor: 'var(--border)', alignSelf: 'stretch' }} />
 
               {/* RIGHT COLUMN: Interactive Live Preview of Antigravity's Overview Panel */}
               <div
@@ -2734,7 +2734,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   boxSizing: 'border-box',
                   background: 'var(--canvas)',
                   borderRadius: '12px',
-                  border: '1px solid var(--border, #e2e8f0)',
+                  border: '1px solid var(--border)',
                   padding: '16px',
                   display: 'flex',
                   flexDirection: 'column',
@@ -2743,7 +2743,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   top: '20px',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border, #e2e8f0)', paddingBottom: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
                     <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                       {OVERVIEW_PREVIEW_HEADER}
@@ -2756,7 +2756,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   style={{
                     backgroundColor: op.division_style === 'border_zone' ? '#f1f5f9' : '#ffffff',
                     borderRadius: '10px',
-                    border: '1px solid #cbd5e1',
+                    border: '1px solid var(--border)',
                     padding: '14px',
                     maxHeight: '640px',
                     overflowY: 'auto',
@@ -2764,7 +2764,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   }}
                 >
                   {/* Top Auxiliary Header Tab Strip Preview */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                       {/* Native Tab 1: Overview (Active) */}
                       <div
@@ -2831,7 +2831,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       </div>
 
                       {/* Left Divider */}
-                      <div style={{ width: '1px', minWidth: '1px', maxWidth: '1px', height: '16px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 0.5px', flexShrink: 0, opacity: 0.7 }} />
+                      <div style={{ width: '1px', minWidth: '1px', maxWidth: '1px', height: '16px', backgroundColor: 'var(--border)', margin: '0 0.5px', flexShrink: 0, opacity: 0.7 }} />
 
                       {/* Injected Swiss Tabs in chosen format */}
                       {(op.aux_tabs_format || 'icon') === 'icon' ? (
@@ -2987,7 +2987,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       )}
 
                       {/* Right Divider */}
-                      <div style={{ width: '1px', minWidth: '1px', maxWidth: '1px', height: '16px', backgroundColor: 'var(--border, #e2e8f0)', margin: '0 0.5px', flexShrink: 0, opacity: 0.7 }} />
+                      <div style={{ width: '1px', minWidth: '1px', maxWidth: '1px', height: '16px', backgroundColor: 'var(--border)', margin: '0 0.5px', flexShrink: 0, opacity: 0.7 }} />
                     </div>
 
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center', color: '#94a3b8' }}>
@@ -3269,7 +3269,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               isZone
                                 ? {
                                     backgroundColor: zoneBg,
-                                    border: `1px solid ${op.zone_border_color || '#e2e8f0'}`,
+                                    border: `1px solid ${op.zone_border_color || 'var(--border)'}`,
                                     borderRadius: `${op.zone_border_radius || 8}px`,
                                     padding: `${op.zone_padding || 10}px`,
                                     marginBottom: `${op.zone_gap || 10}px`,
@@ -3333,7 +3333,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                     borderRadius: '4px',
                                     background: '#f1f5f9',
                                     color: 'var(--text-muted)',
-                                    border: '1px solid #e2e8f0',
+                                    border: '1px solid var(--border)',
                                     display: 'inline-flex',
                                     alignItems: 'center',
                                     gap: '4px',
@@ -3356,7 +3356,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                 height: '0px',
                                 width: 'calc(100% - 12px)',
                                 border: 'none',
-                                borderTop: '1px solid #e2e8f0',
+                                borderTop: '1px solid var(--border)',
                                 margin: '0 auto 5px auto',
                                 boxSizing: 'border-box',
                               }}
