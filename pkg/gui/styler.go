@@ -622,31 +622,23 @@ button[data-swiss-divider="true"]:hover {
   overflow: visible !important;
 }
 .swiss-convo-tabs-divider::before {
-  content: "" !important;
-  position: absolute !important;
-  left: 6px !important;
-  right: 6px !important;
-  top: 50% !important;
-  height: 1px !important;
-  background-color: rgba(148, 163, 184, 0.35) !important;
-  z-index: 1 !important;
-  pointer-events: none !important;
+  display: none !important;
 }
 [data-theme="dark"] .swiss-convo-tabs-divider::before,
 .dark .swiss-convo-tabs-divider::before {
-  background-color: rgba(148, 163, 184, 0.22) !important;
+  display: none !important;
 }
 .swiss-convo-tabs-pill {
   position: relative !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 14px !important;
-  height: 6px !important;
-  color: #64748b !important;
+  width: 16px !important;
+  height: 8px !important;
+  color: #94a3b8 !important;
   font-size: 8px !important;
   line-height: 1 !important;
-  background: var(--card-bg, #ffffff) !important;
+  background: transparent !important;
   transition: all 0.18s ease !important;
   z-index: 3 !important;
   padding: 0 !important;
@@ -654,7 +646,8 @@ button[data-swiss-divider="true"]:hover {
 }
 [data-theme="dark"] .swiss-convo-tabs-pill,
 .dark .swiss-convo-tabs-pill {
-  background: var(--card-bg, #1e1e1e) !important;
+  background: transparent !important;
+  color: #94a3b8 !important;
 }
 .swiss-convo-tabs-triangle {
   display: inline-block !important;
@@ -1398,11 +1391,11 @@ func generateBaseScript(cfg *Config) string {
                   btnParent.style.setProperty("justify-content", "center", "important");
                   btnParent.style.setProperty("align-items", "center", "important");
                   btnParent.style.setProperty("width", "100%%", "important");
-                  btnParent.style.setProperty("height", "6px", "important");
+                  btnParent.style.setProperty("height", "8px", "important");
                   btnParent.style.setProperty("background", "transparent", "important");
                   btnParent.style.setProperty("overflow", "visible", "important");
                   btnParent.style.setProperty("padding", "0", "important");
-                  btnParent.style.setProperty("margin", "1px auto 0 auto", "important");
+                  btnParent.style.setProperty("margin", "2px auto 1px auto", "important");
                 }
 
                 const curTriangle = btn.querySelector(".swiss-convo-tabs-triangle");
@@ -1487,6 +1480,7 @@ func generateBaseScript(cfg *Config) string {
                   const gapCenter = (pRect.bottom + nRect.top) / 2;
                   targetTop = Math.round(gapCenter - 0.5 - spRect.top);
                   targetTop = Math.max(0, Math.min(20, targetTop));
+                  if (hasDividerBtn && targetTop < 3) targetTop = 3;
                 }
               }
               line.style.setProperty("top", targetTop + "px", "important");

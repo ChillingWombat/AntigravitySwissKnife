@@ -943,8 +943,20 @@ export const api = {
       body: JSON.stringify(config),
     }),
 
-  rotateRemotePIN: () =>
+    rotateRemotePIN: () =>
     request<{ success: boolean; security_pin: string; config: any }>('/api/bridge/remote/pin/rotate', {
+      method: 'POST',
+    }),
+
+  startRemoteTunnel: (data: { type: string; custom_url?: string }) =>
+    request<{ success: boolean; tunnel?: any; status?: any }>('/api/bridge/remote/tunnel/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  stopRemoteTunnel: () =>
+    request<{ success: boolean; status?: any }>('/api/bridge/remote/tunnel/stop', {
       method: 'POST',
     }),
 

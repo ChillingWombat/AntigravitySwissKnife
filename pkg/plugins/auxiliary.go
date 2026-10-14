@@ -1378,7 +1378,7 @@ textarea.swiss-prompt-input {
   flex-wrap: wrap;
   gap: 8px;
   font-size: 11px;
-  color: var(--text-muted, #64748b);
+  color: var(--text-secondary, #94a3b8) !important;
   font-variant-numeric: tabular-nums;
   user-select: none;
   white-space: nowrap;
@@ -1391,16 +1391,27 @@ textarea.swiss-prompt-input {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  color: var(--text-muted, #64748b);
+  color: var(--text-secondary, #94a3b8) !important;
+  font-weight: 400 !important;
 }
 .swiss-inchat-metrics .metric-val {
-  font-weight: 600;
-  color: var(--text, #1e293b);
+  font-weight: 500 !important;
+  color: var(--text-secondary, #94a3b8) !important;
 }
 .swiss-inchat-metrics .metric-sep {
-  color: var(--text-muted, #94a3b8);
-  opacity: 0.6;
+  color: var(--text-secondary, #94a3b8) !important;
+  opacity: 0.5 !important;
   margin: 0 2px;
+}
+[data-theme="dark"] .swiss-inchat-metrics,
+.dark .swiss-inchat-metrics,
+[data-theme="dark"] .swiss-inchat-metrics .metric-item,
+.dark .swiss-inchat-metrics .metric-item,
+[data-theme="dark"] .swiss-inchat-metrics .metric-val,
+.dark .swiss-inchat-metrics .metric-val,
+[data-theme="dark"] .swiss-inchat-metrics .metric-sep,
+.dark .swiss-inchat-metrics .metric-sep {
+  color: #94a3b8 !important;
 }
 .swiss-telemetry-badge {
   display: none !important;

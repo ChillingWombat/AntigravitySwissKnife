@@ -20,6 +20,14 @@ import { api } from '../api'
 import type { KanbanBoard, KanbanCard, KanbanColumn } from '../types'
 import { getEffectiveKanbanColumns, findItemColumn } from '../utils/kanban'
 
+export function sanitizeAgentTitle(val?: string): string {
+  if (!val) return ''
+  return val
+    .replace(/<\/?[A-Za-z0-9_-]+(?:>|(?=\s|>))/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 export interface GitHubWorkspacePageProps {
   scope?: string
   fallbackProject?: string
@@ -535,7 +543,8 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
       let grp = groupsMap.get(rootId)
       const tMod = t.last_modified ? new Date(t.last_modified).getTime() : 0
       if (!grp) {
-        const convTitle = t.root_parent_title || (t.conversation_id === rootId ? t.conversation_title : '') || t.conversation_title || `Chat #${rootId.slice(0, 8)}`
+        const rawConvTitle = t.root_parent_title || (t.conversation_id === rootId ? t.conversation_title : '') || t.conversation_title || `Chat #${rootId.slice(0, 8)}`
+        const convTitle = sanitizeAgentTitle(rawConvTitle) || `Chat #${rootId.slice(0, 8)}`
         grp = {
           rootId,
           title: convTitle,
@@ -551,11 +560,11 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
         grp.lastModified = tMod
       }
       if (t.root_parent_title) {
-        grp.title = t.root_parent_title
+        grp.title = sanitizeAgentTitle(t.root_parent_title) || grp.title
       } else if (t.conversation_id === rootId && t.conversation_title) {
-        grp.title = t.conversation_title
+        grp.title = sanitizeAgentTitle(t.conversation_title) || grp.title
       } else if ((!grp.title || grp.title.startsWith('Chat #')) && t.conversation_title) {
-        grp.title = t.conversation_title
+        grp.title = sanitizeAgentTitle(t.conversation_title) || grp.title
       }
 
       const isMain = (!t.nesting_depth || t.nesting_depth === 0) &&
@@ -789,7 +798,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                 boxShadow: viewMode === 'list' && activeTab === 'tasks' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
               }}
             >
-              AGY Agents ({agentTasks.filter((t: any) => !t.is_pruned && (t.not_fully_idle || t.status === 'working')).length})
+              AGY Agents ({agentTasks.filter((t: any) => !t.is_pruned && (agentStatusFilter === 'killed' ? (!t.not_fully_idle && t.status !== 'working') : (t.not_fully_idle || t.status === 'working'))).length})
             </button>
           </div>
         </div>
@@ -1304,7 +1313,9 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
           {activeTab === 'tasks' ? (
             getGroupedAgentTasks().length === 0 ? (
               <div style={{ padding: '24px 16px', textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>
-                No active or matching agents found
+                {agentStatusFilter === 'killed'
+                  ? 'No agents terminated within the last 72 hours'
+                  : 'No active or matching agents found'}
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '10px' }}>
@@ -1320,6 +1331,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                       maxHeight: '380px',
                       display: 'flex',
                       flexDirection: 'column',
+                      flexShrink: 0,
                     }}
                   >
                     {/* Conversation Header */}
@@ -1360,11 +1372,13 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                     </div>
 
                     {/* Agent Cards within this conversation */}
-                    <div style={{ display: 'flex', flexDirection: 'column', overflowY: 'auto', flex: 1 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', overflowY: 'auto', flex: '1 1 auto', minHeight: 0 }}>
                       {group.agents.map((item, idx) => {
                         const isSelected = selectedItem && selectedItem.conversation_id === item.conversation_id
-                        const agentName = item.agent_label || item.conversation_title || item.agent_name || 'Agent'
-                        const workTitle = item.work_item && item.work_item !== agentName ? item.work_item : ''
+                        const rawAgentName = item.agent_label || item.conversation_title || item.agent_name || 'Agent'
+                        const agentName = sanitizeAgentTitle(rawAgentName) || 'Agent'
+                        const rawWorkTitle = item.work_item && item.work_item !== rawAgentName && item.work_item !== agentName ? item.work_item : ''
+                        const workTitle = sanitizeAgentTitle(rawWorkTitle)
 
                         // Resolve work item refs (issues and PRs)
                         const workItems: Array<{ type: 'issue' | 'pr'; number: number; state: string; url?: string; title?: string }> = []
@@ -1443,6 +1457,9 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                               borderBottom: idx === group.agents.length - 1 ? 'none' : '1px solid var(--border)',
                               backgroundColor: isSelected ? 'rgba(26, 115, 232, 0.08)' : 'transparent',
                               cursor: 'pointer',
+                              minHeight: 'fit-content',
+                              flexShrink: 0,
+                              boxSizing: 'border-box',
                             }}
                           >
                             {/* Row 1: Agent Header (Name on left, Steps on right) */}
@@ -1535,7 +1552,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                             </div>
 
                             {/* Optional Work Title / Prompt preview */}
-                            {workTitle ? (
+                            {workTitle && workTitle !== agentName ? (
                               <div
                                 style={{
                                   fontSize: '11px',

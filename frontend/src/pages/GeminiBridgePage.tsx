@@ -380,10 +380,10 @@ export const GeminiBridgePage: React.FC = () => {
               Remote Internet Pipe
             </div>
             <div style={{ fontSize: '16px', fontWeight: 700, color: isTunnelActive ? 'var(--primary)' : 'var(--text-muted)', marginTop: '4px' }}>
-              {isTunnelActive ? (status?.tunnel?.type || 'active').toUpperCase() : 'Local Loopback'}
+              {isTunnelActive ? (status?.tunnel?.type || 'active').toUpperCase() : 'INACTIVE'}
             </div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              {isTunnelActive ? 'Cloudflare / Tailscale' : 'Home Intranet Only'}
+              {isTunnelActive ? (status?.tunnel?.type === 'tailscale' ? 'Tailscale Private VPN' : 'Public HTTPS Tunnel') : 'Remote Access Off'}
             </div>
           </div>
 
@@ -530,25 +530,25 @@ export const GeminiBridgePage: React.FC = () => {
           </div>
 
           <div
-            onClick={() => setTunnelType('loopback')}
+            onClick={() => setTunnelType('custom')}
             style={{
               padding: '12px',
               borderRadius: '8px',
-              border: tunnelType === 'loopback' ? '2px solid var(--primary)' : '1px solid var(--border)',
-              backgroundColor: tunnelType === 'loopback' ? 'var(--canvas)' : '#ffffff',
+              border: tunnelType === 'custom' ? '2px solid var(--primary)' : '1px solid var(--border)',
+              backgroundColor: tunnelType === 'custom' ? 'var(--canvas)' : '#ffffff',
               cursor: 'pointer',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
-                Local Intranet (Loopback)
+                Custom HTTPS Tunnel
               </span>
               <span className="badge-chip badge-neutral">
-                Home WiFi
+                Reverse Proxy
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
-              Strict loopback (127.0.0.1) and LAN access. Perfect for desktop testing or devices on the same home network.
+              Self-hosted Cloudflare Tunnel, ngrok, or reverse proxy endpoint for your custom remote domain.
             </p>
           </div>
         </div>

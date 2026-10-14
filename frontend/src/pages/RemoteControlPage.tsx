@@ -4,6 +4,9 @@ import {
   Copy,
   Check,
   ExternalLink,
+  Play,
+  Square,
+  Network,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
@@ -12,6 +15,9 @@ export const RemoteControlPage: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const [tunnelType, setTunnelType] = useState<string>('quick')
+  const [customTunnelURL, setCustomTunnelURL] = useState<string>('')
+  const [tunnelLoading, setTunnelLoading] = useState(false)
 
   const [status, setStatus] = useState<any>({
     active: false,
@@ -22,6 +28,12 @@ export const RemoteControlPage: React.FC = () => {
     active_google_account: '',
     clients_count: 0,
     last_rotated_at: '',
+    tunnel: {
+      active: false,
+      type: '',
+      gateway_url: '',
+      public_url: '',
+    },
   })
 
   const [config, setConfig] = useState<any>({
@@ -85,6 +97,37 @@ export const RemoteControlPage: React.FC = () => {
     }
   }
 
+  const handleStartTunnel = async () => {
+    try {
+      setTunnelLoading(true)
+      const res = await api.startRemoteTunnel({
+        type: tunnelType,
+        custom_url: customTunnelURL,
+      })
+      if (res && res.success) {
+        await fetchStatusAndConfig()
+      }
+    } catch (err) {
+      console.error('Failed to start remote tunnel:', err)
+    } finally {
+      setTunnelLoading(false)
+    }
+  }
+
+  const handleStopTunnel = async () => {
+    try {
+      setTunnelLoading(true)
+      const res = await api.stopRemoteTunnel()
+      if (res && res.success) {
+        await fetchStatusAndConfig()
+      }
+    } catch (err) {
+      console.error('Failed to stop remote tunnel:', err)
+    } finally {
+      setTunnelLoading(false)
+    }
+  }
+
   const handleSaveConfig = async () => {
     setLoading(true)
     setSaveSuccess(false)
@@ -102,6 +145,11 @@ export const RemoteControlPage: React.FC = () => {
     }
   }
 
+  const isTunnelActive = Boolean(status?.tunnel?.active)
+  const displayUrl = isTunnelActive
+    ? (status?.tunnel?.gateway_url || status?.tunnel?.public_url || status.endpoint_url)
+    : (status.endpoint_url || `http://127.0.0.1:${config.port}/remote`)
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* 1. Header & Live Status Bar */}
@@ -115,9 +163,14 @@ export const RemoteControlPage: React.FC = () => {
               <span className={`badge-chip ${status.active ? 'badge-green' : 'badge-neutral'}`}>
                 {status.active ? 'Listener Online' : 'Standby'}
               </span>
+              {isTunnelActive && (
+                <span className="badge-chip badge-blue">
+                  Remote Tunnel Active
+                </span>
+              )}
             </div>
             <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-              Wraps Antigravity remote control with persistent session re-binding across Google account switches.
+              Wraps Antigravity remote control with persistent session re-binding across Google account switches for out-of-home access.
             </p>
           </div>
 
@@ -132,8 +185,8 @@ export const RemoteControlPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Status Metrics Grid (harmonized with BrainCachePage & TokenMonitorPage) */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+        {/* Status Metrics Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
           <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
               Account Resilience
@@ -143,6 +196,18 @@ export const RemoteControlPage: React.FC = () => {
             </div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
               Survives account rotations
+            </div>
+          </div>
+
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              Remote Internet Pipe
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: isTunnelActive ? 'var(--primary)' : 'var(--text-muted)', marginTop: '4px' }}>
+              {isTunnelActive ? (status?.tunnel?.type || 'active').toUpperCase() : 'INACTIVE'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              {isTunnelActive ? (status?.tunnel?.type === 'tailscale' ? 'Tailscale Private VPN' : 'Public HTTPS Tunnel') : 'Remote Access Off'}
             </div>
           </div>
 
@@ -204,14 +269,14 @@ export const RemoteControlPage: React.FC = () => {
             }}
           >
             <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Remote Web App URL
+              {isTunnelActive ? 'Remote Public HTTPS URL (Out-of-Home)' : 'Local Host URL'}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <code style={{ fontSize: '13px', flex: 1, color: 'var(--text)', wordBreak: 'break-all' }}>
-                {status.endpoint_url || `http://${config.bind_addr}:${config.port}/remote`}
+                {displayUrl}
               </code>
               <button
-                onClick={() => copyToClipboard(status.endpoint_url || `http://${config.bind_addr}:${config.port}/remote`, 'url')}
+                onClick={() => copyToClipboard(displayUrl, 'url')}
                 className="btn-pill-tonal"
                 style={{ padding: '6px 12px', fontSize: '12px' }}
               >
@@ -219,7 +284,7 @@ export const RemoteControlPage: React.FC = () => {
                 <span>{copied === 'url' ? 'Copied' : 'Copy'}</span>
               </button>
               <a
-                href={status.endpoint_url || `http://127.0.0.1:${config.port}/remote`}
+                href={displayUrl}
                 target="_blank"
                 rel="noreferrer"
                 className="btn-pill-outlined"
@@ -282,20 +347,150 @@ export const RemoteControlPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. Configuration Settings */}
+      {/* 3. Out-of-Home Remote Internet Access (Tunneling) */}
+      <div className="google-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
+          <div>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '4px' }}>
+              Remote Internet Access (Out-of-Home Access)
+            </div>
+            <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
+              Dedicated strictly for when you are away from home and away from your PC. Access your Antigravity sessions securely via public HTTPS or private VPN.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {isTunnelActive ? (
+              <button
+                onClick={handleStopTunnel}
+                disabled={tunnelLoading}
+                className="btn-pill-danger"
+              >
+                <Square size={13} />
+                <span>{tunnelLoading ? 'Stopping...' : 'Stop Remote Access'}</span>
+              </button>
+            ) : (
+              <button
+                onClick={handleStartTunnel}
+                disabled={tunnelLoading}
+                className="btn-pill-primary"
+              >
+                <Play size={13} />
+                <span>{tunnelLoading ? 'Connecting...' : 'Start Remote Access'}</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Tunnel Options Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px', marginBottom: '12px' }}>
+          <div
+            onClick={() => setTunnelType('quick')}
+            style={{
+              padding: '12px',
+              borderRadius: '8px',
+              border: tunnelType === 'quick' ? '2px solid var(--primary)' : '1px solid var(--border)',
+              backgroundColor: tunnelType === 'quick' ? 'var(--canvas)' : '#ffffff',
+              cursor: 'pointer',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Network size={14} color="var(--primary)" />
+                <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
+                  Quick Tunnel (Recommended)
+                </span>
+              </div>
+              <span className="badge-chip badge-green">
+                Zero Signup
+              </span>
+            </div>
+            <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
+              Generates trusted public HTTPS URL automatically via bundled sidecar. No accounts or software installation required.
+            </p>
+          </div>
+
+          <div
+            onClick={() => setTunnelType('tailscale')}
+            style={{
+              padding: '12px',
+              borderRadius: '8px',
+              border: tunnelType === 'tailscale' ? '2px solid var(--primary)' : '1px solid var(--border)',
+              backgroundColor: tunnelType === 'tailscale' ? 'var(--canvas)' : '#ffffff',
+              cursor: 'pointer',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
+                Tailscale Network
+              </span>
+              <span className="badge-chip badge-blue">
+                Private VPN
+              </span>
+            </div>
+            <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
+              Routes through your personal Tailnet or Tailscale Funnel. Ideal if your phone or tablet is connected to Tailscale.
+            </p>
+          </div>
+
+          <div
+            onClick={() => setTunnelType('custom')}
+            style={{
+              padding: '12px',
+              borderRadius: '8px',
+              border: tunnelType === 'custom' ? '2px solid var(--primary)' : '1px solid var(--border)',
+              backgroundColor: tunnelType === 'custom' ? 'var(--canvas)' : '#ffffff',
+              cursor: 'pointer',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
+                Custom HTTPS Tunnel
+              </span>
+              <span className="badge-chip badge-neutral">
+                Reverse Proxy
+              </span>
+            </div>
+            <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
+              Self-hosted Cloudflare Tunnel, ngrok, or reverse proxy endpoint for your custom remote domain.
+            </p>
+          </div>
+        </div>
+
+        {tunnelType === 'custom' && (
+          <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+            <input
+              type="text"
+              placeholder="https://your-domain.com/remote"
+              value={customTunnelURL}
+              onChange={(e) => setCustomTunnelURL(e.target.value)}
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                fontSize: '12px',
+                borderRadius: '6px',
+                border: '1px solid var(--border)',
+                backgroundColor: '#ffffff',
+              }}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* 4. Configuration Settings */}
       <div className="google-card">
         <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
           Remote Configuration
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
             <div>
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
                 Listening Port
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                TCP port for remote web app server.
+                Local loopback TCP port for remote web app server.
               </div>
               <input
                 type="number"
@@ -303,23 +498,6 @@ export const RemoteControlPage: React.FC = () => {
                 onChange={(e) => setConfig({ ...config, port: parseInt(e.target.value, 10) || 8766 })}
                 style={{ width: '100%' }}
               />
-            </div>
-
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
-                Bind Address
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                Network interface address.
-              </div>
-              <select
-                value={config.bind_addr}
-                onChange={(e) => setConfig({ ...config, bind_addr: e.target.value })}
-                style={{ width: '100%' }}
-              >
-                <option value="127.0.0.1">127.0.0.1 (Loopback only)</option>
-                <option value="0.0.0.0">0.0.0.0 (Local Network LAN)</option>
-              </select>
             </div>
 
             <div>
@@ -384,7 +562,7 @@ export const RemoteControlPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 4. Step-by-Step Guidance */}
+      {/* 5. Step-by-Step Guidance */}
       <div className="google-card">
         <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
           Architecture & Guidance
@@ -402,10 +580,10 @@ export const RemoteControlPage: React.FC = () => {
 
           <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
             <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
-              Access from Mobile or Second Screen
+              Out-of-Home Access from Mobile or Laptop
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              When Bind Address is set to <code>0.0.0.0</code> or routed via Cloudflare Quick Tunnel / Tailscale, open the URL on your tablet or smartphone, enter the 6-digit Security PIN once, and monitor or steer agents seamlessly.
+              The wrapper is strictly designed for when you are away from home and away from your PC. Start a Quick Tunnel (public HTTPS) or connect via Tailscale Network, enter your 6-digit Security PIN on your mobile device, and monitor or steer agents seamlessly.
             </div>
           </div>
 
@@ -414,7 +592,7 @@ export const RemoteControlPage: React.FC = () => {
               Security Protocol
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              All connections require matching the 6-digit Security PIN. If you need to revoke access immediately, click <em>Rotate PIN</em> to terminate existing view sessions instantly.
+              All remote view connections require matching the 6-digit Security PIN. If you need to revoke access immediately, click <em>Rotate PIN</em> to terminate existing view sessions instantly.
             </div>
           </div>
         </div>
