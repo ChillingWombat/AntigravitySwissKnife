@@ -560,7 +560,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = () => {
                   }}
                   placeholder="http://localhost:8765"
                 />
-                <div style={{ display: 'flex', gap: '4px' }}>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                   {['8765', '5173', '3000', '8080'].map((port) => (
                     <button
                       key={port}

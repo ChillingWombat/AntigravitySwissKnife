@@ -1166,7 +1166,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                 sortedPricingList.map((pr) => {
                   const provLower = (pr.provider || '').toLowerCase()
                   return (
-                    <tr key={`${pr.canonical_id || pr.model_id}-${pr.internal_id}`} style={{ borderBottom: '1px solid #f1f3f4' }}>
+                    <tr key={`${pr.canonical_id || pr.model_id}-${pr.internal_id}`} style={{ borderBottom: '1px solid var(--border)' }}>
                       <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text)', textAlign: 'left' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                           <span>{pr.model_name || pr.name}</span>
@@ -1455,11 +1455,11 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     title="Delete custom/outdated model price and usage history"
                     style={{
                       backgroundColor: 'transparent',
-                      border: '1px solid #fad2cf',
+                      border: '1px solid var(--border-danger)',
                       borderRadius: '6px',
                       padding: '8px 14px',
                       fontSize: '13px',
-                      color: '#b3261e',
+                      color: 'var(--red)',
                       cursor: 'pointer',
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -1833,8 +1833,8 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     </tr>
                   ) : (
                     filteredTelemetryEvents.map((ev) => (
-                  <tr key={ev.id} style={{ borderBottom: '1px solid #f1f3f4' }}>
-                    <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>{ev.timestamp}</td>
+                    <tr key={ev.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>{ev.timestamp}</td>
                     <td style={{ padding: '10px 12px' }}>
                       <div style={{ fontWeight: 600, color: 'var(--text)' }}>{ev.project}</div>
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>

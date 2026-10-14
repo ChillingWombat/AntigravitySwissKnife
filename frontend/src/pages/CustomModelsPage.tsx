@@ -1701,7 +1701,7 @@ export const CustomModelsPage: React.FC = () => {
                           padding: '4px 0',
                         }}
                       >
-                        <div style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 600, color: 'var(--text-subtle)', borderBottom: '1px solid #f1f3f4', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 600, color: 'var(--text-subtle)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span>
                             {modelName.trim()
                               ? `Available Models (${filteredFetchedModels.length} of ${fetchedModels.length})`
@@ -1739,7 +1739,7 @@ export const CustomModelsPage: React.FC = () => {
                                   alignItems: 'center',
                                   justifyContent: 'space-between',
                                   fontFamily: 'monospace',
-                                  borderBottom: '1px solid #f8f9fa',
+                                  borderBottom: '1px solid var(--border-subtle)',
                                   transition: 'background 0.15s ease',
                                 }}
                                 onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f1f3f4')}
@@ -1872,7 +1872,7 @@ export const CustomModelsPage: React.FC = () => {
                             padding: '4px 0',
                           }}
                         >
-                          <div style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 600, color: 'var(--text-subtle)', borderBottom: '1px solid #f1f3f4' }}>
+                          <div style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 600, color: 'var(--text-subtle)', borderBottom: '1px solid var(--border)' }}>
                             Select Reasoning Level Preset
                           </div>
                           {presets.map((lvl) => (
@@ -2138,7 +2138,7 @@ export const CustomModelsPage: React.FC = () => {
                         </label>
                       </div>
 
-                      <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
+                      <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', flexWrap: 'wrap' }}>
                         {[
                           { id: 'balance' as QuotaType, label: 'Balance Mode' },
                           { id: 'quota' as QuotaType, label: 'Quota Mode' },

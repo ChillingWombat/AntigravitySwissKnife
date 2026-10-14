@@ -251,3 +251,18 @@ When accounts and credentials are exported to JSON (via `/api/accounts/export`, 
 - `go test ./pkg/quota/... ./pkg/webgui/... ./pkg/keyring/...`
 - `npm run test:run` or `npx vitest run`
 - `npm run build`
+
+## 2026-10-15T05:01:40Z
+
+Proceed with Phase 4 implementation for P2/P3 Codebase Quality, UI Standards, and Infrastructure Deficits (Issues #59 and #60):
+- Issue #59 (UI Standards, Canned Stub Elimination & Frontend Resilience):
+  1. Tokenized Borders: Replace hardcoded hex borders (`#e2e8f0`, `#cbd5e1`, etc.) across frontend files (including `AppEnhancementsPage.tsx`) with 1px tokenized borders (`border-border`, `var(--border)`).
+  2. Elimination of Canned Stubs: Replace canned bridge stubs (ComputerUse screenshots and channel tests) with real functional execution or explicit "not configured" status indicators per Zero Artificial Previews rule.
+  3. Frontend API Resilience: Add timeout handling and AbortController cancellation in `frontend/src/api.ts` to prevent out-of-order race conditions on polling requests.
+  4. Layout Invariants: Guarantee single-line action labels (`white-space: nowrap`) and flex-wrapping tag containers.
+- Issue #60 (Test & Infrastructure Modernization):
+  1. CI workflow for `go test -race ./pkg/...`.
+  2. Frontend component-level tests asserting actual module and component behavior.
+  3. Continuous security regression tests enforcing loopback auth, credential scrubbing, and path jail constraints.
+
+Execute on dedicated feature branches, dispatch workers and gate reviewers, submit PRs referencing the issues, merge into main, verify repo-wide test suites pass, compile production artifacts, cleanly relaunch running desktop/daemon, and verify health endpoints with zero local drift on origin/main.

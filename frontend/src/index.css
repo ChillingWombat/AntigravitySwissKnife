@@ -20,6 +20,10 @@
   --yellow-bg: #fef7e0;
   --red: #b3261e;
   --red-bg: #fce8e6;
+  --border-success: #ceead6;
+  --border-danger: #fad2cf;
+  --border-warning: #feefc3;
+  --border-info: #d2e3fc;
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
 
@@ -200,11 +204,15 @@ input:focus, select:focus, textarea:focus {
 .badge-blue {
   background-color: #e8f0fe;
   color: #1a73e8;
-  border: 1px solid #d2e3fc;
+  border: 1px solid var(--border-info, #d2e3fc);
 }
 .badge-neutral {
   background-color: var(--tonal);
   color: var(--text-muted);
+}
+
+.border-border {
+  border: 1px solid var(--border);
 }
 
 @keyframes kofi-wiggle {

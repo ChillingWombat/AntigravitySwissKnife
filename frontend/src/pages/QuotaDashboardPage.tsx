@@ -592,7 +592,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                       fontWeight: 600,
                       color: '#b06000',
                       backgroundColor: '#fef7e0',
-                      border: '1px solid #feefc3',
+                      border: '1px solid var(--border-warning)',
                       borderRadius: '12px',
                       padding: '2px 8px',
                     }}
@@ -612,7 +612,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                       fontWeight: 600,
                       color: '#c5221f',
                       backgroundColor: '#fce8e6',
-                      border: '1px solid #fad2cf',
+                      border: '1px solid var(--border-danger)',
                       borderRadius: '12px',
                       padding: '2px 8px',
                     }}
@@ -1168,7 +1168,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                                   fontWeight: 700,
                                   color: '#137333',
                                   backgroundColor: '#e6f4ea',
-                                  border: '1px solid #ceead6',
+                                  border: '1px solid var(--border-success)',
                                   padding: '1px 6px',
                                   borderRadius: '10px',
                                   flexShrink: 0,
@@ -1323,7 +1323,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                           gap: '4px',
                           color: '#c5221f',
                           backgroundColor: '#fce8e6',
-                          border: '1px solid #fad2cf',
+                          border: '1px solid var(--border-danger)',
                           cursor: 'pointer',
                         }}
                         title="Account suspended or banned (Click to view details)"
@@ -1346,7 +1346,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                           gap: '4px',
                           color: '#b06000',
                           backgroundColor: '#fef7e0',
-                          border: '1px solid #feefc3',
+                          border: '1px solid var(--border-warning)',
                           cursor: 'pointer',
                         }}
                         title="Authentication or verification error (Click to view details)"
@@ -1522,7 +1522,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                                   gap: '4px',
                                   color: '#b06000',
                                   backgroundColor: '#fef7e0',
-                                  border: '1px solid #feefc3',
+                                  border: '1px solid var(--border-warning)',
                                   fontWeight: 600,
                                 }}
                                 title={
@@ -1577,7 +1577,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                                 gap: '4px',
                                 color: '#1a73e8',
                                 backgroundColor: '#e8f0fe',
-                                border: '1px solid #d2e3fc',
+                                border: '1px solid var(--border-info)',
                                 fontWeight: 600,
                                 cursor: 'default',
                               }}

@@ -138,8 +138,8 @@ export const DiscordBridgePage: React.FC = () => {
               <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                 Discord Agent Chat Bridge
               </h2>
-              <span className={`badge-chip ${dsStatus.enabled ? 'badge-green' : 'badge-neutral'}`}>
-                {dsStatus.enabled ? (dsStatus.connected ? 'Connected' : 'Listening') : 'Disabled'}
+              <span className={`badge-chip ${dsStatus.enabled ? (dsStatus.connected ? 'badge-green' : 'badge-yellow') : 'badge-neutral'}`}>
+                {dsStatus.enabled ? (dsStatus.connected ? 'Configured' : 'Not Configured') : 'Disabled'}
               </span>
             </div>
             <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
@@ -171,7 +171,7 @@ export const DiscordBridgePage: React.FC = () => {
             style={{
               padding: '10px 14px',
               borderRadius: '8px',
-              border: `1px solid ${testResult.success ? '#bbf7d0' : '#fecaca'}`,
+              border: testResult.success ? '1px solid var(--green, #137333)' : '1px solid var(--red, #b3261e)',
               backgroundColor: testResult.success ? 'var(--green-bg)' : 'var(--red-bg)',
               fontSize: '12px',
               color: testResult.success ? 'var(--green)' : 'var(--red)',

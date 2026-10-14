@@ -145,7 +145,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
           style={{
             backgroundColor: '#e6f4ea',
             color: '#137333',
-            border: '1px solid #ceead6',
+            border: '1px solid var(--border-success)',
             borderRadius: '8px',
             padding: '10px 16px',
             fontSize: '13px',
@@ -351,7 +351,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                   </div>
 
                   {/* Shared Tools Tag List */}
-                  <div style={{ borderTop: '1px solid #f1f3f4', paddingTop: '8px' }}>
+                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px' }}>
                     <span
                       style={{
                         fontSize: '11px',
@@ -403,7 +403,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                   style={{
                     display: 'flex',
                     justifyContent: 'flex-end',
-                    borderTop: '1px solid #f1f3f4',
+                    borderTop: '1px solid var(--border)',
                     paddingTop: '8px',
                     marginTop: '4px',
                   }}
@@ -503,7 +503,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
               <div
                 key={log.id}
                 style={{
-                  border: '1px solid #f1f3f4',
+                  border: '1px solid var(--border)',
                   borderRadius: '8px',
                   padding: '10px 14px',
                   backgroundColor: '#fafafa',

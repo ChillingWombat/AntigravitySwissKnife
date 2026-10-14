@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -372,8 +373,27 @@ func (s *Service) DetectSurfaces() SurfaceStatus {
 		}
 	}
 
-	surfaces.VSCodeConnected = true
+	surfaces.VSCodeConnected = isVSCodeRunning()
 	return surfaces
+}
+
+// isVSCodeRunning checks whether a VS Code process is currently active on the host.
+func isVSCodeRunning() bool {
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("tasklist", "/FI", "IMAGENAME eq Code.exe", "/NH")
+	} else {
+		cmd = exec.Command("pgrep", "-f", "code")
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	s := strings.ToLower(string(out))
+	if runtime.GOOS == "windows" {
+		return strings.Contains(s, "code.exe")
+	}
+	return strings.TrimSpace(s) != ""
 }
 
 // GetStatus returns the live snapshot of Gemini Bridge.
