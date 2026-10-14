@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -691,6 +692,10 @@ func (s *Store) save() error {
 	tmp := s.accountsPath + ".tmp"
 	if err := os.WriteFile(tmp, data, 0600); err != nil {
 		return err
+	}
+	// On Windows, os.Rename / MoveFileExW fails if destination has read-only attribute.
+	if runtime.GOOS == "windows" {
+		_ = os.Chmod(s.accountsPath, 0666)
 	}
 	return os.Rename(tmp, s.accountsPath)
 }

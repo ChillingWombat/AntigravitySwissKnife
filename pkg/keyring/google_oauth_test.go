@@ -338,3 +338,67 @@ func TestGoogleOAuth_Exchange_CSRFValidation(t *testing.T) {
 	}
 }
 
+// TestGoogleOAuth_CallbackEndpoint_DoSProtection tests that unauthenticated requests or local port probes
+// with missing or forged OAuth state receive HTTP 400 Bad Request, but do NOT shut down the loopback
+// server or abort the active flow.
+//
+// Beginner Explanation:
+// When a user logs in with Google, our application launches a local HTTP server (e.g., http://127.0.0.1:54321/oauth/callback)
+// and opens Google's login page in the browser.
+// If another program on the computer (like an antivirus, port scanner, or browser probe) sends a request to this port
+// with an invalid or missing state parameter, our server should reject that specific request with HTTP 400 Bad Request.
+// However, it must NOT close the server or cancel the login flow! If it did, when the actual user finishes logging in
+// at Google and Google redirects back to our server, the server would be dead (connection refused).
+// This test verifies that after an invalid probe, IsFlowActive() remains true and the server continues to accept connections.
+func TestGoogleOAuth_CallbackEndpoint_DoSProtection(t *testing.T) {
+	mgr := NewGoogleOAuthManager("test-client", "test-secret")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	flowResult := make(chan error, 1)
+	go func() {
+		_, err := mgr.StartFlow(ctx, false)
+		flowResult <- err
+	}()
+
+	// Wait briefly for the loopback server to bind and become active
+	time.Sleep(50 * time.Millisecond)
+	if !mgr.IsFlowActive() {
+		t.Fatalf("expected flow to be active")
+	}
+
+	authURL := mgr.GetActiveAuthURL()
+	u, err := url.Parse(authURL)
+	if err != nil {
+		t.Fatalf("failed to parse authURL: %v", err)
+	}
+	redirectURI := u.Query().Get("redirect_uri")
+	realState := mgr.GetActiveState()
+
+	// 1. Attack probe with forged state: should get HTTP 400 Bad Request
+	resp, err := http.Get(redirectURI + "?state=forged_state&code=4/fake")
+	if err != nil {
+		t.Fatalf("probe request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected HTTP 400 Bad Request for forged state, got %d", resp.StatusCode)
+	}
+
+	// 2. Flow must STILL be active (not aborted by the probe)
+	time.Sleep(20 * time.Millisecond)
+	if !mgr.IsFlowActive() {
+		t.Fatalf("VULNERABILITY DETECTED: Loopback server closed after invalid state probe!")
+	}
+
+	// 3. Legitimate user connection succeeds (confirm server is still actively listening)
+	// We simulate Google redirecting with access_denied error and valid state.
+	respLegit, err := http.Get(redirectURI + "?state=" + realState + "&error=access_denied")
+	if err != nil {
+		t.Fatalf("legitimate callback failed to connect to loopback server: %v", err)
+	}
+	respLegit.Body.Close()
+
+	mgr.CancelFlow()
+}
+

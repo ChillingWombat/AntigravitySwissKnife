@@ -397,17 +397,25 @@ func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*
 			return
 		}
 
-		// Enforce CSRF state verification before any token exchange
+		// Enforce CSRF state verification before any token exchange.
+		// Detailed explanation:
+		// Parameters:
+		//   callbackState - the opaque cryptographic token passed back in the URL query string ("state=...").
+		// Purpose:
+		//   ValidateAndConsume checks that callbackState matches an active flow in our state cache and has not
+		//   been replayed. If validation fails (e.g., from an unauthorized local probe or port scanner),
+		//   we reject the caller with HTTP 400 Bad Request.
+		// Crucial DoS Protection:
+		//   We intentionally do NOT dispatch an error to flow.err here. Sending to flow.err would cause
+		//   StartFlow to immediately close the loopback HTTP server and cancel the login flow.
+		//   By returning without signaling flow.err, the server stays listening on 127.0.0.1 so that
+		//   the legitimate user redirect from Google can still succeed when it arrives.
 		callbackState := r.URL.Query().Get("state")
 		valid, reason := m.getStateCache().ValidateAndConsume(callbackState)
 		if !valid {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write(renderErrorHTML("Security Error: Invalid State", reason))
-			select {
-			case flow.err <- fmt.Errorf("oauth state error: %s", reason):
-			default:
-			}
 			return
 		}
 

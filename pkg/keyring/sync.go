@@ -33,6 +33,19 @@ func SetTokenRefreshCallback(cb func(acc *Account)) {
 }
 
 // writeAtomic writes data to targetPath atomically via temp file in the same directory, fsync, and rename.
+// Detailed explanation for beginner developers:
+// Parameters:
+//   targetPath - destination file path (e.g. "/path/to/tokens.json")
+//   data       - raw bytes to write into the file
+//   perm       - desired file permission mode (e.g. 0600 or 0400 for read-only)
+// Why atomic write?
+//   Writing directly to targetPath can leave a corrupted or partial file if the application is interrupted.
+//   Instead, we create a temporary file in the same directory, write and sync data, and rename it over targetPath.
+// Windows read-only file handling:
+//   On Windows, Win32 MoveFileExW (invoked by os.Rename) fails with "Access is denied" if targetPath exists
+//   with the read-only attribute set (e.g. mode 0444/0400). To overcome this, on Windows we temporarily make targetPath
+//   writable (0666) immediately before os.Rename, and then re-apply the requested perm mode after successful rename.
+//   Similarly, temp file cleanup in defer ensures tmpPath is writable before attempting deletion.
 func writeAtomic(targetPath string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(targetPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -44,6 +57,9 @@ func writeAtomic(targetPath string, data []byte, perm os.FileMode) error {
 	}
 	tmpPath := tmpFile.Name()
 	defer func() {
+		if runtime.GOOS == "windows" {
+			_ = os.Chmod(tmpPath, 0666)
+		}
 		_ = os.Remove(tmpPath)
 	}()
 
@@ -64,8 +80,12 @@ func writeAtomic(targetPath string, data []byte, perm os.FileMode) error {
 	}
 
 	for i := 0; i < 50; i++ {
+		if runtime.GOOS == "windows" {
+			_ = os.Chmod(targetPath, 0666)
+		}
 		err = os.Rename(tmpPath, targetPath)
 		if err == nil {
+			_ = os.Chmod(targetPath, perm)
 			return nil
 		}
 		if runtime.GOOS == "windows" {
@@ -827,6 +847,11 @@ func (j *syncJournal) RecordFile(targetPath string) error {
 			j.actions = append(j.actions, journalAction{
 				description: fmt.Sprintf("delete newly created %s", cleanPath),
 				rollback: func() error {
+					// On Windows, read-only files cannot be removed by DeleteFileW.
+					// Ensure writable permissions (0666) so rollback deletion succeeds.
+					if runtime.GOOS == "windows" {
+						_ = os.Chmod(cleanPath, 0666)
+					}
 					if err := os.Remove(cleanPath); err != nil && !os.IsNotExist(err) {
 						return err
 					}

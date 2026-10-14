@@ -293,3 +293,74 @@ func TestSyncAllSurfaces_CleansUpNewlyCreatedFilesOnFailure(t *testing.T) {
 	}
 }
 
+// TestSyncJournal_ReadOnlyRollback tests that sync journal rollback succeeds when restoring pre-existing
+// read-only files (e.g., mode 0444/0400) on all operating systems including Windows.
+//
+// Beginner Explanation:
+// In operating systems like Windows, if a file has the "read-only" attribute set, standard file replacement
+// via MoveFileExW / os.Rename fails with "Access is denied" unless the read-only attribute is temporarily cleared.
+// During an account sync operation, if an unexpected error occurs (such as disk full or network error),
+// the sync journal rolls back all changes to restore the user's previous configuration.
+// If the user's previous configuration file was read-only, our rollback mechanism must be able to overwrite it
+// and restore the original content and permissions without failing.
+func TestSyncJournal_ReadOnlyRollback(t *testing.T) {
+	tmpDir := t.TempDir()
+	targetPath := filepath.Join(tmpDir, "readonly.json")
+	origContent := []byte(`{"key":"original_value"}`)
+
+	// Create file with read-only permission (0444)
+	if err := os.WriteFile(targetPath, origContent, 0444); err != nil {
+		t.Fatalf("failed to write initial read-only file: %v", err)
+	}
+
+	journal := newSyncJournal()
+	if err := journal.RecordFile(targetPath); err != nil {
+		t.Fatalf("failed to record file in journal: %v", err)
+	}
+
+	// Modify the file to simulate partial sync changes.
+	// On Windows, to overwrite a 0444 file we must make it writable first:
+	if runtime.GOOS == "windows" {
+		_ = os.Chmod(targetPath, 0666)
+	}
+	modifiedContent := []byte(`{"key":"modified_value"}`)
+	if err := os.WriteFile(targetPath, modifiedContent, 0444); err != nil {
+		t.Fatalf("failed to modify file: %v", err)
+	}
+
+	// Rollback must succeed without returning "Access is denied"
+	if err := journal.Rollback(); err != nil {
+		t.Fatalf("Rollback failed on read-only file: %v", err)
+	}
+
+	// Verify original content was restored
+	restored, err := os.ReadFile(targetPath)
+	if err != nil {
+		t.Fatalf("failed to read restored file: %v", err)
+	}
+	if string(restored) != string(origContent) {
+		t.Fatalf("content not restored: expected %s, got %s", origContent, restored)
+	}
+
+	// Also test rollback when a newly created file was marked read-only before rollback
+	newReadOnlyFile := filepath.Join(tmpDir, "new_readonly.json")
+	journal2 := newSyncJournal()
+	if err := journal2.RecordFile(newReadOnlyFile); err != nil {
+		t.Fatalf("failed to record non-existent file in journal: %v", err)
+	}
+
+	// Create new file as read-only
+	if err := os.WriteFile(newReadOnlyFile, []byte(`{"created":"new"}`), 0444); err != nil {
+		t.Fatalf("failed to create new read-only file: %v", err)
+	}
+
+	// Rollback should delete the newly created read-only file cleanly
+	if err := journal2.Rollback(); err != nil {
+		t.Fatalf("Rollback failed to delete newly created read-only file: %v", err)
+	}
+
+	if _, err := os.Stat(newReadOnlyFile); !os.IsNotExist(err) {
+		t.Fatalf("expected newly created read-only file to be deleted by rollback, but it still exists")
+	}
+}
+
