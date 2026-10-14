@@ -98,7 +98,13 @@ export function cancelAllInFlightRequests(): void {
  */
 export function isAbortError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false
-  return (err as any).name === 'AbortError' || (err as any).message?.includes('Aborted') || (err as any).message?.includes('Cancelled')
+  return (
+    (err as any).name === 'AbortError' ||
+    (err as any).name === 'TimeoutError' ||
+    (err as any).message?.includes('Aborted') ||
+    (err as any).message?.includes('Cancelled') ||
+    (err as any).message?.includes('timed out')
+  )
 }
 
 /**
@@ -156,11 +162,24 @@ export async function request<T>(url: string, options?: RequestOptions): Promise
       signal: controller.signal,
     }
     const res = await fetch(url, fetchOptions)
+    if (controller.signal.aborted) {
+      throw controller.signal.reason || new DOMException('The operation was aborted', 'AbortError')
+    }
     if (!res.ok) {
       const text = await res.text()
+      if (controller.signal.aborted) {
+        throw controller.signal.reason || new DOMException('The operation was aborted', 'AbortError')
+      }
       throw new Error(formatErrorMessage(text, res.status))
     }
-    return (await res.json()) as T
+    if (res.status === 204) {
+      return {} as T
+    }
+    const data = (await res.json()) as T
+    if (controller.signal.aborted) {
+      throw controller.signal.reason || new DOMException('The operation was aborted', 'AbortError')
+    }
+    return data
   } catch (err: any) {
     if (didTimeout) {
       throw new Error(`Request timed out after ${timeoutMs}ms: ${url}`)

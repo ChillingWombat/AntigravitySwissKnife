@@ -309,7 +309,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
                     fontSize: '12px',
                     fontWeight: 600,
                     cursor: 'pointer',
-                    border: selectedCategory === cat ? '1px solid var(--primary, #0b57d0)' : '1px solid var(--border)',
+                    border: selectedCategory === cat ? '1px solid var(--primary)' : '1px solid var(--border)',
                     background: selectedCategory === cat ? '#0b57d0' : '#ffffff',
                     color: selectedCategory === cat ? '#ffffff' : '#475569',
                     transition: 'all 0.15s ease',
@@ -363,7 +363,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
                 onMouseEnter={(e) => {
                   e.currentTarget.style.transform = 'translateY(-2px)'
                   e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.08)'
-                  e.currentTarget.style.borderColor = '#93c5fd'
+                  e.currentTarget.style.borderColor = 'var(--primary)'
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.transform = 'translateY(0)'
@@ -548,9 +548,9 @@ export const ScheduledTemplatesPage: React.FC = () => {
                   marginBottom: '16px',
                   fontSize: '13px',
                   fontWeight: 500,
-                  background: modalMsg.type === 'success' ? '#f0fdf4' : '#fef2f2',
-                  color: modalMsg.type === 'success' ? '#166534' : '#991b1b',
-                  border: `1px solid ${modalMsg.type === 'success' ? '#bbf7d0' : '#fecaca'}`,
+                  background: modalMsg.type === 'success' ? 'var(--green-bg)' : 'var(--red-bg)',
+                  color: modalMsg.type === 'success' ? 'var(--green)' : 'var(--red)',
+                  border: `1px solid ${modalMsg.type === 'success' ? 'var(--border-success)' : 'var(--border-danger)'}`,
                 }}
               >
                 {modalMsg.text}
@@ -823,9 +823,9 @@ export const ScheduledTemplatesPage: React.FC = () => {
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
-                  background: editModalMsg.type === 'success' ? 'var(--green-bg)' : '#fce8e6',
-                  border: `1px solid ${editModalMsg.type === 'success' ? 'var(--green)' : '#fecaca'}`,
-                  color: editModalMsg.type === 'success' ? 'var(--green)' : '#b3261e',
+                  background: editModalMsg.type === 'success' ? 'var(--green-bg)' : 'var(--red-bg)',
+                  border: `1px solid ${editModalMsg.type === 'success' ? 'var(--border-success)' : 'var(--border-danger)'}`,
+                  color: editModalMsg.type === 'success' ? 'var(--green)' : 'var(--red)',
                 }}
               >
                 {editModalMsg.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}

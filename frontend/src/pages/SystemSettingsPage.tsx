@@ -718,19 +718,19 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                     borderRadius: '6px',
                     fontSize: '12px',
                     fontWeight: 600,
-                    backgroundColor: 'var(--yellow-bg, #fef7e0)',
-                    color: 'var(--yellow, #b06000)',
-                    border: '1px solid #f9ab00',
+                    backgroundColor: 'var(--yellow-bg)',
+                    color: 'var(--yellow)',
+                    border: '1px solid var(--border-warning)',
                     cursor: isStartingDaemon ? 'wait' : 'pointer',
                     transition: 'all 0.15s ease',
                     whiteSpace: 'nowrap',
                     boxShadow: 'var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.05))',
                   }}
                   onMouseEnter={(e) => {
-                    if (!isStartingDaemon) e.currentTarget.style.backgroundColor = '#fde293'
+                    if (!isStartingDaemon) e.currentTarget.style.backgroundColor = 'var(--yellow-bg)'
                   }}
                   onMouseLeave={(e) => {
-                    if (!isStartingDaemon) e.currentTarget.style.backgroundColor = 'var(--yellow-bg, #fef7e0)'
+                    if (!isStartingDaemon) e.currentTarget.style.backgroundColor = 'var(--yellow-bg)'
                   }}
                 >
                   <Play size={12} fill="currentColor" />
@@ -755,7 +755,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                     padding: '14px 16px',
                     borderRadius: '8px',
                     backgroundColor: runtimeMode === 'app' ? 'var(--accent-subtle, rgba(59, 130, 246, 0.08))' : 'var(--canvas)',
-                    border: runtimeMode === 'app' ? '1px solid var(--accent, #3b82f6)' : '1px solid var(--border)',
+                    border: runtimeMode === 'app' ? '1px solid var(--primary)' : '1px solid var(--border)',
                     cursor: savingRuntimeMode ? 'wait' : 'pointer',
                     transition: 'all 0.15s ease',
                     display: 'flex',
@@ -766,7 +766,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <AppWindow size={16} color={runtimeMode === 'app' ? 'var(--accent, #3b82f6)' : 'var(--text-muted)'} />
+                        <AppWindow size={16} color={runtimeMode === 'app' ? 'var(--primary)' : 'var(--text-muted)'} />
                         <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                           App Mode (Default)
                         </span>
@@ -791,7 +791,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                     padding: '14px 16px',
                     borderRadius: '8px',
                     backgroundColor: runtimeMode === 'daemon' ? 'var(--accent-subtle, rgba(59, 130, 246, 0.08))' : 'var(--canvas)',
-                    border: runtimeMode === 'daemon' ? '1px solid var(--accent, #3b82f6)' : '1px solid var(--border)',
+                    border: runtimeMode === 'daemon' ? '1px solid var(--primary)' : '1px solid var(--border)',
                     cursor: savingRuntimeMode ? 'wait' : 'pointer',
                     transition: 'all 0.15s ease',
                     display: 'flex',
@@ -1557,9 +1557,9 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                   justifyContent: 'center',
                   gap: '8px',
                   width: '230px',
-                  backgroundColor: '#fef9c3',
-                  color: '#000000',
-                  border: '1px solid #facc15',
+                  backgroundColor: 'var(--yellow-bg)',
+                  color: 'var(--text)',
+                  border: '1px solid var(--border-warning)',
                   borderRadius: '8px',
                   padding: '4px 16px',
                   height: '42px',
@@ -1919,7 +1919,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
           </div>
 
           {/* Clean State Restore / Factory Reset Gadget */}
-          <div className="google-card" style={{ border: '1px solid #fce8e6' }}>
+          <div className="google-card" style={{ border: '1px solid var(--border-danger)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '10px' }}>
               <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
                 Restore Antigravity Apps to Clean Unmodified State

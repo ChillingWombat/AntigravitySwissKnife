@@ -154,7 +154,7 @@ input:focus, select:focus, textarea:focus {
 .btn-pill-danger {
   background-color: var(--red-bg);
   color: var(--red);
-  border: 1px solid #fad2cf;
+  border: 1px solid var(--border-danger);
   border-radius: 20px;
   padding: 8px 16px;
   font-size: 13px;
@@ -165,7 +165,7 @@ input:focus, select:focus, textarea:focus {
   white-space: nowrap;
 }
 .btn-pill-danger:hover {
-  background-color: #fad2cf;
+  background-color: var(--border-danger);
 }
 
 /* Card Surface */
@@ -204,7 +204,7 @@ input:focus, select:focus, textarea:focus {
 .badge-blue {
   background-color: #e8f0fe;
   color: #1a73e8;
-  border: 1px solid var(--border-info, #d2e3fc);
+  border: 1px solid var(--border-info);
 }
 .badge-neutral {
   background-color: var(--tonal);

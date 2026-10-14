@@ -373,9 +373,9 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
             borderRadius: '8px',
             fontSize: '13px',
             fontWeight: 500,
-            background: statusMsg.type === 'success' ? 'var(--green-bg)' : '#fce8e6',
-            color: statusMsg.type === 'success' ? 'var(--green)' : '#b3261e',
-            border: `1px solid ${statusMsg.type === 'success' ? '#bbf7d0' : '#fecaca'}`,
+            background: statusMsg.type === 'success' ? 'var(--green-bg)' : 'var(--red-bg)',
+            color: statusMsg.type === 'success' ? 'var(--green)' : 'var(--red)',
+            border: `1px solid ${statusMsg.type === 'success' ? 'var(--border-success)' : 'var(--border-danger)'}`,
           }}
         >
           {statusMsg.text}
@@ -595,7 +595,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                   background: p.hex,
                                   cursor: 'pointer',
                                   boxSizing: 'border-box',
-                                  border: isSel ? '2px solid #0f172a' : '2px solid transparent',
+                                  border: isSel ? '2px solid var(--text)' : '2px solid transparent',
                                   boxShadow: isSel && p.hex === '#0f172a' ? 'inset 0 0 0 1.5px #ffffff' : 'none',
                                   transform: isSel ? 'scale(1.15)' : 'scale(1)',
                                   transition: 'transform 0.12s',
@@ -684,7 +684,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                     boxSizing: 'border-box',
                                     background: cellHsl,
                                     cursor: 'pointer',
-                                    border: isSelected ? '2px solid #0f172a' : '1px solid rgba(0,0,0,0.08)',
+                                    border: isSelected ? '2px solid var(--text)' : '1px solid rgba(0,0,0,0.08)',
                                     boxShadow:
                                       isSelected && (hex.toLowerCase() === '#09090b' || hex.toLowerCase() === '#1e293b')
                                         ? 'inset 0 0 0 1px #ffffff'
@@ -2599,7 +2599,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                 color: op.zone_border_radius === r ? '#ffffff' : '#334155',
                                 backgroundColor: op.zone_border_radius === r ? '#0b57d0' : '#f1f5f9',
                                 border: '1px solid',
-                                borderColor: op.zone_border_radius === r ? 'var(--primary, #0b57d0)' : 'var(--border)',
+                                borderColor: op.zone_border_radius === r ? 'var(--primary)' : 'var(--border)',
                                 cursor: 'pointer',
                               }}
                             >
@@ -2632,7 +2632,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                 color: op.zone_gap === g ? '#ffffff' : '#334155',
                                 backgroundColor: op.zone_gap === g ? '#0b57d0' : '#f1f5f9',
                                 border: '1px solid',
-                                borderColor: op.zone_gap === g ? 'var(--primary, #0b57d0)' : 'var(--border)',
+                                borderColor: op.zone_gap === g ? 'var(--primary)' : 'var(--border)',
                                 cursor: 'pointer',
                               }}
                             >
@@ -2676,7 +2676,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                 color: op.zone_padding === p ? '#ffffff' : '#334155',
                                 backgroundColor: op.zone_padding === p ? '#0b57d0' : '#f1f5f9',
                                 border: '1px solid',
-                                borderColor: op.zone_padding === p ? 'var(--primary, #0b57d0)' : 'var(--border)',
+                                borderColor: op.zone_padding === p ? 'var(--primary)' : 'var(--border)',
                                 cursor: 'pointer',
                               }}
                             >

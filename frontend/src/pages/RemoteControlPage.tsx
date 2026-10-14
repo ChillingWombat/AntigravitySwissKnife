@@ -9,7 +9,7 @@ import {
   Network,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
-import { api } from '../api'
+import { api, isAbortError } from '../api'
 
 export const RemoteControlPage: React.FC = () => {
   const [loading, setLoading] = useState(false)
@@ -54,6 +54,7 @@ export const RemoteControlPage: React.FC = () => {
         if (res.config) setConfig(res.config)
       }
     } catch (err) {
+      if (isAbortError(err)) return
       console.error('Failed to fetch remote control status:', err)
     }
   }
