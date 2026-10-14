@@ -1771,6 +1771,7 @@ func (d *Daemon) runLoop() {
 				switchMode := d.Config.SwitchMode
 				lastSw := d.lastSwitchTime
 				syncMode := d.Config.GetMultiAppSyncMode()
+				allowNonGemini := d.Config.AllowNonGeminiNativeModels
 				d.mu.RUnlock()
 
 				var activeDwellSec float64
@@ -1806,7 +1807,7 @@ func (d *Daemon) runLoop() {
 				}
 
 				if autoSwitch && primarySum != nil {
-					states := quota.BuildAccountQuotaStatesWithThresholds(accounts, primarySum, thresh, threshWeekly)
+					states := quota.BuildAccountQuotaStatesWithThresholds(accounts, primarySum, thresh, threshWeekly, allowNonGemini)
 
 					if syncMode == core.MultiAppSyncModeIndividual {
 						// Per-app rotation
@@ -1833,7 +1834,7 @@ func (d *Daemon) runLoop() {
 								currentAppDwell = time.Since(lastSw).Seconds()
 							}
 
-							shouldSwitch, successor, _ := quota.EvaluateAutoSwitchForApp(states, appEmail, inUseEmails, thresh, threshWeekly, switchMode, currentAppDwell, assignedInTick...)
+							shouldSwitch, successor, _ := quota.EvaluateAutoSwitchForAppWithRouting(states, appEmail, inUseEmails, thresh, threshWeekly, switchMode, currentAppDwell, allowNonGemini, assignedInTick...)
 							if shouldSwitch && successor != nil && successor.Email != appEmail {
 								// Issue 27: Verify successor candidate with live quota poll before executing switch
 								cAcc, _ := d.Keyring.GetAccount(successor.Email)
@@ -1843,13 +1844,7 @@ func (d *Daemon) runLoop() {
 								succSum, pErr := quota.PollAndCacheAccount(cAcc, d.Keyring)
 								if succSum != nil {
 									d.setQuotaSummary(successor.Email, succSum)
-									hasGeminiHealthy := succSum.Quota5hFraction > thresh && (succSum.QuotaWeeklyFraction > threshWeekly || (cAcc.EnableCreditOverages && succSum.Credits > 0))
-									hasNonGeminiHealthy := false
-									if d.Config.AllowNonGeminiNativeModels {
-										hasNonGeminiHealthy = succSum.Quota5hClaudeGPT > thresh && (succSum.QuotaWeeklyClaudeGPT > threshWeekly || succSum.QuotaWeeklyClaudeGPT == 0 || (cAcc.EnableCreditOverages && succSum.Credits > 0))
-									}
-									isHealthy := hasGeminiHealthy || hasNonGeminiHealthy
-									if !isHealthy {
+									if !d.isCandidateLiveQuotaHealthy(succSum, cAcc, thresh, threshWeekly) {
 										log.Printf("[Daemon Auto-Switch] Candidate %s live quota breached; skipping", successor.Email)
 										continue
 									}
@@ -1911,7 +1906,7 @@ func (d *Daemon) runLoop() {
 						}
 					} else {
 						// Shared mode rotation
-						shouldSwitch, successor, _ := quota.EvaluateAutoSwitchWithThresholds(states, active, thresh, threshWeekly, switchMode, activeDwellSec)
+						shouldSwitch, successor, _ := quota.EvaluateAutoSwitchWithThresholds(states, active, thresh, threshWeekly, switchMode, activeDwellSec, allowNonGemini)
 						if shouldSwitch && successor != nil && successor.Email != active {
 							// Issue 27: Verify successor candidate with live quota poll before executing switch
 							cAcc, _ := d.Keyring.GetAccount(successor.Email)
@@ -1921,13 +1916,7 @@ func (d *Daemon) runLoop() {
 							succSum, pErr := quota.PollAndCacheAccount(cAcc, d.Keyring)
 							if succSum != nil {
 								d.setQuotaSummary(successor.Email, succSum)
-								hasGeminiHealthy := succSum.Quota5hFraction > thresh && (succSum.QuotaWeeklyFraction > threshWeekly || (cAcc.EnableCreditOverages && succSum.Credits > 0))
-								hasNonGeminiHealthy := false
-								if d.Config.AllowNonGeminiNativeModels {
-									hasNonGeminiHealthy = succSum.Quota5hClaudeGPT > thresh && (succSum.QuotaWeeklyClaudeGPT > threshWeekly || succSum.QuotaWeeklyClaudeGPT == 0 || (cAcc.EnableCreditOverages && succSum.Credits > 0))
-								}
-								isHealthy := hasGeminiHealthy || hasNonGeminiHealthy
-								if !isHealthy {
+								if !d.isCandidateLiveQuotaHealthy(succSum, cAcc, thresh, threshWeekly) {
 									log.Printf("[Daemon Auto-Switch] Candidate %s live quota breached; skipping", successor.Email)
 									continue
 								}
@@ -1992,6 +1981,30 @@ func (d *Daemon) runLoop() {
 			resetTimer(standbyTimer, d.calculateNextStandbyInterval(r))
 		}
 	}
+}
+
+// isCandidateLiveQuotaHealthy validates whether a switch candidate is healthy based on its live quota summary.
+// When non-Gemini model routing is enabled, accounts with depleted Gemini quota are considered healthy if their
+// Claude/GPT quota is available (or covered by credit overages). Exhausted weekly Claude quotas are rejected.
+func (d *Daemon) isCandidateLiveQuotaHealthy(succSum *quota.QuotaSummary, cAcc *keyring.Account, thresh, threshWeekly float64) bool {
+	if succSum == nil || cAcc == nil {
+		return false
+	}
+	hasGeminiHealthy := succSum.Quota5hFraction > thresh && (succSum.QuotaWeeklyFraction > threshWeekly || (cAcc.EnableCreditOverages && succSum.Credits > 0))
+	hasNonGeminiHealthy := false
+	if d.Config.AllowNonGeminiNativeModels {
+		hasWeeklyClaudeBucket := false
+		for _, m := range succSum.Models {
+			mLower := strings.ToLower(m.ModelName)
+			if (strings.Contains(mLower, "claude") || strings.Contains(mLower, "gpt")) && strings.Contains(mLower, "weekly") {
+				hasWeeklyClaudeBucket = true
+				break
+			}
+		}
+		weeklyClaudeHealthy := (succSum.QuotaWeeklyClaudeGPT > threshWeekly) || (!hasWeeklyClaudeBucket && succSum.QuotaWeeklyClaudeGPT == 0) || (cAcc.EnableCreditOverages && succSum.Credits > 0)
+		hasNonGeminiHealthy = succSum.Quota5hClaudeGPT > thresh && weeklyClaudeHealthy
+	}
+	return hasGeminiHealthy || hasNonGeminiHealthy
 }
 
 // pollStandbyAccounts executes background polling for standby accounts.
