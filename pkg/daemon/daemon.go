@@ -55,6 +55,8 @@ type Daemon struct {
 	ignitedAccounts map[string]time.Time
 	ignitedMu       sync.RWMutex
 
+	lastDesktopInstallAttempt time.Time
+
 	configUpdated chan struct{}
 }
 
@@ -1620,7 +1622,17 @@ func (d *Daemon) monitorAndInjectGUI() {
 	if cfg.AutoInject || persistentFX {
 		st := d.GUIStore.GetDesktopStatus()
 		if !st.Installed {
-			_, _ = d.GUIStore.InstallDesktopLoader()
+			now := time.Now()
+			d.mu.Lock()
+			shouldAttempt := d.lastDesktopInstallAttempt.IsZero() || now.Sub(d.lastDesktopInstallAttempt) >= 5*time.Minute
+			if shouldAttempt {
+				d.lastDesktopInstallAttempt = now
+			}
+			d.mu.Unlock()
+
+			if shouldAttempt {
+				_, _ = d.GUIStore.InstallDesktopLoader()
+			}
 		}
 	}
 

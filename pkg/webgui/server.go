@@ -3495,6 +3495,7 @@ func (s *Server) handleDaemonStart(w http.ResponseWriter, r *http.Request) {
 		exe = "swiss"
 	}
 	cmd := exec.Command(exe, "daemon")
+	core.SetHiddenConsole(cmd)
 	if err := cmd.Start(); err != nil {
 		http.Error(w, fmt.Sprintf("failed to spawn daemon: %v", err), http.StatusInternalServerError)
 		return
@@ -4184,6 +4185,7 @@ func (s *Server) handleUtilitiesImportScan(w http.ResponseWriter, r *http.Reques
 	// Python script fallback for legacy formats
 	scriptPath := getAgentImporterScriptPath()
 	cmd := exec.Command("python3", scriptPath, "scan", "--source", source)
+	core.SetHiddenConsole(cmd)
 	out, err := cmd.Output()
 	if err == nil && len(out) > 0 {
 		var resp map[string]interface{}
@@ -4250,6 +4252,7 @@ func (s *Server) handleUtilitiesImport(w http.ResponseWriter, r *http.Request) {
 	scriptPath := getAgentImporterScriptPath()
 	idsArg := strings.Join(req.CandidateIDs, ",")
 	cmd := exec.Command("python3", scriptPath, "import", "--source", req.Source, "--ids", idsArg, "--mode", req.Mode)
+	core.SetHiddenConsole(cmd)
 	out, err := cmd.Output()
 	if err == nil && len(out) > 0 {
 		var resp map[string]interface{}

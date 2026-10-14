@@ -106,7 +106,18 @@ func (dm *DesktopManager) InstallDesktopLoader() (*ApplyResult, error) {
 		}
 	}
 
-	// 2. Extract asar to temporary directory
+	// 2. Pre-flight lock check: verify asarPath is writable before extracting and packing.
+	// On Windows, if the host Antigravity desktop app is running, app.asar is locked exclusively.
+	if f, err := os.OpenFile(asarPath, os.O_WRONLY, 0); err != nil {
+		return &ApplyResult{
+			Success: false,
+			Message: fmt.Sprintf("Antigravity desktop app is running and locking app.asar (please quit Antigravity to install the permanent loader): %v", err),
+		}, fmt.Errorf("app.asar is locked or non-writable: %w", err)
+	} else {
+		_ = f.Close()
+	}
+
+	// 3. Extract asar to temporary directory
 	tmpDir, err := os.MkdirTemp("", "swiss_asar_install_*")
 	if err != nil {
 		return &ApplyResult{
@@ -377,6 +388,7 @@ func findNpxExecutable() string {
 func runAsarExtract(asarPath, destDir string) error {
 	npxBin := findNpxExecutable()
 	cmd := exec.Command(npxBin, "--yes", "@electron/asar", "extract", asarPath, destDir)
+	core.SetHiddenConsole(cmd)
 	if dir := filepath.Dir(npxBin); dir != "" {
 		cmd.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
 	}
@@ -391,6 +403,7 @@ func runAsarExtract(asarPath, destDir string) error {
 func runAsarPack(srcDir, destAsar string) error {
 	npxBin := findNpxExecutable()
 	cmd := exec.Command(npxBin, "--yes", "@electron/asar", "pack", srcDir, destAsar, "--unpack-dir", "node_modules/chrome-devtools-mcp")
+	core.SetHiddenConsole(cmd)
 	if dir := filepath.Dir(npxBin); dir != "" {
 		cmd.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
 	}
