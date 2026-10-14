@@ -120,6 +120,29 @@ const DAEMON_PORT = 8765;
 const DAEMON_HOST = '127.0.0.1';
 const DAEMON_URL = `http://${DAEMON_HOST}:${DAEMON_PORT}`;
 
+// Helper: verify that target URL belongs strictly to the local daemon origin (P1-16)
+function isTrustedDaemonOrigin(targetUrl, daemonBase = DAEMON_URL) {
+  if (!targetUrl || typeof targetUrl !== 'string') return false;
+  try {
+    const parsed = new URL(targetUrl);
+    const expected = new URL(daemonBase);
+    return parsed.origin === expected.origin;
+  } catch {
+    return false;
+  }
+}
+
+// Helper: ensure external URLs opened via shell.openExternal strictly use http: or https: (P1-16)
+function isSafeExternalUrl(targetUrl) {
+  if (!targetUrl || typeof targetUrl !== 'string') return false;
+  try {
+    const parsed = new URL(targetUrl);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 // Module State
 let mainWindow = null;
 let tray = null;
@@ -139,19 +162,21 @@ function probeDaemonStatus(timeoutMs = 1500) {
 }
 
 // Single instance lock
-const gotTheLock = app.requestSingleInstanceLock();
-if (!gotTheLock) {
-  console.log('[Electron] Another instance is already running. Quitting.');
-  app.quit();
-  process.exit(0);
-} else {
-  app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      if (!mainWindow.isVisible()) mainWindow.show();
-      mainWindow.focus();
-    }
-  });
+if (app && typeof app.requestSingleInstanceLock === 'function') {
+  const gotTheLock = app.requestSingleInstanceLock();
+  if (!gotTheLock) {
+    console.log('[Electron] Another instance is already running. Quitting.');
+    app.quit();
+    process.exit(0);
+  } else {
+    app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        if (!mainWindow.isVisible()) mainWindow.show();
+        mainWindow.focus();
+      }
+    });
+  }
 }
 
 function getIconPath() {
@@ -510,17 +535,31 @@ async function createWindow() {
     }
   });
 
-  // Security: Prevent window from navigating away from local daemon
+  // Security: Prevent window from navigating away from local daemon origin (P1-16)
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith(DAEMON_URL)) {
+    if (!isTrustedDaemonOrigin(url)) {
       event.preventDefault();
-      shell.openExternal(url);
+      if (isSafeExternalUrl(url)) {
+        shell.openExternal(url);
+      }
     }
   });
 
-  // Open external links in default browser
+  // Security: Prevent subframes from navigating away from local daemon origin (P1-16)
+  mainWindow.webContents.on('will-frame-navigate', (event) => {
+    if (event.url && !isTrustedDaemonOrigin(event.url)) {
+      event.preventDefault();
+    }
+  });
+
+  // Security: Deny unauthorized webview tag creation (P1-16)
+  mainWindow.webContents.on('will-attach-webview', (event) => {
+    event.preventDefault();
+  });
+
+  // Open external links in default browser (strictly http: and https:) (P1-16)
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http:') || url.startsWith('https:')) {
+    if (isSafeExternalUrl(url)) {
       shell.openExternal(url);
     }
     return { action: 'deny' };
@@ -836,60 +875,64 @@ async function runE2eVerification() {
 }
 
 // App lifecycle
-app.whenReady().then(async () => {
-  Menu.setApplicationMenu(null);
-  registerIpcHandlers();
-  try {
-    await daemonManager.start();
-  } catch (err) {
-    console.error('[App] Failed to start Go daemon sidecar:', err);
-  }
-  createTray();
-  await createWindow();
+if (app && typeof app.whenReady === 'function') {
+  app.whenReady().then(async () => {
+    Menu.setApplicationMenu(null);
+    registerIpcHandlers();
+    try {
+      await daemonManager.start();
+    } catch (err) {
+      console.error('[App] Failed to start Go daemon sidecar:', err);
+    }
+    createTray();
+    await createWindow();
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    } else if (mainWindow) {
-      mainWindow.show();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      } else if (mainWindow) {
+        mainWindow.show();
+      }
+    });
+
+    if (process.env.TEST_DESKTOP_E2E === '1') {
+      runE2eVerification();
+    }
+  });
+}
+
+// Full application quit hook
+if (app && typeof app.on === 'function') {
+  app.on('before-quit', async (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      isQuitting = true;
+      if (!isStoppingDaemon) {
+        isStoppingDaemon = true;
+        try {
+          await teardownDaemonForAppExit();
+        } catch (err) {
+          console.error('[App] Error during daemon stop on before-quit:', err);
+        } finally {
+          app.quit();
+        }
+      }
     }
   });
 
-  if (process.env.TEST_DESKTOP_E2E === '1') {
-    runE2eVerification();
-  }
-});
-
-// Full application quit hook
-app.on('before-quit', async (event) => {
-  if (!isQuitting) {
-    event.preventDefault();
-    isQuitting = true;
-    if (!isStoppingDaemon) {
-      isStoppingDaemon = true;
-      try {
-        await teardownDaemonForAppExit();
-      } catch (err) {
-        console.error('[App] Error during daemon stop on before-quit:', err);
-      } finally {
-        app.quit();
+  app.on('window-all-closed', async () => {
+    const closeToTray = getCloseToTraySetting();
+    if (!closeToTray || isQuitting) {
+      if (!isStoppingDaemon) {
+        isStoppingDaemon = true;
+        try {
+          await teardownDaemonForAppExit();
+        } catch (err) {}
       }
+      app.quit();
     }
-  }
-});
-
-app.on('window-all-closed', async () => {
-  const closeToTray = getCloseToTraySetting();
-  if (!closeToTray || isQuitting) {
-    if (!isStoppingDaemon) {
-      isStoppingDaemon = true;
-      try {
-        await teardownDaemonForAppExit();
-      } catch (err) {}
-    }
-    app.quit();
-  }
-});
+  });
+}
 
 // Operating System termination signal handlers
 const handleExitSignal = async (signal) => {
@@ -949,4 +992,6 @@ module.exports = {
   DAEMON_URL,
   DAEMON_PORT,
   DAEMON_HOST,
+  isTrustedDaemonOrigin,
+  isSafeExternalUrl,
 };

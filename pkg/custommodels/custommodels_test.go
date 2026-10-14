@@ -233,6 +233,7 @@ func TestTester_EndpointResponses(t *testing.T) {
 	defer tsSuccess.Close()
 
 	tester := NewTester()
+	tester.AllowLoopback = true
 	res, err := tester.TestEndpoint(CustomModel{
 		ID:           "test-srv",
 		Name:         "test-model",

@@ -58,6 +58,7 @@ type AppReleaseInfo struct {
 	DownloadURL    string `json:"download_url"`
 	AssetName      string `json:"asset_name,omitempty"`
 	AssetSize      int64  `json:"asset_size,omitempty"`
+	ExpectedSHA256 string `json:"expected_sha256,omitempty"`
 	Platform       string `json:"platform"`
 	Arch           string `json:"arch"`
 	AutoCheck      bool   `json:"auto_check"`
@@ -309,6 +310,7 @@ func (m *AppReleaseManager) CheckForUpdates(ctx context.Context, cfg *core.Confi
 		DownloadURL:    downloadURL,
 		AssetName:      assetName,
 		AssetSize:      assetSize,
+		ExpectedSHA256: extractSHA256ForAsset(targetRelease.Body, assetName),
 		Platform:       goos,
 		Arch:           goarch,
 		AutoCheck:      autoCheck,
@@ -439,11 +441,30 @@ func (m *AppReleaseManager) ExecuteUpgrade(ctx context.Context, releaseInfo *App
 		}
 	}
 
-	destPath := filepath.Join(targetDir, assetName)
+	// Security: Sanitize assetName with filepath.Base and verify jail containment (P1-4)
+	cleanAssetName := filepath.Base(filepath.Clean(assetName))
+	if cleanAssetName == "." || cleanAssetName == "/" || cleanAssetName == "\\" || cleanAssetName == "" {
+		cleanAssetName = fmt.Sprintf("antigravity-swiss-%s-%s-%s", releaseInfo.LatestVersion, releaseInfo.Platform, releaseInfo.Arch)
+	}
+	destPath := filepath.Clean(filepath.Join(targetDir, cleanAssetName))
+	rel, relErr := filepath.Rel(targetDir, destPath)
+	if relErr != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		return nil, fmt.Errorf("invalid asset destination path: directory traversal attempt blocked")
+	}
 
-	if !core.IsRunningTests() {
-		parsedURL, errParse := url.Parse(releaseInfo.DownloadURL)
-		if errParse != nil || parsedURL.Scheme != "https" || (!strings.HasSuffix(parsedURL.Host, "github.com") && !strings.HasSuffix(parsedURL.Host, "githubusercontent.com")) {
+	// Security: Validate release download URL host (P1-3)
+	parsedURL, errParse := url.Parse(releaseInfo.DownloadURL)
+	if errParse != nil {
+		return &UpgradeResult{
+			Success:     false,
+			Message:     "Invalid download URL.",
+			DownloadURL: releaseInfo.DownloadURL,
+		}, nil
+	}
+
+	isTestLoopback := core.IsRunningTests() && (strings.HasPrefix(parsedURL.Host, "127.0.0.1") || strings.HasPrefix(parsedURL.Host, "localhost") || strings.HasPrefix(parsedURL.Host, "[::1]"))
+	if !isTestLoopback {
+		if parsedURL.Scheme != "https" || !IsTrustedReleaseHost(parsedURL.Host) {
 			return &UpgradeResult{
 				Success:     false,
 				Message:     "Untrusted download URL. Release assets must originate from HTTPS GitHub servers.",
@@ -477,15 +498,31 @@ func (m *AppReleaseManager) ExecuteUpgrade(ctx context.Context, releaseInfo *App
 	if err != nil {
 		return nil, fmt.Errorf("failed to create destination file: %w", err)
 	}
-	defer out.Close()
 
 	hasher := sha256.New()
 	mw := io.MultiWriter(out, hasher)
 	_, err = io.Copy(mw, resp.Body)
+	_ = out.Close()
 	if err != nil {
+		_ = os.Remove(destPath)
 		return nil, fmt.Errorf("failed to write asset contents: %w", err)
 	}
 	calculatedSHA256 := hex.EncodeToString(hasher.Sum(nil))
+
+	// Security: Enforce SHA-256 verification when expected checksum is provided (P1-3)
+	if releaseInfo.ExpectedSHA256 != "" {
+		expectedClean := strings.ToLower(strings.TrimSpace(releaseInfo.ExpectedSHA256))
+		calculatedClean := strings.ToLower(calculatedSHA256)
+		if expectedClean != calculatedClean {
+			_ = os.Remove(destPath)
+			return &UpgradeResult{
+				Success:       false,
+				Message:       fmt.Sprintf("SHA-256 verification failed: expected %s, got %s", expectedClean, calculatedClean),
+				DownloadURL:   releaseInfo.DownloadURL,
+				TargetVersion: releaseInfo.LatestVersion,
+			}, fmt.Errorf("integrity violation: sha256 checksum mismatch")
+		}
+	}
 
 	// Make executable if on Unix
 	if runtime.GOOS != "windows" {
@@ -499,4 +536,63 @@ func (m *AppReleaseManager) ExecuteUpgrade(ctx context.Context, releaseInfo *App
 		LocalPath:     destPath,
 		TargetVersion: releaseInfo.LatestVersion,
 	}, nil
+}
+
+// IsTrustedReleaseHost checks if a target hostname belongs to legitimate, trusted GitHub release distribution servers.
+// Rejects deceptive suffixes and lookalike domains (e.g., "evilgithub.com", "not-github.com").
+func IsTrustedReleaseHost(host string) bool {
+	h := strings.ToLower(host)
+	if colon := strings.IndexByte(h, ':'); colon != -1 {
+		h = h[:colon]
+	}
+	allowedExact := []string{
+		"github.com",
+		"api.github.com",
+		"objects.githubusercontent.com",
+		"raw.githubusercontent.com",
+		"github-releases.githubusercontent.com",
+		"release-assets.github.com",
+	}
+	for _, allowed := range allowedExact {
+		if h == allowed || strings.HasSuffix(h, "."+allowed) {
+			return true
+		}
+	}
+	return false
+}
+
+// extractSHA256ForAsset attempts to discover an official SHA-256 hash for the designated asset from release notes or checksum lines.
+func extractSHA256ForAsset(body, assetName string) string {
+	if body == "" || assetName == "" {
+		return ""
+	}
+	lines := strings.Split(body, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		fields := strings.Fields(trimmed)
+		if len(fields) >= 2 {
+			hash := strings.TrimPrefix(fields[0], "*")
+			name := strings.TrimPrefix(fields[1], "*")
+			if len(hash) == 64 && isHexString(hash) && strings.EqualFold(filepath.Base(name), filepath.Base(assetName)) {
+				return hash
+			}
+		}
+		if strings.HasPrefix(strings.ToLower(trimmed), "sha256:") {
+			hash := strings.TrimSpace(trimmed[7:])
+			if len(hash) == 64 && isHexString(hash) {
+				return hash
+			}
+		}
+	}
+	return ""
+}
+
+// isHexString checks if a string consists exclusively of valid hexadecimal characters.
+func isHexString(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
 }

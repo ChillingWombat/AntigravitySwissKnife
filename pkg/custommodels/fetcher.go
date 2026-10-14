@@ -360,11 +360,26 @@ func fetchOpenAIModels(ctx context.Context, client *http.Client, baseURL string,
 		candidateEndpoints = append(candidateEndpoints, cleanBase+"/v1/models", cleanBase+"/models")
 	}
 
+	if client == nil {
+		client = NewSafeHTTPClient(ProviderCustom, 10*time.Second, true)
+	} else if client.Transport == nil {
+		client.Transport = NewSafeTransport(ProviderCustom, 10*time.Second, true)
+	}
+
 	var lastErrResp FetchModelsResponse
 	var body []byte
 	var successEndpoint string
 
 	for _, endpoint := range candidateEndpoints {
+		// Security: Validate candidate endpoint against SSRF and cloud metadata (P1-14)
+		if _, _, ssrfErr := ValidateEndpointSSRF(endpoint, ProviderCustom, true); ssrfErr != nil {
+			lastErrResp = FetchModelsResponse{
+				Success: false,
+				Message: fmt.Sprintf("SSRF blocked: %v", ssrfErr),
+			}
+			continue
+		}
+
 		httpReq, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 		if err != nil {
 			lastErrResp = FetchModelsResponse{Success: false, Message: err.Error()}
