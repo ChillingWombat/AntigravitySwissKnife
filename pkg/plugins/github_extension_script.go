@@ -139,11 +139,17 @@ func GenerateGitHubExtensionScript() string {
       if (typeof window.__swissOnAuxDaemonChanged === "function") {
         window.__swissOnAuxDaemonChanged(false);
       }
+      if (typeof window.__swissOnEnhancementsDaemonChanged === "function") {
+        window.__swissOnEnhancementsDaemonChanged(false);
+      }
     } else {
       setupLeftNavTabs();
       fetchAvailableProjects();
       if (typeof window.__swissOnAuxDaemonChanged === "function") {
         window.__swissOnAuxDaemonChanged(true);
+      }
+      if (typeof window.__swissOnEnhancementsDaemonChanged === "function") {
+        window.__swissOnEnhancementsDaemonChanged(true);
       }
     }
   }
@@ -163,7 +169,7 @@ func GenerateGitHubExtensionScript() string {
       }
     } catch (_) {}
     daemonFailureCount++;
-    if (daemonFailureCount >= 3) {
+    if (daemonFailureCount >= 3 || window.__swissDaemonOnline === undefined) {
       setDaemonOnline(false);
     }
   }

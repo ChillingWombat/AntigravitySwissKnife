@@ -1667,6 +1667,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     let customModelsListCache = null;
     let lastCustomModelsFetchTime = 0;
     async function fetchCustomModelsMetadata() {
+      if (window.__swissDaemonOnline === false) return;
       const now = Date.now();
       if (customModelsListCache && now - lastCustomModelsFetchTime < 30000) return;
       lastCustomModelsFetchTime = now;
@@ -1762,6 +1763,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     let cachedTokensByConv = {};
     let subagentNameToConvId = {};
     async function fetchActiveConversationTokens(convId, parentId, agentName) {
+      if (window.__swissDaemonOnline === false) return;
       const cacheKey = convId || (parentId && agentName ? (parentId + ":" + agentName) : null);
       if (!cacheKey) return;
       const now = Date.now();
@@ -1797,12 +1799,45 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               renderContextWindowProgressRing();
             }
           }
+        } else {
+          if (typeof window.setSwissDaemonOnline === "function") {
+            window.setSwissDaemonOnline(false);
+          } else {
+            window.__swissDaemonOnline = false;
+            if (typeof window.__swissOnEnhancementsDaemonChanged === "function") {
+              window.__swissOnEnhancementsDaemonChanged(false);
+            }
+          }
         }
-      } catch (_) {}
+      } catch (_) {
+        if (typeof window.setSwissDaemonOnline === "function") {
+          window.setSwissDaemonOnline(false);
+        } else {
+          window.__swissDaemonOnline = false;
+          if (typeof window.__swissOnEnhancementsDaemonChanged === "function") {
+            window.__swissOnEnhancementsDaemonChanged(false);
+          }
+        }
+      }
     }
+
+    window.__swissOnEnhancementsDaemonChanged = function(online) {
+      if (!online) {
+        const mainRing = document.getElementById("swiss-context-window-ring");
+        if (mainRing) mainRing.remove();
+        document.querySelectorAll("[id^='swiss-context-window-ring-sub-'], .swiss-context-window-ring, .swiss-context-window-ring-sub").forEach(r => r.remove());
+        cachedTokensByConv = {};
+      } else {
+        renderContextWindowProgressRing();
+      }
+    };
 
     function updateProgressRing(ring, convId, maxTokens) {
       if (!ring) return;
+      if (window.__swissDaemonOnline === false) {
+        ring.remove();
+        return;
+      }
       ring.classList.add("swiss-context-window-ring");
       ring.setAttribute("role", "status");
       ring.setAttribute("tabindex", "0");
@@ -1846,6 +1881,13 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     }
 
     function renderContextWindowProgressRing() {
+      if (window.__swissDaemonOnline === false) {
+        const existingMain = document.getElementById("swiss-context-window-ring");
+        if (existingMain) existingMain.remove();
+        document.querySelectorAll("[id^='swiss-context-window-ring-sub-'], .swiss-context-window-ring, .swiss-context-window-ring-sub").forEach(r => r.remove());
+        return;
+      }
+
       const parentConvId = (window.location.pathname || "").replace(/^\/c\//, "").split(/[?#]/)[0];
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
