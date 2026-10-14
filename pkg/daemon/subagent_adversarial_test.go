@@ -278,7 +278,7 @@ func TestAdversarial_SubagentModelStrategy_DaemonRPC(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
 
-	sockPath := filepath.Join(tmpDir, "daemon_subagent_test.sock")
+	sockPath := filepath.Join(tmpDir, "sub.sock")
 	cfg := core.DefaultConfig()
 
 	d, err := NewDaemon(cfg, sockPath)

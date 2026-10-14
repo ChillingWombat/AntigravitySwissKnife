@@ -88,14 +88,14 @@ func TestStorePersistenceAndBindings(t *testing.T) {
 }
 
 func TestWorkspacePathMatching(t *testing.T) {
-	uris := `["file:///mnt/Data/Projects/Antigravity%20Swiss%20Knife"]`
-	target := "/mnt/Data/Projects/Antigravity Swiss Knife"
+	uris := `["file:///var/projects/ProjectAlpha"]`
+	target := "/var/projects/ProjectAlpha"
 
 	if !matchesWorkspace(uris, normalizePath(target)) {
 		t.Errorf("expected matchesWorkspace to return true for %s", target)
 	}
 
-	if !matchesWorkspace(uris, normalizePath("Antigravity Swiss Knife")) {
+	if !matchesWorkspace(uris, normalizePath("ProjectAlpha")) {
 		t.Errorf("expected matchesWorkspace to return true for bare project name")
 	}
 
@@ -107,7 +107,7 @@ func TestWorkspacePathMatching(t *testing.T) {
 		t.Errorf("expected matchesWorkspace to return true for '.'")
 	}
 
-	if matchesWorkspace(uris, normalizePath("/mnt/Data/Other/Project")) {
+	if matchesWorkspace(uris, normalizePath("/var/projects/Other/Project")) {
 		t.Errorf("expected matchesWorkspace to return false for unrelated project")
 	}
 

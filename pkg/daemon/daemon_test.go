@@ -254,6 +254,15 @@ func TestDaemon_GUIConfigPartialUpdateRPC(t *testing.T) {
 		t.Fatalf("expected initial config flags to be true")
 	}
 
+	// Set a project color before partial update to verify it is preserved
+	var setColorResp map[string]interface{}
+	if err := client.Call("swiss.setGUIProjectColor", map[string]string{
+		"name":  "ProjectAlpha",
+		"color": "#0b57d0",
+	}, &setColorResp); err != nil {
+		t.Fatalf("swiss.setGUIProjectColor failed: %v", err)
+	}
+
 	// Send partial update
 	var updatedGUI gui.Config
 	err = client.Call("swiss.setGUIConfig", map[string]interface{}{
@@ -272,6 +281,9 @@ func TestDaemon_GUIConfigPartialUpdateRPC(t *testing.T) {
 	}
 	if len(updatedGUI.ProjectColors) == 0 {
 		t.Fatalf("expected ProjectColors to be preserved")
+	}
+	if updatedGUI.ProjectColors["ProjectAlpha"] != "#0b57d0" {
+		t.Fatalf("expected ProjectAlpha to be preserved as #0b57d0, got %q", updatedGUI.ProjectColors["ProjectAlpha"])
 	}
 }
 

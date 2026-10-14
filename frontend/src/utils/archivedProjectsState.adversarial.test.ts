@@ -17,7 +17,7 @@ describe('Adversarial & State Machine Verification: ArchivedProjectsPage (Milest
       conversation_count: 5,
       last_active_time: '2026-10-08T12:00:00Z',
       last_active_relative: '1 day ago',
-      folder_uri: 'file:///mnt/Data/Projects/Alpha',
+      folder_uri: 'file:///var/workspace/alpha',
       archived_at: '2026-10-09T08:00:00Z',
     },
     {
@@ -27,7 +27,7 @@ describe('Adversarial & State Machine Verification: ArchivedProjectsPage (Milest
       conversation_count: 12,
       last_active_time: '2026-10-09T02:00:00Z',
       last_active_relative: '8 hours ago',
-      folder_uri: 'file:///home/david/workspace/beta-special',
+      folder_uri: 'file:///var/workspace/beta-special',
       archived_at: '2026-10-09T09:00:00Z',
     },
     {

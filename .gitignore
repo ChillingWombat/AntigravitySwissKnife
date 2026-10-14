@@ -46,6 +46,7 @@ __pycache__/
 
 # Persona & Agent Information
 .agents/
+.workbuddy/
 GATE_STATUS.md
 TEST_INFRA.md
 TEST_READY.md

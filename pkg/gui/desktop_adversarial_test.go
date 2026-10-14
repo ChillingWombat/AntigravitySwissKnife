@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -28,7 +29,7 @@ func TestAdversarial_CopyFile_Permissions_RestrictiveSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to stat dst: %v", err)
 	}
-	if info.Mode().Perm() != 0644 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0644 {
 		t.Fatalf("expected 0644 permissions, got %#o", info.Mode().Perm())
 	}
 
@@ -66,7 +67,7 @@ func TestAdversarial_CopyFile_OverwriteReadOnlyDestination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to stat dst: %v", err)
 	}
-	if info.Mode().Perm() != 0644 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0644 {
 		t.Fatalf("expected dst to have 0644 permissions after copy, got %#o", info.Mode().Perm())
 	}
 
@@ -108,7 +109,7 @@ func TestAdversarial_CopyFile_LargePayloadAndIntegrity(t *testing.T) {
 	if dstInfo.Size() != int64(len(payload)) {
 		t.Fatalf("size mismatch: expected %d, got %d", len(payload), dstInfo.Size())
 	}
-	if dstInfo.Mode().Perm() != 0644 {
+	if runtime.GOOS != "windows" && dstInfo.Mode().Perm() != 0644 {
 		t.Fatalf("expected 0644 permissions, got %#o", dstInfo.Mode().Perm())
 	}
 
@@ -188,7 +189,7 @@ func TestAdversarial_DesktopLoader_MultiStageLifecycle(t *testing.T) {
 		t.Fatalf("expected backup to match v1 content, got %q", string(b1))
 	}
 	b1Info, _ := os.Stat(backupPath)
-	if b1Info.Mode().Perm() != 0644 {
+	if runtime.GOOS != "windows" && b1Info.Mode().Perm() != 0644 {
 		t.Fatalf("expected backup to have 0644 permissions, got %#o", b1Info.Mode().Perm())
 	}
 
@@ -257,7 +258,7 @@ func TestAdversarial_DesktopLoader_MultiStageLifecycle(t *testing.T) {
 		t.Fatalf("expected restored asar to match v2Content, got %q", string(restoredAsar))
 	}
 	asarInfo, _ := os.Stat(asarPath)
-	if asarInfo.Mode().Perm() != 0644 {
+	if runtime.GOOS != "windows" && asarInfo.Mode().Perm() != 0644 {
 		t.Fatalf("expected restored asar to have 0644 permissions, got %#o", asarInfo.Mode().Perm())
 	}
 }

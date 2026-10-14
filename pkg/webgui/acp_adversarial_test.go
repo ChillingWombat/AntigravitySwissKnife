@@ -115,7 +115,7 @@ func TestAdversarial_ProcessFilterStressMatrix(t *testing.T) {
 		{
 			desc: "Only agy CLI running with --app_data_dir=antigravity (no IDE running)",
 			procs: []procEntry{
-				{pid: 101, comm: "agy", cmdline: "/home/david/.gemini/bin/agy --hub --hub-port=34209 --app_data_dir=antigravity"},
+				{pid: 101, comm: "agy", cmdline: "/home/user/.gemini/bin/agy --hub --hub-port=34209 --app_data_dir=antigravity"},
 			},
 			expectIdePID:   0, // Must NOT match agy!
 			expectAgyPID:   101,
@@ -125,7 +125,7 @@ func TestAdversarial_ProcessFilterStressMatrix(t *testing.T) {
 		{
 			desc: "Antigravity IDE running alongside agy CLI and swiss knife daemon",
 			procs: []procEntry{
-				{pid: 201, comm: "agy", cmdline: "/home/david/.gemini/bin/agy --hub --app_data_dir=antigravity"},
+				{pid: 201, comm: "agy", cmdline: "/home/user/.gemini/bin/agy --hub --app_data_dir=antigravity"},
 				{pid: 202, comm: "antigravity-swiss-knife", cmdline: "/opt/Antigravity Swiss Knife/swiss daemon --web"},
 				{pid: 203, comm: "antigravity", cmdline: "/opt/Antigravity/antigravity"},
 				{pid: 204, comm: "antigravity", cmdline: "/opt/Antigravity/antigravity --type=renderer"},

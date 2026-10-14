@@ -132,21 +132,11 @@ func (s *Store) load() error {
 	if cfg.ActiveConversationIndicator == "" {
 		cfg.ActiveConversationIndicator = "background"
 	}
-	if len(cfg.ProjectColors) == 0 {
-		cfg.ProjectColors = FactoryProjectColors()
-	} else {
-		for k, v := range FactoryProjectColors() {
-			if _, exists := cfg.ProjectColors[k]; !exists {
-				cfg.ProjectColors[k] = v
-			}
-		}
+	if cfg.ProjectColors == nil {
+		cfg.ProjectColors = make(map[string]string)
 	}
-	if len(cfg.ProjectOrder) == 0 {
-		cfg.ProjectOrder = []string{
-			"Antigravity Swiss Knife",
-			"Arbitrager",
-			"Obsidian-HomePage",
-		}
+	if cfg.ProjectOrder == nil {
+		cfg.ProjectOrder = []string{}
 	}
 	if cfg.TintOpacity <= 0 {
 		cfg.TintOpacity = 0.15
@@ -306,8 +296,8 @@ func (s *Store) UpdateConfig(cfg *Config) error {
 	if cfg.ChatTelemetryScope == "" {
 		cfg.ChatTelemetryScope = "aggregated"
 	}
-	if cfg.ProjectColors == nil || len(cfg.ProjectColors) == 0 {
-		cfg.ProjectColors = FactoryProjectColors()
+	if cfg.ProjectColors == nil {
+		cfg.ProjectColors = make(map[string]string)
 	}
 	if cfg.ArchivedProjects == nil {
 		cfg.ArchivedProjects = []string{}
@@ -371,7 +361,7 @@ func (s *Store) UpdateConfigPartial(rawJSON []byte) (*GUIConfig, error) {
 		}
 		cfg.ProjectColors = colors
 	} else {
-		cfg.ProjectColors = FactoryProjectColors()
+		cfg.ProjectColors = make(map[string]string)
 	}
 	if cfg.ProjectOrder != nil {
 		order := make([]string, len(cfg.ProjectOrder))
@@ -481,8 +471,8 @@ func (s *Store) UpdateConfigPartial(rawJSON []byte) (*GUIConfig, error) {
 	if cfg.AutoArchiveHorizon == "" {
 		cfg.AutoArchiveHorizon = "14d"
 	}
-	if len(cfg.ProjectColors) == 0 {
-		cfg.ProjectColors = FactoryProjectColors()
+	if cfg.ProjectColors == nil {
+		cfg.ProjectColors = make(map[string]string)
 	}
 
 	s.config = &cfg
@@ -529,17 +519,10 @@ func (s *Store) SetProjectColor(projectName, hexColor string) error {
 	return nil
 }
 
-// RemoveProjectColor resets the project color to factory default if it is a pre-configured project,
-// or removes the custom color if it was user-defined.
+// RemoveProjectColor removes the custom color for a project.
 func (s *Store) RemoveProjectColor(projectName string) error {
 	s.mu.Lock()
-	if s.config.ProjectColors == nil {
-		s.config.ProjectColors = make(map[string]string)
-	}
-	factoryColors := FactoryProjectColors()
-	if defaultColor, ok := factoryColors[projectName]; ok {
-		s.config.ProjectColors[projectName] = defaultColor
-	} else {
+	if s.config.ProjectColors != nil {
 		delete(s.config.ProjectColors, projectName)
 	}
 	s.mu.Unlock()
@@ -555,8 +538,7 @@ func (s *Store) RemoveProjectColor(projectName string) error {
 	return nil
 }
 
-// ResetProjectColor resets the project color to factory default if it is a pre-configured project,
-// or removes the custom color if it was user-defined.
+// ResetProjectColor removes the custom color for a project.
 func (s *Store) ResetProjectColor(projectName string) error {
 	return s.RemoveProjectColor(projectName)
 }

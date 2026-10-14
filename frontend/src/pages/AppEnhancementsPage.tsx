@@ -192,7 +192,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
   })
 
   const baseTintOpacity = guiConfig?.tint_opacity ?? 0.15
-  const previewProjColor = guiConfig?.project_colors?.[DEMO_PROJECT_NAME] || guiConfig?.project_colors?.['Antigravity Swiss Knife'] || '#0b57d0'
+  const previewProjColor = guiConfig?.project_colors?.[DEMO_PROJECT_NAME] || '#0b57d0'
   const parsedProjColor = parseColorWithAlpha(previewProjColor)
   const projColorLum = (0.2126 * parsedProjColor.r + 0.7152 * parsedProjColor.g + 0.0722 * parsedProjColor.b) / 255.0
   const projCardTextColor = projColorLum > 0.6 ? '#0f172a' : '#ffffff'

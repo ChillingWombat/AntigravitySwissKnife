@@ -80,7 +80,7 @@ func TestEmpirical_CORSValidation(t *testing.T) {
 		"http://127.0.0.1:3000",
 		"http://[::1]:8765",
 		"file://",
-		"file:///home/david/project/index.html",
+		"file:///var/projects/project/index.html",
 		"file:///tmp/app.html",
 		"vscode-file://vscode-app",
 		"electron://",
