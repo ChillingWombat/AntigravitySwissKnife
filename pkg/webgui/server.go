@@ -298,8 +298,8 @@ var (
 	onServerStopHook  func(addr string)
 )
 
-// Start starts listening and serving HTTP requests.
-func (s *Server) Start() error {
+// setupRoutes registers all application endpoint handlers onto a fresh ServeMux.
+func (s *Server) setupRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	distSub, errDist := fs.Sub(distFS, "dist")
@@ -528,6 +528,12 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/github/agent-tasks/label", s.handleGitHubAgentTaskLabel)
 	mux.HandleFunc("/api/github/agent-tasks/report", s.handleGitHubAgentTaskReport)
 	mux.HandleFunc("/api/github/context", s.handleGitHubContext)
+	return mux
+}
+
+// Start starts listening and serving HTTP requests.
+func (s *Server) Start() error {
+	mux := s.setupRoutes()
 
 	l, err := net.Listen("tcp", s.addr)
 	if err != nil {
