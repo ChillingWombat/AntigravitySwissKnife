@@ -1387,6 +1387,12 @@ textarea.swiss-prompt-input {
   padding: 2px 0;
   vertical-align: middle;
 }
+html:not(.swiss-daemon-online) .swiss-inchat-metrics,
+html.swiss-daemon-offline .swiss-inchat-metrics,
+html:not(.swiss-daemon-online) #swiss-context-window-ring,
+html.swiss-daemon-offline #swiss-context-window-ring,
+html:not(.swiss-daemon-online) [id^="swiss-context-window-ring-sub-"],
+html.swiss-daemon-offline [id^="swiss-context-window-ring-sub-"],
 [role="dialog"] .swiss-inchat-metrics,
 [aria-modal="true"] .swiss-inchat-metrics,
 .settings-tab-content .swiss-inchat-metrics,
@@ -1547,6 +1553,9 @@ func GenerateAuxiliaryPluginsScript() string {
       }
     }
     window.__swissAuxiliaryInitialized = true;
+    if (typeof window.__swissDaemonOnline === "undefined") {
+      window.__swissDaemonOnline = false;
+    }
 
     const API_BASE = "http://127.0.0.1:8765";
     let activeAuxTab = null; // "swiss-browser" | "swiss-files" | "swiss-memos" | null (native)
@@ -1735,10 +1744,13 @@ func GenerateAuxiliaryPluginsScript() string {
         document.querySelectorAll(".swiss-aux-btn-group, .swiss-aux-tabs-divider, .swiss-aux-tabs-divider-left, .swiss-aux-tabs-divider-right").forEach(el => el.remove());
         document.querySelectorAll(".swiss-inchat-metrics").forEach(el => el.remove());
         chatTelemetryCachedData = null;
+        chatTelemetryLastFetch = 0;
         if (activeAuxTab !== null) {
           switchAuxTab(null);
         }
       } else {
+        chatTelemetryCachedData = null;
+        chatTelemetryLastFetch = 0;
         setupAuxiliaryTabs();
         setupInChatTelemetry();
       }

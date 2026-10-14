@@ -39,6 +39,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     async function syncConfigFromServer() {
       try {
         if (typeof window !== "undefined" && window.fetch) {
+          if (window.__swissDaemonOnline === false) return;
           const res = await fetch("http://127.0.0.1:8765/api/enhancements");
           if (res.ok) {
             if (typeof window.setSwissDaemonOnline === "function") {
@@ -1832,7 +1833,15 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         if (mainRing) mainRing.remove();
         document.querySelectorAll("[id^='swiss-context-window-ring-sub-'], .swiss-context-window-ring, .swiss-context-window-ring-sub").forEach(r => r.remove());
         cachedTokensByConv = {};
+        lastTokensFetchTimeByConv = {};
+        customModelsListCache = null;
+        lastCustomModelsFetchTime = 0;
       } else {
+        cachedTokensByConv = {};
+        lastTokensFetchTimeByConv = {};
+        customModelsListCache = null;
+        lastCustomModelsFetchTime = 0;
+        syncConfigFromServer();
         renderContextWindowProgressRing();
       }
     };

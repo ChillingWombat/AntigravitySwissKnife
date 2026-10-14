@@ -126,10 +126,20 @@ func GenerateGitHubExtensionScript() string {
   let lastFetchedAuxWs = null;
 
   let isDaemonOnline = (window.__swissDaemonOnline !== false);
-  function setDaemonOnline(online) {
-    if (window.__swissDaemonOnline === online) return;
+  function setDaemonOnline(online, force = false) {
+    const changed = (window.__swissDaemonOnline !== online);
+    if (!changed && !force) return;
     window.__swissDaemonOnline = online;
     isDaemonOnline = online;
+    if (typeof document !== "undefined" && document.documentElement) {
+      if (online) {
+        document.documentElement.classList.add("swiss-daemon-online");
+        document.documentElement.classList.remove("swiss-daemon-offline");
+      } else {
+        document.documentElement.classList.remove("swiss-daemon-online");
+        document.documentElement.classList.add("swiss-daemon-offline");
+      }
+    }
     if (!online) {
       const g = document.getElementById("swiss-left-nav-group");
       if (g) g.remove();
