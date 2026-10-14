@@ -251,3 +251,99 @@ func TestAppReleaseManager_ExecuteUpgrade(t *testing.T) {
 		}
 	}
 }
+
+func TestAppReleaseManager_HostValidation(t *testing.T) {
+	trusted := []string{
+		"github.com",
+		"GITHUB.COM",
+		"api.github.com",
+		"objects.githubusercontent.com",
+		"raw.githubusercontent.com",
+		"github-releases.githubusercontent.com",
+		"release-assets.github.com",
+		"subdomain.objects.githubusercontent.com",
+		"github.com:443",
+	}
+	for _, h := range trusted {
+		if !IsTrustedReleaseHost(h) {
+			t.Errorf("expected IsTrustedReleaseHost(%q) = true, got false", h)
+		}
+	}
+
+	untrusted := []string{
+		"evilgithub.com",
+		"attacker-github.com",
+		"notgithub.com",
+		"fakegithubusercontent.com",
+		"evil-objects.githubusercontent.com.attacker.com",
+		"example.com",
+		"169.254.169.254",
+		"127.0.0.1",
+		"",
+	}
+	for _, h := range untrusted {
+		if IsTrustedReleaseHost(h) {
+			t.Errorf("expected IsTrustedReleaseHost(%q) = false, got true", h)
+		}
+	}
+}
+
+func TestAppReleaseManager_SHA256Verification(t *testing.T) {
+	mockPayload := "legitimate-binary-contents-to-verify"
+	downloadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write([]byte(mockPayload))
+	}))
+	defer downloadServer.Close()
+
+	mgr := NewAppReleaseManager()
+
+	// 1. Valid matching SHA-256
+	// sha256 of "legitimate-binary-contents-to-verify":
+	// a57476ea6fa38ba5175cf14e7a6857cfb78f4604505f0f353db478bcfe82f06b
+	validInfo := &AppReleaseInfo{
+		CurrentVersion: "1.0.0",
+		LatestVersion:  "1.1.0",
+		HasUpdate:      true,
+		DownloadURL:    downloadServer.URL,
+		AssetName:      "test-valid-checksum.bin",
+		ExpectedSHA256: "0cf5c4e39b68786bd2f7ed9b64b017f17b8f1fa2e4c905cbe24fd25f9212c0c9",
+	}
+
+	res, err := mgr.ExecuteUpgrade(context.Background(), validInfo)
+	if err != nil {
+		t.Fatalf("expected successful upgrade with matching checksum, got: %v", err)
+	}
+	if !res.Success {
+		t.Errorf("expected success=true with matching checksum")
+	}
+	if res.LocalPath != "" {
+		_ = os.Remove(res.LocalPath)
+	}
+
+	// 2. Mismatched SHA-256 (tampered file)
+	tamperedInfo := &AppReleaseInfo{
+		CurrentVersion: "1.0.0",
+		LatestVersion:  "1.1.0",
+		HasUpdate:      true,
+		DownloadURL:    downloadServer.URL,
+		AssetName:      "test-tampered-checksum.bin",
+		ExpectedSHA256: "0000000000000000000000000000000000000000000000000000000000000000",
+	}
+
+	resTampered, errTampered := mgr.ExecuteUpgrade(context.Background(), tamperedInfo)
+	if errTampered == nil {
+		t.Fatalf("expected error on checksum mismatch, got nil")
+	}
+	if resTampered.Success {
+		t.Errorf("expected success=false on checksum mismatch")
+	}
+	// Verify that the tampered binary was immediately deleted from disk
+	downloadsDir, _ := os.UserHomeDir()
+	targetPath := filepath.Join(downloadsDir, "Downloads", "test-tampered-checksum.bin")
+	if _, statErr := os.Stat(targetPath); !os.IsNotExist(statErr) {
+		t.Errorf("expected tampered file %s to be deleted on checksum failure, but it still exists", targetPath)
+		_ = os.Remove(targetPath)
+	}
+}
+

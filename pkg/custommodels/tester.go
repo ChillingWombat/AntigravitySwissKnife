@@ -40,7 +40,8 @@ type TestResult struct {
 
 // Tester tests connectivity and format compatibility for custom models.
 type Tester struct {
-	client *http.Client
+	client        *http.Client
+	AllowLoopback bool // Allowed in test suites with mock servers
 }
 
 // NewTester initializes a tester with a 5-second timeout.
@@ -74,6 +75,15 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 	var err error
 
 	resolvedURL := ResolveEndpoint(model.ProviderType, baseURL, model.Name)
+
+	// Security: Enforce SSRF validation and IP boundary checks (P1-14)
+	if _, _, ssrfErr := ValidateEndpointSSRF(resolvedURL, model.ProviderType, t.AllowLoopback); ssrfErr != nil {
+		return &TestResult{
+			Success:   false,
+			Message:   fmt.Sprintf("SSRF validation blocked: %v", ssrfErr),
+			LatencyMs: time.Since(start).Milliseconds(),
+		}, ssrfErr
+	}
 
 	switch model.ProviderType {
 	case ProviderCustom:
@@ -155,7 +165,8 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 		}, err
 	}
 
-	resp, err := t.client.Do(req)
+	safeClient := NewSafeHTTPClient(model.ProviderType, 5*time.Second, t.AllowLoopback)
+	resp, err := safeClient.Do(req)
 	latency := time.Since(start).Milliseconds()
 
 	if err != nil {

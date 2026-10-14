@@ -65,3 +65,79 @@ func TestAdversarial_IsAntigravityRunning_ProcessFiltering(t *testing.T) {
 		t.Errorf("expected IsAntigravityRunning=true when main IDE process is present")
 	}
 }
+
+func TestAdversarial_IsExactAntigravityExecutable(t *testing.T) {
+	valid := []string{
+		"antigravity",
+		"antigravity.exe",
+		"Antigravity",
+		"Antigravity.exe",
+		"/usr/bin/antigravity",
+		"/opt/Antigravity/antigravity",
+		`C:\Program Files\Antigravity\Antigravity.exe`,
+		`C:\Users\David\AppData\Local\Programs\antigravity\Antigravity.exe`,
+	}
+	for _, tc := range valid {
+		if !IsExactAntigravityExecutable(tc) {
+			t.Errorf("expected IsExactAntigravityExecutable(%q) = true, got false", tc)
+		}
+	}
+
+	invalid := []string{
+		"python -m antigravity",
+		"python3 -m antigravity",
+		"node antigravity.js",
+		"bash antigravity.sh",
+		"fake-antigravity",
+		"fake-antigravity.exe",
+		"antigravity-helper",
+		"libantigravity.so",
+		"antigravity.dll",
+		"swiss",
+		"swiss.exe",
+		"antigravity-swiss",
+		"antigravity-swiss.exe",
+		"",
+		"   ",
+	}
+	for _, tc := range invalid {
+		if IsExactAntigravityExecutable(tc) {
+			t.Errorf("expected IsExactAntigravityExecutable(%q) = false, got true", tc)
+		}
+	}
+}
+
+func TestAdversarial_UnrelatedProcessesIgnored(t *testing.T) {
+	shield := NewShield(0)
+
+	// User is running unrelated processes with "antigravity" in arguments or substrings
+	shield.SetProcessFinder(func() ([]ProcessInfo, error) {
+		return []ProcessInfo{
+			{
+				PID:     3001,
+				Name:    "python3",
+				Cmdline: "python3 -m antigravity",
+			},
+			{
+				PID:     3002,
+				Name:    "grep",
+				Cmdline: "grep -r antigravity /var/log",
+			},
+			{
+				PID:     3003,
+				Name:    "fake-antigravity",
+				Cmdline: "/usr/local/bin/fake-antigravity",
+			},
+			{
+				PID:     3004,
+				Name:    "bash",
+				Cmdline: "bash -c 'while true; do echo antigravity; sleep 1; done'",
+			},
+		}, nil
+	})
+
+	if shield.IsAntigravityRunning() {
+		t.Fatalf("expected IsAntigravityRunning=false when only unrelated processes contain 'antigravity'")
+	}
+}
+
