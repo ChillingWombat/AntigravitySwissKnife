@@ -459,3 +459,56 @@ func TestMaxBytesMiddlewareLimit(t *testing.T) {
 		t.Errorf("expected oversized payload (>10MB) to be rejected or failed")
 	}
 }
+
+func TestGoogleOAuthExchange_CSRFStateValidation(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// 1. Exchange request with missing state -> HTTP 400 Bad Request
+	payloadMissing := map[string]string{
+		"callback_url": "http://127.0.0.1:44503/oauth/callback?code=mock_auth_code",
+	}
+	bodyMissing, _ := json.Marshal(payloadMissing)
+	reqMissing, _ := http.NewRequest(http.MethodPost, baseURL+"/api/oauth/google/exchange", bytes.NewReader(bodyMissing))
+	reqMissing.Header.Set("Content-Type", "application/json")
+	respMissing, err := http.DefaultClient.Do(reqMissing)
+	if err != nil {
+		t.Fatalf("failed to post exchange request: %v", err)
+	}
+	defer respMissing.Body.Close()
+	if respMissing.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected HTTP 400 Bad Request for missing state, got %d", respMissing.StatusCode)
+	}
+	var resMissing map[string]interface{}
+	_ = json.NewDecoder(respMissing.Body).Decode(&resMissing)
+	if resMissing["success"] == true {
+		t.Errorf("expected success to be false for missing state")
+	}
+
+	// 2. Exchange request with attacker/invalid state -> HTTP 400 Bad Request
+	payloadAttacker := map[string]string{
+		"callback_url": "http://127.0.0.1:44503/oauth/callback?state=attacker_fake_state&code=mock_auth_code",
+	}
+	bodyAttacker, _ := json.Marshal(payloadAttacker)
+	reqAttacker, _ := http.NewRequest(http.MethodPost, baseURL+"/api/oauth/google/exchange", bytes.NewReader(bodyAttacker))
+	reqAttacker.Header.Set("Content-Type", "application/json")
+	respAttacker, err := http.DefaultClient.Do(reqAttacker)
+	if err != nil {
+		t.Fatalf("failed to post exchange request: %v", err)
+	}
+	defer respAttacker.Body.Close()
+	if respAttacker.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected HTTP 400 Bad Request for attacker state, got %d", respAttacker.StatusCode)
+	}
+	var resAttacker map[string]interface{}
+	_ = json.NewDecoder(respAttacker.Body).Decode(&resAttacker)
+	if resAttacker["success"] == true {
+		t.Errorf("expected success to be false for attacker state")
+	}
+}
+

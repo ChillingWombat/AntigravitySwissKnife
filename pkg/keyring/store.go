@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -692,6 +693,10 @@ func (s *Store) save() error {
 	if err := os.WriteFile(tmp, data, 0600); err != nil {
 		return err
 	}
+	// On Windows, os.Rename / MoveFileExW fails if destination has read-only attribute.
+	if runtime.GOOS == "windows" {
+		_ = os.Chmod(s.accountsPath, 0666)
+	}
 	return os.Rename(tmp, s.accountsPath)
 }
 
@@ -1201,8 +1206,17 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 	if password != "" {
 		acc.Password = password
 	}
-	acc.TOTPSecret = totpSecret
-	acc.HasTOTP = (totpSecret != "")
+	cleanTOTP := strings.TrimSpace(totpSecret)
+	if cleanTOTP == "[CLEAR]" || cleanTOTP == "CLEAR" {
+		acc.TOTPSecret = ""
+		acc.HasTOTP = false
+	} else if cleanTOTP != "" && cleanTOTP != "[REDACTED]" {
+		acc.TOTPSecret = cleanTOTP
+		acc.HasTOTP = true
+	} else {
+		// Preserve existing TOTPSecret and ensure HasTOTP stays consistent with current secret state
+		acc.HasTOTP = (acc.TOTPSecret != "")
+	}
 	if refreshToken != "" {
 		cleanToken := strings.TrimSpace(refreshToken)
 		if strings.HasPrefix(cleanToken, "ya29.") {

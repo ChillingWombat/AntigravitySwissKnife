@@ -386,3 +386,174 @@ func TestAdversarial_CredentialParsingFromMessyNotes(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateAccountFull_PreservesTOTPSecretWhenEmptyOrRedacted(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(filepath.Join(tmpDir, "accounts.json"))
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	initialSecret := "JBSWY3DPEHPK3PXP"
+	acc := &Account{
+		Email:      "totp_preserve@test.org",
+		Label:      "TOTP Preserve Test",
+		TOTPSecret: initialSecret,
+		HasTOTP:    true,
+	}
+	if err := store.AddOrUpdateAccount(acc); err != nil {
+		t.Fatalf("AddOrUpdateAccount error: %v", err)
+	}
+
+	// 1. Update with empty string: should preserve existing secret
+	err = store.UpdateAccountFull(
+		acc.Email, "New Label 1", "FREE", "STANDBY", "Mid", "Notes 1", "", "", "", 0, false, false, false,
+	)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull with empty TOTP error: %v", err)
+	}
+	gotAcc, err := store.GetAccount(acc.Email)
+	if err != nil {
+		t.Fatalf("account missing after update: %v", err)
+	}
+	if gotAcc.TOTPSecret != initialSecret {
+		t.Errorf("expected TOTPSecret to be preserved as %s, got %q", initialSecret, gotAcc.TOTPSecret)
+	}
+	if !gotAcc.HasTOTP {
+		t.Errorf("expected HasTOTP to remain true")
+	}
+
+	// 2. Update with [REDACTED]: should preserve existing secret
+	err = store.UpdateAccountFull(
+		acc.Email, "New Label 2", "FREE", "STANDBY", "Mid", "Notes 2", "", "[REDACTED]", "", 0, false, false, false,
+	)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull with [REDACTED] TOTP error: %v", err)
+	}
+	gotAcc, err = store.GetAccount(acc.Email)
+	if err != nil {
+		t.Fatalf("account missing after update: %v", err)
+	}
+	if gotAcc.TOTPSecret != initialSecret {
+		t.Errorf("expected TOTPSecret to be preserved as %s, got %q", initialSecret, gotAcc.TOTPSecret)
+	}
+	if !gotAcc.HasTOTP {
+		t.Errorf("expected HasTOTP to remain true")
+	}
+
+	// 3. Update with whitespace: should preserve existing secret
+	err = store.UpdateAccountFull(
+		acc.Email, "New Label 3", "FREE", "STANDBY", "Mid", "Notes 3", "", "   ", "", 0, false, false, false,
+	)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull with whitespace TOTP error: %v", err)
+	}
+	gotAcc, err = store.GetAccount(acc.Email)
+	if err != nil {
+		t.Fatalf("account missing after update: %v", err)
+	}
+	if gotAcc.TOTPSecret != initialSecret {
+		t.Errorf("expected TOTPSecret to be preserved as %s, got %q", initialSecret, gotAcc.TOTPSecret)
+	}
+	if !gotAcc.HasTOTP {
+		t.Errorf("expected HasTOTP to remain true")
+	}
+}
+
+func TestUpdateAccountFull_ClearsTOTPSecretOnClearMarker(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(filepath.Join(tmpDir, "accounts.json"))
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	initialSecret := "JBSWY3DPEHPK3PXP"
+	acc := &Account{
+		Email:      "totp_clear@test.org",
+		Label:      "TOTP Clear Test",
+		TOTPSecret: initialSecret,
+		HasTOTP:    true,
+	}
+	if err := store.AddOrUpdateAccount(acc); err != nil {
+		t.Fatalf("AddOrUpdateAccount error: %v", err)
+	}
+
+	// 1. Clear with [CLEAR]
+	err = store.UpdateAccountFull(
+		acc.Email, "Clear Label", "FREE", "STANDBY", "Mid", "Notes", "", "[CLEAR]", "", 0, false, false, false,
+	)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull with [CLEAR] error: %v", err)
+	}
+	gotAcc, err := store.GetAccount(acc.Email)
+	if err != nil {
+		t.Fatalf("account missing after update: %v", err)
+	}
+	if gotAcc.TOTPSecret != "" {
+		t.Errorf("expected TOTPSecret to be empty, got %q", gotAcc.TOTPSecret)
+	}
+	if gotAcc.HasTOTP {
+		t.Errorf("expected HasTOTP to be false after clearing")
+	}
+
+	// Re-add secret
+	acc.TOTPSecret = initialSecret
+	acc.HasTOTP = true
+	_ = store.AddOrUpdateAccount(acc)
+
+	// 2. Clear with CLEAR
+	err = store.UpdateAccountFull(
+		acc.Email, "Clear Label 2", "FREE", "STANDBY", "Mid", "Notes", "", "CLEAR", "", 0, false, false, false,
+	)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull with CLEAR error: %v", err)
+	}
+	gotAcc, err = store.GetAccount(acc.Email)
+	if err != nil {
+		t.Fatalf("account missing after update: %v", err)
+	}
+	if gotAcc.TOTPSecret != "" {
+		t.Errorf("expected TOTPSecret to be empty, got %q", gotAcc.TOTPSecret)
+	}
+	if gotAcc.HasTOTP {
+		t.Errorf("expected HasTOTP to be false after clearing")
+	}
+}
+
+func TestUpdateAccountFull_UpdatesTOTPSecretWhenNewValueProvided(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(filepath.Join(tmpDir, "accounts.json"))
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	initialSecret := "INITIALSECRET123"
+	newSecret := "NEWSECRET456789"
+	acc := &Account{
+		Email:      "totp_update@test.org",
+		Label:      "TOTP Update Test",
+		TOTPSecret: initialSecret,
+		HasTOTP:    true,
+	}
+	if err := store.AddOrUpdateAccount(acc); err != nil {
+		t.Fatalf("AddOrUpdateAccount error: %v", err)
+	}
+
+	err = store.UpdateAccountFull(
+		acc.Email, "Updated Label", "FREE", "STANDBY", "Mid", "Notes", "", newSecret, "", 0, false, false, false,
+	)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull with new secret error: %v", err)
+	}
+	gotAcc, err := store.GetAccount(acc.Email)
+	if err != nil {
+		t.Fatalf("account missing after update: %v", err)
+	}
+	if gotAcc.TOTPSecret != newSecret {
+		t.Errorf("expected TOTPSecret to be updated to %s, got %q", newSecret, gotAcc.TOTPSecret)
+	}
+	if !gotAcc.HasTOTP {
+		t.Errorf("expected HasTOTP to be true")
+	}
+}
+
