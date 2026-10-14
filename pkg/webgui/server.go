@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/bridge"
@@ -76,6 +77,7 @@ type Server struct {
 	sessionTokens      map[string]time.Time
 	daemonSessionToken string
 	desktopSettingsMu  sync.Mutex
+	isSwitching        atomic.Bool
 }
 
 // NewServer initializes the web UI server.
@@ -1095,6 +1097,20 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
+	p.Email = strings.TrimSpace(p.Email)
+	if p.Email == "" {
+		http.Error(w, "email is required", http.StatusBadRequest)
+		return
+	}
+	if !s.isSwitching.CompareAndSwap(false, true) {
+		w.WriteHeader(http.StatusConflict)
+		writeJSON(w, map[string]interface{}{
+			"success": false,
+			"error":   "Account switch already in progress. Please wait for current operation to complete.",
+		})
+		return
+	}
+	defer s.isSwitching.Store(false)
 	shouldRelaunch := true
 	if p.RelaunchIDE != nil {
 		shouldRelaunch = *p.RelaunchIDE
@@ -1107,7 +1123,7 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 		"target_app":   p.TargetApp,
 	}
 	var res map[string]interface{}
-	if err := s.client.Call("swiss.switchAccount", reqPayload, &res); err != nil {
+	if s.client == nil || s.client.Call("swiss.switchAccount", reqPayload, &res) != nil {
 		store, storeErr := keyring.NewStore("")
 		if storeErr != nil {
 			http.Error(w, storeErr.Error(), http.StatusInternalServerError)
@@ -4224,9 +4240,29 @@ func (s *Server) handleUtilitiesImport(w http.ResponseWriter, r *http.Request) {
 	if req.Source == "" {
 		req.Source = "opencode"
 	}
-	if req.Mode == "" {
+	// Whitelist source and mode
+	if matched, _ := regexp.MatchString(`^[a-zA-Z0-9_\-]+$`, req.Source); !matched {
+		req.Source = "opencode"
+	}
+	if matched, _ := regexp.MatchString(`^[a-zA-Z0-9_\-]+$`, req.Mode); !matched {
 		req.Mode = "auto"
 	}
+
+	validIDRegex := regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`)
+	var sanitizedIDs []string
+	for _, cid := range req.CandidateIDs {
+		cid = strings.TrimSpace(cid)
+		if cid == "" || strings.Contains(cid, "\x00") || strings.Contains(cid, "..") {
+			continue
+		}
+		if filepath.Base(cid) != cid || strings.ContainsAny(cid, `/\`) {
+			continue
+		}
+		if validIDRegex.MatchString(cid) {
+			sanitizedIDs = append(sanitizedIDs, cid)
+		}
+	}
+	req.CandidateIDs = sanitizedIDs
 
 	antigravityBase, appStoragePath := importer.DefaultPaths()
 
@@ -4236,9 +4272,14 @@ func (s *Server) handleUtilitiesImport(w http.ResponseWriter, r *http.Request) {
 		claudeDir := filepath.Join(home, ".claude", "transcripts")
 		var results []importer.ImportResult
 		for _, cid := range req.CandidateIDs {
-			p := filepath.Join(claudeDir, cid)
-			if !strings.HasSuffix(p, ".jsonl") {
-				p += ".jsonl"
+			filename := cid
+			if !strings.HasSuffix(filename, ".jsonl") {
+				filename += ".jsonl"
+			}
+			p := filepath.Join(claudeDir, filename)
+			rel, err := filepath.Rel(claudeDir, p)
+			if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+				continue
 			}
 			res, err := importer.ImportClaudeCodeSession(p, antigravityBase, appStoragePath, "")
 			if err == nil && res != nil {
@@ -5653,15 +5694,28 @@ func (s *Server) handleFilesTerminal(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]interface{}{"success": true, "dir": dir})
 		return
 	}
-	terms := [][]string{
-		{"ptyxis", "--working-directory=" + dir},
-		{"gnome-terminal", "--working-directory=" + dir},
-		{"x-terminal-emulator", "-e", "bash"},
-		{"konsole", "--workdir", dir},
-		{"alacritty", "--working-directory", dir},
-		{"kitty", "--directory", dir},
-		{"xfce4-terminal", "--working-directory=" + dir},
-		{"xterm", "-e", "cd '" + dir + "' && bash"},
+	var terms [][]string
+	if runtime.GOOS == "windows" {
+		terms = [][]string{
+			{"wt.exe", "-d", dir},
+			{"powershell.exe"},
+			{"cmd.exe", "/c", "start", "cmd.exe"},
+		}
+	} else if runtime.GOOS == "darwin" {
+		terms = [][]string{
+			{"open", "-a", "Terminal", dir},
+		}
+	} else {
+		terms = [][]string{
+			{"ptyxis", "--working-directory=" + dir},
+			{"gnome-terminal", "--working-directory=" + dir},
+			{"konsole", "--workdir", dir},
+			{"alacritty", "--working-directory", dir},
+			{"kitty", "--directory", dir},
+			{"xfce4-terminal", "--working-directory=" + dir},
+			{"x-terminal-emulator"},
+			{"xterm"},
+		}
 	}
 	spawned := false
 	for _, term := range terms {

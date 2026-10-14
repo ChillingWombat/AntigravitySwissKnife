@@ -1427,10 +1427,30 @@ type ChatMetricsResponse struct {
 	Turns          []ChatMetricsTurn  `json:"turns"`
 }
 
+// isSafeConversationID validates conversation identifiers against directory traversal and illegal characters.
+func isSafeConversationID(id string) bool {
+	id = strings.TrimSpace(id)
+	if id == "" || len(id) > 256 {
+		return false
+	}
+	if filepath.Base(id) != id || strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") {
+		return false
+	}
+	for _, ch := range id {
+		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_') {
+			return false
+		}
+	}
+	return true
+}
+
 // GetChatMetricsForConversation extracts real per-turn and conversation-level metrics from disk.
 func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsResponse, error) {
 	if convID == "" {
 		return nil, fmt.Errorf("conversation_id is required")
+	}
+	if !isSafeConversationID(convID) {
+		return nil, fmt.Errorf("invalid conversation_id: contains forbidden characters or path traversal")
 	}
 	if scope == "" {
 		scope = "aggregated"
@@ -1439,6 +1459,15 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 	home, _ := os.UserHomeDir()
 	brainBase := filepath.Join(home, ".gemini", "antigravity", "brain")
 	mainLog := filepath.Join(brainBase, convID, ".system_generated", "logs", "transcript.jsonl")
+
+	const maxTranscriptSize = 10 * 1024 * 1024 // 10MB upper bound ceiling
+	fi, err := os.Stat(mainLog)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read conversation transcript: %w", err)
+	}
+	if fi.Size() > maxTranscriptSize {
+		return nil, fmt.Errorf("conversation transcript exceeds maximum size limit of 10MB")
+	}
 
 	data, err := os.ReadFile(mainLog)
 	if err != nil {
@@ -1631,8 +1660,13 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 				for rows.Next() {
 					var subID string
 					if err := rows.Scan(&subID); err == nil && subID != "" {
+						subID = strings.TrimSpace(subID)
+						if !isSafeConversationID(subID) {
+							continue
+						}
 						subLog := filepath.Join(brainBase, subID, ".system_generated", "logs", "transcript.jsonl")
-						if subData, readErr := os.ReadFile(subLog); readErr == nil {
+						if sfi, sErr := os.Stat(subLog); sErr == nil && sfi.Size() <= maxTranscriptSize {
+							if subData, readErr := os.ReadFile(subLog); readErr == nil {
 							subLines := strings.Split(string(subData), "\n")
 							for _, sl := range subLines {
 								sl = strings.TrimSpace(sl)
@@ -1648,6 +1682,7 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 										totalCached += sStep.CacheReadTokens
 									}
 								}
+							}
 							}
 						}
 					}
@@ -1716,9 +1751,25 @@ func (s *Server) handleTokensChatMetrics(w http.ResponseWriter, r *http.Request)
 	if convID == "" {
 		convID = strings.TrimSpace(r.URL.Query().Get("id"))
 	}
+	if convID != "" && !isSafeConversationID(convID) {
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, map[string]interface{}{
+			"success": false,
+			"error":   "invalid conversation_id: contains forbidden characters or path traversal",
+		})
+		return
+	}
 	parentID := strings.TrimSpace(r.URL.Query().Get("parent_id"))
 	if parentID == "" {
 		parentID = strings.TrimSpace(r.URL.Query().Get("parent_conversation_id"))
+	}
+	if parentID != "" && !isSafeConversationID(parentID) {
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, map[string]interface{}{
+			"success": false,
+			"error":   "invalid parent_id: contains forbidden characters or path traversal",
+		})
+		return
 	}
 	agentName := strings.TrimSpace(r.URL.Query().Get("agent_name"))
 	if convID == "" && parentID != "" && agentName != "" {

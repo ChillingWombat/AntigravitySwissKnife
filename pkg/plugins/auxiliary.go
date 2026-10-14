@@ -1745,6 +1745,19 @@ func GenerateAuxiliaryPluginsScript() string {
     };
     window.setupAuxiliaryTabs = function() { setupAuxiliaryTabs(); };
 
+    function escapeHtml(str) {
+      return String(str || "").replace(/[&<>"']/g, function(s) {
+        switch (s) {
+          case "&": return "&amp;";
+          case "<": return "&lt;";
+          case ">": return "&gt;";
+          case '"': return "&quot;";
+          case "'": return "&#39;";
+          default: return s;
+        }
+      });
+    }
+
     // 1. Auxiliary Panel Tab Injector Engine
     function setupAuxiliaryTabs() {
       if (window.__swissDaemonOnline === false) {
@@ -3260,9 +3273,7 @@ func GenerateAuxiliaryPluginsScript() string {
           top = Math.max(8, result.rect.y - boxH - 8);
         }
         box.style.left = left + "px";
-        box.style.top = top + "px";
-
-        const selectorEscaped = (result.selector || "element").replace(/"/g, "&quot;");
+        const selectorEscaped = escapeHtml(result.selector || "element");
 
         box.innerHTML = '<div class="swiss-element-annotation-header">' +
           '<span class="swiss-element-badge" title="' + selectorEscaped + '">' +
@@ -3366,8 +3377,8 @@ func GenerateAuxiliaryPluginsScript() string {
           '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
             '<circle cx="12" cy="12" r="10"/><path d="m22 12-4 0"/><path d="m6 12-4 0"/><path d="m12 6 0-4"/><path d="m12 22 0-4"/>' +
           '</svg>' +
-          '<span class="swiss-chat-chip-selector">' + selText + '</span>' +
-          (commentText ? '<span class="swiss-chat-chip-comment">' + commentText + '</span>' : '') +
+          '<span class="swiss-chat-chip-selector">' + escapeHtml(selText) + '</span>' +
+          (commentText ? '<span class="swiss-chat-chip-comment">' + escapeHtml(commentText) + '</span>' : '') +
         '</div>' +
         '<button type="button" class="swiss-chat-chip-delete" id="swiss-chat-chip-delete" title="Delete element annotation from chat input">' +
           '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
@@ -3937,8 +3948,8 @@ func GenerateAuxiliaryPluginsScript() string {
 
             row.innerHTML = ` + "`" + `
               <span class="swiss-file-icon">${iconSvg}</span>
-              <span class="swiss-file-name">${item.name}</span>
-              <span class="swiss-file-size">${item.size || ""}</span>
+              <span class="swiss-file-name">${escapeHtml(item.name)}</span>
+              <span class="swiss-file-size">${escapeHtml(item.size || "")}</span>
             ` + "`" + `;
 
             // Drag to chat input

@@ -382,3 +382,50 @@ func TestExtractTaskAndWorkItemsFromTranscript(t *testing.T) {
 	}
 }
 
+func TestReportAgentTask_JailedPathAndIDValidation(t *testing.T) {
+	// 1. Invalid conversation IDs must be rejected
+	badIDs := []string{
+		"../../etc/passwd",
+		"conv/123",
+		"conv\\123",
+		"conv\x00evil",
+		"",
+	}
+	for _, badID := range badIDs {
+		err := ReportAgentTask(".", SelfReportedTask{ConversationID: badID})
+		if err == nil {
+			t.Errorf("expected error for invalid conversation_id %q, but got nil", badID)
+		}
+	}
+
+	// 2. Dangerous workspace path (e.g., /etc or C:\Windows) must not be written to; falls back to config dir
+	tmpConfig := t.TempDir()
+	t.Setenv("HOME", tmpConfig)
+	t.Setenv("USERPROFILE", tmpConfig)
+	t.Setenv("APPDATA", tmpConfig)
+
+	dangerousPath := "/etc"
+	if runtime.GOOS == "windows" {
+		dangerousPath = `C:\Windows`
+	}
+	validTask := SelfReportedTask{
+		ConversationID: "conv-safe-12345",
+		WorkItem:       "Safe Task",
+	}
+	err := ReportAgentTask(dangerousPath, validTask)
+	if err != nil {
+		t.Fatalf("expected fallback to config dir without error, got: %v", err)
+	}
+
+	// 3. Valid local workspace path
+	tmpWs := t.TempDir()
+	err = ReportAgentTask(tmpWs, validTask)
+	if err != nil {
+		t.Fatalf("expected success for valid workspace, got: %v", err)
+	}
+	targetFile := filepath.Join(tmpWs, ".antigravity", "agent_tasks.json")
+	if _, err := os.Stat(targetFile); err != nil {
+		t.Errorf("expected agent_tasks.json to be created in %s, got: %v", targetFile, err)
+	}
+}
+
