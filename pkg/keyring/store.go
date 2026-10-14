@@ -824,6 +824,15 @@ func (s *Store) BatchImportAccounts(items []BatchImportItem) (int, error) {
 
 		acc, exists := s.accounts[email]
 		if !exists {
+			// Gmail dot/domain variants of an existing account must update the
+			// stored canonical entry instead of creating a duplicate.
+			if canonical := s.canonicalEmailLocked(email); canonical != email {
+				email = canonical
+				acc = s.accounts[canonical]
+				exists = true
+			}
+		}
+		if !exists {
 			acc = &Account{
 				Email:  email,
 				Status: "STANDBY",
@@ -1004,6 +1013,15 @@ func (s *Store) ImportAccount(email, refreshToken, accessToken, label, totpSecre
 	}
 
 	acc, exists := s.accounts[email]
+	if !exists {
+		// Gmail dot/domain variants of an existing account must update the
+		// stored canonical entry instead of creating a duplicate.
+		if canonical := s.canonicalEmailLocked(email); canonical != email {
+			email = canonical
+			acc = s.accounts[canonical]
+			exists = true
+		}
+	}
 	if !exists {
 		acc = &Account{
 			Email: email,
@@ -1505,6 +1523,10 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 		s.mu.Unlock()
 		return nil, nil
 	}
+
+	// Resolve Gmail dot/domain variants to the existing vault entry so that an
+	// equivalent detection never triggers an auto-import duplicate.
+	detectedEmail = s.canonicalEmailLocked(detectedEmail)
 
 	// In-flight manual/auto switch latch: if an account switch occurred within the last 30 seconds,
 	// protect s.activeEmail from being reverted by a stale in-memory session while the IDE respawns.
