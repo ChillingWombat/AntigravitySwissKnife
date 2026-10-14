@@ -20,6 +20,10 @@ func TestChallenge_UpdateConfigPartial_AdversarialInputs(t *testing.T) {
 		t.Fatalf("failed to create store: %v", err)
 	}
 
+	if err := store.SetProjectColor("ProjectAlpha", "#0b57d0"); err != nil {
+		t.Fatalf("failed to set project color: %v", err)
+	}
+
 	initialCfg := store.GetConfig()
 
 	testCases := []struct {
@@ -182,6 +186,10 @@ func TestChallenge_UpdateConfigPartial_IncrementalColorMerge(t *testing.T) {
 		t.Fatalf("failed to create store: %v", err)
 	}
 
+	if err := store.SetProjectColor("ProjectBase", "#0b57d0"); err != nil {
+		t.Fatalf("failed to set base color: %v", err)
+	}
+
 	// 1. Add ProjectA
 	u1, err := store.UpdateConfigPartial([]byte(`{"project_colors": {"ProjectA": "#111111"}}`))
 	if err != nil {
@@ -190,8 +198,8 @@ func TestChallenge_UpdateConfigPartial_IncrementalColorMerge(t *testing.T) {
 	if u1.ProjectColors["ProjectA"] != "#111111" {
 		t.Fatalf("expected ProjectA=#111111, got %q", u1.ProjectColors["ProjectA"])
 	}
-	if u1.ProjectColors["Antigravity Swiss Knife"] != "#0b57d0" {
-		t.Fatalf("factory color lost after step 1")
+	if u1.ProjectColors["ProjectBase"] != "#0b57d0" {
+		t.Fatalf("base color lost after step 1")
 	}
 
 	// 2. Add ProjectB and toggle one telemetry flag
@@ -202,6 +210,9 @@ func TestChallenge_UpdateConfigPartial_IncrementalColorMerge(t *testing.T) {
 	if u2.ProjectColors["ProjectA"] != "#111111" || u2.ProjectColors["ProjectB"] != "#222222" {
 		t.Fatalf("incremental colors lost in step 2: %+v", u2.ProjectColors)
 	}
+	if u2.ProjectColors["ProjectBase"] != "#0b57d0" {
+		t.Fatalf("base color lost after step 2")
+	}
 	if u2.ChatTelemetryScope != "per_chat" {
 		t.Fatalf("expected per_chat, got %q", u2.ChatTelemetryScope)
 	}
@@ -209,7 +220,7 @@ func TestChallenge_UpdateConfigPartial_IncrementalColorMerge(t *testing.T) {
 		t.Fatalf("flags corrupted in step 2")
 	}
 
-	// 3. Update ProjectA color, ProjectB and factory colors remain
+	// 3. Update ProjectA color, ProjectB and base colors remain
 	u3, err := store.UpdateConfigPartial([]byte(`{"project_colors": {"ProjectA": "#333333"}}`))
 	if err != nil {
 		t.Fatalf("step 3 failed: %v", err)
@@ -220,8 +231,8 @@ func TestChallenge_UpdateConfigPartial_IncrementalColorMerge(t *testing.T) {
 	if u3.ProjectColors["ProjectB"] != "#222222" {
 		t.Fatalf("ProjectB lost after step 3")
 	}
-	if u3.ProjectColors["Antigravity Swiss Knife"] != "#0b57d0" {
-		t.Fatalf("factory color lost after step 3")
+	if u3.ProjectColors["ProjectBase"] != "#0b57d0" {
+		t.Fatalf("base color lost after step 3")
 	}
 }
 
@@ -272,7 +283,7 @@ func TestChallenge_UpdateConfigPartial_ConcurrentSafety(t *testing.T) {
 
 // TestChallenge_RealUserConfigIsolation verifies that creating a store without a custom
 // path (defaulting to core.GetConfigDir()) inside tests writes to /tmp and NEVER touches
-// /home/david/.config/antigravity-swiss/.
+// the real user configuration directory (~/.config/antigravity-swiss/).
 func TestChallenge_RealUserConfigIsolation(t *testing.T) {
 	realUserConfigDir := filepath.Join(os.Getenv("HOME"), ".config", "antigravity-swiss")
 	realGUIFile := filepath.Join(realUserConfigDir, "gui_improvements.json")

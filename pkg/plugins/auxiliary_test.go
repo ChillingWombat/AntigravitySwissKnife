@@ -1106,7 +1106,7 @@ assert(revealHandlerMatch, "reveal onclick handler not found");
 let fetchedUrl = null;
 let fetchedOpts = null;
 const API_BASE = "http://127.0.0.1:19876";
-const currentFilePath = "/mnt/Data/Projects";
+const currentFilePath = "/var/projects";
 const toolbar = { querySelector: (sel) => (sel === "#swiss-f-reveal" ? revealBtn : null) };
 const revealBtn = {};
 const fetch = (url, opts) => { fetchedUrl = url; fetchedOpts = opts; };
@@ -1114,7 +1114,7 @@ eval(revealHandlerMatch[0]);
 revealBtn.onclick();
 assert.strictEqual(fetchedUrl, "http://127.0.0.1:19876/api/files/reveal");
 assert.strictEqual(fetchedOpts.method, "POST");
-assert.deepStrictEqual(JSON.parse(fetchedOpts.body), { path: "/mnt/Data/Projects" });
+assert.deepStrictEqual(JSON.parse(fetchedOpts.body), { path: "/var/projects" });
 `
 		cmd := exec.Command(nodePath, "-e", nodeScript)
 		cmd.Stdin = strings.NewReader(js)
@@ -2422,8 +2422,8 @@ const assert = require('assert');
 
 const storage = {
   antigravity_swiss_project_folders: JSON.stringify({
-    "UniMelb - IT": "/mnt/Data/UniMelb/COMP9007",
-    "PrivacyAI": "/home/david/projects/privacy"
+    "WorkspaceAlpha": "/var/projects/workspace-alpha",
+    "ProjectSecureAI": "/var/projects/secure-ai"
   })
 };
 
@@ -2433,8 +2433,8 @@ const localStorage = {
 
 let mockWindow = {
   __swissGetProjectFolder: (p) => {
-    if (p === "UniMelb - IT") return "/mnt/Data/UniMelb/COMP9007";
-    if (p === "UniMelb - IT/Assignment") return "/mnt/Data/UniMelb/COMP9007/Assignment";
+    if (p === "WorkspaceAlpha") return "/var/projects/workspace-alpha";
+    if (p === "WorkspaceAlpha/Assignment") return "/var/projects/workspace-alpha/Assignment";
     return "";
   }
 };
@@ -2476,17 +2476,17 @@ const makeResolver = (win) => (raw) => {
 
 // 4a. Verify with window.__swissGetProjectFolder
 const resolve1 = makeResolver(mockWindow);
-assert.strictEqual(resolve1("UniMelb - IT"), "/mnt/Data/UniMelb/COMP9007");
-assert.strictEqual(resolve1("UniMelb - IT/Assignment"), "/mnt/Data/UniMelb/COMP9007/Assignment");
+assert.strictEqual(resolve1("WorkspaceAlpha"), "/var/projects/workspace-alpha");
+assert.strictEqual(resolve1("WorkspaceAlpha/Assignment"), "/var/projects/workspace-alpha/Assignment");
 assert.strictEqual(resolve1("GLOBAL"), ".");
 assert.strictEqual(resolve1("."), ".");
 
 // 4b. Verify fallback to localStorage when window.__swissGetProjectFolder is missing
 const resolveFallback = makeResolver({});
-assert.strictEqual(resolveFallback("UniMelb - IT"), "/mnt/Data/UniMelb/COMP9007");
-assert.strictEqual(resolveFallback("unimelb - it"), "/mnt/Data/UniMelb/COMP9007");
-assert.strictEqual(resolveFallback("PrivacyAI/src/main.rs"), "/home/david/projects/privacy/src/main.rs");
-assert.strictEqual(resolveFallback("UniMelb - IT/Assignment/spec.pdf"), "/mnt/Data/UniMelb/COMP9007/Assignment/spec.pdf");
+assert.strictEqual(resolveFallback("WorkspaceAlpha"), "/var/projects/workspace-alpha");
+assert.strictEqual(resolveFallback("workspacealpha"), "/var/projects/workspace-alpha");
+assert.strictEqual(resolveFallback("ProjectSecureAI/src/main.rs"), "/var/projects/secure-ai/src/main.rs");
+assert.strictEqual(resolveFallback("WorkspaceAlpha/Assignment/spec.pdf"), "/var/projects/workspace-alpha/Assignment/spec.pdf");
 assert.strictEqual(resolveFallback("UnknownCustomDir"), "UnknownCustomDir");
 `
 

@@ -2169,9 +2169,6 @@ func (s *Server) handleGUIProjectColorDelete(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	factoryColors := gui.FactoryProjectColors()
-	factoryColor, isFactory := factoryColors[p.Name]
-
 	if s.guiStore != nil {
 		if errRem := s.guiStore.RemoveProjectColor(p.Name); errRem != nil {
 			http.Error(w, errRem.Error(), http.StatusInternalServerError)
@@ -2185,8 +2182,8 @@ func (s *Server) handleGUIProjectColorDelete(w http.ResponseWriter, r *http.Requ
 			writeJSON(w, map[string]interface{}{
 				"success":          true,
 				"name":             p.Name,
-				"reset_to_factory": isFactory,
-				"color":            factoryColor,
+				"reset_to_factory": false,
+				"color":            "",
 			})
 			return
 		}
@@ -2196,8 +2193,8 @@ func (s *Server) handleGUIProjectColorDelete(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, map[string]interface{}{
 		"success":          true,
 		"name":             p.Name,
-		"reset_to_factory": isFactory,
-		"color":            factoryColor,
+		"reset_to_factory": false,
+		"color":            "",
 	})
 }
 

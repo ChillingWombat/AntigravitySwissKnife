@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -264,81 +265,91 @@ func TestResolveProjectPath(t *testing.T) {
 
 	// 5. Resolve project configured in ~/.gemini/config/projects/
 	fakeHome := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", fakeHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("USERPROFILE", fakeHome)
 
 	cfgDir := filepath.Join(fakeHome, ".gemini", "config", "projects")
 	if err := os.MkdirAll(cfgDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	targetFolder := filepath.Join(fakeHome, "ActualProjects", "COMP9007")
+	targetFolder := filepath.Join(fakeHome, "ActualProjects", "ProjectDocs")
 	if err := os.MkdirAll(targetFolder, 0755); err != nil {
 		t.Fatal(err)
 	}
 
+	targetFolderURI := "file://" + filepath.ToSlash(targetFolder)
+	secondaryURI := "file://" + filepath.ToSlash(filepath.Join(fakeHome, "SecondaryFolder"))
+	if runtime.GOOS == "windows" {
+		targetFolderURI = "file:///" + filepath.ToSlash(targetFolder)
+		secondaryURI = "file:///" + filepath.ToSlash(filepath.Join(fakeHome, "SecondaryFolder"))
+	}
+
 	projJSON := fmt.Sprintf(`{
-		"id": "test-unimelb-uuid",
-		"name": "UniMelb - IT",
+		"id": "test-workspace-uuid",
+		"name": "WorkspaceAlpha",
 		"projectResources": {
 			"resources": [
 				{
-					"folderUri": "file://%s"
+					"folderUri": "%s"
 				},
 				{
-					"folderUri": "file://%s"
+					"folderUri": "%s"
 				}
 			]
 		}
-	}`, targetFolder, filepath.Join(fakeHome, "SecondaryFolder"))
-	if err := os.WriteFile(filepath.Join(cfgDir, "test-unimelb-uuid.json"), []byte(projJSON), 0644); err != nil {
+	}`, targetFolderURI, secondaryURI)
+	if err := os.WriteFile(filepath.Join(cfgDir, "test-workspace-uuid.json"), []byte(projJSON), 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	// Verify top folder is returned when querying by project name
-	topByProjectName := ResolveProjectPath("UniMelb - IT")
+	topByProjectName := ResolveProjectPath("WorkspaceAlpha")
 	if topByProjectName != targetFolder {
-		t.Errorf("expected ResolveProjectPath('UniMelb - IT') = %q, got %q", targetFolder, topByProjectName)
+		t.Errorf("expected ResolveProjectPath('WorkspaceAlpha') = %q, got %q", targetFolder, topByProjectName)
 	}
 
 	// Verify top folder is returned when querying by project ID
-	topByID := ResolveProjectPath("test-unimelb-uuid")
+	topByID := ResolveProjectPath("test-workspace-uuid")
 	if topByID != targetFolder {
-		t.Errorf("expected ResolveProjectPath('test-unimelb-uuid') = %q, got %q", targetFolder, topByID)
+		t.Errorf("expected ResolveProjectPath('test-workspace-uuid') = %q, got %q", targetFolder, topByID)
 	}
 
 	// Verify subpath resolution works with configured project name
-	subpathResolved := ResolveProjectPath(filepath.Join("UniMelb - IT", "Assignment", "spec.pdf"))
+	subpathResolved := ResolveProjectPath(filepath.Join("WorkspaceAlpha", "Assignment", "spec.pdf"))
 	wantSubpath := filepath.Join(targetFolder, "Assignment", "spec.pdf")
 	if subpathResolved != wantSubpath {
 		t.Errorf("expected subpath resolved %q, got %q", wantSubpath, subpathResolved)
 	}
 
 	// Verify gitFolder format is supported
-	gitTargetFolder := filepath.Join(fakeHome, "GitProjects", "PrivacyAI")
+	gitTargetFolder := filepath.Join(fakeHome, "GitProjects", "ProjectSecureAI")
 	if err := os.MkdirAll(gitTargetFolder, 0755); err != nil {
 		t.Fatal(err)
 	}
+	gitTargetURI := "file://" + filepath.ToSlash(gitTargetFolder)
+	if runtime.GOOS == "windows" {
+		gitTargetURI = "file:///" + filepath.ToSlash(gitTargetFolder)
+	}
 	gitProjJSON := fmt.Sprintf(`{
 		"id": "git-proj-uuid",
-		"name": "PrivacyAI",
+		"name": "ProjectSecureAI",
 		"projectResources": {
 			"resources": [
 				{
 					"gitFolder": {
-						"folderUri": "file://%s",
+						"folderUri": "%s",
 						"defaultBranch": "main"
 					}
 				}
 			]
 		}
-	}`, gitTargetFolder)
+	}`, gitTargetURI)
 	if err := os.WriteFile(filepath.Join(cfgDir, "git-proj-uuid.json"), []byte(gitProjJSON), 0644); err != nil {
 		t.Fatal(err)
 	}
-	topGit := ResolveProjectPath("PrivacyAI")
+	topGit := ResolveProjectPath("ProjectSecureAI")
 	if topGit != gitTargetFolder {
-		t.Errorf("expected ResolveProjectPath('PrivacyAI') = %q, got %q", gitTargetFolder, topGit)
+		t.Errorf("expected ResolveProjectPath('ProjectSecureAI') = %q, got %q", gitTargetFolder, topGit)
 	}
 }
 
@@ -356,9 +367,8 @@ func TestExtractTaskAndWorkItemsFromTranscript(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	workItem, issues, prs := extractTaskAndWorkItemsFromTranscript("test-conv", "Prompt mentioning fixes #42")
 	if workItem == "" {

@@ -1671,7 +1671,7 @@ func generateBaseScript(cfg *Config) string {
   }
   if (Array.isArray(window.__swissDiskDeletedColors)) {
     window.__swissDiskDeletedColors.forEach(p => {
-      if (!FACTORY_PROJECT_COLORS[p]) {
+      if (!FACTORY_PROJECT_COLORS || !FACTORY_PROJECT_COLORS[p]) {
         delete window.__swissDynamicColors[p];
       }
     });
@@ -1692,7 +1692,7 @@ func generateBaseScript(cfg *Config) string {
         const delList = JSON.parse(delCached);
         if (Array.isArray(delList)) {
           delList.forEach(p => {
-            if (!FACTORY_PROJECT_COLORS[p]) {
+            if (!FACTORY_PROJECT_COLORS || !FACTORY_PROJECT_COLORS[p]) {
               delete window.__swissDynamicColors[p];
             }
           });
@@ -1734,7 +1734,7 @@ func generateBaseScript(cfg *Config) string {
           } catch (_) {}
         }
       } else if (projName) {
-        if (FACTORY_PROJECT_COLORS[projName]) {
+        if (FACTORY_PROJECT_COLORS && FACTORY_PROJECT_COLORS[projName]) {
           window.__swissDynamicColors[projName] = FACTORY_PROJECT_COLORS[projName];
           if (typeof localStorage !== "undefined") {
             try {

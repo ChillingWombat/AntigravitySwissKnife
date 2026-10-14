@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -17,6 +18,10 @@ func TestUpdateConfigPartial_PreservesOmittedFields(t *testing.T) {
 	initialCfg := store.GetConfig()
 	if !initialCfg.Enabled || !initialCfg.ColorStylingEnabled || !initialCfg.AutoInject {
 		t.Fatalf("expected initial config defaults to be true, got %+v", initialCfg)
+	}
+
+	if err := store.SetProjectColor("ProjectAlpha", "#0b57d0"); err != nil {
+		t.Fatalf("failed to set project color: %v", err)
 	}
 
 	// Send partial JSON with only a single telemetry flag
@@ -52,13 +57,8 @@ func TestUpdateConfigPartial_PreservesOmittedFields(t *testing.T) {
 	if !updated.DragRearrangeEnabled {
 		t.Fatalf("expected DragRearrangeEnabled to remain true")
 	}
-	if len(updated.ProjectColors) == 0 {
-		t.Fatalf("expected ProjectColors to be preserved and non-empty")
-	}
-	for k, v := range FactoryProjectColors() {
-		if updated.ProjectColors[k] != v {
-			t.Fatalf("expected project color for %q to be %q, got %q", k, v, updated.ProjectColors[k])
-		}
+	if updated.ProjectColors["ProjectAlpha"] != "#0b57d0" {
+		t.Fatalf("expected project color for ProjectAlpha to be #0b57d0, got %q", updated.ProjectColors["ProjectAlpha"])
 	}
 }
 
@@ -67,6 +67,9 @@ func TestUpdateConfigPartial_MergesProjectColors(t *testing.T) {
 	store, err := NewStore(tempDir)
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
+	}
+	if err := store.SetProjectColor("ProjectBeta", "#059669"); err != nil {
+		t.Fatalf("failed to set initial project color: %v", err)
 	}
 
 	// Send partial update with a new project color
@@ -80,11 +83,9 @@ func TestUpdateConfigPartial_MergesProjectColors(t *testing.T) {
 		t.Fatalf("expected AlphaProject to be #ff5500, got %q", updated.ProjectColors["AlphaProject"])
 	}
 
-	// Existing factory project colors must still be present
-	for k, v := range FactoryProjectColors() {
-		if updated.ProjectColors[k] != v {
-			t.Fatalf("expected factory color for %q to be retained as %q, got %q", k, v, updated.ProjectColors[k])
-		}
+	// Existing project color must still be present
+	if updated.ProjectColors["ProjectBeta"] != "#059669" {
+		t.Fatalf("expected ProjectBeta to be retained as #059669, got %q", updated.ProjectColors["ProjectBeta"])
 	}
 }
 
@@ -110,11 +111,11 @@ func TestStoreLoad_AutoHealsMissingDefaults(t *testing.T) {
 		t.Fatalf("expected all missing defaults to be healed to true, got %+v", cfg)
 	}
 
-	if len(cfg.ProjectColors) == 0 {
-		t.Fatalf("expected ProjectColors to be healed with factory colors")
+	if cfg.ProjectColors == nil {
+		t.Fatalf("expected ProjectColors to be initialized")
 	}
-	if len(cfg.ProjectOrder) == 0 {
-		t.Fatalf("expected ProjectOrder to be healed with factory project order")
+	if cfg.ProjectOrder == nil {
+		t.Fatalf("expected ProjectOrder to be initialized")
 	}
 }
 
@@ -146,8 +147,8 @@ func TestStoreLoad_AutoHealsCorruptedZeroedDefaults(t *testing.T) {
 		t.Fatalf("expected corrupted zeroed configuration to be healed to true, got %+v", cfg)
 	}
 
-	if len(cfg.ProjectColors) == 0 {
-		t.Fatalf("expected empty project colors to be restored with FactoryProjectColors()")
+	if cfg.ProjectColors == nil {
+		t.Fatalf("expected ProjectColors map to be initialized")
 	}
 }
 
@@ -172,7 +173,7 @@ func TestCopyFile_Enforces0644Permissions(t *testing.T) {
 
 	// Permissions on dst must have 0644
 	perm := info.Mode().Perm()
-	if perm != 0644 {
+	if runtime.GOOS != "windows" && perm != 0644 {
 		t.Fatalf("expected 0644 permissions on destination file, got %#o", perm)
 	}
 }

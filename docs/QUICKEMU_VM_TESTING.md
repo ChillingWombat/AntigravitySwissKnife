@@ -23,13 +23,13 @@ This guide documents the verification workflows for Antigravity Swiss Knife on W
 
 ## 2. Pre-Configured Virtual Machines
 
-All guest images and configuration files reside in `/home/david/VMs/`.
+All guest images and configuration files reside in `~/VMs/`.
 
 | Virtual Machine | Configuration File | Allocated Resources | OS Disk Image | Default User / Password | Installed Environment |
 |---|---|---|---|---|---|
 | **Windows 11 26H2** | `windows-11-English-United-States.conf` | 8 cores, 8 GB RAM | `windows-11-English-United-States/disk.qcow2` (21 GB on disk, 64 GB max) | `Quickemu` / `quickemu` (admin, autologon) | Windows Terminal (MSYS2 zsh), JetBrains Mono Nerd Font, Antigravity 2.0 app (`%LOCALAPPDATA%\Programs\antigravity`), CLI `agy` |
-| **macOS Ventura 13** | `macos-ventura.conf` | 8 cores, 10 GB RAM | `macos-ventura/disk.qcow2` (26 GB on disk, 128 GB max) | `david` / `quickemu` | zsh oh-my-zsh setup, CLT/git, Antigravity 2.0 app (`/Applications/Antigravity.app`), CLI `agy` |
-| **macOS Monterey 12** | `macos-monterey.conf` | 4 cores, 8 GB RAM | `macos-monterey/disk.qcow2` (30 GB on disk, 128 GB max) | `david` / `quickemu` | Legacy testing image (too old for current Antigravity) |
+| **macOS Ventura 13** | `macos-ventura.conf` | 8 cores, 10 GB RAM | `macos-ventura/disk.qcow2` (26 GB on disk, 128 GB max) | `quickemu` / `quickemu` | zsh oh-my-zsh setup, CLT/git, Antigravity 2.0 app (`/Applications/Antigravity.app`), CLI `agy` |
+| **macOS Monterey 12** | `macos-monterey.conf` | 4 cores, 8 GB RAM | `macos-monterey/disk.qcow2` (30 GB on disk, 128 GB max) | `quickemu` / `quickemu` | Legacy testing image (too old for current Antigravity) |
 
 ### Virtual Machine Configuration Details
 - **Windows 11 (`windows-11-English-United-States.conf`)**:
@@ -59,7 +59,7 @@ All guest images and configuration files reside in `/home/david/VMs/`.
   ```
 
 ### Guest Automation Tools
-Host utilities in `/home/david/VMs/bin/`:
+Host utilities in `~/VMs/bin/`:
 - `vmctl.py <monitor.sock> shot <out.ppm>`: Takes a QEMU screendump and converts it to PNG via ffmpeg.
 - `vmctl.py <monitor.sock> key <key>`: Sends keystrokes to guest.
 - `vmctl.py <monitor.sock> type <text>`: Types strings into guest.
@@ -74,7 +74,7 @@ Transfer test artifacts between the host and guests using a lightweight HTTP ser
 
 ### 3.1 Start Transfer Server
 ```bash
-python3 -m http.server 8010 --directory /home/david/VMs/transfer
+python3 -m http.server 8010 --directory ~/VMs/transfer
 ```
 Guests access the host server at `http://10.0.2.2:8010` through the default QEMU user-mode network gateway.
 
@@ -90,14 +90,14 @@ node scripts/build-release.js windows
 node scripts/build-release.js macos --unpacked
 
 # 3. Stage files to transfer docroot
-cp "release/windows/Antigravity Swiss Knife.exe" /home/david/VMs/transfer/ASK-Setup.exe
-cp "bin/swiss.exe" /home/david/VMs/transfer/swiss.exe
-(cd release/macos/mac && zip -rq /home/david/VMs/transfer/ASK-mac-x64.zip "Antigravity Swiss Knife.app")
-cp "bin/swiss-darwin-amd64" /home/david/VMs/transfer/swiss-mac
+cp "release/windows/Antigravity Swiss Knife.exe" ~/VMs/transfer/ASK-Setup.exe
+cp "bin/swiss.exe" ~/VMs/transfer/swiss.exe
+(cd release/macos/mac && zip -rq ~/VMs/transfer/ASK-mac-x64.zip "Antigravity Swiss Knife.app")
+cp "bin/swiss-darwin-amd64" ~/VMs/transfer/swiss-mac
 
 # 4. Stage automated guest verification scripts
-cp scripts/platform/windows/verify-guest.ps1 /home/david/VMs/transfer/win-verify-ask.ps1
-cp scripts/platform/macos/verify-guest.sh /home/david/VMs/transfer/mac-verify-ask.sh
+cp scripts/platform/windows/verify-guest.ps1 ~/VMs/transfer/win-verify-ask.ps1
+cp scripts/platform/macos/verify-guest.sh ~/VMs/transfer/mac-verify-ask.sh
 ```
 
 ### 3.3 Staged Artifacts Catalog
@@ -116,7 +116,7 @@ cp scripts/platform/macos/verify-guest.sh /home/david/VMs/transfer/mac-verify-as
 
 ### 4.1 Launch VM
 ```bash
-quickemu --vm /home/david/VMs/windows-11-English-United-States.conf
+quickemu --vm ~/VMs/windows-11-English-United-States.conf
 ```
 
 ### 4.2 Automated Guest Verification (One-Liner)
@@ -140,12 +140,12 @@ The script executes 6 automated steps:
 ### 4.4 Screenshot Capture & VM Shutdown
 ```bash
 # Capture verification screenshot on host
-python3 /home/david/VMs/bin/vmctl.py \
-  /home/david/VMs/windows-11-English-United-States/windows-11-English-United-States-monitor.socket \
+python3 ~/VMs/bin/vmctl.py \
+  ~/VMs/windows-11-English-United-States/windows-11-English-United-States-monitor.socket \
   shot /tmp/win11-packaging-verification.ppm
 
 # Clean guest shutdown via QEMU monitor
-echo "system_powerdown" | nc -U /home/david/VMs/windows-11-English-United-States/windows-11-English-United-States-monitor.socket
+echo "system_powerdown" | nc -U ~/VMs/windows-11-English-United-States/windows-11-English-United-States-monitor.socket
 ```
 
 ---
@@ -155,13 +155,13 @@ echo "system_powerdown" | nc -U /home/david/VMs/windows-11-English-United-States
 ### 5.1 Launch VM
 ```bash
 # Ensure Windows VM has completely shut down first
-quickemu --vm /home/david/VMs/macos-ventura.conf
+quickemu --vm ~/VMs/macos-ventura.conf
 # Or via patched script:
 # ./macos-ventura/macos-ventura.sh
 ```
 
 ### 5.2 Automated Guest Verification (One-Liner)
-Inside macOS Terminal.app or via SSH (`ssh -p 22220 david@localhost`):
+Inside macOS Terminal.app or via SSH (`ssh -p 22220 quickemu@localhost`):
 ```bash
 curl -fsSL http://10.0.2.2:8010/mac-verify-ask.sh | bash
 ```
@@ -180,12 +180,12 @@ The script executes 6 automated steps:
 ### 5.4 Screenshot Capture & VM Shutdown
 ```bash
 # Capture verification screenshot on host
-python3 /home/david/VMs/bin/vmctl.py \
-  /home/david/VMs/macos-ventura/macos-ventura-monitor.socket \
+python3 ~/VMs/bin/vmctl.py \
+  ~/VMs/macos-ventura/macos-ventura-monitor.socket \
   shot /tmp/macos-packaging-verification.ppm
 
 # Clean guest shutdown via QEMU monitor
-echo "system_powerdown" | nc -U /home/david/VMs/macos-ventura/macos-ventura-monitor.socket
+echo "system_powerdown" | nc -U ~/VMs/macos-ventura/macos-ventura-monitor.socket
 ```
 
 ---

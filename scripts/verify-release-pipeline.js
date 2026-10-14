@@ -261,18 +261,19 @@ function phase5() {
   console.log('======================================================================');
 
   // 1. Resolve Codex Security binary
-  const nvmPath = '/home/david/.config/nvm/versions/node/v24.16.0/bin/codex-security';
   let codexBin = null;
+  try {
+    const whichResult = execSync('which codex-security', { encoding: 'utf8' }).trim();
+    if (whichResult && fs.existsSync(whichResult)) {
+      codexBin = whichResult;
+    }
+  } catch {}
 
-  if (fs.existsSync(nvmPath)) {
-    codexBin = nvmPath;
-  } else {
-    try {
-      const whichResult = execSync('which codex-security', { encoding: 'utf8' }).trim();
-      if (whichResult && fs.existsSync(whichResult)) {
-        codexBin = whichResult;
-      }
-    } catch {}
+  if (!codexBin) {
+    const candidate = path.join(os.homedir(), '.config/nvm/versions/node/v24.16.0/bin/codex-security');
+    if (fs.existsSync(candidate)) {
+      codexBin = candidate;
+    }
   }
 
   if (!codexBin) {
@@ -283,7 +284,7 @@ function phase5() {
 
   // 2. Ensure permission requirements on ~/.codex if present
   try {
-    const codexHome = path.join(process.env.HOME || '/home/david', '.codex');
+    const codexHome = path.join(os.homedir(), '.codex');
     if (fs.existsSync(codexHome)) {
       fs.chmodSync(codexHome, 0o755);
     }

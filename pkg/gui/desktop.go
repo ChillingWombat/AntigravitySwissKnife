@@ -336,7 +336,15 @@ func copyFile(src, dst string) error {
 	// Enforce 0644 permissions so all processes can read the replaced file
 	_ = os.Chmod(tmpName, 0644)
 
-	return os.Rename(tmpName, dst)
+	if err := os.Rename(tmpName, dst); err != nil {
+		if os.IsPermission(err) {
+			_ = os.Chmod(dst, 0666)
+			_ = os.Remove(dst)
+			return os.Rename(tmpName, dst)
+		}
+		return err
+	}
+	return nil
 }
 
 func findNpxExecutable() string {

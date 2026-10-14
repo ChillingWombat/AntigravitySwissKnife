@@ -39,13 +39,9 @@ type Config struct {
 	ChatTelemetryScope           string            `json:"chat_telemetry_scope"`             // "aggregated" (default) or "main_only"
 }
 
-// FactoryProjectColors returns the factory default project colors.
+// FactoryProjectColors returns factory default project colors (clean empty map).
 func FactoryProjectColors() map[string]string {
-	return map[string]string{
-		"Antigravity Swiss Knife": "#0b57d0", // Gemini blue
-		"Arbitrager":              "#7c3aed", // Vibrant purple
-		"Obsidian-HomePage":       "#059669", // Emerald green
-	}
+	return make(map[string]string)
 }
 
 // DefaultConfig returns the default GUI improvement configuration.
@@ -59,12 +55,8 @@ func DefaultConfig() *Config {
 		ActiveConversationBorderWidth: "2px",
 		ActiveConversationBold:      false,        // Regular text weight on open conversation tab by default
 		ProjectColors:               FactoryProjectColors(),
-		DragRearrangeEnabled: true,
-		ProjectOrder: []string{
-			"Antigravity Swiss Knife",
-			"Arbitrager",
-			"Obsidian-HomePage",
-		},
+		DragRearrangeEnabled:        true,
+		ProjectOrder:                []string{},
 		ArchivedProjects:            []string{},
 		ConversationTabsMode:        "dynamic",
 		ConversationTabsFixedLimit:  6,

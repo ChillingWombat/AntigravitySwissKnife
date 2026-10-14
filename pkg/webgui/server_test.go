@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -122,7 +123,7 @@ func TestWebGUIEndpoints(t *testing.T) {
 
 	// 4. POST /api/gui/projects/order
 	orderPayload := map[string]interface{}{
-		"order": []string{"TestProject", "Arbitrager"},
+		"order": []string{"TestProject", "ProjectAlpha"},
 	}
 	orderJSON, _ := json.Marshal(orderPayload)
 	resp, err = http.Post(baseURL+"/api/gui/projects/order", "application/json", bytes.NewReader(orderJSON))
@@ -441,7 +442,7 @@ func TestWebGUICustomModelsEndpoints(t *testing.T) {
 		"display_name":     "Qwen 2.5 Coder 32B (Local)",
 		"provider_type":    "local",
 		"base_url":         "http://localhost:11434/v1",
-		"project_mappings": []string{"Antigravity Swiss Knife"},
+		"project_mappings": []string{"ProjectAlpha"},
 		"quota_type":       "none",
 		"enabled":          true,
 	}
@@ -457,7 +458,7 @@ func TestWebGUICustomModelsEndpoints(t *testing.T) {
 
 	// 4. POST /api/custom_models/bind
 	bindPayload := map[string]string{
-		"project":  "Antigravity Swiss Knife",
+		"project":  "ProjectAlpha",
 		"model_id": "test-ollama-qwen",
 	}
 	bData, _ := json.Marshal(bindPayload)
@@ -1928,15 +1929,14 @@ func TestCleanUserPath_HomeDir(t *testing.T) {
 
 func TestFilesListProjectFolderSettingDefault(t *testing.T) {
 	fakeHome := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", fakeHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("USERPROFILE", fakeHome)
 
 	cfgDir := filepath.Join(fakeHome, ".gemini", "config", "projects")
 	if err := os.MkdirAll(cfgDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	topFolder := filepath.Join(fakeHome, "UniMelb", "COMP9007 Internet Technologies")
+	topFolder := filepath.Join(fakeHome, "WorkspaceAlpha", "ProjectDocs")
 	if err := os.MkdirAll(topFolder, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -1944,17 +1944,21 @@ func TestFilesListProjectFolderSettingDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	topFolderURI := "file://" + filepath.ToSlash(topFolder)
+	if runtime.GOOS == "windows" {
+		topFolderURI = "file:///" + filepath.ToSlash(topFolder)
+	}
 	projJSON := fmt.Sprintf(`{
 		"id": "c34ad39b-1fca-46d2-a1e3-e63be0d8eb5a",
-		"name": "UniMelb - IT",
+		"name": "WorkspaceAlpha",
 		"projectResources": {
 			"resources": [
 				{
-					"folderUri": "file://%s"
+					"folderUri": "%s"
 				}
 			]
 		}
-	}`, topFolder)
+	}`, topFolderURI)
 	if err := os.WriteFile(filepath.Join(cfgDir, "c34ad39b-1fca-46d2-a1e3-e63be0d8eb5a.json"), []byte(projJSON), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -1967,13 +1971,14 @@ func TestFilesListProjectFolderSettingDefault(t *testing.T) {
 
 	baseURL := "http://" + srv.Addr()
 
-	// 1. Calling /api/files/list with bare project name "UniMelb - IT" resolves to top folder
-	resp, err := http.Get(baseURL + "/api/files/list?path=" + url.QueryEscape("UniMelb - IT"))
+	// 1. Calling /api/files/list with bare project name "WorkspaceAlpha" resolves to top folder
+	resp, err := http.Get(baseURL + "/api/files/list?path=" + url.QueryEscape("WorkspaceAlpha"))
 	if err != nil || resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api/files/list?path=UniMelb - IT failed: err=%v, code=%d", err, resp.StatusCode)
+		t.Fatalf("GET /api/files/list?path=WorkspaceAlpha failed: err=%v, code=%d", err, resp.StatusCode)
 	}
 	var res struct {
 		Success bool       `json:"success"`
+		Error   string     `json:"error"`
 		Path    string     `json:"path"`
 		Files   []FileItem `json:"files"`
 	}
@@ -1981,7 +1986,7 @@ func TestFilesListProjectFolderSettingDefault(t *testing.T) {
 	resp.Body.Close()
 
 	if !res.Success {
-		t.Fatalf("expected success true when querying bare project name 'UniMelb - IT'")
+		t.Fatalf("expected success true when querying bare project name 'WorkspaceAlpha', got err: %s, res: %+v", res.Error, res)
 	}
 	if res.Path != topFolder {
 		t.Errorf("expected resolved path %q, got %q", topFolder, res.Path)

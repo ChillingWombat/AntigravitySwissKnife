@@ -1367,13 +1367,11 @@ func (d *Daemon) registerRPCHandlers() {
 		if err := d.GUIStore.RemoveProjectColor(p.Name); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
-		factoryColors := gui.FactoryProjectColors()
-		factoryColor, isFactory := factoryColors[p.Name]
 		return map[string]interface{}{
 			"success":          true,
 			"name":             p.Name,
-			"reset_to_factory": isFactory,
-			"color":            factoryColor,
+			"reset_to_factory": false,
+			"color":            "",
 		}, nil
 	})
 

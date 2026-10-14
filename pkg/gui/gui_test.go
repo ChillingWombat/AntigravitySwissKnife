@@ -58,7 +58,7 @@ func TestGenerateCSS(t *testing.T) {
 		Enabled:             false,
 		ColorStylingEnabled: true,
 		ProjectColors: map[string]string{
-			"Arbitrager": "#7c3aed",
+			"ProjectAlpha": "#7c3aed",
 		},
 	}
 	css := GenerateCSS(disabledCfg)
@@ -71,7 +71,7 @@ func TestGenerateCSS(t *testing.T) {
 		Enabled:             true,
 		ColorStylingEnabled: false,
 		ProjectColors: map[string]string{
-			"Arbitrager": "#7c3aed",
+			"ProjectAlpha": "#7c3aed",
 		},
 	}
 	css = GenerateCSS(colorDisabledCfg)
@@ -85,17 +85,17 @@ func TestGenerateCSS(t *testing.T) {
 		ColorStylingEnabled:  true,
 		DragRearrangeEnabled: true,
 		ProjectColors: map[string]string{
-			"Arbitrager":              "#7c3aed",
-			"Antigravity Swiss Knife": "#0b57d0",
+			"ProjectAlpha": "#7c3aed",
+			"ProjectBeta":  "#0b57d0",
 		},
 		TintOpacity: 0.14,
 	}
 	css = GenerateCSS(cfg)
-	if !strings.Contains(css, `[data-swiss-project="Arbitrager"][data-project-card="true"]`) {
-		t.Errorf("CSS missing Arbitrager card selector: %s", css)
+	if !strings.Contains(css, `[data-swiss-project="ProjectAlpha"][data-project-card="true"]`) {
+		t.Errorf("CSS missing ProjectAlpha card selector: %s", css)
 	}
-	if !strings.Contains(css, `[data-swiss-project="Arbitrager"][data-testid="conversation-row-sidebar"]`) {
-		t.Errorf("CSS missing Arbitrager conversation selector: %s", css)
+	if !strings.Contains(css, `[data-swiss-project="ProjectAlpha"][data-testid="conversation-row-sidebar"]`) {
+		t.Errorf("CSS missing ProjectAlpha conversation selector: %s", css)
 	}
 	if !strings.Contains(css, `rgba(124, 58, 237, 0.14)`) {
 		t.Errorf("CSS missing light tint rgba: %s", css)
@@ -115,7 +115,7 @@ func TestGenerateCSS(t *testing.T) {
 		ColorStylingEnabled: true,
 		SolidLeftEdge:       true,
 		ProjectColors: map[string]string{
-			"Arbitrager": "#7c3aed",
+			"ProjectAlpha": "#7c3aed",
 		},
 	}
 	cssWithEdge := GenerateCSS(cfgWithEdge)
@@ -129,7 +129,7 @@ func TestGenerateCSS(t *testing.T) {
 		ColorStylingEnabled: true,
 		SolidLeftEdge:       false,
 		ProjectColors: map[string]string{
-			"Arbitrager": "#7c3aed",
+			"ProjectAlpha": "#7c3aed",
 		},
 	}
 	cssWithoutEdge := GenerateCSS(cfgWithoutEdge)
@@ -144,7 +144,7 @@ func TestGenerateCSS(t *testing.T) {
 		ActiveConversationIndicator: "border",
 		ActiveConversationBold:      false,
 		ProjectColors: map[string]string{
-			"Arbitrager": "#7c3aed",
+			"ProjectAlpha": "#7c3aed",
 		},
 		TintOpacity: 0.14,
 	}
@@ -166,7 +166,7 @@ func TestGenerateCSS(t *testing.T) {
 		ActiveConversationIndicator: "background",
 		ActiveConversationBold:      true,
 		ProjectColors: map[string]string{
-			"Arbitrager": "#7c3aed",
+			"ProjectAlpha": "#7c3aed",
 		},
 		TintOpacity: 0.14,
 	}
@@ -182,7 +182,7 @@ func TestGenerateCSS(t *testing.T) {
 		ColorStylingEnabled:         true,
 		ActiveConversationIndicator: "left_bar",
 		ProjectColors: map[string]string{
-			"Arbitrager": "#7c3aed",
+			"ProjectAlpha": "#7c3aed",
 		},
 		TintOpacity: 0.14,
 	}
@@ -205,7 +205,7 @@ func TestGenerateCSS(t *testing.T) {
 		ActiveConversationIndicator:   "border",
 		ActiveConversationBorderWidth: "1.5px",
 		ProjectColors: map[string]string{
-			"Arbitrager": "#7c3aed",
+			"ProjectAlpha": "#7c3aed",
 		},
 		TintOpacity: 0.14,
 	}
@@ -493,7 +493,7 @@ func TestConversationTagBorderAndTransparency(t *testing.T) {
 		ActiveConversationIndicator:   "border",
 		ActiveConversationBorderWidth: "2px",
 		ProjectColors: map[string]string{
-			"Arbitrager": "#dc2626",
+			"ProjectAlpha": "#dc2626",
 		},
 	}
 	css := GenerateCSS(cfg)
@@ -530,7 +530,7 @@ func TestConversationTagBorderAndTransparency(t *testing.T) {
 		ColorStylingEnabled:         true,
 		ActiveConversationIndicator: "background",
 		ProjectColors: map[string]string{
-			"Arbitrager": "#dc2626",
+			"ProjectAlpha": "#dc2626",
 		},
 	}
 	scriptBg := GenerateScript(cfgBg)
@@ -545,7 +545,7 @@ func TestConversationTagBorderAndTransparency(t *testing.T) {
 		ActiveConversationIndicator:   "border",
 		ActiveConversationBorderWidth: "1.5px",
 		ProjectColors: map[string]string{
-			"Arbitrager": "#dc2626",
+			"ProjectAlpha": "#dc2626",
 		},
 	}
 	scriptCustom := GenerateScript(cfgCustom)
@@ -571,8 +571,8 @@ func TestStorePersistence(t *testing.T) {
 	if !cfg.Enabled || !cfg.ColorStylingEnabled || !cfg.DragRearrangeEnabled {
 		t.Errorf("Expected defaults enabled: %+v", cfg)
 	}
-	if cfg.ProjectColors["Arbitrager"] != "#7c3aed" {
-		t.Errorf("Expected default Arbitrager color #7c3aed, got %s", cfg.ProjectColors["Arbitrager"])
+	if len(cfg.ProjectColors) != 0 {
+		t.Errorf("Expected default ProjectColors to be empty, got: %+v", cfg.ProjectColors)
 	}
 
 	// Set new color
@@ -586,7 +586,7 @@ func TestStorePersistence(t *testing.T) {
 	}
 
 	// Test reordering
-	if err := store.ReorderProject("CustomProject", "Arbitrager"); err != nil {
+	if err := store.ReorderProject("CustomProject", "ProjectAlpha"); err != nil {
 		t.Fatalf("ReorderProject failed: %v", err)
 	}
 	cfgReordered := store.GetConfig()
@@ -635,42 +635,30 @@ func TestDetectProjects(t *testing.T) {
 		t.Fatalf("NewStore error: %v", err)
 	}
 
+	if err := store.SetProjectColor("ProjectAlpha", "#7c3aed"); err != nil {
+		t.Fatalf("SetProjectColor failed: %v", err)
+	}
+
 	projects, err := store.DetectProjects()
 	if err != nil {
 		t.Fatalf("DetectProjects failed: %v", err)
 	}
 
-	foundArbitrager := false
+	foundProjectAlpha := false
 	for _, p := range projects {
-		if p.Name == "Arbitrager" {
-			foundArbitrager = true
+		if p.Name == "ProjectAlpha" {
+			foundProjectAlpha = true
 			if p.Color != "#7c3aed" {
-				t.Errorf("Expected Arbitrager color #7c3aed, got %s", p.Color)
+				t.Errorf("Expected ProjectAlpha color #7c3aed, got %s", p.Color)
 			}
 			if !p.IsConfigured {
-				t.Errorf("Expected Arbitrager IsConfigured=true")
+				t.Errorf("Expected ProjectAlpha IsConfigured=true")
 			}
 		}
 	}
 
-	if !foundArbitrager {
-		t.Errorf("DetectProjects should have returned Arbitrager")
-	}
-
-	foundUniMelb := false
-	for _, p := range projects {
-		if p.Name == "UniMelb - IT" {
-			foundUniMelb = true
-			if p.FolderPath == "" {
-				t.Errorf("expected UniMelb - IT to have non-empty FolderPath from project folder settings")
-			}
-			if !strings.Contains(p.FolderPath, "COMP9007") {
-				t.Errorf("expected UniMelb - IT FolderPath to contain COMP9007, got %q", p.FolderPath)
-			}
-		}
-	}
-	if !foundUniMelb {
-		t.Errorf("expected UniMelb - IT to be discovered in DetectProjects")
+	if !foundProjectAlpha {
+		t.Errorf("DetectProjects should have returned ProjectAlpha")
 	}
 }
 
@@ -707,7 +695,7 @@ func TestLiveInjection(t *testing.T) {
 			mockMenu.innerHTML = '<div role="menuitem"><div data-testid="group-header-delete-item">Delete</div></div>';
 			document.body.prepend(mockMenu);
 			try {
-				window.__swissLastClickedProject = { name: "Antigravity Swiss Knife", time: Date.now() };
+				window.__swissLastClickedProject = { name: "ProjectAlpha", time: Date.now() };
 				if (typeof window.__swissEnhanceProjectOptionsMenu === "function") {
 					window.__swissEnhanceProjectOptionsMenu();
 				}
@@ -1483,31 +1471,30 @@ func TestAutomateTasksOverlayBadgeAndColorResetLifecycle(t *testing.T) {
 		t.Errorf("GenerateScript missing factory color lookup on reset")
 	}
 
-	// 7. Test Store.RemoveProjectColor resets factory projects to factory color
+	// 7. Test Store.RemoveProjectColor cleanly removes project colors
 	tmpDir := t.TempDir()
 	store, err := NewStore(tmpDir)
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}
 
-	// Set Arbitrager to custom color red
-	if err := store.SetProjectColor("Arbitrager", "#dc2626"); err != nil {
+	// Set ProjectAlpha to custom color red
+	if err := store.SetProjectColor("ProjectAlpha", "#dc2626"); err != nil {
 		t.Fatalf("SetProjectColor failed: %v", err)
 	}
-	if store.GetConfig().ProjectColors["Arbitrager"] != "#dc2626" {
-		t.Errorf("expected Arbitrager to be #dc2626, got %s", store.GetConfig().ProjectColors["Arbitrager"])
+	if store.GetConfig().ProjectColors["ProjectAlpha"] != "#dc2626" {
+		t.Errorf("expected ProjectAlpha to be #dc2626, got %s", store.GetConfig().ProjectColors["ProjectAlpha"])
 	}
 
-	// Reset Arbitrager (factory project) -> should reset to factory color #7c3aed
-	if err := store.RemoveProjectColor("Arbitrager"); err != nil {
+	// Reset ProjectAlpha -> cleanly deletes color
+	if err := store.RemoveProjectColor("ProjectAlpha"); err != nil {
 		t.Fatalf("RemoveProjectColor failed: %v", err)
 	}
-	factoryPurple := FactoryProjectColors()["Arbitrager"]
-	if store.GetConfig().ProjectColors["Arbitrager"] != factoryPurple {
-		t.Errorf("expected Arbitrager to be reset to factory %s, got %s", factoryPurple, store.GetConfig().ProjectColors["Arbitrager"])
+	if _, exists := store.GetConfig().ProjectColors["ProjectAlpha"]; exists {
+		t.Errorf("expected ProjectAlpha color to be deleted on reset, but still exists: %s", store.GetConfig().ProjectColors["ProjectAlpha"])
 	}
 
-	// Set non-factory project Gamma to blue and remove -> should be completely deleted
+	// Set project Gamma to blue and remove -> should be completely deleted
 	if err := store.SetProjectColor("Gamma", "#3b82f6"); err != nil {
 		t.Fatalf("SetProjectColor failed: %v", err)
 	}
@@ -1515,7 +1502,7 @@ func TestAutomateTasksOverlayBadgeAndColorResetLifecycle(t *testing.T) {
 		t.Fatalf("RemoveProjectColor failed: %v", err)
 	}
 	if _, exists := store.GetConfig().ProjectColors["Gamma"]; exists {
-		t.Errorf("expected non-factory project Gamma to be deleted on reset, but still exists")
+		t.Errorf("expected project Gamma to be deleted on reset, but still exists")
 	}
 }
 
@@ -1567,19 +1554,19 @@ func TestLiveOverlayAndFactoryResetLifecycle(t *testing.T) {
 		if (typeof window.__swissRenderDynamicProjectStyles !== "function") {
 			return { hasStyler: false };
 		}
-		// Set Arbitrager to custom orange
-		window.__swissRenderDynamicProjectStyles("Arbitrager", "#f97316");
-		const customColor = window.__swissDynamicColors ? window.__swissDynamicColors["Arbitrager"] : null;
+		// Set ProjectAlpha to custom orange
+		window.__swissRenderDynamicProjectStyles("ProjectAlpha", "#f97316");
+		const customColor = window.__swissDynamicColors ? window.__swissDynamicColors["ProjectAlpha"] : null;
 		
-		// Reset Arbitrager (factory project) with null
-		window.__swissRenderDynamicProjectStyles("Arbitrager", null);
-		const resetColor = window.__swissDynamicColors ? window.__swissDynamicColors["Arbitrager"] : null;
+		// Reset ProjectAlpha with null
+		window.__swissRenderDynamicProjectStyles("ProjectAlpha", null);
+		const resetColor = window.__swissDynamicColors ? window.__swissDynamicColors["ProjectAlpha"] : null;
 
 		return {
 			hasStyler: true,
 			customColor: customColor,
 			resetColor: resetColor,
-			revertedToFactory: resetColor === "#7c3aed"
+			revertedToClean: !resetColor
 		};
 	})()`
 	res2, err := inj.ExecuteScript(wsURL, resetExpr)
@@ -1588,8 +1575,8 @@ func TestLiveOverlayAndFactoryResetLifecycle(t *testing.T) {
 	}
 	t.Logf("Live Factory Reset result: %+v", res2)
 	if hasStyler, _ := res2["hasStyler"].(bool); hasStyler {
-		if reverted, _ := res2["revertedToFactory"].(bool); !reverted {
-			t.Errorf("expected Arbitrager to revert to #7c3aed, got: %v", res2["resetColor"])
+		if reverted, _ := res2["revertedToClean"].(bool); !reverted {
+			t.Errorf("expected ProjectAlpha to cleanly remove color, got: %v", res2["resetColor"])
 		}
 	}
 }
@@ -1620,7 +1607,7 @@ func TestLiveCaptureScreenshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CaptureScreenshot failed: %v", err)
 	}
-	outPath := "/home/david/.gemini/antigravity/brain/3b83be1d-94ec-4542-b62e-d904cc238b80/live_tab_screenshot.png"
+	outPath := filepath.Join(t.TempDir(), "live_tab_screenshot.png")
 	if err := os.WriteFile(outPath, pngBytes, 0644); err != nil {
 		t.Fatalf("failed to write screenshot to %s: %v", outPath, err)
 	}
@@ -1715,14 +1702,14 @@ func TestLiveNativeDragOrderAndColorPersistence(t *testing.T) {
 	colorResetExpr := `(() => {
 		// Simulate disk-saved colors passed via preload
 		window.__swissDiskSavedColors = {
-			"Obsidian-HomePage": "#0b57d0",
+			"ProjectBeta": "#0b57d0",
 			"CustomProject": "#8b5cf6"
 		};
 		// Simulate empty localStorage (new port on app restart)
 		localStorage.removeItem("antigravity_swiss_project_colors");
 
 		// Run color resolution logic as generated
-		const FACTORY = { "Obsidian-HomePage": "#059669" };
+		const FACTORY = {};
 		let targetColors = {};
 		Object.assign(targetColors, FACTORY);
 		if (window.__swissDiskSavedColors) {
@@ -1738,9 +1725,9 @@ func TestLiveNativeDragOrderAndColorPersistence(t *testing.T) {
 
 		const persisted = JSON.parse(localStorage.getItem("antigravity_swiss_project_colors") || "{}");
 		return {
-			obsidianColor: targetColors["Obsidian-HomePage"],
-			persistedObsidianColor: persisted["Obsidian-HomePage"],
-			isBlue: targetColors["Obsidian-HomePage"] === "#0b57d0"
+			projectBetaColor: targetColors["ProjectBeta"],
+			persistedProjectBetaColor: persisted["ProjectBeta"],
+			isBlue: targetColors["ProjectBeta"] === "#0b57d0"
 		};
 	})()`
 	resColor, err := inj.ExecuteScript(wsURL, colorResetExpr)
@@ -1749,7 +1736,7 @@ func TestLiveNativeDragOrderAndColorPersistence(t *testing.T) {
 	}
 	t.Logf("Color reset check result: %+v", resColor)
 	if isBlue, _ := resColor["isBlue"].(bool); !isBlue {
-		t.Errorf("Obsidian-HomePage reverted to green instead of preserving blue: %+v", resColor)
+		t.Errorf("ProjectBeta failed to preserve blue: %+v", resColor)
 	}
 
 	// 5. Verification D: Synthetic PointerEvent to verify native React drag activates without HTML5 suppression
@@ -1818,6 +1805,7 @@ func TestLiveNativeDragOrderAndColorPersistence(t *testing.T) {
 func TestConversationPathPersistenceAndTopLevelQuery(t *testing.T) {
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
 	t.Setenv("SWISS_DATA_DIR", filepath.Join(tmpHome, ".local", "share", "antigravity-swiss-knife"))
 
 	// 1. Validate IsValidConversationPath
@@ -1920,6 +1908,7 @@ func TestRestoreConversationPath_RecoversFromOnboardingRace(t *testing.T) {
 
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
 	t.Setenv("SWISS_DATA_DIR", filepath.Join(tmpHome, ".local", "share", "antigravity-swiss-knife"))
 
 	targetPath := "/c/060156e8-1ef3-4435-a836-3bc0c9838995?section=d2ad1fa1-cc5f-47c3-94a4-ffdf0ebdc450"

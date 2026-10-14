@@ -393,7 +393,7 @@ projectGroup.appendChild(projectCard);
 leftSidebar.appendChild(projectGroup);
 
 const knownProjMarker = new MockElement("div");
-knownProjMarker.setAttribute("data-swiss-project", "Obsidian-HomePage");
+knownProjMarker.setAttribute("data-swiss-project", "ProjectBeta");
 leftSidebar.appendChild(knownProjMarker);
 
 const convSectionHeaderWrap = new MockElement("div");
@@ -422,7 +422,7 @@ breadcrumbBar.className = "shrink-0";
 breadcrumbBar.style.height = "40px";
 const bcSeg1 = new MockElement("span");
 bcSeg1.setAttribute("data-testid", "breadcrumb-segment");
-bcSeg1.textContent = "Obsidian-HomePage";
+bcSeg1.textContent = "ProjectBeta";
 const bcSeg2 = new MockElement("span");
 bcSeg2.setAttribute("data-testid", "breadcrumb-segment");
 bcSeg2.textContent = "Academic Catch-Up";
@@ -481,7 +481,7 @@ global.document = {
 };
 global.fetch = async () => ({
   ok: true,
-  json: async () => ({ success: true, projects: ["Obsidian-HomePage", "CascadeProject", "SubtextProject"], issues: [], prs: [], tasks: [] })
+  json: async () => ({ success: true, projects: ["ProjectBeta", "CascadeProject", "SubtextProject"], issues: [], prs: [], tasks: [] })
 });
 
 // 1. Run script first time
@@ -570,7 +570,7 @@ assert.ok(singleGrpRestored.querySelector('[data-swiss-ext="swiss-knife"]'), "sw
 
 
 // Verify breadcrumb project detection when conversation row is virtualized out of DOM
-assert.strictEqual(storage["antigravity_swiss_last_project"], "Obsidian-HomePage", "should detect project from first breadcrumb-segment");
+assert.strictEqual(storage["antigravity_swiss_last_project"], "ProjectBeta", "should detect project from first breadcrumb-segment");
 
 // Verify data-cascade-id project detection when URL matches cascade row
 bcSeg1.textContent = "";
@@ -1046,8 +1046,8 @@ const assert = require('assert');
 // Mock browser environment with preloaded localStorage
 const localStorageStore = {
   antigravity_swiss_project_folders: JSON.stringify({
-    "UniMelb - IT": "/mnt/Data/UniMelb/COMP9007",
-    "PrivacyAI": "/home/david/projects/privacy"
+    "WorkspaceAlpha": "/var/projects/workspace-alpha",
+    "ProjectSecureAI": "/var/projects/secure-ai"
   })
 };
 global.localStorage = {
@@ -1077,13 +1077,13 @@ global.removeEventListener = () => {};
 assert.strictEqual(typeof window.__swissGetProjectFolder, 'function', 'window.__swissGetProjectFolder must be a function');
 
 // 2. Verify exact and case-insensitive resolution from localStorage/map
-assert.strictEqual(window.__swissGetProjectFolder("UniMelb - IT"), "/mnt/Data/UniMelb/COMP9007");
-assert.strictEqual(window.__swissGetProjectFolder("unimelb - it"), "/mnt/Data/UniMelb/COMP9007");
-assert.strictEqual(window.__swissGetProjectFolder("PrivacyAI"), "/home/david/projects/privacy");
+assert.strictEqual(window.__swissGetProjectFolder("WorkspaceAlpha"), "/var/projects/workspace-alpha");
+assert.strictEqual(window.__swissGetProjectFolder("workspacealpha"), "/var/projects/workspace-alpha");
+assert.strictEqual(window.__swissGetProjectFolder("ProjectSecureAI"), "/var/projects/secure-ai");
 
 // 3. Verify subpath resolution
-assert.strictEqual(window.__swissGetProjectFolder("UniMelb - IT/Assignment/spec.pdf"), "/mnt/Data/UniMelb/COMP9007/Assignment/spec.pdf");
-assert.strictEqual(window.__swissGetProjectFolder("PrivacyAI/src/main.rs"), "/home/david/projects/privacy/src/main.rs");
+assert.strictEqual(window.__swissGetProjectFolder("WorkspaceAlpha/Assignment/spec.pdf"), "/var/projects/workspace-alpha/Assignment/spec.pdf");
+assert.strictEqual(window.__swissGetProjectFolder("ProjectSecureAI/src/main.rs"), "/var/projects/secure-ai/src/main.rs");
 
 // 4. Verify unknown and special scopes return empty string
 assert.strictEqual(window.__swissGetProjectFolder("UnknownProject"), "");
