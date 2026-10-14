@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
@@ -782,8 +783,206 @@ func SyncStateVscdb(acc *Account) error {
 	return nil
 }
 
+type journalAction struct {
+	description string
+	rollback    func() error
+}
+
+type syncJournal struct {
+	mu           sync.Mutex
+	actions      []journalAction
+	trackedFiles map[string]bool
+}
+
+func newSyncJournal() *syncJournal {
+	return &syncJournal{
+		actions:      make([]journalAction, 0),
+		trackedFiles: make(map[string]bool),
+	}
+}
+
+func getUserHomeDir() string {
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return h
+}
+
+var syncStepHookForTest func(step string) error
+
+func (j *syncJournal) RecordFile(targetPath string) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	cleanPath := filepath.Clean(targetPath)
+	if j.trackedFiles[cleanPath] {
+		return nil
+	}
+	j.trackedFiles[cleanPath] = true
+
+	info, err := os.Stat(cleanPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			j.actions = append(j.actions, journalAction{
+				description: fmt.Sprintf("delete newly created %s", cleanPath),
+				rollback: func() error {
+					if err := os.Remove(cleanPath); err != nil && !os.IsNotExist(err) {
+						return err
+					}
+					return nil
+				},
+			})
+			return nil
+		}
+		return err
+	}
+
+	data, err := os.ReadFile(cleanPath)
+	if err != nil {
+		return err
+	}
+	perm := info.Mode().Perm()
+
+	j.actions = append(j.actions, journalAction{
+		description: fmt.Sprintf("restore file %s", cleanPath),
+		rollback: func() error {
+			return writeAtomic(cleanPath, data, perm)
+		},
+	})
+	return nil
+}
+
+func (j *syncJournal) RecordVscdbKeys(vscdbPath string, keys []string) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	cleanPath := filepath.Clean(vscdbPath)
+	if _, err := os.Stat(cleanPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	db, err := sql.Open("sqlite", cleanPath+"?_busy_timeout=5000")
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	var tableCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ItemTable'").Scan(&tableCount)
+	if err != nil || tableCount == 0 {
+		return nil
+	}
+
+	type keyBackup struct {
+		key     string
+		existed bool
+		val     string
+	}
+	var backups []keyBackup
+	for _, k := range keys {
+		var val string
+		err := db.QueryRow("SELECT value FROM ItemTable WHERE key = ?", k).Scan(&val)
+		if err == nil {
+			backups = append(backups, keyBackup{key: k, existed: true, val: val})
+		} else if err == sql.ErrNoRows {
+			backups = append(backups, keyBackup{key: k, existed: false})
+		}
+	}
+
+	j.actions = append(j.actions, journalAction{
+		description: fmt.Sprintf("restore vscdb %s keys", cleanPath),
+		rollback: func() error {
+			rDb, rErr := sql.Open("sqlite", cleanPath+"?_busy_timeout=5000")
+			if rErr != nil {
+				return rErr
+			}
+			defer rDb.Close()
+
+			for _, b := range backups {
+				if b.existed {
+					if _, err := rDb.Exec("INSERT OR REPLACE INTO ItemTable(key, value) VALUES(?, ?)", b.key, b.val); err != nil {
+						return err
+					}
+				} else {
+					if _, err := rDb.Exec("DELETE FROM ItemTable WHERE key = ?", b.key); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		},
+	})
+	return nil
+}
+
+func (j *syncJournal) RecordCloudAccountsActive(homeDir string) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	if homeDir == "" {
+		homeDir, _ = os.UserHomeDir()
+	}
+	dbPath := filepath.Join(homeDir, ".antigravity-agent", "cloud_accounts.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	db, err := sql.Open("sqlite", dbPath+"?_busy_timeout=5000")
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	var prevActive string
+	err = db.QueryRow("SELECT email FROM accounts WHERE is_active = 1 LIMIT 1").Scan(&prevActive)
+	hadActive := (err == nil && prevActive != "")
+
+	j.actions = append(j.actions, journalAction{
+		description: "restore cloud_accounts.db active account",
+		rollback: func() error {
+			rDb, rErr := sql.Open("sqlite", dbPath+"?_busy_timeout=5000")
+			if rErr != nil {
+				return rErr
+			}
+			defer rDb.Close()
+
+			if hadActive {
+				_, err := rDb.Exec("UPDATE accounts SET is_active = CASE WHEN LOWER(email) = LOWER(?) THEN 1 ELSE 0 END", prevActive)
+				return err
+			}
+			_, err := rDb.Exec("UPDATE accounts SET is_active = 0")
+			return err
+		},
+	})
+	return nil
+}
+
+func (j *syncJournal) Rollback() error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	var errs []string
+	for i := len(j.actions) - 1; i >= 0; i-- {
+		action := j.actions[i]
+		if err := action.rollback(); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", action.description, err))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("surface rollback failures: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
 // SyncAllSurfaces atomically syncs the active account across Antigravity 2.0 Desktop,
-// Antigravity CLI (agy), and Antigravity VS Code Extension.
+// Antigravity CLI (agy), and Antigravity VS Code Extension with transactional staging and LIFO rollback.
 func SyncAllSurfaces(acc *Account, allEmails []string, profileMgr *fingerprint.Store) error {
 	if acc == nil {
 		return fmt.Errorf("nil account")
@@ -792,42 +991,139 @@ func SyncAllSurfaces(acc *Account, allEmails []string, profileMgr *fingerprint.S
 	// Ensure access token is fresh before writing across all Antigravity surfaces
 	_ = EnsureFreshAccessToken(acc)
 
-	var errs []string
+	// Pre-validate secret payload construction in memory before touching any surfaces
+	if _, err := buildSecretPayload(acc); err != nil {
+		return fmt.Errorf("staging failed: invalid account payload: %w", err)
+	}
 
-	// 1. Linux Secret Service (VS Code Extension & Electron Keytar)
+	journal := newSyncJournal()
+	fail := func(stepName string, err error) error {
+		if rbErr := journal.Rollback(); rbErr != nil {
+			return fmt.Errorf("surface sync failed at %s: %w (rollback error: %v)", stepName, err, rbErr)
+		}
+		return fmt.Errorf("surface sync failed at %s: %w", stepName, err)
+	}
+
+	home := getUserHomeDir()
+
+	// 1. Linux Secret Service (best-effort)
 	_ = WriteSecretServiceToken(acc)
 
-	// 2. Antigravity 2.0 Desktop App & VS Code Extension Token
-	if err := SyncDesktopStandaloneToken(acc); err != nil {
-		errs = append(errs, fmt.Sprintf("desktop token: %v", err))
-	}
-	if err := SyncAppStorageLoginUser(acc.Email); err != nil {
-		errs = append(errs, fmt.Sprintf("app_storage: %v", err))
-	}
-	if err := SyncHardwareProfile(acc.Email, profileMgr); err != nil {
-		errs = append(errs, fmt.Sprintf("hardware profile: %v", err))
-	}
-	if err := SyncStateVscdb(acc); err != nil {
-		errs = append(errs, fmt.Sprintf("state.vscdb: %v", err))
+	if syncStepHookForTest != nil {
+		if err := syncStepHookForTest("pre-sync"); err != nil {
+			return fail("pre-sync hook", err)
+		}
 	}
 
-	// 3. Antigravity CLI (agy)
+	// 2. Antigravity 2.0 Desktop App & VS Code Extension Token
+	if home != "" {
+		_ = journal.RecordFile(filepath.Join(home, ".gemini", "jetski-standalone-oauth-token"))
+	}
+	if err := SyncDesktopStandaloneToken(acc); err != nil {
+		return fail("desktop token", err)
+	}
+	if syncStepHookForTest != nil {
+		if err := syncStepHookForTest("desktop token"); err != nil {
+			return fail("desktop token hook", err)
+		}
+	}
+
+	// 3. App Storage Login User
+	_ = journal.RecordFile(filepath.Join(core.GetAntigravityHostConfigDir(), "app_storage.json"))
+	if err := SyncAppStorageLoginUser(acc.Email); err != nil {
+		return fail("app_storage", err)
+	}
+	if syncStepHookForTest != nil {
+		if err := syncStepHookForTest("app_storage"); err != nil {
+			return fail("app_storage hook", err)
+		}
+	}
+
+	// 4. Hardware Profile
+	antigravityConfigDir := core.GetAntigravityHostConfigDir()
+	geminiAntigravityDir := core.GetAntigravityDir()
+	_ = journal.RecordFile(filepath.Join(antigravityConfigDir, "machineid"))
+	_ = journal.RecordFile(filepath.Join(antigravityConfigDir, ".updaterId"))
+	_ = journal.RecordFile(filepath.Join(geminiAntigravityDir, "installation_id"))
+	_ = journal.RecordFile(filepath.Join(geminiAntigravityDir, "antigravity_state.pbtxt"))
+	if err := SyncHardwareProfile(acc.Email, profileMgr); err != nil {
+		return fail("hardware profile", err)
+	}
+	if syncStepHookForTest != nil {
+		if err := syncStepHookForTest("hardware profile"); err != nil {
+			return fail("hardware profile hook", err)
+		}
+	}
+
+	// 5. State vscdb SQLite
+	vscdbKeys := []string{
+		"antigravityUnifiedStateSync.userStatus",
+		"antigravity.profileUrl",
+		"antigravityUnifiedStateSync.oauthToken",
+	}
+	_ = journal.RecordVscdbKeys(filepath.Join(core.GetAntigravityHostConfigDir(), "User", "globalStorage", "state.vscdb"), vscdbKeys)
+	_ = journal.RecordVscdbKeys(filepath.Join(core.GetVSCodeHostConfigDir(), "User", "globalStorage", "state.vscdb"), vscdbKeys)
+	if err := SyncStateVscdb(acc); err != nil {
+		return fail("state.vscdb", err)
+	}
+	if syncStepHookForTest != nil {
+		if err := syncStepHookForTest("state.vscdb"); err != nil {
+			return fail("state.vscdb hook", err)
+		}
+	}
+
+	// 6. Antigravity CLI (agy)
+	if home != "" {
+		_ = journal.RecordFile(filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"))
+	}
 	if err := SyncCLIOAuthToken(acc); err != nil {
-		errs = append(errs, fmt.Sprintf("cli oauth token: %v", err))
+		return fail("cli oauth token", err)
+	}
+	if syncStepHookForTest != nil {
+		if err := syncStepHookForTest("cli oauth token"); err != nil {
+			return fail("cli oauth token hook", err)
+		}
+	}
+
+	// 7. Google Accounts JSON
+	if home != "" {
+		_ = journal.RecordFile(filepath.Join(home, ".gemini", "google_accounts.json"))
 	}
 	if err := SyncGoogleAccountsJSON(acc.Email, allEmails); err != nil {
-		errs = append(errs, fmt.Sprintf("google_accounts.json: %v", err))
+		return fail("google_accounts.json", err)
+	}
+	if syncStepHookForTest != nil {
+		if err := syncStepHookForTest("google_accounts.json"); err != nil {
+			return fail("google_accounts.json hook", err)
+		}
+	}
+
+	// 8. OAuth Creds JSON
+	if home != "" {
+		_ = journal.RecordFile(filepath.Join(home, ".gemini", "oauth_creds.json"))
 	}
 	if err := SyncOAuthCredsJSON(acc); err != nil {
-		errs = append(errs, fmt.Sprintf("oauth_creds.json: %v", err))
+		return fail("oauth_creds.json", err)
+	}
+	if syncStepHookForTest != nil {
+		if err := syncStepHookForTest("oauth_creds.json"); err != nil {
+			return fail("oauth_creds.json hook", err)
+		}
 	}
 
-	// 4. Cloud Accounts DB (if present)
-	_ = SyncCloudAccountsActiveAccount("", acc.Email)
-
-	if len(errs) > 0 {
-		return fmt.Errorf("surface sync failures: %s", strings.Join(errs, "; "))
+	// 9. Cloud Accounts DB
+	if home != "" {
+		_ = journal.RecordCloudAccountsActive(home)
 	}
+	if err := SyncCloudAccountsActiveAccount("", acc.Email); err != nil {
+		return fail("cloud_accounts.db", err)
+	}
+	if syncStepHookForTest != nil {
+		if err := syncStepHookForTest("cloud_accounts.db"); err != nil {
+			return fail("cloud_accounts.db hook", err)
+		}
+	}
+
 	return nil
 }
 

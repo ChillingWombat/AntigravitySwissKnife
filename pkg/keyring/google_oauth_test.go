@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -139,3 +140,201 @@ func TestGoogleOAuthCallbackHTML_LightThemeAndLucideIcon(t *testing.T) {
 		t.Errorf("expected renderOAuthErrorHTML to contain embedded VS Code environment checks")
 	}
 }
+
+func TestGoogleOAuth_StateParameterGenerationAndPresence(t *testing.T) {
+	mgr := NewGoogleOAuthManager("test-client", "test-secret")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go func() {
+		_, _ = mgr.StartFlow(ctx, false)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	if !mgr.IsFlowActive() {
+		t.Fatalf("expected flow to be active")
+	}
+
+	authURL := mgr.GetActiveAuthURL()
+	state := mgr.GetActiveState()
+	if state == "" {
+		t.Fatalf("expected active state to be non-empty")
+	}
+	if len(state) != 64 {
+		t.Errorf("expected state to be 64 hex characters (32 random bytes), got %d characters: %s", len(state), state)
+	}
+
+	u, err := url.Parse(authURL)
+	if err != nil {
+		t.Fatalf("failed to parse authURL: %v", err)
+	}
+	queryState := u.Query().Get("state")
+	if queryState != state {
+		t.Errorf("expected authURL state parameter %q to match active state %q", queryState, state)
+	}
+
+	mgr.CancelFlow()
+}
+
+func TestGoogleOAuth_StateValidationAndSingleUse(t *testing.T) {
+	cache := newOAuthStateCache()
+	testState := "4f18d7936a281729b48c90324817aef92138a0bc7281f9a2034871029cba4891"
+	cache.Put(testState, 5*time.Minute)
+
+	// 1. Missing state must fail
+	valid, reason := cache.ValidateAndConsume("")
+	if valid {
+		t.Errorf("expected missing state to fail validation")
+	}
+	if !strings.Contains(reason, "missing") {
+		t.Errorf("expected reason to mention missing, got: %s", reason)
+	}
+
+	// 2. Attacker/wrong state must fail
+	valid, reason = cache.ValidateAndConsume("attacker_supplied_state_1234567890abcdef")
+	if valid {
+		t.Errorf("expected attacker state to fail validation")
+	}
+	if !strings.Contains(reason, "invalid") {
+		t.Errorf("expected reason to mention invalid, got: %s", reason)
+	}
+
+	// 3. Valid state succeeds
+	valid, reason = cache.ValidateAndConsume(testState)
+	if !valid {
+		t.Errorf("expected valid state to pass validation, got: %s", reason)
+	}
+
+	// 4. Replay of consumed state must fail (single-use enforcement)
+	valid, reason = cache.ValidateAndConsume(testState)
+	if valid {
+		t.Errorf("expected replayed state to fail validation (must be single-use)")
+	}
+	if !strings.Contains(reason, "invalid") {
+		t.Errorf("expected reason to mention invalid, got: %s", reason)
+	}
+}
+
+func TestGoogleOAuth_StateExpiration(t *testing.T) {
+	cache := newOAuthStateCache()
+	expiredState := "expired1234567890abcdef1234567890abcdef1234567890abcdef12345678"
+	cache.Put(expiredState, -10*time.Second) // Already expired
+
+	valid, reason := cache.ValidateAndConsume(expiredState)
+	if valid {
+		t.Errorf("expected expired state to fail validation")
+	}
+	if !strings.Contains(reason, "expired") {
+		t.Errorf("expected reason to mention expired, got: %s", reason)
+	}
+}
+
+func TestGoogleOAuth_CallbackEndpoint_CSRFValidation(t *testing.T) {
+	t.Run("MissingState", func(t *testing.T) {
+		mgr := NewGoogleOAuthManager("test-client", "test-secret")
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		go func() {
+			_, _ = mgr.StartFlow(ctx, false)
+		}()
+
+		time.Sleep(50 * time.Millisecond)
+		if !mgr.IsFlowActive() {
+			t.Fatalf("expected flow to be active")
+		}
+
+		authURL := mgr.GetActiveAuthURL()
+		u, err := url.Parse(authURL)
+		if err != nil {
+			t.Fatalf("failed to parse authURL: %v", err)
+		}
+		redirectURI := u.Query().Get("redirect_uri")
+		if redirectURI == "" {
+			t.Fatalf("expected redirect_uri in authURL")
+		}
+
+		// 1. Request callback without state parameter -> HTTP 400 Bad Request
+		reqMissing, _ := http.NewRequest(http.MethodGet, redirectURI+"?code=4/mock_code", nil)
+		respMissing, err := http.DefaultClient.Do(reqMissing)
+		if err != nil {
+			t.Fatalf("failed to send request without state: %v", err)
+		}
+		defer respMissing.Body.Close()
+		if respMissing.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected HTTP 400 Bad Request for missing state, got %d", respMissing.StatusCode)
+		}
+
+		mgr.CancelFlow()
+	})
+
+	t.Run("AttackerState", func(t *testing.T) {
+		mgr := NewGoogleOAuthManager("test-client", "test-secret")
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		go func() {
+			_, _ = mgr.StartFlow(ctx, false)
+		}()
+
+		time.Sleep(50 * time.Millisecond)
+		if !mgr.IsFlowActive() {
+			t.Fatalf("expected flow to be active")
+		}
+
+		authURL := mgr.GetActiveAuthURL()
+		u, err := url.Parse(authURL)
+		if err != nil {
+			t.Fatalf("failed to parse authURL: %v", err)
+		}
+		redirectURI := u.Query().Get("redirect_uri")
+		if redirectURI == "" {
+			t.Fatalf("expected redirect_uri in authURL")
+		}
+
+		// 2. Request callback with attacker state -> HTTP 400 Bad Request
+		reqAttacker, _ := http.NewRequest(http.MethodGet, redirectURI+"?state=attacker_fake_state&code=4/mock_code", nil)
+		respAttacker, err := http.DefaultClient.Do(reqAttacker)
+		if err != nil {
+			t.Fatalf("failed to send request with attacker state: %v", err)
+		}
+		defer respAttacker.Body.Close()
+		if respAttacker.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected HTTP 400 Bad Request for attacker state, got %d", respAttacker.StatusCode)
+		}
+
+		mgr.CancelFlow()
+	})
+}
+
+func TestGoogleOAuth_Exchange_CSRFValidation(t *testing.T) {
+	mgr := NewGoogleOAuthManager("test-client", "test-secret")
+	validState := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	mgr.getStateCache().Put(validState, 5*time.Minute)
+
+	// 1. Exchange without state parameter -> error
+	_, err := mgr.Exchange("http://127.0.0.1:44503/oauth/callback?code=mock_code", "", "")
+	if err == nil || !strings.Contains(err.Error(), "missing oauth state parameter") {
+		t.Errorf("expected missing state error, got: %v", err)
+	}
+
+	// 2. Exchange with attacker state -> error
+	_, err = mgr.Exchange("http://127.0.0.1:44503/oauth/callback?state=attacker_state&code=mock_code", "", "")
+	if err == nil || !strings.Contains(err.Error(), "invalid oauth state parameter") {
+		t.Errorf("expected invalid state error, got: %v", err)
+	}
+
+	// 3. Exchange with valid state via directState parameter
+	// State should be consumed:
+	valid, _ := mgr.getStateCache().ValidateAndConsume(validState)
+	if !valid {
+		t.Fatalf("expected valid state to be verified")
+	}
+
+	// 4. Replay with consumed state -> fails
+	_, err = mgr.Exchange("http://127.0.0.1:44503/oauth/callback?code=mock_code", "", "", validState)
+	if err == nil || !strings.Contains(err.Error(), "invalid oauth state parameter") {
+		t.Errorf("expected replayed state to fail, got: %v", err)
+	}
+}
+

@@ -2,7 +2,10 @@ package keyring
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -35,17 +38,108 @@ type GoogleOAuthResult struct {
 	AccessToken  string `json:"access_token"`
 }
 
+// OAuthStateCache is an expiring, thread-safe cache for one-time OAuth CSRF state parameters.
+type OAuthStateCache struct {
+	mu     sync.Mutex
+	states map[string]time.Time
+}
+
+func newOAuthStateCache() *OAuthStateCache {
+	return &OAuthStateCache{
+		states: make(map[string]time.Time),
+	}
+}
+
+// Put registers a state string with a specific TTL.
+func (c *OAuthStateCache) Put(state string, ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cleanExpiredLocked()
+	c.states[state] = time.Now().Add(ttl)
+}
+
+// ValidateAndConsume checks that the candidate state matches a cached state via constant-time comparison,
+// verifies that it has not expired, and removes it upon verification (single-use).
+func (c *OAuthStateCache) ValidateAndConsume(candidate string) (bool, string) {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return false, "missing oauth state parameter"
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var foundKey string
+	var foundExp time.Time
+	var matched bool
+
+	for s, exp := range c.states {
+		if subtle.ConstantTimeCompare([]byte(candidate), []byte(s)) == 1 {
+			foundKey = s
+			foundExp = exp
+			matched = true
+			break
+		}
+	}
+
+	c.cleanExpiredLocked()
+
+	if !matched {
+		return false, "invalid oauth state parameter (potential CSRF)"
+	}
+
+	if time.Now().After(foundExp) {
+		delete(c.states, foundKey)
+		return false, "oauth state parameter has expired"
+	}
+
+	delete(c.states, foundKey)
+	return true, ""
+}
+
+func (c *OAuthStateCache) cleanExpiredLocked() {
+	now := time.Now()
+	for s, exp := range c.states {
+		if now.After(exp) {
+			delete(c.states, s)
+		}
+	}
+}
+
 // GoogleOAuthManager manages loopback token extraction flows.
 type GoogleOAuthManager struct {
 	clientID     string
 	clientSecret string
 	mu           sync.Mutex
 	activeFlow   *activeGoogleFlow
+	stateCache   *OAuthStateCache
+}
+
+func (m *GoogleOAuthManager) getStateCache() *OAuthStateCache {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.stateCache == nil {
+		m.stateCache = newOAuthStateCache()
+	}
+	return m.stateCache
+}
+
+// GetActiveState returns the random state parameter of the currently waiting flow, if any.
+func (m *GoogleOAuthManager) GetActiveState() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.activeFlow != nil {
+		return m.activeFlow.state
+	}
+	return ""
 }
 
 type activeGoogleFlow struct {
 	authURL      string
 	redirectURI  string
+	state        string
+	createdAt    time.Time
+	expiresAt    time.Time
 	cachedTokens *GoogleOAuthResult
 	result       chan *GoogleOAuthResult
 	err          chan error
@@ -64,6 +158,7 @@ func NewGoogleOAuthManager(clientID, clientSecret string) *GoogleOAuthManager {
 	return &GoogleOAuthManager{
 		clientID:     clientID,
 		clientSecret: clientSecret,
+		stateCache:   newOAuthStateCache(),
 	}
 }
 
@@ -122,8 +217,8 @@ func (m *GoogleOAuthManager) GetActiveAuthURL() string {
 	return ""
 }
 
-// Exchange exchanges an authorization code or callback URL for OAuth tokens.
-func (m *GoogleOAuthManager) Exchange(callbackURL, directCode, directRedirectURI string) (*GoogleOAuthResult, error) {
+// Exchange exchanges an authorization code or callback URL for OAuth tokens with CSRF state verification.
+func (m *GoogleOAuthManager) Exchange(callbackURL, directCode, directRedirectURI string, directState ...string) (*GoogleOAuthResult, error) {
 	callbackURL = strings.TrimSpace(callbackURL)
 	callbackURL = strings.Trim(callbackURL, "\"'")
 	directCode = strings.TrimSpace(directCode)
@@ -131,6 +226,10 @@ func (m *GoogleOAuthManager) Exchange(callbackURL, directCode, directRedirectURI
 
 	code := directCode
 	redirectURI := directRedirectURI
+	var candidateState string
+	if len(directState) > 0 {
+		candidateState = strings.TrimSpace(directState[0])
+	}
 
 	if callbackURL != "" {
 		raw := callbackURL
@@ -155,6 +254,9 @@ func (m *GoogleOAuthManager) Exchange(callbackURL, directCode, directRedirectURI
 			if parsedCode := u.Query().Get("code"); parsedCode != "" {
 				code = parsedCode
 			}
+			if s := u.Query().Get("state"); s != "" {
+				candidateState = s
+			}
 			if redirectURI == "" {
 				redirectURI = fmt.Sprintf("%s://%s%s", u.Scheme, u.Host, u.Path)
 			}
@@ -164,8 +266,13 @@ func (m *GoogleOAuthManager) Exchange(callbackURL, directCode, directRedirectURI
 				q = q[idx+1:]
 			}
 			vals, err := url.ParseQuery(q)
-			if err == nil && vals.Get("code") != "" {
-				code = vals.Get("code")
+			if err == nil {
+				if vals.Get("code") != "" {
+					code = vals.Get("code")
+				}
+				if vals.Get("state") != "" {
+					candidateState = vals.Get("state")
+				}
 			}
 		} else if code == "" {
 			code = raw
@@ -186,6 +293,18 @@ func (m *GoogleOAuthManager) Exchange(callbackURL, directCode, directRedirectURI
 	if redirectURI == "" {
 		return nil, fmt.Errorf("unable to determine redirect URI; please paste the full return URL starting with http://127.0.0.1:.../oauth/callback")
 	}
+
+	// Validate CSRF state parameter
+	valid, reason := m.getStateCache().ValidateAndConsume(candidateState)
+	if !valid {
+		return nil, fmt.Errorf("oauth state verification failed: %s", reason)
+	}
+
+	m.mu.Lock()
+	if active != nil {
+		active.state = ""
+	}
+	m.mu.Unlock()
 
 	tokens, err := exchangeGoogleCode(m.clientID, m.clientSecret, code, redirectURI)
 	if err != nil {
@@ -227,15 +346,33 @@ func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*
 	port := listener.Addr().(*net.TCPAddr).Port
 	redirectURI := fmt.Sprintf("http://127.0.0.1:%d/oauth/callback", port)
 
+	// Generate 32 bytes of cryptographically secure randomness (64 hex characters)
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		m.mu.Unlock()
+		_ = listener.Close()
+		return nil, fmt.Errorf("failed to generate secure oauth state: %w", err)
+	}
+	state := hex.EncodeToString(b)
+	if m.stateCache == nil {
+		m.stateCache = newOAuthStateCache()
+	}
+	cache := m.stateCache
+
 	flowCtx, cancel := context.WithCancel(ctx)
 	flow := &activeGoogleFlow{
 		redirectURI: redirectURI,
+		state:       state,
+		createdAt:   time.Now(),
+		expiresAt:   time.Now().Add(10 * time.Minute),
 		result:      make(chan *GoogleOAuthResult, 1),
 		err:         make(chan error, 1),
 		cancel:      cancel,
 	}
 	m.activeFlow = flow
 	m.mu.Unlock()
+
+	cache.Put(state, 10*time.Minute)
 
 	defer func() {
 		m.mu.Lock()
@@ -259,6 +396,24 @@ func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*
 			_, _ = w.Write(successHTML)
 			return
 		}
+
+		// Enforce CSRF state verification before any token exchange
+		callbackState := r.URL.Query().Get("state")
+		valid, reason := m.getStateCache().ValidateAndConsume(callbackState)
+		if !valid {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write(renderErrorHTML("Security Error: Invalid State", reason))
+			select {
+			case flow.err <- fmt.Errorf("oauth state error: %s", reason):
+			default:
+			}
+			return
+		}
+
+		m.mu.Lock()
+		flow.state = ""
+		m.mu.Unlock()
 
 		code := r.URL.Query().Get("code")
 		if errParam := r.URL.Query().Get("error"); errParam != "" {
@@ -323,6 +478,7 @@ func (m *GoogleOAuthManager) StartFlow(ctx context.Context, openBrowser bool) (*
 		"scope":         {GoogleOAuthScopes},
 		"access_type":   {"offline"},
 		"prompt":        {"select_account consent"},
+		"state":         {state},
 	}
 	authURL := fmt.Sprintf("%s?%s", GoogleOAuthAuthURL, authParams.Encode())
 	m.mu.Lock()

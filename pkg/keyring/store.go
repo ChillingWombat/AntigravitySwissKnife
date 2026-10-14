@@ -1201,8 +1201,17 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 	if password != "" {
 		acc.Password = password
 	}
-	acc.TOTPSecret = totpSecret
-	acc.HasTOTP = (totpSecret != "")
+	cleanTOTP := strings.TrimSpace(totpSecret)
+	if cleanTOTP == "[CLEAR]" || cleanTOTP == "CLEAR" {
+		acc.TOTPSecret = ""
+		acc.HasTOTP = false
+	} else if cleanTOTP != "" && cleanTOTP != "[REDACTED]" {
+		acc.TOTPSecret = cleanTOTP
+		acc.HasTOTP = true
+	} else {
+		// Preserve existing TOTPSecret and ensure HasTOTP stays consistent with current secret state
+		acc.HasTOTP = (acc.TOTPSecret != "")
+	}
 	if refreshToken != "" {
 		cleanToken := strings.TrimSpace(refreshToken)
 		if strings.HasPrefix(cleanToken, "ya29.") {

@@ -3260,10 +3260,12 @@ func (s *Server) handleGoogleOAuthURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	authURL := s.oauthMgr.GetActiveAuthURL()
+	state := s.oauthMgr.GetActiveState()
 	writeJSON(w, map[string]interface{}{
 		"success":  true,
 		"active":   authURL != "",
 		"auth_url": authURL,
+		"state":    state,
 	})
 }
 
@@ -3276,14 +3278,17 @@ func (s *Server) handleGoogleOAuthExchange(w http.ResponseWriter, r *http.Reques
 		CallbackURL string `json:"callback_url"`
 		Code        string `json:"code"`
 		RedirectURI string `json:"redirect_uri"`
+		State       string `json:"state"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	res, err := s.oauthMgr.Exchange(req.CallbackURL, req.Code, req.RedirectURI)
+	res, err := s.oauthMgr.Exchange(req.CallbackURL, req.Code, req.RedirectURI, req.State)
 	if err != nil {
-		writeJSON(w, map[string]interface{}{
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"error":   err.Error(),
 		})
