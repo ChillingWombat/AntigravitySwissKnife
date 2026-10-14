@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -4693,6 +4694,19 @@ func validateDeletablePath(target string) (string, error) {
 		}
 	}
 
+	normalized := filepath.ToSlash(trimmed)
+	for _, sys := range []string{"/etc", "/usr", "/var", "/bin", "/sbin", "/boot", "/proc", "/sys", "/dev", "/root"} {
+		if normalized == sys || strings.HasPrefix(normalized, sys+"/") {
+			return "", fmt.Errorf("prohibited: cannot delete system directory: %s", target)
+		}
+	}
+
+	if runtime.GOOS == "windows" {
+		if (strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, "\\")) && filepath.VolumeName(trimmed) == "" {
+			return "", fmt.Errorf("prohibited: drive-relative or root-relative path not permitted for deletion: %q", target)
+		}
+	}
+
 	cPath, err := validateJailedPath(target)
 	if err != nil {
 		return "", err
@@ -6282,7 +6296,7 @@ func (s *Server) handleBridgeRemotePINRotate(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, map[string]interface{}{
 		"success":      true,
 		"security_pin": pin,
-		"config":       s.bridgeService.GetRemoteConfig(),
+		"config":       s.bridgeService.GetRemoteConfigRedacted(),
 	})
 }
 
@@ -6325,7 +6339,7 @@ func (s *Server) handleBridgeRemoteTunnelStart(w http.ResponseWriter, r *http.Re
 		"success": true,
 		"tunnel":  st,
 		"status":  bridgeSvc.GetRemoteStatus(activeEmail, pid),
-		"config":  bridgeSvc.GetRemoteConfig(),
+		"config":  bridgeSvc.GetRemoteConfigRedacted(),
 	})
 }
 
@@ -6351,7 +6365,7 @@ func (s *Server) handleBridgeRemoteTunnelStop(w http.ResponseWriter, r *http.Req
 		"success": true,
 		"tunnel":  bridgeSvc.GetRemoteTunnelStatus(),
 		"status":  bridgeSvc.GetRemoteStatus(activeEmail, pid),
-		"config":  bridgeSvc.GetRemoteConfig(),
+		"config":  bridgeSvc.GetRemoteConfigRedacted(),
 	})
 }
 
