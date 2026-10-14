@@ -242,6 +242,7 @@ func (d *Detector) detectAgyCLI() InstallationInfo {
 
 	if info.Installed {
 		cmd := exec.Command(info.Path, "--version")
+		core.SetHiddenConsole(cmd) // Prevent console window flash on Windows (runs every detection cycle)
 		if out, err := cmd.Output(); err == nil {
 			v := strings.TrimSpace(string(out))
 			if v != "" {
