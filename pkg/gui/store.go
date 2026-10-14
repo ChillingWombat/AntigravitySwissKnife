@@ -1082,6 +1082,7 @@ except Exception:
     print("{}")
 `
 		cmd := exec.Command("python3", "-c", pyScript, dbPath)
+		core.SetHiddenConsole(cmd)
 		if out, err := cmd.Output(); err == nil {
 			var parsed map[string]struct {
 				Count      int    `json:"count"`
