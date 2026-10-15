@@ -793,21 +793,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               Quota Overview
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {rules?.allow_non_gemini_native_models && (
-                <span
-                  style={{
-                    fontSize: '10px',
-                    fontWeight: 700,
-                    backgroundColor: 'rgba(26, 115, 232, 0.1)',
-                    color: 'var(--primary)',
-                    padding: '2px 8px',
-                    borderRadius: '10px',
-                    border: '1px solid rgba(26, 115, 232, 0.25)',
-                  }}
-                >
-                  Dual Engine (Gemini + Claude/GPT)
-                </span>
-              )}
               <button
                 onClick={handleRefreshClick}
                 className="btn-pill-tonal"
@@ -834,9 +819,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1, justifyContent: 'center' }}>
               {/* Row 1: Gemini Models */}
               <div>
-                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
-                  Gemini Models
-                </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: '12px' }}>
                   <CircularGauge
                     percentage={gauge5hGemini}
@@ -858,9 +840,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
 
               {/* Row 2: Claude & GPT Models */}
               <div>
-                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
-                  Claude &amp; GPT Models
-                </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: '12px' }}>
                   <CircularGauge
                     percentage={gauge5hClaude}
@@ -1208,9 +1187,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                         return (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                             <div>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
                                 <span>Gemini</span>
-                                <span style={{ color: current5h <= 0.10 ? 'var(--red)' : 'inherit' }}>{Math.round(current5h * 100)}%</span>
                               </div>
                               <HorizontalQuotaBar
                                 fraction={current5h}
@@ -1218,9 +1196,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                               />
                             </div>
                             <div>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
                                 <span>Claude &amp; GPT</span>
-                                <span>{acc.quota_5h_claude_gpt !== undefined && acc.quota_5h_claude_gpt !== null ? `${Math.round(acc.quota_5h_claude_gpt * 100)}%` : '0%'}</span>
                               </div>
                               <HorizontalQuotaBar
                                 fraction={acc.quota_5h_claude_gpt ?? 0}
@@ -1243,9 +1220,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     {rules?.allow_non_gemini_native_models ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                         <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
                             <span>Gemini</span>
-                            <span>{Math.round((acc.quota_weekly ?? 0) * 100)}%</span>
                           </div>
                           <HorizontalQuotaBar
                             fraction={acc.quota_weekly ?? 0}
@@ -1253,9 +1229,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                           />
                         </div>
                         <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
                             <span>Claude &amp; GPT</span>
-                            <span>{acc.quota_weekly_claude_gpt !== undefined && acc.quota_weekly_claude_gpt !== null ? `${Math.round(acc.quota_weekly_claude_gpt * 100)}%` : '0%'}</span>
                           </div>
                           <HorizontalQuotaBar
                             fraction={acc.quota_weekly_claude_gpt ?? 0}
@@ -1532,9 +1507,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                                 }
                               >
                                 <AlertTriangle size={12} />{' '}
-                                {isIndividualMode
-                                  ? `${activeBadgeText} (${(acc.quota_weekly ?? 0) <= thresholdWeekly ? 'Weekly Low' : 'Quota Low'})`
-                                  : ((acc.quota_weekly ?? 0) <= thresholdWeekly ? 'Active (Weekly Low)' : 'Active (Quota Low)')}
+                                {isIndividualMode ? activeBadgeText : 'Active'}
                               </span>
                             ) : (
                               <span
