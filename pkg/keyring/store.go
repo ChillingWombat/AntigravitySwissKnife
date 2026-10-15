@@ -202,6 +202,20 @@ func ExtractOAuthFromJSONOrNotes(notes string) (refreshToken string, accessToken
 	return "", "", "", time.Time{}, false
 }
 
+// Clone returns a deep copy of the Account, ensuring nested pointer structures
+// (such as Credential) do not share memory across goroutines.
+func (acc *Account) Clone() *Account {
+	if acc == nil {
+		return nil
+	}
+	copyAcc := *acc
+	if acc.Credential != nil {
+		credCopy := *acc.Credential
+		copyAcc.Credential = &credCopy
+	}
+	return &copyAcc
+}
+
 // RecoverCredentialsFromNotes checks if RefreshToken is empty, and if so, scans acc.Notes
 // for a JSON object containing "refresh_token" (and "token"/"access_token").
 // If found, it automatically populates acc.RefreshToken, acc.AccessToken, and acc.Credential.RefreshToken,
@@ -707,9 +721,7 @@ func (s *Store) ListAccounts() []*Account {
 
 	list := make([]*Account, 0, len(s.accounts))
 	for _, acc := range s.accounts {
-		acc.RecoverCredentialsFromNotes()
-		copyAcc := *acc
-		list = append(list, &copyAcc)
+		list = append(list, acc.Clone())
 	}
 	sort.Slice(list, func(i, j int) bool {
 		return strings.ToLower(list[i].Email) < strings.ToLower(list[j].Email)
@@ -747,7 +759,6 @@ func (s *Store) ExportAccounts() []AccountExport {
 
 	result := make([]AccountExport, 0, len(s.accounts))
 	for _, acc := range s.accounts {
-		acc.RecoverCredentialsFromNotes()
 		ea := AccountExport{
 			ID:                   acc.Email,
 			Email:                acc.Email,
@@ -823,6 +834,15 @@ func (s *Store) BatchImportAccounts(items []BatchImportItem) (int, error) {
 		}
 
 		acc, exists := s.accounts[email]
+		if !exists {
+			// Gmail dot/domain variants of an existing account must update the
+			// stored canonical entry instead of creating a duplicate.
+			if canonical := s.canonicalEmailLocked(email); canonical != email {
+				email = canonical
+				acc = s.accounts[canonical]
+				exists = true
+			}
+		}
 		if !exists {
 			acc = &Account{
 				Email:  email,
@@ -971,9 +991,7 @@ func (s *Store) GetAccount(email string) (*Account, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: %s", core.ErrAccountNotFound, email)
 	}
-	acc.RecoverCredentialsFromNotes()
-	copyAcc := *acc
-	return &copyAcc, nil
+	return acc.Clone(), nil
 }
 
 // AddOrUpdateAccount adds a new account or updates existing fields.
@@ -1004,6 +1022,15 @@ func (s *Store) ImportAccount(email, refreshToken, accessToken, label, totpSecre
 	}
 
 	acc, exists := s.accounts[email]
+	if !exists {
+		// Gmail dot/domain variants of an existing account must update the
+		// stored canonical entry instead of creating a duplicate.
+		if canonical := s.canonicalEmailLocked(email); canonical != email {
+			email = canonical
+			acc = s.accounts[canonical]
+			exists = true
+		}
+	}
 	if !exists {
 		acc = &Account{
 			Email: email,
@@ -1505,6 +1532,10 @@ func (s *Store) ReconcileActiveAccount(autoImport bool, allEmails []string, prof
 		s.mu.Unlock()
 		return nil, nil
 	}
+
+	// Resolve Gmail dot/domain variants to the existing vault entry so that an
+	// equivalent detection never triggers an auto-import duplicate.
+	detectedEmail = s.canonicalEmailLocked(detectedEmail)
 
 	// In-flight manual/auto switch latch: if an account switch occurred within the last 30 seconds,
 	// protect s.activeEmail from being reverted by a stale in-memory session while the IDE respawns.

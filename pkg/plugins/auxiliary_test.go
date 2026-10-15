@@ -2134,7 +2134,8 @@ func TestAuxiliaryDaemonOfflineHandling(t *testing.T) {
 	}
 
 	// 2. Verify setupAuxiliaryTabs checks window.__swissDaemonOnline === false
-	if !strings.Contains(js, "if (window.__swissDaemonOnline === false)") {
+	if !strings.Contains(js, "if (window.__swissDaemonOnline === false || !window.__swissDaemonOnline)") &&
+		!strings.Contains(js, "if (window.__swissDaemonOnline === false)") {
 		t.Errorf("expected setupAuxiliaryTabs to guard against window.__swissDaemonOnline === false")
 	}
 
@@ -2152,11 +2153,17 @@ func TestAuxiliaryDaemonOfflineHandling(t *testing.T) {
 	}
 
 	// 5. Verify setupInChatTelemetry checks window.__swissDaemonOnline === false
-	if !strings.Contains(js, "if (window.__swissDaemonOnline === false)") {
+	if !strings.Contains(js, "if (window.__swissDaemonOnline === false || !window.__swissDaemonOnline)") &&
+		!strings.Contains(js, "if (window.__swissDaemonOnline === false)") {
 		t.Errorf("expected setupInChatTelemetry to guard against window.__swissDaemonOnline === false")
 	}
 
-	// 6. Verify syntax passes in Node
+	// 6. Verify auth headers function
+	if !strings.Contains(js, "getSwissAuthHeaders") {
+		t.Errorf("expected script to define getSwissAuthHeaders")
+	}
+
+	// 7. Verify syntax passes in Node
 	if nodePath, err := exec.LookPath("node"); err == nil {
 		cmd := exec.Command(nodePath, "--check")
 		cmd.Stdin = strings.NewReader(js)
@@ -2516,6 +2523,14 @@ func TestInChatTelemetryIsolationAndDualLayerSuppression(t *testing.T) {
 	// 1. Verify Dual-Layer CSS Scoping & Hard Suppression
 	requiredCSSPatterns := []string{
 		`[data-testid="conversation-view"] .swiss-inchat-metrics`,
+		`html:not(.swiss-daemon-online) .swiss-inchat-metrics`,
+		`html.swiss-daemon-offline .swiss-inchat-metrics`,
+		`html:not(.swiss-daemon-online) #swiss-context-window-ring`,
+		`html.swiss-daemon-offline #swiss-context-window-ring`,
+		`html:not(.swiss-daemon-online) .swiss-context-window-ring`,
+		`html.swiss-daemon-offline .swiss-context-window-ring`,
+		`html:not(.swiss-daemon-online) .swiss-context-window-ring-sub`,
+		`html.swiss-daemon-offline .swiss-context-window-ring-sub`,
 		`[role="dialog"] .swiss-inchat-metrics`,
 		`[aria-modal="true"] .swiss-inchat-metrics`,
 		`.settings-tab-content .swiss-inchat-metrics`,
@@ -2570,6 +2585,19 @@ func TestInChatTelemetryIsolationAndDualLayerSuppression(t *testing.T) {
 	// 5. Verify Active Modal Cleanup
 	if !strings.Contains(js, `document.querySelectorAll('[role="dialog"] .swiss-inchat-metrics`) {
 		t.Errorf("expected script to execute active modal cleanup on setup and mutations")
+	}
+}
+
+func TestAuxiliaryConversationTabsExpansion(t *testing.T) {
+	css := GenerateAuxiliaryPluginsCSS()
+	if !strings.Contains(css, `/* 1b. Expanded Auxiliary Conversation / Subagent Tabs */`) {
+		t.Errorf("expected CSS to include expanded auxiliary conversation / subagent tabs section")
+	}
+	if !strings.Contains(css, `min-width: max-content !important;`) {
+		t.Errorf("expected CSS to allow conversation tabs to expand to content size")
+	}
+	if !strings.Contains(css, `button:not([role="tab"]):not(:has(span, p, .text-xs`) {
+		t.Errorf("expected CSS to only constrain icon-only buttons without text")
 	}
 }
 

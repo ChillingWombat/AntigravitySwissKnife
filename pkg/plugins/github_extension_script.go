@@ -165,14 +165,36 @@ func GenerateGitHubExtensionScript() string {
   }
   window.setSwissDaemonOnline = setDaemonOnline;
 
+  function getSwissAuthHeaders(customHeaders = {}) {
+    const headers = { "Content-Type": "application/json", ...customHeaders };
+    const tok = (typeof window !== "undefined" && window.__SWISS_SESSION_TOKEN__) ||
+      (typeof sessionStorage !== "undefined" && sessionStorage.getItem("antigravity_swiss_session_token")) || "";
+    if (tok) {
+      headers["X-Session-Token"] = tok;
+    }
+    return headers;
+  }
+
   let daemonFailureCount = 0;
   async function checkDaemonConnection() {
     try {
-      const res = await fetch("http://127.0.0.1:8765/api/status", {
+      const res = await fetch("http://127.0.0.1:8765/health", {
         method: "GET",
         signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined,
       });
       if (res && res.ok) {
+        daemonFailureCount = 0;
+        setDaemonOnline(true);
+        return;
+      }
+    } catch (_) {}
+    try {
+      const res = await fetch("http://127.0.0.1:8765/api/status", {
+        method: "GET",
+        headers: getSwissAuthHeaders(),
+        signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined,
+      });
+      if (res && (res.ok || res.status === 401)) {
         daemonFailureCount = 0;
         setDaemonOnline(true);
         return;

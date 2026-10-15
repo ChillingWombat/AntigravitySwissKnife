@@ -189,5 +189,19 @@ describe('SecurityReportModal & Audit Report Logic', () => {
       assert.equal(sanitizeConnectionErrorMessage(''), 'Connection test failed')
       assert.equal(sanitizeConnectionErrorMessage(undefined), 'Connection test failed')
     })
+
+    it('preserves diagnostic details and maps raw HTTP status codes cleanly', () => {
+      assert.equal(sanitizeConnectionErrorMessage('HTTP 404'), 'Not Found')
+      assert.equal(sanitizeConnectionErrorMessage('HTTP 403'), 'Forbidden')
+      assert.equal(sanitizeConnectionErrorMessage('HTTP 500'), 'Internal Server Error')
+      assert.equal(
+        sanitizeConnectionErrorMessage('HTTP 404: Publisher model google/gemini-4-argon not found'),
+        'Publisher model google/gemini-4-argon not found'
+      )
+      assert.equal(
+        sanitizeConnectionErrorMessage('HTTP 403: Permission denied on resource'),
+        'Permission denied on resource'
+      )
+    })
   })
 })

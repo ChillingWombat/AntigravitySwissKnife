@@ -93,7 +93,7 @@ func GetPresets() []ProviderPreset {
 			CallingFormat:  "Vertex AI generateContent / streamRawPredict",
 			Description:    "Google Cloud Platform Vertex AI enterprise models authenticated via Service Account JSON key",
 			AuthHeader:     "OAuth2 Bearer token (Service Account JSON)",
-			PopularModels:  []string{"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "claude-3-7-sonnet@20250219", "claude-3-5-sonnet@20241022"},
+			PopularModels:  []string{"gemini-4-argon", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "claude-3-7-sonnet@20250219", "claude-3-5-sonnet@20241022"},
 		},
 		{
 			ID:             "ollama",

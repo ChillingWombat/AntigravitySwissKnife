@@ -2,6 +2,7 @@ package core
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -116,6 +117,20 @@ func GetConfigDir() string {
 		home = "/tmp"
 	}
 	return filepath.Join(home, ".config", "antigravity-swiss")
+}
+
+// GetLocalSessionToken reads the current session token from session.token in the configuration directory.
+func GetLocalSessionToken() (string, error) {
+	tokenPath := filepath.Join(GetConfigDir(), "session.token")
+	data, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return "", err
+	}
+	token := strings.TrimSpace(string(data))
+	if token == "" {
+		return "", fmt.Errorf("session token in %q is empty", tokenPath)
+	}
+	return token, nil
 }
 
 // GetRuntimeDir returns $XDG_RUNTIME_DIR/antigravity-swiss or fallback.

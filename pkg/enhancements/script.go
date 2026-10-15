@@ -3,6 +3,8 @@ package enhancements
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
 
 // GenerateEnhancementsScript produces client-side JavaScript for Antigravity Desktop & VS Code webviews
@@ -18,10 +20,29 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 		cfgJSON = []byte(`{"enabled":true,"prompt_jump_bar":{"enabled":true,"show_tooltip":true,"focus_pulse":true,"sync_scroll":true,"position":"gutter","dash_width":14,"dash_thickness":2.5,"inactive_thickness":1.5,"color_mode":"default","custom_color":"#0b57d0"},"tool_density_mode":"muted","breaker_line_enabled":true,"default_new_project":"auto"}`)
 	}
 
+	tok, _ := core.GetLocalSessionToken()
+
 	return fmt.Sprintf(`
 /* === Antigravity Swiss Knife: App Enhancements === */
 (() => {
   try {
+    if (typeof window !== "undefined") {
+      const swissToken = %q;
+      if (swissToken) {
+        window.__SWISS_SESSION_TOKEN__ = swissToken;
+        try { sessionStorage.setItem("antigravity_swiss_session_token", swissToken); } catch (_) {}
+      }
+    }
+    function getSwissAuthHeaders() {
+      const headers = { "Content-Type": "application/json" };
+      const tok = (typeof window !== "undefined" && window.__SWISS_SESSION_TOKEN__) ||
+        (typeof sessionStorage !== "undefined" && sessionStorage.getItem("antigravity_swiss_session_token")) || "";
+      if (tok) {
+        headers["X-Session-Token"] = tok;
+      }
+      return headers;
+    }
+
     let enhConfig = %s;
     if (!enhConfig) return;
     if (typeof window !== "undefined") {
@@ -39,8 +60,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     async function syncConfigFromServer() {
       try {
         if (typeof window !== "undefined" && window.fetch) {
-          if (window.__swissDaemonOnline === false) return;
-          const res = await fetch("http://127.0.0.1:8765/api/enhancements");
+          const res = await fetch("http://127.0.0.1:8765/api/enhancements", {
+            headers: getSwissAuthHeaders(),
+            signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined
+          });
           if (res.ok) {
             if (typeof window.setSwissDaemonOnline === "function") {
               window.setSwissDaemonOnline(true);
@@ -84,7 +107,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             }
           }
 
-          const resGui = await fetch("http://127.0.0.1:8765/api/gui/config");
+          const resGui = await fetch("http://127.0.0.1:8765/api/gui/config", {
+            headers: getSwissAuthHeaders(),
+            signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined
+          });
           if (resGui.ok) {
             const loadedGui = await resGui.json();
             if (loadedGui && loadedGui.project_colors) {
@@ -405,6 +431,22 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           `+"`"+`;
         }
       }
+
+      css += `+"`"+`
+        /* Dual-layer daemon offline suppression */
+        html:not(.swiss-daemon-online) #swiss-context-window-ring,
+        html.swiss-daemon-offline #swiss-context-window-ring,
+        html:not(.swiss-daemon-online) [id^="swiss-context-window-ring-sub-"],
+        html.swiss-daemon-offline [id^="swiss-context-window-ring-sub-"],
+        html:not(.swiss-daemon-online) .swiss-context-window-ring,
+        html.swiss-daemon-offline .swiss-context-window-ring,
+        html:not(.swiss-daemon-online) .swiss-context-window-ring-sub,
+        html.swiss-daemon-offline .swiss-context-window-ring-sub,
+        html:not(.swiss-daemon-online) .swiss-inchat-metrics,
+        html.swiss-daemon-offline .swiss-inchat-metrics {
+          display: none !important;
+        }
+      `+"`"+`;
 
       if (styleTag.textContent !== css) {
         styleTag.textContent = css;
@@ -1673,12 +1715,13 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     let customModelsListCache = null;
     let lastCustomModelsFetchTime = 0;
     async function fetchCustomModelsMetadata() {
-      if (window.__swissDaemonOnline === false) return;
+      if (window.__swissDaemonOnline === false || !window.__swissDaemonOnline) return;
       const now = Date.now();
       if (customModelsListCache && now - lastCustomModelsFetchTime < 30000) return;
       lastCustomModelsFetchTime = now;
       try {
         const res = await fetch("http://127.0.0.1:8765/api/custom_models", {
+          headers: getSwissAuthHeaders(),
           signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined
         });
         if (res.ok) {
@@ -1785,6 +1828,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           return;
         }
         const res = await fetch(url, {
+          headers: getSwissAuthHeaders(),
           signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined
         });
         if (res.ok) {
@@ -1805,26 +1849,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               renderContextWindowProgressRing();
             }
           }
-        } else {
-          if (typeof window.setSwissDaemonOnline === "function") {
-            window.setSwissDaemonOnline(false);
-          } else {
-            window.__swissDaemonOnline = false;
-            if (typeof window.__swissOnEnhancementsDaemonChanged === "function") {
-              window.__swissOnEnhancementsDaemonChanged(false);
-            }
-          }
         }
-      } catch (_) {
-        if (typeof window.setSwissDaemonOnline === "function") {
-          window.setSwissDaemonOnline(false);
-        } else {
-          window.__swissDaemonOnline = false;
-          if (typeof window.__swissOnEnhancementsDaemonChanged === "function") {
-            window.__swissOnEnhancementsDaemonChanged(false);
-          }
-        }
-      }
+      } catch (_) {}
     }
 
     window.__swissOnEnhancementsDaemonChanged = function(online) {
@@ -1910,34 +1936,58 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
                       document.querySelector('button[aria-label*="Select model"]');
       let mainRing = document.getElementById("swiss-context-window-ring");
       if (trigger) {
-        const modelName = trigger.innerText.trim();
-        const maxTokens = getModelContextWindow(modelName);
-        const convId = getConversationIdFromElement(trigger) || parentConvId;
-        if (convId && uuidRegex.test(convId)) {
-          fetchActiveConversationTokens(convId);
-        }
-        if (!mainRing) {
-          mainRing = document.createElement("div");
-          mainRing.id = "swiss-context-window-ring";
-        }
-        updateProgressRing(mainRing, convId, maxTokens);
+        // If this trigger belongs to a subagent chat box, do not mount mainRing here
+        const triggerBox = trigger.closest ? trigger.closest('[data-testid="agent-input-box"], .no-focus-agent-input') : null;
+        const isInsideSubagentBox = triggerBox && (
+          triggerBox.querySelector('div[title="Subagent"], div[title="Agent Script"], [data-testid="subagent-name-tag"]') ||
+          triggerBox.querySelector('[placeholder*="subagent"], [data-placeholder*="subagent"]') ||
+          (triggerBox.innerText && triggerBox.innerText.includes("Message subagent"))
+        );
 
-        const pillContainer = trigger.closest(".no-focus-agent-input") || trigger.parentElement;
-        const thinkingPill = document.getElementById("swiss-thinking-level-pill");
-        const anchor = (thinkingPill && (thinkingPill.parentNode === pillContainer || (pillContainer && thinkingPill.parentNode === pillContainer.parentNode))) ? thinkingPill : (pillContainer || trigger);
-        if (anchor && anchor.parentNode && (mainRing.previousElementSibling !== anchor)) {
-          anchor.parentNode.insertBefore(mainRing, anchor.nextSibling);
+        if (isInsideSubagentBox) {
+          if (mainRing) mainRing.remove();
+        } else {
+          const modelName = trigger.innerText.trim();
+          const maxTokens = getModelContextWindow(modelName);
+          const convId = getConversationIdFromElement(trigger) || parentConvId;
+          if (convId && uuidRegex.test(convId)) {
+            fetchActiveConversationTokens(convId);
+          }
+          if (!mainRing) {
+            mainRing = document.createElement("div");
+            mainRing.id = "swiss-context-window-ring";
+          }
+          updateProgressRing(mainRing, convId, maxTokens);
+
+          const pillContainer = trigger.closest(".no-focus-agent-input") || trigger.parentElement;
+          const thinkingPill = document.getElementById("swiss-thinking-level-pill");
+          const anchor = (thinkingPill && (thinkingPill.parentNode === pillContainer || (pillContainer && thinkingPill.parentNode === pillContainer.parentNode))) ? thinkingPill : (pillContainer || trigger);
+          if (anchor && anchor.parentNode && (mainRing.previousElementSibling !== anchor)) {
+            anchor.parentNode.insertBefore(mainRing, anchor.nextSibling);
+          }
         }
       } else if (mainRing) {
         mainRing.remove();
       }
 
       // Part 2: Subagent Conversation Chat Input (Agent Name Tag)
-      const agentTags = Array.from(document.querySelectorAll('div[title="Subagent"], div[title="Agent Script"], [data-testid="subagent-name-tag"]'));
+      const agentTags = [];
+      const seenBoxes = new Set();
 
+      // Collect explicitly marked subagent tags first (at most one per box)
+      document.querySelectorAll('div[title="Subagent"], div[title="Agent Script"], [data-testid="subagent-name-tag"]').forEach(tag => {
+        const box = tag.closest ? (tag.closest('[data-testid="agent-input-box"]') || tag.closest('.no-focus-agent-input') || tag.parentElement) : tag.parentElement;
+        if (box && !seenBoxes.has(box)) {
+          seenBoxes.add(box);
+          agentTags.push(tag);
+        }
+      });
+
+      // For input boxes with subagent placeholder that didn't match the explicit selector
       document.querySelectorAll('[data-testid="agent-input-box"]').forEach(box => {
+        if (seenBoxes.has(box)) return;
         const hasSubagentPlaceholder = box.querySelector('[placeholder*="subagent"], [data-placeholder*="subagent"]') ||
-                                       box.innerText.includes("Message subagent");
+                                       (box.innerText && box.innerText.includes("Message subagent"));
         if (hasSubagentPlaceholder) {
           const candidate = Array.from(box.querySelectorAll('div')).find(d => {
             const hasIcon = d.querySelector('.google-symbols, svg');
@@ -1946,7 +1996,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             const notSwiss = !d.id?.startsWith("swiss-") && !d.classList.contains("swiss-context-window-ring") && !d.classList.contains("swiss-context-window-ring-sub");
             return hasIcon && hasText && notBtn && notSwiss && d.innerText.trim().length > 0;
           });
-          if (candidate && !agentTags.includes(candidate)) {
+          if (candidate) {
+            seenBoxes.add(box);
             agentTags.push(candidate);
           }
         }
@@ -1999,6 +2050,16 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
       document.querySelectorAll("[id^='swiss-context-window-ring-sub-'], .swiss-context-window-ring-sub").forEach(r => {
         if (!activeSubRings.has(r.id)) r.remove();
+      });
+
+      // Guarantee single ring per input container
+      document.querySelectorAll('[data-testid="agent-input-box"], .no-focus-agent-input').forEach(container => {
+        const rings = Array.from(container.querySelectorAll('.swiss-context-window-ring, .swiss-context-window-ring-sub'));
+        if (rings.length > 1) {
+          for (let i = 1; i < rings.length; i++) {
+            rings[i].remove();
+          }
+        }
       });
     }
 
@@ -2080,5 +2141,5 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     console.warn("[SwissKnife] Enhancements script exception:", err);
   }
 })();
-`, string(cfgJSON))
+`, tok, string(cfgJSON))
 }

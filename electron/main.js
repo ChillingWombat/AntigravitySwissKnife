@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification, nativeImage } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification, nativeImage, session } = require('electron');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
@@ -141,6 +141,64 @@ function isSafeExternalUrl(targetUrl) {
   } catch {
     return false;
   }
+}
+
+// Daemon session token auth: the Go daemon enforces default-deny loopback auth (P0-50)
+// and accepts the startup token persisted in session.token. The desktop renderer
+// authenticates by attaching that token as X-Session-Token on every daemon-origin request.
+let cachedSessionToken = null;
+let cachedSessionTokenAt = 0;
+
+function getSwissConfigDir() {
+  if (process.env.ANTIGRAVITY_SWISS_CONFIG_DIR) {
+    return process.env.ANTIGRAVITY_SWISS_CONFIG_DIR;
+  }
+  const home = os.homedir();
+  if (process.platform === 'win32' && process.env.APPDATA) {
+    return path.join(process.env.APPDATA, 'antigravity-swiss');
+  }
+  if (process.platform === 'darwin') {
+    return path.join(home, 'Library', 'Application Support', 'antigravity-swiss');
+  }
+  if (process.env.XDG_CONFIG_HOME) {
+    return path.join(process.env.XDG_CONFIG_HOME, 'antigravity-swiss');
+  }
+  return path.join(home, '.config', 'antigravity-swiss');
+}
+
+function getDaemonSessionToken(maxAgeMs = 3000) {
+  const now = Date.now();
+  if (cachedSessionToken && now - cachedSessionTokenAt < maxAgeMs) {
+    return cachedSessionToken;
+  }
+  try {
+    const token = fs.readFileSync(path.join(getSwissConfigDir(), 'session.token'), 'utf8').trim();
+    if (token) {
+      cachedSessionToken = token;
+      cachedSessionTokenAt = now;
+      return token;
+    }
+  } catch (err) {
+    // Token file missing (daemon first boot in progress): fall back to last known token.
+  }
+  return cachedSessionToken || '';
+}
+
+function attachDaemonAuthHeaders() {
+  if (!session || !session.defaultSession || !session.defaultSession.webRequest) {
+    return;
+  }
+  const filter = { urls: [`${DAEMON_URL}/*`] };
+  session.defaultSession.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
+    const requestHeaders = details.requestHeaders || {};
+    if (!requestHeaders['X-Session-Token']) {
+      const token = getDaemonSessionToken();
+      if (token) {
+        requestHeaders['X-Session-Token'] = token;
+      }
+    }
+    callback({ requestHeaders });
+  });
 }
 
 // Module State
@@ -682,6 +740,12 @@ function registerIpcHandlers() {
     }
   });
 
+  // Expose the local daemon session token so the renderer can authenticate
+  // directly (bypasses the need for the App Password lock screen in desktop mode).
+  ipcMain.handle('desktop:get-session-token', async () => {
+    return getDaemonSessionToken();
+  });
+
   ipcMain.handle('desktop:notify', async (_event, params) => {
     if (Notification.isSupported()) {
       const rawTitle = typeof params?.title === 'string' ? params.title.trim() : '';
@@ -879,6 +943,7 @@ if (app && typeof app.whenReady === 'function') {
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(null);
     registerIpcHandlers();
+    attachDaemonAuthHeaders();
     try {
       await daemonManager.start();
     } catch (err) {

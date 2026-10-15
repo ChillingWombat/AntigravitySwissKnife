@@ -283,6 +283,30 @@ func (c *Config) SetAppPath(appType, path string) error {
 	return c.Save()
 }
 
+// GetStorageMode returns the configured storage mode safely.
+func (c *Config) GetStorageMode() string {
+	if c == nil {
+		return "system_default"
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.StorageMode == "" {
+		return "system_default"
+	}
+	return c.StorageMode
+}
+
+// SetStorageMode updates the storage mode safely.
+func (c *Config) SetStorageMode(mode string) error {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	c.StorageMode = mode
+	c.mu.Unlock()
+	return c.Save()
+}
+
 // SetAccountOverride sets or clears a custom executable override for a specific account.
 func (c *Config) SetAccountOverride(appType, email, path string) error {
 	c.mu.Lock()

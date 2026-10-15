@@ -60,7 +60,18 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 	defer cancel()
 
 	if model.ProviderType == ProviderGCP {
-		return TestGCPModel(ctx, model.GCPServiceAccountKey, model.GCPProjectID, model.GCPRegion, model.Name)
+		endpoint := model.BaseURL
+		if endpoint == "" {
+			endpoint = BuildVertexAIEndpoint(model.GCPRegion, model.GCPProjectID, model.Name)
+		}
+		if _, _, ssrfErr := ValidateEndpointSSRF(endpoint, ProviderGCP, t.AllowLoopback); ssrfErr != nil {
+			return &TestResult{
+				Success:   false,
+				Message:   fmt.Sprintf("SSRF validation blocked: %v", ssrfErr),
+				LatencyMs: time.Since(start).Milliseconds(),
+			}, ssrfErr
+		}
+		return TestGCPModelWithEndpoint(ctx, model.GCPServiceAccountKey, endpoint, model.GCPProjectID, model.GCPRegion, model.Name, t.AllowLoopback)
 	}
 
 	baseURL := strings.TrimRight(model.BaseURL, "/")

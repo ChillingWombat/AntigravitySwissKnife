@@ -1034,6 +1034,11 @@ func SyncAllSurfaces(acc *Account, allEmails []string, profileMgr *fingerprint.S
 	// 1. Linux Secret Service (best-effort)
 	_ = WriteSecretServiceToken(acc)
 
+	// 1b. Windows Credential Manager (best-effort) - the desktop authstore's
+	// session store on Windows; required for a switched account to be applied
+	// when the IDE is relaunched.
+	_ = WriteWindowsKeyringToken(acc)
+
 	if syncStepHookForTest != nil {
 		if err := syncStepHookForTest("pre-sync"); err != nil {
 			return fail("pre-sync hook", err)

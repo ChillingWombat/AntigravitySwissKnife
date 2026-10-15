@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -145,6 +144,26 @@ func (s *Shield) SafeKill(pid int, sig syscall.Signal) error {
 	return proc.Signal(sig)
 }
 
+// isAbsoluteRoot checks if a path begins with an absolute root across platforms:
+// - Unix root (/)
+// - UNC root (\\ or //) including extended prefixes (\\?\ or //?/)
+// - Windows drive root (^[a-zA-Z]:[/\\])
+func isAbsoluteRoot(path string) bool {
+	if len(path) == 0 {
+		return false
+	}
+	if path[0] == '/' {
+		return true
+	}
+	if len(path) >= 2 && ((path[0] == '\\' && path[1] == '\\') || (path[0] == '/' && path[1] == '/')) {
+		return true
+	}
+	if len(path) >= 3 && ((path[0] >= 'a' && path[0] <= 'z') || (path[0] >= 'A' && path[0] <= 'Z')) && path[1] == ':' && (path[2] == '/' || path[2] == '\\') {
+		return true
+	}
+	return false
+}
+
 // IsExactAntigravityExecutable evaluates whether a given process name, command, or executable path
 // corresponds strictly to the official Antigravity desktop IDE application binary.
 //
@@ -156,11 +175,107 @@ func (s *Shield) SafeKill(pid int, sig syscall.Signal) error {
 //   - bool: true if the binary matches "Antigravity.exe" (Windows) or "antigravity" (Linux/macOS),
 //     and false if it is an unrelated script, wrapper, or auxiliary command (e.g., "python -m antigravity").
 func IsExactAntigravityExecutable(nameOrPath string) bool {
-	clean := strings.TrimSpace(nameOrPath)
+	clean := strings.Trim(nameOrPath, " \t\r\n\"'")
 	if clean == "" {
 		return false
 	}
-	base := filepath.Base(clean)
+	// Reject non-space whitespace (tabs, newlines) inside command lines or paths
+	if strings.ContainsAny(clean, "\t\r\n") {
+		return false
+	}
+	// Reject directory paths ending in path separators
+	if strings.HasSuffix(clean, "/") || strings.HasSuffix(clean, "\\") {
+		return false
+	}
+	// Reject URLs (scheme://) but allow Windows drive letters with double forward slashes (e.g. C://)
+	if urlIdx := strings.Index(clean, "://"); urlIdx >= 0 {
+		isDriveSlashSlash := urlIdx == 1 && ((clean[0] >= 'a' && clean[0] <= 'z') || (clean[0] >= 'A' && clean[0] <= 'Z'))
+		if !isDriveSlashSlash {
+			return false
+		}
+	}
+	// Reject whitespace followed by path separators or roots (e.g. "cat /usr/bin/antigravity", "rm -rf /opt/antigravity")
+	if strings.Contains(clean, " /") || strings.Contains(clean, " \\") {
+		return false
+	}
+	// Reject whitespace followed by UNC roots (e.g. "notepad.exe \\server\share\Antigravity.exe")
+	if strings.Contains(clean, " //") || strings.Contains(clean, " \\\\") {
+		return false
+	}
+	// Reject whitespace followed by relative path roots (e.g. "cat ./antigravity", "sh ../antigravity")
+	if strings.Contains(clean, " ./") || strings.Contains(clean, " .\\") ||
+		strings.Contains(clean, " ../") || strings.Contains(clean, " ..\\") {
+		return false
+	}
+	// Reject mid-string Windows drive letters (e.g. "notepad.exe C:\tools\Antigravity.exe")
+	if colonIdx := strings.Index(clean, ":"); colonIdx >= 0 {
+		isDrive := colonIdx == 1 && ((clean[0] >= 'a' && clean[0] <= 'z') || (clean[0] >= 'A' && clean[0] <= 'Z'))
+		isExtendedDrive := colonIdx == 5 && ((clean[4] >= 'a' && clean[4] <= 'z') || (clean[4] >= 'A' && clean[4] <= 'Z')) &&
+			(strings.HasPrefix(clean, `\\?\`) || strings.HasPrefix(clean, `\\.\`) || strings.HasPrefix(clean, `\??\`) ||
+				strings.HasPrefix(clean, `//?/`) || strings.HasPrefix(clean, `//./`))
+		if !isDrive && !isExtendedDrive {
+			return false
+		}
+	}
+
+	// Multi-token handling when clean contains spaces
+	if strings.Contains(clean, " ") {
+		fields := strings.Fields(clean)
+		if len(fields) > 1 {
+			// An unquoted path with spaces can ONLY be an executable if it starts with an absolute path root
+			if !isAbsoluteRoot(clean) {
+				return false
+			}
+
+			// Reject if any executable extension is followed by a space (command invocation with arguments)
+			cleanLower := strings.ToLower(clean)
+			if strings.Contains(cleanLower, ".exe ") || strings.Contains(cleanLower, ".bat ") ||
+				strings.Contains(cleanLower, ".cmd ") || strings.Contains(cleanLower, ".com ") {
+				return false
+			}
+
+			// Reject if fields[0] ends with an executable extension
+			f0Lower := strings.ToLower(fields[0])
+			if strings.HasSuffix(f0Lower, ".exe") || strings.HasSuffix(f0Lower, ".bat") ||
+				strings.HasSuffix(f0Lower, ".cmd") || strings.HasSuffix(f0Lower, ".com") {
+				return false
+			}
+
+			// Inspect fields[0] binary name
+			f0Norm := strings.ReplaceAll(fields[0], "\\", "/")
+			f0Base := f0Norm
+			if lastSlash := strings.LastIndex(f0Norm, "/"); lastSlash >= 0 {
+				f0Base = f0Norm[lastSlash+1:]
+			}
+			f0BaseLower := strings.ToLower(f0Base)
+
+			switch f0BaseLower {
+			case "cat", "vim", "vi", "nano", "sh", "bash", "zsh", "python", "python3",
+				"node", "docker", "curl", "wget", "git", "grep", "find", "rm", "ls",
+				"kubectl", "npm", "yarn", "pnpm", "go", "cargo", "make", "notepad":
+				return false
+			}
+
+			if strings.HasPrefix(f0Norm, "/bin/") || strings.HasPrefix(f0Norm, "/usr/bin/") ||
+				strings.HasPrefix(f0Norm, "/sbin/") || strings.HasPrefix(f0Norm, "/usr/local/bin/") {
+				if f0BaseLower != "antigravity" {
+					return false
+				}
+			}
+
+			// If fields[0] is already Antigravity, then len(fields) > 1 means trailing arguments
+			if f0BaseLower == "antigravity" || f0BaseLower == "antigravity.exe" {
+				return false
+			}
+		}
+	}
+
+	// Normalize all Windows backslashes to forward slashes for cross-platform matching
+	normalized := strings.ReplaceAll(clean, "\\", "/")
+	base := normalized
+	if idx := strings.LastIndex(normalized, "/"); idx >= 0 {
+		base = normalized[idx+1:]
+	}
 	baseLower := strings.ToLower(base)
 
 	// Exclude Swiss Knife daemon companions
@@ -174,95 +289,76 @@ func IsExactAntigravityExecutable(nameOrPath string) bool {
 	return baseLower == "antigravity" || baseLower == "antigravity.exe"
 }
 
-// FindAntigravityProcesses scans Linux /proc for running antigravity instances.
+// extractArgv0 extracts the primary executable token from a command line string,
+// handling quotes, leading/trailing whitespace, and unquoted paths containing spaces.
+func extractArgv0(cmdline string) string {
+	trimmed := strings.TrimSpace(cmdline)
+	if trimmed == "" {
+		return ""
+	}
+
+	// 1. Quoted executable token: "C:\Program Files\..." or 'C:\Program Files\...'
+	if trimmed[0] == '"' {
+		if idx := strings.IndexByte(trimmed[1:], '"'); idx >= 0 {
+			return trimmed[1 : 1+idx]
+		}
+		return strings.Trim(trimmed, "\"")
+	}
+	if trimmed[0] == '\'' {
+		if idx := strings.IndexByte(trimmed[1:], '\''); idx >= 0 {
+			return trimmed[1 : 1+idx]
+		}
+		return strings.Trim(trimmed, "'")
+	}
+
+	// 2. Fast-path: first whitespace-separated token is an exact executable (e.g. /usr/bin/antigravity --arg, cat /usr/bin/antigravity)
+	fields := strings.Fields(trimmed)
+	if len(fields) > 0 && IsExactAntigravityExecutable(fields[0]) {
+		return fields[0]
+	}
+
+	// 3. Unquoted Windows executable with spaces followed by arguments (.exe boundary)
+	lower := strings.ToLower(trimmed)
+	if exeIdx := strings.Index(lower, ".exe "); exeIdx > 0 {
+		candidate := strings.TrimSpace(trimmed[:exeIdx+4])
+		if IsExactAntigravityExecutable(candidate) {
+			return candidate
+		}
+	}
+
+	// 4. Unquoted executable with spaces followed by dash arguments (e.g. C:\Program Files\...\Antigravity.exe --type=...)
+	if dashIdx := strings.Index(trimmed, " -"); dashIdx > 0 {
+		candidate := strings.TrimSpace(trimmed[:dashIdx])
+		if IsExactAntigravityExecutable(candidate) {
+			return candidate
+		}
+	}
+
+	// 5. Unquoted executable with spaces followed by slash arguments (e.g. C:\Program Files\...\Antigravity.exe /high)
+	if slashIdx := strings.Index(trimmed, " /"); slashIdx > 0 {
+		candidate := strings.TrimSpace(trimmed[:slashIdx])
+		if IsExactAntigravityExecutable(candidate) {
+			return candidate
+		}
+	}
+
+	// 6. Direct exact match if the entire unquoted string is an absolute path to the Antigravity executable (without args)
+	if isAbsoluteRoot(trimmed) && !strings.ContainsAny(trimmed, "\t\r\n") && IsExactAntigravityExecutable(trimmed) {
+		return trimmed
+	}
+
+	// 7. Default fallback to first whitespace-separated token
+	if len(fields) > 0 {
+		return fields[0]
+	}
+	return trimmed
+}
+
+// FindAntigravityProcesses returns running Antigravity Desktop IDE instances.
+// Platform implementations live in finder_windows.go (Toolhelp32 snapshot) and
+// finder_unix.go (/proc scan).
 func (s *Shield) FindAntigravityProcesses() ([]ProcessInfo, error) {
-	entries, err := os.ReadDir("/proc")
-	if err != nil {
-		return nil, err
-	}
-
-	var results []ProcessInfo
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		pid, err := strconv.Atoi(entry.Name())
-		if err != nil || pid <= 0 {
-			continue
-		}
-		if isZombieProcess(pid) {
-			continue
-		}
-		if s.IsProtected(pid) {
-			continue
-		}
-
-		exePath, _ := os.Readlink(filepath.Join("/proc", entry.Name(), "exe"))
-		exeLower := strings.ToLower(exePath)
-		if strings.Contains(exeLower, "swiss") || strings.Contains(exeLower, "antigravity-swiss") {
-			continue
-		}
-
-		cmdlineBytes, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
-		if err != nil {
-			continue
-		}
-		cmdline := strings.ReplaceAll(string(cmdlineBytes), "\x00", " ")
-		lowerCmdline := strings.ToLower(cmdline)
-		if strings.Contains(lowerCmdline, "swiss") || strings.Contains(lowerCmdline, "antigravity-swiss") || strings.Contains(lowerCmdline, "antigravity-swi") {
-			continue
-		}
-
-		// Determine if the process is an authentic Antigravity IDE executable:
-		// Check 1: The resolved executable symlink (/proc/<pid>/exe)
-		isExactExe := IsExactAntigravityExecutable(exePath)
-
-		// Check 2: The process command name (/proc/<pid>/comm)
-		commBytes, _ := os.ReadFile(filepath.Join("/proc", entry.Name(), "comm"))
-		comm := strings.TrimSpace(string(commBytes))
-		isExactComm := IsExactAntigravityExecutable(comm)
-
-		// Check 3: The primary executable token in the command line (argv[0])
-		argv0 := ""
-		if fields := strings.Fields(cmdline); len(fields) > 0 {
-			argv0 = fields[0]
-		}
-		isExactArgv0 := IsExactAntigravityExecutable(argv0)
-
-		if !isExactExe && !isExactComm && !isExactArgv0 {
-			continue
-		}
-
-		commLower := strings.ToLower(comm)
-		if strings.Contains(commLower, "swiss") || strings.Contains(commLower, "antigravity-swi") || strings.HasPrefix(commLower, "antigravity-sw") {
-			continue
-		}
-
-		isHost := (s.protectedPID > 0 && pid == s.protectedPID)
-		results = append(results, ProcessInfo{
-			PID:         pid,
-			Name:        comm,
-			Cmdline:     strings.TrimSpace(cmdline),
-			IsHostIDE:   isHost,
-			IsProtected: s.IsProtected(pid),
-		})
-	}
-
-	// Prioritize primary Desktop IDE process at the front (comm == "antigravity" and not an Electron sub-process)
-	sort.SliceStable(results, func(i, j int) bool {
-		isMainIDE := func(p ProcessInfo) bool {
-			lower := strings.ToLower(p.Cmdline)
-			return (p.Name == "antigravity" || p.Name == "antigravity.exe") && !strings.Contains(lower, "--type=")
-		}
-		mainI := isMainIDE(results[i])
-		mainJ := isMainIDE(results[j])
-		if mainI != mainJ {
-			return mainI
-		}
-		return results[i].PID < results[j].PID
-	})
-
-	return results, nil
+	return s.findAntigravityProcessesNative()
 }
 
 // IsAntigravityRunning returns true if an Antigravity main application process is currently running.
@@ -277,9 +373,8 @@ func (s *Shield) IsAntigravityRunning() bool {
 		// Confirm exact executable match on process name or argv[0]
 		isExact := IsExactAntigravityExecutable(p.Name)
 		if !isExact {
-			if fields := strings.Fields(p.Cmdline); len(fields) > 0 {
-				isExact = IsExactAntigravityExecutable(fields[0])
-			}
+			argv0 := extractArgv0(p.Cmdline)
+			isExact = IsExactAntigravityExecutable(argv0)
 		}
 		if !isExact {
 			continue
@@ -414,7 +509,7 @@ func (s *Shield) RelaunchHostIDE() error {
 		var mainPIDs []int
 		for _, p := range procs {
 			lower := strings.ToLower(p.Cmdline)
-			if (p.Name == "antigravity" || strings.HasSuffix(p.Name, "antigravity")) &&
+			if (IsExactAntigravityExecutable(p.Name) || IsExactAntigravityExecutable(extractArgv0(p.Cmdline))) &&
 				!strings.Contains(lower, "--type=") &&
 				!strings.Contains(lower, "swiss") {
 				mainPIDs = append(mainPIDs, p.PID)
@@ -437,7 +532,7 @@ func (s *Shield) RelaunchHostIDE() error {
 	if err == nil {
 		for _, p := range procs {
 			lower := strings.ToLower(p.Cmdline)
-			if (p.Name == "antigravity" || strings.HasSuffix(p.Name, "antigravity")) &&
+			if (IsExactAntigravityExecutable(p.Name) || IsExactAntigravityExecutable(extractArgv0(p.Cmdline))) &&
 				!strings.Contains(lower, "--type=") &&
 				!strings.Contains(lower, "swiss") {
 				mainPIDs = append(mainPIDs, p.PID)
@@ -705,10 +800,7 @@ func isProcessAliveMatching(pid int, keywords ...string) bool {
 			for _, kw := range keywords {
 				kwLower := strings.ToLower(kw)
 				if kwLower == "antigravity" {
-					argv0 := ""
-					if fields := strings.Fields(cmdline); len(fields) > 0 {
-						argv0 = fields[0]
-					}
+					argv0 := extractArgv0(cmdline)
 					if IsExactAntigravityExecutable(commLower) || IsExactAntigravityExecutable(exeLower) || IsExactAntigravityExecutable(argv0) {
 						matched = true
 						break

@@ -141,3 +141,39 @@ func TestAdversarial_UnrelatedProcessesIgnored(t *testing.T) {
 	}
 }
 
+func TestAdversarial_UnboundedPathAndArgv0Attacks(t *testing.T) {
+	adversarialPaths := []string{
+		"cat /usr/bin/antigravity",
+		"vim /opt/antigravity",
+		"git clone https://github.com/foo/antigravity",
+		"curl http://malicious.site/antigravity",
+		`notepad.exe C:\tools\Antigravity.exe`,
+		"rm -rf /opt/antigravity",
+		"cat ./antigravity",
+		"sh ../antigravity",
+		`notepad.exe \\server\share\Antigravity.exe`,
+	}
+	for _, p := range adversarialPaths {
+		if IsExactAntigravityExecutable(p) {
+			t.Errorf("expected IsExactAntigravityExecutable(%q) = false, got true", p)
+		}
+	}
+
+	argv0Cases := []struct {
+		cmdline  string
+		expected string
+	}{
+		{"cat /usr/bin/antigravity", "cat"},
+		{`notepad.exe C:\tools\Antigravity.exe`, "notepad.exe"},
+		{`python3 -m antigravity`, "python3"},
+		{`/usr/bin/antigravity --no-sandbox`, "/usr/bin/antigravity"},
+		{`"C:\Program Files\Google\Antigravity\Antigravity.exe" --flag`, `C:\Program Files\Google\Antigravity\Antigravity.exe`},
+	}
+	for _, tc := range argv0Cases {
+		actual := extractArgv0(tc.cmdline)
+		if actual != tc.expected {
+			t.Errorf("extractArgv0(%q) = %q; expected %q", tc.cmdline, actual, tc.expected)
+		}
+	}
+}
+

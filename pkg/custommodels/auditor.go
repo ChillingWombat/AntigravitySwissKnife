@@ -68,6 +68,10 @@ func (a *Auditor) RunAudit(model CustomModel) *SecurityAuditReport {
 	}
 
 	endpoint := strings.TrimRight(strings.TrimSpace(model.BaseURL), "/")
+	if (endpoint == "" || !strings.Contains(endpoint, "aiplatform.googleapis.com")) && model.ProviderType == ProviderGCP {
+		endpoint = BuildVertexAIEndpoint(model.GCPRegion, model.GCPProjectID, model.Name)
+		report.Endpoint = endpoint
+	}
 	parsedURL, parseErr := url.Parse(endpoint)
 
 	// --- Probe 1: Transport & TLS Security ---
@@ -174,6 +178,9 @@ func (a *Auditor) probeTransportSecurity(endpoint string, u *url.URL, parseErr e
 
 func (a *Auditor) probeOriginLineage(model CustomModel, endpoint string) (SecurityAuditProbe, http.Header, bool) {
 	resolved := ResolveEndpoint(model.ProviderType, endpoint, model.Name)
+	if (resolved == "" || !strings.Contains(resolved, "aiplatform.googleapis.com")) && model.ProviderType == ProviderGCP {
+		resolved = BuildVertexAIEndpoint(model.GCPRegion, model.GCPProjectID, model.Name)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 
@@ -188,7 +195,13 @@ func (a *Auditor) probeOriginLineage(model CustomModel, endpoint string) (Securi
 			Details:     err.Error(),
 		}, nil, false
 	}
-	if model.APIKey != "" {
+	if model.ProviderType == ProviderGCP && model.GCPServiceAccountKey != "" && model.GCPServiceAccountKey != "[REDACTED]" {
+		if saKey, sErr := ParseServiceAccountKey([]byte(model.GCPServiceAccountKey)); sErr == nil {
+			if tok, tErr := GenerateGCPAccessToken(ctx, saKey); tErr == nil {
+				req.Header.Set("Authorization", "Bearer "+tok)
+			}
+		}
+	} else if model.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+model.APIKey)
 		req.Header.Set("x-api-key", model.APIKey)
 	}
@@ -513,10 +526,65 @@ func (a *Auditor) probeCredentialLeakage(model CustomModel, headers http.Header)
 
 func (a *Auditor) executeModelRequest(model CustomModel, payload map[string]interface{}) (string, error) {
 	resolved := ResolveEndpoint(model.ProviderType, model.BaseURL, model.Name)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if (resolved == "" || !strings.Contains(resolved, "aiplatform.googleapis.com")) && model.ProviderType == ProviderGCP {
+		resolved = BuildVertexAIEndpoint(model.GCPRegion, model.GCPProjectID, model.Name)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 
-	data, err := json.Marshal(payload)
+	var gcpToken string
+	if model.ProviderType == ProviderGCP && model.GCPServiceAccountKey != "" && model.GCPServiceAccountKey != "[REDACTED]" {
+		if saKey, err := ParseServiceAccountKey([]byte(model.GCPServiceAccountKey)); err == nil {
+			if tok, err := GenerateGCPAccessToken(ctx, saKey); err == nil {
+				gcpToken = tok
+			}
+		}
+	}
+
+	var data []byte
+	var err error
+	if model.ProviderType == ProviderGCP {
+		publisher, _, _ := NormalizeVertexAIModel(model.Name)
+		switch strings.ToLower(publisher) {
+		case "anthropic":
+			anthropicPayload := map[string]interface{}{
+				"anthropic_version": "vertex-2023-10-16",
+				"max_tokens":        32,
+				"messages":          payload["messages"],
+			}
+			if temp, ok := payload["temperature"]; ok {
+				anthropicPayload["temperature"] = temp
+			}
+			data, err = json.Marshal(anthropicPayload)
+		case "google":
+			userPrompt := "ping"
+			if msgs, ok := payload["messages"].([]map[string]string); ok && len(msgs) > 0 {
+				userPrompt = msgs[len(msgs)-1]["content"]
+			}
+			genConfig := map[string]interface{}{
+				"maxOutputTokens": 32,
+			}
+			if temp, ok := payload["temperature"]; ok {
+				genConfig["temperature"] = temp
+			}
+			geminiPayload := map[string]interface{}{
+				"contents": []map[string]interface{}{
+					{
+						"role": "user",
+						"parts": []map[string]string{
+							{"text": userPrompt},
+						},
+					},
+				},
+				"generationConfig": genConfig,
+			}
+			data, err = json.Marshal(geminiPayload)
+		default:
+			data, err = json.Marshal(payload)
+		}
+	} else {
+		data, err = json.Marshal(payload)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -526,7 +594,9 @@ func (a *Auditor) executeModelRequest(model CustomModel, payload map[string]inte
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if model.APIKey != "" {
+	if gcpToken != "" {
+		req.Header.Set("Authorization", "Bearer "+gcpToken)
+	} else if model.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+model.APIKey)
 		req.Header.Set("x-api-key", model.APIKey)
 	}
@@ -555,6 +625,13 @@ func (a *Auditor) executeModelRequest(model CustomModel, payload map[string]inte
 		Content []struct {
 			Text string `json:"text"`
 		} `json:"content"`
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
 	}
 	_ = json.Unmarshal(bodyBytes, &jsonResp)
 
@@ -563,6 +640,9 @@ func (a *Auditor) executeModelRequest(model CustomModel, payload map[string]inte
 	}
 	if len(jsonResp.Content) > 0 && jsonResp.Content[0].Text != "" {
 		return jsonResp.Content[0].Text, nil
+	}
+	if len(jsonResp.Candidates) > 0 && len(jsonResp.Candidates[0].Content.Parts) > 0 {
+		return jsonResp.Candidates[0].Content.Parts[0].Text, nil
 	}
 
 	return string(bodyBytes), nil

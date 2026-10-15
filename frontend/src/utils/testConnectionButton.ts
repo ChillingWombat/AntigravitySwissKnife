@@ -40,7 +40,23 @@ const LOCKED_GEOMETRY = {
 
 export function sanitizeConnectionErrorMessage(msg?: string): string {
   if (!msg) return 'Connection test failed'
-  const cleaned = msg
+
+  const statusMatch = msg.match(/\b([1-5]\d\d)\b/)
+  const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : null
+  const statusMap: Record<number, string> = {
+    400: 'Bad Request',
+    401: 'Unauthorized',
+    403: 'Forbidden',
+    404: 'Not Found',
+    408: 'Request Timeout',
+    429: 'Rate Limit Exceeded',
+    500: 'Internal Server Error',
+    502: 'Bad Gateway',
+    503: 'Service Unavailable',
+    504: 'Gateway Timeout',
+  }
+
+  let cleaned = msg
     .replace(/\bHTTP\s+[1-5]\d\d(?:\s+[A-Za-z]+)?\b/gi, (match) => {
       const parts = match.split(/\s+/)
       return parts.length > 2 ? parts.slice(2).join(' ') : ''
@@ -55,6 +71,11 @@ export function sanitizeConnectionErrorMessage(msg?: string): string {
     .replace(/\s*:\s*(?=:|$)/g, '')
     .replace(/\s{2,}/g, ' ')
     .trim()
+
+  cleaned = cleaned.replace(/^[:\-\s]+/, '').replace(/[:\-\s]+$/, '').trim()
+  if (!cleaned && statusCode && statusMap[statusCode]) {
+    return statusMap[statusCode]
+  }
 
   return cleaned || 'Connection test failed'
 }

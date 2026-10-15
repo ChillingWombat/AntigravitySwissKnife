@@ -6,7 +6,7 @@ import type { ArchivedProjectItem } from '../types'
 
 describe('Adversarial & State Machine Verification: ArchivedProjectsPage (Milestone 10)', () => {
   const pagePath = path.resolve(import.meta.dirname, '../pages/ArchivedProjectsPage.tsx')
-  const pageSrc = fs.readFileSync(pagePath, 'utf8')
+  const pageSrc = fs.readFileSync(pagePath, 'utf8').replace(/\r\n/g, '\n')
 
   // Sample fixture data for state simulation
   const sampleProjects: ArchivedProjectItem[] = [

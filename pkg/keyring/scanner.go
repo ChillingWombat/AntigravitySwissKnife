@@ -192,6 +192,26 @@ func DetectAllSurfaces(homeDir, configDir string) map[string]*DetectedSurfaceAcc
 		}
 	}
 
+	// Priority 1a2 (Windows): the desktop authstore restores its session from
+	// the OS keyring ("gemini:antigravity" in the Windows Credential Manager).
+	// This is the live session store; the on-disk token files are outputs
+	// derived from it, so it outranks them for detection.
+	if results[SurfaceDesktop] == nil {
+		if cred, err := readNativeKeyringToken(); err == nil && cred != nil {
+			email := resolveEmailFromTokenOrCloudDB(cred.IDToken, cred.RefreshToken, cred.AccessToken, homeDir)
+			if email != "" && !isTestMockEmail(email) {
+				results[SurfaceDesktop] = &DetectedSurfaceAccount{
+					Email:        normalizeEmail(email),
+					Surface:      SurfaceDesktop,
+					SurfaceName:  SurfaceDesktopName,
+					AccessToken:  cred.AccessToken,
+					RefreshToken: cred.RefreshToken,
+					IDToken:      cred.IDToken,
+				}
+			}
+		}
+	}
+
 	// Priority 1b: Standalone OAuth Token (~/.gemini/jetski-standalone-oauth-token)
 	// Fallback when Antigravity is not currently running or DevTools is unavailable.
 	if results[SurfaceDesktop] == nil {

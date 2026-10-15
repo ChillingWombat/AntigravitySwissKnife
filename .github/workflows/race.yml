@@ -1,0 +1,92 @@
+name: Race & Concurrency CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: race-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go-race:
+    name: Go Test -race (Ubuntu with CGO)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          check-latest: false
+          cache: true
+
+      - name: Verify CGO and GCC Environment
+        run: |
+          go env CGO_ENABLED
+          gcc --version
+
+      - name: Download Go Dependencies
+        run: go mod download
+
+      - name: Run Go Unit Tests with Race Detector
+        env:
+          CGO_ENABLED: '1'
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          go test -v -race -timeout 10m -count=1 ./pkg/...
+
+  go-windows:
+    name: Go Test Platform Verification (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          check-latest: false
+          cache: true
+
+      - name: Download Go Dependencies
+        run: go mod download
+
+      - name: Run Standard Go Tests on Windows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          go test -v -timeout 10m -count=1 ./pkg/... ./cmd/...
+
+  frontend-test:
+    name: Frontend Unit & Component Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Run frontend tests
+        working-directory: ./frontend
+        run: npm test
