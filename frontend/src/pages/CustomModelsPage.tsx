@@ -2951,38 +2951,6 @@ export const CustomModelsPage: React.FC = () => {
                 }}
                 style={{ width: '100%', fontSize: '12px', padding: '8px 10px', boxSizing: 'border-box' }}
               />
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
-                {[
-                  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', region: 'us-central1' },
-                  { id: 'gemini-4-argon', label: 'Gemini 4 Argon', region: 'us-central1' },
-                  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', region: 'us-central1' },
-                  { id: 'claude-3-7-sonnet@20250219', label: 'Claude 3.7 Sonnet', region: 'us-east5' },
-                  { id: 'meta/llama-3.3-70b-instruct', label: 'Llama 3.3 70B', region: 'us-central1' },
-                ].map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => {
-                      setGcpCustomModel(preset.id)
-                      setGcpDisplayName(`${preset.label} (GCP Vertex)`)
-                      setGcpRegion(preset.region)
-                    }}
-                    className="btn-pill-tonal"
-                    style={{
-                      padding: '3px 8px',
-                      fontSize: '11px',
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                      border: gcpCustomModel === preset.id ? '1px solid var(--primary)' : '1px solid var(--border)',
-                      backgroundColor: gcpCustomModel === preset.id ? '#e8f0fe' : '#ffffff',
-                      color: gcpCustomModel === preset.id ? 'var(--primary)' : 'var(--text)',
-                    }}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
             </div>
 
             {/* Display Name */}

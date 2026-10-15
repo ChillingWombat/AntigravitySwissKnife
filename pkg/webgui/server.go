@@ -4961,7 +4961,9 @@ func validateJailedPath(raw string) (string, error) {
 		curr := cleaned
 		for curr != "" && curr != "." && curr != "/" && getWindowsVolume(curr) != curr {
 			if st, errL := os.Lstat(curr); errL == nil && (st.Mode()&os.ModeSymlink != 0) {
-				return "", fmt.Errorf("access denied: unresolvable or dangling symlink: %s", curr)
+				if _, errEvalCurr := filepath.EvalSymlinks(curr); errEvalCurr != nil {
+					return "", fmt.Errorf("access denied: unresolvable or dangling symlink: %s", curr)
+				}
 			}
 			parent := filepath.Dir(curr)
 			if parent == curr {
