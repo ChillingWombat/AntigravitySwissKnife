@@ -132,12 +132,13 @@ div:has(> .shrink-0.flex.items-center.border-b),
   padding-right: 70px !important;
 }
 
-/* 1. Fixed Left Factory Buttons (Overview, Review, Terminal) */
+/* 1. Fixed Left Factory Buttons (Overview, Review, Terminal) — only icon-only buttons without text */
 .shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > div:first-child {
   flex-shrink: 0 !important;
+  display: flex !important;
+  align-items: center !important;
 }
-.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > div:first-child button,
-.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > div:first-child [role="tab"] {
+.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > div:first-child button:not([role="tab"]):not(:has(span, p, .text-xs, [class*="title"], [class*="label"])) {
   width: 24px !important;
   min-width: 24px !important;
   max-width: 24px !important;
@@ -145,6 +146,22 @@ div:has(> .shrink-0.flex.items-center.border-b),
   padding: 0 !important;
   flex-shrink: 0 !important;
   justify-content: center !important;
+}
+
+/* 1b. Expanded Auxiliary Conversation / Subagent Tabs */
+.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > div:first-child [role="tab"],
+.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > div:first-child button:has(span, p, .text-xs, [class*="title"], [class*="label"]),
+.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) [role="tab"]:not(.swiss-aux-tab-btn) {
+  width: auto !important;
+  min-width: max-content !important;
+  max-width: 280px !important;
+  height: 24px !important;
+  padding: 0 8px !important;
+  flex-shrink: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  white-space: nowrap !important;
 }
 
 /* 2. Flexible Middle Section: File Tabs & Plus Button */
@@ -165,7 +182,7 @@ div:has(> .shrink-0.flex.items-center.border-b),
 }
 .shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > button[aria-label="Add"],
 .shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > [data-testid="aux-panel-plus-dropdown-trigger"],
-.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > button:not(.swiss-aux-tab-btn) {
+.shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > button:not(.swiss-aux-tab-btn):not([role="tab"]):not(:has(span, p)) {
   width: 24px !important;
   min-width: 0 !important;
   max-width: 24px !important;
@@ -185,7 +202,7 @@ div:has(> .shrink-0.flex.items-center.border-b),
 @container (max-width: 285px) {
   .shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > button[aria-label="Add"],
   .shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > [data-testid="aux-panel-plus-dropdown-trigger"],
-  .shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > button:not(.swiss-aux-tab-btn) {
+  .shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > button:not(.swiss-aux-tab-btn):not([role="tab"]):not(:has(span, p)) {
     display: none !important;
   }
   .shrink-0.flex.items-center.border-b:has(.swiss-aux-btn-group) > .swiss-aux-tabs-divider-left {

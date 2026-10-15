@@ -2588,3 +2588,16 @@ func TestInChatTelemetryIsolationAndDualLayerSuppression(t *testing.T) {
 	}
 }
 
+func TestAuxiliaryConversationTabsExpansion(t *testing.T) {
+	css := GenerateAuxiliaryPluginsCSS()
+	if !strings.Contains(css, `/* 1b. Expanded Auxiliary Conversation / Subagent Tabs */`) {
+		t.Errorf("expected CSS to include expanded auxiliary conversation / subagent tabs section")
+	}
+	if !strings.Contains(css, `min-width: max-content !important;`) {
+		t.Errorf("expected CSS to allow conversation tabs to expand to content size")
+	}
+	if !strings.Contains(css, `button:not([role="tab"]):not(:has(span, p, .text-xs`) {
+		t.Errorf("expected CSS to only constrain icon-only buttons without text")
+	}
+}
+

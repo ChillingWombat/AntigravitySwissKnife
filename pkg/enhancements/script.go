@@ -1936,34 +1936,58 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
                       document.querySelector('button[aria-label*="Select model"]');
       let mainRing = document.getElementById("swiss-context-window-ring");
       if (trigger) {
-        const modelName = trigger.innerText.trim();
-        const maxTokens = getModelContextWindow(modelName);
-        const convId = getConversationIdFromElement(trigger) || parentConvId;
-        if (convId && uuidRegex.test(convId)) {
-          fetchActiveConversationTokens(convId);
-        }
-        if (!mainRing) {
-          mainRing = document.createElement("div");
-          mainRing.id = "swiss-context-window-ring";
-        }
-        updateProgressRing(mainRing, convId, maxTokens);
+        // If this trigger belongs to a subagent chat box, do not mount mainRing here
+        const triggerBox = trigger.closest ? trigger.closest('[data-testid="agent-input-box"], .no-focus-agent-input') : null;
+        const isInsideSubagentBox = triggerBox && (
+          triggerBox.querySelector('div[title="Subagent"], div[title="Agent Script"], [data-testid="subagent-name-tag"]') ||
+          triggerBox.querySelector('[placeholder*="subagent"], [data-placeholder*="subagent"]') ||
+          (triggerBox.innerText && triggerBox.innerText.includes("Message subagent"))
+        );
 
-        const pillContainer = trigger.closest(".no-focus-agent-input") || trigger.parentElement;
-        const thinkingPill = document.getElementById("swiss-thinking-level-pill");
-        const anchor = (thinkingPill && (thinkingPill.parentNode === pillContainer || (pillContainer && thinkingPill.parentNode === pillContainer.parentNode))) ? thinkingPill : (pillContainer || trigger);
-        if (anchor && anchor.parentNode && (mainRing.previousElementSibling !== anchor)) {
-          anchor.parentNode.insertBefore(mainRing, anchor.nextSibling);
+        if (isInsideSubagentBox) {
+          if (mainRing) mainRing.remove();
+        } else {
+          const modelName = trigger.innerText.trim();
+          const maxTokens = getModelContextWindow(modelName);
+          const convId = getConversationIdFromElement(trigger) || parentConvId;
+          if (convId && uuidRegex.test(convId)) {
+            fetchActiveConversationTokens(convId);
+          }
+          if (!mainRing) {
+            mainRing = document.createElement("div");
+            mainRing.id = "swiss-context-window-ring";
+          }
+          updateProgressRing(mainRing, convId, maxTokens);
+
+          const pillContainer = trigger.closest(".no-focus-agent-input") || trigger.parentElement;
+          const thinkingPill = document.getElementById("swiss-thinking-level-pill");
+          const anchor = (thinkingPill && (thinkingPill.parentNode === pillContainer || (pillContainer && thinkingPill.parentNode === pillContainer.parentNode))) ? thinkingPill : (pillContainer || trigger);
+          if (anchor && anchor.parentNode && (mainRing.previousElementSibling !== anchor)) {
+            anchor.parentNode.insertBefore(mainRing, anchor.nextSibling);
+          }
         }
       } else if (mainRing) {
         mainRing.remove();
       }
 
       // Part 2: Subagent Conversation Chat Input (Agent Name Tag)
-      const agentTags = Array.from(document.querySelectorAll('div[title="Subagent"], div[title="Agent Script"], [data-testid="subagent-name-tag"]'));
+      const agentTags = [];
+      const seenBoxes = new Set();
 
+      // Collect explicitly marked subagent tags first (at most one per box)
+      document.querySelectorAll('div[title="Subagent"], div[title="Agent Script"], [data-testid="subagent-name-tag"]').forEach(tag => {
+        const box = tag.closest ? (tag.closest('[data-testid="agent-input-box"]') || tag.closest('.no-focus-agent-input') || tag.parentElement) : tag.parentElement;
+        if (box && !seenBoxes.has(box)) {
+          seenBoxes.add(box);
+          agentTags.push(tag);
+        }
+      });
+
+      // For input boxes with subagent placeholder that didn't match the explicit selector
       document.querySelectorAll('[data-testid="agent-input-box"]').forEach(box => {
+        if (seenBoxes.has(box)) return;
         const hasSubagentPlaceholder = box.querySelector('[placeholder*="subagent"], [data-placeholder*="subagent"]') ||
-                                       box.innerText.includes("Message subagent");
+                                       (box.innerText && box.innerText.includes("Message subagent"));
         if (hasSubagentPlaceholder) {
           const candidate = Array.from(box.querySelectorAll('div')).find(d => {
             const hasIcon = d.querySelector('.google-symbols, svg');
@@ -1972,7 +1996,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             const notSwiss = !d.id?.startsWith("swiss-") && !d.classList.contains("swiss-context-window-ring") && !d.classList.contains("swiss-context-window-ring-sub");
             return hasIcon && hasText && notBtn && notSwiss && d.innerText.trim().length > 0;
           });
-          if (candidate && !agentTags.includes(candidate)) {
+          if (candidate) {
+            seenBoxes.add(box);
             agentTags.push(candidate);
           }
         }
@@ -2025,6 +2050,16 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
       document.querySelectorAll("[id^='swiss-context-window-ring-sub-'], .swiss-context-window-ring-sub").forEach(r => {
         if (!activeSubRings.has(r.id)) r.remove();
+      });
+
+      // Guarantee single ring per input container
+      document.querySelectorAll('[data-testid="agent-input-box"], .no-focus-agent-input').forEach(container => {
+        const rings = Array.from(container.querySelectorAll('.swiss-context-window-ring, .swiss-context-window-ring-sub'));
+        if (rings.length > 1) {
+          for (let i = 1; i < rings.length; i++) {
+            rings[i].remove();
+          }
+        }
       });
     }
 

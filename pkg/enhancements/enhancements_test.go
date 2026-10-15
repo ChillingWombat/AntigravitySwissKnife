@@ -867,5 +867,25 @@ assert.strictEqual(document.getElementById("swiss-context-window-ring"), null, "
 	}
 }
 
+func TestGenerateEnhancementsScript_ContextWindowProgressRing_Deduplication(t *testing.T) {
+	cfg := DefaultConfig()
+	script := GenerateEnhancementsScript(cfg)
+
+	// 1. Verify subagent input box exclusion for mainRing
+	if !strings.Contains(script, "isInsideSubagentBox") {
+		t.Errorf("expected script to detect if trigger is inside a subagent box")
+	}
+
+	// 2. Verify seenBoxes deduplication for subagent tags
+	if !strings.Contains(script, "seenBoxes = new Set()") {
+		t.Errorf("expected script to use seenBoxes Set for tag deduplication")
+	}
+
+	// 3. Verify container ring deduplication loop
+	if !strings.Contains(script, "rings.length > 1") {
+		t.Errorf("expected script to include defensive container ring deduplication")
+	}
+}
+
 
 
