@@ -45,6 +45,8 @@ func FetchModels(req FetchModelsRequest) FetchModelsResponse {
 	baseURL := strings.TrimRight(strings.TrimSpace(req.BaseURL), "/")
 
 	switch req.ProviderType {
+	case ProviderGCP:
+		return fetchGCPModels()
 	case ProviderGemini:
 		return fetchGeminiModels(ctx, client, baseURL, req.APIKey)
 	case ProviderAnthropic:
@@ -59,6 +61,43 @@ func FetchModels(req FetchModelsRequest) FetchModelsResponse {
 	}
 }
 
+func fetchGCPModels() FetchModelsResponse {
+	curated := []struct {
+		id          string
+		displayName string
+		ctx         int
+		thinking    bool
+		levels      []string
+	}{
+		{"gemini-4-argon", "Gemini 4 Argon (GCP Vertex)", 1048576, true, []string{"low", "medium", "high"}},
+		{"gemini-2.5-flash", "Gemini 2.5 Flash (GCP Vertex)", 1048576, true, []string{"low", "medium", "high"}},
+		{"gemini-2.5-pro", "Gemini 2.5 Pro (GCP Vertex)", 2097152, true, []string{"low", "medium", "high"}},
+		{"gemini-2.0-flash", "Gemini 2.0 Flash (GCP Vertex)", 1048576, false, nil},
+		{"gemini-1.5-pro", "Gemini 1.5 Pro (GCP Vertex)", 2097152, false, nil},
+		{"gemini-1.5-flash", "Gemini 1.5 Flash (GCP Vertex)", 1048576, false, nil},
+		{"claude-3-7-sonnet@20250219", "Claude 3.7 Sonnet (Vertex AI)", 200000, true, []string{"low", "medium", "high"}},
+		{"claude-3-5-sonnet-v2@20241022", "Claude 3.5 Sonnet v2 (Vertex AI)", 200000, false, nil},
+		{"claude-3-5-haiku@20241022", "Claude 3.5 Haiku (Vertex AI)", 200000, false, nil},
+		{"meta/llama-3.3-70b-instruct", "Llama 3.3 70B Instruct (Model Garden)", 128000, false, nil},
+		{"mistralai/mistral-large-2407", "Mistral Large (Model Garden)", 128000, false, nil},
+	}
+
+	var res []ModelInfo
+	for _, m := range curated {
+		res = append(res, ModelInfo{
+			ID:               m.id,
+			DisplayName:      m.displayName,
+			ContextWindow:    m.ctx,
+			SupportsThinking: m.thinking,
+			ThinkingLevels:   m.levels,
+		})
+	}
+	return FetchModelsResponse{
+		Success: true,
+		Models:  res,
+	}
+}
+
 // detectModelMetadata infers context window and reasoning/thinking capabilities.
 func detectModelMetadata(id string, displayName string, rawLimit int) (int, bool, []string) {
 	lower := strings.ToLower(id + " " + displayName)
@@ -66,9 +105,9 @@ func detectModelMetadata(id string, displayName string, rawLimit int) (int, bool
 
 	if rawLimit > 0 {
 		ctx = rawLimit
-	} else if strings.Contains(lower, "gemini-3.8-pro") || strings.Contains(lower, "gemini-3.1-pro") || strings.Contains(lower, "gemini-2.5-pro") || strings.Contains(lower, "gemini-1.5-pro") {
+	} else if strings.Contains(lower, "gemini-4-pro") || strings.Contains(lower, "gemini-3.8-pro") || strings.Contains(lower, "gemini-3.1-pro") || strings.Contains(lower, "gemini-2.5-pro") || strings.Contains(lower, "gemini-1.5-pro") {
 		ctx = 2097152
-	} else if strings.Contains(lower, "gemini-3.8-flash") || strings.Contains(lower, "gemini-3.5-flash") || strings.Contains(lower, "gemini-2.5-flash") || strings.Contains(lower, "gemini-2.0-flash") || strings.Contains(lower, "gemini-1.5-flash") {
+	} else if strings.Contains(lower, "gemini-4") || strings.Contains(lower, "gemini-3.8-flash") || strings.Contains(lower, "gemini-3.5-flash") || strings.Contains(lower, "gemini-2.5-flash") || strings.Contains(lower, "gemini-2.0-flash") || strings.Contains(lower, "gemini-1.5-flash") {
 		ctx = 1048576
 	} else if strings.Contains(lower, "claude-opus-4-6") || strings.Contains(lower, "claude-4-6") || strings.Contains(lower, "claude-3-7") || strings.Contains(lower, "claude-3-5") || strings.Contains(lower, "claude-3-opus") {
 		ctx = 200000
@@ -91,6 +130,8 @@ func detectModelMetadata(id string, displayName string, rawLimit int) (int, bool
 		strings.Contains(lower, "claude-opus-4-6") ||
 		strings.Contains(lower, "claude-4-6") ||
 		strings.Contains(lower, "qwq") ||
+		strings.Contains(lower, "gemini-4") ||
+		strings.Contains(lower, "gemini-3") ||
 		strings.Contains(lower, "gemini-2.5") ||
 		strings.Contains(lower, "gemini-3.8") ||
 		strings.Contains(lower, "gemini-3.1") {

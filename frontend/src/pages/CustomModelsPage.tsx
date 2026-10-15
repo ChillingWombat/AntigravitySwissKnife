@@ -159,6 +159,7 @@ export const CustomModelsPage: React.FC = () => {
 
   // GCP Modal States
   const [isGcpModalOpen, setIsGcpModalOpen] = useState<boolean>(false)
+  const [gcpEditingModel, setGcpEditingModel] = useState<CustomModel | null>(null)
   const [gcpJsonContent, setGcpJsonContent] = useState<string>('')
   const [gcpParsedKey, setGcpParsedKey] = useState<any | null>(null)
   const [gcpParseError, setGcpParseError] = useState<string | null>(null)
@@ -166,7 +167,7 @@ export const CustomModelsPage: React.FC = () => {
   const [gcpClientEmail, setGcpClientEmail] = useState<string>('')
   const [gcpRegion, setGcpRegion] = useState<string>('us-central1')
   const [gcpCustomModel, setGcpCustomModel] = useState<string>('')
-  const [gcpDisplayName, setGcpDisplayName] = useState<string>('Gemini 2.5 Flash (GCP Vertex)')
+  const [gcpDisplayName, setGcpDisplayName] = useState<string>('')
   const [gcpTesting, setGcpTesting] = useState<boolean>(false)
   const [gcpTestResult, setGcpTestResult] = useState<TestResult | null>(null)
   const [gcpSaving, setGcpSaving] = useState<boolean>(false)
@@ -174,6 +175,7 @@ export const CustomModelsPage: React.FC = () => {
   const gcpFileInputRef = useRef<HTMLInputElement>(null)
 
   const openAddGcpModal = () => {
+    setGcpEditingModel(null)
     setGcpJsonContent('')
     setGcpParsedKey(null)
     setGcpParseError(null)
@@ -181,11 +183,50 @@ export const CustomModelsPage: React.FC = () => {
     setGcpClientEmail('')
     setGcpRegion('us-central1')
     setGcpCustomModel('')
-    setGcpDisplayName('Gemini 2.5 Flash (GCP Vertex)')
+    setGcpDisplayName('')
     setGcpTesting(false)
     setGcpTestResult(null)
     setGcpSaving(false)
     setGcpError(null)
+    setIsGcpModalOpen(true)
+  }
+
+  const openEditGcpModal = (model: CustomModel) => {
+    setGcpEditingModel(model)
+    setGcpCustomModel(model.name)
+    setGcpDisplayName(model.display_name)
+    setGcpRegion(model.gcp_region || 'us-central1')
+    setGcpProjectId(model.gcp_project_id || '')
+    setGcpTesting(false)
+    setGcpTestResult(null)
+    setGcpSaving(false)
+    setGcpError(null)
+    setGcpParseError(null)
+
+    if (model.gcp_service_account_key && model.gcp_service_account_key !== '[REDACTED]') {
+      setGcpJsonContent(model.gcp_service_account_key)
+      try {
+        const parsed = JSON.parse(model.gcp_service_account_key)
+        if (parsed.type === 'service_account') {
+          setGcpParsedKey(parsed)
+          if (parsed.client_email) setGcpClientEmail(parsed.client_email)
+        }
+      } catch {
+        setGcpParsedKey(null)
+      }
+    } else {
+      setGcpJsonContent('')
+      const extractedEmail = model.notes?.match(/via\s+([^\s]+)/)?.[1] || 'Saved Service Account'
+      setGcpParsedKey({
+        type: 'service_account',
+        project_id: model.gcp_project_id || '',
+        private_key_id: 'saved',
+        private_key: '[SAVED]',
+        client_email: extractedEmail,
+        client_id: '',
+      })
+      setGcpClientEmail(extractedEmail)
+    }
     setIsGcpModalOpen(true)
   }
 
@@ -237,12 +278,10 @@ export const CustomModelsPage: React.FC = () => {
   }
 
   const handleTestGcpConnection = async () => {
-    if (!gcpJsonContent.trim()) {
+    const isEdit = !!gcpEditingModel
+    const effSaKey = gcpJsonContent.trim() || (isEdit ? (gcpEditingModel.gcp_service_account_key || '') : '')
+    if (!effSaKey) {
       setGcpError('Service account JSON key is required to test GCP connection.')
-      return
-    }
-    if (!gcpParsedKey) {
-      setGcpError('Please enter a valid Service Account JSON key.')
       return
     }
     const effModel = gcpCustomModel.trim()
@@ -250,7 +289,7 @@ export const CustomModelsPage: React.FC = () => {
       setGcpError('Model identifier name is required.')
       return
     }
-    const project = gcpProjectId.trim() || gcpParsedKey.project_id
+    const project = gcpProjectId.trim() || gcpParsedKey?.project_id || gcpEditingModel?.gcp_project_id || ''
     if (!project) {
       setGcpError('Project ID is required.')
       return
@@ -261,14 +300,14 @@ export const CustomModelsPage: React.FC = () => {
     setGcpTestResult(null)
 
     const draftGcpModel: CustomModel = {
-      id: 'gcp-test-draft',
+      id: isEdit ? gcpEditingModel.id : 'gcp-test-draft',
       name: effModel,
       display_name: gcpDisplayName.trim() || effModel,
       provider_type: 'gcp',
       base_url: `https://${gcpRegion}-aiplatform.googleapis.com`,
       gcp_project_id: project,
       gcp_region: gcpRegion,
-      gcp_service_account_key: gcpJsonContent.trim(),
+      gcp_service_account_key: effSaKey,
       project_mappings: ['*'],
       quota_type: 'quota',
       quota_value: 'GCP Managed',
@@ -300,12 +339,13 @@ export const CustomModelsPage: React.FC = () => {
   }
 
   const handleSaveGcpModel = async () => {
-    if (!gcpJsonContent.trim()) {
-      setGcpError('Service account JSON key is required.')
-      return
+    const isEdit = !!gcpEditingModel
+    let saKey = gcpJsonContent.trim()
+    if (!saKey && isEdit && gcpEditingModel.gcp_service_account_key) {
+      saKey = gcpEditingModel.gcp_service_account_key
     }
-    if (!gcpParsedKey) {
-      setGcpError('Please provide a valid service account JSON key.')
+    if (!saKey) {
+      setGcpError('Service account JSON key is required.')
       return
     }
     const effModel = gcpCustomModel.trim()
@@ -313,7 +353,7 @@ export const CustomModelsPage: React.FC = () => {
       setGcpError('Model identifier is required.')
       return
     }
-    const project = gcpProjectId.trim() || gcpParsedKey.project_id
+    const project = gcpProjectId.trim() || gcpParsedKey?.project_id || gcpEditingModel?.gcp_project_id || ''
     if (!project) {
       setGcpError('Project ID is required.')
       return
@@ -323,34 +363,47 @@ export const CustomModelsPage: React.FC = () => {
     setGcpError(null)
 
     const isClaude = effModel.toLowerCase().includes('claude')
+    const isReasoning = /thinking|gemini-2\.0-flash-thinking|gemini-2\.5|gemini-3|gemini-4|claude-3-7|claude-4|o1|o3|r1/i.test(effModel)
+
+    let ctxWindow = 1048576
+    const lowerModel = effModel.toLowerCase()
+    if (lowerModel.includes('pro')) {
+      ctxWindow = 2097152
+    } else if (isClaude || lowerModel.includes('o1') || lowerModel.includes('o3')) {
+      ctxWindow = 200000
+    } else if (lowerModel.includes('llama') || lowerModel.includes('mistral') || lowerModel.includes('deepseek')) {
+      ctxWindow = 128000
+    }
+
     const finalModel: CustomModel = {
-      id: `gcp-${effModel.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`,
+      id: isEdit ? gcpEditingModel.id : `gcp-${effModel.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`,
       name: effModel,
       display_name: gcpDisplayName.trim() || `${effModel} (GCP Vertex)`,
       provider_type: 'gcp',
       base_url: `https://${gcpRegion}-aiplatform.googleapis.com`,
       gcp_project_id: project,
       gcp_region: gcpRegion,
-      gcp_service_account_key: gcpJsonContent.trim(),
-      project_mappings: ['*'],
-      quota_type: gcpTestResult?.quota_result?.quota_type || 'balance',
-      quota_value: gcpTestResult?.quota_result?.quota_value || 'Active (GCP Billing)',
-      balance_value: gcpTestResult?.quota_result?.balance_value || gcpTestResult?.quota_result?.quota_value || 'Active (GCP Billing)',
+      gcp_service_account_key: saKey,
+      project_mappings: isEdit ? gcpEditingModel.project_mappings : ['*'],
+      quota_type: gcpTestResult?.quota_result?.quota_type || gcpEditingModel?.quota_type || 'balance',
+      quota_value: gcpTestResult?.quota_result?.quota_value || gcpEditingModel?.quota_value || 'Active (GCP Billing)',
+      balance_value: gcpTestResult?.quota_result?.balance_value || gcpTestResult?.quota_result?.quota_value || gcpEditingModel?.balance_value || 'Active (GCP Billing)',
       prepaid_balance: 0,
       total_budget: 0,
       quota_fraction: null,
-      is_default: false,
-      enabled: true,
-      context_window: isClaude ? 200000 : 1048576,
-      supports_thinking: true,
-      thinking_levels: ['low', 'medium', 'high'],
-      thinking_level: 'high',
+      is_default: isEdit ? gcpEditingModel.is_default : false,
+      enabled: isEdit ? gcpEditingModel.enabled : true,
+      context_window: isEdit && gcpEditingModel.context_window ? gcpEditingModel.context_window : ctxWindow,
+      supports_thinking: isReasoning,
+      thinking_levels: isReasoning ? ['off', 'low', 'medium', 'high'] : [],
+      thinking_level: isReasoning ? 'high' : 'off',
       notes: `GCP Vertex AI (${gcpRegion}) - Project ${project} via ${gcpClientEmail || 'Service Account'}`,
     }
 
     try {
       await api.saveCustomModel(finalModel)
       setIsGcpModalOpen(false)
+      setGcpEditingModel(null)
       await loadData()
     } catch (err: any) {
       setGcpError(`Failed to save GCP model: ${err.message}`)
@@ -459,6 +512,10 @@ export const CustomModelsPage: React.FC = () => {
   }
 
   const openEditModal = (model: CustomModel) => {
+    if (model.provider_type === 'gcp') {
+      openEditGcpModal(model)
+      return
+    }
     setEditingModel(model)
     setDisplayName(model.display_name)
     setModelName(model.name)
@@ -1427,7 +1484,12 @@ export const CustomModelsPage: React.FC = () => {
                       <span>
                         {testResult.success
                           ? `Connection verified: OK (${testResult.latency_ms}ms)`
-                          : `Test failed: ${sanitizeConnectionErrorMessage(testResult.message)}`}
+                          : (() => {
+                              const cleanMsg = sanitizeConnectionErrorMessage(testResult.message)
+                              return cleanMsg.toLowerCase().startsWith('test failed') || cleanMsg.toLowerCase().startsWith('connection test failed')
+                                ? cleanMsg
+                                : `Test failed: ${cleanMsg}`
+                            })()}
                       </span>
                     </div>
                   )}
@@ -2716,7 +2778,7 @@ export const CustomModelsPage: React.FC = () => {
                 <GoogleCloudLogoIcon size={24} />
                 <div>
                   <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text)', margin: 0 }}>
-                    Add GCP Vertex AI Model
+                    {gcpEditingModel ? 'Edit GCP Vertex AI Model' : 'Add GCP Vertex AI Model'}
                   </h2>
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
                     Connect Google Cloud Vertex AI models via Service Account JSON key
@@ -2782,7 +2844,7 @@ export const CustomModelsPage: React.FC = () => {
                 </div>
               </div>
               <textarea
-                placeholder='Paste your GCP Service Account JSON key here ({"type": "service_account", "project_id": ...})'
+                placeholder={gcpEditingModel ? 'Service account key is configured. Paste a new JSON key here only if replacing it.' : 'Paste your GCP Service Account JSON key here ({"type": "service_account", "project_id": ...})'}
                 value={gcpJsonContent}
                 onChange={(e) => handleGcpJsonChange(e.target.value)}
                 rows={5}
@@ -2834,6 +2896,7 @@ export const CustomModelsPage: React.FC = () => {
                   style={{ width: '100%', fontSize: '12px', padding: '8px 10px', boxSizing: 'border-box' }}
                 >
                   <option value="us-central1">us-central1 (Iowa - Recommended)</option>
+                  <option value="us-east5">us-east5 (Ohio - Claude on Vertex)</option>
                   <option value="us-east4">us-east4 (N. Virginia)</option>
                   <option value="us-west1">us-west1 (Oregon)</option>
                   <option value="europe-west1">europe-west1 (Belgium)</option>
@@ -2877,13 +2940,49 @@ export const CustomModelsPage: React.FC = () => {
                 placeholder="Enter Model ID (e.g. gemini-2.5-flash or meta/llama-3.3-70b-instruct)"
                 value={gcpCustomModel}
                 onChange={(e) => {
-                  setGcpCustomModel(e.target.value)
-                  if (!gcpDisplayName || gcpDisplayName === gcpCustomModel) {
-                    setGcpDisplayName(e.target.value)
+                  const val = e.target.value
+                  setGcpCustomModel(val)
+                  if (!gcpDisplayName || gcpDisplayName === gcpCustomModel || gcpDisplayName === `${gcpCustomModel} (GCP Vertex)` || gcpDisplayName === 'Gemini 2.5 Flash (GCP Vertex)') {
+                    setGcpDisplayName(val ? `${val} (GCP Vertex)` : '')
+                  }
+                  if (val.toLowerCase().includes('claude') && gcpRegion === 'us-central1') {
+                    setGcpRegion('us-east5')
                   }
                 }}
                 style={{ width: '100%', fontSize: '12px', padding: '8px 10px', boxSizing: 'border-box' }}
               />
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                {[
+                  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', region: 'us-central1' },
+                  { id: 'gemini-4-argon', label: 'Gemini 4 Argon', region: 'us-central1' },
+                  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', region: 'us-central1' },
+                  { id: 'claude-3-7-sonnet@20250219', label: 'Claude 3.7 Sonnet', region: 'us-east5' },
+                  { id: 'meta/llama-3.3-70b-instruct', label: 'Llama 3.3 70B', region: 'us-central1' },
+                ].map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => {
+                      setGcpCustomModel(preset.id)
+                      setGcpDisplayName(`${preset.label} (GCP Vertex)`)
+                      setGcpRegion(preset.region)
+                    }}
+                    className="btn-pill-tonal"
+                    style={{
+                      padding: '3px 8px',
+                      fontSize: '11px',
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      border: gcpCustomModel === preset.id ? '1px solid var(--primary)' : '1px solid var(--border)',
+                      backgroundColor: gcpCustomModel === preset.id ? '#e8f0fe' : '#ffffff',
+                      color: gcpCustomModel === preset.id ? 'var(--primary)' : 'var(--text)',
+                    }}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Display Name */}
@@ -2946,7 +3045,7 @@ export const CustomModelsPage: React.FC = () => {
               <button
                 type="button"
                 onClick={handleTestGcpConnection}
-                disabled={gcpTesting || !gcpParsedKey}
+                disabled={gcpTesting || (!gcpParsedKey && !gcpEditingModel)}
                 className="btn-pill-tonal"
                 style={{ padding: '7px 16px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               >
@@ -2966,11 +3065,11 @@ export const CustomModelsPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleSaveGcpModel}
-                  disabled={gcpSaving || !gcpParsedKey}
+                  disabled={gcpSaving || (!gcpParsedKey && !gcpEditingModel)}
                   className="btn-pill-primary"
                   style={{ padding: '7px 20px', fontSize: '12px' }}
                 >
-                  {gcpSaving ? 'Importing...' : 'Add Model'}
+                  {gcpSaving ? (gcpEditingModel ? 'Saving...' : 'Importing...') : (gcpEditingModel ? 'Save Changes' : 'Add Model')}
                 </button>
               </div>
             </div>

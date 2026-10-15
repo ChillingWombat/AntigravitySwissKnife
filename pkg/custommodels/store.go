@@ -202,12 +202,30 @@ func (s *Store) SaveModel(m CustomModel) error {
 		m.ID = fmt.Sprintf("%s-%s-%d", prefix, slug, time.Now().Unix())
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, existing := range s.config.Models {
+		if existing.ID == m.ID {
+			if m.APIKey == "" || m.APIKey == "[REDACTED]" {
+				m.APIKey = existing.APIKey
+			}
+			if m.GCPServiceAccountKey == "" || m.GCPServiceAccountKey == "[REDACTED]" {
+				m.GCPServiceAccountKey = existing.GCPServiceAccountKey
+			}
+			if m.GCPProjectID == "" {
+				m.GCPProjectID = existing.GCPProjectID
+			}
+			if m.GCPRegion == "" {
+				m.GCPRegion = existing.GCPRegion
+			}
+			break
+		}
+	}
+
 	if err := m.Validate(); err != nil {
 		return err
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	nowShort := time.Now().Format("2006-01-02 15:04")
@@ -219,6 +237,12 @@ func (s *Store) SaveModel(m CustomModel) error {
 			}
 			if m.GCPServiceAccountKey == "" || m.GCPServiceAccountKey == "[REDACTED]" {
 				m.GCPServiceAccountKey = existing.GCPServiceAccountKey
+			}
+			if m.GCPProjectID == "" {
+				m.GCPProjectID = existing.GCPProjectID
+			}
+			if m.GCPRegion == "" {
+				m.GCPRegion = existing.GCPRegion
 			}
 			if existing.InternalID > 0 {
 				m.InternalID = existing.InternalID

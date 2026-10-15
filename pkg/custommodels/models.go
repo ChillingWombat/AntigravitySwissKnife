@@ -109,11 +109,16 @@ func (m *CustomModel) Validate() error {
 				m.GCPProjectID = key.ProjectID
 			}
 		}
-		if strings.TrimSpace(m.BaseURL) == "" {
-			region := strings.TrimSpace(m.GCPRegion)
-			if region == "" {
+		region := strings.TrimSpace(m.GCPRegion)
+		if region == "" {
+			if strings.Contains(strings.ToLower(m.Name), "claude") {
+				region = "us-east5"
+			} else {
 				region = "us-central1"
 			}
+		}
+		m.GCPRegion = region
+		if strings.TrimSpace(m.BaseURL) == "" || strings.Contains(m.BaseURL, "-aiplatform.googleapis.com") {
 			m.BaseURL = BuildVertexAIEndpoint(region, m.GCPProjectID, m.Name)
 		}
 	}

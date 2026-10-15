@@ -341,6 +341,17 @@ func parsePricingObject(raw json.RawMessage) (float64, float64, float64, bool) {
 func lookupOfficialProviderPricing(modelID, provider string) (*float64, *float64, *float64, bool) {
 	id := strings.ToLower(strings.TrimSpace(modelID))
 	id = strings.TrimPrefix(id, "models/")
+	// Strip publishers/.../models/ prefix if present
+	if idx := strings.Index(id, "/publishers/"); idx != -1 {
+		id = id[idx+1:]
+	}
+	if strings.HasPrefix(id, "publishers/") {
+		if idx := strings.Index(id, "/models/"); idx != -1 {
+			id = id[idx+len("/models/"):]
+		}
+	}
+	// Normalize Vertex AI version tag '@' to '-' (e.g. claude-3-7-sonnet@20250219 -> claude-3-7-sonnet-20250219)
+	id = strings.ReplaceAll(id, "@", "-")
 
 	// Official provider pricing table (USD per 1M tokens)
 	type rate struct {
@@ -349,7 +360,8 @@ func lookupOfficialProviderPricing(modelID, provider string) (*float64, *float64
 		out    float64
 	}
 	exactRates := map[string]rate{
-		// Google Gemini 3.8 / 3.7 / 3.6 / 3.5 Flash series
+		// Google Gemini 4 / 3.8 / 3.7 / 3.6 / 3.5 Flash series
+		"gemini-4-argon":          {0.75, 0.075, 3.75},
 		"gemini-3.8-flash-high":   {0.75, 0.075, 3.75},
 		"gemini-3.8-flash-medium": {0.75, 0.075, 3.75},
 		"gemini-3.8-flash-low":    {0.75, 0.075, 3.75},
@@ -412,7 +424,7 @@ func lookupOfficialProviderPricing(modelID, provider string) (*float64, *float64
 	if idx := strings.LastIndex(id, "/"); idx != -1 {
 		prefix := id[:idx]
 		shortID := id[idx+1:]
-		if prefix == "google" || prefix == "gemini" || prefix == "anthropic" || prefix == "openai" || prefix == "deepseek" {
+		if prefix == "google" || prefix == "gemini" || prefix == "anthropic" || prefix == "openai" || prefix == "deepseek" || prefix == "meta" || prefix == "mistralai" {
 			if r, ok := exactRates[shortID]; ok {
 				return floatPtr(r.in), floatPtr(r.cached), floatPtr(r.out), true
 			}
@@ -446,6 +458,15 @@ func lookupThirdPartyBackupPricing(ctx context.Context, modelID string) (*float6
 
 	target := strings.ToLower(strings.TrimSpace(modelID))
 	target = strings.TrimPrefix(target, "models/")
+	if idx := strings.Index(target, "/publishers/"); idx != -1 {
+		target = target[idx+1:]
+	}
+	if strings.HasPrefix(target, "publishers/") {
+		if idx := strings.Index(target, "/models/"); idx != -1 {
+			target = target[idx+len("/models/"):]
+		}
+	}
+	target = strings.ReplaceAll(target, "@", "-")
 	if e, ok := cached[target]; ok {
 		return floatPtr(e.inPerM), floatPtr(e.cachedPerM), floatPtr(e.outPerM), true
 	}

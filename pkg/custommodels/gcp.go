@@ -87,6 +87,28 @@ func parseRSAPrivateKey(pemStr string) (*rsa.PrivateKey, error) {
 	return nil, fmt.Errorf("failed to parse rsa private key: pkcs8 error: %v, pkcs1 error: %v", err, err1)
 }
 
+// ValidateTokenURI verifies that the token URI uses HTTPS and points to trusted Google identity servers.
+func ValidateTokenURI(rawURI string) error {
+	trimmed := strings.TrimSpace(rawURI)
+	if trimmed == "" {
+		return nil
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return fmt.Errorf("invalid token_uri: %w", err)
+	}
+	if !strings.EqualFold(u.Scheme, "https") {
+		return fmt.Errorf("token_uri must use https scheme: %s", rawURI)
+	}
+	host := strings.ToLower(u.Hostname())
+	if host != "oauth2.googleapis.com" &&
+		host != "accounts.google.com" &&
+		!strings.HasSuffix(host, ".googleapis.com") {
+		return fmt.Errorf("untrusted token_uri host %q; must be a googleapis.com domain", host)
+	}
+	return nil
+}
+
 // GenerateGCPAccessToken mints a fresh Google Cloud OAuth2 access token using the service account key.
 func GenerateGCPAccessToken(ctx context.Context, key *ServiceAccountKey) (string, error) {
 	rsaKey, err := parseRSAPrivateKey(key.PrivateKey)
@@ -97,6 +119,8 @@ func GenerateGCPAccessToken(ctx context.Context, key *ServiceAccountKey) (string
 	tokenURI := strings.TrimSpace(key.TokenURI)
 	if tokenURI == "" {
 		tokenURI = "https://oauth2.googleapis.com/token"
+	} else if err := ValidateTokenURI(tokenURI); err != nil {
+		return "", fmt.Errorf("rejected unsafe token_uri: %w", err)
 	}
 
 	now := time.Now().Unix()
@@ -163,6 +187,74 @@ func GenerateGCPAccessToken(ctx context.Context, key *ServiceAccountKey) (string
 	return tokenResp.AccessToken, nil
 }
 
+// NormalizeVertexAIModel parses a model name or resource path, extracting the publisher, clean model ID, and endpoint action.
+func NormalizeVertexAIModel(rawModel string) (publisher, cleanModel, action string) {
+	s := strings.TrimSpace(rawModel)
+
+	// Check for explicit action suffix (e.g. :generateContent, :rawPredict, :streamRawPredict, :predict)
+	if idx := strings.LastIndex(s, ":"); idx != -1 {
+		action = s[idx+1:]
+		s = s[:idx]
+	}
+
+	// If full URL or resource path contains /publishers/, strip everything up to publishers/
+	if idx := strings.Index(s, "/publishers/"); idx != -1 {
+		s = s[idx+1:]
+	}
+
+	// Strip leading "publishers/" if present
+	if strings.HasPrefix(s, "publishers/") {
+		s = strings.TrimPrefix(s, "publishers/")
+		if idx := strings.Index(s, "/models/"); idx != -1 {
+			publisher = s[:idx]
+			cleanModel = s[idx+len("/models/"):]
+		}
+	}
+
+	if publisher == "" {
+		if strings.Contains(s, "/") {
+			parts := strings.SplitN(s, "/", 2)
+			publisher = parts[0]
+			cleanModel = parts[1]
+		} else {
+			cleanModel = s
+			lower := strings.ToLower(s)
+			if strings.Contains(lower, "claude") {
+				publisher = "anthropic"
+			} else if strings.HasPrefix(lower, "llama") || strings.HasPrefix(lower, "meta-") {
+				publisher = "meta"
+			} else if strings.HasPrefix(lower, "mistral") || strings.HasPrefix(lower, "mixtral") {
+				publisher = "mistralai"
+			} else {
+				publisher = "google"
+			}
+		}
+	}
+
+	publisher = strings.TrimSpace(publisher)
+	cleanModel = strings.TrimSpace(cleanModel)
+
+	// Strip duplicate publisher or models/ prefixes
+	if strings.HasPrefix(cleanModel, publisher+"/") {
+		cleanModel = strings.TrimPrefix(cleanModel, publisher+"/")
+	}
+	cleanModel = strings.TrimPrefix(cleanModel, "models/")
+
+	// Assign default action if not explicitly given
+	if action == "" {
+		switch strings.ToLower(publisher) {
+		case "google":
+			action = "generateContent"
+		case "anthropic":
+			action = "streamRawPredict"
+		default:
+			action = "rawPredict"
+		}
+	}
+
+	return publisher, cleanModel, action
+}
+
 // BuildVertexAIEndpoint constructs the REST endpoint URL for a Vertex AI model.
 func BuildVertexAIEndpoint(region, projectID, modelName string) string {
 	region = strings.TrimSpace(region)
@@ -170,18 +262,26 @@ func BuildVertexAIEndpoint(region, projectID, modelName string) string {
 		region = "us-central1"
 	}
 	projectID = strings.TrimSpace(projectID)
-	modelName = strings.TrimSpace(modelName)
-
-	if strings.Contains(strings.ToLower(modelName), "claude") {
-		return fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:streamRawPredict",
-			region, projectID, region, modelName)
+	publisher, cleanModel, action := NormalizeVertexAIModel(modelName)
+	if cleanModel == "" {
+		cleanModel = "gemini-2.5-flash"
 	}
-	return fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/%s:generateContent",
-		region, projectID, region, modelName)
+	if publisher == "" {
+		publisher = "google"
+	}
+
+	return fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/%s/models/%s:%s",
+		url.PathEscape(region), url.PathEscape(projectID), url.PathEscape(region),
+		url.PathEscape(publisher), url.PathEscape(cleanModel), action)
 }
 
 // TestGCPModel tests connectivity to the GCP Vertex AI model using the Service Account credentials.
 func TestGCPModel(ctx context.Context, saKeyJSON string, projectID, region, modelName string) (*TestResult, error) {
+	return TestGCPModelWithEndpoint(ctx, saKeyJSON, "", projectID, region, modelName, false)
+}
+
+// TestGCPModelWithEndpoint tests connectivity with an optional endpoint override and loopback allowance for testing.
+func TestGCPModelWithEndpoint(ctx context.Context, saKeyJSON string, endpointOverride string, projectID, region, modelName string, allowLoopback bool) (*TestResult, error) {
 	start := time.Now()
 	saKey, err := ParseServiceAccountKey([]byte(saKeyJSON))
 	if err != nil {
@@ -202,6 +302,21 @@ func TestGCPModel(ctx context.Context, saKeyJSON string, projectID, region, mode
 		modelName = "gemini-2.5-flash"
 	}
 
+	publisher, _, _ := NormalizeVertexAIModel(modelName)
+	endpoint := strings.TrimSpace(endpointOverride)
+	if endpoint == "" {
+		endpoint = BuildVertexAIEndpoint(region, projectID, modelName)
+	}
+
+	if _, _, ssrfErr := ValidateEndpointSSRF(endpoint, ProviderGCP, allowLoopback); ssrfErr != nil {
+		return &TestResult{
+			Success:   false,
+			LatencyMs: time.Since(start).Milliseconds(),
+			Endpoint:  endpoint,
+			Message:   fmt.Sprintf("SSRF validation blocked: %v", ssrfErr),
+		}, nil
+	}
+
 	accessToken, err := GenerateGCPAccessToken(ctx, saKey)
 	if err != nil {
 		return &TestResult{
@@ -211,11 +326,10 @@ func TestGCPModel(ctx context.Context, saKeyJSON string, projectID, region, mode
 		}, nil
 	}
 
-	endpoint := BuildVertexAIEndpoint(region, projectID, modelName)
-
-	// Send a lightweight test ping request to Vertex AI
+	// Send a lightweight test ping request to Vertex AI tailored to provider
 	var reqBody []byte
-	if strings.Contains(strings.ToLower(modelName), "claude") {
+	switch strings.ToLower(publisher) {
+	case "anthropic":
 		reqBody, _ = json.Marshal(map[string]interface{}{
 			"anthropic_version": "vertex-2023-10-16",
 			"max_tokens":        1,
@@ -223,7 +337,7 @@ func TestGCPModel(ctx context.Context, saKeyJSON string, projectID, region, mode
 				{"role": "user", "content": "ping"},
 			},
 		})
-	} else {
+	case "google":
 		reqBody, _ = json.Marshal(map[string]interface{}{
 			"contents": []map[string]interface{}{
 				{
@@ -236,6 +350,13 @@ func TestGCPModel(ctx context.Context, saKeyJSON string, projectID, region, mode
 			"generationConfig": map[string]interface{}{
 				"maxOutputTokens": 1,
 			},
+		})
+	default:
+		reqBody, _ = json.Marshal(map[string]interface{}{
+			"messages": []map[string]string{
+				{"role": "user", "content": "ping"},
+			},
+			"max_tokens": 1,
 		})
 	}
 
@@ -268,7 +389,7 @@ func TestGCPModel(ctx context.Context, saKeyJSON string, projectID, region, mode
 	if resp.StatusCode == http.StatusOK {
 		billingDesc := "Google Cloud Platform Vertex AI Managed"
 		balanceVal := "Active (GCP Billing)"
-		if bInfo, bErr := FetchGCPBillingInfo(ctx, saKey, projectID); bErr == nil && bInfo != nil {
+		if bInfo, bErr := FetchGCPBillingInfoWithToken(ctx, accessToken, projectID); bErr == nil && bInfo != nil {
 			if bInfo.BillingEnabled {
 				billingDesc = fmt.Sprintf("Billing Account: %s", bInfo.BillingAccountName)
 				balanceVal = bInfo.StatusMessage
@@ -293,18 +414,7 @@ func TestGCPModel(ctx context.Context, saKeyJSON string, projectID, region, mode
 		}, nil
 	}
 
-	// Parse GCP error message
-	var gcpErr struct {
-		Error struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-			Status  string `json:"status"`
-		} `json:"error"`
-	}
-	errMsg := fmt.Sprintf("HTTP %d", resp.StatusCode)
-	if json.Unmarshal(bodyBytes, &gcpErr) == nil && gcpErr.Error.Message != "" {
-		errMsg = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, gcpErr.Error.Message)
-	}
+	errMsg := parseGCPErrorMessage(resp.StatusCode, bodyBytes)
 
 	return &TestResult{
 		Success:    false,
@@ -315,6 +425,45 @@ func TestGCPModel(ctx context.Context, saKeyJSON string, projectID, region, mode
 	}, nil
 }
 
+// parseGCPErrorMessage extracts human-readable diagnostic error text from Vertex AI or Anthropic error bodies.
+func parseGCPErrorMessage(statusCode int, bodyBytes []byte) string {
+	var gcpErr struct {
+		Error struct {
+			Code    interface{} `json:"code"`
+			Message string      `json:"message"`
+			Status  string      `json:"status"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(bodyBytes, &gcpErr) == nil && gcpErr.Error.Message != "" {
+		return fmt.Sprintf("HTTP %d: %s", statusCode, gcpErr.Error.Message)
+	}
+
+	var altErr struct {
+		Message string `json:"message"`
+		Error   string `json:"error"`
+	}
+	if json.Unmarshal(bodyBytes, &altErr) == nil {
+		if altErr.Message != "" {
+			return fmt.Sprintf("HTTP %d: %s", statusCode, altErr.Message)
+		} else if altErr.Error != "" {
+			return fmt.Sprintf("HTTP %d: %s", statusCode, altErr.Error)
+		}
+	}
+
+	if len(bodyBytes) > 0 && len(bodyBytes) < 300 {
+		raw := strings.TrimSpace(string(bodyBytes))
+		if !strings.HasPrefix(raw, "<") && raw != "" {
+			return fmt.Sprintf("HTTP %d: %s", statusCode, raw)
+		}
+	}
+
+	statusText := http.StatusText(statusCode)
+	if statusText != "" {
+		return fmt.Sprintf("HTTP %d %s", statusCode, statusText)
+	}
+	return fmt.Sprintf("HTTP %d", statusCode)
+}
+
 // GCPBillingInfo reports the Cloud Billing status and associated billing account.
 type GCPBillingInfo struct {
 	Name               string `json:"name"`
@@ -322,6 +471,72 @@ type GCPBillingInfo struct {
 	BillingAccountName string `json:"billingAccountName"`
 	BillingEnabled     bool   `json:"billingEnabled"`
 	StatusMessage      string `json:"statusMessage"`
+}
+
+// FetchGCPBillingInfoWithEndpoint queries a specific Cloud Billing endpoint using an existing OAuth2 access token.
+func FetchGCPBillingInfoWithEndpoint(ctx context.Context, billingURL, accessToken, projectID string) (*GCPBillingInfo, error) {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return nil, errors.New("project ID is required")
+	}
+	if accessToken == "" {
+		return nil, errors.New("access token is required")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", billingURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("billing api request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	// If HTTP 403 Forbidden: the Service Account lacks billing.resourceAssociations.list permission.
+	// Since model inference succeeded with HTTP 200, billing is actively enabled on the GCP project.
+	if resp.StatusCode == http.StatusForbidden {
+		return &GCPBillingInfo{
+			ProjectID:          projectID,
+			BillingEnabled:     true,
+			BillingAccountName: "Project Billing",
+			StatusMessage:      "Active (GCP Billing)",
+		}, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return &GCPBillingInfo{
+			ProjectID:          projectID,
+			BillingEnabled:     true,
+			BillingAccountName: "Vertex AI Managed",
+			StatusMessage:      "Active (Vertex AI Managed)",
+		}, nil
+	}
+
+	var info GCPBillingInfo
+	if err := json.Unmarshal(bodyBytes, &info); err != nil {
+		return nil, fmt.Errorf("failed to parse billing info response: %w", err)
+	}
+	if info.BillingEnabled {
+		acctName := info.BillingAccountName
+		if parts := strings.Split(acctName, "/"); len(parts) > 1 {
+			acctName = parts[len(parts)-1]
+		}
+		info.StatusMessage = fmt.Sprintf("Active (Account: %s)", acctName)
+	} else {
+		info.StatusMessage = "No billing account linked"
+	}
+	return &info, nil
+}
+
+// FetchGCPBillingInfoWithToken queries the Google Cloud Billing API using an existing OAuth2 access token.
+func FetchGCPBillingInfoWithToken(ctx context.Context, accessToken, projectID string) (*GCPBillingInfo, error) {
+	billingURL := fmt.Sprintf("https://cloudbilling.googleapis.com/v1/projects/%s/billingInfo", url.PathEscape(strings.TrimSpace(projectID)))
+	return FetchGCPBillingInfoWithEndpoint(ctx, billingURL, accessToken, projectID)
 }
 
 // FetchGCPBillingInfo queries the Google Cloud Billing API for the project's billing status.
@@ -340,43 +555,5 @@ func FetchGCPBillingInfo(ctx context.Context, saKey *ServiceAccountKey, projectI
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token for billing check: %w", err)
 	}
-
-	billingURL := fmt.Sprintf("https://cloudbilling.googleapis.com/v1/projects/%s/billingInfo", url.PathEscape(projectID))
-	req, err := http.NewRequestWithContext(ctx, "GET", billingURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept", "application/json")
-
-	client := &http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("billing api request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return &GCPBillingInfo{
-			ProjectID:      projectID,
-			BillingEnabled: false,
-			StatusMessage:  fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(bytes.TrimSpace(bodyBytes))),
-		}, nil
-	}
-
-	var info GCPBillingInfo
-	if err := json.Unmarshal(bodyBytes, &info); err != nil {
-		return nil, fmt.Errorf("failed to parse billing info response: %w", err)
-	}
-	if info.BillingEnabled {
-		acctName := info.BillingAccountName
-		if parts := strings.Split(acctName, "/"); len(parts) > 1 {
-			acctName = parts[len(parts)-1]
-		}
-		info.StatusMessage = fmt.Sprintf("Active (Account: %s)", acctName)
-	} else {
-		info.StatusMessage = "No billing account linked"
-	}
-	return &info, nil
+	return FetchGCPBillingInfoWithToken(ctx, accessToken, projectID)
 }
