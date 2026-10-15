@@ -4561,10 +4561,11 @@ func (s *Server) loadAllProjectMemos(currentWs string) []MemoItem {
 }
 
 func cleanUserPath(raw string) string {
-	p := strings.TrimSpace(raw)
+	p := stripExtendedPrefix(strings.TrimSpace(raw))
 	p = strings.Trim(p, "\"'`")
 	for strings.HasPrefix(p, "file://") {
 		p = strings.TrimPrefix(p, "file://")
+		p = stripExtendedPrefix(p)
 		if strings.HasPrefix(p, "localhost/") {
 			p = strings.TrimPrefix(p, "localhost")
 		}
@@ -4631,51 +4632,235 @@ func cleanUserPath(raw string) string {
 			}
 		}
 	}
-	return filepath.Clean(p)
+	return stripExtendedPrefix(filepath.Clean(p))
 }
 
-// pathMatchesOrIsSubpath checks if candidate matches root or is inside root, with case-insensitivity on Windows.
-func pathMatchesOrIsSubpath(candidate, root string) bool {
-	candidate = filepath.Clean(candidate)
-	root = filepath.Clean(root)
+// stripExtendedPrefix removes Windows extended-length path prefixes (\\?\, \??\, //?/, \\?\UNC\, //?/UNC/).
+func stripExtendedPrefix(p string) string {
+	if strings.HasPrefix(p, `\\?\UNC\`) || strings.HasPrefix(p, `//?/UNC/`) {
+		return `\\` + p[8:]
+	}
+	if strings.HasPrefix(p, `\\?\`) || strings.HasPrefix(p, `\??\`) || strings.HasPrefix(p, `//?/`) {
+		return p[4:]
+	}
+	return p
+}
+
+// hasWindowsDrive reports whether p begins with a Windows drive letter (e.g. C:, D:).
+func hasWindowsDrive(p string) bool {
+	p = stripExtendedPrefix(strings.TrimSpace(p))
+	if len(p) >= 2 {
+		ch := p[0]
+		if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')) && p[1] == ':' {
+			return true
+		}
+	}
+	return false
+}
+
+// getWindowsVolume extracts the volume or drive letter from a path, regardless of the host OS.
+func getWindowsVolume(p string) string {
+	p = stripExtendedPrefix(strings.TrimSpace(p))
+	if len(p) >= 2 {
+		ch := p[0]
+		if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')) && p[1] == ':' {
+			return strings.ToUpper(p[:2])
+		}
+	}
 	if runtime.GOOS == "windows" {
+		return strings.ToUpper(filepath.VolumeName(p))
+	}
+	return ""
+}
+
+// find8dot3Aliases discovers 8.3 short name or long canonical equivalents for a target directory
+// by inspecting surrounding components and cross-referencing with environment/temp probes.
+func find8dot3Aliases(target string, probes ...string) []string {
+	var aliases []string
+	target = stripExtendedPrefix(strings.TrimSpace(target))
+	if target == "" {
+		return nil
+	}
+
+	normTarget := strings.ReplaceAll(filepath.Clean(target), "/", "\\")
+	parent := filepath.Dir(normTarget)
+	base := filepath.Base(normTarget)
+	if parent == normTarget || base == "" || base == "." {
+		return nil
+	}
+
+	seen := make(map[string]bool)
+	addAlias := func(a string) {
+		a = stripExtendedPrefix(filepath.Clean(a))
+		key := strings.ToLower(a)
+		if !seen[key] && !strings.EqualFold(a, target) {
+			seen[key] = true
+			aliases = append(aliases, a)
+		}
+	}
+
+	for _, probe := range probes {
+		probeNorm := strings.ReplaceAll(stripExtendedPrefix(filepath.Clean(probe)), "/", "\\")
+		if strings.HasPrefix(strings.ToLower(probeNorm), strings.ToLower(parent)+"\\") {
+			rel := probeNorm[len(parent)+1:]
+			parts := strings.Split(rel, "\\")
+			if len(parts) > 0 {
+				child := parts[0]
+				if !strings.EqualFold(child, base) {
+					if strings.Contains(child, "~") {
+						prefix := strings.Split(child, "~")[0]
+						cleanBase := strings.ToLower(strings.ReplaceAll(base, " ", ""))
+						if strings.HasPrefix(cleanBase, strings.ToLower(prefix)) {
+							addAlias(filepath.Join(parent, child))
+						}
+					} else if strings.Contains(base, "~") {
+						prefix := strings.Split(base, "~")[0]
+						cleanChild := strings.ToLower(strings.ReplaceAll(child, " ", ""))
+						if strings.HasPrefix(cleanChild, strings.ToLower(prefix)) {
+							addAlias(filepath.Join(parent, child))
+						}
+					}
+				}
+			}
+		}
+	}
+
+	cleanName := strings.ToUpper(strings.ReplaceAll(base, " ", ""))
+	if len(cleanName) > 6 && !strings.Contains(base, "~") {
+		shortCandidate := filepath.Join(parent, cleanName[:6]+"~1")
+		if runtime.GOOS == "windows" {
+			if eval, err := filepath.EvalSymlinks(shortCandidate); err == nil {
+				if strings.EqualFold(stripExtendedPrefix(eval), target) {
+					addAlias(shortCandidate)
+				}
+			} else if st, errS := os.Stat(shortCandidate); errS == nil && st.IsDir() {
+				addAlias(shortCandidate)
+			}
+		} else if hasWindowsDrive(target) {
+			addAlias(shortCandidate)
+		}
+	}
+
+	return aliases
+}
+
+// getAllowedRoots returns all whitelisted root directories for path jailing,
+// including long forms, 8.3 short names (e.g. RUNNER~1 vs runneradmin), and resolved symlinks.
+func getAllowedRoots() []string {
+	var allowedRoots []string
+	seen := make(map[string]bool)
+
+	addRoot := func(r string) {
+		if r == "" {
+			return
+		}
+		r = stripExtendedPrefix(strings.TrimSpace(r))
+		c := filepath.Clean(r)
+		key := strings.ToLower(c)
+		if !seen[key] {
+			seen[key] = true
+			allowedRoots = append(allowedRoots, c)
+		}
+		if eval, err := filepath.EvalSymlinks(c); err == nil {
+			eval = stripExtendedPrefix(filepath.Clean(eval))
+			keyEval := strings.ToLower(eval)
+			if !seen[keyEval] {
+				seen[keyEval] = true
+				allowedRoots = append(allowedRoots, eval)
+			}
+		}
+	}
+
+	var homeDir string
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		homeDir = home
+		addRoot(home)
+	}
+	if cfgDir := core.GetConfigDir(); cfgDir != "" {
+		addRoot(cfgDir)
+	}
+	if wd, err := os.Getwd(); err == nil && wd != "" {
+		addRoot(wd)
+	}
+	tmpDir := os.TempDir()
+	if tmpDir != "" {
+		addRoot(tmpDir)
+	}
+
+	var probes []string
+	if tmpDir != "" {
+		probes = append(probes, tmpDir)
+	}
+	for _, envKey := range []string{"TEMP", "TMP", "LOCALAPPDATA", "USERPROFILE"} {
+		if v := os.Getenv(envKey); v != "" {
+			probes = append(probes, v)
+		}
+	}
+
+	if homeDir != "" {
+		for _, alias := range find8dot3Aliases(homeDir, probes...) {
+			addRoot(alias)
+		}
+	}
+	if tmpDir != "" {
+		for _, alias := range find8dot3Aliases(tmpDir, probes...) {
+			addRoot(alias)
+		}
+	}
+
+	return allowedRoots
+}
+
+// pathMatchesOrIsSubpath checks if candidate matches root or is inside root, with case-insensitivity on Windows
+// or when Windows drive letters are present. It also strips extended-length prefixes (\\?\) and prevents double-slash boundary bugs.
+func pathMatchesOrIsSubpath(candidate, root string) bool {
+	candidate = stripExtendedPrefix(strings.TrimSpace(candidate))
+	root = stripExtendedPrefix(strings.TrimSpace(root))
+
+	isWindows := runtime.GOOS == "windows" || hasWindowsDrive(candidate) || hasWindowsDrive(root)
+	if isWindows {
 		candidate = strings.ToLower(candidate)
 		root = strings.ToLower(root)
+		candidate = strings.ReplaceAll(candidate, "/", "\\")
+		root = strings.ReplaceAll(root, "/", "\\")
 	}
+
+	candidate = filepath.Clean(candidate)
+	root = filepath.Clean(root)
+
 	if candidate == root {
 		return true
 	}
+
 	sep := string(filepath.Separator)
-	return strings.HasPrefix(candidate, root+sep)
+	if isWindows {
+		sep = "\\"
+	}
+
+	prefix := root
+	if !strings.HasSuffix(prefix, sep) {
+		prefix += sep
+	}
+
+	return strings.HasPrefix(candidate, prefix)
 }
 
 // isSameOrAncestor checks if ancestorCandidate is equal to child or an ancestor of child.
 func isSameOrAncestor(ancestorCandidate, child string) bool {
+	ancestorCandidate = stripExtendedPrefix(strings.TrimSpace(ancestorCandidate))
+	child = stripExtendedPrefix(strings.TrimSpace(child))
+
 	ancestorCandidate = filepath.Clean(ancestorCandidate)
 	child = filepath.Clean(child)
 
 	if evalA, err := filepath.EvalSymlinks(ancestorCandidate); err == nil {
-		ancestorCandidate = evalA
+		ancestorCandidate = stripExtendedPrefix(evalA)
 	}
 	if evalC, err := filepath.EvalSymlinks(child); err == nil {
-		child = evalC
+		child = stripExtendedPrefix(evalC)
 	}
 
-	if runtime.GOOS == "windows" {
-		ancestorCandidate = strings.ToLower(ancestorCandidate)
-		child = strings.ToLower(child)
-	}
-
-	if ancestorCandidate == child {
-		return true
-	}
-
-	sep := string(filepath.Separator)
-	if !strings.HasSuffix(ancestorCandidate, sep) {
-		ancestorCandidate += sep
-	}
-
-	return strings.HasPrefix(child, ancestorCandidate)
+	return pathMatchesOrIsSubpath(child, ancestorCandidate)
 }
 
 func validateJailedPath(raw string) (string, error) {
@@ -4721,7 +4906,7 @@ func validateJailedPath(raw string) (string, error) {
 		}
 		// File does not exist yet; find nearest existing ancestor directory to resolve 8.3 short names and symlinks
 		existing := cleaned
-		for existing != "" && existing != "." && existing != "/" && filepath.VolumeName(existing) != existing {
+		for existing != "" && existing != "." && existing != "/" && getWindowsVolume(existing) != existing {
 			if st, errS := os.Stat(existing); errS == nil && st.IsDir() {
 				break
 			}
@@ -4732,8 +4917,9 @@ func validateJailedPath(raw string) (string, error) {
 			existing = parent
 		}
 		if evalExisting, errEE := filepath.EvalSymlinks(existing); errEE == nil {
+			evalExisting = stripExtendedPrefix(evalExisting)
 			if rel, errR := filepath.Rel(existing, cleaned); errR == nil {
-				evalPath = filepath.Clean(filepath.Join(evalExisting, rel))
+				evalPath = stripExtendedPrefix(filepath.Clean(filepath.Join(evalExisting, rel)))
 			} else {
 				evalPath = cleaned
 			}
@@ -4741,7 +4927,7 @@ func validateJailedPath(raw string) (string, error) {
 			evalPath = cleaned
 		}
 	} else {
-		evalPath = filepath.Clean(evalPath)
+		evalPath = stripExtendedPrefix(filepath.Clean(evalPath))
 	}
 
 	for _, sysPrefix := range []string{"/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/var", "/bin", "/sbin", "/usr"} {
@@ -4752,11 +4938,14 @@ func validateJailedPath(raw string) (string, error) {
 
 	// Deny access to sensitive credentials and shell dotfiles
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		evalHome := home
+		homeRoots := []string{home}
 		if eh, errH := filepath.EvalSymlinks(home); errH == nil {
-			evalHome = eh
+			homeRoots = append(homeRoots, stripExtendedPrefix(eh))
 		}
-		for _, h := range []string{home, evalHome} {
+		for _, alias := range find8dot3Aliases(home, os.TempDir()) {
+			homeRoots = append(homeRoots, alias)
+		}
+		for _, h := range homeRoots {
 			sensitivePaths := []string{
 				filepath.Join(h, ".ssh"),
 				filepath.Join(h, ".aws"),
@@ -4775,36 +4964,11 @@ func validateJailedPath(raw string) (string, error) {
 		}
 	}
 
-	var allowedRoots []string
-	addAllowedRoot := func(r string) {
-		if r == "" {
-			return
-		}
-		c := filepath.Clean(r)
-		allowedRoots = append(allowedRoots, c)
-		if eval, err := filepath.EvalSymlinks(c); err == nil && eval != c {
-			allowedRoots = append(allowedRoots, filepath.Clean(eval))
-		}
-	}
-
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		addAllowedRoot(home)
-	}
-	cfgDir := core.GetConfigDir()
-	if cfgDir != "" {
-		addAllowedRoot(cfgDir)
-	}
-	if wd, err := os.Getwd(); err == nil && wd != "" {
-		addAllowedRoot(wd)
-	}
-	tmp := os.TempDir()
-	if tmp != "" {
-		addAllowedRoot(tmp)
-	}
+	allowedRoots := getAllowedRoots()
 
 	isAllowed := false
 	for _, root := range allowedRoots {
-		if root == "" || root == "/" {
+		if root == "" || root == "/" || root == "\\" {
 			continue
 		}
 		if pathMatchesOrIsSubpath(evalPath, root) || pathMatchesOrIsSubpath(cleaned, root) {
@@ -4861,8 +5025,8 @@ func validateDeletablePath(target string) (string, error) {
 		}
 	}
 
-	if runtime.GOOS == "windows" {
-		if (strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, "\\")) && filepath.VolumeName(trimmed) == "" {
+	if runtime.GOOS == "windows" || hasWindowsDrive(trimmed) {
+		if (strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, "\\")) && getWindowsVolume(trimmed) == "" {
 			return "", fmt.Errorf("prohibited: drive-relative or root-relative path not permitted for deletion: %q", target)
 		}
 	}
@@ -4872,15 +5036,16 @@ func validateDeletablePath(target string) (string, error) {
 		return "", err
 	}
 
-	cleanPath := filepath.Clean(cPath)
+	cleanPath := stripExtendedPrefix(filepath.Clean(cPath))
 	if strings.Contains(cleanPath, "..") {
 		return "", fmt.Errorf("prohibited: cannot delete path containing parent traversal '..': %s", cleanPath)
 	}
 
-	// 1. Explicitly block Windows drive roots (e.g. C:\, D:\, C:)
-	vol := filepath.VolumeName(cleanPath)
+	// 1. Explicitly block Windows drive roots (e.g. C:\, D:\, C:, D:)
+	vol := getWindowsVolume(cleanPath)
 	if vol != "" {
-		if cleanPath == vol || cleanPath == vol+string(filepath.Separator) || cleanPath == vol+"/" || cleanPath == vol+"\\" {
+		cleanNorm := strings.ReplaceAll(cleanPath, "/", "\\")
+		if strings.EqualFold(cleanNorm, vol) || strings.EqualFold(cleanNorm, vol+"\\") {
 			return "", fmt.Errorf("prohibited: cannot delete filesystem volume root: %s", cleanPath)
 		}
 	}
@@ -4896,7 +5061,7 @@ func validateDeletablePath(target string) (string, error) {
 		"C:\\Windows", "C:\\Program Files", "C:\\Program Files (x86)", "C:\\ProgramData",
 	}
 	for _, sysDir := range systemDirs {
-		if strings.EqualFold(cleanPath, filepath.Clean(sysDir)) {
+		if strings.EqualFold(cleanPath, filepath.Clean(sysDir)) || pathMatchesOrIsSubpath(cleanPath, sysDir) {
 			return "", fmt.Errorf("prohibited: cannot delete system directory: %s", cleanPath)
 		}
 	}
@@ -4920,33 +5085,15 @@ func validateDeletablePath(target string) (string, error) {
 		if isSameOrAncestor(cleanPath, home) {
 			return "", fmt.Errorf("prohibited: cannot delete user home directory or any parent/ancestor directory: %s", cleanPath)
 		}
+		for _, alias := range find8dot3Aliases(home, os.TempDir()) {
+			if isSameOrAncestor(cleanPath, alias) {
+				return "", fmt.Errorf("prohibited: cannot delete user home directory or any parent/ancestor directory: %s", cleanPath)
+			}
+		}
 	}
 
 	// 5. Gather allowed roots and test strict descendant requirement
-	var allowedRoots []string
-	addAllowedRoot := func(r string) {
-		if r == "" {
-			return
-		}
-		c := filepath.Clean(r)
-		allowedRoots = append(allowedRoots, c)
-		if eval, err := filepath.EvalSymlinks(c); err == nil && eval != c {
-			allowedRoots = append(allowedRoots, filepath.Clean(eval))
-		}
-	}
-
-	if home, errH := os.UserHomeDir(); errH == nil && home != "" {
-		addAllowedRoot(home)
-	}
-	if cfgDir := core.GetConfigDir(); cfgDir != "" {
-		addAllowedRoot(cfgDir)
-	}
-	if wd, errW := os.Getwd(); errW == nil && wd != "" {
-		addAllowedRoot(wd)
-	}
-	if tmp := os.TempDir(); tmp != "" {
-		addAllowedRoot(tmp)
-	}
+	allowedRoots := getAllowedRoots()
 
 	// Check if cleanPath is equal to any allowed root
 	for _, root := range allowedRoots {
@@ -4956,33 +5103,61 @@ func validateDeletablePath(target string) (string, error) {
 		if strings.EqualFold(cleanPath, root) {
 			return "", fmt.Errorf("prohibited: cannot delete root directory: %s", cleanPath)
 		}
-		if evalCP, errE := filepath.EvalSymlinks(cleanPath); errE == nil && strings.EqualFold(evalCP, root) {
+		if evalCP, errE := filepath.EvalSymlinks(cleanPath); errE == nil && strings.EqualFold(stripExtendedPrefix(evalCP), root) {
 			return "", fmt.Errorf("prohibited: cannot delete root directory: %s", cleanPath)
 		}
 	}
 
 	// 6. Require strict descendant depth (at least 1 directory level below an allowed root)
 	hasValidParent := false
+	candidates := []string{cleanPath}
+	if evalCP, errE := filepath.EvalSymlinks(cleanPath); errE == nil {
+		evalCP = stripExtendedPrefix(evalCP)
+		if evalCP != cleanPath {
+			candidates = append(candidates, evalCP)
+		}
+	}
+
 	for _, root := range allowedRoots {
 		if root == "" || root == "/" || root == "\\" {
 			continue
 		}
-		for _, targetCandidate := range []string{cleanPath} {
-			rel, errRel := filepath.Rel(root, targetCandidate)
-			if errRel == nil && rel != "." && !strings.HasPrefix(rel, "..") && !strings.Contains(rel, "..") {
-				hasValidParent = true
-				break
+		volRoot := getWindowsVolume(root)
+
+		for _, targetCandidate := range candidates {
+			volTarget := getWindowsVolume(targetCandidate)
+			// Cross-volume safe guard: if volumes differ, candidate cannot be a descendant of this root
+			if (volRoot != "" || volTarget != "") && !strings.EqualFold(volRoot, volTarget) {
+				continue
+			}
+
+			// If both are Windows paths or on Windows, use separator-normalized containment check
+			if volRoot != "" || volTarget != "" || runtime.GOOS == "windows" {
+				if pathMatchesOrIsSubpath(targetCandidate, root) && !strings.EqualFold(targetCandidate, root) {
+					normRoot := strings.ReplaceAll(root, "/", "\\")
+					if !strings.HasSuffix(normRoot, "\\") {
+						normRoot += "\\"
+					}
+					normTarget := strings.ReplaceAll(targetCandidate, "/", "\\")
+					if strings.HasPrefix(strings.ToLower(normTarget), strings.ToLower(normRoot)) {
+						remainder := normTarget[len(normRoot):]
+						if remainder != "" && remainder != "." && !strings.Contains(remainder, "..") {
+							hasValidParent = true
+							break
+						}
+					}
+				}
+			} else {
+				// Standard POSIX relative path calculation
+				rel, errRel := filepath.Rel(root, targetCandidate)
+				if errRel == nil && rel != "." && !strings.HasPrefix(rel, "..") && !strings.Contains(rel, "..") {
+					hasValidParent = true
+					break
+				}
 			}
 		}
 		if hasValidParent {
 			break
-		}
-		if evalCP, errE := filepath.EvalSymlinks(cleanPath); errE == nil && evalCP != cleanPath {
-			rel, errRel := filepath.Rel(root, evalCP)
-			if errRel == nil && rel != "." && !strings.HasPrefix(rel, "..") && !strings.Contains(rel, "..") {
-				hasValidParent = true
-				break
-			}
 		}
 	}
 	if !hasValidParent {

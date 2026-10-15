@@ -59,10 +59,7 @@ func (s *Shield) findAntigravityProcessesNative() ([]ProcessInfo, error) {
 		isExactComm := IsExactAntigravityExecutable(comm)
 
 		// Check 3: The primary executable token in the command line (argv[0])
-		argv0 := ""
-		if fields := strings.Fields(cmdline); len(fields) > 0 {
-			argv0 = fields[0]
-		}
+		argv0 := extractArgv0(cmdline)
 		isExactArgv0 := IsExactAntigravityExecutable(argv0)
 
 		if !isExactExe && !isExactComm && !isExactArgv0 {
@@ -88,7 +85,7 @@ func (s *Shield) findAntigravityProcessesNative() ([]ProcessInfo, error) {
 	sort.SliceStable(results, func(i, j int) bool {
 		isMainIDE := func(p ProcessInfo) bool {
 			lower := strings.ToLower(p.Cmdline)
-			return (p.Name == "antigravity" || p.Name == "antigravity.exe") && !strings.Contains(lower, "--type=")
+			return (IsExactAntigravityExecutable(p.Name) || IsExactAntigravityExecutable(extractArgv0(p.Cmdline))) && !strings.Contains(lower, "--type=")
 		}
 		mainI := isMainIDE(results[i])
 		mainJ := isMainIDE(results[j])
