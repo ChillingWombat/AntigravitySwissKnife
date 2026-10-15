@@ -4937,10 +4937,19 @@ func validateJailedPath(raw string) (string, error) {
 		return "", fmt.Errorf("access denied: null byte prohibited in path")
 	}
 
-	for _, sysPrefix := range []string{"/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/var", "/bin", "/sbin", "/usr"} {
-		if cleaned == sysPrefix || strings.HasPrefix(cleaned, sysPrefix+"/") {
+	normRaw := strings.ToLower(strings.ReplaceAll(raw, "\\", "/"))
+	normClean := strings.ToLower(strings.ReplaceAll(cleaned, "\\", "/"))
+	for _, sysPrefix := range []string{
+		"/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/var", "/bin", "/sbin", "/usr",
+		"c:/windows", "c:/program files", "c:/program files (x86)", "c:/programdata",
+	} {
+		if normClean == sysPrefix || strings.HasPrefix(normClean, sysPrefix+"/") ||
+			normRaw == sysPrefix || strings.HasPrefix(normRaw, sysPrefix+"/") {
 			return "", fmt.Errorf("access denied: path inside system directory %q", sysPrefix)
 		}
+	}
+	if strings.Contains(normClean, "windows/system32") || strings.Contains(normRaw, "windows/system32") {
+		return "", fmt.Errorf("access denied: path inside system directory Windows/System32")
 	}
 
 	fi, errLstat := os.Lstat(cleaned)
@@ -4978,10 +4987,17 @@ func validateJailedPath(raw string) (string, error) {
 		evalPath = stripExtendedPrefix(filepath.Clean(evalPath))
 	}
 
-	for _, sysPrefix := range []string{"/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/var", "/bin", "/sbin", "/usr"} {
-		if evalPath == sysPrefix || strings.HasPrefix(evalPath, sysPrefix+"/") {
+	normEval := strings.ToLower(strings.ReplaceAll(evalPath, "\\", "/"))
+	for _, sysPrefix := range []string{
+		"/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/var", "/bin", "/sbin", "/usr",
+		"c:/windows", "c:/program files", "c:/program files (x86)", "c:/programdata",
+	} {
+		if normEval == sysPrefix || strings.HasPrefix(normEval, sysPrefix+"/") {
 			return "", fmt.Errorf("access denied: path resolves to system directory %q", sysPrefix)
 		}
+	}
+	if strings.Contains(normEval, "windows/system32") {
+		return "", fmt.Errorf("access denied: path resolves to system directory Windows/System32")
 	}
 
 	// Deny access to sensitive credentials and shell dotfiles

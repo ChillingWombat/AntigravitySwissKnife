@@ -3,6 +3,7 @@ package daemon
 import (
 	"fmt"
 	"math/rand"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -25,7 +26,14 @@ func TestChallengerM12_DaemonFleetQuotaConcurrentRaceHarness(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
 
-	sockPath := filepath.Join(tmpDir, "daemon.sock")
+	// Unix socket paths have a strict 108-byte limit across OSes (sun_path).
+	// t.TempDir() with a long test name exceeds 108 bytes on Windows.
+	sockDir, err := os.MkdirTemp("", "sw_m12_*")
+	if err != nil {
+		t.Fatalf("MkdirTemp error: %v", err)
+	}
+	defer os.RemoveAll(sockDir)
+	sockPath := filepath.Join(sockDir, "d.sock")
 	cfg := core.DefaultConfig()
 	cfg.AllowNonGeminiNativeModels = true
 	cfg.AutoSwitchEnabled = true

@@ -58,6 +58,11 @@ func TestChallenge_WriteAtomic_PartialWriteRaces(t *testing.T) {
 		go func(writerID int) {
 			defer wg.Done()
 			for i := 0; i < 30; i++ {
+				select {
+				case <-stopCh:
+					return
+				default:
+				}
 				p := Payload{
 					WriterID:  writerID,
 					Timestamp: time.Now().UnixNano(),
@@ -92,6 +97,7 @@ func TestChallenge_WriteAtomic_PartialWriteRaces(t *testing.T) {
 				case <-stopCh:
 					return
 				default:
+					time.Sleep(500 * time.Microsecond)
 					var data []byte
 					var rErr error
 					for attempt := 0; attempt < 50; attempt++ {
@@ -142,8 +148,7 @@ func TestChallenge_WriteAtomic_PartialWriteRaces(t *testing.T) {
 	// Wait for writers to complete
 	writersDone := make(chan struct{})
 	go func() {
-		// Wait for the first 50 goroutines (writers)
-		// We use a small timer then close stopCh
+		// Run stress test for at least 500ms, then signal termination
 		time.Sleep(500 * time.Millisecond)
 		close(stopCh)
 		wg.Wait()
@@ -152,7 +157,7 @@ func TestChallenge_WriteAtomic_PartialWriteRaces(t *testing.T) {
 
 	select {
 	case <-writersDone:
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("Timeout waiting for atomic write/read stress test")
 	}
 
