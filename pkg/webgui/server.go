@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -4646,6 +4647,12 @@ func stripExtendedPrefix(p string) string {
 	return p
 }
 
+// isUNCPath reports whether p begins with a UNC network path prefix (\\ or //).
+func isUNCPath(p string) bool {
+	p = stripExtendedPrefix(strings.TrimSpace(p))
+	return strings.HasPrefix(p, `\\`) || strings.HasPrefix(p, `//`)
+}
+
 // hasWindowsDrive reports whether p begins with a Windows drive letter (e.g. C:, D:).
 func hasWindowsDrive(p string) bool {
 	p = stripExtendedPrefix(strings.TrimSpace(p))
@@ -4682,16 +4689,24 @@ func find8dot3Aliases(target string, probes ...string) []string {
 		return nil
 	}
 
-	normTarget := strings.ReplaceAll(filepath.Clean(target), "/", "\\")
-	parent := filepath.Dir(normTarget)
-	base := filepath.Base(normTarget)
+	normTarget := strings.ReplaceAll(target, "\\", "/")
+	normTarget = path.Clean(normTarget)
+	parent := path.Dir(normTarget)
+	base := path.Base(normTarget)
 	if parent == normTarget || base == "" || base == "." {
 		return nil
 	}
 
+	isWin := hasWindowsDrive(target) || isUNCPath(target) || strings.Contains(target, "\\") || runtime.GOOS == "windows"
+
 	seen := make(map[string]bool)
 	addAlias := func(a string) {
-		a = stripExtendedPrefix(filepath.Clean(a))
+		a = stripExtendedPrefix(a)
+		if isWin {
+			a = strings.ReplaceAll(a, "/", "\\")
+		} else {
+			a = path.Clean(a)
+		}
 		key := strings.ToLower(a)
 		if !seen[key] && !strings.EqualFold(a, target) {
 			seen[key] = true
@@ -4700,10 +4715,15 @@ func find8dot3Aliases(target string, probes ...string) []string {
 	}
 
 	for _, probe := range probes {
-		probeNorm := strings.ReplaceAll(stripExtendedPrefix(filepath.Clean(probe)), "/", "\\")
-		if strings.HasPrefix(strings.ToLower(probeNorm), strings.ToLower(parent)+"\\") {
-			rel := probeNorm[len(parent)+1:]
-			parts := strings.Split(rel, "\\")
+		probeNorm := strings.ReplaceAll(stripExtendedPrefix(probe), "\\", "/")
+		probeNorm = path.Clean(probeNorm)
+		parentPrefix := parent
+		if !strings.HasSuffix(parentPrefix, "/") {
+			parentPrefix += "/"
+		}
+		if strings.HasPrefix(strings.ToLower(probeNorm), strings.ToLower(parentPrefix)) {
+			rel := probeNorm[len(parentPrefix):]
+			parts := strings.Split(rel, "/")
 			if len(parts) > 0 {
 				child := parts[0]
 				if !strings.EqualFold(child, base) {
@@ -4711,13 +4731,13 @@ func find8dot3Aliases(target string, probes ...string) []string {
 						prefix := strings.Split(child, "~")[0]
 						cleanBase := strings.ToLower(strings.ReplaceAll(base, " ", ""))
 						if strings.HasPrefix(cleanBase, strings.ToLower(prefix)) {
-							addAlias(filepath.Join(parent, child))
+							addAlias(path.Join(parent, child))
 						}
 					} else if strings.Contains(base, "~") {
 						prefix := strings.Split(base, "~")[0]
 						cleanChild := strings.ToLower(strings.ReplaceAll(child, " ", ""))
 						if strings.HasPrefix(cleanChild, strings.ToLower(prefix)) {
-							addAlias(filepath.Join(parent, child))
+							addAlias(path.Join(parent, child))
 						}
 					}
 				}
@@ -4727,7 +4747,7 @@ func find8dot3Aliases(target string, probes ...string) []string {
 
 	cleanName := strings.ToUpper(strings.ReplaceAll(base, " ", ""))
 	if len(cleanName) > 6 && !strings.Contains(base, "~") {
-		shortCandidate := filepath.Join(parent, cleanName[:6]+"~1")
+		shortCandidate := path.Join(parent, cleanName[:6]+"~1")
 		if runtime.GOOS == "windows" {
 			if eval, err := filepath.EvalSymlinks(shortCandidate); err == nil {
 				if strings.EqualFold(stripExtendedPrefix(eval), target) {
@@ -4817,29 +4837,57 @@ func pathMatchesOrIsSubpath(candidate, root string) bool {
 	candidate = stripExtendedPrefix(strings.TrimSpace(candidate))
 	root = stripExtendedPrefix(strings.TrimSpace(root))
 
-	isWindows := runtime.GOOS == "windows" || hasWindowsDrive(candidate) || hasWindowsDrive(root)
+	if candidate == "" || root == "" {
+		return false
+	}
+
+	isUNCCandidate := isUNCPath(candidate)
+	isUNCRoot := isUNCPath(root)
+	hasDriveCandidate := hasWindowsDrive(candidate)
+	hasDriveRoot := hasWindowsDrive(root)
+
+	isWindows := runtime.GOOS == "windows" || hasDriveCandidate || hasDriveRoot || isUNCCandidate || isUNCRoot
+
+	// Cross-volume / UNC mismatch prevention
+	if isUNCCandidate != isUNCRoot {
+		return false
+	}
+	if hasDriveCandidate != hasDriveRoot {
+		return false
+	}
+	if hasDriveCandidate && hasDriveRoot {
+		if !strings.EqualFold(candidate[:2], root[:2]) {
+			return false
+		}
+	}
+
 	if isWindows {
 		candidate = strings.ToLower(candidate)
 		root = strings.ToLower(root)
-		candidate = strings.ReplaceAll(candidate, "/", "\\")
-		root = strings.ReplaceAll(root, "/", "\\")
 	}
 
-	candidate = filepath.Clean(candidate)
-	root = filepath.Clean(root)
+	// Normalize all separators to forward slash
+	candidate = strings.ReplaceAll(candidate, "\\", "/")
+	root = strings.ReplaceAll(root, "\\", "/")
 
+	if isUNCCandidate {
+		candidate = "//" + path.Clean(strings.TrimPrefix(candidate, "//"))
+		root = "//" + path.Clean(strings.TrimPrefix(root, "//"))
+	} else {
+		candidate = path.Clean(candidate)
+		root = path.Clean(root)
+	}
+
+	// Clean strips trailing slash; handle drive roots like C:/ which clean to C:
 	if candidate == root {
 		return true
 	}
 
-	sep := string(filepath.Separator)
-	if isWindows {
-		sep = "\\"
-	}
-
 	prefix := root
-	if !strings.HasSuffix(prefix, sep) {
-		prefix += sep
+	if len(prefix) == 2 && prefix[1] == ':' {
+		prefix += "/"
+	} else if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
 	}
 
 	return strings.HasPrefix(candidate, prefix)

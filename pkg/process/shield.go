@@ -163,6 +163,42 @@ func IsExactAntigravityExecutable(nameOrPath string) bool {
 	if strings.HasSuffix(clean, "/") || strings.HasSuffix(clean, "\\") {
 		return false
 	}
+	// Reject URLs (scheme://) but allow Windows drive letters with double forward slashes (e.g. C://)
+	if urlIdx := strings.Index(clean, "://"); urlIdx >= 0 {
+		isDriveSlashSlash := urlIdx == 1 && ((clean[0] >= 'a' && clean[0] <= 'z') || (clean[0] >= 'A' && clean[0] <= 'Z'))
+		if !isDriveSlashSlash {
+			return false
+		}
+	}
+	// Reject whitespace followed by path separators or roots (e.g. "cat /usr/bin/antigravity", "rm -rf /opt/antigravity")
+	if strings.Contains(clean, " /") || strings.Contains(clean, " \\") {
+		return false
+	}
+	// Reject whitespace followed by UNC roots (e.g. "notepad.exe \\server\share\Antigravity.exe")
+	if strings.Contains(clean, " //") || strings.Contains(clean, " \\\\") {
+		return false
+	}
+	// Reject whitespace followed by relative path roots (e.g. "cat ./antigravity", "sh ../antigravity")
+	if strings.Contains(clean, " ./") || strings.Contains(clean, " .\\") ||
+		strings.Contains(clean, " ../") || strings.Contains(clean, " ..\\") {
+		return false
+	}
+	// Reject mid-string Windows drive letters (e.g. "notepad.exe C:\tools\Antigravity.exe")
+	if colonIdx := strings.Index(clean, ":"); colonIdx >= 0 {
+		isDrive := colonIdx == 1 && ((clean[0] >= 'a' && clean[0] <= 'z') || (clean[0] >= 'A' && clean[0] <= 'Z'))
+		isExtendedDrive := colonIdx == 5 && ((clean[4] >= 'a' && clean[4] <= 'z') || (clean[4] >= 'A' && clean[4] <= 'Z')) &&
+			(strings.HasPrefix(clean, `\\?\`) || strings.HasPrefix(clean, `\\.\`) || strings.HasPrefix(clean, `\??\`) ||
+				strings.HasPrefix(clean, `//?/`) || strings.HasPrefix(clean, `//./`))
+		if !isDrive && !isExtendedDrive {
+			return false
+		}
+	}
+	// If no path separators exist, binary cannot contain whitespace (e.g. "python -m antigravity", "node antigravity.js")
+	if !strings.Contains(clean, "/") && !strings.Contains(clean, "\\") {
+		if strings.ContainsAny(clean, " \t\r\n") {
+			return false
+		}
+	}
 
 	// Normalize all Windows backslashes to forward slashes for cross-platform matching
 	normalized := strings.ReplaceAll(clean, "\\", "/")
@@ -205,18 +241,13 @@ func extractArgv0(cmdline string) string {
 		return strings.Trim(trimmed, "'")
 	}
 
-	// 2. Direct exact match if the entire unquoted string is an Antigravity executable
-	if IsExactAntigravityExecutable(trimmed) {
-		return trimmed
-	}
-
-	// 3. Fast-path: first whitespace-separated token is an exact executable (e.g. /usr/bin/antigravity --arg)
+	// 2. Fast-path: first whitespace-separated token is an exact executable (e.g. /usr/bin/antigravity --arg, cat /usr/bin/antigravity)
 	fields := strings.Fields(trimmed)
 	if len(fields) > 0 && IsExactAntigravityExecutable(fields[0]) {
 		return fields[0]
 	}
 
-	// 4. Unquoted Windows executable with spaces followed by arguments (.exe boundary)
+	// 3. Unquoted Windows executable with spaces followed by arguments (.exe boundary)
 	lower := strings.ToLower(trimmed)
 	if exeIdx := strings.Index(lower, ".exe "); exeIdx > 0 {
 		candidate := strings.TrimSpace(trimmed[:exeIdx+4])
@@ -225,7 +256,7 @@ func extractArgv0(cmdline string) string {
 		}
 	}
 
-	// 5. Unquoted executable with spaces followed by dash arguments (e.g. C:\Program Files\...\Antigravity.exe --type=...)
+	// 4. Unquoted executable with spaces followed by dash arguments (e.g. C:\Program Files\...\Antigravity.exe --type=...)
 	if dashIdx := strings.Index(trimmed, " -"); dashIdx > 0 {
 		candidate := strings.TrimSpace(trimmed[:dashIdx])
 		if IsExactAntigravityExecutable(candidate) {
@@ -233,12 +264,17 @@ func extractArgv0(cmdline string) string {
 		}
 	}
 
-	// 6. Unquoted executable with spaces followed by slash arguments (e.g. C:\Program Files\...\Antigravity.exe /high)
+	// 5. Unquoted executable with spaces followed by slash arguments (e.g. C:\Program Files\...\Antigravity.exe /high)
 	if slashIdx := strings.Index(trimmed, " /"); slashIdx > 0 {
 		candidate := strings.TrimSpace(trimmed[:slashIdx])
 		if IsExactAntigravityExecutable(candidate) {
 			return candidate
 		}
+	}
+
+	// 6. Direct exact match if the entire unquoted string is an Antigravity executable (e.g. "C:\Program Files\Google\Antigravity\Antigravity.exe" without args)
+	if IsExactAntigravityExecutable(trimmed) {
+		return trimmed
 	}
 
 	// 7. Default fallback to first whitespace-separated token

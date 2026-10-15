@@ -3,6 +3,7 @@
 package process
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"sort"
@@ -59,7 +60,13 @@ func (s *Shield) findAntigravityProcessesNative() ([]ProcessInfo, error) {
 		isExactComm := IsExactAntigravityExecutable(comm)
 
 		// Check 3: The primary executable token in the command line (argv[0])
-		argv0 := extractArgv0(cmdline)
+		var rawArgv0 string
+		if nulIdx := bytes.IndexByte(cmdlineBytes, 0); nulIdx >= 0 {
+			rawArgv0 = string(cmdlineBytes[:nulIdx])
+		} else {
+			rawArgv0 = string(cmdlineBytes)
+		}
+		argv0 := extractArgv0(rawArgv0)
 		isExactArgv0 := IsExactAntigravityExecutable(argv0)
 
 		if !isExactExe && !isExactComm && !isExactArgv0 {
