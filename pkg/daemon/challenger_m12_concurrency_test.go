@@ -20,7 +20,13 @@ import (
 // swiss.getFleetQuota, swiss.refreshFleetQuota, and swiss.getStatus RPC invocations
 // while background quota refresh is actively running.
 func TestChallengerM12_DaemonFleetQuotaConcurrentRaceHarness(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir, err := os.MkdirTemp("", "sw_m12_cfg_*")
+	if err != nil {
+		t.Fatalf("MkdirTemp error: %v", err)
+	}
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tmpDir)
 	t.Setenv("HOME", tmpDir)
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
@@ -178,6 +184,8 @@ func TestChallengerM12_DaemonFleetQuotaConcurrentRaceHarness(t *testing.T) {
 	time.Sleep(2 * time.Second)
 	close(stop)
 	wg.Wait()
+	_ = d.Stop()
+	time.Sleep(50 * time.Millisecond)
 
 	t.Logf("Completed daemon stress test: %d fleet calls, %d refresh calls, %d status calls with 0 data races",
 		atomic.LoadInt64(&completedFleetCalls),

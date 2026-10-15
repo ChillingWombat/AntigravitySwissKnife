@@ -4957,9 +4957,17 @@ func validateJailedPath(raw string) (string, error) {
 
 	evalPath, errEval := filepath.EvalSymlinks(cleaned)
 	if errEval != nil {
-		if isSymlink {
-			// Symlink exists on disk but EvalSymlinks failed (e.g. dangling symlink or points to non-existent system file)
-			return "", fmt.Errorf("access denied: unresolvable or dangling symlink: %s", cleaned)
+		// Check if cleaned itself or any ancestor directory is an unresolvable or dangling symlink
+		curr := cleaned
+		for curr != "" && curr != "." && curr != "/" && getWindowsVolume(curr) != curr {
+			if st, errL := os.Lstat(curr); errL == nil && (st.Mode()&os.ModeSymlink != 0) {
+				return "", fmt.Errorf("access denied: unresolvable or dangling symlink: %s", curr)
+			}
+			parent := filepath.Dir(curr)
+			if parent == curr {
+				break
+			}
+			curr = parent
 		}
 		// File does not exist yet; find nearest existing ancestor directory to resolve 8.3 short names and symlinks
 		existing := cleaned
