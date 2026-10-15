@@ -319,10 +319,8 @@ func TestSyncJournal_ReadOnlyRollback(t *testing.T) {
 	}
 
 	// Modify the file to simulate partial sync changes.
-	// On Windows, to overwrite a 0444 file we must make it writable first:
-	if runtime.GOOS == "windows" {
-		_ = os.Chmod(targetPath, 0666)
-	}
+	// Both Linux and Windows require clearing the read-only mode to overwrite an existing 0444 file:
+	_ = os.Chmod(targetPath, 0666)
 	modifiedContent := []byte(`{"key":"modified_value"}`)
 	if err := os.WriteFile(targetPath, modifiedContent, 0444); err != nil {
 		t.Fatalf("failed to modify file: %v", err)
