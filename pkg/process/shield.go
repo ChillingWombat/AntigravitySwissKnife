@@ -144,6 +144,26 @@ func (s *Shield) SafeKill(pid int, sig syscall.Signal) error {
 	return proc.Signal(sig)
 }
 
+// isAbsoluteRoot checks if a path begins with an absolute root across platforms:
+// - Unix root (/)
+// - UNC root (\\ or //) including extended prefixes (\\?\ or //?/)
+// - Windows drive root (^[a-zA-Z]:[/\\])
+func isAbsoluteRoot(path string) bool {
+	if len(path) == 0 {
+		return false
+	}
+	if path[0] == '/' {
+		return true
+	}
+	if len(path) >= 2 && ((path[0] == '\\' && path[1] == '\\') || (path[0] == '/' && path[1] == '/')) {
+		return true
+	}
+	if len(path) >= 3 && ((path[0] >= 'a' && path[0] <= 'z') || (path[0] >= 'A' && path[0] <= 'Z')) && path[1] == ':' && (path[2] == '/' || path[2] == '\\') {
+		return true
+	}
+	return false
+}
+
 // IsExactAntigravityExecutable evaluates whether a given process name, command, or executable path
 // corresponds strictly to the official Antigravity desktop IDE application binary.
 //
@@ -157,6 +177,10 @@ func (s *Shield) SafeKill(pid int, sig syscall.Signal) error {
 func IsExactAntigravityExecutable(nameOrPath string) bool {
 	clean := strings.Trim(nameOrPath, " \t\r\n\"'")
 	if clean == "" {
+		return false
+	}
+	// Reject non-space whitespace (tabs, newlines) inside command lines or paths
+	if strings.ContainsAny(clean, "\t\r\n") {
 		return false
 	}
 	// Reject directory paths ending in path separators
@@ -193,10 +217,56 @@ func IsExactAntigravityExecutable(nameOrPath string) bool {
 			return false
 		}
 	}
-	// If no path separators exist, binary cannot contain whitespace (e.g. "python -m antigravity", "node antigravity.js")
-	if !strings.Contains(clean, "/") && !strings.Contains(clean, "\\") {
-		if strings.ContainsAny(clean, " \t\r\n") {
-			return false
+
+	// Multi-token handling when clean contains spaces
+	if strings.Contains(clean, " ") {
+		fields := strings.Fields(clean)
+		if len(fields) > 1 {
+			// An unquoted path with spaces can ONLY be an executable if it starts with an absolute path root
+			if !isAbsoluteRoot(clean) {
+				return false
+			}
+
+			// Reject if any executable extension is followed by a space (command invocation with arguments)
+			cleanLower := strings.ToLower(clean)
+			if strings.Contains(cleanLower, ".exe ") || strings.Contains(cleanLower, ".bat ") ||
+				strings.Contains(cleanLower, ".cmd ") || strings.Contains(cleanLower, ".com ") {
+				return false
+			}
+
+			// Reject if fields[0] ends with an executable extension
+			f0Lower := strings.ToLower(fields[0])
+			if strings.HasSuffix(f0Lower, ".exe") || strings.HasSuffix(f0Lower, ".bat") ||
+				strings.HasSuffix(f0Lower, ".cmd") || strings.HasSuffix(f0Lower, ".com") {
+				return false
+			}
+
+			// Inspect fields[0] binary name
+			f0Norm := strings.ReplaceAll(fields[0], "\\", "/")
+			f0Base := f0Norm
+			if lastSlash := strings.LastIndex(f0Norm, "/"); lastSlash >= 0 {
+				f0Base = f0Norm[lastSlash+1:]
+			}
+			f0BaseLower := strings.ToLower(f0Base)
+
+			switch f0BaseLower {
+			case "cat", "vim", "vi", "nano", "sh", "bash", "zsh", "python", "python3",
+				"node", "docker", "curl", "wget", "git", "grep", "find", "rm", "ls",
+				"kubectl", "npm", "yarn", "pnpm", "go", "cargo", "make", "notepad":
+				return false
+			}
+
+			if strings.HasPrefix(f0Norm, "/bin/") || strings.HasPrefix(f0Norm, "/usr/bin/") ||
+				strings.HasPrefix(f0Norm, "/sbin/") || strings.HasPrefix(f0Norm, "/usr/local/bin/") {
+				if f0BaseLower != "antigravity" {
+					return false
+				}
+			}
+
+			// If fields[0] is already Antigravity, then len(fields) > 1 means trailing arguments
+			if f0BaseLower == "antigravity" || f0BaseLower == "antigravity.exe" {
+				return false
+			}
 		}
 	}
 
@@ -272,8 +342,8 @@ func extractArgv0(cmdline string) string {
 		}
 	}
 
-	// 6. Direct exact match if the entire unquoted string is an Antigravity executable (e.g. "C:\Program Files\Google\Antigravity\Antigravity.exe" without args)
-	if IsExactAntigravityExecutable(trimmed) {
+	// 6. Direct exact match if the entire unquoted string is an absolute path to the Antigravity executable (without args)
+	if isAbsoluteRoot(trimmed) && !strings.ContainsAny(trimmed, "\t\r\n") && IsExactAntigravityExecutable(trimmed) {
 		return trimmed
 	}
 
