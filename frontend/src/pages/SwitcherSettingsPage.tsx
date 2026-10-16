@@ -89,7 +89,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   const [nonGeminiModelOptions, setNonGeminiModelOptions] = useState<AvailableModelItem[]>([])
   const [isFetchingModels, setIsFetchingModels] = useState<boolean>(false)
   const [autoImportActive, setAutoImportActive] = useState<boolean>(initialRules?.auto_import_active_account ?? false)
-  const [customModelOptions, setCustomModelOptions] = useState<{ id: string; name: string }[]>([])
+  const [customModelOptions, setCustomModelOptions] = useState<{ id: string; name: string; model_name?: string }[]>([])
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null)
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
 
@@ -361,11 +361,28 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       const cmRes = await api.getCustomModels()
       if (cmRes && cmRes.models) {
         const enabled = cmRes.models.filter((m) => m.enabled)
-        setCustomModelOptions(enabled.map((m) => ({ id: m.id, name: m.display_name || m.name || m.id })))
+        setCustomModelOptions(enabled.map((m) => ({ id: m.id, name: m.display_name || m.name || m.id, model_name: m.name })))
         if (enabled.length > 0) {
           setDefaultCustom((prev) => {
-            const exists = enabled.some((m) => m.id === prev)
-            return exists && prev !== '' ? prev : enabled[0].id
+            const trimmedPrev = (prev || '').trim().toLowerCase()
+            const exists = enabled.some(
+              (m) =>
+                m.id === prev ||
+                (trimmedPrev !== '' && (m.id.toLowerCase() === trimmedPrev || m.name.toLowerCase() === trimmedPrev))
+            )
+            if (exists && prev !== '') {
+              const matched = enabled.find(
+                (m) =>
+                  m.id === prev ||
+                  (trimmedPrev !== '' && (m.id.toLowerCase() === trimmedPrev || m.name.toLowerCase() === trimmedPrev))
+              )
+              return matched ? matched.id : prev
+            }
+            const defModel = enabled.find((m) => m.is_default)
+            if (defModel) {
+              return defModel.id
+            }
+            return enabled[0].id
           })
         } else {
           setDefaultCustom('')
@@ -388,11 +405,28 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       .then((res) => {
         if (res && res.models) {
           const enabled = res.models.filter((m) => m.enabled)
-          setCustomModelOptions(enabled.map((m) => ({ id: m.id, name: m.display_name || m.name || m.id })))
+          setCustomModelOptions(enabled.map((m) => ({ id: m.id, name: m.display_name || m.name || m.id, model_name: m.name })))
           if (enabled.length > 0) {
             setDefaultCustom((prev) => {
-              const exists = enabled.some((m) => m.id === prev)
-              return exists && prev !== '' ? prev : enabled[0].id
+              const trimmedPrev = (prev || '').trim().toLowerCase()
+              const exists = enabled.some(
+                (m) =>
+                  m.id === prev ||
+                  (trimmedPrev !== '' && (m.id.toLowerCase() === trimmedPrev || m.name.toLowerCase() === trimmedPrev))
+              )
+              if (exists && prev !== '') {
+                const matched = enabled.find(
+                  (m) =>
+                    m.id === prev ||
+                    (trimmedPrev !== '' && (m.id.toLowerCase() === trimmedPrev || m.name.toLowerCase() === trimmedPrev))
+                )
+                return matched ? matched.id : prev
+              }
+              const defModel = enabled.find((m) => m.is_default)
+              if (defModel) {
+                return defModel.id
+              }
+              return enabled[0].id
             })
           } else {
             setDefaultCustom('')

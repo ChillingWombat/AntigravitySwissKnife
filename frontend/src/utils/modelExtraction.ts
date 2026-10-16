@@ -119,6 +119,8 @@ export function detectThinkingLevels(modelId: string, modelObj?: any): string[] 
     lower.includes('claude-3-7') ||
     lower.includes('claude-opus-4-6') ||
     lower.includes('claude-4-6') ||
+    lower.includes('gemini-4') ||
+    lower.includes('gemini-3') ||
     lower.includes('gemini-2.5') ||
     lower.includes('gemini-3.8') ||
     lower.includes('gemini-3.1') ||

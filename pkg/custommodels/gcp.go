@@ -240,13 +240,64 @@ func NormalizeVertexAIModel(rawModel string) (publisher, cleanModel, action stri
 	}
 	cleanModel = strings.TrimPrefix(cleanModel, "models/")
 
+	// Normalize Anthropic Claude model names for Vertex AI
+	if strings.EqualFold(publisher, "anthropic") || strings.Contains(strings.ToLower(cleanModel), "claude") {
+		publisher = "anthropic"
+		// Normalize period separators in version numbers (e.g. claude-3.7 -> claude-3-7)
+		if strings.HasPrefix(cleanModel, "claude-3.7-") {
+			cleanModel = "claude-3-7-" + strings.TrimPrefix(cleanModel, "claude-3.7-")
+		} else if strings.HasPrefix(cleanModel, "claude-3.5-") {
+			cleanModel = "claude-3-5-" + strings.TrimPrefix(cleanModel, "claude-3.5-")
+		}
+
+		// Convert hyphenated date suffix to @ separator if present (e.g. claude-3-7-sonnet-20250219 -> claude-3-7-sonnet@20250219)
+		if !strings.Contains(cleanModel, "@") && len(cleanModel) >= 9 && cleanModel[len(cleanModel)-9] == '-' {
+			suffix := cleanModel[len(cleanModel)-8:]
+			isDate := true
+			for _, ch := range suffix {
+				if ch < '0' || ch > '9' {
+					isDate = false
+					break
+				}
+			}
+			if isDate && strings.HasPrefix(suffix, "202") {
+				base := cleanModel[:len(cleanModel)-9]
+				cleanModel = base + "@" + suffix
+			}
+		}
+
+		// Expand unversioned aliases to official Vertex AI model identifiers
+		if !strings.Contains(cleanModel, "@") {
+			lowerClean := strings.ToLower(cleanModel)
+			switch {
+			case lowerClean == "claude-3-7-sonnet" || lowerClean == "claude-3.7-sonnet":
+				cleanModel = "claude-3-7-sonnet@20250219"
+			case lowerClean == "claude-3-5-sonnet" || lowerClean == "claude-3.5-sonnet" || lowerClean == "claude-3-5-sonnet-v2" || lowerClean == "claude-3.5-sonnet-v2":
+				cleanModel = "claude-3-5-sonnet-v2@20241022"
+			case lowerClean == "claude-3-5-haiku" || lowerClean == "claude-3.5-haiku":
+				cleanModel = "claude-3-5-haiku@20241022"
+			case lowerClean == "claude-3-opus" || lowerClean == "claude-3.0-opus":
+				cleanModel = "claude-3-opus@20240229"
+			case lowerClean == "claude-3-haiku" || lowerClean == "claude-3.0-haiku":
+				cleanModel = "claude-3-haiku@20240307"
+			case lowerClean == "claude-3-sonnet" || lowerClean == "claude-3.0-sonnet":
+				cleanModel = "claude-3-sonnet@20240229"
+			}
+		}
+
+		// Vertex AI specific: Claude 3.5 Sonnet 20241022 is versioned as claude-3-5-sonnet-v2
+		if cleanModel == "claude-3-5-sonnet@20241022" || cleanModel == "claude-3.5-sonnet@20241022" {
+			cleanModel = "claude-3-5-sonnet-v2@20241022"
+		}
+	}
+
 	// Assign default action if not explicitly given
 	if action == "" {
 		switch strings.ToLower(publisher) {
 		case "google":
 			action = "generateContent"
 		case "anthropic":
-			action = "streamRawPredict"
+			action = "rawPredict"
 		default:
 			action = "rawPredict"
 		}
@@ -268,6 +319,11 @@ func BuildVertexAIEndpoint(region, projectID, modelName string) string {
 	}
 	if publisher == "" {
 		publisher = "google"
+	}
+
+	// Claude on Vertex AI is only available in us-east5 and europe-west1; remap us-central1 to us-east5
+	if strings.EqualFold(publisher, "anthropic") && (region == "us-central1" || region == "") {
+		region = "us-east5"
 	}
 
 	return fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/%s/models/%s:%s",
@@ -302,9 +358,24 @@ func TestGCPModelWithEndpoint(ctx context.Context, saKeyJSON string, endpointOve
 		modelName = "gemini-2.5-flash"
 	}
 
-	publisher, _, _ := NormalizeVertexAIModel(modelName)
 	endpoint := strings.TrimSpace(endpointOverride)
-	if endpoint == "" {
+	if projectID == "" && strings.Contains(endpoint, "/projects/") {
+		rem := endpoint[strings.Index(endpoint, "/projects/")+len("/projects/"):]
+		if slash := strings.Index(rem, "/"); slash != -1 {
+			projectID = rem[:slash]
+		}
+	}
+	if region == "" && strings.Contains(endpoint, "-aiplatform.googleapis.com") {
+		if u, err := url.Parse(endpoint); err == nil {
+			host := u.Hostname()
+			if idx := strings.Index(host, "-aiplatform.googleapis.com"); idx != -1 {
+				region = host[:idx]
+			}
+		}
+	}
+
+	publisher, _, _ := NormalizeVertexAIModel(modelName)
+	if endpoint == "" || strings.Contains(endpoint, "aiplatform.googleapis.com") || !strings.Contains(endpoint, "/models/") {
 		endpoint = BuildVertexAIEndpoint(region, projectID, modelName)
 	}
 
@@ -438,19 +509,36 @@ func parseGCPErrorMessage(statusCode int, bodyBytes []byte) string {
 		return fmt.Sprintf("HTTP %d: %s", statusCode, gcpErr.Error.Message)
 	}
 
+	var arrErr []struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(bodyBytes, &arrErr) == nil && len(arrErr) > 0 {
+		if arrErr[0].Error.Message != "" {
+			return fmt.Sprintf("HTTP %d: %s", statusCode, arrErr[0].Error.Message)
+		} else if arrErr[0].Message != "" {
+			return fmt.Sprintf("HTTP %d: %s", statusCode, arrErr[0].Message)
+		}
+	}
+
 	var altErr struct {
 		Message string `json:"message"`
 		Error   string `json:"error"`
+		Detail  string `json:"detail"`
 	}
 	if json.Unmarshal(bodyBytes, &altErr) == nil {
 		if altErr.Message != "" {
 			return fmt.Sprintf("HTTP %d: %s", statusCode, altErr.Message)
 		} else if altErr.Error != "" {
 			return fmt.Sprintf("HTTP %d: %s", statusCode, altErr.Error)
+		} else if altErr.Detail != "" {
+			return fmt.Sprintf("HTTP %d: %s", statusCode, altErr.Detail)
 		}
 	}
 
-	if len(bodyBytes) > 0 && len(bodyBytes) < 300 {
+	if len(bodyBytes) > 0 && len(bodyBytes) < 1500 {
 		raw := strings.TrimSpace(string(bodyBytes))
 		if !strings.HasPrefix(raw, "<") && raw != "" {
 			return fmt.Sprintf("HTTP %d: %s", statusCode, raw)

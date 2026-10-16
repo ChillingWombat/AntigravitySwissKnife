@@ -504,6 +504,9 @@ func mapModelNameToMetadata(rawName string, customModels []custommodels.CustomMo
 
 	// 3. Gemini Native model family mappings
 	lower := strings.ToLower(rawTrimmed)
+	if strings.Contains(lower, "gemini 4") || strings.Contains(lower, "gemini-4") {
+		return "gemini-4-argon", "Gemini 4 Argon", "gemini"
+	}
 	if strings.Contains(lower, "gemini 3.8 flash") || strings.Contains(lower, "gemini-3.8-flash") {
 		return "gemini-3.8-flash", "Gemini 3.8 Flash", "gemini"
 	}

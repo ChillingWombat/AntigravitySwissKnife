@@ -69,7 +69,6 @@ func fetchGCPModels() FetchModelsResponse {
 		thinking    bool
 		levels      []string
 	}{
-		{"gemini-4-argon", "Gemini 4 Argon (GCP Vertex)", 1048576, true, []string{"low", "medium", "high"}},
 		{"gemini-2.5-flash", "Gemini 2.5 Flash (GCP Vertex)", 1048576, true, []string{"low", "medium", "high"}},
 		{"gemini-2.5-pro", "Gemini 2.5 Pro (GCP Vertex)", 2097152, true, []string{"low", "medium", "high"}},
 		{"gemini-2.0-flash", "Gemini 2.0 Flash (GCP Vertex)", 1048576, false, nil},

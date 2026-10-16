@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -56,13 +57,13 @@ func TestNormalizeVertexAIModel(t *testing.T) {
 			input:             "claude-3-7-sonnet@20250219",
 			expectedPublisher: "anthropic",
 			expectedModel:     "claude-3-7-sonnet@20250219",
-			expectedAction:    "streamRawPredict",
+			expectedAction:    "rawPredict",
 		},
 		{
 			input:             "anthropic/claude-3-7-sonnet@20250219",
 			expectedPublisher: "anthropic",
 			expectedModel:     "claude-3-7-sonnet@20250219",
-			expectedAction:    "streamRawPredict",
+			expectedAction:    "rawPredict",
 		},
 		{
 			input:             "meta/llama-3.3-70b-instruct",
@@ -75,6 +76,54 @@ func TestNormalizeVertexAIModel(t *testing.T) {
 			expectedPublisher: "meta",
 			expectedModel:     "llama-3.3-70b-instruct",
 			expectedAction:    "predict",
+		},
+		{
+			input:             "claude-3-7-sonnet",
+			expectedPublisher: "anthropic",
+			expectedModel:     "claude-3-7-sonnet@20250219",
+			expectedAction:    "rawPredict",
+		},
+		{
+			input:             "claude-3.7-sonnet",
+			expectedPublisher: "anthropic",
+			expectedModel:     "claude-3-7-sonnet@20250219",
+			expectedAction:    "rawPredict",
+		},
+		{
+			input:             "claude-3-7-sonnet-20250219",
+			expectedPublisher: "anthropic",
+			expectedModel:     "claude-3-7-sonnet@20250219",
+			expectedAction:    "rawPredict",
+		},
+		{
+			input:             "claude-3-5-sonnet",
+			expectedPublisher: "anthropic",
+			expectedModel:     "claude-3-5-sonnet-v2@20241022",
+			expectedAction:    "rawPredict",
+		},
+		{
+			input:             "claude-3-5-sonnet-20241022",
+			expectedPublisher: "anthropic",
+			expectedModel:     "claude-3-5-sonnet-v2@20241022",
+			expectedAction:    "rawPredict",
+		},
+		{
+			input:             "claude-3-5-sonnet@20241022",
+			expectedPublisher: "anthropic",
+			expectedModel:     "claude-3-5-sonnet-v2@20241022",
+			expectedAction:    "rawPredict",
+		},
+		{
+			input:             "claude-3-5-haiku",
+			expectedPublisher: "anthropic",
+			expectedModel:     "claude-3-5-haiku@20241022",
+			expectedAction:    "rawPredict",
+		},
+		{
+			input:             "claude-3-opus",
+			expectedPublisher: "anthropic",
+			expectedModel:     "claude-3-opus@20240229",
+			expectedAction:    "rawPredict",
 		},
 	}
 
@@ -100,7 +149,7 @@ func TestBuildVertexAIEndpoint_NoDuplicatePublisher(t *testing.T) {
 	}
 
 	endpointClaude := BuildVertexAIEndpoint("us-east5", "my-project", "claude-3-7-sonnet@20250219")
-	expectedClaude := "https://us-east5-aiplatform.googleapis.com/v1/projects/my-project/locations/us-east5/publishers/anthropic/models/claude-3-7-sonnet@20250219:streamRawPredict"
+	expectedClaude := "https://us-east5-aiplatform.googleapis.com/v1/projects/my-project/locations/us-east5/publishers/anthropic/models/claude-3-7-sonnet@20250219:rawPredict"
 	if endpointClaude != expectedClaude {
 		t.Errorf("BuildVertexAIEndpoint got %q; want %q", endpointClaude, expectedClaude)
 	}
@@ -195,6 +244,12 @@ func TestStore_PreservesGCPProjectAndRegionOnUpdate(t *testing.T) {
 		t.Fatalf("failed to get model: %v", err)
 	}
 
+	if saved.Name != "gemini-4-argon" {
+		t.Errorf("saved.Name = %q; want %q", saved.Name, "gemini-4-argon")
+	}
+	if saved.DisplayName != "Gemini 4 Argon (Updated)" {
+		t.Errorf("saved.DisplayName = %q; want %q", saved.DisplayName, "Gemini 4 Argon (Updated)")
+	}
 	if saved.GCPProjectID != "chillingwombat" {
 		t.Errorf("saved.GCPProjectID = %q; want %q", saved.GCPProjectID, "chillingwombat")
 	}
@@ -270,5 +325,180 @@ func TestParseGCPErrorMessage(t *testing.T) {
 	expectedEmpty := "HTTP 404 Not Found"
 	if gotEmpty != expectedEmpty {
 		t.Errorf("parseGCPErrorMessage(404, empty) = %q; want %q", gotEmpty, expectedEmpty)
+	}
+}
+
+func TestBuildVertexAIEndpoint_ClaudeRegionRemap(t *testing.T) {
+	// Claude on Vertex AI remaps us-central1 and empty region to us-east5
+	epCentral := BuildVertexAIEndpoint("us-central1", "test-proj", "claude-3-7-sonnet")
+	if !strings.Contains(epCentral, "https://us-east5-aiplatform.googleapis.com") {
+		t.Errorf("expected Claude to remap us-central1 to us-east5, got %s", epCentral)
+	}
+	if !strings.Contains(epCentral, "publishers/anthropic/models/claude-3-7-sonnet@20250219:rawPredict") {
+		t.Errorf("expected normalized Claude 3.7 model path, got %s", epCentral)
+	}
+
+	epEmpty := BuildVertexAIEndpoint("", "test-proj", "claude-3-5-sonnet")
+	if !strings.Contains(epEmpty, "https://us-east5-aiplatform.googleapis.com") {
+		t.Errorf("expected Claude with empty region to default to us-east5, got %s", epEmpty)
+	}
+
+	// Europe region is preserved
+	epEurope := BuildVertexAIEndpoint("europe-west1", "test-proj", "claude-3-7-sonnet")
+	if !strings.Contains(epEurope, "https://europe-west1-aiplatform.googleapis.com") {
+		t.Errorf("expected Claude in europe-west1 to be preserved, got %s", epEurope)
+	}
+
+	// Gemini in us-central1 stays us-central1
+	epGemini := BuildVertexAIEndpoint("us-central1", "test-proj", "gemini-2.5-flash")
+	if !strings.Contains(epGemini, "https://us-central1-aiplatform.googleapis.com") {
+		t.Errorf("expected Gemini in us-central1 to remain in us-central1, got %s", epGemini)
+	}
+}
+
+func TestResolveEndpoint_GCPRootDomainFallback(t *testing.T) {
+	// When given bare root domain without /models/, ResolveEndpoint must construct the full model endpoint
+	bareURL := "https://us-central1-aiplatform.googleapis.com"
+	resolved := ResolveEndpoint(ProviderGCP, bareURL, "gemini-2.5-flash")
+	expected := "https://us-central1-aiplatform.googleapis.com/v1/projects//locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent"
+	if resolved != expected {
+		t.Errorf("ResolveEndpoint(%q) = %q; want %q", bareURL, resolved, expected)
+	}
+
+	// When given project path in base URL, project ID is preserved
+	projBase := "https://us-east5-aiplatform.googleapis.com/v1/projects/my-prod-project/locations/us-east5"
+	resolvedProj := ResolveEndpoint(ProviderGCP, projBase, "claude-3-7-sonnet")
+	expectedProj := "https://us-east5-aiplatform.googleapis.com/v1/projects/my-prod-project/locations/us-east5/publishers/anthropic/models/claude-3-7-sonnet@20250219:rawPredict"
+	if resolvedProj != expectedProj {
+		t.Errorf("ResolveEndpoint(%q) = %q; want %q", projBase, resolvedProj, expectedProj)
+	}
+
+	// When given full /models/ endpoint, it is preserved
+	fullURL := "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent"
+	resolvedFull := ResolveEndpoint(ProviderGCP, fullURL, "gemini-2.5-flash")
+	if resolvedFull != fullURL {
+		t.Errorf("ResolveEndpoint fullURL got %q; want %q", resolvedFull, fullURL)
+	}
+}
+
+func TestDetectAndFetchQuota_GCP_PreservesBalance(t *testing.T) {
+	// Model with existing BalanceValue must preserve it and remain QuotaTypeBalance
+	m := CustomModel{
+		ProviderType: ProviderGCP,
+		BaseURL:      "https://us-central1-aiplatform.googleapis.com",
+		Name:         "gemini-2.5-flash",
+		QuotaType:    QuotaTypeBalance,
+		BalanceValue: "Active (Account: 012345-6789AB)",
+	}
+	res := DetectAndFetchQuota(m)
+	if res.QuotaType != QuotaTypeBalance {
+		t.Errorf("expected QuotaTypeBalance, got %s", res.QuotaType)
+	}
+	if res.BalanceValue != "Active (Account: 012345-6789AB)" {
+		t.Errorf("expected BalanceValue 'Active (Account: 012345-6789AB)', got %q", res.BalanceValue)
+	}
+}
+
+func TestAuditor_GCPRootDomainReplacedWithModelEndpoint(t *testing.T) {
+	auditor := NewAuditor()
+	m := CustomModel{
+		ID:           "test-gcp-auditor",
+		Name:         "gemini-2.5-flash",
+		ProviderType: ProviderGCP,
+		GCPProjectID: "audit-proj",
+		GCPRegion:    "us-central1",
+		BaseURL:      "https://us-central1-aiplatform.googleapis.com",
+	}
+
+	report := auditor.RunAudit(m)
+	if !strings.Contains(report.Endpoint, "/publishers/google/models/gemini-2.5-flash:generateContent") {
+		t.Errorf("expected report.Endpoint to be full Vertex AI model URL, got %s", report.Endpoint)
+	}
+}
+
+func TestCustomModelValidate_GCP(t *testing.T) {
+	m := CustomModel{
+		ID:           "test-gcp-validate",
+		Name:         "claude-3-7-sonnet",
+		ProviderType: ProviderGCP,
+		BaseURL:      "https://us-central1-aiplatform.googleapis.com/v1/projects/extracted-proj/locations/us-central1",
+	}
+
+	if err := m.Validate(); err != nil {
+		t.Fatalf("m.Validate() failed: %v", err)
+	}
+
+	if m.GCPProjectID != "extracted-proj" {
+		t.Errorf("expected GCPProjectID 'extracted-proj', got %q", m.GCPProjectID)
+	}
+	if m.GCPRegion != "us-east5" {
+		t.Errorf("expected GCPRegion 'us-east5' (auto-remapped for Claude), got %q", m.GCPRegion)
+	}
+	if m.QuotaType != QuotaTypeBalance {
+		t.Errorf("expected QuotaTypeBalance, got %s", m.QuotaType)
+	}
+	if m.BalanceValue != "Active (GCP Billing)" {
+		t.Errorf("expected BalanceValue 'Active (GCP Billing)', got %q", m.BalanceValue)
+	}
+	if !strings.Contains(m.BaseURL, "/publishers/anthropic/models/claude-3-7-sonnet@20250219:rawPredict") {
+		t.Errorf("expected BaseURL to contain full Claude Vertex AI endpoint, got %s", m.BaseURL)
+	}
+}
+
+func TestStore_ClearDefaultFlags(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	if err := store.SaveModel(CustomModel{
+		ID:           "m-a",
+		Name:         "gemini-2.5-flash",
+		ProviderType: ProviderGCP,
+		GCPProjectID: "proj",
+		GCPRegion:    "us-central1",
+		IsDefault:    true,
+	}); err != nil {
+		t.Fatalf("SaveModel failed: %v", err)
+	}
+	if m, _ := store.GetModel("m-a"); m == nil || !m.IsDefault {
+		t.Fatalf("precondition failed: m-a should be flagged default")
+	}
+
+	if err := store.ClearDefaultFlags(); err != nil {
+		t.Fatalf("ClearDefaultFlags failed: %v", err)
+	}
+	if m, _ := store.GetModel("m-a"); m != nil && m.IsDefault {
+		t.Errorf("expected m-a.IsDefault=false after ClearDefaultFlags")
+	}
+
+	// Idempotent second call must not error.
+	if err := store.ClearDefaultFlags(); err != nil {
+		t.Fatalf("second ClearDefaultFlags failed: %v", err)
+	}
+}
+
+func TestCustomModelValidate_GCP_ManualQuotaOverrideRespected(t *testing.T) {
+	m := CustomModel{
+		ID:                  "manual-quota",
+		Name:                "gemini-2.5-flash",
+		ProviderType:        ProviderGCP,
+		GCPProjectID:        "proj",
+		GCPRegion:           "us-central1",
+		QuotaManualOverride: true,
+		QuotaType:           QuotaTypeQuota,
+		QuotaValue:          "GCP Managed",
+	}
+	if err := m.Validate(); err != nil {
+		t.Fatalf("Validate failed: %v", err)
+	}
+	if m.QuotaType != QuotaTypeQuota {
+		t.Errorf("manual quota override clobbered: QuotaType = %q; want %q", m.QuotaType, QuotaTypeQuota)
+	}
+	if m.QuotaValue != "GCP Managed" {
+		t.Errorf("manual quota override clobbered: QuotaValue = %q; want %q", m.QuotaValue, "GCP Managed")
+	}
+	if m.BalanceValue != "" {
+		t.Errorf("manual quota override should not synthesize BalanceValue, got %q", m.BalanceValue)
 	}
 }

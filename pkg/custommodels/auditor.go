@@ -68,7 +68,7 @@ func (a *Auditor) RunAudit(model CustomModel) *SecurityAuditReport {
 	}
 
 	endpoint := strings.TrimRight(strings.TrimSpace(model.BaseURL), "/")
-	if (endpoint == "" || !strings.Contains(endpoint, "aiplatform.googleapis.com")) && model.ProviderType == ProviderGCP {
+	if model.ProviderType == ProviderGCP && (endpoint == "" || strings.Contains(endpoint, "aiplatform.googleapis.com") || !strings.Contains(endpoint, "/models/")) {
 		endpoint = BuildVertexAIEndpoint(model.GCPRegion, model.GCPProjectID, model.Name)
 		report.Endpoint = endpoint
 	}
@@ -178,7 +178,7 @@ func (a *Auditor) probeTransportSecurity(endpoint string, u *url.URL, parseErr e
 
 func (a *Auditor) probeOriginLineage(model CustomModel, endpoint string) (SecurityAuditProbe, http.Header, bool) {
 	resolved := ResolveEndpoint(model.ProviderType, endpoint, model.Name)
-	if (resolved == "" || !strings.Contains(resolved, "aiplatform.googleapis.com")) && model.ProviderType == ProviderGCP {
+	if model.ProviderType == ProviderGCP && (resolved == "" || strings.Contains(resolved, "aiplatform.googleapis.com") || !strings.Contains(resolved, "/models/")) {
 		resolved = BuildVertexAIEndpoint(model.GCPRegion, model.GCPProjectID, model.Name)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
@@ -526,7 +526,7 @@ func (a *Auditor) probeCredentialLeakage(model CustomModel, headers http.Header)
 
 func (a *Auditor) executeModelRequest(model CustomModel, payload map[string]interface{}) (string, error) {
 	resolved := ResolveEndpoint(model.ProviderType, model.BaseURL, model.Name)
-	if (resolved == "" || !strings.Contains(resolved, "aiplatform.googleapis.com")) && model.ProviderType == ProviderGCP {
+	if model.ProviderType == ProviderGCP && (resolved == "" || strings.Contains(resolved, "aiplatform.googleapis.com") || !strings.Contains(resolved, "/models/")) {
 		resolved = BuildVertexAIEndpoint(model.GCPRegion, model.GCPProjectID, model.Name)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)

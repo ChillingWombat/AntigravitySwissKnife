@@ -56,7 +56,7 @@ export function filterModels(
  * - Otherwise, defaults to the first model in the list without any 'auto' option.
  */
 export function resolveEffectiveCustomModel(
-  availableModels: Array<{ id: string }>,
+  availableModels: Array<{ id: string; name?: string; model_name?: string }>,
   selectedDefault?: string
 ): string {
   if (!availableModels || availableModels.length === 0) {
@@ -70,7 +70,14 @@ export function resolveEffectiveCustomModel(
   }
   const trimmedSelected = (selectedDefault || '').trim()
   if (trimmedSelected) {
-    const match = valid.find((m) => m.id.trim() === trimmedSelected)
+    const lowerSelected = trimmedSelected.toLowerCase()
+    const match = valid.find(
+      (m) =>
+        m.id.trim() === trimmedSelected ||
+        m.id.trim().toLowerCase() === lowerSelected ||
+        (m.model_name && m.model_name.trim().toLowerCase() === lowerSelected) ||
+        (m.name && m.name.trim().toLowerCase() === lowerSelected)
+    )
     if (match) {
       return match.id.trim()
     }

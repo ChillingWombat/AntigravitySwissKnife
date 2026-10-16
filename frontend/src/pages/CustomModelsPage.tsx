@@ -168,6 +168,7 @@ export const CustomModelsPage: React.FC = () => {
   const [gcpRegion, setGcpRegion] = useState<string>('us-central1')
   const [gcpCustomModel, setGcpCustomModel] = useState<string>('')
   const [gcpDisplayName, setGcpDisplayName] = useState<string>('')
+  const [gcpIsDefault, setGcpIsDefault] = useState<boolean>(false)
   const [gcpTesting, setGcpTesting] = useState<boolean>(false)
   const [gcpTestResult, setGcpTestResult] = useState<TestResult | null>(null)
   const [gcpSaving, setGcpSaving] = useState<boolean>(false)
@@ -184,6 +185,7 @@ export const CustomModelsPage: React.FC = () => {
     setGcpRegion('us-central1')
     setGcpCustomModel('')
     setGcpDisplayName('')
+    setGcpIsDefault((config?.models?.length ?? 0) === 0)
     setGcpTesting(false)
     setGcpTestResult(null)
     setGcpSaving(false)
@@ -196,7 +198,13 @@ export const CustomModelsPage: React.FC = () => {
     setGcpCustomModel(model.name)
     setGcpDisplayName(model.display_name)
     setGcpRegion(model.gcp_region || 'us-central1')
-    setGcpProjectId(model.gcp_project_id || '')
+    let projectId = model.gcp_project_id || ''
+    if (!projectId && model.base_url) {
+      const match = model.base_url.match(/\/projects\/([^/]+)/)
+      if (match) projectId = match[1]
+    }
+    setGcpProjectId(projectId)
+    setGcpIsDefault(isModelDefault(model))
     setGcpTesting(false)
     setGcpTestResult(null)
     setGcpSaving(false)
@@ -219,7 +227,7 @@ export const CustomModelsPage: React.FC = () => {
       const extractedEmail = model.notes?.match(/via\s+([^\s]+)/)?.[1] || 'Saved Service Account'
       setGcpParsedKey({
         type: 'service_account',
-        project_id: model.gcp_project_id || '',
+        project_id: projectId,
         private_key_id: 'saved',
         private_key: '[SAVED]',
         client_email: extractedEmail,
@@ -309,8 +317,9 @@ export const CustomModelsPage: React.FC = () => {
       gcp_region: gcpRegion,
       gcp_service_account_key: effSaKey,
       project_mappings: ['*'],
-      quota_type: 'quota',
-      quota_value: 'GCP Managed',
+      quota_type: 'balance',
+      quota_value: 'Active (GCP Billing)',
+      balance_value: 'Active (GCP Billing)',
       prepaid_balance: 0,
       total_budget: 0,
       quota_fraction: null,
@@ -391,7 +400,7 @@ export const CustomModelsPage: React.FC = () => {
       prepaid_balance: 0,
       total_budget: 0,
       quota_fraction: null,
-      is_default: isEdit ? gcpEditingModel.is_default : false,
+      is_default: gcpIsDefault,
       enabled: isEdit ? gcpEditingModel.enabled : true,
       context_window: isEdit && gcpEditingModel.context_window ? gcpEditingModel.context_window : ctxWindow,
       supports_thinking: isReasoning,
@@ -402,6 +411,13 @@ export const CustomModelsPage: React.FC = () => {
 
     try {
       await api.saveCustomModel(finalModel)
+      if (gcpIsDefault) {
+        await api.saveRules({ default_custom_model: finalModel.id }).catch(() => {})
+        setRulesDefaultCustom(finalModel.id)
+      } else if (rulesDefaultCustom === finalModel.id || rulesDefaultCustom === finalModel.name) {
+        await api.saveRules({ default_custom_model: '' }).catch(() => {})
+        setRulesDefaultCustom('')
+      }
       setIsGcpModalOpen(false)
       setGcpEditingModel(null)
       await loadData()
@@ -431,7 +447,7 @@ export const CustomModelsPage: React.FC = () => {
         api.getRules().catch(() => null),
       ])
       setConfig(cfg)
-      if (rules?.default_custom_model) {
+      if (rules && typeof rules.default_custom_model === 'string') {
         setRulesDefaultCustom(rules.default_custom_model)
       }
     } catch (err: any) {
@@ -2964,6 +2980,23 @@ export const CustomModelsPage: React.FC = () => {
                 value={gcpDisplayName}
                 onChange={(e) => setGcpDisplayName(e.target.value)}
                 style={{ width: '100%', fontSize: '12px', padding: '8px 10px', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            {/* Set as default custom model */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '16px' }}>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                  Set as default custom model
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  Route queries to this model when custom model source is triggered.
+                </div>
+              </div>
+              <ToggleSwitch
+                size="sm"
+                checked={gcpIsDefault}
+                onChange={(checked) => setGcpIsDefault(checked)}
               />
             </div>
 
