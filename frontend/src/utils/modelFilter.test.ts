@@ -144,6 +144,16 @@ describe('modelFilter utility', () => {
       assert.equal(resolveEffectiveCustomModel(models, 'custom-gemini'), 'custom-gemini')
     })
 
+    it('matches by model_name or display name when default is set by model identifier', () => {
+      const models = [
+        { id: 'openai-deepseek', name: 'DeepSeek V4.1', model_name: 'deepseek-v4-flash' },
+        { id: 'gcp-claude-opus-5-5-1791904890297', name: 'Gemini 4 Argon (GCP)', model_name: 'gemini-4-argon' },
+      ]
+      assert.equal(resolveEffectiveCustomModel(models, 'gemini-4-argon'), 'gcp-claude-opus-5-5-1791904890297')
+      assert.equal(resolveEffectiveCustomModel(models, 'Gemini 4 Argon (GCP)'), 'gcp-claude-opus-5-5-1791904890297')
+      assert.equal(resolveEffectiveCustomModel(models, 'deepseek-v4-flash'), 'openai-deepseek')
+    })
+
     it('handles whitespace trimming and invalid/null array elements safely', () => {
       const models = [
         null as any,

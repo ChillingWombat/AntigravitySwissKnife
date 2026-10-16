@@ -100,4 +100,34 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
       'GCP test connection feedback must display GCP credit balance'
     )
   })
+
+  it('openEditGcpModal extracts project_id from base_url when model.gcp_project_id is empty', () => {
+    assert.ok(
+      pageContent.includes("model.base_url.match(/\\/projects\\/([^/]+)/)"),
+      'Must extract project ID from base_url when gcp_project_id is missing'
+    )
+  })
+
+  it('handleTestGcpConnection configures draftGcpModel with quota_type balance', () => {
+    assert.ok(
+      pageContent.includes("quota_type: 'balance'"),
+      'draftGcpModel must use quota_type balance'
+    )
+    assert.ok(
+      pageContent.includes("balance_value: 'Active (GCP Billing)'"),
+      'draftGcpModel must set balance_value to Active (GCP Billing)'
+    )
+  })
+
+  it('enforces manual Model ID entry with zero preset buttons or dropdowns in GCP modal', () => {
+    // Model ID input is an input field linking out to Google Cloud Model Garden
+    assert.ok(pageContent.includes('placeholder="Enter Model ID (e.g. gemini-2.5-flash or meta/llama-3.3-70b-instruct)"'))
+    assert.ok(pageContent.includes('console.cloud.google.com/agent-platform/model-garden'))
+  })
+
+  it('preserves gemini-4-argon without forced rollback and supports default toggle in GCP modal', () => {
+    assert.ok(!pageContent.includes("model.name === 'gemini-4-argon' ? 'gemini-2.5-flash'"), 'Must not rollback gemini-4-argon to gemini-2.5-flash')
+    assert.ok(pageContent.includes('setGcpIsDefault'), 'GCP modal must track default custom model state')
+    assert.ok(pageContent.includes('Set as default custom model'), 'GCP modal must offer Set as default custom model toggle')
+  })
 })

@@ -104,13 +104,19 @@ func (m *CustomModel) Validate() error {
 		m.ProviderType = ProviderOpenAI
 	}
 	if m.ProviderType == ProviderGCP {
-		if strings.TrimSpace(m.GCPProjectID) == "" && strings.TrimSpace(m.GCPServiceAccountKey) != "" {
+		if strings.TrimSpace(m.GCPProjectID) == "" && strings.TrimSpace(m.GCPServiceAccountKey) != "" && m.GCPServiceAccountKey != "[REDACTED]" {
 			if key, err := ParseServiceAccountKey([]byte(m.GCPServiceAccountKey)); err == nil && key.ProjectID != "" {
 				m.GCPProjectID = key.ProjectID
 			}
 		}
+		if strings.TrimSpace(m.GCPProjectID) == "" && strings.Contains(m.BaseURL, "/projects/") {
+			rem := m.BaseURL[strings.Index(m.BaseURL, "/projects/")+len("/projects/"):]
+			if slash := strings.Index(rem, "/"); slash != -1 {
+				m.GCPProjectID = rem[:slash]
+			}
+		}
 		region := strings.TrimSpace(m.GCPRegion)
-		if region == "" {
+		if region == "" || (strings.Contains(strings.ToLower(m.Name), "claude") && region == "us-central1") {
 			if strings.Contains(strings.ToLower(m.Name), "claude") {
 				region = "us-east5"
 			} else {
@@ -120,6 +126,15 @@ func (m *CustomModel) Validate() error {
 		m.GCPRegion = region
 		if strings.TrimSpace(m.BaseURL) == "" || strings.Contains(m.BaseURL, "-aiplatform.googleapis.com") {
 			m.BaseURL = BuildVertexAIEndpoint(region, m.GCPProjectID, m.Name)
+		}
+		if !m.QuotaManualOverride && (m.QuotaType == "" || m.QuotaType == QuotaTypeNA || m.QuotaType == QuotaNone || m.QuotaType == QuotaTypeQuota) {
+			m.QuotaType = QuotaTypeBalance
+			if m.BalanceValue == "" {
+				m.BalanceValue = "Active (GCP Billing)"
+			}
+			if m.QuotaValue == "" || m.QuotaValue == "GCP Managed" {
+				m.QuotaValue = m.BalanceValue
+			}
 		}
 	}
 	if strings.TrimSpace(m.BaseURL) == "" {

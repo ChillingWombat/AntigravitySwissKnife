@@ -700,12 +700,52 @@ func DetectAndFetchQuota(model CustomModel) QuotaResult {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// 0. ProviderGCP models use GCP project-level quota
+	// 0. ProviderGCP models use GCP project-level billing & quota
 	if model.ProviderType == ProviderGCP {
+		balanceVal := model.BalanceValue
+		billingDesc := "Google Cloud Platform Vertex AI Managed"
+
+		saKeyStr := strings.TrimSpace(model.GCPServiceAccountKey)
+		if saKeyStr != "" && saKeyStr != "[REDACTED]" {
+			if saKey, err := ParseServiceAccountKey([]byte(saKeyStr)); err == nil {
+				projID := strings.TrimSpace(model.GCPProjectID)
+				if projID == "" {
+					projID = saKey.ProjectID
+				}
+				if bInfo, bErr := FetchGCPBillingInfo(ctx, saKey, projID); bErr == nil && bInfo != nil {
+					if bInfo.BillingEnabled {
+						billingDesc = fmt.Sprintf("Billing Account: %s", bInfo.BillingAccountName)
+						balanceVal = bInfo.StatusMessage
+					} else {
+						billingDesc = bInfo.StatusMessage
+						balanceVal = "Disabled / No Account"
+					}
+				}
+			}
+		}
+
+		if balanceVal != "" {
+			return QuotaResult{
+				QuotaType:    QuotaTypeBalance,
+				QuotaValue:   balanceVal,
+				BalanceValue: balanceVal,
+				Message:      billingDesc,
+			}
+		}
+
+		if model.QuotaType == QuotaTypeBalance {
+			return QuotaResult{
+				QuotaType:    QuotaTypeBalance,
+				QuotaValue:   "Active (GCP Billing)",
+				BalanceValue: "Active (GCP Billing)",
+				Message:      billingDesc,
+			}
+		}
+
 		return QuotaResult{
 			QuotaType:  QuotaTypeQuota,
 			QuotaValue: "GCP Managed",
-			Message:    "Google Cloud Platform Vertex AI Managed",
+			Message:    billingDesc,
 		}
 	}
 

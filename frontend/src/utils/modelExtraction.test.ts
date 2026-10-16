@@ -100,6 +100,7 @@ describe('modelExtraction utility', () => {
       assert.deepEqual(detectThinkingLevels('claude-opus-4-6'), ['low', 'medium', 'high'])
       assert.deepEqual(detectThinkingLevels('gemini-2.5-pro'), ['low', 'medium', 'high'])
       assert.deepEqual(detectThinkingLevels('gemini-3.8-flash'), ['low', 'medium', 'high'])
+      assert.deepEqual(detectThinkingLevels('gemini-4-argon'), ['low', 'medium', 'high'])
     })
 
     it('returns empty array for non-reasoning models without thinking support', () => {

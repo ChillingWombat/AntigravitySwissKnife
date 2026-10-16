@@ -28,12 +28,27 @@ func GenerateCustomModelsScript(cfg *Config) string {
     if (!customConfig.models) customConfig.models = [];
     if (!customConfig.project_binds) customConfig.project_binds = {};
 
+    // Auth headers provider matching daemon session authentication
+    function getSwissAuthHeaders(extra = {}) {
+      const headers = Object.assign({ "Content-Type": "application/json" }, extra);
+      const tok = (typeof window !== "undefined" && window.__SWISS_SESSION_TOKEN__) ||
+        (typeof sessionStorage !== "undefined" && sessionStorage.getItem("antigravity_swiss_session_token")) || "";
+      if (tok) {
+        headers["X-Session-Token"] = tok;
+        headers["Authorization"] = "Bearer " + tok;
+      }
+      return headers;
+    }
+
     // Dynamic config loader: only queries the local daemon when running.
     // Permanent injection must NOT load or show custom models offline when the app is stopped.
     async function refreshCustomConfig() {
       try {
         if (typeof window !== "undefined" && window.fetch) {
-          const res = await fetch("http://127.0.0.1:8765/api/custom_models");
+          const res = await fetch("http://127.0.0.1:8765/api/custom_models", {
+            headers: getSwissAuthHeaders(),
+            signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(2000) : undefined
+          });
           if (res.ok) {
             const loaded = await res.json();
             if (loaded) {
@@ -141,8 +156,8 @@ func GenerateCustomModelsScript(cfg *Config) string {
           if (trigger.getAttribute("data-swiss-custom-bound") !== activeCustomModel.id) {
             trigger.setAttribute("data-swiss-custom-bound", activeCustomModel.id);
             const cleanActiveName = (activeCustomModel.display_name || "")
-              .replace(/\s*\((Anthropic|OpenAI)\)/gi, "")
-              .replace(/^(OpenAI|Anthropic)\s+/gi, "")
+              .replace(/\s*\((Anthropic|OpenAI|GCP Vertex|GCP|Google Cloud)\)/gi, "")
+              .replace(/^(OpenAI|Anthropic|Google Cloud|GCP)\s+/gi, "")
               .trim();
             label.textContent = cleanActiveName + " \u25be";
           }
@@ -202,7 +217,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
               thinkingPill.innerHTML = '<span style="opacity: 0.8;">Thinking:</span> <b>' + nextDisplay + '</b> <span style="font-size: 9px; opacity: 0.6;">\\u25be</span>';
               fetch("http://127.0.0.1:8765/api/custom_models/thinking_level", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: getSwissAuthHeaders(),
                 body: JSON.stringify({ model_id: activeCustomModel.id, level: nextLevel })
               }).catch(() => {});
             };
@@ -285,7 +300,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
             try {
               await fetch("http://127.0.0.1:8765/api/custom_models/bind", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: getSwissAuthHeaders(),
                 body: JSON.stringify({ project: curProject, model_id: "native" })
               });
             } catch (_) {}
@@ -363,8 +378,8 @@ func GenerateCustomModelsScript(cfg *Config) string {
             const providerLabel = formatProvider(m.provider_type);
 
             const cleanDisplayName = (m.display_name || "")
-              .replace(/\s*\((Anthropic|OpenAI)\)/gi, "")
-              .replace(/^(OpenAI|Anthropic)\s+/gi, "")
+              .replace(/\s*\((Anthropic|OpenAI|GCP Vertex|GCP|Google Cloud)\)/gi, "")
+              .replace(/^(OpenAI|Anthropic|Google Cloud|GCP)\s+/gi, "")
               .trim();
 
             itemEl.innerHTML = '<span class="flex items-center gap-1.5 min-w-0 flex-1 truncate" style="display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow: hidden;">' +
@@ -390,7 +405,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
               try {
                 await fetch("http://127.0.0.1:8765/api/custom_models/bind", {
                   method: "POST",
-                  headers: { "Content-Type": "application/json" },
+                  headers: getSwissAuthHeaders(),
                   body: JSON.stringify({ project: curProject, model_id: m.id })
                 });
               } catch (_) {}

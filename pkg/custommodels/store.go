@@ -58,16 +58,34 @@ func (s *Store) load() error {
 	}
 	cfg.InferenceSupported = true
 	s.config = &cfg
+	migrated := false
 	for i := range s.config.Models {
+		if s.config.Models[i].ProviderType == ProviderGCP && !s.config.Models[i].QuotaManualOverride {
+			if s.config.Models[i].QuotaType == "" || s.config.Models[i].QuotaType == QuotaTypeNA || s.config.Models[i].QuotaType == QuotaNone || s.config.Models[i].QuotaType == QuotaTypeQuota {
+				s.config.Models[i].QuotaType = QuotaTypeBalance
+				if s.config.Models[i].BalanceValue == "" {
+					s.config.Models[i].BalanceValue = "Active (GCP Billing)"
+				}
+				if s.config.Models[i].QuotaValue == "" || s.config.Models[i].QuotaValue == "GCP Managed" {
+					s.config.Models[i].QuotaValue = s.config.Models[i].BalanceValue
+				}
+				migrated = true
+			}
+		}
 		if s.config.Models[i].InternalID <= 0 {
 			s.config.Models[i].InternalID = s.allocateInternalIDLocked()
+			migrated = true
 		}
 		s.syncCustomModelToPricingLocked(s.config.Models[i])
 	}
 	for i := range s.config.PricingRecords {
 		if s.config.PricingRecords[i].InternalID <= 0 {
 			s.config.PricingRecords[i].InternalID = s.allocateInternalIDLocked()
+			migrated = true
 		}
+	}
+	if migrated {
+		_ = s.saveLocked()
 	}
 	return nil
 }
@@ -289,6 +307,25 @@ func (s *Store) SaveModel(m CustomModel) error {
 	s.clearDeletedModelLocked(m.Name, m.ID)
 	s.syncCustomModelToPricingLocked(m)
 
+	return s.saveLocked()
+}
+
+// ClearDefaultFlags resets the stored default marker on every model so the store
+// stops advertising a default that the routing config no longer points at.
+func (s *Store) ClearDefaultFlags() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	changed := false
+	for i := range s.config.Models {
+		if s.config.Models[i].IsDefault {
+			s.config.Models[i].IsDefault = false
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
 	return s.saveLocked()
 }
 

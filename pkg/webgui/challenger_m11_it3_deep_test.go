@@ -1,6 +1,7 @@
 package webgui
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -100,17 +101,25 @@ func TestChallenger_M11_It3_SpecificRequirements(t *testing.T) {
 				target, probe, aliases)
 		}
 
-		// Also verify alias generation without probe (synthetic generator fallback)
+		// Also verify alias generation without probe (synthetic generator fallback).
+		// On Windows the synthetic candidate is only reported when it actually
+		// resolves on disk (8.3 names must exist to be real aliases), so the
+		// presence assertion only applies when the target itself exists.
 		aliasesNoProbe := find8dot3Aliases(target)
-		foundNoProbe := false
-		for _, a := range aliasesNoProbe {
-			if strings.EqualFold(a, `C:\Users\RUNNER~1`) {
-				foundNoProbe = true
-				break
+		if _, statErr := os.Stat(target); statErr == nil {
+			foundNoProbe := false
+			for _, a := range aliasesNoProbe {
+				if strings.EqualFold(a, `C:\Users\RUNNER~1`) {
+					foundNoProbe = true
+					break
+				}
 			}
-		}
-		if !foundNoProbe {
-			t.Errorf("[8.3 SYNTHETIC FAILURE] find8dot3Aliases(%q) failed to produce C:\\Users\\RUNNER~1, got %v",
+			if !foundNoProbe {
+				t.Errorf("[8.3 SYNTHETIC FAILURE] find8dot3Aliases(%q) failed to produce C:\\Users\\RUNNER~1, got %v",
+					target, aliasesNoProbe)
+			}
+		} else if len(aliasesNoProbe) > 0 {
+			t.Errorf("[8.3 FABRICATION] find8dot3Aliases(%q) fabricated aliases for a non-existent target, got %v",
 				target, aliasesNoProbe)
 		}
 
