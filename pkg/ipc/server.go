@@ -24,6 +24,8 @@ type Server struct {
 	mu         sync.RWMutex
 	running    int32
 	wg         sync.WaitGroup
+	connMu     sync.Mutex
+	conns      map[net.Conn]struct{}
 }
 
 // NewServer initializes a new IPC server.
@@ -31,6 +33,7 @@ func NewServer(socketPath string) *Server {
 	return &Server{
 		socketPath: socketPath,
 		handlers:   make(map[string]HandlerFunc),
+		conns:      make(map[net.Conn]struct{}),
 	}
 }
 
@@ -78,16 +81,27 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// Stop closes the listener and cleans up the socket file.
+// Stop closes the listener, terminates active connections, and cleans up the socket file.
+// Connection handlers block reading from their client, so they must be force-closed
+// here; otherwise an idle client would keep shutdown waiting forever.
 func (s *Server) Stop() error {
 	if atomic.CompareAndSwapInt32(&s.running, 1, 0) {
 		if s.listener != nil {
 			_ = s.listener.Close()
 		}
+		s.closeActiveConns()
 		s.wg.Wait()
 		_ = os.Remove(s.socketPath)
 	}
 	return nil
+}
+
+func (s *Server) closeActiveConns() {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	for c := range s.conns {
+		_ = c.Close()
+	}
 }
 
 func (s *Server) acceptLoop() {
@@ -100,9 +114,22 @@ func (s *Server) acceptLoop() {
 			}
 			continue
 		}
+		s.connMu.Lock()
+		s.conns[conn] = struct{}{}
+		s.connMu.Unlock()
+		// If Stop ran between Accept and registration, make sure this
+		// connection still gets closed instead of parking a handler forever.
+		if atomic.LoadInt32(&s.running) == 0 {
+			_ = conn.Close()
+		}
 		s.wg.Add(1)
 		go func(c net.Conn) {
 			defer s.wg.Done()
+			defer func() {
+				s.connMu.Lock()
+				delete(s.conns, c)
+				s.connMu.Unlock()
+			}()
 			s.handleConnection(c)
 		}(conn)
 	}
