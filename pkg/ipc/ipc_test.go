@@ -2,10 +2,12 @@ package ipc
 
 import (
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 func TestIPCServerAndClientRoundtrip(t *testing.T) {
@@ -119,3 +121,45 @@ func TestValidateIDE(t *testing.T) {
 	}
 }
 
+// A client that dials the socket and then sits idle must not prevent Stop from
+// completing. Handlers block in ReadBytes, so Stop has to close active
+// connections instead of waiting on EOF from the peer.
+func TestIPCServerStopWithIdleConnection(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "swiss_test_ipc_idle_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	sockPath := filepath.Join(tmpDir, "idle.sock")
+	srv := NewServer(sockPath)
+	srv.Register("test.echo", func(params json.RawMessage) (interface{}, *RPCError) {
+		return map[string]string{"ok": "true"}, nil
+	})
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("dial error: %v", err)
+	}
+	defer conn.Close()
+
+	// Ensure the connection is fully established and served before stopping.
+	var resp map[string]interface{}
+	if err := NewClient(sockPath).Call("test.echo", nil, &resp); err != nil {
+		t.Fatalf("Call over parallel conn failed: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- srv.Stop() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("srv.Stop returned error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("srv.Stop hung while an idle client connection was open")
+	}
+}
