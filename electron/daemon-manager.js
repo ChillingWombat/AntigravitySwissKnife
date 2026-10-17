@@ -22,6 +22,7 @@ class DaemonManager {
     this.host = options.host || '127.0.0.1';
     this.baseUrl = options.baseUrl || `http://${this.host}:${this.port}`;
     this.socketPath = options.socketPath || null;
+    this.getAuthHeaders = typeof options.getAuthHeaders === 'function' ? options.getAuthHeaders : () => ({});
     this.child = null;
     this.isManagedChild = false;
     this.logBuffer = [];
@@ -145,7 +146,7 @@ class DaemonManager {
           });
           return;
         }
-        http.get(`${this.baseUrl}/api/status`, { timeout: timeoutMs }, (res2) => {
+        http.get(`${this.baseUrl}/api/status`, { timeout: timeoutMs, headers: this.getAuthHeaders() }, (res2) => {
           if (res2.statusCode === 200 || res2.statusCode === 401) {
             resolve({ daemon_running: true });
             return;
@@ -155,7 +156,7 @@ class DaemonManager {
       });
 
       req.on('error', () => {
-        http.get(`${this.baseUrl}/api/status`, { timeout: timeoutMs }, (res2) => {
+        http.get(`${this.baseUrl}/api/status`, { timeout: timeoutMs, headers: this.getAuthHeaders() }, (res2) => {
           if (res2.statusCode === 200 || res2.statusCode === 401) {
             resolve({ daemon_running: true });
             return;
