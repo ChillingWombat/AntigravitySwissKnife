@@ -914,6 +914,7 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 				breakdown.ResetHorizonWeeklyText = "Unknown"
 			}
 
+			var sawClaudeWeeklyBucket bool
 			if len(res.Groups) > 0 {
 				for _, g := range res.Groups {
 					gName := strings.ToLower(g.DisplayName)
@@ -962,20 +963,18 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 							if w == "5h" {
 								breakdown.Quota5hClaudeGPT = remaining
 							} else if w == "weekly" {
+								sawClaudeWeeklyBucket = true
 								breakdown.QuotaWeeklyClaudeGPT = remaining
 							}
 						}
 					}
 				}
-				hasWeeklyClaudeBucket := false
-				for _, m := range breakdown.Models {
-					mLower := strings.ToLower(m.ModelName)
-					if (strings.Contains(mLower, "claude") || strings.Contains(mLower, "gpt")) && strings.Contains(mLower, "weekly") {
-						hasWeeklyClaudeBucket = true
-						break
-					}
-				}
-				if !hasWeeklyClaudeBucket && breakdown.QuotaWeeklyClaudeGPT == 0 && breakdown.Quota5hClaudeGPT > 0 {
+				// Mirror the 5h value onto the weekly slot only when the API truly
+				// omitted the weekly bucket for this tier (weekly limit does not
+				// apply). Bucket presence must be tracked explicitly: display names
+				// are generic ("Weekly Limit Remaining"), and an exhausted weekly
+				// bucket (remaining 0) must stay 0 instead of inheriting the 5h value.
+				if !sawClaudeWeeklyBucket && breakdown.QuotaWeeklyClaudeGPT == 0 && breakdown.Quota5hClaudeGPT > 0 {
 					breakdown.QuotaWeeklyClaudeGPT = breakdown.Quota5hClaudeGPT
 				}
 				return breakdown, nil
