@@ -1672,6 +1672,26 @@ func (d *Daemon) monitorAndInjectGUI() {
 	if needsApply {
 		_, _ = d.GUIStore.Apply()
 	}
+
+	// Keep the injected session token current in open pages. A page injected
+	// before a daemon restart holds the previous token and would 401 forever,
+	// because re-Apply only triggers when the styles are missing.
+	if currentToken, terr := core.GetLocalSessionToken(); terr == nil && currentToken != "" {
+		refreshScript := fmt.Sprintf(`(() => {
+			try {
+				if (window.__SWISS_SESSION_TOKEN__ !== %q || (sessionStorage.getItem("antigravity_swiss_session_token") || "") !== %q) {
+					window.__SWISS_SESSION_TOKEN__ = %q;
+					try { sessionStorage.setItem("antigravity_swiss_session_token", %q); } catch (_) {}
+					return true;
+				}
+			} catch (_) {}
+			return false;
+		})()`, currentToken, currentToken, currentToken, currentToken)
+
+		for _, page := range pages {
+			_, _ = inj.ExecuteScript(page.WebSocketDebuggerURL, refreshScript)
+		}
+	}
 }
 
 func (d *Daemon) schedulerLoop() {

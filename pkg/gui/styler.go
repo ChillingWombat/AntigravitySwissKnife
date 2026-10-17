@@ -2687,7 +2687,35 @@ func GenerateScript(cfg *Config) string {
 func GenerateScriptWithCustomModels(cfg *Config, cmCfg *custommodels.Config) string {
 	var tokenScript string
 	if tok, err := core.GetLocalSessionToken(); err == nil && tok != "" {
-		tokenScript = fmt.Sprintf("if (typeof window !== 'undefined') { window.__SWISS_SESSION_TOKEN__ = %q; try { sessionStorage.setItem('antigravity_swiss_session_token', %q); } catch (_) {} };\n\n", tok, tok)
+		tokenScript = fmt.Sprintf(`if (typeof window !== 'undefined') { window.__SWISS_SESSION_TOKEN__ = %q; try { sessionStorage.setItem('antigravity_swiss_session_token', %q); } catch (_) {} };
+(function installSwissAuthInterceptor() {
+  try {
+    if (window.__swissAuthFetchPatched) return;
+    window.__swissAuthFetchPatched = true;
+    const apiOrigin = "http://127.0.0.1:8765";
+    const getToken = () => (typeof window !== "undefined" && window.__SWISS_SESSION_TOKEN__) || (typeof sessionStorage !== "undefined" && sessionStorage.getItem("antigravity_swiss_session_token")) || "";
+    if (!window.fetch) return;
+    const origFetch = window.fetch.bind(window);
+    window.fetch = function(input, init) {
+      try {
+        let url = "";
+        if (typeof input === "string") url = input;
+        else if (input && typeof input.url === "string") url = input.url;
+        if (url.indexOf(apiOrigin) === 0) {
+          const token = getToken();
+          if (token) {
+            const merged = Object.assign({}, init || {});
+            const headers = new Headers(merged.headers || undefined);
+            if (!headers.has("X-Session-Token")) headers.set("X-Session-Token", token);
+            merged.headers = headers;
+            return origFetch(input, merged);
+          }
+        }
+      } catch (_) {}
+      return origFetch.apply(window, arguments);
+    };
+  } catch (_) {}
+})();`, tok, tok)
 	}
 
 	baseScript := generateBaseScript(cfg)

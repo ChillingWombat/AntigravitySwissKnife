@@ -15,29 +15,48 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
 
-// GenerateLocalSessionToken generates a 32-byte cryptographically secure random token,
-// writes it to session.token in the application configuration directory with 0600 permissions,
-// and returns the hex-encoded 64-character token string.
+// GenerateLocalSessionToken returns the 64-character hex-encoded session token.
 //
-// Parameters: none.
+// The token is persisted in session.token (0600) and REUSED across restarts:
+// injected IDE pages, the desktop renderer and the tray all hold a copy, and
+// rotating on every boot invalidated all of them at once (401s on every
+// surface until each one re-acquired the token). A new token is generated
+// only when the file is missing or corrupt.
+//
 // Returns:
 //   - string: the 64-character hex-encoded session token.
 //   - error: any file creation or permission error encountered.
 func GenerateLocalSessionToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("failed to generate random bytes for session token: %w", err)
-	}
-	token := hex.EncodeToString(b)
 	cfgDir := core.GetConfigDir()
 	if err := os.MkdirAll(cfgDir, 0700); err != nil {
 		return "", fmt.Errorf("failed to create configuration directory %q: %w", cfgDir, err)
 	}
 	tokenPath := filepath.Join(cfgDir, "session.token")
+
+	if data, err := os.ReadFile(tokenPath); err == nil {
+		if tok := strings.TrimSpace(string(data)); isValidSessionToken(tok) {
+			return tok, nil
+		}
+	}
+
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate random bytes for session token: %w", err)
+	}
+	token := hex.EncodeToString(b)
 	if err := os.WriteFile(tokenPath, []byte(token), 0600); err != nil {
 		return "", fmt.Errorf("failed to write session token file %q: %w", tokenPath, err)
 	}
 	return token, nil
+}
+
+// isValidSessionToken accepts the 64-character hex tokens this generator produces.
+func isValidSessionToken(tok string) bool {
+	if len(tok) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(tok)
+	return err == nil
 }
 
 // GetLocalSessionToken reads the current session token from the configuration directory.
