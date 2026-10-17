@@ -361,6 +361,16 @@ func (s *Shield) FindAntigravityProcesses() ([]ProcessInfo, error) {
 	return s.findAntigravityProcessesNative()
 }
 
+// isAntigravitySidecar reports whether a command line belongs to an Antigravity
+// helper process (language-server sidecar) rather than the desktop UI. Sidecars
+// keep running after the window is closed, so they must never be mistaken for a
+// live app instance.
+func isAntigravitySidecar(lowerCmdline string) bool {
+	return strings.Contains(lowerCmdline, "server.cjs") ||
+		strings.Contains(lowerCmdline, "sidecar_sdk") ||
+		strings.Contains(lowerCmdline, "sidecar")
+}
+
 // IsAntigravityRunning returns true if an Antigravity main application process is currently running.
 func (s *Shield) IsAntigravityRunning() bool {
 	procs, err := s.findAntigravityProcessesInternal()
@@ -381,9 +391,14 @@ func (s *Shield) IsAntigravityRunning() bool {
 		}
 
 		// Filter out sub-processes (renderers, zygotes, utility processes) and swiss companions
-		if !strings.Contains(lower, "--type=") && !strings.Contains(lower, "swiss") {
-			return true
+		if strings.Contains(lower, "--type=") || strings.Contains(lower, "swiss") {
+			continue
 		}
+		// Filter out language-server sidecars that outlive the desktop window
+		if isAntigravitySidecar(lower) {
+			continue
+		}
+		return true
 	}
 	return false
 }
@@ -470,6 +485,10 @@ func (s *Shield) LaunchHostIDE() error {
 		return nil
 	}
 
+	// Orphaned sidecars (language servers) survive a closed window and hold the
+	// helper ports the fresh instance needs; clear them before spawning.
+	s.terminateAntigravitySidecars()
+
 	// Clear stale Chromium/Electron singleton locks & DevTools port file if dead
 	if !s.IsAntigravityRunning() {
 		hostConfigDir := core.GetAntigravityHostConfigDir()
@@ -493,6 +512,24 @@ func (s *Shield) LaunchHostIDE() error {
 
 	scheduleCDPStyleInjection()
 	return nil
+}
+
+// terminateAntigravitySidecars stops leftover Antigravity helper processes so a
+// fresh app instance can bind its ports. Best-effort: errors are ignored.
+func (s *Shield) terminateAntigravitySidecars() {
+	procs, err := s.findAntigravityProcessesInternal()
+	if err != nil {
+		return
+	}
+	for _, p := range procs {
+		lower := strings.ToLower(p.Cmdline)
+		if strings.Contains(lower, "--type=") || !isAntigravitySidecar(lower) {
+			continue
+		}
+		if proc, ferr := os.FindProcess(p.PID); ferr == nil {
+			_ = proc.Kill()
+		}
+	}
 }
 
 // RelaunchHostIDE gracefully terminates the running host Antigravity IDE (if alive),
