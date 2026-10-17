@@ -17,6 +17,19 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/process"
 )
 
+// redactedPlaceholders lists the masked sentinels that API responses use in
+// place of real secrets. They must never be persisted as credentials.
+var redactedPlaceholders = map[string]bool{
+	"[REDACTED]": true,
+	"******":     true,
+}
+
+// isRedactionPlaceholder reports whether v is a masked secret rather than a
+// real credential value.
+func isRedactionPlaceholder(v string) bool {
+	return redactedPlaceholders[strings.TrimSpace(v)]
+}
+
 // Store manages account inventory and atomic credentials swapping.
 type Store struct {
 	accountsPath         string
@@ -224,7 +237,7 @@ func (acc *Account) RecoverCredentialsFromNotes() bool {
 	if acc == nil {
 		return false
 	}
-	if strings.TrimSpace(acc.RefreshToken) != "" {
+	if strings.TrimSpace(acc.RefreshToken) != "" && !isRedactionPlaceholder(acc.RefreshToken) {
 		if acc.Credential == nil {
 			acc.Credential = &OAuthCredential{
 				RefreshToken: acc.RefreshToken,
@@ -249,7 +262,7 @@ func (acc *Account) RecoverCredentialsFromNotes() bool {
 	}
 
 	rf, at, id, exp, ok := ExtractOAuthFromJSONOrNotes(acc.Notes)
-	if !ok || rf == "" {
+	if !ok || rf == "" || isRedactionPlaceholder(rf) || isRedactionPlaceholder(at) {
 		return false
 	}
 
@@ -888,7 +901,7 @@ func (s *Store) BatchImportAccounts(items []BatchImportItem) (int, error) {
 		if pwd == "" {
 			pwd = item.Pass
 		}
-		if pwd != "" {
+		if pwd != "" && !isRedactionPlaceholder(pwd) {
 			acc.Password = pwd
 		}
 
@@ -905,7 +918,7 @@ func (s *Store) BatchImportAccounts(items []BatchImportItem) (int, error) {
 		if totpSec == "" {
 			totpSec = item.Secret
 		}
-		if totpSec != "" {
+		if totpSec != "" && !isRedactionPlaceholder(totpSec) {
 			acc.TOTPSecret = strings.TrimSpace(totpSec)
 			acc.HasTOTP = true
 		}
@@ -920,7 +933,7 @@ func (s *Store) BatchImportAccounts(items []BatchImportItem) (int, error) {
 		if rToken == "" {
 			rToken = item.Token
 		}
-		if rToken != "" {
+		if rToken != "" && !isRedactionPlaceholder(rToken) {
 			cleanToken := strings.TrimSpace(rToken)
 			if strings.HasPrefix(cleanToken, "ya29.") {
 				acc.AccessToken = cleanToken
@@ -933,7 +946,7 @@ func (s *Store) BatchImportAccounts(items []BatchImportItem) (int, error) {
 			}
 		}
 
-		if item.AccessToken != "" {
+		if item.AccessToken != "" && !isRedactionPlaceholder(item.AccessToken) {
 			acc.AccessToken = strings.TrimSpace(item.AccessToken)
 		}
 
@@ -1001,6 +1014,43 @@ func (s *Store) AddOrUpdateAccount(acc *Account) error {
 
 	acc.RecoverCredentialsFromNotes()
 	acc.HasTOTP = (acc.TOTPSecret != "")
+	// Masked payloads carry placeholders instead of secrets; keep the values
+	// that are already stored rather than overwriting them with the sentinels.
+	if existing := s.accounts[acc.Email]; existing != nil {
+		if isRedactionPlaceholder(acc.Password) {
+			acc.Password = existing.Password
+		}
+		if isRedactionPlaceholder(acc.TOTPSecret) {
+			acc.TOTPSecret = existing.TOTPSecret
+		}
+		if isRedactionPlaceholder(acc.AccessToken) || acc.AccessToken == "" {
+			acc.AccessToken = existing.AccessToken
+		}
+		if isRedactionPlaceholder(acc.RefreshToken) || acc.RefreshToken == "" {
+			acc.RefreshToken = existing.RefreshToken
+		}
+		if isRedactionPlaceholder(acc.IDToken) || acc.IDToken == "" {
+			acc.IDToken = existing.IDToken
+		}
+		if acc.Credential != nil && existing.Credential != nil {
+			if isRedactionPlaceholder(acc.Credential.AccessToken) || acc.Credential.AccessToken == "" {
+				acc.Credential.AccessToken = existing.Credential.AccessToken
+			}
+			if isRedactionPlaceholder(acc.Credential.RefreshToken) || acc.Credential.RefreshToken == "" {
+				acc.Credential.RefreshToken = existing.Credential.RefreshToken
+			}
+		}
+	} else {
+		if isRedactionPlaceholder(acc.AccessToken) {
+			acc.AccessToken = ""
+		}
+		if isRedactionPlaceholder(acc.RefreshToken) {
+			acc.RefreshToken = ""
+		}
+		if isRedactionPlaceholder(acc.IDToken) {
+			acc.IDToken = ""
+		}
+	}
 	if s.activeEmail == "" {
 		s.activeEmail = acc.Email
 		acc.IsActive = true
@@ -1044,7 +1094,7 @@ func (s *Store) ImportAccount(email, refreshToken, accessToken, label, totpSecre
 		acc.Label = "Imported Account"
 	}
 
-	if refreshToken != "" {
+	if refreshToken != "" && !isRedactionPlaceholder(refreshToken) {
 		cleanToken := strings.TrimSpace(refreshToken)
 		if strings.HasPrefix(cleanToken, "ya29.") {
 			acc.AccessToken = cleanToken
@@ -1060,14 +1110,14 @@ func (s *Store) ImportAccount(email, refreshToken, accessToken, label, totpSecre
 			acc.ErrorMessage = ""
 		}
 	}
-	if accessToken != "" {
+	if accessToken != "" && !isRedactionPlaceholder(accessToken) {
 		acc.AccessToken = strings.TrimSpace(accessToken)
 		if strings.EqualFold(acc.Status, "ERROR") {
 			acc.Status = "STANDBY"
 			acc.ErrorMessage = ""
 		}
 	}
-	if totpSecret != "" {
+	if totpSecret != "" && !isRedactionPlaceholder(totpSecret) {
 		acc.TOTPSecret = totpSecret
 	}
 	acc.HasTOTP = (acc.TOTPSecret != "")
@@ -1108,6 +1158,9 @@ func (s *Store) SetAccessToken(email, accessToken string) error {
 	acc, exists := s.accounts[email]
 	if !exists {
 		return fmt.Errorf("%w: %s", core.ErrAccountNotFound, email)
+	}
+	if isRedactionPlaceholder(accessToken) {
+		return nil
 	}
 	acc.AccessToken = strings.TrimSpace(accessToken)
 	return s.save()
@@ -1230,21 +1283,21 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 		}
 	}
 	acc.Notes = notes
-	if password != "" {
+	if password != "" && !isRedactionPlaceholder(password) {
 		acc.Password = password
 	}
 	cleanTOTP := strings.TrimSpace(totpSecret)
 	if cleanTOTP == "[CLEAR]" || cleanTOTP == "CLEAR" {
 		acc.TOTPSecret = ""
 		acc.HasTOTP = false
-	} else if cleanTOTP != "" && cleanTOTP != "[REDACTED]" {
+	} else if cleanTOTP != "" && !isRedactionPlaceholder(cleanTOTP) {
 		acc.TOTPSecret = cleanTOTP
 		acc.HasTOTP = true
 	} else {
 		// Preserve existing TOTPSecret and ensure HasTOTP stays consistent with current secret state
 		acc.HasTOTP = (acc.TOTPSecret != "")
 	}
-	if refreshToken != "" {
+	if refreshToken != "" && !isRedactionPlaceholder(refreshToken) {
 		cleanToken := strings.TrimSpace(refreshToken)
 		if strings.HasPrefix(cleanToken, "ya29.") {
 			acc.AccessToken = cleanToken
@@ -1388,6 +1441,12 @@ func (s *Store) UpdateAccountTokensWithExpiry(email, accessToken, refreshToken s
 	if target == nil {
 		return nil
 	}
+	if isRedactionPlaceholder(accessToken) {
+		accessToken = ""
+	}
+	if isRedactionPlaceholder(refreshToken) {
+		refreshToken = ""
+	}
 
 	modified := false
 	if accessToken != "" && target.AccessToken != accessToken {
@@ -1423,6 +1482,13 @@ func (s *Store) UpdateAccountTokensAndMetadata(email, accessToken, refreshToken,
 	}
 	if target == nil {
 		return nil
+	}
+
+	if isRedactionPlaceholder(accessToken) {
+		accessToken = ""
+	}
+	if isRedactionPlaceholder(refreshToken) {
+		refreshToken = ""
 	}
 
 	modified := false

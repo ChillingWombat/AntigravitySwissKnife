@@ -245,7 +245,7 @@ func buildSecretPayload(acc *Account) ([]byte, error) {
 
 // WriteSecretServiceToken stores account credentials into Linux Secret Service (service=gemini, username=antigravity).
 func WriteSecretServiceToken(acc *Account) error {
-	if os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" || core.IsRunningTests() || acc == nil || isTestMockEmail(acc.Email) || (acc.AccessToken == "" && acc.RefreshToken == "") {
+	if os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" || core.IsRunningTests() || acc == nil || isTestMockEmail(acc.Email) || accountHasRedactedCredentials(acc) || (acc.AccessToken == "" && acc.RefreshToken == "") {
 		return nil
 	}
 	payloadBytes, err := buildSecretPayload(acc)
@@ -420,7 +420,7 @@ func SyncHardwareProfile(email string, profileMgr *fingerprint.Store) error {
 
 // SyncDesktopStandaloneToken writes ~/.gemini/jetski-standalone-oauth-token for Antigravity 2.0.
 func SyncDesktopStandaloneToken(acc *Account) error {
-	if acc == nil || isTestMockEmail(acc.Email) || (acc.AccessToken == "" && acc.RefreshToken == "") {
+	if acc == nil || isTestMockEmail(acc.Email) || accountHasRedactedCredentials(acc) || (acc.AccessToken == "" && acc.RefreshToken == "") {
 		return nil
 	}
 	home, err := os.UserHomeDir()
@@ -442,7 +442,7 @@ func SyncDesktopStandaloneToken(acc *Account) error {
 
 // SyncCLIOAuthToken writes ~/.gemini/antigravity-cli/antigravity-oauth-token for Antigravity CLI (agy).
 func SyncCLIOAuthToken(acc *Account) error {
-	if acc == nil || isTestMockEmail(acc.Email) || (acc.AccessToken == "" && acc.RefreshToken == "") {
+	if acc == nil || isTestMockEmail(acc.Email) || accountHasRedactedCredentials(acc) || (acc.AccessToken == "" && acc.RefreshToken == "") {
 		return nil
 	}
 	home, err := os.UserHomeDir()
@@ -1008,9 +1008,27 @@ func (j *syncJournal) Rollback() error {
 
 // SyncAllSurfaces atomically syncs the active account across Antigravity 2.0 Desktop,
 // Antigravity CLI (agy), and Antigravity VS Code Extension with transactional staging and LIFO rollback.
+// accountHasRedactedCredentials reports whether any credential field still holds
+// a masked sentinel. Such accounts must never be propagated to host surfaces.
+func accountHasRedactedCredentials(acc *Account) bool {
+	if acc == nil {
+		return false
+	}
+	if isRedactionPlaceholder(acc.AccessToken) || isRedactionPlaceholder(acc.RefreshToken) || isRedactionPlaceholder(acc.IDToken) {
+		return true
+	}
+	if acc.Credential != nil && (isRedactionPlaceholder(acc.Credential.AccessToken) || isRedactionPlaceholder(acc.Credential.RefreshToken)) {
+		return true
+	}
+	return false
+}
+
 func SyncAllSurfaces(acc *Account, allEmails []string, profileMgr *fingerprint.Store) error {
 	if acc == nil {
 		return fmt.Errorf("nil account")
+	}
+	if accountHasRedactedCredentials(acc) {
+		return fmt.Errorf("refusing to sync account %s: credentials still carry redaction placeholders", acc.Email)
 	}
 
 	// Ensure access token is fresh before writing across all Antigravity surfaces
@@ -1254,6 +1272,12 @@ func SyncVSCodeSurface(acc *Account) error {
 
 // SyncSurface routes to the appropriate surface sync based on targetApp.
 func SyncSurface(targetApp string, acc *Account, allEmails []string, profileMgr *fingerprint.Store) error {
+	if acc == nil {
+		return fmt.Errorf("nil account")
+	}
+	if accountHasRedactedCredentials(acc) {
+		return fmt.Errorf("refusing to sync account %s: credentials still carry redaction placeholders", acc.Email)
+	}
 	switch strings.ToLower(strings.TrimSpace(targetApp)) {
 	case "desktop":
 		return SyncDesktopSurface(acc, profileMgr, allEmails)
