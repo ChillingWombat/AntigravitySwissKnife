@@ -200,7 +200,7 @@ func readNativeKeyringToken() (*secretTokenData, error) {
 // Credential Manager entry used by the Antigravity desktop authstore, so the
 // next app launch restores the switched account.
 func WriteWindowsKeyringToken(acc *Account) error {
-	if os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" || core.IsRunningTests() || acc == nil || isTestMockEmail(acc.Email) || (acc.AccessToken == "" && acc.RefreshToken == "") {
+	if os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" || core.IsRunningTests() || acc == nil || isTestMockEmail(acc.Email) || accountHasRedactedCredentials(acc) || (acc.AccessToken == "" && acc.RefreshToken == "") {
 		return nil
 	}
 	blob, err := buildWindowsKeyringPayload(acc)
