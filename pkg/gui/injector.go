@@ -185,6 +185,17 @@ func (inj *Injector) GetPageTargets(port int) ([]DevToolsTarget, error) {
 
 // ExecuteCDPCommand sends a JSON-RPC command to the given target via WebSocket.
 func (inj *Injector) ExecuteCDPCommand(wsURLStr string, method string, params map[string]interface{}) (map[string]interface{}, error) {
+	return inj.executeCDPCommand(wsURLStr, method, params, 15*time.Second)
+}
+
+// ExecuteCDPCommandWithTimeout sends a command with a caller-supplied deadline.
+// Cheap probes (account detection) must not wait the full 15s when a stale
+// DevTools port is squatted by an unrelated listener.
+func (inj *Injector) ExecuteCDPCommandWithTimeout(wsURLStr, method string, params map[string]interface{}, timeout time.Duration) (map[string]interface{}, error) {
+	return inj.executeCDPCommand(wsURLStr, method, params, timeout)
+}
+
+func (inj *Injector) executeCDPCommand(wsURLStr string, method string, params map[string]interface{}, timeout time.Duration) (map[string]interface{}, error) {
 	u, err := url.Parse(wsURLStr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid websocket url: %w", err)
@@ -200,7 +211,7 @@ func (inj *Injector) ExecuteCDPCommand(wsURLStr string, method string, params ma
 		return nil, fmt.Errorf("failed to connect to CDP websocket: %w", err)
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(timeout))
 
 	// WebSocket handshake
 	reqPath := u.Path
@@ -282,11 +293,16 @@ func (inj *Injector) ExecuteCDPCommand(wsURLStr string, method string, params ma
 
 // ExecuteScript evaluates a JavaScript expression in the given page target via WebSocket.
 func (inj *Injector) ExecuteScript(wsURLStr string, expression string) (map[string]interface{}, error) {
-	raw, err := inj.ExecuteCDPCommand(wsURLStr, "Runtime.evaluate", map[string]interface{}{
+	return inj.ExecuteScriptWithTimeout(wsURLStr, expression, 15*time.Second)
+}
+
+// ExecuteScriptWithTimeout evaluates an expression with a bounded deadline.
+func (inj *Injector) ExecuteScriptWithTimeout(wsURLStr, expression string, timeout time.Duration) (map[string]interface{}, error) {
+	raw, err := inj.ExecuteCDPCommandWithTimeout(wsURLStr, "Runtime.evaluate", map[string]interface{}{
 		"expression":    expression,
 		"returnByValue": true,
 		"awaitPromise":  true,
-	})
+	}, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -580,7 +596,7 @@ func (inj *Injector) GetLiveEmail() string {
 	})()`
 
 	for _, page := range pages {
-		res, err := inj.ExecuteScript(page.WebSocketDebuggerURL, script)
+		res, err := inj.ExecuteScriptWithTimeout(page.WebSocketDebuggerURL, script, 1500*time.Millisecond)
 		if err == nil && res != nil {
 			if v, ok := res["value"].(string); ok && strings.TrimSpace(v) != "" {
 				return strings.TrimSpace(v)
