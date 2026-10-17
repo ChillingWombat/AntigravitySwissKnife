@@ -692,7 +692,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			total = len(store.ListAccounts())
 		}
 		shield := process.NewShield(0)
-		procs, _ := shield.FindAntigravityProcesses()
+		procs, _ := shield.FindAntigravityUIProcesses()
 		hostRunning := len(procs) > 0
 		var hostPID int
 		if hostRunning {

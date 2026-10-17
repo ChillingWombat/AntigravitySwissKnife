@@ -361,6 +361,24 @@ func (s *Shield) FindAntigravityProcesses() ([]ProcessInfo, error) {
 	return s.findAntigravityProcessesNative()
 }
 
+// FindAntigravityUIProcesses returns only the desktop UI process (no renderer/
+// gpu/utility children, no language-server sidecars that outlive the window).
+func (s *Shield) FindAntigravityUIProcesses() ([]ProcessInfo, error) {
+	procs, err := s.findAntigravityProcessesInternal()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ProcessInfo, 0, len(procs))
+	for _, p := range procs {
+		lower := strings.ToLower(p.Cmdline)
+		if strings.Contains(lower, "--type=") || isAntigravitySidecar(lower) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
 // isAntigravitySidecar reports whether a command line belongs to an Antigravity
 // helper process (language-server sidecar) rather than the desktop UI. Sidecars
 // keep running after the window is closed, so they must never be mistaken for a
@@ -373,7 +391,7 @@ func isAntigravitySidecar(lowerCmdline string) bool {
 
 // IsAntigravityRunning returns true if an Antigravity main application process is currently running.
 func (s *Shield) IsAntigravityRunning() bool {
-	procs, err := s.findAntigravityProcessesInternal()
+	procs, err := s.FindAntigravityUIProcesses()
 	if err != nil || len(procs) == 0 {
 		return false
 	}
@@ -392,10 +410,6 @@ func (s *Shield) IsAntigravityRunning() bool {
 
 		// Filter out sub-processes (renderers, zygotes, utility processes) and swiss companions
 		if strings.Contains(lower, "--type=") || strings.Contains(lower, "swiss") {
-			continue
-		}
-		// Filter out language-server sidecars that outlive the desktop window
-		if isAntigravitySidecar(lower) {
 			continue
 		}
 		return true
