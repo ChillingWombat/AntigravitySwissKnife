@@ -1333,6 +1333,8 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
               borderRadius: '10px',
               padding: '24px',
               width: '420px',
+              maxHeight: '85vh',
+              overflowY: 'auto',
               boxShadow: '0 8px 30px rgba(0,0,0,0.18)',
             }}
           >
