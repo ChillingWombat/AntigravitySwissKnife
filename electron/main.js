@@ -191,14 +191,26 @@ function attachDaemonAuthHeaders() {
   const filter = { urls: [`${DAEMON_URL}/*`] };
   session.defaultSession.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
     const requestHeaders = details.requestHeaders || {};
-    if (!requestHeaders['X-Session-Token']) {
-      const token = getDaemonSessionToken();
-      if (token) {
-        requestHeaders['X-Session-Token'] = token;
-      }
+    // Always use the daemon's current startup token. The renderer keeps a copy in
+    // localStorage that goes stale after a daemon restart; letting it win caused
+    // 401s until the silent-unlock round-trip completed.
+    const token = getDaemonSessionToken();
+    if (token) {
+      requestHeaders['X-Session-Token'] = token;
     }
     callback({ requestHeaders });
   });
+}
+
+// Main-process requests (tray, launch, probes) run outside the renderer session,
+// so the webRequest hook above never sees them. Attach the token explicitly.
+function daemonAuthHeaders(extra = {}, maxAgeMs = 3000) {
+  const headers = { ...extra };
+  const token = getDaemonSessionToken(maxAgeMs);
+  if (token) {
+    headers['X-Session-Token'] = token;
+  }
+  return headers;
 }
 
 // Module State
@@ -212,6 +224,7 @@ const daemonManager = new DaemonManager({
   port: DAEMON_PORT,
   host: DAEMON_HOST,
   baseUrl: DAEMON_URL,
+  getAuthHeaders: () => daemonAuthHeaders(),
 });
 
 // Liveness probe helper
@@ -298,7 +311,7 @@ function switchAccountViaHttp(email) {
   try {
     const req = http.request(`${DAEMON_URL}/api/switch`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: daemonAuthHeaders({ 'Content-Type': 'application/json' }),
       timeout: 3000,
     }, (res) => {
       let body = '';
@@ -346,7 +359,7 @@ async function updateTrayMenu() {
   let fleetFetched = false;
   try {
     const fleetRes = await new Promise((resolve) => {
-      http.get(`${DAEMON_URL}/api/quota/fleet`, { timeout: 800 }, (res) => {
+      http.get(`${DAEMON_URL}/api/quota/fleet`, { timeout: 800, headers: daemonAuthHeaders() }, (res) => {
         let body = '';
         res.on('data', (c) => { body += c; });
         res.on('end', () => {
@@ -368,7 +381,7 @@ async function updateTrayMenu() {
   if (!fleetFetched || accountsList.length === 0) {
     try {
       const accRes = await new Promise((resolve) => {
-        http.get(`${DAEMON_URL}/api/accounts`, { timeout: 800 }, (res) => {
+        http.get(`${DAEMON_URL}/api/accounts`, { timeout: 800, headers: daemonAuthHeaders() }, (res) => {
           let body = '';
           res.on('data', (c) => { body += c; });
           res.on('end', () => {
@@ -394,7 +407,7 @@ async function updateTrayMenu() {
   if (activeAccount && activeAccount !== 'Not Logged In' && (!activeAcc || activeAcc.quota_5h_current === undefined || activeAcc.quota_weekly === undefined)) {
     try {
       const singleQuota = await new Promise((resolve) => {
-        http.get(`${DAEMON_URL}/api/quota?email=${encodeURIComponent(activeAccount)}`, { timeout: 400 }, (res) => {
+        http.get(`${DAEMON_URL}/api/quota?email=${encodeURIComponent(activeAccount)}`, { timeout: 400, headers: daemonAuthHeaders() }, (res) => {
           let body = '';
           res.on('data', (c) => { body += c; });
           res.on('end', () => {
@@ -793,7 +806,21 @@ function registerIpcHandlers() {
 
   ipcMain.handle('desktop:launch-antigravity', async () => {
     try {
-      const res = await fetch(`${DAEMON_URL}/api/desktop/launch`, { method: 'POST' });
+      let res = await fetch(`${DAEMON_URL}/api/desktop/launch`, {
+        method: 'POST',
+        headers: daemonAuthHeaders(),
+      });
+      if (res.status === 401) {
+        // Token rotated since the last read; re-read the file and retry once.
+        res = await fetch(`${DAEMON_URL}/api/desktop/launch`, {
+          method: 'POST',
+          headers: daemonAuthHeaders({}, 0),
+        });
+      }
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`daemon responded ${res.status}: ${text.slice(0, 200)}`);
+      }
       return await res.json();
     } catch (err) {
       console.warn('[Electron] Failed to trigger relaunch via daemon, attempting fallback:', err.message);
