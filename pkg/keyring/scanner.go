@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 )
@@ -149,8 +151,29 @@ func resolveEmailFromTokenOrCloudDB(idToken, refreshToken, accessToken, homeDir 
 	return ""
 }
 
+// Surface detection is expensive (CDP probes against the IDE) and runs on every
+// status/quota request through ReconcileActiveAccount. Cache the result briefly
+// so polling stays cheap even when the DevTools endpoint is stale. Callers
+// treat the returned accounts as read-only.
+var (
+	detectCacheMu sync.Mutex
+	detectCache   = make(map[string]detectedSurfacesEntry)
+)
+
+type detectedSurfacesEntry struct {
+	at       time.Time
+	surfaces map[string]*DetectedSurfaceAccount
+}
+
+const detectSurfacesCacheTTL = 10 * time.Second
+
 // DetectAllSurfaces inspects the host environment and returns the detected accounts on each Antigravity surface.
 func DetectAllSurfaces(homeDir, configDir string) map[string]*DetectedSurfaceAccount {
+	if os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" {
+		detectCacheMu.Lock()
+		detectCache = make(map[string]detectedSurfacesEntry)
+		detectCacheMu.Unlock()
+	}
 	if homeDir == "" {
 		homeDir, _ = os.UserHomeDir()
 	}
@@ -160,6 +183,14 @@ func DetectAllSurfaces(homeDir, configDir string) map[string]*DetectedSurfaceAcc
 			configDir = custom
 		}
 	}
+
+	cacheKey := homeDir + "|" + configDir
+	detectCacheMu.Lock()
+	if entry, ok := detectCache[cacheKey]; ok && time.Since(entry.at) < detectSurfacesCacheTTL {
+		detectCacheMu.Unlock()
+		return entry.surfaces
+	}
+	detectCacheMu.Unlock()
 
 	results := make(map[string]*DetectedSurfaceAccount)
 
@@ -349,6 +380,10 @@ func DetectAllSurfaces(homeDir, configDir string) map[string]*DetectedSurfaceAcc
 			}
 		}
 	}
+
+	detectCacheMu.Lock()
+	detectCache[cacheKey] = detectedSurfacesEntry{at: time.Now(), surfaces: results}
+	detectCacheMu.Unlock()
 
 	return results
 }
