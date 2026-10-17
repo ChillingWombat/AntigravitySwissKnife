@@ -2616,3 +2616,11 @@ func TestGenerateAuxiliaryPluginsScript_InstallsAuthInterceptor(t *testing.T) {
 		t.Fatalf("expected the auxiliary script to reference /api/files/list")
 	}
 }
+
+func TestGenerateAuxiliaryPluginsScript_InterceptorWithoutSessionToken(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
+	script := GenerateAuxiliaryPluginsScript()
+	if !strings.Contains(script, "__swissAuthFetchPatched") {
+		t.Fatalf("interceptor must be present even when no session token exists")
+	}
+}

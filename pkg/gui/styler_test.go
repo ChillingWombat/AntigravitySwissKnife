@@ -17,3 +17,16 @@ func TestGenerateScriptWithCustomModels_InstallsAuthInterceptor(t *testing.T) {
 		t.Fatalf("expected the interceptor to scope itself to the daemon origin")
 	}
 }
+
+// CI has no session.token: the interceptor must still be installed so a fresh
+// install authenticates as soon as the daemon writes one.
+func TestGenerateScript_InterceptorWithoutSessionToken(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
+	script := GenerateScript(nil)
+	if !strings.Contains(script, "__swissAuthFetchPatched") {
+		t.Fatalf("interceptor must be present even when no session token exists")
+	}
+	if strings.Contains(script, "__SWISS_SESSION_TOKEN__ = \"\"") {
+		t.Fatalf("must not assign an empty token")
+	}
+}
