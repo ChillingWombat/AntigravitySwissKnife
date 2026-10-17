@@ -542,18 +542,11 @@ func BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts []*keyring.
 			if s.QuotaWeeklyClaudeGPT > 0 {
 				curWeeklyClaude = ClampFraction(s.QuotaWeeklyClaudeGPT)
 			}
-			if curWeeklyClaude == 0 && cur5hClaude > 0 {
-				hasWeeklyClaudeBucket := false
-				for _, m := range s.Models {
-					mLower := strings.ToLower(m.ModelName)
-					if (strings.Contains(mLower, "claude") || strings.Contains(mLower, "gpt")) && strings.Contains(mLower, "weekly") {
-						hasWeeklyClaudeBucket = true
-						break
-					}
-				}
-				if !hasWeeklyClaudeBucket {
-					curWeeklyClaude = cur5hClaude
-				}
+			if curWeeklyClaude == 0 && cur5hClaude > 0 && !(s != nil && s.ClaudeWeeklyBucketPresent) {
+				// The API omitted the Claude weekly bucket for this tier; mirror
+				// the 5h value. An exhausted weekly bucket (0 with the bucket
+				// present) must stay 0.
+				curWeeklyClaude = cur5hClaude
 			}
 			if s.ResetSeconds5h > 0 {
 				curSec = s.ResetSeconds5h
