@@ -150,11 +150,12 @@ func TestDualEngineQuotaStatusCalculation(t *testing.T) {
 	// 4. When Gemini is depleted, Claude 5h is healthy, but Claude weekly is strictly 0.0 (exhausted):
 	// Account MUST enter COOLING without credit overages
 	summaryClaudeWeeklyDepleted := &QuotaSummary{
-		AccountEmail:         "dual-standby@example.com",
-		Quota5hFraction:      0.01,
-		QuotaWeeklyFraction:  0.01,
-		Quota5hClaudeGPT:     0.80,
-		QuotaWeeklyClaudeGPT: 0.00,
+		AccountEmail:              "dual-standby@example.com",
+		Quota5hFraction:           0.01,
+		QuotaWeeklyFraction:       0.01,
+		Quota5hClaudeGPT:          0.80,
+		QuotaWeeklyClaudeGPT:      0.00,
+		ClaudeWeeklyBucketPresent: true,
 		Models: []ModelQuota{
 			{ModelName: "claude-3-7-sonnet-weekly", Fraction: 0.00},
 		},
