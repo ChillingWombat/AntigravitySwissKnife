@@ -270,7 +270,7 @@ func (d *Daemon) triggerQuotaRefreshAsync() {
 func (d *Daemon) registerRPCHandlers() {
 	// 1. Status
 	statusHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
-		procs, _ := d.Shield.FindAntigravityProcesses()
+		procs, _ := d.Shield.FindAntigravityUIProcesses()
 		var hostPID int
 		if len(procs) > 0 {
 			hostPID = procs[0].PID

@@ -150,3 +150,37 @@ func TestLaunchHostIDE_ClosedIDETestMode(t *testing.T) {
 }
 
 
+
+func TestShield_IsAntigravityRunning_IgnoresSidecarServers(t *testing.T) {
+	shield := NewShield(0)
+	shield.SetProcessFinder(func() ([]ProcessInfo, error) {
+		return []ProcessInfo{
+			{PID: 8248, Name: "Antigravity.exe", Cmdline: `"C:\Users\David\AppData\Local\Programs\antigravity\Antigravity.exe" --import=file:///C:/Users/David/.gemini/antigravity/lib/node_modules/sidecar_sdk/register_loader.js dist/server.cjs`},
+		}, nil
+	})
+
+	if shield.IsAntigravityRunning() {
+		t.Fatalf("sidecar language servers must not be treated as the running desktop app")
+	}
+}
+
+func TestLaunchHostIDE_StaleSidecarDoesNotFocus(t *testing.T) {
+	focusCalled := false
+	shield := NewShield(0)
+	shield.SetProcessFinder(func() ([]ProcessInfo, error) {
+		return []ProcessInfo{
+			{PID: 8248, Name: "Antigravity.exe", Cmdline: `C:\Antigravity\Antigravity.exe --import=file:///x/sidecar_sdk/register_loader.js dist/server.cjs`},
+		}, nil
+	})
+	shield.SetFocusFunc(func() error {
+		focusCalled = true
+		return nil
+	})
+
+	if err := shield.LaunchHostIDE(); err != nil {
+		t.Fatalf("LaunchHostIDE returned error: %v", err)
+	}
+	if focusCalled {
+		t.Fatalf("expected LaunchHostIDE to attempt a real launch instead of focusing a sidecar-only state")
+	}
+}
