@@ -2601,3 +2601,18 @@ func TestAuxiliaryConversationTabsExpansion(t *testing.T) {
 	}
 }
 
+
+func TestGenerateAuxiliaryPluginsScript_InstallsAuthInterceptor(t *testing.T) {
+	script := GenerateAuxiliaryPluginsScript()
+	if !strings.Contains(script, "__swissAuthFetchPatched") {
+		t.Fatalf("expected the fetch auth interceptor to be installed")
+	}
+	if !strings.Contains(script, `headers.set("X-Session-Token", token)`) {
+		t.Fatalf("expected the interceptor to attach X-Session-Token for daemon-origin requests")
+	}
+	// The file explorer endpoints must not remain bare: the interceptor covers
+	// every daemon-origin fetch on the page.
+	if !strings.Contains(script, "/api/files/list") {
+		t.Fatalf("expected the auxiliary script to reference /api/files/list")
+	}
+}
