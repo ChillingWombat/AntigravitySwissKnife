@@ -55,6 +55,7 @@ type QuotaSummary struct {
 	QuotaWeeklyFraction    float64      `json:"quota_weekly_fraction,omitempty"`
 	Quota5hClaudeGPT       float64      `json:"quota_5h_claude_gpt,omitempty"`
 	QuotaWeeklyClaudeGPT   float64      `json:"quota_weekly_claude_gpt,omitempty"`
+	ClaudeWeeklyBucketPresent bool     `json:"claude_weekly_bucket_present,omitempty"`
 	ResetSeconds5h         float64      `json:"reset_seconds_5h,omitempty"`
 	ResetHorizonText       string       `json:"reset_horizon_text,omitempty"`
 	ResetSecondsWeekly     float64      `json:"reset_seconds_weekly,omitempty"`
