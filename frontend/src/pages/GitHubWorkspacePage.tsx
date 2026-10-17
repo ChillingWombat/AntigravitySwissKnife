@@ -19,6 +19,7 @@ import {
 import { api } from '../api'
 import type { KanbanBoard, KanbanCard, KanbanColumn } from '../types'
 import { getEffectiveKanbanColumns, findItemColumn } from '../utils/kanban'
+import { useContextMenuPlacement } from '../utils/useContextMenuPlacement'
 
 export function sanitizeAgentTitle(val?: string): string {
   if (!val) return ''
@@ -62,6 +63,10 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
     itemType: 'issue' | 'pr'
     currentColId: string
   } | null>(null)
+  const { menuRef: contextMenuRef, menuPosition: contextMenuPosition } = useContextMenuPlacement(
+    contextMenu !== null,
+    contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null
+  )
 
   useEffect(() => {
     const handleGlobalClick = () => setContextMenu(null)
@@ -2027,6 +2032,8 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
           <div
             style={{
               width: '560px',
+              maxHeight: '85vh',
+              overflowY: 'auto',
               backgroundColor: 'var(--surface)',
               borderRadius: '10px',
               padding: '24px',
@@ -2114,10 +2121,12 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
 
       {contextMenu && (
         <div
+          ref={contextMenuRef}
           style={{
             position: 'fixed',
-            left: Math.min(contextMenu.x, window.innerWidth - 200),
-            top: Math.min(contextMenu.y, window.innerHeight - 240),
+            left: contextMenuPosition?.left ?? -9999,
+            top: contextMenuPosition?.top ?? -9999,
+            visibility: contextMenuPosition ? 'visible' : 'hidden',
             zIndex: 99999,
             minWidth: '180px',
             backgroundColor: 'var(--surface)',

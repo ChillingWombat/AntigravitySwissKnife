@@ -23,6 +23,7 @@ import {
 import type { AccountState, FleetQuotaSummary, RuleConfig, DiscoveredAccount, TargetApp } from '../types'
 import { normalizePlanTier, toAccountState } from '../types'
 import { TABLE_MIN_WIDTH } from '../utils/layoutTokens'
+import { useContextMenuPlacement } from '../utils/useContextMenuPlacement'
 import { getAccountTableDisplay, parseAccountErrorAlert } from '../utils/accountPresentation'
 import { CircularGauge } from '../components/CircularGauge'
 import { HorizontalQuotaBar } from '../components/HorizontalQuotaBar'
@@ -150,6 +151,10 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const errorDetailFetchedAtRef = React.useRef<number>(0)
   const errorDetailPollingRef = React.useRef<boolean>(false)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; account: AccountState } | null>(null)
+  const { menuRef: contextMenuRef, menuPosition: contextMenuPosition } = useContextMenuPlacement(
+    contextMenu !== null,
+    contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null
+  )
 
   // Discovered Accounts Import Modal State
   const [isScanModalOpen, setIsScanModalOpen] = useState(false)
@@ -1611,6 +1616,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               borderRadius: '10px',
               width: '460px',
               maxWidth: '90vw',
+              maxHeight: '85vh',
+              overflowY: 'auto',
               padding: '24px',
               boxShadow: 'var(--shadow-lg)',
               border: '1px solid var(--border)',
@@ -1782,10 +1789,12 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
       {/* Right-Click Context Menu */}
       {contextMenu && (
         <div
+          ref={contextMenuRef}
           style={{
             position: 'fixed',
-            top: contextMenu.y,
-            left: contextMenu.x,
+            top: contextMenuPosition?.top ?? -9999,
+            left: contextMenuPosition?.left ?? -9999,
+            visibility: contextMenuPosition ? 'visible' : 'hidden',
             backgroundColor: '#ffffff',
             border: '1px solid var(--border)',
             borderRadius: '10px',
