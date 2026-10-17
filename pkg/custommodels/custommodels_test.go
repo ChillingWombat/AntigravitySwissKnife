@@ -854,5 +854,18 @@ func TestOpenCodeQuotaLiveDetection(t *testing.T) {
 	}
 }
 
+func TestGenerateCustomModelsScript_AuthHeaders(t *testing.T) {
+	script := GenerateCustomModelsScript(nil)
+	if !strings.Contains(script, "getSwissAuthHeaders") {
+		t.Errorf("expected script to contain getSwissAuthHeaders function")
+	}
+	if !strings.Contains(script, "headers: getSwissAuthHeaders()") {
+		t.Errorf("expected script to attach getSwissAuthHeaders to fetch calls")
+	}
+	if !strings.Contains(script, "X-Session-Token") {
+		t.Errorf("expected getSwissAuthHeaders to set X-Session-Token")
+	}
+}
+
 
 

@@ -1825,6 +1825,9 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			}
 			if val, ok := p["default_custom_model"].(string); ok {
 				c.DefaultCustomModel = val
+				if val == "" && s.getCustomModelsStore() != nil {
+					_ = s.customModelsStore.ClearDefaultFlags()
+				}
 			}
 			if val, ok := p["default_non_gemini_model"].(string); ok {
 				c.DefaultNonGeminiModel = val
@@ -2775,9 +2778,7 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 		cfg.InferenceSupported = true
 		if coreCfg, err := core.LoadConfig(); err == nil && coreCfg.DefaultCustomModel != "" {
 			for i := range cfg.Models {
-				if cfg.Models[i].ID == coreCfg.DefaultCustomModel || cfg.Models[i].Name == coreCfg.DefaultCustomModel {
-					cfg.Models[i].IsDefault = true
-				}
+				cfg.Models[i].IsDefault = (cfg.Models[i].ID == coreCfg.DefaultCustomModel || cfg.Models[i].Name == coreCfg.DefaultCustomModel)
 			}
 		}
 		writeJSON(w, cfg)
@@ -2800,6 +2801,25 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 				prefix = "custom"
 			}
 			m.ID = fmt.Sprintf("%s-%s-%d", prefix, slug, time.Now().Unix())
+		} else {
+			// When editing an existing model, restore secrets and GCP metadata if redacted or omitted
+			if saved, err := s.customModelsStore.GetModel(m.ID); err == nil && saved != nil {
+				if m.APIKey == "" || m.APIKey == "[REDACTED]" {
+					m.APIKey = saved.APIKey
+				}
+				if m.GCPServiceAccountKey == "" || m.GCPServiceAccountKey == "[REDACTED]" {
+					m.GCPServiceAccountKey = saved.GCPServiceAccountKey
+				}
+				if m.GCPProjectID == "" {
+					m.GCPProjectID = saved.GCPProjectID
+				}
+				if m.GCPRegion == "" {
+					m.GCPRegion = saved.GCPRegion
+				}
+				if m.BalanceValue == "" {
+					m.BalanceValue = saved.BalanceValue
+				}
+			}
 		}
 		// Auto-derive balance or quota unless manually overridden by user
 		if !m.QuotaManualOverride {
@@ -2846,6 +2866,7 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 			if c, err := core.LoadConfig(); err == nil && (c.DefaultCustomModel == m.ID || c.DefaultCustomModel == m.Name) {
 				c.DefaultCustomModel = ""
 				_ = c.Save()
+				_ = s.customModelsStore.ClearDefaultFlags()
 			}
 		}
 		if saved, err := s.customModelsStore.GetModel(m.ID); err == nil && saved != nil {
@@ -2865,9 +2886,18 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "missing model id parameter", http.StatusBadRequest)
 			return
 		}
+		deletedName := ""
+		if existing, err := s.customModelsStore.GetModel(id); err == nil && existing != nil {
+			deletedName = existing.Name
+		}
 		if err := s.customModelsStore.DeleteModel(id); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if c, err := core.LoadConfig(); err == nil && c.DefaultCustomModel != "" && (c.DefaultCustomModel == id || (deletedName != "" && c.DefaultCustomModel == deletedName)) {
+			c.DefaultCustomModel = ""
+			_ = c.Save()
+			_ = s.customModelsStore.ClearDefaultFlags()
 		}
 		writeJSON(w, map[string]interface{}{"success": true, "deleted": id})
 	default:
@@ -2896,6 +2926,12 @@ func (s *Server) handleCustomModelTest(w http.ResponseWriter, r *http.Request) {
 			}
 			if m.GCPServiceAccountKey == "" || m.GCPServiceAccountKey == "[REDACTED]" {
 				m.GCPServiceAccountKey = saved.GCPServiceAccountKey
+			}
+			if m.GCPProjectID == "" {
+				m.GCPProjectID = saved.GCPProjectID
+			}
+			if m.GCPRegion == "" {
+				m.GCPRegion = saved.GCPRegion
 			}
 		}
 	}
@@ -3005,7 +3041,7 @@ func (s *Server) handleCustomModelRefreshQuotas(w http.ResponseWriter, r *http.R
 	nowShort := time.Now().Format("2006-01-02 15:04")
 	for i := range cfg.Models {
 		quotaRes := custommodels.DetectAndFetchQuota(cfg.Models[i])
-		if !cfg.Models[i].QuotaManualOverride || quotaRes.QuotaType != custommodels.QuotaTypeNA {
+		if !cfg.Models[i].QuotaManualOverride {
 			cfg.Models[i].QuotaType = quotaRes.QuotaType
 			cfg.Models[i].BalanceValue = quotaRes.BalanceValue
 			cfg.Models[i].QuotaValue = quotaRes.QuotaValue

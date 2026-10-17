@@ -3124,3 +3124,235 @@ func TestSubagentModelStrategy_RulesAPI(t *testing.T) {
 	}
 }
 
+func TestCustomModels_DefaultCustomModelByNameAndID(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	dummySock := filepath.Join(tempDir, "dummy.sock")
+	srv := NewServer("127.0.0.1:0", dummySock)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// 1. Create Model 1 (DeepSeek)
+	m1 := map[string]interface{}{
+		"id":            "custom-m1",
+		"name":          "deepseek-flash",
+		"display_name":  "DeepSeek Flash",
+		"provider_type": "openai",
+		"base_url":      "https://api.deepseek.com/chat/completions",
+		"is_default":    false,
+		"enabled":       true,
+	}
+	d1, _ := json.Marshal(m1)
+	resp, err := http.Post(baseURL+"/api/custom_models", "application/json", bytes.NewReader(d1))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST m1 failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 2. Create Model 2 (Gemini 4 Argon, GCP) with is_default: true
+	m2 := map[string]interface{}{
+		"id":                      "gcp-custom-2",
+		"name":                    "gemini-4-argon",
+		"display_name":            "Gemini 4 Argon (GCP)",
+		"provider_type":           "gcp",
+		"base_url":                "https://asia-southeast1-aiplatform.googleapis.com",
+		"gcp_project_id":          "test-proj",
+		"gcp_region":              "asia-southeast1",
+		"gcp_service_account_key": `{"type":"service_account","project_id":"test-proj","private_key":"k","client_email":"sa@test.iam.gserviceaccount.com"}`,
+		"is_default":              true,
+		"enabled":                 true,
+	}
+	d2, _ := json.Marshal(m2)
+	resp, err = http.Post(baseURL+"/api/custom_models", "application/json", bytes.NewReader(d2))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST m2 failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 3. GET /api/custom_models - verifies gemini-4-argon is default and m1 is not
+	resp, err = http.Get(baseURL + "/api/custom_models")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET custom_models failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	var cmCfg struct {
+		Models []struct {
+			ID        string `json:"id"`
+			Name      string `json:"name"`
+			IsDefault bool   `json:"is_default"`
+		} `json:"models"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&cmCfg)
+	resp.Body.Close()
+
+	for _, m := range cmCfg.Models {
+		if m.ID == "gcp-custom-2" && !m.IsDefault {
+			t.Errorf("expected gcp-custom-2 to have IsDefault=true")
+		}
+		if m.ID == "custom-m1" && m.IsDefault {
+			t.Errorf("expected custom-m1 to have IsDefault=false")
+		}
+	}
+
+	// 4. Update rules setting default_custom_model by model name "gemini-4-argon"
+	rulesPayload := map[string]interface{}{
+		"default_custom_model": "gemini-4-argon",
+	}
+	rBytes, _ := json.Marshal(rulesPayload)
+	resp, err = http.Post(baseURL+"/api/rules", "application/json", bytes.NewReader(rBytes))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST rules failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Verify GET /api/custom_models still marks gcp-custom-2 as default and custom-m1 as false
+	resp, _ = http.Get(baseURL + "/api/custom_models")
+	_ = json.NewDecoder(resp.Body).Decode(&cmCfg)
+	resp.Body.Close()
+	for _, m := range cmCfg.Models {
+		if m.ID == "gcp-custom-2" && !m.IsDefault {
+			t.Errorf("expected gcp-custom-2 to be resolved as IsDefault=true via model name match")
+		}
+		if m.ID == "custom-m1" && m.IsDefault {
+			t.Errorf("expected custom-m1 to be IsDefault=false")
+		}
+	}
+
+	// 5. Update rules setting default_custom_model to "custom-m1" (by ID)
+	rulesPayload = map[string]interface{}{
+		"default_custom_model": "custom-m1",
+	}
+	rBytes, _ = json.Marshal(rulesPayload)
+	resp, err = http.Post(baseURL+"/api/rules", "application/json", bytes.NewReader(rBytes))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST rules failed: err=%v, code=%d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Verify GET /api/custom_models now sets custom-m1 to true and gcp-custom-2 to false
+	resp, _ = http.Get(baseURL + "/api/custom_models")
+	_ = json.NewDecoder(resp.Body).Decode(&cmCfg)
+	resp.Body.Close()
+	for _, m := range cmCfg.Models {
+		if m.ID == "custom-m1" && !m.IsDefault {
+			t.Errorf("expected custom-m1 to be IsDefault=true after switch")
+		}
+		if m.ID == "gcp-custom-2" && m.IsDefault {
+			t.Errorf("expected gcp-custom-2 to be IsDefault=false after switch")
+		}
+	}
+
+	// 6. Delete custom-m1 (which was the active default)
+	delReq, _ := http.NewRequest(http.MethodDelete, baseURL+"/api/custom_models?id=custom-m1", nil)
+	delResp, err := http.DefaultClient.Do(delReq)
+	if err != nil || delResp.StatusCode != http.StatusOK {
+		t.Fatalf("DELETE custom-m1 failed: err=%v, code=%d", err, delResp.StatusCode)
+	}
+	delResp.Body.Close()
+
+	// Verify DefaultCustomModel was cleared in core.Config
+	savedCfg, err := core.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if savedCfg.DefaultCustomModel != "" {
+		t.Errorf("expected DefaultCustomModel to be cleared after deleting default model, got %q", savedCfg.DefaultCustomModel)
+	}
+}
+
+func TestCustomModels_DeleteClearsNameBasedDefaultAndStoreFlags(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	dummySock := filepath.Join(tempDir, "dummy.sock")
+	srv := NewServer("127.0.0.1:0", dummySock)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	postJSON := func(path string, payload map[string]interface{}) {
+		t.Helper()
+		raw, _ := json.Marshal(payload)
+		resp, err := http.Post(baseURL+path, "application/json", bytes.NewReader(raw))
+		if err != nil {
+			t.Fatalf("POST %s failed: %v", path, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("POST %s returned %d", path, resp.StatusCode)
+		}
+	}
+
+	postJSON("/api/custom_models", map[string]interface{}{
+		"id":            "gcp-name-def",
+		"name":          "gemini-4-argon",
+		"display_name":  "Gemini 4 Argon (GCP)",
+		"provider_type": "gcp",
+		"base_url":      "https://us-central1-aiplatform.googleapis.com",
+		"gcp_project_id": "proj-a",
+		"gcp_region":    "us-central1",
+		"enabled":       true,
+	})
+	postJSON("/api/custom_models", map[string]interface{}{
+		"id":            "openai-other",
+		"name":          "other-model",
+		"display_name":  "Other Model",
+		"provider_type": "openai",
+		"base_url":      "https://api.example.com/chat/completions",
+		"is_default":    true,
+		"enabled":       true,
+	})
+
+	// Switch the default to the GCP model by NAME only (rules path).
+	postJSON("/api/rules", map[string]interface{}{
+		"default_custom_model": "gemini-4-argon",
+	})
+
+	savedCfg, err := core.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if savedCfg.DefaultCustomModel != "gemini-4-argon" {
+		t.Fatalf("precondition failed: DefaultCustomModel = %q; want %q", savedCfg.DefaultCustomModel, "gemini-4-argon")
+	}
+
+	// Delete the model that the name-based default points at.
+	delReq, _ := http.NewRequest(http.MethodDelete, baseURL+"/api/custom_models?id=gcp-name-def", nil)
+	delResp, err := http.DefaultClient.Do(delReq)
+	if err != nil || delResp.StatusCode != http.StatusOK {
+		t.Fatalf("DELETE gcp-name-def failed: err=%v, code=%v", err, delResp.StatusCode)
+	}
+	delResp.Body.Close()
+
+	savedCfg, err = core.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if savedCfg.DefaultCustomModel != "" {
+		t.Errorf("expected name-based DefaultCustomModel to be cleared after deleting its model, got %q", savedCfg.DefaultCustomModel)
+	}
+
+	// The remaining model must not keep advertising itself as the default.
+	resp, err := http.Get(baseURL + "/api/custom_models")
+	if err != nil {
+		t.Fatalf("GET custom_models failed: %v", err)
+	}
+	var cmCfg struct {
+		Models []struct {
+			ID        string `json:"id"`
+			IsDefault bool   `json:"is_default"`
+		} `json:"models"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&cmCfg)
+	resp.Body.Close()
+	for _, m := range cmCfg.Models {
+		if m.ID == "openai-other" && m.IsDefault {
+			t.Errorf("expected stale is_default flag cleared on openai-other after default removal")
+		}
+	}
+}

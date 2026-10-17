@@ -60,9 +60,25 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 	defer cancel()
 
 	if model.ProviderType == ProviderGCP {
-		endpoint := model.BaseURL
-		if endpoint == "" {
-			endpoint = BuildVertexAIEndpoint(model.GCPRegion, model.GCPProjectID, model.Name)
+		endpoint := strings.TrimSpace(model.BaseURL)
+		region := model.GCPRegion
+		projectID := model.GCPProjectID
+		if projectID == "" && strings.Contains(endpoint, "/projects/") {
+			rem := endpoint[strings.Index(endpoint, "/projects/")+len("/projects/"):]
+			if slash := strings.Index(rem, "/"); slash != -1 {
+				projectID = rem[:slash]
+			}
+		}
+		if region == "" && strings.Contains(endpoint, "-aiplatform.googleapis.com") {
+			if u, err := url.Parse(endpoint); err == nil {
+				host := u.Hostname()
+				if idx := strings.Index(host, "-aiplatform.googleapis.com"); idx != -1 {
+					region = host[:idx]
+				}
+			}
+		}
+		if endpoint == "" || strings.Contains(endpoint, "aiplatform.googleapis.com") || !strings.Contains(endpoint, "/models/") {
+			endpoint = BuildVertexAIEndpoint(region, projectID, model.Name)
 		}
 		if _, _, ssrfErr := ValidateEndpointSSRF(endpoint, ProviderGCP, t.AllowLoopback); ssrfErr != nil {
 			return &TestResult{
@@ -71,7 +87,7 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 				LatencyMs: time.Since(start).Milliseconds(),
 			}, ssrfErr
 		}
-		return TestGCPModelWithEndpoint(ctx, model.GCPServiceAccountKey, endpoint, model.GCPProjectID, model.GCPRegion, model.Name, t.AllowLoopback)
+		return TestGCPModelWithEndpoint(ctx, model.GCPServiceAccountKey, endpoint, projectID, region, model.Name, t.AllowLoopback)
 	}
 
 	baseURL := strings.TrimRight(model.BaseURL, "/")
@@ -296,10 +312,29 @@ func ResolveEndpoint(providerType ProviderType, rawBaseURL string, modelName str
 
 	switch providerType {
 	case ProviderGCP:
-		if baseURL != "" {
+		region := "us-central1"
+		if u, err := url.Parse(baseURL); err == nil && u.Hostname() != "" {
+			host := u.Hostname()
+			if idx := strings.Index(host, "-aiplatform.googleapis.com"); idx != -1 {
+				region = host[:idx]
+			}
+		}
+		projectID := ""
+		if idx := strings.Index(baseURL, "/projects/"); idx != -1 {
+			rem := baseURL[idx+len("/projects/"):]
+			if slash := strings.Index(rem, "/"); slash != -1 {
+				projectID = rem[:slash]
+			} else {
+				projectID = rem
+			}
+		}
+		if projectID != "" && modelName != "" {
+			return BuildVertexAIEndpoint(region, projectID, modelName)
+		}
+		if strings.Contains(baseURL, "/models/") {
 			return baseURL
 		}
-		return BuildVertexAIEndpoint("us-central1", "", modelName)
+		return BuildVertexAIEndpoint(region, projectID, modelName)
 
 	case ProviderCustom:
 		trimmed := strings.TrimSpace(rawBaseURL)
