@@ -306,6 +306,27 @@ func NormalizeVertexAIModel(rawModel string) (publisher, cleanModel, action stri
 	return publisher, cleanModel, action
 }
 
+// isGlobalVertexLocation reports whether loc is the Vertex AI multi-region "global" location.
+// The global location serves models (e.g. Gemini models such as gemini-4-argon) that are not
+// pinned to a single region and uses a host without a region prefix: aiplatform.googleapis.com.
+func isGlobalVertexLocation(loc string) bool {
+	return strings.EqualFold(strings.TrimSpace(loc), "global")
+}
+
+// extractVertexAIRegionFromHost derives the Vertex AI location from an aiplatform.googleapis.com host.
+// Regional hosts look like us-central1-aiplatform.googleapis.com; the region-less global host
+// aiplatform.googleapis.com maps to the "global" location. Returns ok=false for non-Vertex hosts.
+func extractVertexAIRegionFromHost(host string) (string, bool) {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "aiplatform.googleapis.com" {
+		return "global", true
+	}
+	if idx := strings.Index(host, "-aiplatform.googleapis.com"); idx > 0 {
+		return host[:idx], true
+	}
+	return "", false
+}
+
 // BuildVertexAIEndpoint constructs the REST endpoint URL for a Vertex AI model.
 func BuildVertexAIEndpoint(region, projectID, modelName string) string {
 	region = strings.TrimSpace(region)
@@ -321,19 +342,40 @@ func BuildVertexAIEndpoint(region, projectID, modelName string) string {
 		publisher = "google"
 	}
 
-	// Claude on Vertex AI is only available in us-east5 and europe-west1; remap us-central1 to us-east5
-	if strings.EqualFold(publisher, "anthropic") && (region == "us-central1" || region == "") {
+	// Claude on Vertex AI is only available in us-east5 and europe-west1; remap us-central1 to us-east5.
+	// The remap must never apply to the global location (Claude is not available there).
+	if !isGlobalVertexLocation(region) && strings.EqualFold(publisher, "anthropic") && (region == "us-central1" || region == "") {
 		region = "us-east5"
 	}
+	if isGlobalVertexLocation(region) {
+		region = "global"
+	}
 
-	return fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/%s/models/%s:%s",
-		url.PathEscape(region), url.PathEscape(projectID), url.PathEscape(region),
+	// The global location uses the region-less host aiplatform.googleapis.com;
+	// every other location (including the us/eu multi-regions) is region-prefixed.
+	host := url.PathEscape(region) + "-aiplatform.googleapis.com"
+	if isGlobalVertexLocation(region) {
+		host = "aiplatform.googleapis.com"
+	}
+
+	return fmt.Sprintf("https://%s/v1/projects/%s/locations/%s/publishers/%s/models/%s:%s",
+		host, url.PathEscape(projectID), url.PathEscape(region),
 		url.PathEscape(publisher), url.PathEscape(cleanModel), action)
 }
 
 // TestGCPModel tests connectivity to the GCP Vertex AI model using the Service Account credentials.
 func TestGCPModel(ctx context.Context, saKeyJSON string, projectID, region, modelName string) (*TestResult, error) {
 	return TestGCPModelWithEndpoint(ctx, saKeyJSON, "", projectID, region, modelName, false)
+}
+
+// gcpModelNotFoundHint returns an advisory appended to HTTP 404 failures explaining that the
+// model may simply be unavailable in the requested location, suggesting the global location.
+// Returns an empty string when no hint applies (e.g. the request already targeted global).
+func gcpModelNotFoundHint(region string) string {
+	if isGlobalVertexLocation(region) {
+		return ""
+	}
+	return " Hint: this model may not be available in the current location. Try the \"global\" location, which serves Gemini models such as gemini-4-argon without a region prefix."
 }
 
 // TestGCPModelWithEndpoint tests connectivity with an optional endpoint override and loopback allowance for testing.
@@ -365,11 +407,10 @@ func TestGCPModelWithEndpoint(ctx context.Context, saKeyJSON string, endpointOve
 			projectID = rem[:slash]
 		}
 	}
-	if region == "" && strings.Contains(endpoint, "-aiplatform.googleapis.com") {
+	if region == "" {
 		if u, err := url.Parse(endpoint); err == nil {
-			host := u.Hostname()
-			if idx := strings.Index(host, "-aiplatform.googleapis.com"); idx != -1 {
-				region = host[:idx]
+			if extracted, ok := extractVertexAIRegionFromHost(u.Hostname()); ok {
+				region = extracted
 			}
 		}
 	}
@@ -486,6 +527,9 @@ func TestGCPModelWithEndpoint(ctx context.Context, saKeyJSON string, endpointOve
 	}
 
 	errMsg := parseGCPErrorMessage(resp.StatusCode, bodyBytes)
+	if resp.StatusCode == http.StatusNotFound {
+		errMsg += gcpModelNotFoundHint(region)
+	}
 
 	return &TestResult{
 		Success:    false,

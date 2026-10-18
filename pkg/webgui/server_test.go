@@ -2550,10 +2550,10 @@ func TestTokenMonitorRealTelemetryPricingAndDeletion(t *testing.T) {
 		t.Fatalf("GET /api/tokens/summary failed: %v", err)
 	}
 	var sumData struct {
-		TotalTokens     int64                        `json:"total_tokens"`
-		RequestsCount   int                          `json:"requests_count"`
-		ModelBreakdowns []TokenModelBreakdown        `json:"model_breakdowns"`
-		TelemetryEvents []TokenTelemetryEvent        `json:"telemetry_events"`
+		TotalTokens     int64                             `json:"total_tokens"`
+		RequestsCount   int                               `json:"requests_count"`
+		ModelBreakdowns []TokenModelBreakdown             `json:"model_breakdowns"`
+		TelemetryEvents []TokenTelemetryEvent             `json:"telemetry_events"`
 		PricingRecords  []custommodels.ModelPricingRecord `json:"pricing_records"`
 		Models          []custommodels.ModelPricingRecord `json:"models"`
 	}
@@ -3289,14 +3289,14 @@ func TestCustomModels_DeleteClearsNameBasedDefaultAndStoreFlags(t *testing.T) {
 	}
 
 	postJSON("/api/custom_models", map[string]interface{}{
-		"id":            "gcp-name-def",
-		"name":          "gemini-4-argon",
-		"display_name":  "Gemini 4 Argon (GCP)",
-		"provider_type": "gcp",
-		"base_url":      "https://us-central1-aiplatform.googleapis.com",
+		"id":             "gcp-name-def",
+		"name":           "gemini-4-argon",
+		"display_name":   "Gemini 4 Argon (GCP)",
+		"provider_type":  "gcp",
+		"base_url":       "https://us-central1-aiplatform.googleapis.com",
 		"gcp_project_id": "proj-a",
-		"gcp_region":    "us-central1",
-		"enabled":       true,
+		"gcp_region":     "us-central1",
+		"enabled":        true,
 	})
 	postJSON("/api/custom_models", map[string]interface{}{
 		"id":            "openai-other",
@@ -3355,4 +3355,132 @@ func TestCustomModels_DeleteClearsNameBasedDefaultAndStoreFlags(t *testing.T) {
 			t.Errorf("expected stale is_default flag cleared on openai-other after default removal")
 		}
 	}
+}
+
+func TestCustomModels_DefaultGateOnFailedLastTest(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+
+	// Seed a store whose GCP model carries a persisted failed connectivity test.
+	seed := `{
+  "version": "1.0.0",
+  "inference_supported": true,
+  "models": [
+    {
+      "id": "gcp-gate-failed",
+      "name": "gemini-4-argon",
+      "display_name": "Gemini 4 Argon (GCP)",
+      "provider_type": "gcp",
+      "base_url": "https://aiplatform.googleapis.com/v1/projects/proj-a/locations/global/publishers/google/models/gemini-4-argon:generateContent",
+      "gcp_project_id": "proj-a",
+      "gcp_region": "global",
+      "gcp_service_account_key": "{\"type\":\"service_account\",\"project_id\":\"proj-a\",\"private_key\":\"k\",\"client_email\":\"sa@proj-a.iam.gserviceaccount.com\"}",
+      "project_mappings": ["*"],
+      "quota_type": "balance",
+      "quota_manual_override": true,
+      "is_default": false,
+      "last_test_success": false,
+      "last_tested_at": "2026-10-18T00:00:00Z",
+      "enabled": true
+    }
+  ],
+  "project_binds": {}
+}`
+	if err := os.WriteFile(filepath.Join(tempDir, "custom_models.json"), []byte(seed), 0600); err != nil {
+		t.Fatalf("failed to seed custom_models.json: %v", err)
+	}
+
+	dummySock := filepath.Join(tempDir, "dummy.sock")
+	srv := NewServer("127.0.0.1:0", dummySock)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://" + srv.Addr()
+
+	// 1. Promoting the failed-test model via the rules endpoint must be rejected.
+	rulesRaw, _ := json.Marshal(map[string]interface{}{"default_custom_model": "gcp-gate-failed"})
+	resp, err := http.Post(baseURL+"/api/rules", "application/json", bytes.NewReader(rulesRaw))
+	if err != nil {
+		t.Fatalf("POST /api/rules failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 promoting a failed-test model via rules, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 2. Saving the failed-test model with is_default=true must be rejected too.
+	saveRaw, _ := json.Marshal(map[string]interface{}{
+		"id":                      "gcp-gate-failed",
+		"name":                    "gemini-4-argon",
+		"display_name":            "Gemini 4 Argon (GCP)",
+		"provider_type":           "gcp",
+		"base_url":                "https://aiplatform.googleapis.com/v1/projects/proj-a/locations/global/publishers/google/models/gemini-4-argon:generateContent",
+		"gcp_project_id":          "proj-a",
+		"gcp_region":              "global",
+		"gcp_service_account_key": `{"type":"service_account","project_id":"proj-a","private_key":"k","client_email":"sa@proj-a.iam.gserviceaccount.com"}`,
+		"quota_manual_override":   true,
+		"is_default":              true,
+		"enabled":                 true,
+	})
+	resp2, err := http.Post(baseURL+"/api/custom_models", "application/json", bytes.NewReader(saveRaw))
+	if err != nil {
+		t.Fatalf("POST /api/custom_models failed: %v", err)
+	}
+	if resp2.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 saving failed-test model as default, got %d", resp2.StatusCode)
+	}
+	resp2.Body.Close()
+
+	savedCfg, err := core.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if savedCfg.DefaultCustomModel == "gcp-gate-failed" {
+		t.Error("failed-test model must not become the default custom model")
+	}
+
+	// 3. A never-tested model may still be promoted to default.
+	promoteRaw, _ := json.Marshal(map[string]interface{}{
+		"id":                    "openai-fresh",
+		"name":                  "fresh-model",
+		"display_name":          "Fresh Model",
+		"provider_type":         "openai",
+		"base_url":              "https://api.example.com/chat/completions",
+		"quota_manual_override": true,
+		"is_default":            true,
+		"enabled":               true,
+	})
+	resp3, err := http.Post(baseURL+"/api/custom_models", "application/json", bytes.NewReader(promoteRaw))
+	if err != nil {
+		t.Fatalf("POST /api/custom_models (fresh) failed: %v", err)
+	}
+	if resp3.StatusCode != http.StatusOK {
+		t.Errorf("expected never-tested model to be promotable, got %d", resp3.StatusCode)
+	}
+	resp3.Body.Close()
+
+	// 4. The failed-test model may still be edited (it is not being promoted).
+	editRaw, _ := json.Marshal(map[string]interface{}{
+		"id":                      "gcp-gate-failed",
+		"name":                    "gemini-4-argon",
+		"display_name":            "Gemini 4 Argon (GCP, global)",
+		"provider_type":           "gcp",
+		"base_url":                "https://aiplatform.googleapis.com/v1/projects/proj-a/locations/global/publishers/google/models/gemini-4-argon:generateContent",
+		"gcp_project_id":          "proj-a",
+		"gcp_region":              "global",
+		"gcp_service_account_key": `{"type":"service_account","project_id":"proj-a","private_key":"k","client_email":"sa@proj-a.iam.gserviceaccount.com"}`,
+		"quota_manual_override":   true,
+		"is_default":              false,
+		"enabled":                 true,
+	})
+	resp4, err := http.Post(baseURL+"/api/custom_models", "application/json", bytes.NewReader(editRaw))
+	if err != nil {
+		t.Fatalf("POST /api/custom_models (edit) failed: %v", err)
+	}
+	if resp4.StatusCode != http.StatusOK {
+		t.Errorf("expected failed-test model to remain editable, got %d", resp4.StatusCode)
+	}
+	resp4.Body.Close()
 }

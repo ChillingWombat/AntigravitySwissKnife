@@ -71,6 +71,11 @@ const inferProviderType = (url: string): ProviderType => {
   return 'custom'
 }
 
+// The Vertex AI "global" location uses the region-less host aiplatform.googleapis.com;
+// every other location (including the us/eu multi-regions) is region-prefixed.
+const gcpBaseUrlForRegion = (region: string): string =>
+  region === 'global' ? 'https://aiplatform.googleapis.com' : `https://${region}-aiplatform.googleapis.com`
+
 const normalizeQuotaType = (t?: string | null): QuotaType => {
   if (t === 'balance' || t === 'cost_based') return 'balance'
   if (t === 'quota' || t === 'quota_based') return 'quota'
@@ -312,7 +317,7 @@ export const CustomModelsPage: React.FC = () => {
       name: effModel,
       display_name: gcpDisplayName.trim() || effModel,
       provider_type: 'gcp',
-      base_url: `https://${gcpRegion}-aiplatform.googleapis.com`,
+      base_url: gcpBaseUrlForRegion(gcpRegion),
       gcp_project_id: project,
       gcp_region: gcpRegion,
       gcp_service_account_key: effSaKey,
@@ -367,6 +372,13 @@ export const CustomModelsPage: React.FC = () => {
       setGcpError('Project ID is required.')
       return
     }
+    // A model whose last connection test failed must not be promoted to the default model.
+    // (Models that are already the stored default may still be edited.)
+    const alreadyDefault = isEdit && isModelDefault(gcpEditingModel)
+    if (gcpIsDefault && gcpTestResult && !gcpTestResult.success && !alreadyDefault) {
+      setGcpError('Cannot set this model as the default while its last connection test failed. Run a successful test first.')
+      return
+    }
 
     setGcpSaving(true)
     setGcpError(null)
@@ -389,7 +401,7 @@ export const CustomModelsPage: React.FC = () => {
       name: effModel,
       display_name: gcpDisplayName.trim() || `${effModel} (GCP Vertex)`,
       provider_type: 'gcp',
-      base_url: `https://${gcpRegion}-aiplatform.googleapis.com`,
+      base_url: gcpBaseUrlForRegion(gcpRegion),
       gcp_project_id: project,
       gcp_region: gcpRegion,
       gcp_service_account_key: saKey,
@@ -401,6 +413,8 @@ export const CustomModelsPage: React.FC = () => {
       total_budget: 0,
       quota_fraction: null,
       is_default: gcpIsDefault,
+      last_test_success: gcpTestResult ? gcpTestResult.success : gcpEditingModel?.last_test_success,
+      last_tested_at: gcpTestResult ? new Date().toISOString() : gcpEditingModel?.last_tested_at,
       enabled: isEdit ? gcpEditingModel.enabled : true,
       context_window: isEdit && gcpEditingModel.context_window ? gcpEditingModel.context_window : ctxWindow,
       supports_thinking: isReasoning,
@@ -918,6 +932,13 @@ export const CustomModelsPage: React.FC = () => {
         return
       }
     }
+    // A model whose last connection test failed must not be promoted to the default model.
+    // (Models that are already the stored default may still be edited.)
+    const alreadyDefault = !!editingModel && isModelDefault(editingModel)
+    if (isDefault && modalTestResult && !modalTestResult.success && !alreadyDefault) {
+      setModalError('Cannot set this model as the default while its last connection test failed. Run a successful test first.')
+      return
+    }
 
     setModalSaving(true)
     setModalError(null)
@@ -964,6 +985,8 @@ export const CustomModelsPage: React.FC = () => {
       output_price_per_m: outputPricePerM,
       price_source: priceSource,
       is_default: isDefault,
+      last_test_success: modalTestResult ? modalTestResult.success : editingModel?.last_test_success,
+      last_tested_at: modalTestResult ? new Date().toISOString() : editingModel?.last_tested_at,
       enabled: enabled,
       context_window: Number(contextWindow) || 1048576,
       supports_thinking: isThinking,
@@ -2039,6 +2062,7 @@ export const CustomModelsPage: React.FC = () => {
                   <ToggleSwitch
                     size="sm"
                     checked={isDefault}
+                    disabled={!!modalTestResult && !modalTestResult.success && !(editingModel && isModelDefault(editingModel))}
                     onChange={(checked) => setIsDefault(checked)}
                   />
                 </label>
@@ -2904,14 +2928,20 @@ export const CustomModelsPage: React.FC = () => {
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                  Vertex AI Region:
+                  Vertex AI Location:
                 </label>
                 <select
                   value={gcpRegion}
-                  onChange={(e) => setGcpRegion(e.target.value)}
+                  onChange={(e) => {
+                    setGcpRegion(e.target.value)
+                    setGcpTestResult(null)
+                  }}
                   style={{ width: '100%', fontSize: '12px', padding: '8px 10px', boxSizing: 'border-box' }}
                 >
-                  <option value="us-central1">us-central1 (Iowa - Recommended)</option>
+                  <option value="global">global (Global endpoint - Gemini models, e.g. gemini-4-argon)</option>
+                  <option value="us">us (Multi-region: United States)</option>
+                  <option value="eu">eu (Multi-region: European Union)</option>
+                  <option value="us-central1">us-central1 (Iowa)</option>
                   <option value="us-east5">us-east5 (Ohio - Claude on Vertex)</option>
                   <option value="us-east4">us-east4 (N. Virginia)</option>
                   <option value="us-west1">us-west1 (Oregon)</option>
@@ -2953,12 +2983,13 @@ export const CustomModelsPage: React.FC = () => {
               </div>
               <input
                 type="text"
-                placeholder="Enter Model ID (e.g. gemini-2.5-flash or meta/llama-3.3-70b-instruct)"
+                placeholder="Enter Model ID (e.g. gemini-4-argon or meta/llama-3.3-70b-instruct)"
                 value={gcpCustomModel}
                 onChange={(e) => {
                   const val = e.target.value
                   setGcpCustomModel(val)
-                  if (!gcpDisplayName || gcpDisplayName === gcpCustomModel || gcpDisplayName === `${gcpCustomModel} (GCP Vertex)` || gcpDisplayName === 'Gemini 2.5 Flash (GCP Vertex)') {
+                  setGcpTestResult(null)
+                  if (!gcpDisplayName || gcpDisplayName === gcpCustomModel || gcpDisplayName === `${gcpCustomModel} (GCP Vertex)` || gcpDisplayName === 'Gemini 4 Argon (GCP Vertex)') {
                     setGcpDisplayName(val ? `${val} (GCP Vertex)` : '')
                   }
                   if (val.toLowerCase().includes('claude') && gcpRegion === 'us-central1') {
@@ -2976,7 +3007,7 @@ export const CustomModelsPage: React.FC = () => {
               </label>
               <input
                 type="text"
-                placeholder="e.g. Gemini 2.5 Flash (GCP Vertex)"
+                placeholder="e.g. Gemini 4 Argon (GCP Vertex)"
                 value={gcpDisplayName}
                 onChange={(e) => setGcpDisplayName(e.target.value)}
                 style={{ width: '100%', fontSize: '12px', padding: '8px 10px', boxSizing: 'border-box' }}
@@ -2992,10 +3023,16 @@ export const CustomModelsPage: React.FC = () => {
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                   Route queries to this model when custom model source is triggered.
                 </div>
+                {gcpTestResult && !gcpTestResult.success && (
+                  <div style={{ fontSize: '11px', color: '#b3261e', marginTop: '4px' }}>
+                    The last connection test failed — run a successful test before setting this model as the default.
+                  </div>
+                )}
               </div>
               <ToggleSwitch
                 size="sm"
                 checked={gcpIsDefault}
+                disabled={!!gcpTestResult && !gcpTestResult.success && !(!!gcpEditingModel && isModelDefault(gcpEditingModel))}
                 onChange={(checked) => setGcpIsDefault(checked)}
               />
             </div>
@@ -3029,6 +3066,32 @@ export const CustomModelsPage: React.FC = () => {
                       ? `Connection successful! (${gcpTestResult.latency_ms}ms) - Model responded correctly.`
                       : `Connection test failed: ${gcpTestResult.message}`}
                   </span>
+                  {!gcpTestResult.success && gcpTestResult.status_code === 404 && gcpRegion !== 'global' && (
+                    <div style={{ fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      <span>
+                        The model may not be available in the &quot;{gcpRegion}&quot; location. Gemini models such as gemini-4-argon are served from the global location.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGcpRegion('global')
+                          setGcpTestResult(null)
+                        }}
+                        style={{
+                          background: 'none',
+                          border: '1px solid #b3261e',
+                          borderRadius: '999px',
+                          padding: '2px 10px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          color: '#b3261e',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Switch to global
+                      </button>
+                    </div>
+                  )}
                   {gcpTestResult.success && (gcpTestResult.quota_result?.balance_value || gcpTestResult.quota_result?.quota_value) && (
                     <div style={{ fontSize: '11px', fontWeight: 600, color: '#137333', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span>GCP Credit Balance: {gcpTestResult.quota_result.balance_value || gcpTestResult.quota_result.quota_value}</span>

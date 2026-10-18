@@ -118,6 +118,14 @@ func cloneFloatPtr(p *float64) *float64 {
 	return &v
 }
 
+func cloneBoolPtr(p *bool) *bool {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
 // ResetThirdPartyPricingCache clears the cached third-party pricing map (used in tests).
 func ResetThirdPartyPricingCache() {
 	thirdPartyCacheMu.Lock()
