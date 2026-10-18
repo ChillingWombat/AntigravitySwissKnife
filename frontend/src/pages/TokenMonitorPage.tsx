@@ -294,6 +294,12 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   const formatCost = (usd: number | null | undefined) =>
     usd === null || usd === undefined ? 'null' : `$${usd.toFixed(4)}`
 
+  // Capitalized classification label ("native" -> "Native", missing -> "Native")
+  const formatClassification = (classification: string | null | undefined) => {
+    const raw = classification || 'native'
+    return raw.charAt(0).toUpperCase() + raw.slice(1)
+  }
+
   // 2-decimal metric formatter shared by the Models / Projects breakdowns
   const formatMetric = (value: number | null | undefined) => {
     if (unitMode === 'usd' && (value === null || value === undefined)) {
@@ -1824,14 +1830,13 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     <th style={{ padding: '8px 12px' }}>Tokens (In / Cache / Out)</th>
                     <th style={{ padding: '8px 12px' }}>Speed</th>
                     <th style={{ padding: '8px 12px' }}>Cost</th>
-                    <th style={{ padding: '8px 12px' }}>Type</th>
                     <th style={{ padding: '8px 12px' }}>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredTelemetryEvents.length === 0 ? (
                     <tr>
-                      <td colSpan={9} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                      <td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
                         No live telemetry sessions recorded for the selected filter.
                       </td>
                     </tr>
@@ -1850,7 +1855,14 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                         {ev.agent_role || (ev.is_subagent ? 'Sub-Agent' : 'Main Agent')}
                       </span>
                     </td>
-                    <td style={{ padding: '10px 12px', fontWeight: 500, color: 'var(--text)' }}>{ev.model || ev.canonical_id || ev.model_id || 'Model'}</td>
+                    <td style={{ padding: '10px 12px', fontWeight: 500, color: 'var(--text)' }}>
+                      <span
+                        title={`${ev.model || ev.canonical_id || ev.model_id || 'Model'} · ${formatClassification(ev.classification)}`}
+                        style={{ cursor: 'help' }}
+                      >
+                        {ev.model || ev.canonical_id || ev.model_id || 'Model'}
+                      </span>
+                    </td>
                     <td style={{ padding: '10px 12px' }}>
                       <span>{formatTokens(ev.input_tokens)} in</span> •{' '}
                       <span style={{ color: '#137333' }}>{formatTokens(ev.cached_tokens)} cache</span> •{' '}
@@ -1861,20 +1873,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     </td>
                     <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text)' }}>
                       {formatCost(ev.cost_usd)}
-                    </td>
-                    <td style={{ padding: '10px 12px' }}>
-                      <span
-                        style={{
-                          backgroundColor: ev.classification === 'native' ? '#e8f0fe' : '#f3e8ff',
-                          color: ev.classification === 'native' ? 'var(--primary)' : '#7e22ce',
-                          padding: '2px 6px',
-                          borderRadius: '8px',
-                          fontWeight: 600,
-                          textTransform: 'capitalize',
-                        }}
-                      >
-                        {ev.classification || 'native'}
-                      </span>
                     </td>
                     <td style={{ padding: '10px 12px' }}>
                       <span
