@@ -282,35 +282,31 @@ function getTrayIcon() {
   const isMac = process.platform === 'darwin';
   const isWin = process.platform === 'win32';
 
-  // Windows 11 renders notification-area icons at 24 px (30 px at 125 % DPI,
-  // 32 px at 150 %). Feeding the shell a 16x16 PNG and letting it upscale is
-  // what made the tray icon look blurry, so on Windows use the 32 px bitmap
-  // (downsampled from the 636 px master) and fall back to the multi-size .ico.
+  // Notification-area icons need a transparent background: the app icon's white
+  // squircle either disappears on the white overflow flyout or reads as a blank
+  // tile, which is why the tray icon looked small even after the taskbar icon
+  // was fixed. tray_*.png carry only the knife glyph on transparency.
+  //
+  // Windows 11 draws tray icons at 24 px (30 px at 125 % DPI, 36 px at 150 %),
+  // so hand it the 32 px glyph instead of a 16 px bitmap that would be upscaled.
+  const trayFile = isWin
+    ? path.join(__dirname, '..', 'assets', 'icons', 'tray_32x32.png')
+    : path.join(__dirname, '..', 'assets', 'icons', 'tray_24x24.png');
+
   let img;
-  if (isWin) {
-    const png32 = path.join(__dirname, '..', 'assets', 'icons', 'icon_32x32.png');
-    if (fs.existsSync(png32)) {
-      img = nativeImage.createFromPath(png32);
-    }
-    if (!img || img.isEmpty()) {
-      const icoPath = path.join(__dirname, '..', 'assets', 'icons', 'icon.ico');
-      if (fs.existsSync(icoPath)) {
-        img = nativeImage.createFromPath(icoPath);
-      }
+  if (fs.existsSync(trayFile)) {
+    img = nativeImage.createFromPath(trayFile);
+  }
+  if (!img || img.isEmpty()) {
+    const icoPath = path.join(__dirname, '..', 'assets', 'icons', 'icon.ico');
+    if (fs.existsSync(icoPath)) {
+      img = nativeImage.createFromPath(icoPath);
     }
   }
-
   if (!img || img.isEmpty()) {
-    const preferredFile = isMac
-      ? path.join(__dirname, '..', 'assets', 'icons', 'icon_24x24.png')
-      : path.join(__dirname, '..', 'assets', 'icons', 'icon_24x24.png');
-    if (fs.existsSync(preferredFile)) {
-      img = nativeImage.createFromPath(preferredFile);
-    } else {
-      const rawPath = getIconPath();
-      if (rawPath) {
-        img = nativeImage.createFromPath(rawPath);
-      }
+    const rawPath = getIconPath();
+    if (rawPath) {
+      img = nativeImage.createFromPath(rawPath);
     }
   }
 
@@ -319,7 +315,7 @@ function getTrayIcon() {
   }
 
   // Windows: return the native image untouched — resizing it to 16 px would
-  // reintroduce the blur the .ico just fixed.
+  // reintroduce the blur the 32 px glyph just fixed.
   if (isWin) {
     return img;
   }
