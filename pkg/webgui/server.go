@@ -1096,6 +1096,68 @@ func (s *Server) handleAccountsBatchImport(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, res)
 }
 
+// preSwitchAccountStatus resolves the target account's quota status
+// ("STANDBY", "COOLING", "ERROR", "BANNED", "ACTIVE", ...) using the same
+// computation as the fleet view. It must be called before a switch is
+// executed, because the switch flips the account's active flag and therefore
+// its status. The second return value reports whether the account was found.
+func (s *Server) preSwitchAccountStatus(email string) (string, bool) {
+	store, err := keyring.NewStore("")
+	if err != nil || store == nil {
+		return "", false
+	}
+	cfg, _ := core.LoadConfig()
+	threshold5h := core.DefaultAutoSwitchThresholdFraction
+	thresholdWeekly := core.DefaultAutoSwitchWeeklyThresholdFraction
+	allowNonGemini := false
+	if cfg != nil {
+		if cfg.AutoSwitchThreshold > 0 {
+			threshold5h = cfg.AutoSwitchThreshold
+		}
+		if cfg.AutoSwitchWeeklyThreshold > 0 {
+			thresholdWeekly = cfg.AutoSwitchWeeklyThreshold
+		}
+		allowNonGemini = cfg.AllowNonGeminiNativeModels
+	}
+	states := quota.BuildAccountQuotaStatesFromMapWithThresholds(store.ListAccounts(), nil, threshold5h, thresholdWeekly, allowNonGemini)
+	for _, st := range states {
+		if strings.EqualFold(strings.TrimSpace(st.Email), strings.TrimSpace(email)) {
+			return st.Status, true
+		}
+	}
+	return "", false
+}
+
+// disableAutoSwitchForManualPin implements the manual account switching
+// invariant: pinning an account that is NOT in STANDBY status turns
+// auto-switch off so the rotation daemon does not immediately switch away
+// from the manually selected account. Targets that ARE in STANDBY leave
+// auto-switch untouched. It returns true when auto-switch was disabled.
+func (s *Server) disableAutoSwitchForManualPin(email string) bool {
+	status, found := s.preSwitchAccountStatus(email)
+	if !found || strings.EqualFold(status, core.AccountStatusStandby) {
+		return false
+	}
+	cfg, err := core.LoadConfig()
+	if err != nil || cfg == nil || !cfg.AutoSwitchEnabled {
+		return false
+	}
+	var res map[string]interface{}
+	if s.client != nil && s.client.Call("swiss.setRuleConfig", map[string]interface{}{"auto_switch_enabled": false}, &res) == nil {
+		return true
+	}
+	c, errCfg := core.LoadConfig()
+	if errCfg != nil {
+		return false
+	}
+	c.AutoSwitchEnabled = false
+	_ = keyring.SyncCloudAccountsAutoSwitch("", false)
+	if err := c.Save(); err != nil {
+		return false
+	}
+	return true
+}
+
 func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1124,6 +1186,12 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.isSwitching.Store(false)
+	// Manual switching pins the selected account: when auto-switch is enabled
+	// and the target account is NOT in STANDBY status, turn auto-switch off so
+	// the daemon does not immediately rotate away from the pinned account.
+	// Evaluated before the switch executes so the target's pre-switch status
+	// is used. STANDBY targets leave auto-switch state untouched.
+	autoSwitchDisabled := s.disableAutoSwitchForManualPin(p.Email)
 	shouldRelaunch := true
 	if p.RelaunchIDE != nil {
 		shouldRelaunch = *p.RelaunchIDE
@@ -1218,12 +1286,18 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 			"multi_app_sync_mode": syncMode,
 			"active_app_accounts": activeApps,
 		}
+		if autoSwitchDisabled {
+			res["auto_switch_disabled"] = true
+		}
 	} else {
 		if res == nil {
 			res = make(map[string]interface{})
 		}
 		res["success"] = true
 		res["active_account"] = p.Email
+		if autoSwitchDisabled {
+			res["auto_switch_disabled"] = true
+		}
 		if p.TargetApp != "" {
 			res["target_app"] = p.TargetApp
 		}
