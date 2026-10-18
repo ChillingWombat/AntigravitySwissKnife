@@ -1984,10 +1984,17 @@ func TestRestoreConversationPath_RecoversFromOnboardingRace(t *testing.T) {
 
 			mu.Lock()
 			evalCalls++
-			// After the first replaceState occurs during uninitialized onboarding (Fdc race),
-			// onboarding finishes and mounts the landing shell at RouterPath = "/".
+			// Fdc onboarding race model: onboarding is still uninitialised on the
+			// first nudge, then finishes. When the app's router initialises it
+			// ADOPTS the URL that is currently in the address bar — that is exactly
+			// why the pre-router bootstrap rewrite (history.replaceState, history
+			// state preserved) exists. The app does not need (and must not get)
+			// repeated rewrites afterwards.
 			if evalCalls >= 2 {
 				sim.OnboardingInitialized = true
+				if strings.HasPrefix(sim.Pathname, "/c/") {
+					sim.RouterPath = sim.Pathname
+				}
 			}
 			stateBytes, _ := json.Marshal(sim)
 			mu.Unlock()
@@ -2014,9 +2021,6 @@ const window = {
         state.search = "";
       }
       this.location = window.location = { pathname: state.pathname, search: state.search };
-      if (state.onboardingInitialized) {
-        state.routerPath = state.pathname;
-      }
     }
   }
 };
@@ -2078,8 +2082,8 @@ console.log(JSON.stringify({ state, res }));
 	}
 
 	inj := NewInjector(port)
-	if !inj.RestoreConversationPath(targetPath, 8*time.Second) {
-		t.Fatalf("expected RestoreConversationPath to recover from Fdc onboarding race and return true")
+	if res := inj.RestoreConversationPath(targetPath, 8*time.Second); !res.Verified {
+		t.Fatalf("expected RestoreConversationPath to recover from Fdc onboarding race and return Verified, got %+v", res)
 	}
 
 	mu.Lock()
@@ -2088,6 +2092,9 @@ console.log(JSON.stringify({ state, res }));
 
 	if finalSim.WipedHistoryState {
 		t.Errorf("RestoreConversationPath wiped window.history.state instead of preserving TanStack Router history state")
+	}
+	if finalSim.ReplaceCount != 1 {
+		t.Errorf("expected exactly one pre-router bootstrap rewrite, got %d — once the address bar is correct the restore must wait for the app instead of rewriting it again (repeated rewrites are what raced the app's own navigation, issue #122)", finalSim.ReplaceCount)
 	}
 	if finalSim.RouterPath != "/c/060156e8-1ef3-4435-a836-3bc0c9838995" {
 		t.Errorf("expected RouterPath to transition to /c/060156e8-1ef3-4435-a836-3bc0c9838995, got %q", finalSim.RouterPath)
