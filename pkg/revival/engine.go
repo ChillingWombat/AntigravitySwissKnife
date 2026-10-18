@@ -161,6 +161,36 @@ func (e *Engine) ExecutePostRelaunchRevival(intent *RevivalIntent) error {
 	return nil
 }
 
+// desktopRestoreRouteWait bounds how long the desktop revival waits for the
+// target conversation route to become VERIFIED active before giving up on this
+// attempt (the intent stays retryable through the existing attempts machinery,
+// and the injected in-page auto-revival loop keeps trying independently).
+const desktopRestoreRouteWait = 20 * time.Second
+
+// desktopRevivalDeps is the navigation/injection surface of the desktop revival
+// sequence. It exists so the strict ordering contract — the resume prompt is
+// submitted only after the target route has been VERIFIED active — is unit
+// testable without a live renderer (issue #122).
+type desktopRevivalDeps struct {
+	// RestoreRoute drives the renderer to targetPath and reports whether the
+	// target route was verified active.
+	RestoreRoute func(targetPath string, maxWait time.Duration) gui.RestoreResult
+	// Inject submits the resume prompt into the (already verified) conversation.
+	Inject func(cascadeID, prompt, intentID string, timeout time.Duration) error
+}
+
+// desktopRevivalDeps returns the live dependencies for executeDesktopRevival.
+func (e *Engine) desktopRevivalDeps() desktopRevivalDeps {
+	return desktopRevivalDeps{
+		RestoreRoute: func(targetPath string, maxWait time.Duration) gui.RestoreResult {
+			return gui.NewInjector(e.CDPTrigger.CustomPort).RestoreConversationPath(targetPath, maxWait)
+		},
+		Inject: func(cascadeID, prompt, intentID string, timeout time.Duration) error {
+			return e.CDPTrigger.TriggerDesktopContinuation(cascadeID, prompt, intentID, timeout)
+		},
+	}
+}
+
 func (e *Engine) executeDesktopRevival(intent *RevivalIntent) error {
 	if !gui.IsValidConversationID(intent.RootConversationID) {
 		return fmt.Errorf("invalid conversation ID for desktop revival: %s", intent.RootConversationID)
@@ -168,24 +198,54 @@ func (e *Engine) executeDesktopRevival(intent *RevivalIntent) error {
 
 	targetPath := "/c/" + strings.TrimPrefix(intent.RootConversationID, "/c/")
 
-	// Sequentially ensure URL routing before prompt injection
-	if !gui.IsTestExecution() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" && !core.IsRunningTests() && gui.IsValidConversationPath(targetPath) {
-		_ = gui.NewInjector(e.CDPTrigger.CustomPort).RestoreConversationPath(targetPath, 15*time.Second)
-	}
-
-	prompt := strings.TrimSpace(intent.TriggerPrompt)
-	if prompt == "" {
-		// Skip prompt injection for idle conversations
-		return nil
-	}
-
 	if gui.IsTestExecution() || os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" || core.IsRunningTests() {
+		// Never drive a live renderer from a test/dry-run process.
 		return nil
 	}
 
-	// Pass IntentID so the CDP trigger arbitrates on the same in-page dedupe key
-	// the injected auto-revival loop uses — exactly one resume prompt per intent.
-	return e.CDPTrigger.TriggerDesktopContinuation(intent.RootConversationID, prompt, intent.IntentID, 30*time.Second)
+	return e.runDesktopRevival(intent, targetPath, strings.TrimSpace(intent.TriggerPrompt), e.desktopRevivalDeps())
+}
+
+// runDesktopRevival is the SERIALIZED desktop continuation sequence:
+//
+//	phase 1 — navigate the renderer to the target conversation and wait until the
+//	          target route is verified active (address bar + app-acknowledged
+//	          route + mounted conversation view);
+//	phase 2 — only then inject and submit the resume prompt.
+//
+// Why the gate exists (issue #122): the page-side restore and the prompt
+// injection both drive the SPA. The address bar is rewritten by
+// history.replaceState before the app has loaded the target conversation, and
+// the restore's own nudges used to race the app's in-flight route transition.
+// Injecting after a *failed* or merely URL-rewritten restore therefore landed the
+// resume prompt in the previously rendered conversation. Refusing to inject here
+// is safe: the injected in-page auto-revival loop keeps retrying (with the same
+// dedupe key, so a later successful attempt still submits exactly one prompt).
+//
+// An empty prompt (idle conversation) only restores the route and never injects.
+func (e *Engine) runDesktopRevival(intent *RevivalIntent, targetPath, prompt string, deps desktopRevivalDeps) error {
+	if deps.RestoreRoute == nil {
+		return fmt.Errorf("desktop revival dependencies are not configured")
+	}
+
+	// Phase 1: navigation must be settled and verified before anything is typed
+	// into the composer.
+	res := deps.RestoreRoute(targetPath, desktopRestoreRouteWait)
+	if prompt == "" {
+		// Idle conversation: the route restore is best effort and nothing is
+		// injected, so an unverified route is not an error here.
+		return nil
+	}
+	if deps.Inject == nil {
+		return fmt.Errorf("desktop revival dependencies are not configured")
+	}
+	if !res.Verified {
+		return fmt.Errorf("target conversation route %s could not be verified (reason=%s, address bar=%q, router=%q): refusing to submit the resume prompt into an unverified view",
+			targetPath, res.Reason, res.LastPath, res.LastRoutePath)
+	}
+
+	// Phase 2: the target conversation is mounted and stable -> inject.
+	return deps.Inject(intent.RootConversationID, prompt, intent.IntentID, 30*time.Second)
 }
 
 func (e *Engine) executeCLIRevival(intent *RevivalIntent) error {

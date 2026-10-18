@@ -945,17 +945,57 @@ func (inj *Injector) CaptureActiveConversationPath() string {
 	return ""
 }
 
-// RestoreConversationPath polls the newly launched Antigravity renderer via CDP
-// and navigates it from "/" back to targetPath (/c/<cascadeId>) so the previous conversation is resumed.
-func (inj *Injector) RestoreConversationPath(targetPath string, maxWait time.Duration) bool {
-	if !IsValidConversationPath(targetPath) {
-		return false
-	}
-	if maxWait <= 0 {
-		maxWait = 25 * time.Second
-	}
+// RestoreResult reports how RestoreConversationPath ended. It exists so callers
+// can tell "the target conversation route is verified active" (safe to inject a
+// resume prompt into) apart from "the address bar was only rewritten / we ran
+// out of time".
+type RestoreResult struct {
+	// Verified is true when the target route was confirmed active and stayed
+	// active across consecutive polls (address bar + router acknowledgement +
+	// mounted conversation view).
+	Verified bool
+	// Reason is one of RestoreReasonVerified / RestoreReasonTimeout /
+	// RestoreReasonUnstable / RestoreReasonInvalidTarget.
+	Reason string
+	// LastPath is the last observed address-bar path ("" when unknown).
+	LastPath string
+	// LastRoutePath is the last router-acknowledged pathname. It is empty when
+	// the renderer does not expose a router (fresh start / onboarding), where the
+	// address bar and the mounted view are the only available signals.
+	LastRoutePath string
+}
 
-	script := fmt.Sprintf(`(() => {
+// Restore reasons returned in RestoreResult.Reason.
+const (
+	RestoreReasonVerified      = "verified"
+	RestoreReasonTimeout       = "timeout"
+	RestoreReasonUnstable      = "unstable"
+	RestoreReasonInvalidTarget = "invalid_target"
+)
+
+// restoreConversationPathScript builds the page-side snapshot + navigation
+// nudge script used by RestoreConversationPath.
+//
+// Navigation contract (this is what keeps desktop revival out of the navigation
+// race, see issue #122):
+//
+//   - Readiness requires the target pathname AND, when the renderer exposes its
+//     router, the router's ACKNOWLEDGED location, AND the mounted conversation
+//     view. The address bar alone is never evidence: history.replaceState can
+//     rewrite it without the app loading any data, which is how a resume prompt
+//     used to land in the previously rendered conversation.
+//   - The router's location is never fabricated. When the app exposes a router,
+//     navigation only uses real primitives (sidebar link click ->
+//     router.navigate -> location.assign).
+//   - history.replaceState is used ONLY as a pre-router bootstrap nudge (before
+//     the app exposes its router: fresh start / onboarding), where the app
+//     itself adopts the URL when its router initialises. window.history.state is
+//     passed through so TanStack's history bookkeeping is not wiped.
+//   - While the route is already correct (address bar and router agree) the
+//     script does not nudge at all: the app is completing its own transition
+//     (mounting the conversation view) and a second navigation would race it.
+func restoreConversationPathScript(targetPath string) string {
+	return fmt.Sprintf(`(() => {
 		try {
 			const targetPath = %q;
 			const targetPathOnly = targetPath.split("?")[0];
@@ -965,48 +1005,104 @@ func (inj *Injector) RestoreConversationPath(targetPath string, maxWait time.Dur
 			const hasConvoView = Boolean(document.querySelector('[data-testid="conversation-view"]'));
 			const hasShell = Boolean(document.querySelector('[data-testid="new-conversation-button"], [data-testid="conversation-list-sidebar"]'));
 			const isConvoTarget = targetPathOnly.startsWith("/c/");
-			const viewReady = rootReady && curPath === targetPathOnly && (!isConvoTarget || hasConvoView);
 
+			// Router acknowledgement: the app's own view of the current route.
+			let routerPath = "";
+			let routerNavigate = null;
+			try {
+				const router = window.__TSR_ROUTER__;
+				if (router && router.state && router.state.location && typeof router.state.location.pathname === "string") {
+					routerPath = router.state.location.pathname;
+				}
+				if (router && typeof router.navigate === "function") {
+					routerNavigate = router;
+				}
+			} catch (_) {}
+			const routerObservable = routerPath !== "";
+			const routeConflicted = routerObservable && routerPath !== targetPathOnly;
+
+			const viewReady = rootReady && curPath === targetPathOnly && (!isConvoTarget || hasConvoView) &&
+				(routerObservable ? !routeConflicted : true);
+
+			let action = "none";
 			if (!viewReady) {
 				const now = Date.now();
-				const convId = targetPathOnly.replace(/^\/c\//, "");
-				const link = document.querySelector('a[href*="' + convId + '"]');
-				if (link && typeof link.click === "function") {
-					window.__swissLastRestoreNudge = now;
-					link.click();
-				} else if (curPath.startsWith("/onboarding")) {
-					if (!window.__swissLastOnboardingNudge || (now - window.__swissLastOnboardingNudge) > 1500) {
-						window.__swissLastOnboardingNudge = now;
-						if (window.location && typeof window.location.assign === "function") {
-							window.location.assign(targetPath);
-						} else if (window.history && typeof window.history.replaceState === "function") {
+				const nudgedRecently = Boolean(window.__swissLastRestoreNudge) && (now - window.__swissLastRestoreNudge) < 1200;
+				const onTargetRoute = curPath === targetPathOnly && !routeConflicted;
+				if (!onTargetRoute) {
+					const convId = targetPathOnly.replace(/^\/c\//, "");
+					const link = document.querySelector('a[href*="' + convId + '"]');
+					if (link && typeof link.click === "function" && !nudgedRecently) {
+						window.__swissLastRestoreNudge = now;
+						link.click();
+						action = "click_link";
+					} else if (routerNavigate && !nudgedRecently) {
+						window.__swissLastRestoreNudge = now;
+						try {
+							routerNavigate.navigate({ to: targetPath });
+							action = "router_navigate";
+						} catch (_) {}
+					} else if (!routerObservable && !nudgedRecently) {
+						// Pre-router bootstrap (fresh start / onboarding): the app adopts
+						// the URL once its router initialises. Preserve history.state.
+						window.__swissLastRestoreNudge = now;
+						if (window.history && typeof window.history.replaceState === "function") {
 							window.history.replaceState(window.history.state, "", targetPath);
+							action = "bootstrap_replace";
 						}
-					}
-				} else if (curPath !== targetPathOnly) {
-					window.__swissLastRestoreNudge = now;
-					if (window.history && typeof window.history.replaceState === "function") {
-						window.history.replaceState(window.history.state, "", targetPath);
-					} else if (window.location && typeof window.location.assign === "function") {
+					} else if (!nudgedRecently && window.location && typeof window.location.assign === "function") {
+						window.__swissLastRestoreNudge = now;
 						window.location.assign(targetPath);
+						action = "assign";
 					}
-				} else if (hasShell && (!window.__swissLastRestoreNudge || (now - window.__swissLastRestoreNudge) > 1200)) {
-					window.__swissLastRestoreNudge = now;
-					if (window.history && typeof window.history.replaceState === "function") {
-						window.history.replaceState(window.history.state, "", targetPath);
-					} else if (window.location && typeof window.location.assign === "function") {
-						window.location.assign(targetPath);
-					}
+				} else {
+					// Address bar and router already agree: the app is mounting the
+					// target view right now. Waiting is the only safe action.
+					action = "wait_for_view";
 				}
 			}
+
 			return {
 				ready: viewReady,
-				path: (window.location.pathname || "/") + (window.location.search || "")
+				path: curPath + (window.location.search || ""),
+				path_only: curPath,
+				route_path: routerPath,
+				router_observable: routerObservable,
+				view_mounted: hasConvoView,
+				root_ready: rootReady,
+				shell_mounted: hasShell,
+				action: action
 			};
 		} catch (e) {
-			return { ready: false, path: "" };
+			return {
+				ready: false, path: "", path_only: "", route_path: "",
+				router_observable: false, view_mounted: false, root_ready: false,
+				shell_mounted: false, action: "error"
+			};
 		}
 	})()`, targetPath)
+}
+
+// RestoreConversationPath polls the newly launched Antigravity renderer via CDP
+// and navigates it from "/" back to targetPath (/c/<cascadeId>) so the previous
+// conversation is resumed.
+//
+// It only reports Verified once the target route has been acknowledged by the
+// app (router location, when observable) and the conversation view has been
+// mounted over three consecutive polls. Callers that inject prompts MUST gate on
+// Verified: an address bar that merely looks right can belong to a view that was
+// never loaded (see restoreConversationPathScript).
+func (inj *Injector) RestoreConversationPath(targetPath string, maxWait time.Duration) RestoreResult {
+	res := RestoreResult{Reason: RestoreReasonTimeout}
+	if !IsValidConversationPath(targetPath) {
+		res.Reason = RestoreReasonInvalidTarget
+		return res
+	}
+	if maxWait <= 0 {
+		maxWait = 25 * time.Second
+	}
+
+	script := restoreConversationPathScript(targetPath)
 
 	deadline := time.Now().Add(maxWait)
 	stableReadyCount := 0
@@ -1020,19 +1116,26 @@ func (inj *Injector) RestoreConversationPath(targetPath string, maxWait time.Dur
 					if !strings.HasPrefix(page.URL, "https://127.0.0.1:") && !strings.HasPrefix(page.URL, "http://127.0.0.1:") && !strings.HasPrefix(page.URL, "https://localhost:") && !strings.HasPrefix(page.URL, "http://localhost:") {
 						continue
 					}
-					res, err := inj.ExecuteScript(page.WebSocketDebuggerURL, script)
-					if err == nil && res != nil {
-						ready, _ := res["ready"].(bool)
-						curPath, _ := res["path"].(string)
-						if ready && IsValidConversationPath(curPath) {
-							restoredOnPage = true
-						}
+					out, err := inj.ExecuteScript(page.WebSocketDebuggerURL, script)
+					if err != nil || out == nil {
+						continue
+					}
+					if path, _ := out["path"].(string); path != "" {
+						res.LastPath = path
+					}
+					if routePath, _ := out["route_path"].(string); routePath != "" {
+						res.LastRoutePath = routePath
+					}
+					if ready, _ := out["ready"].(bool); ready {
+						restoredOnPage = true
 					}
 				}
 				if restoredOnPage {
 					stableReadyCount++
 					if stableReadyCount >= 3 {
-						return true
+						res.Verified = true
+						res.Reason = RestoreReasonVerified
+						return res
 					}
 				} else {
 					stableReadyCount = 0
@@ -1041,7 +1144,12 @@ func (inj *Injector) RestoreConversationPath(targetPath string, maxWait time.Dur
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	return stableReadyCount > 0
+	if stableReadyCount > 0 {
+		// The view was ready on the last poll but did not stay ready long enough
+		// to be trusted (the renderer was still churning).
+		res.Reason = RestoreReasonUnstable
+	}
+	return res
 }
 
 // CaptureScreenshot captures a PNG screenshot of the page target via CDP.
