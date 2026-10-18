@@ -27,6 +27,9 @@ type fakeSession struct {
 	state map[string]PageState
 	// evalErr forces the probe to fail when non-empty.
 	evalErr map[string]error
+	// collapseFailures makes the next N CollapseScript evaluations report a
+	// failed collapse (the IDE ignored the toggle), simulating a missed attempt.
+	collapseFailures int
 
 	evals []string // recorded expressions, in call order
 }
@@ -77,6 +80,13 @@ func (f *fakeSession) Evaluate(wsURL string, expression string) (map[string]inte
 		}}, nil
 	case expression == CollapseScript:
 		f.mu.Lock()
+		if f.collapseFailures > 0 {
+			f.collapseFailures--
+			f.mu.Unlock()
+			return map[string]interface{}{"value": map[string]interface{}{
+				"ok": false, "hidden": false, "method": "none",
+			}}, nil
+		}
 		s := f.state[wsURL]
 		s.OverviewOpen = false
 		f.state[wsURL] = s
@@ -115,13 +125,16 @@ func (f *fakeSession) countEvals(expr string) int {
 
 func TestParsePageState(t *testing.T) {
 	st, ok := ParsePageState(map[string]interface{}{"value": map[string]interface{}{
-		"swiss_board": true, "overview_open": true, "has_panel": true,
+		"swiss_board": true, "overview_open": true, "has_panel": true, "panel_source": `[data-testid="auxiliary-panel"]`,
 	}})
 	if !ok {
 		t.Fatalf("expected parse to succeed")
 	}
 	if !st.SwissBoard || !st.OverviewOpen || !st.HasOverview {
 		t.Fatalf("unexpected state %+v", st)
+	}
+	if st.PanelSource != `[data-testid="auxiliary-panel"]` {
+		t.Fatalf("expected panel_source to be carried through, got %q", st.PanelSource)
 	}
 
 	// Bare object form (no "value" wrapper).
@@ -243,18 +256,85 @@ func TestVisitStateEnteringWithCollapsedPanel(t *testing.T) {
 	}
 }
 
+// TestVisitStateCollapsesLateAppearingPanel covers the reported defect: the panel
+// (or the board markers) only become visible one or two probe passes after the
+// user is already inside the extension's main section. A single "panel closed"
+// observation at entry must not latch the visit as handled.
+func TestVisitStateCollapsesLateAppearingPanel(t *testing.T) {
+	v := &visitState{}
+	// Entering the board while the panel probe has not found/seen the panel yet
+	// (renderer still mounting, extension markers not stamped yet).
+	if a := v.next(PageState{SwissBoard: true, OverviewOpen: false, HasOverview: false}); a != ActionNone {
+		t.Fatalf("nothing to collapse yet, got %v", a)
+	}
+	// The panel shows up while the user is still inside the main section.
+	if a := v.next(PageState{SwissBoard: true, OverviewOpen: true, HasOverview: true}); a != ActionHideOverview {
+		t.Fatalf("late-appearing panel must still be collapsed, got %v", a)
+	}
+	v.markCollapsed()
+	// After the verified collapse the user owns the panel again.
+	if a := v.next(PageState{SwissBoard: true, OverviewOpen: true, HasOverview: true}); a != ActionNone {
+		t.Fatalf("must not re-hide after the user re-opened it, got %v", a)
+	}
+}
+
+// TestVisitStateRetriesFailedCollapse covers the second half of the reported
+// defect: when the collapse did NOT happen (click missed, wrong control hit,
+// element re-rendered mid-flight), the next probe pass must retry instead of
+// silently giving up for the rest of the visit.
+func TestVisitStateRetriesFailedCollapse(t *testing.T) {
+	v := &visitState{}
+	st := PageState{SwissBoard: true, OverviewOpen: true, HasOverview: true}
+	if a := v.next(st); a != ActionHideOverview {
+		t.Fatalf("entry must attempt a collapse, got %v", a)
+	}
+	// Collapse failed -> no markCollapsed -> the watcher keeps trying.
+	for i := 0; i < maxCollapseAttempts-1; i++ {
+		if a := v.next(st); a != ActionHideOverview {
+			t.Fatalf("attempt %d must retry the collapse, got %v", i+2, a)
+		}
+	}
+	// Budget exhausted: stop hammering the IDE...
+	if a := v.next(st); a != ActionNone {
+		t.Fatalf("collapse attempts must be bounded, got %v", a)
+	}
+	// ...and a new entry arms a fresh budget.
+	if a := v.next(PageState{SwissBoard: false}); a != ActionNone {
+		t.Fatalf("leaving must be a no-op, got %v", a)
+	}
+	if a := v.next(st); a != ActionHideOverview {
+		t.Fatalf("re-entering must attempt a collapse again, got %v", a)
+	}
+}
+
+// TestVisitStateRetryStopsAfterVerifiedCollapse ensures the retry budget never
+// turns into "fight the user": once a collapse was verified, a manual re-open is
+// respected even if the budget still has attempts left.
+func TestVisitStateRetryStopsAfterVerifiedCollapse(t *testing.T) {
+	v := &visitState{}
+	st := PageState{SwissBoard: true, OverviewOpen: true, HasOverview: true}
+	v.next(st) // entry attempt
+	v.markCollapsed()
+	for i := 0; i < 5; i++ {
+		if a := v.next(st); a != ActionNone {
+			t.Fatalf("verified collapse must end the retry window, got %v", a)
+		}
+	}
+}
+
 func TestTrackerPruneAndForget(t *testing.T) {
 	tr := NewTracker()
 	tr.Next("a", PageState{SwissBoard: true, OverviewOpen: true})
 	tr.MarkCollapsed("a")
 	tr.Next("b", PageState{SwissBoard: true, OverviewOpen: true})
+	tr.MarkCollapsed("b")
 
 	tr.Prune(map[string]bool{"b": true})
 	// "a" was pruned, so it behaves like a fresh entry again.
 	if a := tr.Next("a", PageState{SwissBoard: true, OverviewOpen: true}); a != ActionHideOverview {
 		t.Fatalf("pruned target must behave as fresh entry, got %v", a)
 	}
-	// "b" was kept, so it must not hide again.
+	// "b" was kept and its collapse was verified, so it must not re-hide.
 	if a := tr.Next("b", PageState{SwissBoard: true, OverviewOpen: true}); a != ActionNone {
 		t.Fatalf("kept target must not re-hide, got %v", a)
 	}
@@ -387,6 +467,86 @@ func TestWatcherHideOncePerEntry(t *testing.T) {
 	}
 }
 
+// TestWatcherCollapsesPanelThatAppearsAfterEntry: the user is already inside the
+// extension's main section (or the watcher starts while it is open) and the
+// Overview panel only becomes detectable on a later pass. The watcher must still
+// collapse it — a single early "closed/not found" observation used to latch the
+// visit as handled and leave the panel open for the entire stay.
+func TestWatcherCollapsesPanelThatAppearsAfterEntry(t *testing.T) {
+	sess := &fakeSession{
+		port:    9222,
+		targets: []Target{{ID: "t1", URL: "https://127.0.0.1:9222/c/x", Type: "page", WSURL: "ws://1"}},
+		state:   map[string]PageState{"ws://1": {SwissBoard: true, OverviewOpen: false, HasOverview: false}},
+	}
+	w := newTestWatcher(sess, true)
+
+	if _, err := w.Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if n := sess.countEvals(CollapseScript); n != 0 {
+		t.Fatalf("expected no collapse attempt before the panel exists, got %d", n)
+	}
+
+	// Panel renders while the user stays inside the main section.
+	sess.mu.Lock()
+	sess.state["ws://1"] = PageState{SwissBoard: true, OverviewOpen: true, HasOverview: true, PanelSource: `[data-testid="auxiliary-panel"]`}
+	sess.mu.Unlock()
+
+	res, err := w.Check(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Hidden != 1 {
+		t.Fatalf("expected the late-appearing panel to be collapsed, got %+v", res)
+	}
+}
+
+// TestWatcherRetriesFailedCollapse: when the injected collapse reports that the
+// panel is still open (e.g. the IDE ignored the toggle click), the watcher must
+// retry on the next pass instead of leaving the panel open until the user
+// leaves and re-enters the board page.
+func TestWatcherRetriesFailedCollapse(t *testing.T) {
+	sess := &fakeSession{
+		port:             9222,
+		targets:          []Target{{ID: "t1", URL: "https://127.0.0.1:9222/c/x", Type: "page", WSURL: "ws://1"}},
+		state:            map[string]PageState{"ws://1": {SwissBoard: true, OverviewOpen: true, HasOverview: true}},
+		collapseFailures: 1,
+	}
+	w := newTestWatcher(sess, true)
+
+	res, err := w.Check(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Hidden != 0 {
+		t.Fatalf("failed collapse must not be counted as hidden: %+v", res)
+	}
+
+	res, err = w.Check(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Hidden != 1 {
+		t.Fatalf("expected the failed collapse to be retried, got %+v", res)
+	}
+	if n := sess.countEvals(CollapseScript); n != 2 {
+		t.Fatalf("expected exactly 2 collapse attempts, got %d", n)
+	}
+
+	// The panel was collapsed by us: retries stop, user re-opens are respected.
+	sess.mu.Lock()
+	sess.state["ws://1"] = PageState{SwissBoard: true, OverviewOpen: true, HasOverview: true}
+	sess.mu.Unlock()
+	for i := 0; i < 3; i++ {
+		if _, err := w.Check(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := sess.countEvals(CollapseScript); n != 2 {
+		t.Fatalf("verified collapse must stop further attempts, got %d", n)
+	}
+}
+
 func TestWatcherIgnoresNonAntigravityTargets(t *testing.T) {
 	sess := &fakeSession{
 		port: 9222,
@@ -477,8 +637,12 @@ function makeEl(attrs, style) {
   return el;
 }
 function matchesSimple(el, sel) {
-  // Supports: tag, [attr="v"], [attr*="v" i], .class, [role="x"]
+  // Supports: tag, [attr], [attr="v"], [attr*="v" i], .class, [role="x"]
   let s = sel.trim();
+  const bare = s.match(/^\[([a-zA-Z0-9-]+)\]$/);
+  if (bare) {
+    return el.getAttribute(bare[1]) !== null;
+  }
   const m = s.match(/^\[([a-zA-Z0-9-]+)\*?="?([^"\]]*)"?\s*(i)?\]$/);
   if (m) {
     const val = el.getAttribute(m[1]);
@@ -491,7 +655,11 @@ function matchesSimple(el, sel) {
     return String(val) === needle;
   }
   if (s.startsWith(".")) {
-    return String(el.className || "").split(/\s+/).indexOf(s.slice(1)) !== -1;
+    // Compound class selectors (e.g. .part.auxiliarybar) are supportable too:
+    // every requested class must be present on the element.
+    const wanted = s.slice(1).split(".").filter(Boolean);
+    const own = String(el.className || "").split(/\s+/).filter(Boolean);
+    return wanted.every(c => own.indexOf(c) !== -1);
   }
   return el.tag === s;
 }
@@ -555,6 +723,7 @@ let r = ` + ProbeScript + `;
 assert.strictEqual(r.has_panel, true, "overview panel should be found");
 assert.strictEqual(r.overview_open, true, "overview panel should be expanded");
 assert.strictEqual(r.swiss_board, false, "board should not be active yet");
+assert.strictEqual(r.panel_source, '[data-testid="overview-panel"]', "panel source should be reported for diagnostics");
 
 // Board opens via the Swiss Knife main stage container.
 const stage = makeEl({ id: "swiss-main-stage-container" }, { display: "flex" });
@@ -571,6 +740,13 @@ body.setAttribute("data-swiss-stage-active", "false");
 r = ` + ProbeScript + `;
 assert.strictEqual(r.swiss_board, false, "'false' must not count as active");
 
+// Board also detected through window.__swissActiveMainStageExt (the marker the
+// injected extension script keeps in sync when the user switches stage tabs).
+window.__swissActiveMainStageExt = "memos";
+r = ` + ProbeScript + `;
+assert.strictEqual(r.swiss_board, true, "window.__swissActiveMainStageExt means the board is active");
+window.__swissActiveMainStageExt = null;
+
 // Collapsed panel (zero size) reports closed.
 overview.offsetWidth = 0; overview.offsetHeight = 0;
 r = ` + ProbeScript + `;
@@ -581,6 +757,52 @@ overview.offsetWidth = 320; overview.offsetHeight = 800;
 overview.setAttribute("data-swiss-overview-auto-hidden", "true");
 r = ` + ProbeScript + `;
 assert.strictEqual(r.overview_open, false, "auto-hidden marker must report collapsed");
+overview.removeAttribute("data-swiss-overview-auto-hidden");
+
+// The IDE's own aux-pane-open marker is a positive signal: it keeps the panel
+// detected as open on transition frames where the container is still zero-sized.
+overview.setAttribute("data-aux-pane-open", "true");
+overview.offsetWidth = 0; overview.offsetHeight = 0;
+r = ` + ProbeScript + `;
+assert.strictEqual(r.overview_open, true, "data-aux-pane-open=true must promote the panel to open");
+overview.removeAttribute("data-aux-pane-open");
+overview.offsetWidth = 320; overview.offsetHeight = 800;
+`
+	runNode(t, "const assert = require('assert');\n"+src)
+}
+
+// TestProbeScriptPrefersDocumentedAuxPanelContainer guards the fix for the
+// "panel is still not auto-collapsed" report: the broad [data-testid*="overview"]
+// match can hit a node INSIDE the panel; the probe must resolve the documented
+// auxiliary-panel container instead, otherwise the watcher "hides" an inner node
+// and the real panel stays open.
+func TestProbeScriptPrefersDocumentedAuxPanelContainer(t *testing.T) {
+	src := `
+// Inner node that the broad [data-testid*="overview"] selector would match.
+const innerTitle = makeEl({ "data-testid": "overview-section-title" });
+registry.push(innerTitle);
+const container = makeEl({ "data-testid": "auxiliary-panel" });
+container.children.push(innerTitle);
+registry.push(container);
+document.body = makeEl({ id: "body" });
+
+let r = ` + ProbeScript + `;
+assert.strictEqual(r.has_panel, true, "panel must be found");
+assert.strictEqual(r.panel_source, '[data-testid="auxiliary-panel"]', "documented container must win over the broad overview match");
+
+// Same guarantee for the VS Code style part class.
+registry.splice(registry.indexOf(container), 1);
+const bar = makeEl({});
+bar.className = "part auxiliarybar";
+registry.push(bar);
+r = ` + ProbeScript + `;
+assert.strictEqual(r.panel_source, ".part.auxiliarybar", "auxiliarybar container must win over the broad overview match");
+
+// Only when no container exists at all the broad match is used as a last resort.
+registry.splice(registry.indexOf(bar), 1);
+r = ` + ProbeScript + `;
+assert.strictEqual(r.panel_source, '[data-testid*="overview" i]', "broad overview match is the documented last resort");
+assert.strictEqual(r.has_panel, true, "inner overview node still counts as a panel signal");
 `
 	runNode(t, "const assert = require('assert');\n"+src)
 }
@@ -636,6 +858,89 @@ const realQueryAll = document.querySelectorAll;
   const rr = ` + RestoreScript + `;
   assert.strictEqual(rr.ok, true, "restore should succeed");
   assert.strictEqual(overview.getAttribute("data-swiss-overview-auto-hidden"), null, "marker must be removed");
+})();
+`
+	runNode(t, "const assert = require('assert');\n"+src)
+}
+
+// TestCollapseScriptUsesDocumentedAuxToggle covers the IDE's own auxiliary
+// sidebar toggle ([data-testid="toggle-aux-sidebar"], the control
+// pkg/plugins/github_extension.go styles away while the main stage is active).
+// It has no aria-label/title, so a name-only search misses it and the watcher
+// falls back to inline styling instead of using the IDE's own control.
+func TestCollapseScriptUsesDocumentedAuxToggle(t *testing.T) {
+	src := `
+const panel = makeEl({ "data-testid": "auxiliary-panel" });
+panel.offsetWidth = 320; panel.offsetHeight = 800;
+registry.push(panel);
+
+// The IDE's own aux-sidebar toggle: identified by its testid only.
+const auxToggle = makeEl({ "data-testid": "toggle-aux-sidebar" });
+auxToggle.tag = "button";
+auxToggle.matches = (sel) => sel.indexOf("button") !== -1;
+registry.push(auxToggle);
+auxToggle.click = () => { panel.offsetWidth = 0; panel.offsetHeight = 0; };
+
+(async () => {
+  const r = await ` + CollapseScript + `;
+  assert.strictEqual(r.ok, true, "collapse should succeed, got " + JSON.stringify(r));
+  assert.strictEqual(r.method, "global_toggle", "must use the IDE's own aux toggle, got " + r.method);
+  assert.strictEqual(r.panel_source, '[data-testid="auxiliary-panel"]', "must collapse the documented container");
+  assert.strictEqual(panel.getAttribute("data-swiss-overview-auto-hidden"), null, "native control must not fall back to inline styling");
+})();
+`
+	runNode(t, "const assert = require('assert');\n"+src)
+}
+
+// TestCollapseScriptHidesResolvedContainerNotInnerNode guards the wrong-target
+// failure: a node matched by the broad [data-testid*="overview"] selector inside
+// the panel must never be the element the watcher hides.
+func TestCollapseScriptHidesResolvedContainerNotInnerNode(t *testing.T) {
+	src := `
+const innerOverviewNode = makeEl({ "data-testid": "overview-section-title" });
+registry.push(innerOverviewNode);
+const panel = makeEl({ "data-testid": "auxiliary-panel" });
+panel.children.push(innerOverviewNode);
+registry.push(panel);
+
+(async () => {
+  const r = await ` + CollapseScript + `;
+  assert.strictEqual(r.ok, true, "collapse should succeed via the container, got " + JSON.stringify(r));
+  assert.strictEqual(r.method, "style_fallback", "expected the scoped style fallback, got " + r.method);
+  assert.strictEqual(panel.style.display, "none", "the resolved CONTAINER must be hidden");
+  assert.strictEqual(panel.getAttribute("data-swiss-overview-auto-hidden"), "true", "container must be tagged");
+  assert.strictEqual(innerOverviewNode.style.display, undefined, "inner overview node must be left untouched");
+
+  // Restore undoes only what we did, on the same container.
+  const rr = ` + RestoreScript + `;
+  assert.strictEqual(rr.ok, true, "restore should succeed");
+  assert.strictEqual(panel.style.display, undefined, "container display must be cleared");
+  assert.strictEqual(panel.getAttribute("data-swiss-overview-auto-hidden"), null, "marker must be removed");
+})();
+`
+	runNode(t, "const assert = require('assert');\n"+src)
+}
+
+// TestCollapseScriptVerifiesContainerState: a control that swallows the click but
+// leaves the panel open must NOT be reported as success — otherwise the watcher
+// marks the visit as handled while the panel is still expanded.
+func TestCollapseScriptVerifiesContainerState(t *testing.T) {
+	src := `
+const panel = makeEl({ "data-testid": "auxiliary-panel" });
+const decoy = makeEl({ "aria-label": "Collapse Overview" });
+decoy.tag = "button";
+decoy.matches = (sel) => sel.indexOf("button") !== -1;
+decoy.dispatchEvent = () => true;
+decoy.click = () => { decoy.clicked = true; }; // IDE ignores it: panel stays open
+panel.children.push(decoy);
+registry.push(panel, decoy);
+
+(async () => {
+  const r = await ` + CollapseScript + `;
+  assert.strictEqual(decoy.clicked, true, "the panel's own control should be tried first");
+  assert.strictEqual(r.ok, true, "the script must fall through to the style fallback, got " + JSON.stringify(r));
+  assert.strictEqual(r.method, "style_fallback", "an ineffective click must not be reported as native_toggle");
+  assert.strictEqual(panel.style.display, "none", "the panel must actually end up hidden");
 })();
 `
 	runNode(t, "const assert = require('assert');\n"+src)

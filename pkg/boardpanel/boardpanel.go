@@ -12,8 +12,10 @@
 //   - Antigravity not running / CDP port missing / probe fails -> skip silently.
 //   - Only acts while the Swiss Knife board page is the active view.
 //   - Edge triggered: the panel is collapsed once per *entry* into the board
-//     page. If the user re-opens it while staying on the page it stays open
-//     until they leave and come back.
+//     page — the entry decision retries (bounded) until the first verified
+//     collapse has been performed, so a single transient frame cannot leave the
+//     panel open for the whole visit. If the user re-opens the panel after that
+//     collapse it stays open until they leave and come back.
 //   - Collapsing prefers the IDE's own toggle control and only falls back to a
 //     scoped inline style when no native control can be found.
 package boardpanel
@@ -48,6 +50,9 @@ type PageState struct {
 	OverviewOpen bool
 	// HasOverview reports whether the Overview panel element was found at all.
 	HasOverview bool
+	// PanelSource names the selector that resolved the Overview panel
+	// (diagnostics only; never drives behaviour).
+	PanelSource string
 }
 
 // Action is the side effect the watcher wants to perform on a page target.
@@ -93,6 +98,7 @@ func ParsePageState(raw map[string]interface{}) (PageState, bool) {
 	st.SwissBoard, _ = m["swiss_board"].(bool)
 	st.OverviewOpen, _ = m["overview_open"].(bool)
 	st.HasOverview, _ = m["has_panel"].(bool)
+	st.PanelSource, _ = m["panel_source"].(string)
 	return st, true
 }
 
@@ -125,6 +131,12 @@ func ParseActionResult(raw map[string]interface{}) (bool, string) {
 	return res, method
 }
 
+// maxCollapseAttempts bounds how often one visit retries a collapse while the
+// panel still reads as expanded and no collapse has succeeded yet. It rides out
+// entry transitions (panel/tab re-render, momentary zero-size frames) without
+// turning a hopeless case into a permanent 2s CDP loop.
+const maxCollapseAttempts = 3
+
 // visitState is the per-page-target edge-trigger memory.
 type visitState struct {
 	// inside is true while the board page is the active view.
@@ -132,20 +144,31 @@ type visitState struct {
 	// collapsedByUs records that this watcher collapsed the panel during the
 	// current visit, so it can restore it when the user leaves the page.
 	collapsedByUs bool
+	// attempts counts collapse attempts made during the current visit.
+	attempts int
 }
 
 // next folds a fresh observation into the visit state and returns the action to take.
 //
 // Semantics (edge triggered, never fights the user):
-//   - board not active  -> reset visit; restore only if we collapsed it ourselves.
-//   - entering the board -> collapse the Overview panel if it is expanded.
-//   - already inside     -> never collapse again, even if the panel is re-opened.
+//   - board not active   -> reset visit; restore only if we collapsed it ourselves.
+//   - entering the board -> arm the collapse retry budget.
+//   - inside the board   -> collapse while the panel reads expanded, until the
+//     first VERIFIED collapse (after that the panel state belongs to the user
+//     again) or until the retry budget is exhausted.
+//
+// The retry window matters: a single missed observation used to latch the visit
+// as "already handled", so one transient frame (panel not yet mounted, marker
+// not yet stamped because the extension script had not re-injected itself yet,
+// collapse click racing the IDE re-render) left the Overview panel open for the
+// whole stay on the board page.
 func (v *visitState) next(st PageState) Action {
 	if !st.SwissBoard {
 		wasInside := v.inside
 		collapsedByUs := v.collapsedByUs
 		v.inside = false
 		v.collapsedByUs = false
+		v.attempts = 0
 		if wasInside && collapsedByUs && !st.OverviewOpen {
 			return ActionRestoreOverview
 		}
@@ -154,10 +177,11 @@ func (v *visitState) next(st PageState) Action {
 	if !v.inside {
 		v.inside = true
 		v.collapsedByUs = false
-		if st.OverviewOpen {
-			return ActionHideOverview
-		}
-		return ActionNone
+		v.attempts = 0
+	}
+	if !v.collapsedByUs && st.OverviewOpen && v.attempts < maxCollapseAttempts {
+		v.attempts++
+		return ActionHideOverview
 	}
 	return ActionNone
 }
