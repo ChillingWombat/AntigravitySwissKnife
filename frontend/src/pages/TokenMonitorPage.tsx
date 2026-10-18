@@ -1819,6 +1819,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                   <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>
                     <th style={{ padding: '8px 12px' }}>Time</th>
                     <th style={{ padding: '8px 12px' }}>Session / Project</th>
+                    <th style={{ padding: '8px 12px' }}>Agent</th>
                     <th style={{ padding: '8px 12px' }}>Model</th>
                     <th style={{ padding: '8px 12px' }}>Tokens (In / Cache / Out)</th>
                     <th style={{ padding: '8px 12px' }}>Speed</th>
@@ -1830,7 +1831,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                 <tbody>
                   {filteredTelemetryEvents.length === 0 ? (
                     <tr>
-                      <td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                      <td colSpan={9} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
                         No live telemetry sessions recorded for the selected filter.
                       </td>
                     </tr>
@@ -1840,38 +1841,14 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                       <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>{ev.timestamp}</td>
                     <td style={{ padding: '10px 12px' }}>
                       <div style={{ fontWeight: 600, color: 'var(--text)' }}>{ev.project}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-                        <span>{ev.id}</span>
-                        {ev.is_subagent ? (
-                          <span
-                            style={{
-                              fontSize: '10px',
-                              padding: '1px 6px',
-                              borderRadius: '4px',
-                              backgroundColor: '#e0f2fe',
-                              color: '#0369a1',
-                              fontWeight: 600,
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {ev.agent_role || 'Sub-Agent'}
-                          </span>
-                        ) : (
-                          <span
-                            style={{
-                              fontSize: '10px',
-                              padding: '1px 6px',
-                              borderRadius: '4px',
-                              backgroundColor: '#f1f5f9',
-                              color: '#475569',
-                              fontWeight: 600,
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            Main Agent
-                          </span>
-                        )}
-                      </div>
+                    </td>
+                    <td style={{ padding: '10px 12px' }}>
+                      <span
+                        title={ev.id}
+                        style={{ fontWeight: 500, color: 'var(--text)', cursor: 'help' }}
+                      >
+                        {ev.agent_role || (ev.is_subagent ? 'Sub-Agent' : 'Main Agent')}
+                      </span>
                     </td>
                     <td style={{ padding: '10px 12px', fontWeight: 500, color: 'var(--text)' }}>{ev.model || ev.canonical_id || ev.model_id || 'Model'}</td>
                     <td style={{ padding: '10px 12px' }}>
