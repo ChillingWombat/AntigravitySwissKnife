@@ -147,8 +147,14 @@ var (
 		"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:loadCodeAssist",
 	}
 	CloudCodeRetrieveQuotaURLs = []string{
-		"https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+		// daily-cloudcode-pa is the host the Antigravity language server itself
+		// calls (see language_server.log), and its quota buckets match what the
+		// IDE's model picker shows. The prod cloudcode-pa host can serve stale
+		// weekly buckets (observed 2026-10-18: prod reported gemini-weekly
+		// remainingFraction 0.0286 while daily and the IDE showed 1.0), so it
+		// must be queried only as a fallback, never first.
 		"https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+		"https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
 		"https://cloudcodeassist-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
 		"https://cloudaicompanion.googleapis.com/v1internal:retrieveUserQuotaSummary",
 		"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary",
