@@ -33,7 +33,9 @@ import type {
   ModelPricingRecord,
   TokenSummaryResponse,
   TargetApp,
-  AcpAgentInstance,
+  AcpAgentInput,
+  AcpDetectResponse,
+  AcpMeshResponse,
 } from './types'
 
 function formatErrorMessage(rawText: string, status: number): string {
@@ -992,8 +994,26 @@ export const api = {
       body: JSON.stringify({ candidate_ids: candidateIds, source, mode }),
     }),
 
-  getAcpMesh: () =>
-    request<{ status: string; mesh_nodes: number; protocol_version: string; agents: AcpAgentInstance[] }>('/api/utilities/acp'),
+  getAcpMesh: () => request<AcpMeshResponse>('/api/utilities/acp'),
+
+  saveAcpAgent: (agent: AcpAgentInput) =>
+    request<AcpMeshResponse>('/api/utilities/acp/agents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(agent),
+    }),
+
+  deleteAcpAgent: (id: string) =>
+    request<AcpMeshResponse>(`/api/utilities/acp/agents?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  detectAcpAgent: (id: string) =>
+    request<AcpDetectResponse>('/api/utilities/acp/detect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    }),
 
   // Real Token Analytics & Pricing API
   getTokenSummary: () =>

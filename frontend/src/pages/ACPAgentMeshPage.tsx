@@ -4,40 +4,109 @@ import {
   CheckCircle2,
   ArrowRight,
   RefreshCw,
+  Plus,
+  Pencil,
+  Trash2,
+  Search,
 } from 'lucide-react'
-import type { AcpAgentInstance, AcpHandshakeLog } from '../types'
+import type {
+  AcpAgentInput,
+  AcpAgentInstance,
+  AcpDetectCandidate,
+  AcpDetectResponse,
+  AcpHandshakeLog,
+  AcpMeshResponse,
+} from '../types'
 import { api } from '../api'
 import {
   ACP_CARD_LAYOUT_TOKENS,
   getAcpStatusPresentation,
 } from '../utils/acpPresentation'
 import { getAcpBrandIcon } from '../components/AcpBrandIcons'
+import {
+  AcpAgentEditorModal,
+  AcpConfirmModal,
+  AcpDetectModal,
+} from '../components/AcpAgentModals'
 
 export interface ACPAgentMeshPageProps {
   className?: string
   style?: React.CSSProperties
 }
 
+type EditorState = {
+  open: boolean
+  mode: 'create' | 'edit'
+  agent: AcpAgentInstance | null
+}
+
+type DetectState = {
+  agent: AcpAgentInstance | null
+  result: AcpDetectResponse | null
+  loading: boolean
+  error: string | null
+}
+
+type ConfirmState = {
+  kind: 'delete' | 'setup' | null
+  agent: AcpAgentInstance | null
+}
+
+const CARD_ACTION_STYLE: React.CSSProperties = {
+  height: ACP_CARD_LAYOUT_TOKENS.actionButtonHeight,
+  padding: ACP_CARD_LAYOUT_TOKENS.actionButtonPadding,
+  fontSize: '11px',
+  borderRadius: ACP_CARD_LAYOUT_TOKENS.actionButtonBorderRadius,
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '6px',
+  whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
+  border: '1px solid var(--border)',
+  backgroundColor: '#f8f9fa',
+  color: 'var(--text)',
+}
+
 /**
  * ACP (Agent Client Protocol) Agent Mesh Page
  * Displays discovered local agent daemons, official brand icons, latency metrics, and handshake delegation stream.
+ * The registry is user-owned: every endpoint/binary can be edited, auto-detected, or replaced with a custom agent.
  * Adheres strictly to David-Design (4px grid, tokenized borders, single-line action text nowrap, zero decorative emojis).
  */
 export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => {
   const [isPingingAll, setIsPingingAll] = useState(false)
   const [acpFeedback, setAcpFeedback] = useState<string | null>(null)
+  const [acpFeedbackIsError, setAcpFeedbackIsError] = useState(false)
   const [agentInstances, setAgentInstances] = useState<AcpAgentInstance[]>([])
   const [handshakeLogs, setHandshakeLogs] = useState<AcpHandshakeLog[]>([])
   const [isLoadingMesh, setIsLoadingMesh] = useState<boolean>(true)
   const [pingingAgentId, setPingingAgentId] = useState<string | null>(null)
 
+  const [editor, setEditor] = useState<EditorState>({ open: false, mode: 'create', agent: null })
+  const [editorBusy, setEditorBusy] = useState(false)
+  const [editorError, setEditorError] = useState<string | null>(null)
+
+  const [detect, setDetect] = useState<DetectState>({ agent: null, result: null, loading: false, error: null })
+  const [confirm, setConfirm] = useState<ConfirmState>({ kind: null, agent: null })
+  const [confirmBusy, setConfirmBusy] = useState(false)
+  const [isSettingUp, setIsSettingUp] = useState(false)
+
+  const showFeedback = (message: string, isError = false) => {
+    setAcpFeedback(message)
+    setAcpFeedbackIsError(isError)
+    setTimeout(() => setAcpFeedback(null), 6000)
+  }
+
+  const applyMesh = (res: AcpMeshResponse | null) => {
+    if (res && res.agents) {
+      setAgentInstances(res.agents)
+    }
+  }
+
   const loadAcpMesh = async () => {
     setIsLoadingMesh(true)
     try {
       const res = await api.getAcpMesh()
-      if (res && res.agents) {
-        setAgentInstances(res.agents)
-      }
+      applyMesh(res)
     } catch (e) {
       console.error('Error fetching ACP mesh:', e)
     } finally {
@@ -57,6 +126,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
       if (res && res.agents) {
         setAgentInstances(res.agents)
         const online = res.agents.filter((a: any) => a.status !== 'unreachable')
+        setAcpFeedbackIsError(false)
         setAcpFeedback(
           `ACP Handshake ping completed. ${online.length} active agent daemon${
             online.length === 1 ? '' : 's'
@@ -78,6 +148,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
         setHandshakeLogs((prev) => [...newLogs, ...prev])
       }
     } catch (e: any) {
+      setAcpFeedbackIsError(true)
       setAcpFeedback(`ACP Ping failed: ${e?.message || 'Network error'}`)
     } finally {
       setIsPingingAll(false)
@@ -93,6 +164,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
         setAgentInstances(res.agents)
         const updatedAgent = res.agents.find((a: any) => a.id === agent.id) || agent
         const isOnline = updatedAgent.status !== 'unreachable'
+        setAcpFeedbackIsError(false)
         setAcpFeedback(
           `ACP Handshake ping completed for ${agent.name}: ${isOnline ? 'Active & Healthy' : 'Offline'}`
         )
@@ -110,11 +182,136 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
         setHandshakeLogs((prev) => [log, ...prev])
       }
     } catch (e: any) {
+      setAcpFeedbackIsError(true)
       setAcpFeedback(`Ping ${agent.name} failed: ${e?.message || 'Network error'}`)
     } finally {
       setPingingAgentId(null)
       setTimeout(() => setAcpFeedback(null), 4000)
     }
+  }
+
+  const openCreateEditor = () => {
+    setEditorError(null)
+    setEditor({ open: true, mode: 'create', agent: null })
+  }
+
+  const openEditEditor = (agent: AcpAgentInstance) => {
+    setEditorError(null)
+    setEditor({ open: true, mode: 'edit', agent })
+  }
+
+  const handleSaveAgent = async (input: AcpAgentInput) => {
+    setEditorBusy(true)
+    setEditorError(null)
+    try {
+      const res = await api.saveAcpAgent(input)
+      applyMesh(res)
+      setEditor({ open: false, mode: 'create', agent: null })
+      showFeedback(`${input.id ? 'Saved' : 'Added'} agent ${input.name}.`)
+    } catch (e: any) {
+      setEditorError(e?.message || 'Failed to save agent')
+    } finally {
+      setEditorBusy(false)
+    }
+  }
+
+  const handleDeleteAgent = async (agent: AcpAgentInstance) => {
+    setConfirmBusy(true)
+    try {
+      const res = await api.deleteAcpAgent(agent.id)
+      applyMesh(res)
+      showFeedback(
+        agent.custom ? `Removed custom agent ${agent.name}.` : `${agent.name} reset to its OS default endpoint.`
+      )
+    } catch (e: any) {
+      showFeedback(`Delete failed: ${e?.message || 'Network error'}`, true)
+    } finally {
+      setConfirmBusy(false)
+      setConfirm({ kind: null, agent: null })
+    }
+  }
+
+  const openDetect = async (agent: AcpAgentInstance) => {
+    setDetect({ agent, result: null, loading: true, error: null })
+    try {
+      const result = await api.detectAcpAgent(agent.id)
+      setDetect({ agent, result, loading: false, error: null })
+    } catch (e: any) {
+      setDetect({ agent, result: null, loading: false, error: e?.message || 'Detection failed' })
+    }
+  }
+
+  const applyDetectedEndpoint = async (agent: AcpAgentInstance, candidate: AcpDetectCandidate) => {
+    setDetect((prev) => ({ ...prev, loading: true }))
+    try {
+      const res = await api.saveAcpAgent({
+        id: agent.id,
+        name: agent.name,
+        type: agent.type,
+        binary_path: agent.binary_path,
+        endpoint: candidate.endpoint,
+        acp_version: agent.acp_version,
+        tools: agent.supported_tools,
+      })
+      applyMesh(res)
+      setDetect({ agent: null, result: null, loading: false, error: null })
+      showFeedback(`${agent.name} now uses ${candidate.endpoint}.`)
+    } catch (e: any) {
+      setDetect((prev) => ({ ...prev, loading: false, error: e?.message || 'Failed to save endpoint' }))
+    }
+  }
+
+  const applyOsDefaultsToAll = async () => {
+    setConfirm({ kind: null, agent: null })
+    setIsSettingUp(true)
+    let configured = 0
+    let alreadyReachable = 0
+    let needsReview = 0
+    let unreachable = 0
+    const presets = agentInstances.filter((a) => !a.custom)
+    for (const agent of presets) {
+      try {
+        const result = await api.detectAcpAgent(agent.id)
+        const reachable = (result.candidates || []).find((c) => c.reachable)
+        if (!reachable) {
+          unreachable += 1
+          continue
+        }
+        if (reachable.endpoint === agent.port_socket) {
+          alreadyReachable += 1
+          continue
+        }
+        // A TCP port opened by a running desktop app may belong to an unrelated
+        // service (devtools, LSP, telemetry). Only pipe/socket candidates are
+        // applied automatically; ambiguous TCP ports stay manual.
+        if (reachable.kind === 'tcp') {
+          needsReview += 1
+          continue
+        }
+        const res = await api.saveAcpAgent({
+          id: agent.id,
+          name: agent.name,
+          type: agent.type,
+          binary_path: agent.binary_path,
+          endpoint: reachable.endpoint,
+          acp_version: agent.acp_version,
+          tools: agent.supported_tools,
+        })
+        applyMesh(res)
+        configured += 1
+      } catch (e) {
+        unreachable += 1
+      }
+    }
+    setIsSettingUp(false)
+    showFeedback(
+      `ACP setup for this OS finished: ${configured} endpoint${
+        configured === 1 ? '' : 's'
+      } configured, ${alreadyReachable} already answering, ${needsReview} TCP port${
+        needsReview === 1 ? '' : 's'
+      } left for manual review, ${unreachable} without a reachable endpoint.`,
+      configured === 0 && alreadyReachable === 0 && needsReview === 0
+    )
   }
 
   const renderAgentAvatar = (id: string) => {
@@ -143,9 +340,9 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
       {acpFeedback && (
         <div
           style={{
-            backgroundColor: '#e6f4ea',
-            color: '#137333',
-            border: '1px solid var(--border-success)',
+            backgroundColor: acpFeedbackIsError ? '#fce8e6' : '#e6f4ea',
+            color: acpFeedbackIsError ? '#c5221f' : '#137333',
+            border: `1px solid ${acpFeedbackIsError ? 'var(--border-danger, #f5c6c2)' : 'var(--border-success)'}`,
             borderRadius: '8px',
             padding: '10px 16px',
             fontSize: '13px',
@@ -160,14 +357,36 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
       )}
 
       {/* Discovered Agent Nodes Section Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
         <div>
           <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
             Discovered Daemons ({agentInstances.length})
           </h2>
           <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-            Active Agent Client Protocol endpoints running on local IPC and sockets.
+            Agent Client Protocol endpoints on local IPC and sockets. Endpoints are conventional defaults
+            until you configure or auto-detect them for this OS.
           </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          <button
+            id="btnAcpSetupForOS"
+            className="btn-pill-tonal"
+            onClick={() => setConfirm({ kind: 'setup', agent: null })}
+            disabled={isSettingUp || isLoadingMesh}
+            style={{ padding: '6px 14px', fontSize: '12px' }}
+          >
+            <Search size={13} className={isSettingUp ? 'animate-spin' : ''} />
+            <span>{isSettingUp ? 'Setting up...' : 'Set up ACP for this OS'}</span>
+          </button>
+          <button
+            id="btnAcpAddAgent"
+            className="btn-pill-primary"
+            onClick={openCreateEditor}
+            style={{ padding: '6px 14px', fontSize: '12px' }}
+          >
+            <Plus size={13} />
+            <span>Add Agent</span>
+          </button>
         </div>
       </div>
 
@@ -220,6 +439,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
             return (
               <div
                 key={agent.id}
+                data-acp-agent-id={agent.id}
                 style={{
                   backgroundColor: '#ffffff',
                   border: `${ACP_CARD_LAYOUT_TOKENS.cardBorderWidth} solid var(--border)`,
@@ -242,20 +462,37 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                       marginBottom: ACP_CARD_LAYOUT_TOKENS.headerMarginBottom,
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
                       {renderAgentAvatar(agent.id)}
                       <div>
-                        <h4
-                          style={{
-                            fontSize: '14px',
-                            fontWeight: 700,
-                            margin: '0 0 2px 0',
-                            color: 'var(--text)',
-                            whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
-                          }}
-                        >
-                          {agent.name}
-                        </h4>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <h4
+                            style={{
+                              fontSize: '14px',
+                              fontWeight: 700,
+                              margin: '0 0 2px 0',
+                              color: 'var(--text)',
+                              whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
+                            }}
+                          >
+                            {agent.name}
+                          </h4>
+                          {agent.custom && (
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                padding: '1px 5px',
+                                borderRadius: '4px',
+                                backgroundColor: '#e8f0fe',
+                                color: '#1967d2',
+                              }}
+                            >
+                              Custom
+                            </span>
+                          )}
+                        </div>
                         <span
                           style={{
                             fontSize: '11px',
@@ -294,19 +531,29 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                       marginBottom: '8px',
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
                       <span style={{ color: 'var(--text-muted)', whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
                         Socket / Endpoint:
                       </span>
-                      <span
-                        style={{
-                          fontFamily: 'monospace',
-                          fontSize: '11px',
-                          color: 'var(--text)',
-                          whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
-                        }}
-                      >
-                        {agent.port_socket}
+                      <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 0 }}>
+                        <span
+                          style={{
+                            fontFamily: 'monospace',
+                            fontSize: '11px',
+                            color: 'var(--text)',
+                            wordBreak: 'break-all',
+                            textAlign: 'right',
+                          }}
+                        >
+                          {agent.port_socket}
+                        </span>
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                          {agent.custom
+                            ? 'Custom agent'
+                            : agent.os_default
+                              ? 'OS default'
+                              : 'Custom endpoint'}
+                        </span>
                       </span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -398,11 +645,13 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                   </div>
                 </div>
 
-                {/* Card Action Button: Ping {agent.name} */}
+                {/* Card Actions */}
                 <div
                   style={{
                     display: 'flex',
                     justifyContent: 'flex-end',
+                    flexWrap: 'wrap',
+                    gap: '6px',
                     borderTop: '1px solid var(--border)',
                     paddingTop: '8px',
                     marginTop: '4px',
@@ -412,20 +661,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                     className="btn-pill-tonal"
                     onClick={() => handlePingSingleAgent(agent)}
                     disabled={pingingAgentId === agent.id}
-                    style={{
-                      height: ACP_CARD_LAYOUT_TOKENS.actionButtonHeight,
-                      padding: ACP_CARD_LAYOUT_TOKENS.actionButtonPadding,
-                      fontSize: '11px',
-                      borderRadius: ACP_CARD_LAYOUT_TOKENS.actionButtonBorderRadius,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
-                      cursor: pingingAgentId === agent.id ? 'not-allowed' : 'pointer',
-                      border: '1px solid var(--border)',
-                      backgroundColor: '#f8f9fa',
-                      color: 'var(--text)',
-                    }}
+                    style={{ ...CARD_ACTION_STYLE, cursor: pingingAgentId === agent.id ? 'not-allowed' : 'pointer' }}
                   >
                     <Activity
                       size={12}
@@ -435,6 +671,35 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                       Ping {agent.name}
                     </span>
                   </button>
+                  <button
+                    className="btn-pill-tonal"
+                    onClick={() => openDetect(agent)}
+                    style={{ ...CARD_ACTION_STYLE, cursor: 'pointer' }}
+                    aria-label={`Auto-detect endpoint for ${agent.name}`}
+                  >
+                    <Search size={12} />
+                    <span>Auto-detect</span>
+                  </button>
+                  <button
+                    className="btn-pill-tonal"
+                    onClick={() => openEditEditor(agent)}
+                    style={{ ...CARD_ACTION_STYLE, cursor: 'pointer' }}
+                    aria-label={`Edit ${agent.name}`}
+                  >
+                    <Pencil size={12} />
+                    <span>Edit</span>
+                  </button>
+                  {(agent.custom || agent.os_default === false) && (
+                    <button
+                      className="btn-pill-tonal"
+                      onClick={() => setConfirm({ kind: 'delete', agent })}
+                      style={{ ...CARD_ACTION_STYLE, cursor: 'pointer', color: '#c5221f' }}
+                      aria-label={`${agent.custom ? 'Delete' : 'Reset'} ${agent.name}`}
+                    >
+                      <Trash2 size={12} />
+                      <span>{agent.custom ? 'Delete' : 'Reset'}</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )
@@ -547,6 +812,61 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
           )}
         </div>
       </div>
+
+      <AcpAgentEditorModal
+        key={editor.open ? `${editor.mode}:${editor.agent?.id || 'new'}` : 'closed'}
+        open={editor.open}
+        mode={editor.mode}
+        initial={editor.agent}
+        busy={editorBusy}
+        error={editorError}
+        onCancel={() => setEditor({ open: false, mode: 'create', agent: null })}
+        onSubmit={handleSaveAgent}
+      />
+
+      <AcpDetectModal
+        agent={detect.agent}
+        result={detect.result}
+        loading={detect.loading}
+        error={detect.error}
+        onCancel={() => setDetect({ agent: null, result: null, loading: false, error: null })}
+        onApply={(candidate) => {
+          if (detect.agent) {
+            void applyDetectedEndpoint(detect.agent, candidate)
+          }
+        }}
+      />
+
+      <AcpConfirmModal
+        open={confirm.kind === 'delete'}
+        title={`Reset ${confirm.agent?.name || 'agent'}?`}
+        message={
+          confirm.agent?.custom
+            ? 'This removes the custom agent from the registry. The running application is not affected.'
+            : 'This clears the stored endpoint and binary override for this preset, so it falls back to the OS default for this machine.'
+        }
+        confirmLabel={confirm.agent?.custom ? 'Delete Agent' : 'Reset to OS Default'}
+        busy={confirmBusy}
+        danger
+        onCancel={() => setConfirm({ kind: null, agent: null })}
+        onConfirm={() => {
+          if (confirm.agent) {
+            void handleDeleteAgent(confirm.agent)
+          }
+        }}
+      />
+
+      <AcpConfirmModal
+        open={confirm.kind === 'setup'}
+        title="Set up ACP for this OS"
+        message="Each built-in agent will be probed: its configured endpoint, its OS default, TCP ports owned by a running process, and existing socket files. Reachable named pipes and unix sockets are saved as overrides automatically; ambiguous TCP ports are left for manual review. Nothing is changed for agents with no reachable endpoint."
+        confirmLabel="Run Setup"
+        busy={isSettingUp}
+        onCancel={() => setConfirm({ kind: null, agent: null })}
+        onConfirm={() => {
+          void applyOsDefaultsToAll()
+        }}
+      />
     </div>
   )
 }
