@@ -63,8 +63,27 @@ type Config struct {
 	// BoardOverviewAutoHide collapses the Antigravity IDE's own right-hand
 	// Overview panel while the Antigravity Swiss Knife board page is open.
 	BoardOverviewAutoHide bool `json:"board_overview_auto_hide"`
+	// ACPAgents stores user overrides for the built-in ACP presets plus any
+	// custom agents added from the Utilities > ACP Agent Mesh page.
+	ACPAgents []ACPAgentConfig `json:"acp_agents,omitempty"`
 
 	mu sync.RWMutex `json:"-"`
+}
+
+// ACPAgentConfig is one persisted ACP agent entry.
+//
+// For a preset id, only the non-empty fields override the built-in defaults, so
+// clearing a field falls back to the OS default. Entries with Custom=true are
+// agents the user added and are rendered in addition to the presets.
+type ACPAgentConfig struct {
+	ID         string   `json:"id"`
+	Name       string   `json:"name,omitempty"`
+	Type       string   `json:"type,omitempty"`
+	BinaryPath string   `json:"binary_path,omitempty"`
+	Endpoint   string   `json:"endpoint,omitempty"`
+	Version    string   `json:"acp_version,omitempty"`
+	Tools      []string `json:"tools,omitempty"`
+	Custom     bool     `json:"custom,omitempty"`
 }
 
 // MemoConfig represents settings for the Quick Memos extension.
@@ -285,6 +304,41 @@ func (c *Config) SetAppPath(appType, path string) error {
 	default:
 		c.mu.Unlock()
 		return fmt.Errorf("unknown app type %q: must be 'desktop', 'agy', or 'vscode'", appType)
+	}
+	c.mu.Unlock()
+	return c.Save()
+}
+
+// GetACPAgents returns a copy of the persisted ACP agent configuration.
+func (c *Config) GetACPAgents() []ACPAgentConfig {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.ACPAgents) == 0 {
+		return nil
+	}
+	out := make([]ACPAgentConfig, len(c.ACPAgents))
+	for i, a := range c.ACPAgents {
+		out[i] = a
+		if a.Tools != nil {
+			out[i].Tools = append([]string(nil), a.Tools...)
+		}
+	}
+	return out
+}
+
+// SetACPAgents replaces the persisted ACP agent configuration and saves it.
+func (c *Config) SetACPAgents(agents []ACPAgentConfig) error {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	if len(agents) == 0 {
+		c.ACPAgents = nil
+	} else {
+		c.ACPAgents = agents
 	}
 	c.mu.Unlock()
 	return c.Save()

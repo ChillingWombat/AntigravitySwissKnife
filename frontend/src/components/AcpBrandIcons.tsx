@@ -1,15 +1,19 @@
 import React from 'react'
 import { Bot } from 'lucide-react'
-import antigravityLogo from '../assets/antigravity_logo.png'
-import antigravityCliLogo from '../assets/logo/Antigravity_CLI.webp'
-import devinLogo from '../assets/logo/devin.png'
-import opencodeLogo from '../assets/logo/opencode.png'
-import deepseekLogo from '../assets/logo/deepseek.png'
-import piLogo from '../assets/logo/pi.png'
-import codexLogo from '../assets/logo/codex.jpeg'
-import claudeLogo from '../assets/logo/claude.svg'
-import cursorLogo from '../assets/logo/cursor.jpeg'
-import gcpLogo from '../assets/logo/GCP.png'
+
+// Assets are referenced through new URL(..., import.meta.url) so the module can
+// also be imported by the Node-based component tests, where image extensions
+// have no loader. Vite still resolves and fingerprints these URLs at build time.
+const antigravityLogo = new URL('../assets/antigravity_logo.png', import.meta.url).href
+const antigravityCliLogo = new URL('../assets/logo/Antigravity_CLI.webp', import.meta.url).href
+const devinLogo = new URL('../assets/logo/devin.png', import.meta.url).href
+const opencodeLogo = new URL('../assets/logo/opencode.png', import.meta.url).href
+const deepseekLogo = new URL('../assets/logo/deepseek.png', import.meta.url).href
+const piLogo = new URL('../assets/logo/pi.png', import.meta.url).href
+const codexLogo = new URL('../assets/logo/codex.jpeg', import.meta.url).href
+const claudeLogo = new URL('../assets/logo/claude.svg', import.meta.url).href
+const cursorLogo = new URL('../assets/logo/cursor.jpeg', import.meta.url).href
+const gcpLogo = new URL('../assets/logo/GCP.png', import.meta.url).href
 
 export interface AcpBrandIconProps {
   size?: number

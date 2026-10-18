@@ -895,6 +895,43 @@ export interface AcpAgentInstance {
   ping_latency_ms: number
   supported_tools: string[]
   last_handshake: string
+  /** True when the agent was added by the user rather than being a built-in preset. */
+  custom?: boolean
+  /** True when the endpoint is the computed OS default rather than a stored override. */
+  os_default?: boolean
+  /** Every node accepts manual edits. */
+  editable?: boolean
+}
+
+/** Editable subset of an ACP agent, used by the add/edit dialog. */
+export interface AcpAgentInput {
+  id?: string
+  name: string
+  type?: string
+  binary_path?: string
+  endpoint: string
+  acp_version?: string
+  tools?: string[]
+}
+
+export interface AcpMeshResponse {
+  status: string
+  mesh_nodes: number
+  protocol_version: string
+  agents: AcpAgentInstance[]
+}
+
+export interface AcpDetectCandidate {
+  endpoint: string
+  kind: 'unix' | 'pipe' | 'tcp' | string
+  reachable: boolean
+  note: string
+}
+
+export interface AcpDetectResponse {
+  candidates: AcpDetectCandidate[]
+  os_default: string
+  pid: number
 }
 
 export interface AcpHandshakeLog {
