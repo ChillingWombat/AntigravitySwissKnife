@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
 
 // DirectHandler implements local machine operations when Gemini acts as a direct actuator.
@@ -43,6 +45,10 @@ func (dh *DirectHandler) RunCommand(args map[string]interface{}) (string, error)
 	var shellCmd *exec.Cmd
 	if runtime.GOOS == "windows" {
 		shellCmd = exec.CommandContext(ctx, "cmd.exe", "/c", cmdStr)
+		// Hidden console (not CREATE_NO_WINDOW): the arbitrary command may spawn
+		// console subprocesses of its own (npm/node/python...) — they inherit the
+		// hidden console instead of allocating visible windows.
+		core.SetHiddenConsoleInherit(shellCmd)
 	} else {
 		shellCmd = exec.CommandContext(ctx, "bash", "-c", cmdStr)
 	}
@@ -202,6 +208,7 @@ func (dh *DirectHandler) ComputerUse(args map[string]interface{}) (string, error
 					cmd = exec.Command(bin, "-window", "root", outPath)
 				}
 				if cmd != nil {
+					core.SetHiddenConsole(cmd)
 					if err := cmd.Run(); err == nil {
 						if fi, statErr := os.Stat(outPath); statErr == nil && fi.Size() > 0 {
 							return fmt.Sprintf("Screenshot captured via %s to %s (%d bytes)", tool, outPath, fi.Size()), nil
@@ -218,6 +225,7 @@ func (dh *DirectHandler) ComputerUse(args map[string]interface{}) (string, error
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", psScript)
+			core.SetHiddenConsole(cmd)
 			if err := cmd.Run(); err == nil {
 				if fi, statErr := os.Stat(outPath); statErr == nil && fi.Size() > 0 {
 					return fmt.Sprintf("Screenshot captured via windows-screen-capture to %s (%d bytes)", outPath, fi.Size()), nil

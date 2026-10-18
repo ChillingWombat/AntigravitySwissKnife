@@ -182,7 +182,15 @@ func OpenBrowser(targetURL string) error {
 		cmd = "xdg-open"
 		args = []string{targetURL}
 	}
-	return core.LaunchDetachedProcess(exec.Command(cmd, args...))
+	return core.LaunchDetachedProcess(hiddenBrowserCmd(cmd, args))
+}
+
+// hiddenBrowserCmd wraps the browser-launch command with hidden-console flags so
+// opening the default browser never flashes a console window on Windows.
+func hiddenBrowserCmd(cmd string, args []string) *exec.Cmd {
+	c := exec.Command(cmd, args...)
+	core.SetHiddenConsole(c)
+	return c
 }
 
 // CancelFlow aborts any active OAuth loopback flow and shuts down the loopback server immediately.

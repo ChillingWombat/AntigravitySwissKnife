@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
 
 func findGHBinary() string {
@@ -38,6 +40,7 @@ func findGHBinary() string {
 func ghCommand(args ...string) *exec.Cmd {
 	bin := findGHBinary()
 	cmd := exec.Command(bin, args...)
+	core.SetHiddenConsole(cmd) // gh is a console app — hide its window
 	env := os.Environ()
 	home, _ := os.UserHomeDir()
 	extraPaths := []string{
@@ -139,12 +142,15 @@ func (s *Service) DetectRepository(workspacePath string) (*RepoInfo, error) {
 
 	// 1. Get git remote URL
 	cmdRemote := exec.Command("git", "-C", dir, "remote", "get-url", "origin")
+	core.SetHiddenConsole(cmdRemote)
 	outRemote, err := cmdRemote.Output()
 	if err != nil {
 		trimmed := strings.TrimSpace(workspacePath)
 		if trimmed == "" || trimmed == "." || strings.EqualFold(trimmed, "global") {
 			if latest := latestWorkspaceFromDB(); latest != "" && latest != dir {
-				if out2, err2 := exec.Command("git", "-C", latest, "remote", "get-url", "origin").Output(); err2 == nil {
+				cmdFallback := exec.Command("git", "-C", latest, "remote", "get-url", "origin")
+				core.SetHiddenConsole(cmdFallback)
+				if out2, err2 := cmdFallback.Output(); err2 == nil {
 					dir = latest
 					outRemote = out2
 					err = nil
@@ -178,6 +184,7 @@ func (s *Service) DetectRepository(workspacePath string) (*RepoInfo, error) {
 
 	// 2. Get current branch
 	cmdBranch := exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD")
+	core.SetHiddenConsole(cmdBranch)
 	outBranch, _ := cmdBranch.Output()
 	branch := strings.TrimSpace(string(outBranch))
 

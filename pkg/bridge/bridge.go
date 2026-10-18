@@ -385,6 +385,7 @@ func isVSCodeRunning() bool {
 	} else {
 		cmd = exec.Command("pgrep", "-f", "code")
 	}
+	core.SetHiddenConsole(cmd) // tasklist is a console app — no visible window flash on status polls
 	out, err := cmd.Output()
 	if err != nil {
 		return false

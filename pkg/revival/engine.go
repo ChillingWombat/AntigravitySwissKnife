@@ -209,7 +209,10 @@ func (e *Engine) executeCLIRevival(intent *RevivalIntent) error {
 	}
 
 	cmd := exec.Command(binPath, "--conversation", convID, "--continue")
-	return core.LaunchDetachedProcess(cmd)
+	// Hidden console (not DETACHED_PROCESS): agy is a console app whose node
+	// helpers inherit its console — with no console they would each allocate a
+	// visible window.
+	return core.LaunchHiddenConsoleProcess(cmd)
 }
 
 func (e *Engine) executeVSCodeRevival(intent *RevivalIntent) error {
@@ -229,7 +232,9 @@ func (e *Engine) executeVSCodeRevival(intent *RevivalIntent) error {
 
 	uri := fmt.Sprintf("vscode://google.google-antigravity/open-conversation?cascadeId=%s&path=/c/%s", convID, convID)
 	cmd := exec.Command(codePath, "--open-url", uri)
-	return core.LaunchDetachedProcess(cmd)
+	// code resolves to code.cmd on Windows (console batch) — same hidden-console
+	// treatment as agy so its node child does not open a visible window.
+	return core.LaunchHiddenConsoleProcess(cmd)
 }
 
 // ReviveConversation manually or programmatically triggers continuation for the specified target.

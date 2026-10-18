@@ -14,6 +14,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
 
 // TunnelStatus represents current remote connectivity state.
@@ -196,6 +198,7 @@ func (tm *TunnelManager) startQuickTunnel() (TunnelStatus, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	cmd := exec.CommandContext(ctx, bin, "tunnel", "--url", fmt.Sprintf("http://127.0.0.1:%d", tm.localPort))
+	core.SetHiddenConsole(cmd) // long-lived console app — keep its window hidden
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		cancel()
@@ -361,7 +364,9 @@ func (tm *TunnelManager) startTailscaleTunnel() (TunnelStatus, error) {
 	}
 
 	// 1. Try tailscale funnel or status
-	out, err := exec.Command(tsBin, "ip", "-4").Output()
+	cmdIP := exec.Command(tsBin, "ip", "-4")
+	core.SetHiddenConsole(cmdIP)
+	out, err := cmdIP.Output()
 	if err != nil {
 		err = fmt.Errorf("tailscale not connected or logged in (%v)", err)
 		tm.mu.Lock()
@@ -381,7 +386,9 @@ func (tm *TunnelManager) startTailscaleTunnel() (TunnelStatus, error) {
 	}
 
 	// 2. Try getting MagicDNS domain
-	statusOut, _ := exec.Command(tsBin, "status", "--json").Output()
+	cmdStatus := exec.Command(tsBin, "status", "--json")
+	core.SetHiddenConsole(cmdStatus)
+	statusOut, _ := cmdStatus.Output()
 	var magicDNS string
 	if len(statusOut) > 0 && strings.Contains(string(statusOut), "Self") {
 		var st struct {
