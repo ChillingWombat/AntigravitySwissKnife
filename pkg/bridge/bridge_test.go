@@ -177,7 +177,7 @@ func TestBridge_LifecycleAndMCP(t *testing.T) {
 		t.Errorf("expected valid new PIN")
 	}
 
-	// 9. Test TunnelManager loopback / custom
+	// 9. Test TunnelManager custom start / stop
 	stCustom, err := svc.StartTunnel("custom", "https://custom-gateway.local")
 	if err != nil {
 		t.Fatalf("start custom tunnel failed: %v", err)
@@ -187,8 +187,13 @@ func TestBridge_LifecycleAndMCP(t *testing.T) {
 	}
 	svc.StopTunnel()
 	stAfterStop := svc.GetStatus()
-	if stAfterStop.TunnelType != "loopback" {
-		t.Errorf("expected loopback after stop, got %s", stAfterStop.TunnelType)
+	// Issue #120: stopping clears the tunnel type entirely (no loopback fallback) and the
+	// gateway URL is no longer reported.
+	if stAfterStop.TunnelType != "" {
+		t.Errorf("expected cleared tunnel type after stop, got %s", stAfterStop.TunnelType)
+	}
+	if stAfterStop.GatewayURL != "" {
+		t.Errorf("expected no gateway URL after stop, got %s", stAfterStop.GatewayURL)
 	}
 }
 

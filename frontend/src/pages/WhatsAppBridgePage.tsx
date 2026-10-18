@@ -130,9 +130,6 @@ export const WhatsAppBridgePage: React.FC = () => {
               <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                 WhatsApp Agent Chat Bridge
               </h2>
-              <span className={`badge-chip ${waStatus.enabled ? (waStatus.connected ? 'badge-green' : 'badge-yellow') : 'badge-neutral'}`}>
-                {waStatus.enabled ? (waStatus.connected ? 'Configured' : 'Not Configured') : 'Disabled'}
-              </span>
             </div>
             <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
               Direct bidirectional chat channel between WhatsApp and local Antigravity autonomous agents.

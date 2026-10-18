@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,7 +23,7 @@ import (
 // TunnelStatus represents current remote connectivity state.
 type TunnelStatus struct {
 	Active     bool      `json:"active"`
-	Type       string    `json:"type"` // "quick" | "tailscale" | "loopback" | "custom"
+	Type       string    `json:"type"` // "quick" | "tailscale" | "custom" | "" (not exposed)
 	PublicURL  string    `json:"public_url,omitempty"`
 	GatewayURL string    `json:"gateway_url"`
 	Error      string    `json:"error,omitempty"`
@@ -57,10 +59,10 @@ func NewTunnelManager(port int, endpointPath ...string) *TunnelManager {
 		localPort:    port,
 		endpointPath: path,
 		status: TunnelStatus{
-			Active:     false,
-			Type:       "loopback",
-			GatewayURL: fmt.Sprintf("http://127.0.0.1:%d%s", port, path),
-			PublicURL:  fmt.Sprintf("http://127.0.0.1:%d", port),
+			// Issue #120: there is no loopback fallback endpoint. The bridge is simply
+			// "not exposed" until a real tunnel provides an external URL.
+			Active: false,
+			Type:   "",
 		},
 		logs: make([]string, 0),
 	}
@@ -122,24 +124,50 @@ func (tm *TunnelManager) appendLogLocked(msg string) {
 
 // Start begins a remote tunnel with zero configuration.
 func (tm *TunnelManager) Start(tunnelType string, customURL string) (TunnelStatus, error) {
-	tm.Stop()
-
 	if tunnelType == "" || tunnelType == "quick" {
 		tunnelType = "quick"
 	}
+
+	// Issue #120: validate the request before touching any live tunnel, so a rejected
+	// request never tears down a working remote access session.
+	switch tunnelType {
+	case "quick", "tailscale":
+		// No extra inputs required.
+	case "custom":
+		// Issue #120 review: a custom endpoint must be a well-formed absolute https:// URL
+		// with a non-empty, non-loopback host. Host-less input such as "https://" and
+		// loopback hosts (127.0.0.1/localhost/::1) are unreachable from remote clients and
+		// are rejected here instead of being surfaced to the UI as a dead link.
+		normalized, err := normalizeCustomEndpoint(customURL)
+		if err != nil {
+			tm.mu.RLock()
+			st := tm.status
+			tm.mu.RUnlock()
+			return st, err
+		}
+		customURL = normalized
+	case "loopback":
+		// Loopback is not a remote endpoint. 127.0.0.1 is unreachable from any remote client,
+		// so it is rejected instead of being offered as a tunnel choice.
+		tm.mu.RLock()
+		st := tm.status
+		tm.mu.RUnlock()
+		return st, fmt.Errorf("loopback is not a remote endpoint; choose quick, tailscale or custom")
+	default:
+		tm.mu.RLock()
+		st := tm.status
+		tm.mu.RUnlock()
+		return st, fmt.Errorf("unknown tunnel type: %s", tunnelType)
+	}
+
+	tm.Stop()
 
 	switch tunnelType {
 	case "quick":
 		return tm.startQuickTunnel()
 	case "tailscale":
 		return tm.startTailscaleTunnel()
-	case "custom":
-		if customURL == "" {
-			tm.mu.RLock()
-			st := tm.status
-			tm.mu.RUnlock()
-			return st, fmt.Errorf("custom URL is required when choosing custom tunnel type")
-		}
+	default: // "custom" — URL validated above
 		path := tm.endpointPath
 		if !strings.HasPrefix(path, "/") {
 			path = "/" + path
@@ -148,39 +176,17 @@ func (tm *TunnelManager) Start(tunnelType string, customURL string) (TunnelStatu
 			customURL = strings.TrimRight(customURL, "/") + path
 		}
 		tm.mu.Lock()
-		tm.status = TunnelStatus{
+		tm.status = sanitizeTunnelStatus(TunnelStatus{
 			Active:     true,
 			Type:       "custom",
 			PublicURL:  customURL,
 			GatewayURL: customURL,
 			StartedAt:  time.Now(),
-		}
+		})
 		st := tm.status
 		tm.mu.Unlock()
 		tm.appendLog(fmt.Sprintf("Custom remote endpoint configured: %s", customURL))
 		return st, nil
-	case "loopback":
-		path := tm.endpointPath
-		if !strings.HasPrefix(path, "/") {
-			path = "/" + path
-		}
-		tm.mu.Lock()
-		tm.status = TunnelStatus{
-			Active:     true,
-			Type:       "loopback",
-			PublicURL:  fmt.Sprintf("http://127.0.0.1:%d", tm.localPort),
-			GatewayURL: fmt.Sprintf("http://127.0.0.1:%d%s", tm.localPort, path),
-			StartedAt:  time.Now(),
-		}
-		st := tm.status
-		tm.mu.Unlock()
-		tm.appendLog("Loopback intranet endpoint configured (127.0.0.1)")
-		return st, nil
-	default:
-		tm.mu.RLock()
-		st := tm.status
-		tm.mu.RUnlock()
-		return st, fmt.Errorf("unknown tunnel type: %s", tunnelType)
 	}
 }
 
@@ -286,8 +292,8 @@ func (tm *TunnelManager) startQuickTunnel() (TunnelStatus, error) {
 
 		tm.mu.Lock()
 		tm.status.Active = true
-		tm.status.PublicURL = discoveredURL
-		tm.status.GatewayURL = gatewayURL
+		tm.status.PublicURL = sanitizeEndpointURL(discoveredURL)
+		tm.status.GatewayURL = sanitizeEndpointURL(gatewayURL)
 		tm.status.Error = ""
 		st := tm.status
 		tm.mu.Unlock()
@@ -320,8 +326,8 @@ func (tm *TunnelManager) startQuickTunnel() (TunnelStatus, error) {
 
 				tm.mu.Lock()
 				tm.status.Active = true
-				tm.status.PublicURL = match
-				tm.status.GatewayURL = gatewayURL
+				tm.status.PublicURL = sanitizeEndpointURL(match)
+				tm.status.GatewayURL = sanitizeEndpointURL(gatewayURL)
 				tm.status.Error = ""
 				st := tm.status
 				tm.mu.Unlock()
@@ -417,13 +423,13 @@ func (tm *TunnelManager) startTailscaleTunnel() (TunnelStatus, error) {
 	}
 
 	tm.mu.Lock()
-	tm.status = TunnelStatus{
+	tm.status = sanitizeTunnelStatus(TunnelStatus{
 		Active:     true,
 		Type:       "tailscale",
 		PublicURL:  publicURL,
 		GatewayURL: gatewayURL,
 		StartedAt:  time.Now(),
-	}
+	})
 	st := tm.status
 	tm.mu.Unlock()
 
@@ -442,18 +448,97 @@ func (tm *TunnelManager) Stop() {
 		_ = tm.cmd.Process.Kill()
 		tm.cmd = nil
 	}
-	path := tm.endpointPath
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
 	tm.status.Active = false
-	tm.status.Type = "loopback"
-	tm.status.GatewayURL = fmt.Sprintf("http://127.0.0.1:%d%s", tm.localPort, path)
-	tm.status.PublicURL = fmt.Sprintf("http://127.0.0.1:%d", tm.localPort)
+	// Issue #120: no loopback fallback endpoint — stopping a tunnel means the bridge is
+	// simply no longer exposed to the internet.
+	tm.status.Type = ""
+	tm.status.GatewayURL = ""
+	tm.status.PublicURL = ""
 	tm.status.Error = ""
 	tm.mu.Unlock()
 
-	tm.appendLog("Remote tunnel stopped; returned to loopback mode.")
+	tm.appendLog("Remote tunnel stopped; bridge is no longer exposed to the internet.")
+}
+
+// isLoopbackURL reports whether raw is an absolute URL whose host is a loopback address
+// (127.0.0.0/8, ::1 or "localhost").
+func isLoopbackURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Hostname() == "" {
+		return false
+	}
+	host := u.Hostname()
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
+}
+
+// sanitizeEndpointURL returns raw when it is a usable external endpoint URL — an absolute
+// URL with a non-empty, non-loopback host — and "" otherwise. Issue #120 review: loopback
+// hosts (127.0.0.1/localhost/::1) and host-less values such as "https://" are never valid
+// remote endpoints, so they must never be stored in or served from TunnelStatus.
+func sanitizeEndpointURL(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || isLoopbackURL(trimmed) {
+		return ""
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil || u.Hostname() == "" {
+		return ""
+	}
+	return trimmed
+}
+
+// sanitizeTunnelStatus strips non-external endpoints from a status snapshot. The raw
+// GatewayURL/PublicURL fields are serialized verbatim to the UI (RemoteControlPage.tsx
+// renders tunnel.gateway_url directly), so every outward-facing path through TunnelManager —
+// Start return values, GetStatus, BridgeStatus.Tunnel, RemoteControlStatus.Tunnel and
+// persisted config URLs — is routed through this single chokepoint (issue #120 review).
+func sanitizeTunnelStatus(st TunnelStatus) TunnelStatus {
+	st.GatewayURL = sanitizeEndpointURL(st.GatewayURL)
+	st.PublicURL = sanitizeEndpointURL(st.PublicURL)
+	return st
+}
+
+// normalizeCustomEndpoint validates a user-supplied custom tunnel endpoint and returns its
+// trimmed form. The endpoint must be an absolute https:// URL with a non-empty,
+// non-loopback host: "https://" carries no host and a loopback host is unreachable from any
+// remote client, so both are rejected instead of being surfaced to the UI as a dead or
+// misleading link (issue #120 review). The local bridge itself stays on loopback HTTP behind
+// the reverse proxy; only the exposed URL must be https://.
+func normalizeCustomEndpoint(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", fmt.Errorf("custom URL is required when choosing custom tunnel type")
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("invalid custom remote endpoint %q: %v", raw, err)
+	}
+	if !strings.EqualFold(u.Scheme, "https") {
+		return "", fmt.Errorf("custom remote endpoint must use https://, got %q", raw)
+	}
+	if u.Hostname() == "" {
+		return "", fmt.Errorf("custom remote endpoint must include a host, got %q", raw)
+	}
+	if isLoopbackURL(trimmed) {
+		return "", fmt.Errorf("loopback is not a remote endpoint; %q is unreachable from remote clients", u.Hostname())
+	}
+	return trimmed, nil
+}
+
+// externalEndpoint returns the externally reachable endpoint URL of a tunnel, or "" when the
+// bridge is not exposed to the internet. Loopback URLs are never reported as remote endpoints
+// (issue #120).
+func externalEndpoint(st TunnelStatus) string {
+	if !st.Active {
+		return ""
+	}
+	return sanitizeEndpointURL(st.GatewayURL)
 }
 
 // GetStatus returns the current tunnel status snapshot.
@@ -468,5 +553,7 @@ func (tm *TunnelManager) GetStatus() TunnelStatus {
 	tm.logsMu.Unlock()
 
 	res.Logs = logsCopy
-	return res
+	// Defense in depth: sanitize on read as well, so even a future write path that stores a
+	// loopback/host-less endpoint can never leak it to the UI (issue #120 review).
+	return sanitizeTunnelStatus(res)
 }

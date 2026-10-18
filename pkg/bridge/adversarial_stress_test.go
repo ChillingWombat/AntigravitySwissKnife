@@ -38,11 +38,15 @@ func TestAdversarial_TunnelManager_HighConcurrencyStress(t *testing.T) {
 				case 0:
 					tm.appendLog(fmt.Sprintf("worker-%d-iter-%d log line", workerID, j))
 				case 1:
+					// Issue #120: the gateway URL is empty while no tunnel is active, so the
+					// stress assertion only checks that the snapshot stays internally consistent.
 					st := tm.GetStatus()
-					if st.GatewayURL == "" {
-						t.Errorf("worker-%d: GatewayURL should never be empty", workerID)
+					if st.Active && st.GatewayURL == "" {
+						t.Errorf("worker-%d: active tunnel must report a gateway URL", workerID)
 					}
 				case 2:
+					// Rejected starts (issue #120) are still a valid concurrency path: they
+					// take the lock and must never corrupt the status.
 					_, _ = tm.Start("loopback", "")
 				case 3:
 					customURL := fmt.Sprintf("https://worker-%d.example.com", workerID)

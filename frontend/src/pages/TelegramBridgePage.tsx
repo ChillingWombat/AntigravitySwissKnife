@@ -129,9 +129,6 @@ export const TelegramBridgePage: React.FC = () => {
               <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                 Telegram Agent Chat Bridge
               </h2>
-              <span className={`badge-chip ${tgStatus.enabled ? (tgStatus.connected ? 'badge-green' : 'badge-yellow') : 'badge-neutral'}`}>
-                {tgStatus.enabled ? (tgStatus.connected ? 'Configured' : 'Not Configured') : 'Disabled'}
-              </span>
             </div>
             <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
               Direct bidirectional chat channel between Telegram bots and local Antigravity autonomous agents.

@@ -138,9 +138,6 @@ export const DiscordBridgePage: React.FC = () => {
               <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                 Discord Agent Chat Bridge
               </h2>
-              <span className={`badge-chip ${dsStatus.enabled ? (dsStatus.connected ? 'badge-green' : 'badge-yellow') : 'badge-neutral'}`}>
-                {dsStatus.enabled ? (dsStatus.connected ? 'Configured' : 'Not Configured') : 'Disabled'}
-              </span>
             </div>
             <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
               Direct bidirectional chat channel between Discord bots and local Antigravity autonomous agents.

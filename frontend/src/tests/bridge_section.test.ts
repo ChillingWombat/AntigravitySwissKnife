@@ -78,7 +78,8 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.ok(waContent.includes('Allowed Phone Numbers'))
     assert.ok(waContent.includes('google-card'))
     assert.ok(waContent.includes('ToggleSwitch'))
-    assert.ok(waContent.includes('badge-chip'))
+    // Issue #119: the header status chip is removed — state lives in the toggle and status cards.
+    assert.strictEqual(waContent.includes('badge-chip'), false, 'WhatsAppBridgePage header chip must be removed')
   })
 
   it('TelegramBridgePage enforces David-Design and functional settings', () => {
@@ -90,7 +91,8 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.ok(tgContent.includes('Allowed Chat IDs'))
     assert.ok(tgContent.includes('google-card'))
     assert.ok(tgContent.includes('ToggleSwitch'))
-    assert.ok(tgContent.includes('badge-chip'))
+    // Issue #119: the header status chip is removed — state lives in the toggle and status cards.
+    assert.strictEqual(tgContent.includes('badge-chip'), false, 'TelegramBridgePage header chip must be removed')
   })
 
   it('DiscordBridgePage enforces David-Design and functional settings', () => {
@@ -102,7 +104,8 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.ok(dsContent.includes('Allowed Channel IDs'))
     assert.ok(dsContent.includes('google-card'))
     assert.ok(dsContent.includes('ToggleSwitch'))
-    assert.ok(dsContent.includes('badge-chip'))
+    // Issue #119: the header status chip is removed — state lives in the toggle and status cards.
+    assert.strictEqual(dsContent.includes('badge-chip'), false, 'DiscordBridgePage header chip must be removed')
   })
 
   it('GeminiBridgePage enforces David-Design and functional settings', () => {
