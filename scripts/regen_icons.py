@@ -32,6 +32,7 @@ OUTER_BG = (249, 249, 251)
 PNG_SIZES = [16, 24, 32, 48, 64, 128, 256, 512, 1024]
 ICO_SIZES = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
 FAVICON_SIZES = [(16, 16), (32, 32), (48, 48)]
+TRAY_SIZES = [16, 24, 32, 48]
 
 
 def squircle_alpha(crop):
@@ -57,6 +58,56 @@ def squircle_alpha(crop):
     return alpha
 
 
+def tray_knife(crop):
+    """Extract the knife glyph on transparency for notification-area icons.
+
+    Tray icons sit on a white flyout (and on dark taskbars), so the white
+    squircle background of the app icon would either disappear or look like a
+    blank tile. Flood-fill the white background from the crop border: only the
+    enclosed white areas (the "G" inside the red band) stay opaque.
+    """
+    from collections import deque
+
+    import numpy as np
+
+    arr = np.array(crop.convert("RGB")).astype(int)
+    h, w = arr.shape[:2]
+    white = arr.min(axis=2) >= 244
+    outside = np.zeros((h, w), dtype=bool)
+    q = deque()
+    for x in range(w):
+        for y in (0, h - 1):
+            if white[y, x] and not outside[y, x]:
+                outside[y, x] = True
+                q.append((x, y))
+    for y in range(h):
+        for x in (0, w - 1):
+            if white[y, x] and not outside[y, x]:
+                outside[y, x] = True
+                q.append((x, y))
+    while q:
+        x, y = q.popleft()
+        for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if 0 <= nx < w and 0 <= ny < h and white[ny, nx] and not outside[ny, nx]:
+                outside[ny, nx] = True
+                q.append((nx, ny))
+
+    alpha = np.where(outside, 0, 255).astype("uint8")
+    rgba = np.dstack([arr.astype("uint8"), alpha])
+    glyph = Image.fromarray(rgba, "RGBA")
+    return glyph.crop(glyph.getchannel("A").getbbox())
+
+
+def tray_icon(glyph, size, fill=0.92):
+    """Center the glyph on a transparent square, filling `fill` of the canvas."""
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    target = max(1, int(round(size * fill)))
+    scale = target / max(glyph.size)
+    nw, nh = max(1, round(glyph.width * scale)), max(1, round(glyph.height * scale))
+    canvas.alpha_composite(glyph.resize((nw, nh), Image.LANCZOS), ((size - nw) // 2, (size - nh) // 2))
+    return canvas
+
+
 def main():
     src = Image.open(SRC).convert("RGB")
     if src.size != (1024, 1024):
@@ -78,10 +129,17 @@ def main():
     # Shared logo used as the last-resort window icon fallback.
     resized[512].save(os.path.join(ROOT, "assets", "logo.png"))
 
+    # Notification-area icons: transparent background, glyph fills the tile.
+    glyph = tray_knife(crop)
+    for size in TRAY_SIZES:
+        tray_icon(glyph, size).save(os.path.join(OUT_DIR, f"tray_{size}x{size}.png"))
+
     for size in PNG_SIZES:
         img = resized[size]
         print(f"icon_{size}x{size}.png alpha-bbox={img.getchannel('A').getbbox()}")
+    print(f"tray glyph {glyph.size} -> tray_{{{','.join(map(str, TRAY_SIZES))}}}.png")
     print("source squircle:", master.size, "from", SQUIRCLE_BOX)
+
     print("done")
 
 
