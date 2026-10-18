@@ -9,5 +9,5 @@ import (
 )
 
 func setDetachedProcess(cmd *exec.Cmd) {
-	core.SetDetachedProcess(cmd)
+	core.SetDetachedProcessHiddenConsole(cmd)
 }
