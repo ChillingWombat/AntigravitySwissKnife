@@ -210,4 +210,52 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
     assert.ok(pageContent.includes('setGcpIsDefault'), 'GCP modal must track default custom model state')
     assert.ok(pageContent.includes('Set as default custom model'), 'GCP modal must offer Set as default custom model toggle')
   })
+
+  it('GCP models expose manual balance and budget entry (manual-entry only, no auto probe fill)', () => {
+    assert.ok(pageContent.includes('gcpBalanceValue'), 'GCP modal must track a manual balance value')
+    assert.ok(pageContent.includes('Current Balance:'), 'GCP modal must expose a Current Balance field')
+    assert.ok(pageContent.includes('setGcpBudgetCapType'), 'GCP modal must track a budget cap type')
+    assert.ok(pageContent.includes('Budget Cap:'), 'GCP modal must expose a Budget Cap selector')
+    assert.ok(pageContent.includes('(manual entry only)'), 'GCP quota section must state manual-entry only')
+    assert.ok(pageContent.includes('quota_manual_override: true'), 'GCP save must flag the manual override')
+    assert.ok(
+      !pageContent.includes('quota_value: gcpTestResult?.quota_result'),
+      'GCP save must not auto-fill balance/quota from the connection-test probe'
+    )
+    assert.ok(
+      !pageContent.includes('balance_value: gcpTestResult?.quota_result'),
+      'GCP save must not auto-fill balance_value from the connection-test probe'
+    )
+  })
+
+  it('Quota & Price and GCP Quota & Budget sections default to collapsed with independent state', () => {
+    assert.ok(
+      pageContent.includes('const [isQuotaPriceOpen, setIsQuotaPriceOpen] = useState<boolean>(false)'),
+      'Quota & Price section must default to collapsed'
+    )
+    assert.ok(
+      pageContent.includes('const [isGcpQuotaBudgetOpen, setIsGcpQuotaBudgetOpen] = useState<boolean>(false)'),
+      'GCP Quota & Budget section must default to collapsed with its own state'
+    )
+    assert.ok(
+      !pageContent.includes('setIsQuotaPriceOpen(true)'),
+      'Modal openers must not force the Quota section back open (user expansion persists for the session)'
+    )
+  })
+
+  it('normalizes a GCP budget cap without a value back to none', () => {
+    assert.ok(pageContent.includes('gcpHasBudgetCap'), 'GCP save must normalize cap type + value together')
+    assert.ok(
+      pageContent.includes("budget_cap_type: gcpHasBudgetCap ? gcpBudgetCapType : 'none'"),
+      'Cap type must fall back to none when no value is provided'
+    )
+    assert.ok(
+      pageContent.includes('budget_cap_value: gcpHasBudgetCap ? gcpBudgetCapValue : null'),
+      'Cap value must be nulled when the cap is normalized away'
+    )
+  })
+
+  it('removes the Null — Manual Entry Required badge', () => {
+    assert.ok(!pageContent.includes('Manual Entry Required'), 'The yellow null-price pill must be removed')
+  })
 })

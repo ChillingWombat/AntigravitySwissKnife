@@ -294,6 +294,12 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   const formatCost = (usd: number | null | undefined) =>
     usd === null || usd === undefined ? 'null' : `$${usd.toFixed(4)}`
 
+  // Capitalized classification label ("native" -> "Native", missing -> "Native")
+  const formatClassification = (classification: string | null | undefined) => {
+    const raw = classification || 'native'
+    return raw.charAt(0).toUpperCase() + raw.slice(1)
+  }
+
   // 2-decimal metric formatter shared by the Models / Projects breakdowns
   const formatMetric = (value: number | null | undefined) => {
     if (unitMode === 'usd' && (value === null || value === undefined)) {
@@ -1237,49 +1243,49 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                       </td>
                       <td style={{ padding: '10px 12px', color: 'var(--text)', textAlign: 'center' }}>
                         {pr.input_price_per_m === null || pr.input_price_per_m === undefined ? (
-                          <span style={{ color: '#b06000', fontSize: '12px', fontWeight: 500 }}>null (Manual Entry)</span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '12px', fontWeight: 400 }}>—</span>
                         ) : (
                           `$${pr.input_price_per_m.toFixed(3)}`
                         )}
                       </td>
                       <td style={{ padding: '10px 12px', color: '#137333', fontWeight: 600, textAlign: 'center' }}>
                         {pr.cached_input_price_per_m === null || pr.cached_input_price_per_m === undefined ? (
-                          <span style={{ color: 'var(--text-muted)', fontSize: '12px', fontWeight: 400 }}>null</span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '12px', fontWeight: 400 }}>—</span>
                         ) : (
                           `$${pr.cached_input_price_per_m.toFixed(4)}`
                         )}
                       </td>
                       <td style={{ padding: '10px 12px', color: 'var(--text)', textAlign: 'center' }}>
                         {pr.output_price_per_m === null || pr.output_price_per_m === undefined ? (
-                          <span style={{ color: '#b06000', fontSize: '12px', fontWeight: 500 }}>null (Manual Entry)</span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '12px', fontWeight: 400 }}>—</span>
                         ) : (
                           `$${pr.output_price_per_m.toFixed(2)}`
                         )}
                       </td>
                       <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            color:
-                              pr.source === 'provider'
-                                ? '#137333'
-                                : pr.source === 'third_party' || pr.source === 'api'
-                                ? 'var(--primary)'
-                                : pr.source === 'manual'
-                                ? '#7e22ce'
-                                : '#b06000',
-                            fontWeight: 600,
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {pr.source === 'provider'
-                            ? 'Provider Official'
-                            : pr.source === 'third_party' || pr.source === 'api'
-                            ? '3rd-Party Backup'
-                            : pr.source === 'manual'
-                            ? 'Manual Override'
-                            : 'Null — Manual Required'}
-                        </span>
+                        {['provider', 'third_party', 'api', 'manual'].includes(pr.source || '') ? (
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              color:
+                                pr.source === 'provider'
+                                  ? '#137333'
+                                  : pr.source === 'third_party' || pr.source === 'api'
+                                  ? 'var(--primary)'
+                                  : '#7e22ce',
+                              fontWeight: 600,
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {pr.source === 'provider'
+                              ? 'Provider Official'
+                              : pr.source === 'third_party' || pr.source === 'api'
+                              ? '3rd-Party Backup'
+                              : 'Manual Override'}
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)', fontSize: '12px', fontWeight: 400 }}>—</span>
+                        )}
                       </td>
                       <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                         <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
@@ -1824,14 +1830,13 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     <th style={{ padding: '8px 12px' }}>Tokens (In / Cache / Out)</th>
                     <th style={{ padding: '8px 12px' }}>Speed</th>
                     <th style={{ padding: '8px 12px' }}>Cost</th>
-                    <th style={{ padding: '8px 12px' }}>Type</th>
                     <th style={{ padding: '8px 12px' }}>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredTelemetryEvents.length === 0 ? (
                     <tr>
-                      <td colSpan={9} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                      <td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
                         No live telemetry sessions recorded for the selected filter.
                       </td>
                     </tr>
@@ -1850,7 +1855,14 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                         {ev.agent_role || (ev.is_subagent ? 'Sub-Agent' : 'Main Agent')}
                       </span>
                     </td>
-                    <td style={{ padding: '10px 12px', fontWeight: 500, color: 'var(--text)' }}>{ev.model || ev.canonical_id || ev.model_id || 'Model'}</td>
+                    <td style={{ padding: '10px 12px', fontWeight: 500, color: 'var(--text)' }}>
+                      <span
+                        title={`${ev.model || ev.canonical_id || ev.model_id || 'Model'} · ${formatClassification(ev.classification)}`}
+                        style={{ cursor: 'help' }}
+                      >
+                        {ev.model || ev.canonical_id || ev.model_id || 'Model'}
+                      </span>
+                    </td>
                     <td style={{ padding: '10px 12px' }}>
                       <span>{formatTokens(ev.input_tokens)} in</span> •{' '}
                       <span style={{ color: '#137333' }}>{formatTokens(ev.cached_tokens)} cache</span> •{' '}
@@ -1861,20 +1873,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     </td>
                     <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text)' }}>
                       {formatCost(ev.cost_usd)}
-                    </td>
-                    <td style={{ padding: '10px 12px' }}>
-                      <span
-                        style={{
-                          backgroundColor: ev.classification === 'native' ? '#e8f0fe' : '#f3e8ff',
-                          color: ev.classification === 'native' ? 'var(--primary)' : '#7e22ce',
-                          padding: '2px 6px',
-                          borderRadius: '8px',
-                          fontWeight: 600,
-                          textTransform: 'capitalize',
-                        }}
-                      >
-                        {ev.classification || 'native'}
-                      </span>
                     </td>
                     <td style={{ padding: '10px 12px' }}>
                       <span

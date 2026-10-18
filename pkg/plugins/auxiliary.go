@@ -1272,6 +1272,85 @@ div:has(> .shrink-0.flex.items-center.border-b),
   gap: 6px;
   align-items: center;
 }
+/* Responsive flowing grid: as many memo cards per row as the panel width allows,
+   each card keeping a readable minimum width. */
+.swiss-memo-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
+  gap: 8px;
+  align-items: start;
+}
+.swiss-memo-list > .swiss-memo-empty-search,
+.swiss-memo-list > .swiss-memo-list-status {
+  grid-column: 1 / -1;
+}
+/* Memo type filter (in the search row) */
+.swiss-memo-filter-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.swiss-memo-filter-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 60;
+  min-width: 148px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #cbd5e1);
+  background: var(--canvas, #ffffff);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.14);
+}
+.swiss-memo-filter-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text, #1e293b);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.swiss-memo-filter-item:hover {
+  background: rgba(148, 163, 184, 0.15);
+}
+.swiss-memo-filter-item.active {
+  background: rgba(26, 115, 232, 0.12);
+  color: #1a73e8;
+  font-weight: 600;
+}
+:is(.dark, [data-theme="dark"]) .swiss-memo-filter-menu {
+  background: var(--card, #1e293b);
+  border-color: var(--border, #334155);
+}
+:is(.dark, [data-theme="dark"]) .swiss-memo-filter-item {
+  color: #f8fafc;
+}
+.swiss-memo-filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 7px;
+  background: rgba(26, 115, 232, 0.15);
+  color: #1a73e8;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+}
+:is(.dark, [data-theme="dark"]) .swiss-memo-filter-count {
+  background: rgba(96, 165, 250, 0.25);
+  color: #bfdbfe;
+}
 .swiss-memo-card {
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 8px;
@@ -2220,6 +2299,11 @@ func GenerateAuxiliaryPluginsScript() string {
     window.switchAuxTab = switchAuxTab;
 
     function renderSwissTabContent(container, tabId) {
+      // Let the outgoing view release listeners, timers and media streams before its DOM is wiped.
+      if (container && typeof container.__swissMemosTeardown === "function") {
+        try { container.__swissMemosTeardown(); } catch (_) {}
+        container.__swissMemosTeardown = null;
+      }
       container.dataset.renderedTab = tabId;
       container.innerHTML = "";
       if (tabId === "browser") renderBrowserView(container);
@@ -2364,6 +2448,13 @@ func GenerateAuxiliaryPluginsScript() string {
       canvas.className = "swiss-browser-canvas-overlay";
       canvas.style.pointerEvents = "none";
 
+      // Overlay geometry: the canvas is displayed stretched into the (possibly transform-scaled)
+      // device frame, so the backing store tracks the *visual* size at the current DPR. Strokes
+      // are drawn in visual CSS pixels, which keeps the pen width identical everywhere on screen.
+      // canvasScale* converts guest-page layout pixels to visual (on-screen) pixels.
+      let canvasScaleX = 1;
+      let canvasScaleY = 1;
+
       screen.appendChild(webview);
       screen.appendChild(canvas);
       frameBox.appendChild(notch);
@@ -2376,12 +2467,64 @@ func GenerateAuxiliaryPluginsScript() string {
       wrap.appendChild(vpWrap);
       container.appendChild(wrap);
 
-      // Setup Canvas Resize
+      // Setup Canvas Resize — keeps backing store = visual CSS box × devicePixelRatio and carries
+      // any in-progress annotation strokes over to the new geometry.
       const resizeCanvas = () => {
-        canvas.width = screen.clientWidth || 400;
-        canvas.height = screen.clientHeight || 600;
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        const visW = Math.max(1, Math.round(rect.width || screen.clientWidth || 400));
+        const visH = Math.max(1, Math.round(rect.height || screen.clientHeight || 600));
+        const nextW = Math.round(visW * dpr);
+        const nextH = Math.round(visH * dpr);
+        const layoutW = screen.clientWidth || visW;
+        const layoutH = screen.clientHeight || visH;
+        canvasScaleX = visW / layoutW;
+        canvasScaleY = visH / layoutH;
+        if (canvas.width === nextW && canvas.height === nextH) return;
+        let snapshot = null;
+        if (canvas.width > 0 && canvas.height > 0) {
+          try {
+            snapshot = document.createElement("canvas");
+            snapshot.width = canvas.width;
+            snapshot.height = canvas.height;
+            snapshot.getContext("2d").drawImage(canvas, 0, 0);
+          } catch (_) {
+            snapshot = null;
+          }
+        }
+        canvas.width = nextW;
+        canvas.height = nextH;
+        const rCtx = canvas.getContext("2d");
+        rCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        if (snapshot) {
+          try {
+            rCtx.drawImage(snapshot, 0, 0, visW, visH);
+          } catch (_) {}
+        }
       };
       setTimeout(resizeCanvas, 50);
+
+      // Panel (sash) resizes change the overlay's CSS box without firing a device-scale change
+      // (responsive frame has no transform). Observe the canvas/screen box and resync the bitmap
+      // so annotation coordinates stay aligned with the cursor.
+      if (window.__swissBrowserCanvasRO) {
+        try { window.__swissBrowserCanvasRO.disconnect(); } catch (_) {}
+      }
+      if (typeof ResizeObserver !== "undefined") {
+        let canvasResizeRaf = 0;
+        const canvasRO = new ResizeObserver(() => {
+          const rect = canvas.getBoundingClientRect();
+          if (!rect.width || !rect.height) return; // hidden view: resync when visible again
+          if (canvasResizeRaf) return;
+          canvasResizeRaf = requestAnimationFrame(() => {
+            canvasResizeRaf = 0;
+            resizeCanvas();
+          });
+        });
+        canvasRO.observe(canvas);
+        canvasRO.observe(screen);
+        window.__swissBrowserCanvasRO = canvasRO;
+      }
 
       // URL Navigation & Port Chips
       function navigateBrowser(url) {
@@ -2735,6 +2878,7 @@ func GenerateAuxiliaryPluginsScript() string {
         const scaleMode = scaleSelect.value;
         if (activeDevice === "responsive" || scaleMode === "1") {
           frameBox.style.transform = "none";
+          setTimeout(resizeCanvas, 60);
           return;
         }
         if (scaleMode === "fit") {
@@ -2758,6 +2902,9 @@ func GenerateAuxiliaryPluginsScript() string {
           frameBox.style.transform = ` + "`" + `scale(${factor})` + "`" + `;
           frameBox.style.transformOrigin = "top center";
         }
+        // The visual (post-transform) size of the annotation overlay changed — resync its
+        // backing store so pen strokes keep a constant on-screen width.
+        setTimeout(resizeCanvas, 60);
       }
 
       if (!window.__swissResizeBound) {
@@ -2927,14 +3074,24 @@ func GenerateAuxiliaryPluginsScript() string {
         setTouchEmulation(!isTouchEmulationActive);
       };
 
-      // Normalized Coordinates for Canvas
+      // Normalized Coordinates for Canvas — visual CSS pixels relative to the overlay box; the
+      // 2D context carries the DPR transform, so a brush size maps to a constant on-screen width.
       function getCanvasCoords(e) {
         const rect = canvas.getBoundingClientRect();
         if (!rect.width || !rect.height) return { x: 0, y: 0 };
         return {
-          x: (e.clientX - rect.left) * (canvas.width / rect.width),
-          y: (e.clientY - rect.top) * (canvas.height / rect.height)
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top
         };
+      }
+
+      // Clears the full backing store regardless of the active coordinate transform.
+      function clearAnnotationCanvas() {
+        const clearCtx = canvas.getContext("2d");
+        clearCtx.save();
+        clearCtx.setTransform(1, 0, 0, 1, 0, 0);
+        clearCtx.clearRect(0, 0, canvas.width, canvas.height);
+        clearCtx.restore();
       }
 
       // Drawing Tools Management
@@ -2991,8 +3148,7 @@ func GenerateAuxiliaryPluginsScript() string {
         lastSelectedElement = null;
         lastAnnotatedRegion = null;
         userComment = "";
-        const ctx = canvas.getContext("2d");
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        clearAnnotationCanvas();
       }
 
       clearBtn.onclick = () => {
@@ -3113,11 +3269,17 @@ func GenerateAuxiliaryPluginsScript() string {
             ctx.lineWidth = 2;
             ctx.strokeRect(boxX, boxY, boxW, boxH);
 
-            lastAnnotatedRegion = { x: boxX, y: boxY, width: boxW, height: boxH };
+            // The drawn box is in visual pixels; guest-page consumers (elementFromPoint, element
+            // popover, capturePage) expect layout pixels of the emulated page.
+            const pageBoxW = boxW / (canvasScaleX || 1);
+            const pageBoxH = boxH / (canvasScaleY || 1);
+            const pageBoxX = boxX / (canvasScaleX || 1);
+            const pageBoxY = boxY / (canvasScaleY || 1);
+            lastAnnotatedRegion = { x: pageBoxX, y: pageBoxY, width: pageBoxW, height: pageBoxH };
 
             if (webview && typeof webview.executeJavaScript === "function") {
-              const cx = Math.round(boxX + boxW / 2);
-              const cy = Math.round(boxY + boxH / 2);
+              const cx = Math.round(pageBoxX + pageBoxW / 2);
+              const cy = Math.round(pageBoxY + pageBoxH / 2);
               const detectScript = ` + "`" + `(() => {
                 const el = document.elementFromPoint(${cx}, ${cy});
                 if (!el || el === document.body || el === document.documentElement) return null;
@@ -3155,23 +3317,23 @@ func GenerateAuxiliaryPluginsScript() string {
                   renderElementAnnotationBox(res);
                 } else {
                   renderElementAnnotationBox({
-                    selector: "Box Region (" + Math.round(boxW) + "×" + Math.round(boxH) + ")",
+                    selector: "Box Region (" + Math.round(pageBoxW) + "×" + Math.round(pageBoxH) + ")",
                     outerHTML: "",
-                    rect: { x: boxX, y: boxY, width: boxW, height: boxH }
+                    rect: { x: pageBoxX, y: pageBoxY, width: pageBoxW, height: pageBoxH }
                   });
                 }
               }).catch(() => {
                 renderElementAnnotationBox({
-                  selector: "Box Region (" + Math.round(boxW) + "×" + Math.round(boxH) + ")",
+                  selector: "Box Region (" + Math.round(pageBoxW) + "×" + Math.round(pageBoxH) + ")",
                   outerHTML: "",
-                  rect: { x: boxX, y: boxY, width: boxW, height: boxH }
+                  rect: { x: pageBoxX, y: pageBoxY, width: pageBoxW, height: pageBoxH }
                 });
               });
             } else {
               renderElementAnnotationBox({
-                selector: "Box Region (" + Math.round(boxW) + "×" + Math.round(boxH) + ")",
+                selector: "Box Region (" + Math.round(pageBoxW) + "×" + Math.round(pageBoxH) + ")",
                 outerHTML: "",
-                rect: { x: boxX, y: boxY, width: boxW, height: boxH }
+                rect: { x: pageBoxX, y: pageBoxY, width: pageBoxW, height: pageBoxH }
               });
             }
           }
@@ -3406,11 +3568,17 @@ func GenerateAuxiliaryPluginsScript() string {
         userComment = "";
 
         const ctx = canvas.getContext("2d");
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        clearAnnotationCanvas();
 
         ctx.strokeStyle = "#ea4335";
         ctx.lineWidth = 2;
-        ctx.strokeRect(result.rect.x, result.rect.y, result.rect.width, result.rect.height);
+        // result.rect is in guest-page layout pixels; convert to the overlay's visual pixels.
+        ctx.strokeRect(
+          result.rect.x * canvasScaleX,
+          result.rect.y * canvasScaleY,
+          result.rect.width * canvasScaleX,
+          result.rect.height * canvasScaleY
+        );
 
         exitInspectTool();
         renderElementAnnotationBox(result);
@@ -3609,7 +3777,18 @@ func GenerateAuxiliaryPluginsScript() string {
         }
 
         if (region) {
-          expCtx.drawImage(canvas, region.x, region.y, region.width, region.height, 0, 0, exportW, exportH);
+          // region is in guest-page layout pixels; the overlay bitmap may be larger (frame scale ×
+          // devicePixelRatio), so map the source rect into bitmap pixels.
+          const bmpPerPageX = canvas.width / Math.max(1, screen.clientWidth);
+          const bmpPerPageY = canvas.height / Math.max(1, screen.clientHeight);
+          expCtx.drawImage(
+            canvas,
+            region.x * bmpPerPageX,
+            region.y * bmpPerPageY,
+            region.width * bmpPerPageX,
+            region.height * bmpPerPageY,
+            0, 0, exportW, exportH
+          );
         } else {
           expCtx.drawImage(canvas, 0, 0, exportW, exportH);
         }
@@ -4920,9 +5099,9 @@ func GenerateAuxiliaryPluginsScript() string {
       topBar.style.display = "flex";
       topBar.style.gap = "8px";
       topBar.innerHTML = ` + "`" + `
-        <button class="swiss-browser-btn primary" id="swiss-m-new-text" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 8px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span>Text Memo</span></button>
-        <button class="swiss-browser-btn" id="swiss-m-record-audio" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 8px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg><span>Voice Memo</span></button>
-        <button class="swiss-browser-btn" id="swiss-m-new-image" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 8px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg><span>Image Memo</span></button>
+        <button class="swiss-browser-btn" id="swiss-m-new-text" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 8px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/></svg><span>Add Text Memo</span></button>
+        <button class="swiss-browser-btn" id="swiss-m-record-audio" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 8px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg><span>Add Voice Memo</span></button>
+        <button class="swiss-browser-btn" id="swiss-m-new-image" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 8px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg><span>Add Image Memo</span></button>
       ` + "`" + `;
       wrap.appendChild(topBar);
 
@@ -4937,7 +5116,15 @@ func GenerateAuxiliaryPluginsScript() string {
           <input type="text" id="swiss-m-search-input" placeholder="Search memos..." class="swiss-memo-search-input" style="width:100%; padding:5px 24px 5px 26px; font-size:11px; border-radius:6px; border:1px solid var(--border,#cbd5e1); background:var(--canvas,#ffffff); color:var(--text,#1e293b); box-sizing:border-box; outline:none;" />
           <button type="button" id="swiss-m-search-clear" style="display:none; position:absolute; right:6px; background:none; border:none; padding:2px; cursor:pointer; color:var(--text-muted,#64748b);"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
         </div>
-        <button type="button" id="swiss-m-scope-toggle" class="swiss-browser-btn" title="Toggle Search Scope: Text only vs Text + Voice" style="padding:4px 8px; font-size:10px; white-space:nowrap;"><span id="swiss-m-scope-label">Text</span></button>
+        <div class="swiss-memo-filter-wrap">
+          <button type="button" id="swiss-m-filter-toggle" class="swiss-browser-btn" title="Filter memos by type" style="padding:4px 8px; font-size:10px; white-space:nowrap;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M7 12h10"/><path d="M11 18h2"/></svg><span id="swiss-m-filter-label">Filter: All</span><span id="swiss-m-filter-count" class="swiss-memo-filter-count">0</span></button>
+          <div id="swiss-m-filter-menu" class="swiss-memo-filter-menu" style="display:none;">
+            <button type="button" class="swiss-memo-filter-item active" data-filter="all">All Memos</button>
+            <button type="button" class="swiss-memo-filter-item" data-filter="text">Text</button>
+            <button type="button" class="swiss-memo-filter-item" data-filter="voice">Voice</button>
+            <button type="button" class="swiss-memo-filter-item" data-filter="image">Images</button>
+          </div>
+        </div>
       ` + "`" + `;
       wrap.appendChild(searchRow);
 
@@ -5012,15 +5199,14 @@ func GenerateAuxiliaryPluginsScript() string {
       wrap.appendChild(imgComposer);
 
       const memoList = document.createElement("div");
-      memoList.style.display = "flex";
-      memoList.style.flexDirection = "column";
-      memoList.style.gap = "8px";
+      memoList.className = "swiss-memo-list";
       wrap.appendChild(memoList);
       container.appendChild(wrap);
 
       let allMemos = [];
       let searchQuery = "";
-      let searchScope = "text";
+      let typeFilter = "all";
+      const FILTER_LABELS = { all: "All", text: "Text", voice: "Voice", image: "Image" };
 
       let mediaStream = null;
       let mediaRecorder = null;
@@ -5028,6 +5214,10 @@ func GenerateAuxiliaryPluginsScript() string {
       let speechRecognition = null;
       let speechTranscript = "";
       let recordingStartTime = 0;
+      let recordingAudioCtx = null;
+      let recordingAnalyser = null;
+      let recordingWaveRaf = 0;
+      let recordingTimerInterval = 0;
 
       const LOCAL_MEMOS_KEY = "antigravity_swiss_memos_backup";
       const getLocalMemos = () => {
@@ -5053,16 +5243,19 @@ func GenerateAuxiliaryPluginsScript() string {
         });
       };
 
-      const filterMemosList = (memos, query, scope) => {
+      const filterMemosList = (memos, query, filter) => {
         if (!Array.isArray(memos)) return [];
+        const effFilter = (filter === "text" || filter === "voice" || filter === "image") ? filter : "all";
         const trimmed = (query || "").trim();
-        if (!trimmed) return memos;
         const q = trimmed.toLowerCase();
-        const effScope = scope === "all" ? "all" : "text";
         return memos.filter(m => {
           if (!m) return false;
           const isVoice = m.type === "voice" || m.type === "audio" || (Array.isArray(m.tags) && m.tags.includes("voice") && m.type !== "text");
-          if (effScope === "text" && isVoice) return false;
+          const isImage = m.type === "image";
+          if (effFilter === "text" && (isVoice || isImage)) return false;
+          if (effFilter === "voice" && !isVoice) return false;
+          if (effFilter === "image" && !isImage) return false;
+          if (!q) return true;
           const titleMatch = Boolean(m.title && m.title.toLowerCase().includes(q));
           const contentMatch = Boolean(m.content && m.content.toLowerCase().includes(q));
           const transcriptMatch = Boolean(m.transcript && m.transcript.toLowerCase().includes(q));
@@ -5077,9 +5270,12 @@ func GenerateAuxiliaryPluginsScript() string {
         if (!Array.isArray(memos) || memos.length === 0) {
           if (trimmedQ) {
             memoList.innerHTML = '<div class="swiss-memo-empty-search">No memos found matching "' + escapeHtml(trimmedQ) + '"</div>';
+          } else if (typeFilter !== "all") {
+            memoList.innerHTML = "<div class='swiss-memo-list-status' style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No " + escapeHtml(FILTER_LABELS[typeFilter] || "") + " memos yet.</div>";
           } else {
-            memoList.innerHTML = "<div style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No memos yet. Click Text Memo, Voice Memo, or Image Memo!</div>";
+            memoList.innerHTML = "<div class='swiss-memo-list-status' style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No memos yet. Click Add Text Memo, Add Voice Memo, or Add Image Memo!</div>";
           }
+          updateFilterUi(0);
           return;
         }
 
@@ -5138,10 +5334,11 @@ func GenerateAuxiliaryPluginsScript() string {
 
           memoList.appendChild(card);
         });
+        updateFilterUi(memos.length);
       };
 
       const applyFilterAndRender = () => {
-        const filtered = filterMemosList(allMemos, searchQuery, searchScope);
+        const filtered = filterMemosList(allMemos, searchQuery, typeFilter);
         renderCards(filtered);
       };
 
@@ -5159,7 +5356,7 @@ func GenerateAuxiliaryPluginsScript() string {
 
       const loadMemos = async (silent = false) => {
         if (!silent && memoList.children.length === 0) {
-          memoList.innerHTML = "<div style='font-size:11px; color:#94a3b8;'>Loading memos...</div>";
+          memoList.innerHTML = "<div class='swiss-memo-list-status' style='font-size:11px; color:#94a3b8;'>Loading memos...</div>";
         }
         try {
           const mq = getMemoQueryInfo();
@@ -5184,7 +5381,7 @@ func GenerateAuxiliaryPluginsScript() string {
             allMemos = fallback;
             applyFilterAndRender();
           } else if (!silent || memoList.children.length === 0) {
-            memoList.innerHTML = "<div style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No memos yet. Click Text Memo or Voice Memo!</div>";
+            memoList.innerHTML = "<div class='swiss-memo-list-status' style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No memos yet. Click Add Text Memo or Add Voice Memo!</div>";
           }
         }
       };
@@ -5312,20 +5509,90 @@ func GenerateAuxiliaryPluginsScript() string {
       let activeTool = "pen";
       let activeColor = "#0f172a";
       let activeSize = 4;
+      let whiteboardDpr = window.devicePixelRatio || 1;
+      let whiteboardCssW = 480;
+      let whiteboardCssH = 180;
 
+      // Fill the canvas with its white backdrop. Operates on the raw device-pixel bitmap so the
+      // whole backing store is covered regardless of the active DPR transform.
       const initWhiteboard = () => {
+        canvasCtx.setTransform(1, 0, 0, 1, 0, 0);
         canvasCtx.fillStyle = "#ffffff";
         canvasCtx.fillRect(0, 0, whiteboardCanvas.width, whiteboardCanvas.height);
+        canvasCtx.setTransform(whiteboardDpr, 0, 0, whiteboardDpr, 0, 0);
       };
-      initWhiteboard();
+
+      // Keep the backing store in sync with the CSS box (devicePixelRatio aware) and draw in CSS
+      // pixels, so a given brush size always renders at the same visual width no matter how wide
+      // the panel is or how the display scales the window. Existing strokes are carried over.
+      const resizeWhiteboardCanvas = () => {
+        const rect = whiteboardCanvas.getBoundingClientRect();
+        const cssW = Math.max(1, Math.round(rect.width || whiteboardCanvas.clientWidth || 480));
+        const cssH = Math.max(1, Math.round(rect.height || whiteboardCanvas.clientHeight || 180));
+        const dpr = window.devicePixelRatio || 1;
+        const nextW = Math.round(cssW * dpr);
+        const nextH = Math.round(cssH * dpr);
+        if (whiteboardCanvas.width === nextW && whiteboardCanvas.height === nextH) {
+          canvasCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          return;
+        }
+        let snapshot = null;
+        if (whiteboardCanvas.width > 0 && whiteboardCanvas.height > 0) {
+          try {
+            snapshot = document.createElement("canvas");
+            snapshot.width = whiteboardCanvas.width;
+            snapshot.height = whiteboardCanvas.height;
+            snapshot.getContext("2d").drawImage(whiteboardCanvas, 0, 0);
+          } catch (_) {
+            snapshot = null;
+          }
+        }
+        whiteboardDpr = dpr;
+        whiteboardCssW = cssW;
+        whiteboardCssH = cssH;
+        whiteboardCanvas.width = nextW;
+        whiteboardCanvas.height = nextH;
+        canvasCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        initWhiteboard();
+        if (snapshot) {
+          try {
+            // Stretch the previous bitmap into the new CSS-sized box (uniform, both are CSS px).
+            canvasCtx.drawImage(snapshot, 0, 0, cssW, cssH);
+          } catch (_) {}
+        }
+      };
+      resizeWhiteboardCanvas();
+
+      if (window.__swissMemoCanvasResizeHandler) {
+        window.removeEventListener("resize", window.__swissMemoCanvasResizeHandler);
+      }
+      window.__swissMemoCanvasResizeHandler = () => {
+        if (imgComposer.style.display !== "none") resizeWhiteboardCanvas();
+      };
+      window.addEventListener("resize", window.__swissMemoCanvasResizeHandler);
+
+      // Panel (sash) resizes do not emit window resize events; observe the canvas box directly so
+      // the bitmap never goes stale relative to the pointer coordinates.
+      let memoCanvasRO = null;
+      if (typeof ResizeObserver !== "undefined") {
+        let memoCanvasRaf = 0;
+        memoCanvasRO = new ResizeObserver(() => {
+          if (imgComposer.style.display === "none") return; // hidden composer: resync on open
+          if (memoCanvasRaf) return;
+          memoCanvasRaf = requestAnimationFrame(() => {
+            memoCanvasRaf = 0;
+            resizeWhiteboardCanvas();
+          });
+        });
+        memoCanvasRO.observe(whiteboardCanvas);
+      }
 
       const getCanvasCoords = (e) => {
+        // Pointer coordinates are CSS pixels; the 2D context already applies the DPR transform.
         const rect = whiteboardCanvas.getBoundingClientRect();
-        const scaleX = whiteboardCanvas.width / rect.width;
-        const scaleY = whiteboardCanvas.height / rect.height;
         return [
-          (e.clientX - rect.left) * scaleX,
-          (e.clientY - rect.top) * scaleY
+          e.clientX - rect.left,
+          e.clientY - rect.top
         ];
       };
 
@@ -5406,8 +5673,8 @@ func GenerateAuxiliaryPluginsScript() string {
       };
 
       const drawImageToCanvas = (img) => {
-        const cw = whiteboardCanvas.width;
-        const ch = whiteboardCanvas.height;
+        const cw = whiteboardCssW;
+        const ch = whiteboardCssH;
         const ratio = Math.min(cw / img.width, ch / img.height, 1);
         const w = img.width * ratio;
         const h = img.height * ratio;
@@ -5462,7 +5729,12 @@ func GenerateAuxiliaryPluginsScript() string {
       const openImageComposer = () => {
         closeComposer();
         imgComposer.style.display = "flex";
-        setTimeout(() => imgTitleInput.focus(), 30);
+        // The canvas has no layout size while the composer is hidden; sync its backing store now
+        // that it is visible so drawing works at the correct DPR-aware resolution.
+        setTimeout(() => {
+          resizeWhiteboardCanvas();
+          imgTitleInput.focus();
+        }, 30);
       };
 
       imgCancelBtn.onclick = () => {
@@ -5486,6 +5758,122 @@ func GenerateAuxiliaryPluginsScript() string {
       };
 
       const recordBtn = topBar.querySelector("#swiss-m-record-audio");
+
+      // ---- Voice memo recording indicator: elapsed time + live loudness wave ----
+      const REC_IDLE_LABEL = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg><span>Add Voice Memo</span>';
+
+      const formatRecordElapsed = () => {
+        const elapsedSec = Math.max(0, Math.floor((Date.now() - recordingStartTime) / 1000));
+        const mins = Math.floor(elapsedSec / 60);
+        const secs = elapsedSec % 60;
+        return mins + ":" + (secs < 10 ? "0" : "") + secs;
+      };
+
+      const stopRecordingIndicator = () => {
+        if (recordingTimerInterval) {
+          clearInterval(recordingTimerInterval);
+          recordingTimerInterval = 0;
+        }
+        if (recordingWaveRaf) {
+          cancelAnimationFrame(recordingWaveRaf);
+          recordingWaveRaf = 0;
+        }
+        if (recordingAnalyser) {
+          try { recordingAnalyser.disconnect(); } catch (_) {}
+          recordingAnalyser = null;
+        }
+        if (recordingAudioCtx) {
+          const ctxToClose = recordingAudioCtx;
+          recordingAudioCtx = null;
+          try {
+            const closePromise = ctxToClose.close();
+            if (closePromise && closePromise.catch) closePromise.catch(() => {});
+          } catch (_) {}
+        }
+      };
+
+      const startRecordingIndicator = () => {
+        stopRecordingIndicator();
+        recordBtn.classList.add("active");
+        recordBtn.innerHTML =
+          '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="12" height="12" x="6" y="6" rx="2"/></svg>' +
+          '<span>Stop Recording</span>' +
+          '<span id="swiss-m-record-timer" style="font-variant-numeric:tabular-nums; font-weight:600;">0:00</span>' +
+          '<canvas id="swiss-m-record-wave" width="48" height="24" style="width:24px; height:12px; display:block;"></canvas>';
+
+        const timerEl = recordBtn.querySelector("#swiss-m-record-timer");
+        const waveCanvas = recordBtn.querySelector("#swiss-m-record-wave");
+        const waveCtx = waveCanvas ? waveCanvas.getContext("2d") : null;
+
+        recordingTimerInterval = setInterval(() => {
+          if (!timerEl || !timerEl.isConnected) {
+            // View was destroyed without an explicit teardown: stop the recording, mic included.
+            teardownMemosView();
+            return;
+          }
+          timerEl.textContent = formatRecordElapsed();
+        }, 1000);
+
+        // Live loudness indicator driven by an AnalyserNode fed by the microphone stream.
+        try {
+          const AudioCtxCtor = window.AudioContext || window.webkitAudioContext;
+          if (AudioCtxCtor && mediaStream) {
+            recordingAudioCtx = new AudioCtxCtor();
+            if (recordingAudioCtx.state === "suspended" && recordingAudioCtx.resume) {
+              const resumePromise = recordingAudioCtx.resume();
+              if (resumePromise && resumePromise.catch) resumePromise.catch(() => {});
+            }
+            const source = recordingAudioCtx.createMediaStreamSource(mediaStream);
+            recordingAnalyser = recordingAudioCtx.createAnalyser();
+            recordingAnalyser.fftSize = 64;
+            recordingAnalyser.smoothingTimeConstant = 0.6;
+            source.connect(recordingAnalyser);
+          }
+        } catch (waveErr) {
+          console.warn("Audio analyser init failed:", waveErr);
+          recordingAnalyser = null;
+        }
+
+        if (recordingAnalyser && waveCtx && waveCanvas) {
+          const levels = new Uint8Array(recordingAnalyser.frequencyBinCount);
+          const bars = 5;
+          const drawWave = () => {
+            recordingWaveRaf = 0;
+            if (!recordingAnalyser || !waveCtx) return;
+            if (!waveCanvas.isConnected) {
+              // View destroyed without an explicit teardown: stop everything, mic included.
+              teardownMemosView();
+              return;
+            }
+            recordingAnalyser.getByteFrequencyData(levels);
+            const w = waveCanvas.width;
+            const h = waveCanvas.height;
+            waveCtx.clearRect(0, 0, w, h);
+            waveCtx.fillStyle = "#ffffff";
+            const barGap = 2;
+            const barW = Math.max(2, Math.floor((w - barGap * (bars - 1)) / bars));
+            const usableBins = Math.max(1, Math.floor(levels.length * 0.6));
+            const binsPerBar = Math.max(1, Math.floor(usableBins / bars));
+            for (let i = 0; i < bars; i++) {
+              let sum = 0;
+              for (let j = 0; j < binsPerBar; j++) sum += levels[i * binsPerBar + j] || 0;
+              const level = Math.min(1, (sum / binsPerBar) / 160);
+              const barH = Math.max(2, Math.round(level * h));
+              const x = i * (barW + barGap);
+              waveCtx.fillRect(x, Math.round((h - barH) / 2), barW, barH);
+            }
+            recordingWaveRaf = requestAnimationFrame(drawWave);
+          };
+          drawWave();
+        }
+      };
+
+      const restoreRecordButton = () => {
+        stopRecordingIndicator();
+        recordBtn.classList.remove("active");
+        recordBtn.innerHTML = REC_IDLE_LABEL;
+      };
+
       recordBtn.onclick = async () => {
         if (!mediaRecorder || mediaRecorder.state === "inactive") {
           try {
@@ -5528,6 +5916,8 @@ func GenerateAuxiliaryPluginsScript() string {
 
             mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) recordedChunks.push(e.data); };
             mediaRecorder.onstop = async () => {
+              // Idempotent: also recovers the button if the stream ends without a click.
+              restoreRecordButton();
               if (mediaStream) {
                 mediaStream.getTracks().forEach(t => t.stop());
                 mediaStream = null;
@@ -5610,8 +6000,7 @@ func GenerateAuxiliaryPluginsScript() string {
               }
             };
             mediaRecorder.start(250);
-            recordBtn.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="12" height="12" x="6" y="6" rx="2"/></svg><span style="white-space: nowrap;">Stop Recording</span>';
-            recordBtn.classList.add("active");
+            startRecordingIndicator();
           } catch (err) {
             showToast("Microphone access error: " + err.message, "error");
           }
@@ -5625,20 +6014,107 @@ func GenerateAuxiliaryPluginsScript() string {
             mediaStream.getTracks().forEach(t => t.stop());
             mediaStream = null;
           }
-          recordBtn.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg><span style="white-space: nowrap;">Voice Memo</span>';
-          recordBtn.classList.remove("active");
+          restoreRecordButton();
         }
       };
 
+      // Container-level teardown, invoked before this view's DOM is destroyed (tab switch or
+      // script re-injection) so an in-flight recording never keeps the microphone, timers or
+      // AudioContext alive. Registered on the host container; the caller invokes it pre-clear.
+      const teardownMemosView = () => {
+        const wasRecording = Boolean(recordingTimerInterval) ||
+          Boolean(recordingWaveRaf) ||
+          Boolean(mediaRecorder && mediaRecorder.state !== "inactive");
+        if (mediaRecorder) {
+          try {
+            mediaRecorder.onstop = null;
+            mediaRecorder.ondataavailable = null;
+          } catch (_) {}
+          if (mediaRecorder.state !== "inactive") {
+            try { mediaRecorder.stop(); } catch (_) {}
+          }
+          mediaRecorder = null;
+        }
+        if (mediaStream) {
+          try { mediaStream.getTracks().forEach(t => t.stop()); } catch (_) {}
+          mediaStream = null;
+        }
+        if (speechRecognition) {
+          try { speechRecognition.stop(); } catch (_) {}
+          speechRecognition = null;
+        }
+        stopRecordingIndicator();
+        if (wasRecording) {
+          showToast("Voice recording stopped (memos view closed)", "warning");
+        }
+        if (window.__swissMemoCanvasResizeHandler) {
+          window.removeEventListener("resize", window.__swissMemoCanvasResizeHandler);
+          delete window.__swissMemoCanvasResizeHandler;
+        }
+        if (memoCanvasRO) {
+          try { memoCanvasRO.disconnect(); } catch (_) {}
+          memoCanvasRO = null;
+        }
+        if (window.__swissMemoFilterOutsideHandler) {
+          document.removeEventListener("click", window.__swissMemoFilterOutsideHandler);
+          delete window.__swissMemoFilterOutsideHandler;
+        }
+      };
+      container.__swissMemosTeardown = teardownMemosView;
+
       const searchInput = searchRow.querySelector("#swiss-m-search-input");
       const searchClear = searchRow.querySelector("#swiss-m-search-clear");
-      const scopeToggle = searchRow.querySelector("#swiss-m-scope-toggle");
-      const scopeLabel = searchRow.querySelector("#swiss-m-scope-label");
+      const filterToggle = searchRow.querySelector("#swiss-m-filter-toggle");
+      const filterLabel = searchRow.querySelector("#swiss-m-filter-label");
+      const filterCount = searchRow.querySelector("#swiss-m-filter-count");
+      const filterMenu = searchRow.querySelector("#swiss-m-filter-menu");
+
+      const updateFilterUi = (visibleCount) => {
+        if (filterLabel) filterLabel.textContent = "Filter: " + (FILTER_LABELS[typeFilter] || "All");
+        if (filterCount) filterCount.textContent = String(visibleCount || 0);
+        if (filterMenu) {
+          filterMenu.querySelectorAll(".swiss-memo-filter-item").forEach(item => {
+            item.classList.toggle("active", (item.dataset.filter || "all") === typeFilter);
+          });
+        }
+      };
+
+      const closeFilterMenu = () => {
+        if (filterMenu) filterMenu.style.display = "none";
+      };
+
+      filterToggle.onclick = (e) => {
+        e.stopPropagation();
+        filterMenu.style.display = filterMenu.style.display === "none" ? "flex" : "none";
+      };
+
+      filterMenu.querySelectorAll(".swiss-memo-filter-item").forEach(item => {
+        item.onclick = (e) => {
+          e.stopPropagation();
+          typeFilter = item.dataset.filter || "all";
+          closeFilterMenu();
+          applyFilterAndRender();
+        };
+      });
+
+      if (window.__swissMemoFilterOutsideHandler) {
+        document.removeEventListener("click", window.__swissMemoFilterOutsideHandler);
+      }
+      window.__swissMemoFilterOutsideHandler = (e) => {
+        if (!filterMenu || filterMenu.style.display === "none") return;
+        if (filterMenu.contains(e.target) || filterToggle.contains(e.target)) return;
+        closeFilterMenu();
+      };
+      document.addEventListener("click", window.__swissMemoFilterOutsideHandler);
 
       searchInput.addEventListener("input", () => {
         searchQuery = searchInput.value;
         searchClear.style.display = searchQuery ? "block" : "none";
         applyFilterAndRender();
+      });
+
+      searchInput.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") closeFilterMenu();
       });
 
       searchClear.onclick = () => {
@@ -5649,18 +6125,7 @@ func GenerateAuxiliaryPluginsScript() string {
         applyFilterAndRender();
       };
 
-      scopeToggle.onclick = () => {
-        if (searchScope === "text") {
-          searchScope = "all";
-          scopeLabel.textContent = "Text+Voice";
-          scopeToggle.classList.add("primary");
-        } else {
-          searchScope = "text";
-          scopeLabel.textContent = "Text";
-          scopeToggle.classList.remove("primary");
-        }
-        applyFilterAndRender();
-      };
+      updateFilterUi(allMemos.length);
 
       const initialMemos = getLocalMemos();
       if (initialMemos.length > 0) {

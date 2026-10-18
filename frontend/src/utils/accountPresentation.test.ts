@@ -247,6 +247,22 @@ describe('accountPresentation utility', () => {
       assert.ok(pageSrc.includes('cooling until reset'), 'should contain modern cooling tooltip')
     })
 
+    it('verifies QuotaDashboardPage labels the non-Gemini quota bucket as Non-Gemini', async () => {
+      const fs = await import('node:fs')
+      const path = await import('node:path')
+      const pageSrc = fs.readFileSync(
+        path.resolve(import.meta.dirname, '../pages/QuotaDashboardPage.tsx'),
+        'utf8'
+      )
+      assert.ok(pageSrc.includes('title="Non-Gemini 5H"'), 'should title the 5h gauge Non-Gemini 5H')
+      assert.ok(pageSrc.includes('title="Non-Gemini Weekly"'), 'should title the weekly gauge Non-Gemini Weekly')
+      assert.ok(pageSrc.includes('<span>Non-Gemini</span>'), 'should label detail rows Non-Gemini')
+      assert.ok(pageSrc.includes('title="Non-Gemini 5h cycle"'), 'should title the 5h bar Non-Gemini 5h cycle')
+      assert.ok(pageSrc.includes('title="Non-Gemini 7-day cycle"'), 'should title the weekly bar Non-Gemini 7-day cycle')
+      assert.ok(!pageSrc.includes('Claude/GPT'), 'should not contain legacy Claude/GPT quota labels')
+      assert.ok(!pageSrc.includes('Claude &amp; GPT'), 'should not contain legacy Claude & GPT quota labels')
+    })
+
     it('verifies QuotaDashboardPage displays Credit column header and reduced column width', async () => {
       const fs = await import('node:fs')
       const path = await import('node:path')
