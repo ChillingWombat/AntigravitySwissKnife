@@ -186,15 +186,16 @@ func TestPricingLookup_VertexAIClaudeAndGemini4(t *testing.T) {
 		t.Errorf("expected pricing for claude-3-7-sonnet@20250219, got in=%v out=%v ok=%v", in, out, ok)
 	}
 
-	// Test Gemini 4 Argon
+	// Test Gemini 4 Argon — frontier tier: $2.00 in / $10.00 out per 1M tokens
+	// (introductory pricing; the bundled table is only the offline fallback).
 	inG, _, outG, okG := lookupOfficialProviderPricing("google/gemini-4-argon", "gcp")
-	if !okG || inG == nil || outG == nil || *inG != 0.75 || *outG != 3.75 {
+	if !okG || inG == nil || outG == nil || *inG != 2.00 || *outG != 10.00 {
 		t.Errorf("expected pricing for google/gemini-4-argon, got in=%v out=%v ok=%v", inG, outG, okG)
 	}
 
 	// Test with full resource path
 	inP, _, outP, okP := lookupOfficialProviderPricing("publishers/google/models/gemini-4-argon", "gcp")
-	if !okP || inP == nil || outP == nil || *inP != 0.75 || *outP != 3.75 {
+	if !okP || inP == nil || outP == nil || *inP != 2.00 || *outP != 10.00 {
 		t.Errorf("expected pricing for publishers/google/models/gemini-4-argon, got in=%v out=%v ok=%v", inP, outP, okP)
 	}
 }

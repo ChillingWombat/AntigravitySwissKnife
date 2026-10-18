@@ -157,9 +157,15 @@ func NormalizePricingProvider(provider, modelID string) string {
 }
 
 // FetchModelPricing resolves token pricing (USD per 1M tokens) using a strict hierarchy:
-// 1. Model Provider first (live provider endpoint if configured, then official provider specification).
-// 2. 3rd-party pricing catalogs as backup (OpenRouter, LiteLLM).
-// 3. If not found in either, returns (nil, nil, nil, "unconfigured") so the UI displays null and requires manual entry.
+// 1. Live dynamic sources: model provider endpoint, then the Google pricing page,
+//    then the third-party catalogs (OpenRouter / LiteLLM).
+// 2. Official provider specification — a bundled, offline LAST-RESORT fallback.
+//    It must stay BELOW the live catalogs: a hard-coded rate that happens to match
+//    short-circuits the lookup and pins a stale price (this is how gemini-4-argon
+//    kept the retired Flash-tier rate while every live catalog already carried the
+//    current one).
+// 3. If nothing matched, returns (nil, nil, nil, "unconfigured") so the UI displays
+//    null and requires manual entry.
 func FetchModelPricing(ctx context.Context, modelID, provider, baseURL, apiKey string) (inPrice, cachedPrice, outPrice *float64, source string) {
 	cleanID := strings.TrimSpace(modelID)
 	if cleanID == "" {
@@ -182,14 +188,15 @@ func FetchModelPricing(ctx context.Context, modelID, provider, baseURL, apiKey s
 		}
 	}
 
-	// 1C. Official Model Provider published pricing specifications (Google, Anthropic, OpenAI, DeepSeek fallback)
-	if inP, cacheP, outP, ok := lookupOfficialProviderPricing(cleanID, provider); ok {
-		return inP, cacheP, outP, PriceSourceProvider
-	}
-
-	// 2. 3rd-Party Backup (OpenRouter / LiteLLM)
+	// 1C. Dynamic third-party catalogs (OpenRouter, LiteLLM) — live, refreshed hourly.
 	if inP, cacheP, outP, ok := lookupThirdPartyBackupPricing(ctx, cleanID); ok {
 		return inP, cacheP, outP, PriceSourceThirdParty
+	}
+
+	// 2. Bundled official specification: OFFLINE LAST RESORT only, never ahead of
+	//    the live catalogs above.
+	if inP, cacheP, outP, ok := lookupOfficialProviderPricing(cleanID, provider); ok {
+		return inP, cacheP, outP, PriceSourceProvider
 	}
 
 	// 3. Does not exist -> null (must be manually entered)
@@ -368,8 +375,13 @@ func lookupOfficialProviderPricing(modelID, provider string) (*float64, *float64
 		out    float64
 	}
 	exactRates := map[string]rate{
-		// Google Gemini 4 / 3.8 / 3.7 / 3.6 / 3.5 Flash series
-		"gemini-4-argon":          {0.75, 0.075, 3.75},
+		// Gemini 4 Argon is the frontier tier, NOT a Flash model: introductory
+		// pricing (through 2026-11-30) is $2.00 in / $10.00 out per 1M tokens
+		// with cached input at 95% off ($0.10); from 2026-12-01 it becomes
+		// $4.00 in / $20.00 out ($0.20 cached). Source: ai.google.dev pricing
+		// page for gemini-4-argon.
+		"gemini-4-argon": {2.00, 0.10, 10.00},
+		// Google Gemini 3.8 / 3.7 / 3.6 / 3.5 Flash series
 		"gemini-3.8-flash-high":   {0.75, 0.075, 3.75},
 		"gemini-3.8-flash-medium": {0.75, 0.075, 3.75},
 		"gemini-3.8-flash-low":    {0.75, 0.075, 3.75},
@@ -561,8 +573,21 @@ func fetchThirdPartyCatalogs(ctx context.Context) map[string]rawPriceEntry {
 								cacheM = *v.CacheReadCost * 1_000_000
 							}
 							key := strings.ToLower(strings.TrimSpace(k))
+							entry := rawPriceEntry{inPerM: inM, cachedPerM: cacheM, outPerM: outM}
 							if _, exists := res[key]; !exists {
-								res[key] = rawPriceEntry{inPerM: inM, cachedPerM: cacheM, outPerM: outM}
+								res[key] = entry
+							}
+							// LiteLLM keys carry provider prefixes (vertex_ai/gemini-4-argon,
+							// gemini/gemini-4-argon, …); expose the bare model id as an alias
+							// so lookups by model name resolve. Never overwrite an existing
+							// entry (OpenRouter's alias or another provider variant wins).
+							if idx := strings.LastIndex(key, "/"); idx != -1 {
+								short := key[idx+1:]
+								if short != "" {
+									if _, exists := res[short]; !exists {
+										res[short] = entry
+									}
+								}
 							}
 						}
 					}
@@ -576,13 +601,17 @@ func fetchThirdPartyCatalogs(ctx context.Context) map[string]rawPriceEntry {
 }
 
 var (
-	h2Regex     = regexp.MustCompile(`(?i)<h2\s+id="([^"]+)"[^>]*>(.*?)</h2>`)
-	tableRegex  = regexp.MustCompile(`(?i)<table\s+class="pricing-table"[^>]*>(.*?)</table>`)
-	trRegex     = regexp.MustCompile(`(?i)<tr>(.*?)</tr>`)
-	tdRegex     = regexp.MustCompile(`(?i)<td[^>]*>(.*?)</td>`)
+	// DOTALL ((?s)) is required: real pages (and the test fixtures) wrap table
+	// rows and cells across lines, and without it every table match failed,
+	// silently emptying the dynamic Google pricing lookup so the bundled table
+	// won by default — the root cause of stale, hard-coded prices.
+	h2Regex     = regexp.MustCompile(`(?is)<h2\s+id="([^"]+)"[^>]*>(.*?)</h2>`)
+	tableRegex  = regexp.MustCompile(`(?is)<table\s+class="pricing-table"[^>]*>(.*?)</table>`)
+	trRegex     = regexp.MustCompile(`(?is)<tr[^>]*>(.*?)</tr>`)
+	tdRegex     = regexp.MustCompile(`(?is)<td[^>]*>(.*?)</td>`)
 	dollarRegex = regexp.MustCompile(`\$([0-9]+(?:\.[0-9]+)?)`)
-	codeRegex   = regexp.MustCompile(`(?i)<code[^>]*>([^<]+)</code>`)
-	tagRegex    = regexp.MustCompile(`<[^>]*>`)
+	codeRegex   = regexp.MustCompile(`(?is)<code[^>]*>([^<]+)</code>`)
+	tagRegex    = regexp.MustCompile(`(?s)<[^>]*>`)
 )
 
 func stripHTML(s string) string {
@@ -841,6 +870,26 @@ func NormalizeCanonicalNativeModel(modelID, displayName string) (canonicalID, ca
 	return id, name
 }
 
+// providerPriceMaxAge bounds how long a dynamically fetched, non-manual price is
+// trusted before the next sync re-resolves it from the live catalogs. Provider
+// price changes (introductory rates expiring, tier revisions) must propagate
+// without the user touching anything.
+const providerPriceMaxAge = 7 * 24 * time.Hour
+
+// providerPriceStale reports whether a stored price timestamp is missing or older
+// than maxAge. Timestamps use the store's "2006-01-02 15:04" layout.
+func providerPriceStale(updatedAt string, maxAge time.Duration) bool {
+	updatedAt = strings.TrimSpace(updatedAt)
+	if updatedAt == "" {
+		return true
+	}
+	ts, err := time.ParseInLocation("2006-01-02 15:04", updatedAt, time.Local)
+	if err != nil {
+		return true
+	}
+	return time.Since(ts) > maxAge
+}
+
 // SyncPricingWithCatalog synchronizes the Token Monitor pricing records with:
 // 1. Models currently available on Antigravity (classified as "native"), canonicalized across thinking levels.
 // 2. Previously auto-fetched native models no longer available on Antigravity (kept, reclassified as "custom", IsOutdatedNative=true).
@@ -974,13 +1023,19 @@ func (s *Store) SyncPricingWithCatalog(ctx context.Context, nativeModels []Catal
 		if cm.InternalID <= 0 {
 			cm.InternalID = s.allocateInternalIDLocked()
 		}
-		if cm.PriceSource != PriceSourceManual && (forceRefreshPrices || (cm.InputPricePerM == nil && cm.OutputPricePerM == nil && cm.PriceSource == "")) {
+		if cm.PriceSource != PriceSourceManual && (forceRefreshPrices ||
+			(cm.InputPricePerM == nil && cm.OutputPricePerM == nil && cm.PriceSource == "") ||
+			providerPriceStale(cm.PriceUpdatedAt, providerPriceMaxAge)) {
 			inP, cacheP, outP, src := FetchModelPricing(ctx, cm.Name, string(cm.ProviderType), cm.BaseURL, cm.APIKey)
-			cm.InputPricePerM = inP
-			cm.CachedInputPricePerM = cacheP
-			cm.OutputPricePerM = outP
-			cm.PriceSource = src
-			cm.PriceUpdatedAt = now
+			// Keep the previous value if the live lookup found nothing: a transient
+			// network failure must not wipe a known price.
+			if inP != nil || outP != nil || src != PriceSourceUnconfigured {
+				cm.InputPricePerM = inP
+				cm.CachedInputPricePerM = cacheP
+				cm.OutputPricePerM = outP
+				cm.PriceSource = src
+				cm.PriceUpdatedAt = now
+			}
 		}
 		s.syncCustomModelToPricingLocked(*cm)
 	}

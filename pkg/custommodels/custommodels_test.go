@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCustomModel_CalculatePercentage(t *testing.T) {
@@ -607,8 +608,25 @@ func TestFetchModelPricing_DynamicGoogleGeminiPricing(t *testing.T) {
 		t.Fatalf("unexpected dynamic prices for gemini-3.1-pro: in=%v out=%v", inP, outP)
 	}
 
-	// 4. Test offline fallback to official specifications
+	// 4. Test offline fallback to official specifications.
+	// The bundled table is the LAST resort, so the live third-party catalogs must
+	// also be unavailable for this assertion to reach it (they used to sit below
+	// the bundled table; the hierarchy now puts every dynamic source first).
 	mockServer.Close()
+	origOpenRouter, origLiteLLM := OpenRouterModelsURL, LiteLLMPricingURL
+	emptyCatalog := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data": []}`))
+	}))
+	defer emptyCatalog.Close()
+	defer func() {
+		OpenRouterModelsURL, LiteLLMPricingURL = origOpenRouter, origLiteLLM
+	}()
+	OpenRouterModelsURL = emptyCatalog.URL
+	LiteLLMPricingURL = ""
+	thirdPartyCacheMu.Lock()
+	thirdPartyCache = nil
+	thirdPartyCacheAt = time.Time{}
+	thirdPartyCacheMu.Unlock()
 	ResetGoogleGeminiPricingCache()
 
 	inP, cacheP, outP, src = FetchModelPricing(t.Context(), "gemini-3.8-flash", "gemini", "", "")
