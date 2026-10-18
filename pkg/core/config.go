@@ -60,6 +60,9 @@ type Config struct {
 	SubagentModelStrategy      string                       `json:"subagent_model_strategy"`
 	SessionResumePrompt        string                       `json:"session_resume_prompt,omitempty"`
 	Theme                      string                       `json:"theme,omitempty"`
+	// BoardOverviewAutoHide collapses the Antigravity IDE's own right-hand
+	// Overview panel while the Antigravity Swiss Knife board page is open.
+	BoardOverviewAutoHide bool `json:"board_overview_auto_hide"`
 
 	mu sync.RWMutex `json:"-"`
 }
@@ -117,6 +120,7 @@ func DefaultConfig() *Config {
 			SearchScope:     "text",
 		},
 		PreferredIDE: "code",
+		BoardOverviewAutoHide: true,
 	}
 }
 
@@ -517,6 +521,26 @@ func (c *Config) GetTheme() string {
 func (c *Config) SetTheme(mode string) error {
 	c.mu.Lock()
 	c.Theme = NormalizeThemeMode(mode)
+	c.mu.Unlock()
+	return c.Save()
+}
+
+// GetBoardOverviewAutoHide reports whether the Antigravity IDE's own right-hand
+// Overview panel should be collapsed while the Swiss Knife board page is open.
+// It defaults to true for configurations that predate the setting.
+func (c *Config) GetBoardOverviewAutoHide() bool {
+	if c == nil {
+		return true
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.BoardOverviewAutoHide
+}
+
+// SetBoardOverviewAutoHide updates and persists the board Overview auto-hide toggle.
+func (c *Config) SetBoardOverviewAutoHide(enabled bool) error {
+	c.mu.Lock()
+	c.BoardOverviewAutoHide = enabled
 	c.mu.Unlock()
 	return c.Save()
 }

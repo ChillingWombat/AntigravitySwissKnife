@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/boardpanel"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/cache"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/fingerprint"
@@ -39,6 +40,9 @@ type Daemon struct {
 	TOTP      *totp.Engine
 	Vault     *vault.Manager
 	Server    *ipc.Server
+	// BoardPanel watches the live Antigravity IDE and collapses its Overview
+	// panel while the Swiss Knife board page is open.
+	BoardPanel *boardpanel.Watcher
 
 	ctx            context.Context
 	cancel         context.CancelFunc
@@ -117,6 +121,9 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 		TOTP:            totpEngine,
 		Vault:           vault.NewManager("", ""),
 		Server:          server,
+		BoardPanel: boardpanel.NewWatcher(nil, boardpanel.DefaultPollInterval, func() bool {
+			return cfg.GetBoardOverviewAutoHide()
+		}),
 		ctx:             ctx,
 		cancel:          cancel,
 		lastSwitchTime:  time.Now(),
@@ -1058,6 +1065,7 @@ func (d *Daemon) registerRPCHandlers() {
 			"subagent_custom_models_enabled":   d.Config.GetSubagentCustomModelsEnabled(),
 			"subagent_model_strategy":          d.Config.GetSubagentModelStrategy(),
 			"session_resume_prompt":            d.Config.GetSessionResumePrompt(),
+			"board_overview_auto_hide":         d.Config.GetBoardOverviewAutoHide(),
 			"installed_apps":                   installedMap,
 		}, nil
 	}
@@ -1094,6 +1102,7 @@ func (d *Daemon) registerRPCHandlers() {
 			SubagentCustomModelsEnabled *bool              `json:"subagent_custom_models_enabled"`
 			SubagentModelStrategy       *string            `json:"subagent_model_strategy"`
 			SessionResumePrompt         *string            `json:"session_resume_prompt"`
+			BoardOverviewAutoHide       *bool              `json:"board_overview_auto_hide"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: err.Error()}
@@ -1190,6 +1199,9 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 		if p.SessionResumePrompt != nil {
 			d.Config.SessionResumePrompt = strings.TrimSpace(*p.SessionResumePrompt)
+		}
+		if p.BoardOverviewAutoHide != nil {
+			d.Config.BoardOverviewAutoHide = *p.BoardOverviewAutoHide
 		}
 		_ = d.Config.Save()
 		d.mu.Unlock()
@@ -1496,6 +1508,13 @@ func (d *Daemon) Start() error {
 	}
 	d.wg.Add(1)
 	go d.schedulerLoop()
+	if d.BoardPanel != nil {
+		d.wg.Add(1)
+		go func() {
+			defer d.wg.Done()
+			d.BoardPanel.Run(d.ctx)
+		}()
+	}
 	return nil
 }
 
