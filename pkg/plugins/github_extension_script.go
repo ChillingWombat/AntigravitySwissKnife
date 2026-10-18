@@ -853,13 +853,18 @@ func GenerateGitHubExtensionScript() string {
         }
       } catch (_) {}
 
-      // Sync active state on tabs
+      // Sync active state on tabs. Only the pane that hosts the stage decides
+      // whether it is still displayed: after a native split the document holds a
+      // second, visible conversation view (the new pane) which must not close the
+      // stage, and within the split guard the re-render itself is not a close signal.
       const stageContainer = document.getElementById("swiss-main-stage-container");
-      const convoView = document.querySelector('[data-testid="conversation-view"]');
+      const hostConvoView = (stageHostConvoView && isNodeConnected(stageHostConvoView)) ? stageHostConvoView : null;
+      const hostConvoViewVisible = Boolean(hostConvoView && hostConvoView.style.display !== "none");
       const isStageDisplayed = Boolean(
         stageContainer &&
+        isNodeConnected(stageContainer) &&
         stageContainer.style.display === "flex" &&
-        (!convoView || convoView.style.display === "none")
+        (!hostConvoView || !hostConvoViewVisible || isSplitGuardedNavigation())
       );
       if (!isStageDisplayed) {
         activeMainStageExt = null;
@@ -873,8 +878,18 @@ func GenerateGitHubExtensionScript() string {
         if (document.querySelector('[data-swiss-hidden-stage-child="true"]')) {
           restoreHiddenStageChildren(stageContainer);
         }
+        clearStageHost();
       } else if (activeMainStageExt) {
         hideNativeBreadcrumbBar();
+        // Self-heal after the IDE re-rendered the hosting pane (native split):
+        // re-attach the stage container and re-hide that pane's conversation view
+        // without touching the conversation view of the new pane.
+        const hostTarget = getStageHostTarget();
+        if (!hostTarget || !hostTarget.convoView ||
+            hostTarget.convoView.style.display !== "none" ||
+            (hostTarget.parent && stageContainer.parentElement !== hostTarget.parent)) {
+          applyMainStageLayout();
+        }
       }
 
       group.querySelectorAll('.swiss-left-nav-tab').forEach(b => {
@@ -1092,8 +1107,7 @@ func GenerateGitHubExtensionScript() string {
       }
     }
     const convTrigger = e.target.closest('[data-testid="conversation-row-sidebar"], [data-testid="new-conversation-button"], [data-testid="app-icon-new-conversation-button"], [data-testid="sidebar-add-project-button"], a[aria-label="New Conversation in Project"], [data-testid="history-button"], [data-testid="automations-button"], a[href*="/customizations"], a[href*="customizations"], [data-testid="settings-button"], a[href*="/c/"]');
-    const isStageOpen = Boolean(window.__swissActiveMainStageExt || activeMainStageExt || (document.getElementById("swiss-main-stage-container") && document.getElementById("swiss-main-stage-container").style.display === "flex"));
-    if (convTrigger && isStageOpen) {
+    if (convTrigger && isMainStageOpen() && !isSplitGuardedNavigation()) {
       if (typeof window.closeMainStage === "function") {
         window.closeMainStage();
       } else {
@@ -1114,8 +1128,7 @@ func GenerateGitHubExtensionScript() string {
   }
   window.__swissPopstateBound = true;
   window.__swissPopstateHandler = () => {
-    const isStageOpen = Boolean(window.__swissActiveMainStageExt || activeMainStageExt || (document.getElementById("swiss-main-stage-container") && document.getElementById("swiss-main-stage-container").style.display === "flex"));
-    if (isStageOpen) {
+    if (isMainStageOpen() && !isSplitGuardedNavigation()) {
       if (typeof window.closeMainStage === "function") {
         window.closeMainStage();
       } else {
@@ -1140,8 +1153,7 @@ func GenerateGitHubExtensionScript() string {
     window.history.pushState = function(...args) {
       const res = origPushState.apply(this, args);
       try {
-        const isStageOpen = Boolean(window.__swissActiveMainStageExt || activeMainStageExt || (document.getElementById("swiss-main-stage-container") && document.getElementById("swiss-main-stage-container").style.display === "flex"));
-        if (isStageOpen) {
+        if (isMainStageOpen() && !isSplitGuardedNavigation()) {
           const urlStr = args[2] ? String(args[2]) : "";
           if (!urlStr || urlStr === "/" || urlStr.startsWith("/?") || urlStr.startsWith("/c/") || urlStr.includes("customizations")) {
             if (typeof window.closeMainStage === "function") {
@@ -1164,8 +1176,7 @@ func GenerateGitHubExtensionScript() string {
     window.history.replaceState = function(...args) {
       const res = origReplaceState.apply(this, args);
       try {
-        const isStageOpen = Boolean(window.__swissActiveMainStageExt || activeMainStageExt || (document.getElementById("swiss-main-stage-container") && document.getElementById("swiss-main-stage-container").style.display === "flex"));
-        if (isStageOpen) {
+        if (isMainStageOpen() && !isSplitGuardedNavigation()) {
           const urlStr = args[2] ? String(args[2]) : "";
           if (!urlStr || urlStr === "/" || (urlStr.startsWith("/c/") && !urlStr.includes("stage=true")) || urlStr.includes("customizations")) {
             if (typeof window.closeMainStage === "function") {
@@ -2068,14 +2079,92 @@ func GenerateGitHubExtensionScript() string {
   }
 
   // 8. Main Stage View Mode (Replaces / Splits Chat Viewport or Landing View)
+  // The stage owns the pane it was opened in. These refs pin that pane so a
+  // native split (Split Right) can add a second pane without the stage stealing
+  // or hiding the conversation view of the new pane, and without the injected
+  // nodes being orphaned when the IDE re-renders the hosting pane.
+  let stageHostConvoView = null;
+  let stageHostParentEl = null;
+  let stageHostPaneId = "";
+  window.__swissSplitGuardUntil = window.__swissSplitGuardUntil || 0;
+
+  function isNodeConnected(el) {
+    if (!el) return false;
+    if (typeof el.isConnected === "boolean") return el.isConnected;
+    let cur = el;
+    while (cur) {
+      if (cur === document.body || cur === document.documentElement) return true;
+      cur = cur.parentElement;
+    }
+    return false;
+  }
+
+  function resolveStageHostPane() {
+    if (stageHostPaneId) {
+      const byId = document.querySelector('[data-pane-id="' + stageHostPaneId + '"]');
+      if (byId) return byId;
+    }
+    if (stageHostParentEl && isNodeConnected(stageHostParentEl) && stageHostParentEl.closest) {
+      const fromParent = stageHostParentEl.closest("[data-pane-id]");
+      if (fromParent) return fromParent;
+    }
+    return null;
+  }
+
+  function getStageHostTarget() {
+    const paneEl = resolveStageHostPane();
+    if (stageHostConvoView && isNodeConnected(stageHostConvoView)) {
+      return { parent: stageHostConvoView.parentElement || paneEl || stageHostParentEl, convoView: stageHostConvoView, pane: paneEl };
+    }
+    if (paneEl) {
+      const paneConvo = paneEl.querySelector('[data-testid="conversation-view"]');
+      if (paneConvo) return { parent: paneConvo.parentElement || paneEl, convoView: paneConvo, pane: paneEl };
+      return { parent: paneEl, convoView: null, pane: paneEl };
+    }
+    if (stageHostParentEl && isNodeConnected(stageHostParentEl)) {
+      const parentConvo = stageHostParentEl.querySelector ? stageHostParentEl.querySelector('[data-testid="conversation-view"]') : null;
+      return { parent: stageHostParentEl, convoView: parentConvo, pane: null };
+    }
+    return null;
+  }
+
+  function captureStageHost(target) {
+    if (!target || !target.parent) return;
+    stageHostParentEl = target.parent;
+    if (target.convoView) stageHostConvoView = target.convoView;
+    const paneEl = (target.convoView && target.convoView.closest ? target.convoView.closest("[data-pane-id]") : null) ||
+                   (target.parent.closest ? target.parent.closest("[data-pane-id]") : null);
+    stageHostPaneId = paneEl ? (paneEl.getAttribute("data-pane-id") || "") : "";
+  }
+
+  function clearStageHost() {
+    stageHostConvoView = null;
+    stageHostParentEl = null;
+    stageHostPaneId = "";
+  }
+
+  function isSplitGuardedNavigation() {
+    return Date.now() < (window.__swissSplitGuardUntil || 0);
+  }
+
+  function isMainStageOpen() {
+    const stageContainer = document.getElementById("swiss-main-stage-container");
+    return Boolean(activeMainStageExt || window.__swissActiveMainStageExt ||
+      (stageContainer && isNodeConnected(stageContainer) && stageContainer.style.display === "flex"));
+  }
+
   function hideNativeBreadcrumbBar() {
     const hiddenEls = new Set();
-    const breadcrumbBar = document.querySelector('[data-testid="breadcrumb-segment"]')?.closest('.shrink-0');
+    const scopeRoot = resolveStageHostPane() || document;
+    const breadcrumbBar = (scopeRoot.querySelector ? scopeRoot.querySelector('[data-testid="breadcrumb-segment"]')?.closest('.shrink-0') : null) ||
+      document.querySelector('[data-testid="breadcrumb-segment"]')?.closest('.shrink-0');
     if (breadcrumbBar && breadcrumbBar.id !== "swiss-main-stage-container" && !breadcrumbBar.closest("#swiss-main-stage-container") && !breadcrumbBar.closest('[data-testid="auxiliary-panel"]') && !breadcrumbBar.closest('.part.auxiliarybar')) {
       hiddenEls.add(breadcrumbBar);
     }
-    const convoView = document.querySelector('[data-testid="conversation-view"]');
+    const convoView = (scopeRoot.querySelector ? scopeRoot.querySelector('[data-testid="conversation-view"]') : null) ||
+                      document.querySelector('[data-testid="conversation-view"]');
     const centerCol = (convoView && convoView.closest('.flex-1.flex.flex-col.min-w-0.h-full')) ||
+                      (scopeRoot.querySelector ? scopeRoot.querySelector('.flex-1.flex.flex-col.min-w-0.h-full') : null) ||
                       document.querySelector('.flex-1.flex.flex-col.min-w-0.h-full');
     if (centerCol) {
       Array.from(centerCol.children).forEach(ch => {
@@ -2096,9 +2185,12 @@ func GenerateGitHubExtensionScript() string {
   function restoreNativeBreadcrumbBar() {
     const hiddenEls = new Set();
     document.querySelectorAll('[data-swiss-hidden-breadcrumb="true"]').forEach(el => hiddenEls.add(el));
-    const breadcrumbBar = document.querySelector('[data-testid="breadcrumb-segment"]')?.closest('.shrink-0');
+    const scopeRoot = resolveStageHostPane() || document;
+    const breadcrumbBar = (scopeRoot.querySelector ? scopeRoot.querySelector('[data-testid="breadcrumb-segment"]')?.closest('.shrink-0') : null) ||
+      document.querySelector('[data-testid="breadcrumb-segment"]')?.closest('.shrink-0');
     if (breadcrumbBar) hiddenEls.add(breadcrumbBar);
-    const centerCol = document.querySelector('.flex-1.flex.flex-col.min-w-0.h-full');
+    const centerCol = (scopeRoot.querySelector ? scopeRoot.querySelector('.flex-1.flex.flex-col.min-w-0.h-full') : null) ||
+                      document.querySelector('.flex-1.flex.flex-col.min-w-0.h-full');
     if (centerCol) {
       Array.from(centerCol.children).forEach(ch => {
         if (ch.classList?.contains("shrink-0")) hiddenEls.add(ch);
@@ -2137,6 +2229,12 @@ func GenerateGitHubExtensionScript() string {
   }
 
   function getMainStageParent() {
+    // Keep the stage anchored to the pane that already hosts it (split view):
+    // after a native split there are two conversation views and the first one in
+    // document order is not necessarily the pane that owns the stage.
+    const pinnedHost = getStageHostTarget();
+    if (pinnedHost && pinnedHost.parent) return pinnedHost;
+
     const convoView = document.querySelector('[data-testid="conversation-view"]');
     if (convoView && convoView.parentElement) {
       return { parent: convoView.parentElement, convoView: convoView };
@@ -2236,7 +2334,7 @@ func GenerateGitHubExtensionScript() string {
       restoreChildren(stageContainer.parentElement);
     }
 
-    const target = getMainStageParent();
+    const target = getStageHostTarget() || getMainStageParent();
     if (target && target.convoView) {
       target.convoView.style.display = "";
       target.convoView.style.flex = "";
@@ -2249,6 +2347,7 @@ func GenerateGitHubExtensionScript() string {
     } else if (target && target.parent) {
       restoreChildren(target.parent);
     }
+    clearStageHost();
     setupLeftNavTabs();
   }
 
@@ -2256,11 +2355,20 @@ func GenerateGitHubExtensionScript() string {
   window.openSwissMainStage = openMainStage;
 
   function applyMainStageLayout() {
-    const target = getMainStageParent();
     const stageContainer = document.getElementById("swiss-main-stage-container");
-    if (!stageContainer || !target || !target.parent) return;
+    if (!stageContainer) return;
+    const target = getMainStageParent();
+    if (!target || !target.parent) return;
+    captureStageHost(target);
 
     hideNativeBreadcrumbBar();
+
+    // The IDE may have re-rendered the hosting pane (native split / conversation
+    // switch) and dropped the injected container: put it back into its own pane
+    // so the current page stays on the left while the chat opens on the right.
+    if (stageContainer.parentElement !== target.parent) {
+      target.parent.appendChild(stageContainer);
+    }
 
     stageContainer.style.display = "flex";
     stageContainer.style.flex = "1 1 100%";
@@ -2270,7 +2378,7 @@ func GenerateGitHubExtensionScript() string {
 
     if (target.convoView) {
       document.querySelectorAll('[data-swiss-hidden-stage-child="true"]').forEach(el => {
-        if (el !== target.convoView) {
+        if (el !== target.convoView && el !== stageContainer) {
           if (el.__swissPrevDisplay !== undefined) {
             el.style.display = el.__swissPrevDisplay === "none" ? "" : el.__swissPrevDisplay;
             delete el.__swissPrevDisplay;
@@ -2312,7 +2420,32 @@ func GenerateGitHubExtensionScript() string {
     target.parent.style.flexDirection = "column";
   }
 
+  function reassertMainStageLayout() {
+    if (!activeMainStageExt) return;
+    try {
+      const host = getStageHostTarget();
+      if (!host || !host.parent) return;
+      const stageContainer = document.getElementById("swiss-main-stage-container");
+      if (!stageContainer || !isNodeConnected(stageContainer)) {
+        // The pane group was re-rendered and the injected container went with the
+        // old subtree: rebuild the stage inside the same pane so the split keeps
+        // the page on the left and the chat view on the right.
+        openMainStage(activeMainStageExt);
+        return;
+      }
+      applyMainStageLayout();
+    } catch (_) {}
+  }
+  window.__swissReassertMainStageLayout = reassertMainStageLayout;
+
   function triggerNativeSplit(direction = "horizontal") {
+    // Splitting must add a pane, not replace the current page: while the native
+    // split settles, navigation-triggered closes are suppressed and the stage is
+    // re-asserted in its own pane (the IDE re-renders the pane group on split).
+    if (activeMainStageExt) {
+      window.__swissSplitGuardUntil = Date.now() + 3000;
+      [200, 600, 1200, 2400].forEach(delay => setTimeout(reassertMainStageLayout, delay));
+    }
     try {
       const root = document.getElementById("root");
       const key = root ? Object.keys(root).find(k => k.startsWith("__reactContainer") || k.startsWith("__reactFiber")) : null;

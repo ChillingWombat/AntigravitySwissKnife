@@ -457,7 +457,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     let clickTargetIdx = -1;
     let jumpTimer = null;
 
-    let lastRenderedStepsCount = -1;
+    let lastJumpBarConversationKey = null;
+    let lastJumpBarTotal = -1;
     let lastActiveIdx = -1;
     let lastAppliedActiveColor = "";
     let lastAppliedDefaultColor = "";
@@ -465,11 +466,118 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     let lastAppliedActiveThickness = -1;
     let lastAppliedInactiveThickness = -1;
 
-    function getLowestPromptOnScreen(steps, viewport) {
-      if (isClickJumping && clickTargetIdx >= 0) {
-        return clickTargetIdx;
-      }
+    /* __SWISS_JUMP_BAR_HELPERS_START__ */
+    // Pure helpers for the Quick Prompt Jump Bar (Turn Jump Navigator).
+    // The chat transcript is a virtualized list: only the prompt turns near the
+    // viewport stay mounted, so counting [data-testid="user-input-step"] nodes
+    // directly makes the number of bars fluctuate and under-report the session.
+    // These helpers resolve ONE stable turn total per conversation, in a fixed
+    // order, from the best available source:
+    //   1. list ordinals of the mounted turns (data-index / aria-posinset),
+    //   2. the full transcript turn count reported by the daemon chat-metrics,
+    //   3. a per-conversation high-water mark so the rail never shrinks mid-scroll.
+    const jumpBarTurnRegistry = {};
+    const jumpBarTurnCountsByConversation = {};
 
+    function computeTurnOrdinals(stepEls) {
+      const ordinals = [];
+      if (!stepEls) return ordinals;
+      for (let i = 0; i < stepEls.length; i++) {
+        const el = stepEls[i];
+        let ordinal = NaN;
+        try {
+          const attr = el && el.getAttribute ? (el.getAttribute("data-index") || el.getAttribute("aria-posinset")) : null;
+          if (attr !== null && attr !== undefined && attr !== "") ordinal = parseInt(attr, 10);
+          if (!isFinite(ordinal) && el && el.closest) {
+            const holder = el.closest("[data-index]");
+            if (holder && holder !== el) {
+              const holderIdx = holder.getAttribute("data-index");
+              if (holderIdx !== null && holderIdx !== undefined && holderIdx !== "") ordinal = parseInt(holderIdx, 10);
+            }
+          }
+        } catch (_) { ordinal = NaN; }
+        ordinals.push((isFinite(ordinal) && ordinal >= 0) ? ordinal : null);
+      }
+      return ordinals;
+    }
+
+    function computeStableTurnTotal(ordinals, mountedCount, daemonTurnCount, conversationKey, registry) {
+      let total = mountedCount || 0;
+      if (ordinals) {
+        for (let i = 0; i < ordinals.length; i++) {
+          const ord = ordinals[i];
+          if (typeof ord === "number" && ord + 1 > total) total = ord + 1;
+        }
+      }
+      if (typeof daemonTurnCount === "number" && daemonTurnCount > total) total = daemonTurnCount;
+      const key = conversationKey || "__unknown__";
+      const previous = registry[key] || 0;
+      const stable = Math.max(total, previous);
+      if (stable > 0) registry[key] = stable;
+      return stable;
+    }
+
+    function mapStepsToTurnIndexes(ordinals, total) {
+      const used = [];
+      const mapped = [];
+      if (!ordinals) return mapped;
+      for (let i = 0; i < ordinals.length; i++) {
+        const ord = ordinals[i];
+        let idx = (typeof ord === "number" && ord >= 0 && ord < total && used.indexOf(ord) === -1) ? ord : -1;
+        if (idx === -1) {
+          idx = 0;
+          while (used.indexOf(idx) !== -1) idx++;
+        }
+        used.push(idx);
+        mapped.push(idx);
+      }
+      return mapped;
+    }
+    /* __SWISS_JUMP_BAR_HELPERS_END__ */
+
+    function resolveJumpBarConversationKey(hostEl) {
+      try {
+        const fiberId = getConversationIdFromElement(hostEl);
+        if (fiberId) return fiberId;
+      } catch (_) {}
+      try {
+        if (window.location && window.location.pathname) {
+          const m = window.location.pathname.match(/\/c\/([^/?#]+)/);
+          if (m && m[1]) return m[1];
+          return window.location.pathname;
+        }
+      } catch (_) {}
+      return "";
+    }
+
+    function getJumpBarSteps(bar) {
+      const host = bar && bar.parentElement;
+      let steps = [];
+      try {
+        const root = (host && host.querySelectorAll) ? host : document;
+        steps = Array.from(root.querySelectorAll('[data-testid="user-input-step"]'));
+      } catch (_) {
+        steps = [];
+      }
+      if (!steps.length) {
+        try {
+          steps = Array.from(document.querySelectorAll('[data-testid="user-input-step"]'));
+        } catch (_) {}
+      }
+      return steps;
+    }
+
+    function resolveActiveTurnIndex(steps, stepTurnIndexes, viewport) {
+      // A click jump pins the active dash to the clicked turn until scrolling settles.
+      if (isClickJumping && clickTargetIdx >= 0) return clickTargetIdx;
+      if (!steps || !steps.length || !stepTurnIndexes || !stepTurnIndexes.length) return -1;
+      const lowestStep = getLowestPromptOnScreen(steps, viewport);
+      if (lowestStep >= 0 && lowestStep < stepTurnIndexes.length) return stepTurnIndexes[lowestStep];
+      return -1;
+    }
+
+    // Returns the index (into the steps array) of the lowest prompt turn on screen.
+    function getLowestPromptOnScreen(steps, viewport) {
       const vpRect = viewport ? viewport.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
       let latestVisibleIdx = -1;
 
@@ -502,15 +610,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       if (!isEnabled) {
         if (bar) bar.remove();
         if (tooltip) tooltip.remove();
-        lastRenderedStepsCount = -1;
         lastActiveIdx = -1;
-        return;
-      }
-
-      const steps = Array.from(document.querySelectorAll('[data-testid="user-input-step"]'));
-      if (steps.length === 0) {
-        if (bar) bar.style.display = "none";
-        lastRenderedStepsCount = 0;
+        lastJumpBarTotal = -1;
+        lastJumpBarConversationKey = null;
         return;
       }
 
@@ -527,6 +629,21 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       } else if (bar.parentElement !== targetParent) {
         targetParent.appendChild(bar);
       }
+
+      // Resolve one stable turn total for this conversation; steps are scoped to
+      // the pane/transcript that hosts the rail.
+      const steps = getJumpBarSteps(bar);
+      const ordinals = computeTurnOrdinals(steps);
+      const conversationKey = resolveJumpBarConversationKey(bar.parentElement);
+      const daemonTurnCount = (conversationKey && jumpBarTurnCountsByConversation[conversationKey]) || 0;
+      const totalTurns = computeStableTurnTotal(ordinals, steps.length, daemonTurnCount, conversationKey, jumpBarTurnRegistry);
+      if (totalTurns === 0) {
+        bar.style.display = "none";
+        lastJumpBarConversationKey = conversationKey;
+        lastJumpBarTotal = 0;
+        return;
+      }
+      const stepTurnIndexes = mapStepsToTurnIndexes(ordinals, totalTurns);
 
       bar.style.display = "flex";
 
@@ -586,26 +703,34 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         lastAppliedInactiveThickness = inactiveThickness;
       }
 
-      // If dashes already match steps count, DO NOT rebuild DOM elements!
-      // This eliminates the shining / flickering bug caused by destroying & recreating DOM nodes during streaming.
+      // One bar per prompt turn, in fixed order (oldest first). The DOM is only
+      // rebuilt when the conversation or the stable turn total changes, so the
+      // rail no longer drops bars or renumbers them while the virtualized
+      // transcript mounts and unmounts turns during scrolling and streaming.
       const existingDashes = bar.querySelectorAll(".swiss-prompt-dash");
-      if (existingDashes.length === steps.length && lastRenderedStepsCount === steps.length) {
-        updateActiveIndicator(getLowestPromptOnScreen(steps, viewport));
+      if (existingDashes.length === totalTurns &&
+          lastJumpBarTotal === totalTurns &&
+          lastJumpBarConversationKey === conversationKey) {
+        updateActiveIndicator(resolveActiveTurnIndex(steps, stepTurnIndexes, viewport));
         return;
       }
 
-      // Rebuild dashes only when step count actually changes
       bar.innerHTML = "";
-      lastRenderedStepsCount = steps.length;
+      lastJumpBarConversationKey = conversationKey;
+      lastJumpBarTotal = totalTurns;
 
-      steps.forEach((step, idx) => {
-        const textEl = step.querySelector('.whitespace-pre-wrap') || step;
-        const fullText = (textEl.textContent || "").replace(/\s+/g, ' ').trim();
+      const stepByTurnIndex = {};
+      stepTurnIndexes.forEach((turnIdx, stepIdx) => { stepByTurnIndex[turnIdx] = steps[stepIdx]; });
+
+      for (let turnIdx = 0; turnIdx < totalTurns; turnIdx++) {
+        const step = stepByTurnIndex[turnIdx];
+        const textEl = step ? (step.querySelector('.whitespace-pre-wrap') || step) : null;
+        const fullText = textEl ? (textEl.textContent || "").replace(/\s+/g, ' ').trim() : "";
         const snippet = fullText.length > 75 ? fullText.substring(0, 75) + "..." : fullText;
 
         const dash = document.createElement("div");
         dash.className = "swiss-prompt-dash";
-        dash.setAttribute("data-prompt-index", idx);
+        dash.setAttribute("data-prompt-index", turnIdx);
 
         // Height is explicitly fixed without transition to prevent bouncing / shining
         dash.style.cssText = "width: " + dashWidth + "px; height: " + inactiveThickness + "px; border-radius: 2px; background: " + defaultColor + "; cursor: pointer; pointer-events: auto; transition: width 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease;";
@@ -617,7 +742,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           dash.style.background = activeColor;
           if (tooltip) {
             const rect = dash.getBoundingClientRect();
-            tooltip.innerHTML = "<div style='font-weight: 500; font-size: 11px; color: var(--muted-foreground, #64748b); margin-bottom: 2px;'>Prompt #" + (idx + 1) + (dash.classList.contains("active") ? " (Current)" : "") + "</div><div style='color: var(--foreground, #101010); font-size: 12px; font-weight: 400;'>" + snippet + "</div>";
+            const snippetHTML = snippet
+              ? "<div style='color: var(--foreground, #101010); font-size: 12px; font-weight: 400;'>" + snippet + "</div>"
+              : "<div style='color: var(--muted-foreground, #64748b); font-size: 12px; font-weight: 400;'>Jumps to this turn</div>";
+            tooltip.innerHTML = "<div style='font-weight: 500; font-size: 11px; color: var(--muted-foreground, #64748b); margin-bottom: 2px;'>Prompt #" + (turnIdx + 1) + (dash.classList.contains("active") ? " (Current)" : "") + "</div>" + snippetHTML;
             tooltip.style.left = (rect.right + 12) + "px";
             tooltip.style.top = (rect.top - 10) + "px";
             tooltip.style.display = "block";
@@ -634,35 +762,51 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
         dash.onclick = () => {
           isClickJumping = true;
-          clickTargetIdx = idx;
+          clickTargetIdx = turnIdx;
           if (jumpTimer) clearTimeout(jumpTimer);
 
-          updateActiveIndicator(idx);
-          step.scrollIntoView({ behavior: "smooth", block: "start" });
+          updateActiveIndicator(turnIdx);
 
-          if (enhConfig.prompt_jump_bar?.focus_pulse) {
-            step.style.outline = "2px solid " + activeColor;
-            step.style.outlineOffset = "4px";
-            step.style.borderRadius = "8px";
-            step.style.transition = "outline 0.4s ease";
-            setTimeout(() => {
-              step.style.outline = "none";
-            }, 1200);
+          if (step) {
+            step.scrollIntoView({ behavior: "smooth", block: "start" });
+
+            if (enhConfig.prompt_jump_bar?.focus_pulse) {
+              step.style.outline = "2px solid " + activeColor;
+              step.style.outlineOffset = "4px";
+              step.style.borderRadius = "8px";
+              step.style.transition = "outline 0.4s ease";
+              setTimeout(() => {
+                step.style.outline = "none";
+              }, 1200);
+            }
+          } else if (viewport) {
+            // The turn is virtualized out of the DOM: scroll the transcript
+            // proportionally so the list mounts that region, then re-sync.
+            const maxTop = Math.max(0, (viewport.scrollHeight || 0) - (viewport.clientHeight || 0));
+            const ratio = totalTurns > 1 ? (turnIdx / (totalTurns - 1)) : 0;
+            try {
+              if (typeof viewport.scrollTo === "function") {
+                viewport.scrollTo({ top: ratio * maxTop, behavior: "smooth" });
+              } else {
+                viewport.scrollTop = ratio * maxTop;
+              }
+            } catch (_) {
+              viewport.scrollTop = ratio * maxTop;
+            }
           }
 
           jumpTimer = setTimeout(() => {
             isClickJumping = false;
             clickTargetIdx = -1;
-            const curSteps = Array.from(document.querySelectorAll('[data-testid="user-input-step"]'));
-            updateActiveIndicator(getLowestPromptOnScreen(curSteps, viewport));
+            renderPromptJumpBar();
           }, 1000);
         };
 
         bar.appendChild(dash);
-      });
+      }
 
       lastActiveIdx = -1; // Force indicator sync on fresh render
-      updateActiveIndicator(getLowestPromptOnScreen(steps, viewport));
+      updateActiveIndicator(resolveActiveTurnIndex(steps, stepTurnIndexes, viewport));
     }
 
     // Default Predefined Project for New Conversations
@@ -1050,18 +1194,28 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     // Attach scroll and DOM observers (disconnecting any stale observer on live re-injection)
     let isEnhancingOverview = false;
     let scheduledRaf = null;
-    let lastObservedStepCount = -1;
 
     const updateScrollHandler = () => {
       if (isClickJumping) return;
       requestAnimationFrame(() => {
         const bar = document.getElementById("swiss-prompt-jump-bar");
         if (!bar) return;
-        const steps = Array.from(document.querySelectorAll('[data-testid="user-input-step"]'));
+        const steps = getJumpBarSteps(bar);
         const viewport = document.querySelector('[data-testid="autoscroll-viewport"]') ||
                          document.querySelector('.overflow-y-auto');
 
-        const activeIdx = getLowestPromptOnScreen(steps, viewport);
+        // Re-derive the stable turn model; if the conversation or the total moved,
+        // rebuild the rail instead of re-labelling a stale set of dashes.
+        const ordinals = computeTurnOrdinals(steps);
+        const conversationKey = resolveJumpBarConversationKey(bar.parentElement);
+        const daemonTurnCount = (conversationKey && jumpBarTurnCountsByConversation[conversationKey]) || 0;
+        const totalTurns = computeStableTurnTotal(ordinals, steps.length, daemonTurnCount, conversationKey, jumpBarTurnRegistry);
+        if (totalTurns === 0 || totalTurns !== lastJumpBarTotal || conversationKey !== lastJumpBarConversationKey) {
+          renderPromptJumpBar();
+          return;
+        }
+        const stepTurnIndexes = mapStepsToTurnIndexes(ordinals, totalTurns);
+        const activeIdx = resolveActiveTurnIndex(steps, stepTurnIndexes, viewport);
         const dark = isDarkMode();
         const defaultColor = dark ? "rgba(148, 163, 184, 0.45)" : "rgba(100, 116, 139, 0.42)";
         const activeColor = getActiveAndHoverColor();
@@ -1839,6 +1993,15 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               subagentNameToConvId[parentId + ":" + agentName] = targetId;
             }
             if (data && Array.isArray(data.turns) && data.turns.length > 0) {
+              // The daemon reads the full conversation transcript from disk, so
+              // this turn count covers prompt turns whose DOM nodes are
+              // virtualized out of the chat view. The rail uses it to size the
+              // bars for the whole session instead of only the mounted window.
+              const previousTurnTotal = jumpBarTurnCountsByConversation[targetId] || 0;
+              jumpBarTurnCountsByConversation[targetId] = data.turns.length;
+              if (data.turns.length !== previousTurnTotal) {
+                renderPromptJumpBar();
+              }
               const lastTurn = data.turns[data.turns.length - 1];
               const turnUsage = lastTurn.context_tokens || ((lastTurn.input_tokens || 0) + (lastTurn.output_tokens || 0));
               cachedTokensByConv[targetId] = turnUsage;
@@ -2106,13 +2269,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         scheduledRaf = null;
         applyEnhancementsStyles();
 
-        const curSteps = document.querySelectorAll('[data-testid="user-input-step"]').length;
-        if (curSteps !== lastObservedStepCount) {
-          lastObservedStepCount = curSteps;
-          renderPromptJumpBar();
-        } else {
-          updateScrollHandler();
-        }
+        // The rail re-derives its own stable turn model; renderPromptJumpBar()
+        // keeps the dashes untouched when neither the conversation nor the turn
+        // total changed, and only refreshes the active highlight otherwise.
+        renderPromptJumpBar();
 
         applyDefaultProjectHandler();
         renderContextWindowProgressRing();

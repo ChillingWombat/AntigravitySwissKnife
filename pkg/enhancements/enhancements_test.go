@@ -178,6 +178,134 @@ func TestGenerateEnhancementsScript(t *testing.T) {
 	if !strings.Contains(script, "swiss-overview-bottom-spacer") {
 		t.Errorf("expected script to contain swiss-overview-bottom-spacer cleanup")
 	}
+	if !strings.Contains(script, "computeStableTurnTotal") {
+		t.Errorf("expected prompt jump bar to resolve a stable turn total")
+	}
+	if !strings.Contains(script, "computeTurnOrdinals") {
+		t.Errorf("expected prompt jump bar to read list ordinals of the mounted turns")
+	}
+	if !strings.Contains(script, "mapStepsToTurnIndexes") {
+		t.Errorf("expected prompt jump bar to map mounted steps to turn indexes")
+	}
+	if !strings.Contains(script, "jumpBarTurnCountsByConversation") {
+		t.Errorf("expected prompt jump bar to consume the daemon transcript turn count")
+	}
+	if !strings.Contains(script, "aria-posinset") {
+		t.Errorf("expected prompt jump bar to honor aria-posinset turn ordinals")
+	}
+}
+
+// TestPromptJumpBar_StableTurnEnumeration pins the "jumper" contract: the rail
+// must show one bar per prompt turn of the whole session, in a fixed order, with
+// a count that does not change while the virtualized transcript mounts and
+// unmounts turns around the viewport.
+func TestPromptJumpBar_StableTurnEnumeration(t *testing.T) {
+	script := GenerateEnhancementsScript(DefaultConfig())
+
+	// 1. The rail no longer derives its bar count from the mounted DOM alone.
+	if strings.Contains(script, "if (existingDashes.length === steps.length && lastRenderedStepsCount === steps.length)") {
+		t.Errorf("expected the jump bar rebuild guard to use the stable turn total instead of the mounted step count")
+	}
+	if !strings.Contains(script, "existingDashes.length === totalTurns &&") {
+		t.Errorf("expected the jump bar to rebuild only when the stable turn total changes")
+	}
+	if !strings.Contains(script, "lastJumpBarConversationKey === conversationKey") {
+		t.Errorf("expected the jump bar to rebuild when the conversation changes even if the bar count matches")
+	}
+	if !strings.Contains(script, "for (let turnIdx = 0; turnIdx < totalTurns; turnIdx++)") {
+		t.Errorf("expected one dash per turn, rendered in fixed ascending order")
+	}
+	if !strings.Contains(script, "jumpBarTurnRegistry") {
+		t.Errorf("expected a per-conversation high-water registry so the rail never shrinks mid-scroll")
+	}
+	if !strings.Contains(script, "jumpBarTurnCountsByConversation[targetId] = data.turns.length;") {
+		t.Errorf("expected the daemon chat-metrics turn count to feed the jump bar")
+	}
+
+	// 1b. The active dash must stay in turn-index space: the click jump resolves in
+	// the turn space, while getLowestPromptOnScreen keeps step-array indexing.
+	if !strings.Contains(script, "if (isClickJumping && clickTargetIdx >= 0) return clickTargetIdx;") {
+		t.Errorf("expected the click jump to pin the active dash in turn-index space")
+	}
+	if got := strings.Count(script, "return clickTargetIdx;"); got != 1 {
+		t.Errorf("expected exactly one clickTargetIdx return (inside resolveActiveTurnIndex), got %d", got)
+	}
+
+	// 2. Behaviour of the extracted pure helpers under a virtualized transcript.
+	startMarker := "/* __SWISS_JUMP_BAR_HELPERS_START__ */"
+	endMarker := "/* __SWISS_JUMP_BAR_HELPERS_END__ */"
+	startIdx := strings.Index(script, startMarker)
+	endIdx := strings.Index(script, endMarker)
+	if startIdx == -1 || endIdx == -1 || endIdx <= startIdx {
+		t.Fatalf("expected the pure jump bar helpers to be delimited by %q and %q", startMarker, endMarker)
+	}
+	helpers := script[startIdx+len(startMarker) : endIdx]
+
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available")
+	}
+
+	driver := helpers + `
+const assert = require("assert");
+
+function mockStep(ordinal, holderOrdinal) {
+  return {
+    getAttribute: (k) => {
+      if (k === "data-index" && ordinal !== null && ordinal !== undefined) return String(ordinal);
+      if (k === "aria-posinset" && ordinal !== null && ordinal !== undefined) return String(ordinal);
+      return null;
+    },
+    closest: (sel) => {
+      if (sel !== "[data-index]" || holderOrdinal === null || holderOrdinal === undefined) return null;
+      return { getAttribute: (k) => (k === "data-index" ? String(holderOrdinal) : null) };
+    }
+  };
+}
+
+// A virtualized window of a 9-turn session only mounts turns 7 and 8.
+let ordinals = computeTurnOrdinals([mockStep(7), mockStep(8)]);
+assert.deepStrictEqual(ordinals, [7, 8], "explicit list ordinals must be read");
+assert.strictEqual(computeStableTurnTotal(ordinals, 2, 0, "conv-a", jumpBarTurnRegistry), 9, "the rail must size itself from the ordinals of the mounted window");
+
+// Scrolling up mounts a different window of the same session: count must not change.
+const scrolled = computeStableTurnTotal(computeTurnOrdinals([mockStep(2), mockStep(3)]), 2, 0, "conv-a", jumpBarTurnRegistry);
+assert.strictEqual(scrolled, 9, "the bar count must stay stable while the virtualized window moves");
+
+// Turns without ordinals: the daemon transcript count covers the whole session.
+const daemonTotal = computeStableTurnTotal(computeTurnOrdinals([mockStep(null), mockStep(null)]), 2, 12, "conv-b", jumpBarTurnRegistry);
+assert.strictEqual(daemonTotal, 12, "the daemon turn count must size the rail when the DOM exposes no ordinals");
+
+// Without ordinals and without the daemon, the count still must not shrink mid-session.
+const first = computeStableTurnTotal(computeTurnOrdinals([mockStep(null), mockStep(null), mockStep(null)]), 3, 0, "conv-c", jumpBarTurnRegistry);
+assert.strictEqual(first, 3, "three mounted turns must produce three bars");
+const remounted = computeStableTurnTotal(computeTurnOrdinals([mockStep(null)]), 1, 0, "conv-c", jumpBarTurnRegistry);
+assert.strictEqual(remounted, 3, "the rail must not drop bars when a turn is unmounted by the virtualized list");
+
+// Ordinals are also read from a wrapping list item (data-index on the holder).
+assert.deepStrictEqual(computeTurnOrdinals([mockStep(null, 4)]), [4], "holder data-index ordinals must be read");
+
+// Switching conversations must use that conversation's own count.
+const otherConv = computeStableTurnTotal(computeTurnOrdinals([mockStep(null), mockStep(null)]), 2, 0, "conv-d", jumpBarTurnRegistry);
+assert.strictEqual(otherConv, 2, "a new conversation must not inherit the previous conversation bar count");
+
+// Steps are mapped onto their turn indexes, in insertion order, without duplicates.
+assert.deepStrictEqual(mapStepsToTurnIndexes([7, 8], 9), [7, 8], "ordinal steps must keep their turn indexes");
+assert.deepStrictEqual(mapStepsToTurnIndexes([null, null], 3), [0, 1], "steps without ordinals must map positionally");
+assert.deepStrictEqual(mapStepsToTurnIndexes([5, null, 5], 7), [5, 0, 1], "duplicate ordinals must be de-duplicated and gaps filled");
+
+console.log("jump-bar helpers OK");
+`
+
+	cmd := exec.Command(nodePath, "-")
+	cmd.Stdin = strings.NewReader(driver)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("jump bar helper test failed: %v\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "jump-bar helpers OK") {
+		t.Fatalf("expected the helper driver to run, got:\n%s", string(out))
+	}
 }
 
 func TestOverviewPanel_Divider(t *testing.T) {

@@ -97,6 +97,16 @@ func TestGenerateGitHubExtensionScript(t *testing.T) {
 		"effRepo.current_branch",
 		"triggerNativeSplit",
 		"swiss-stage-native-split-btn",
+		"reassertMainStageLayout",
+		"window.__swissReassertMainStageLayout",
+		"window.__swissSplitGuardUntil",
+		"isSplitGuardedNavigation",
+		"isMainStageOpen",
+		"captureStageHost",
+		"clearStageHost",
+		"getStageHostTarget",
+		"stageHostPaneId",
+		"data-pane-id",
 		"data-swiss-stage-active",
 		"data-swiss-suppressed",
 		"window.__swissGetProjectFolder",
@@ -128,6 +138,60 @@ func TestGenerateGitHubExtensionScript(t *testing.T) {
 		if err != nil {
 			t.Fatalf("node syntax error in GenerateGitHubExtensionScript: %v\n%s", err, string(out))
 		}
+	}
+}
+
+// TestSplitRightKeepsStageInOwnPane pins the Split Right contract: the split must
+// add a pane and keep the injected page in the pane that already hosts it. The
+// previous implementation decided stage visibility from the first
+// conversation-view found in the document, so after the split the visible chat
+// view of the new pane closed the stage instead of showing two panes.
+func TestSplitRightKeepsStageInOwnPane(t *testing.T) {
+	js := GenerateGitHubExtensionScript()
+
+	// 1. The stage pins the pane and the conversation view that host it.
+	if !strings.Contains(js, "let stageHostPaneId = \"\";") {
+		t.Errorf("expected the stage to track its host pane id")
+	}
+	if !strings.Contains(js, "stageHostConvoView = target.convoView;") {
+		t.Errorf("expected the stage to pin the conversation view of its own pane")
+	}
+	if !strings.Contains(js, "return { parent: stageHostConvoView.parentElement || paneEl || stageHostParentEl, convoView: stageHostConvoView, pane: paneEl };") {
+		t.Errorf("expected the pinned host pane to be preferred over document order lookups")
+	}
+	if !strings.Contains(js, "if (stageContainer.parentElement !== target.parent) {\n      target.parent.appendChild(stageContainer);\n    }") {
+		t.Errorf("expected applyMainStageLayout to re-attach the stage container into its host pane")
+	}
+
+	// 2. Split Right arms a guard so the split's own navigation cannot close the stage.
+	if !strings.Contains(js, "window.__swissSplitGuardUntil = Date.now() + 3000;") {
+		t.Errorf("expected Split Right to arm the split guard")
+	}
+	if !strings.Contains(js, "if (convTrigger && isMainStageOpen() && !isSplitGuardedNavigation())") {
+		t.Errorf("expected the sidebar click close path to honor the split guard")
+	}
+	if strings.Count(js, "if (isMainStageOpen() && !isSplitGuardedNavigation())") < 3 {
+		t.Errorf("expected popstate/pushState/replaceState close paths to honor the split guard")
+	}
+
+	// 3. The stage is re-asserted in its own pane after the IDE re-renders the pane group.
+	if !strings.Contains(js, "[200, 600, 1200, 2400].forEach(delay => setTimeout(reassertMainStageLayout, delay));") {
+		t.Errorf("expected Split Right to schedule stage re-assertions while the split settles")
+	}
+	if !strings.Contains(js, "window.__swissReassertMainStageLayout = reassertMainStageLayout;") {
+		t.Errorf("expected the re-assert entry point to be exposed")
+	}
+
+	// 4. Stage visibility must no longer be derived from the first conversation
+	// view in the document, and the host conversation view must be re-hidden.
+	if strings.Contains(js, "(!convoView || convoView.style.display === \"none\")") {
+		t.Errorf("expected the first-conversation-view visibility check to be replaced by the host pane check")
+	}
+	if !strings.Contains(js, "(!hostConvoView || !hostConvoViewVisible || isSplitGuardedNavigation())") {
+		t.Errorf("expected the stage visibility check to use the host conversation view")
+	}
+	if !strings.Contains(js, "hostTarget.convoView.style.display !== \"none\"") {
+		t.Errorf("expected setupLeftNavTabs to re-hide the host pane conversation view after a re-render")
 	}
 }
 
@@ -689,6 +753,78 @@ window.setSwissDaemonOnline(true);
 assert.ok(document.getElementById("swiss-left-nav-group"), "swiss-left-nav-group must be restored when daemon comes back online");
 assert.strictEqual(auxDaemonChangedArg, true, "aux daemon changed notification must be sent with true");
 assert.strictEqual(enhDaemonChangedArg, true, "enh daemon changed notification must be sent with true");
+
+// --- Split Right must add a pane instead of replacing the current page ---
+// Model the IDE pane structure: the conversation view lives inside a [data-pane-id] pane.
+const pane1 = new MockElement("div");
+pane1.setAttribute("data-pane-id", "pane-1");
+centerCol.appendChild(pane1);
+pane1.appendChild(convoWrapper);
+
+window.openSwissMainStage("memos");
+let splitStage = document.getElementById("swiss-main-stage-container");
+assert.ok(splitStage && splitStage.style.display === "flex", "stage must be open before splitting");
+assert.strictEqual(convoView.style.display, "none", "host pane conversation view must be hidden before splitting");
+
+const splitRightBtn = document.getElementById("swiss-stage-native-split-btn");
+assert.ok(splitRightBtn && splitRightBtn.listeners.click && splitRightBtn.listeners.click.length > 0, "split button must have a click listener");
+splitRightBtn.listeners.click[0]();
+assert.ok(window.__swissSplitGuardUntil > Date.now(), "Split Right must arm the split guard so navigation cannot close the stage mid-split");
+
+// Navigation fired by the split (new chat pane) must not close the stage while guarded.
+const popstateHandlers = winListeners["popstate"] || [];
+assert.ok(popstateHandlers.length > 0, "popstate handler must be bound on window");
+popstateHandlers.forEach(fn => fn());
+assert.strictEqual(document.getElementById("swiss-main-stage-container").style.display, "flex", "navigation during the split must keep the stage open");
+
+// The IDE re-renders the pane group on split: our injected stage and the pane's
+// conversation view are replaced, and a new pane with a visible chat view appears.
+splitStage.remove();
+convoWrapper.remove();
+const convoWrapper2 = new MockElement("div");
+convoWrapper2.className = "flex-1 min-h-0";
+const convoView2 = new MockElement("div");
+convoView2.setAttribute("data-testid", "conversation-view");
+convoWrapper2.appendChild(convoView2);
+pane1.appendChild(convoWrapper2);
+
+const pane2 = new MockElement("div");
+pane2.setAttribute("data-pane-id", "pane-2");
+const convoWrapperNew = new MockElement("div");
+const convoViewNew = new MockElement("div");
+convoViewNew.setAttribute("data-testid", "conversation-view");
+convoWrapperNew.appendChild(convoViewNew);
+pane2.appendChild(convoWrapperNew);
+centerCol.appendChild(pane2);
+
+window.__swissReassertMainStageLayout();
+const rebuiltStage = document.getElementById("swiss-main-stage-container");
+assert.ok(rebuiltStage, "stage must be rebuilt after the hosting pane was re-rendered");
+assert.strictEqual(rebuiltStage.style.display, "flex", "rebuilt stage must be displayed");
+assert.strictEqual(rebuiltStage.parentElement, convoWrapper2, "rebuilt stage must stay in its own pane (pane-1)");
+assert.strictEqual(convoView2.style.display, "none", "the hosting pane conversation view must be hidden again");
+assert.ok(document.getElementById("swiss-main-stage-header"), "rebuilt stage must render its header");
+assert.notStrictEqual(convoViewNew.style.display, "none", "the new pane conversation view must remain visible");
+assert.strictEqual(convoViewNew.getAttribute("data-swiss-hidden-stage-child"), null, "the new pane conversation view must not be marked as hidden");
+
+// Verify the host-pane check does not treat the new pane as a close signal.
+window.setupLeftNavTabs();
+assert.strictEqual(document.getElementById("swiss-main-stage-container").style.display, "flex", "setupLeftNavTabs must not close the stage because another pane holds a visible chat view");
+assert.notStrictEqual(convoViewNew.style.display, "none", "setupLeftNavTabs must not hide the new pane conversation view");
+
+// The pane re-render also drops the inline hide on the hosting pane conversation
+// view. The next periodic tick runs inside the split guard and must heal the
+// stage instead of treating the visible conversation view as a close signal.
+convoView2.style.display = "";
+window.setupLeftNavTabs();
+assert.strictEqual(document.getElementById("swiss-main-stage-container").style.display, "flex", "a re-rendered host conversation view must not close the stage while the split guard is active");
+assert.strictEqual(convoView2.style.display, "none", "the host pane conversation view must be hidden again by the periodic tick");
+assert.notStrictEqual(convoViewNew.style.display, "none", "the new pane conversation view must stay visible after the heal");
+
+// After the split guard expires, navigation closes the stage again (normal behavior).
+window.__swissSplitGuardUntil = 0;
+popstateHandlers.forEach(fn => fn());
+assert.strictEqual(document.getElementById("swiss-main-stage-container").style.display, "none", "navigation after the split guard expires must close the stage");
 
 clearInterval(window.__swissGHNavInterval);
 clearInterval(window.__swissGHFetchInterval);
