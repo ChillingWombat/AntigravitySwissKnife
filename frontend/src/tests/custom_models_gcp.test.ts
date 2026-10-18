@@ -228,14 +228,30 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
     )
   })
 
-  it('Quota & Price and GCP Quota & Budget sections default to collapsed', () => {
+  it('Quota & Price and GCP Quota & Budget sections default to collapsed with independent state', () => {
     assert.ok(
       pageContent.includes('const [isQuotaPriceOpen, setIsQuotaPriceOpen] = useState<boolean>(false)'),
       'Quota & Price section must default to collapsed'
     )
     assert.ok(
+      pageContent.includes('const [isGcpQuotaBudgetOpen, setIsGcpQuotaBudgetOpen] = useState<boolean>(false)'),
+      'GCP Quota & Budget section must default to collapsed with its own state'
+    )
+    assert.ok(
       !pageContent.includes('setIsQuotaPriceOpen(true)'),
       'Modal openers must not force the Quota section back open (user expansion persists for the session)'
+    )
+  })
+
+  it('normalizes a GCP budget cap without a value back to none', () => {
+    assert.ok(pageContent.includes('gcpHasBudgetCap'), 'GCP save must normalize cap type + value together')
+    assert.ok(
+      pageContent.includes("budget_cap_type: gcpHasBudgetCap ? gcpBudgetCapType : 'none'"),
+      'Cap type must fall back to none when no value is provided'
+    )
+    assert.ok(
+      pageContent.includes('budget_cap_value: gcpHasBudgetCap ? gcpBudgetCapValue : null'),
+      'Cap value must be nulled when the cap is normalized away'
     )
   })
 

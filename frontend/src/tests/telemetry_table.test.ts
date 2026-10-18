@@ -64,6 +64,27 @@ const TELEMETRY_FIXTURE = {
 
 const EMPTY_TELEMETRY_FIXTURE = { ...TELEMETRY_FIXTURE, telemetry_events: [] }
 
+const UNPRICED_FIXTURE = {
+  ...TELEMETRY_FIXTURE,
+  telemetry_events: [],
+  pricing_records: [
+    {
+      internal_id: 1,
+      canonical_id: 'unpriced-model',
+      model_id: 'unpriced-model',
+      model_name: 'Unpriced Model',
+      name: 'Unpriced Model',
+      provider: 'custom',
+      classification: 'custom',
+      input_price_per_m: null,
+      cached_input_price_per_m: null,
+      output_price_per_m: null,
+      source: 'unconfigured',
+      updated_at: '2026-01-01',
+    },
+  ],
+}
+
 const stubFetch = (summaryFixture: unknown) => {
   globalThis.fetch = (async (url: any) => {
     const target = String(url)
@@ -76,10 +97,10 @@ const stubFetch = (summaryFixture: unknown) => {
   }) as any
 }
 
-const mountPage = async (summaryFixture: unknown) => {
+const mountPage = async (summaryFixture: unknown, tab = 1) => {
   stubFetch(summaryFixture)
-  // Tab 1 hosts the "In-Chat Telemetry Display" settings and the telemetry stream log.
-  const rendered = await mount(React.createElement(TokenMonitorPage, { activeTab: 1 }))
+  // Tab 1 hosts the telemetry stream log; tab 2 hosts the pricing registry table.
+  const rendered = await mount(React.createElement(TokenMonitorPage, { activeTab: tab }))
   // Let the initial useEffect fetch resolve.
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
@@ -168,6 +189,51 @@ describe('Telemetry log table: Type column removal', () => {
       const emptyCell = table!.querySelector('tbody td[colspan]')
       assert.ok(emptyCell, 'Empty-state cell must exist')
       assert.equal(emptyCell!.getAttribute('colspan'), '8', 'Empty-state colSpan must be 8')
+    } finally {
+      unmount()
+    }
+  })
+})
+
+describe('Pricing registry table: empty price cells render an em dash', () => {
+  const originalFetch = globalThis.fetch
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    cancelAllInFlightRequests()
+  })
+
+  /** Finds the pricing registry table (unique by its $/1M headers). */
+  const findPricingTable = (querySelectorAll: (sel: string) => Element[]) => {
+    const tables = querySelectorAll('table')
+    return tables.find((table) => {
+      const headers = Array.from(table.querySelectorAll('thead th')).map((th) => th.textContent?.trim())
+      return headers.includes('Prompt Input ($/1M)') && headers.includes('Cached Input ($/1M)')
+    }) as HTMLTableElement | undefined
+  }
+
+  it('renders "—" for null input/cached/output prices and for an unconfigured source', async () => {
+    initDOM()
+    const { querySelectorAll, unmount } = await mountPage(UNPRICED_FIXTURE, 2)
+
+    try {
+      const table = findPricingTable(querySelectorAll)
+      assert.ok(table, 'Pricing registry table must be rendered')
+
+      const rows = Array.from(table!.querySelectorAll('tbody tr'))
+      assert.equal(rows.length, 1, 'The single pricing record must render one row')
+
+      const cells = Array.from(rows[0].querySelectorAll('td'))
+      // Columns: Model, Type, Provider, Prompt Input, Cached Input, Output, Source, Action.
+      assert.equal(cells[3]?.textContent?.trim(), '—', 'Null prompt-input price must render an em dash')
+      assert.equal(cells[4]?.textContent?.trim(), '—', 'Null cached-input price must render an em dash')
+      assert.equal(cells[5]?.textContent?.trim(), '—', 'Null output price must render an em dash')
+      assert.equal(cells[6]?.textContent?.trim(), '—', 'Unconfigured source must render an em dash')
+
+      const rowText = rows[0].textContent || ''
+      assert.ok(!rowText.includes('Null —'), 'Legacy "Null — …" labels must not be rendered')
+      assert.ok(!rowText.includes('Manual Required'), 'Legacy "Manual Required" text must not be rendered')
+      assert.ok(!rowText.toLowerCase().includes('manual entry'), 'Legacy "Manual Entry" text must not be rendered')
     } finally {
       unmount()
     }

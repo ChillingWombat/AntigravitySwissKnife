@@ -1276,7 +1276,7 @@ div:has(> .shrink-0.flex.items-center.border-b),
    each card keeping a readable minimum width. */
 .swiss-memo-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
   gap: 8px;
   align-items: start;
 }
@@ -2299,6 +2299,11 @@ func GenerateAuxiliaryPluginsScript() string {
     window.switchAuxTab = switchAuxTab;
 
     function renderSwissTabContent(container, tabId) {
+      // Let the outgoing view release listeners, timers and media streams before its DOM is wiped.
+      if (container && typeof container.__swissMemosTeardown === "function") {
+        try { container.__swissMemosTeardown(); } catch (_) {}
+        container.__swissMemosTeardown = null;
+      }
       container.dataset.renderedTab = tabId;
       container.innerHTML = "";
       if (tabId === "browser") renderBrowserView(container);
@@ -2447,7 +2452,6 @@ func GenerateAuxiliaryPluginsScript() string {
       // device frame, so the backing store tracks the *visual* size at the current DPR. Strokes
       // are drawn in visual CSS pixels, which keeps the pen width identical everywhere on screen.
       // canvasScale* converts guest-page layout pixels to visual (on-screen) pixels.
-      let canvasDpr = 1;
       let canvasScaleX = 1;
       let canvasScaleY = 1;
 
@@ -2474,7 +2478,6 @@ func GenerateAuxiliaryPluginsScript() string {
         const nextH = Math.round(visH * dpr);
         const layoutW = screen.clientWidth || visW;
         const layoutH = screen.clientHeight || visH;
-        canvasDpr = dpr;
         canvasScaleX = visW / layoutW;
         canvasScaleY = visH / layoutH;
         if (canvas.width === nextW && canvas.height === nextH) return;
@@ -2500,6 +2503,28 @@ func GenerateAuxiliaryPluginsScript() string {
         }
       };
       setTimeout(resizeCanvas, 50);
+
+      // Panel (sash) resizes change the overlay's CSS box without firing a device-scale change
+      // (responsive frame has no transform). Observe the canvas/screen box and resync the bitmap
+      // so annotation coordinates stay aligned with the cursor.
+      if (window.__swissBrowserCanvasRO) {
+        try { window.__swissBrowserCanvasRO.disconnect(); } catch (_) {}
+      }
+      if (typeof ResizeObserver !== "undefined") {
+        let canvasResizeRaf = 0;
+        const canvasRO = new ResizeObserver(() => {
+          const rect = canvas.getBoundingClientRect();
+          if (!rect.width || !rect.height) return; // hidden view: resync when visible again
+          if (canvasResizeRaf) return;
+          canvasResizeRaf = requestAnimationFrame(() => {
+            canvasResizeRaf = 0;
+            resizeCanvas();
+          });
+        });
+        canvasRO.observe(canvas);
+        canvasRO.observe(screen);
+        window.__swissBrowserCanvasRO = canvasRO;
+      }
 
       // URL Navigation & Port Chips
       function navigateBrowser(url) {
@@ -5546,6 +5571,22 @@ func GenerateAuxiliaryPluginsScript() string {
       };
       window.addEventListener("resize", window.__swissMemoCanvasResizeHandler);
 
+      // Panel (sash) resizes do not emit window resize events; observe the canvas box directly so
+      // the bitmap never goes stale relative to the pointer coordinates.
+      let memoCanvasRO = null;
+      if (typeof ResizeObserver !== "undefined") {
+        let memoCanvasRaf = 0;
+        memoCanvasRO = new ResizeObserver(() => {
+          if (imgComposer.style.display === "none") return; // hidden composer: resync on open
+          if (memoCanvasRaf) return;
+          memoCanvasRaf = requestAnimationFrame(() => {
+            memoCanvasRaf = 0;
+            resizeWhiteboardCanvas();
+          });
+        });
+        memoCanvasRO.observe(whiteboardCanvas);
+      }
+
       const getCanvasCoords = (e) => {
         // Pointer coordinates are CSS pixels; the 2D context already applies the DPR transform.
         const rect = whiteboardCanvas.getBoundingClientRect();
@@ -5765,7 +5806,12 @@ func GenerateAuxiliaryPluginsScript() string {
         const waveCtx = waveCanvas ? waveCanvas.getContext("2d") : null;
 
         recordingTimerInterval = setInterval(() => {
-          if (timerEl) timerEl.textContent = formatRecordElapsed();
+          if (!timerEl || !timerEl.isConnected) {
+            // View was destroyed without an explicit teardown: stop the recording, mic included.
+            teardownMemosView();
+            return;
+          }
+          timerEl.textContent = formatRecordElapsed();
         }, 1000);
 
         // Live loudness indicator driven by an AnalyserNode fed by the microphone stream.
@@ -5794,6 +5840,11 @@ func GenerateAuxiliaryPluginsScript() string {
           const drawWave = () => {
             recordingWaveRaf = 0;
             if (!recordingAnalyser || !waveCtx) return;
+            if (!waveCanvas.isConnected) {
+              // View destroyed without an explicit teardown: stop everything, mic included.
+              teardownMemosView();
+              return;
+            }
             recordingAnalyser.getByteFrequencyData(levels);
             const w = waveCanvas.width;
             const h = waveCanvas.height;
@@ -5966,6 +6017,50 @@ func GenerateAuxiliaryPluginsScript() string {
           restoreRecordButton();
         }
       };
+
+      // Container-level teardown, invoked before this view's DOM is destroyed (tab switch or
+      // script re-injection) so an in-flight recording never keeps the microphone, timers or
+      // AudioContext alive. Registered on the host container; the caller invokes it pre-clear.
+      const teardownMemosView = () => {
+        const wasRecording = Boolean(recordingTimerInterval) ||
+          Boolean(recordingWaveRaf) ||
+          Boolean(mediaRecorder && mediaRecorder.state !== "inactive");
+        if (mediaRecorder) {
+          try {
+            mediaRecorder.onstop = null;
+            mediaRecorder.ondataavailable = null;
+          } catch (_) {}
+          if (mediaRecorder.state !== "inactive") {
+            try { mediaRecorder.stop(); } catch (_) {}
+          }
+          mediaRecorder = null;
+        }
+        if (mediaStream) {
+          try { mediaStream.getTracks().forEach(t => t.stop()); } catch (_) {}
+          mediaStream = null;
+        }
+        if (speechRecognition) {
+          try { speechRecognition.stop(); } catch (_) {}
+          speechRecognition = null;
+        }
+        stopRecordingIndicator();
+        if (wasRecording) {
+          showToast("Voice recording stopped (memos view closed)", "warning");
+        }
+        if (window.__swissMemoCanvasResizeHandler) {
+          window.removeEventListener("resize", window.__swissMemoCanvasResizeHandler);
+          delete window.__swissMemoCanvasResizeHandler;
+        }
+        if (memoCanvasRO) {
+          try { memoCanvasRO.disconnect(); } catch (_) {}
+          memoCanvasRO = null;
+        }
+        if (window.__swissMemoFilterOutsideHandler) {
+          document.removeEventListener("click", window.__swissMemoFilterOutsideHandler);
+          delete window.__swissMemoFilterOutsideHandler;
+        }
+      };
+      container.__swissMemosTeardown = teardownMemosView;
 
       const searchInput = searchRow.querySelector("#swiss-m-search-input");
       const searchClear = searchRow.querySelector("#swiss-m-search-clear");

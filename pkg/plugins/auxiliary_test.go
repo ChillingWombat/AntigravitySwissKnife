@@ -2440,6 +2440,49 @@ func TestQuickMemos_TypeFilterControl(t *testing.T) {
 	}
 }
 
+func TestQuickMemos_ResponsiveGridNarrowPanel(t *testing.T) {
+	css := GenerateAuxiliaryPluginsCSS()
+	if !strings.Contains(css, "grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));") {
+		t.Errorf("memo grid must clamp the min track to the panel width (avoid horizontal scroll on narrow panels)")
+	}
+	if strings.Contains(css, "grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));") {
+		t.Errorf("unclamped minmax(220px, 1fr) must be replaced by a width-clamped min() track")
+	}
+}
+
+func TestMemoCanvasResizeObserversAndCostTeardown(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+
+	expectedTokens := []string{
+		// Annotation overlay + whiteboard resync on sash/panel resizes.
+		`window.__swissBrowserCanvasRO`,
+		`canvasRO.observe(canvas)`,
+		`canvasRO.observe(screen)`,
+		`memoCanvasRO = new ResizeObserver`,
+		`memoCanvasRO.observe(whiteboardCanvas)`,
+		// Container teardown stops the microphone / timers / listeners when the view is destroyed.
+		`container.__swissMemosTeardown = teardownMemosView`,
+		`typeof container.__swissMemosTeardown === "function"`,
+		`mediaRecorder.onstop = null`,
+		`window.removeEventListener("resize", window.__swissMemoCanvasResizeHandler)`,
+		`document.removeEventListener("click", window.__swissMemoFilterOutsideHandler)`,
+		`memoCanvasRO.disconnect()`,
+		// Destroyed-view fallbacks inside the recording loops.
+		`timerEl.isConnected`,
+		`waveCanvas.isConnected`,
+	}
+	for _, token := range expectedTokens {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected memo canvas/teardown script to contain %q", token)
+		}
+	}
+
+	// Dead variable from the DPR rewrite must be gone.
+	if strings.Contains(js, "canvasDpr") {
+		t.Errorf("dead canvasDpr variable must be removed")
+	}
+}
+
 func TestBrowserAnnotationCanvas_DprAndScaleNormalization(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 	expectedTokens := []string{

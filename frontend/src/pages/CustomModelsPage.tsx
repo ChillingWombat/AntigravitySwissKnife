@@ -191,6 +191,9 @@ export const CustomModelsPage: React.FC = () => {
   const [gcpBalanceValue, setGcpBalanceValue] = useState<string>('')
   const [gcpBudgetCapType, setGcpBudgetCapType] = useState<'none' | 'dollar' | 'percentage' | 'tokens'>('none')
   const [gcpBudgetCapValue, setGcpBudgetCapValue] = useState<number | null>(null)
+  // Independent fold state so the custom-model Quota & Price and the GCP Quota & Budget
+  // sections do not share (and clobber) each other's collapsed/expanded state.
+  const [isGcpQuotaBudgetOpen, setIsGcpQuotaBudgetOpen] = useState<boolean>(false)
   const gcpFileInputRef = useRef<HTMLInputElement>(null)
 
   const openAddGcpModal = () => {
@@ -419,6 +422,9 @@ export const CustomModelsPage: React.FC = () => {
     const manualBalance = gcpBalanceValue.trim()
     const effectiveBalance = manualBalance || (isEdit ? (gcpEditingModel?.balance_value || '') : '') || 'Active (GCP Billing)'
     const effectiveQuota = manualBalance || (isEdit ? (gcpEditingModel?.quota_value || '') : '') || effectiveBalance
+    // A cap type without a value would store `dollar` + null and never render on the model card;
+    // normalize it back to "none" so the UI and stored state stay consistent.
+    const gcpHasBudgetCap = gcpBudgetCapType !== 'none' && gcpBudgetCapValue !== null && gcpBudgetCapValue !== undefined
 
     const finalModel: CustomModel = {
       id: isEdit ? gcpEditingModel.id : `gcp-${effModel.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`,
@@ -437,8 +443,8 @@ export const CustomModelsPage: React.FC = () => {
       prepaid_balance: isEdit ? (gcpEditingModel?.prepaid_balance || 0) : 0,
       total_budget: isEdit ? (gcpEditingModel?.total_budget || 0) : 0,
       quota_fraction: isEdit ? (gcpEditingModel?.quota_fraction ?? null) : null,
-      budget_cap_type: gcpBudgetCapType,
-      budget_cap_value: gcpBudgetCapType === 'none' ? null : gcpBudgetCapValue,
+      budget_cap_type: gcpHasBudgetCap ? gcpBudgetCapType : 'none',
+      budget_cap_value: gcpHasBudgetCap ? gcpBudgetCapValue : null,
       is_default: gcpIsDefault,
       last_test_success: gcpTestResult ? gcpTestResult.success : gcpEditingModel?.last_test_success,
       last_tested_at: gcpTestResult ? new Date().toISOString() : gcpEditingModel?.last_tested_at,
@@ -3009,7 +3015,7 @@ export const CustomModelsPage: React.FC = () => {
             <div style={{ border: '1px solid var(--border)', borderRadius: '8px', marginBottom: '16px', overflow: 'hidden' }}>
               <button
                 type="button"
-                onClick={() => setIsQuotaPriceOpen(!isQuotaPriceOpen)}
+                onClick={() => setIsGcpQuotaBudgetOpen(!isGcpQuotaBudgetOpen)}
                 style={{
                   width: '100%',
                   display: 'flex',
@@ -3018,7 +3024,7 @@ export const CustomModelsPage: React.FC = () => {
                   padding: '10px 14px',
                   backgroundColor: 'var(--canvas)',
                   border: 'none',
-                  borderBottom: isQuotaPriceOpen ? '1px solid var(--border)' : 'none',
+                  borderBottom: isGcpQuotaBudgetOpen ? '1px solid var(--border)' : 'none',
                   cursor: 'pointer',
                   textAlign: 'left',
                 }}
@@ -3028,10 +3034,10 @@ export const CustomModelsPage: React.FC = () => {
                   <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>Quota &amp; Budget</span>
                   <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>(manual entry only)</span>
                 </div>
-                {isQuotaPriceOpen ? <ChevronDown size={15} color="var(--text-muted)" /> : <ChevronRight size={15} color="var(--text-muted)" />}
+                {isGcpQuotaBudgetOpen ? <ChevronDown size={15} color="var(--text-muted)" /> : <ChevronRight size={15} color="var(--text-muted)" />}
               </button>
 
-              {isQuotaPriceOpen && (
+              {isGcpQuotaBudgetOpen && (
                 <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', backgroundColor: 'var(--canvas)', padding: '10px', borderRadius: '6px' }}>
                     <div>

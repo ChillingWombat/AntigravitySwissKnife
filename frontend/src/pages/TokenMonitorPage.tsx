@@ -1250,7 +1250,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                       </td>
                       <td style={{ padding: '10px 12px', color: '#137333', fontWeight: 600, textAlign: 'center' }}>
                         {pr.cached_input_price_per_m === null || pr.cached_input_price_per_m === undefined ? (
-                          <span style={{ color: 'var(--text-muted)', fontSize: '12px', fontWeight: 400 }}>null</span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '12px', fontWeight: 400 }}>—</span>
                         ) : (
                           `$${pr.cached_input_price_per_m.toFixed(4)}`
                         )}
@@ -1263,29 +1263,29 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                         )}
                       </td>
                       <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            color:
-                              pr.source === 'provider'
-                                ? '#137333'
-                                : pr.source === 'third_party' || pr.source === 'api'
-                                ? 'var(--primary)'
-                                : pr.source === 'manual'
-                                ? '#7e22ce'
-                                : '#b06000',
-                            fontWeight: 600,
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {pr.source === 'provider'
-                            ? 'Provider Official'
-                            : pr.source === 'third_party' || pr.source === 'api'
-                            ? '3rd-Party Backup'
-                            : pr.source === 'manual'
-                            ? 'Manual Override'
-                            : 'Null — Manual Required'}
-                        </span>
+                        {['provider', 'third_party', 'api', 'manual'].includes(pr.source || '') ? (
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              color:
+                                pr.source === 'provider'
+                                  ? '#137333'
+                                  : pr.source === 'third_party' || pr.source === 'api'
+                                  ? 'var(--primary)'
+                                  : '#7e22ce',
+                              fontWeight: 600,
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {pr.source === 'provider'
+                              ? 'Provider Official'
+                              : pr.source === 'third_party' || pr.source === 'api'
+                              ? '3rd-Party Backup'
+                              : 'Manual Override'}
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)', fontSize: '12px', fontWeight: 400 }}>—</span>
+                        )}
                       </td>
                       <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                         <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
