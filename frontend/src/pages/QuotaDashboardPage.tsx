@@ -1839,29 +1839,46 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           >
             <Edit2 size={13} /> Edit Account Details
           </button>
-          {(() => {
-            const st = contextMenu.account.status?.trim().toUpperCase() || ''
-            const claude5h = typeof contextMenu.account.quota_5h_claude_gpt === 'number' ? contextMenu.account.quota_5h_claude_gpt : 0
-            const hasClaudeWeekly = typeof contextMenu.account.quota_weekly_claude_gpt === 'number' && contextMenu.account.quota_weekly_claude_gpt !== null
-            const claudeWeekly = hasClaudeWeekly ? (contextMenu.account.quota_weekly_claude_gpt as number) : 0
-            const hasCredits = Boolean(contextMenu.account.enable_credit_overages && (contextMenu.account.credits ?? 0) > 0)
-            const isClaudeWeeklyHealthy = !hasClaudeWeekly || claudeWeekly > thresholdWeekly || hasCredits
-            const hasNonGemini = Boolean(rules?.allow_non_gemini_native_models) && claude5h > threshold && isClaudeWeeklyHealthy
-            const isCooldown = st.includes('COOLDOWN') || st.includes('COOLING')
-            const isBanned = st.includes('BANNED')
-
-            if (isBanned || (isCooldown && !hasNonGemini)) {
-              return null
-            }
-
-            return isIndividualMode ? (
-              <>
+          {/* Manual switch: offered for any account that is not currently active, regardless of STANDBY status */}
+          {isIndividualMode ? (
+            <>
+              <button
+                onClick={async () => {
+                  const target = contextMenu.account.email
+                  setContextMenu(null)
+                  try {
+                    await api.switchAccount(target, true, 'all')
+                    setSwitchFeedback(null)
+                    onRefresh()
+                    setTimeout(onRefresh, 3000)
+                  } catch (err: any) {
+                    setSwitchFeedback('Switch failed: ' + err.message)
+                  }
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  width: '100%',
+                  padding: '8px 16px',
+                  fontSize: '12px',
+                  textAlign: 'left',
+                  color: 'var(--primary)',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                <Layers size={13} /> Switch All to this Account
+              </button>
+              {installedAppsList.map((app) => (
                 <button
+                  key={app.target}
                   onClick={async () => {
                     const target = contextMenu.account.email
                     setContextMenu(null)
                     try {
-                      await api.switchAccount(target, true, 'all')
+                      const shouldRelaunch = app.target === 'desktop'
+                      await api.switchAccount(target, shouldRelaunch, app.target)
                       setSwitchFeedback(null)
                       onRefresh()
                       setTimeout(onRefresh, 3000)
@@ -1877,80 +1894,48 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     padding: '8px 16px',
                     fontSize: '12px',
                     textAlign: 'left',
-                    color: 'var(--primary)',
+                    color: 'var(--text)',
                   }}
                   onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
                   onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
-                  <Layers size={13} /> Switch All to this Account
+                  {app.icon} Switch {app.label} to this Account
                 </button>
-                {installedAppsList.map((app) => (
-                  <button
-                    key={app.target}
-                    onClick={async () => {
-                      const target = contextMenu.account.email
-                      setContextMenu(null)
-                      try {
-                        const shouldRelaunch = app.target === 'desktop'
-                        await api.switchAccount(target, shouldRelaunch, app.target)
-                        setSwitchFeedback(null)
-                        onRefresh()
-                        setTimeout(onRefresh, 3000)
-                      } catch (err: any) {
-                        setSwitchFeedback('Switch failed: ' + err.message)
-                      }
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      width: '100%',
-                      padding: '8px 16px',
-                      fontSize: '12px',
-                      textAlign: 'left',
-                      color: 'var(--text)',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                  >
-                    {app.icon} Switch {app.label} to this Account
-                  </button>
-                ))}
-              </>
-            ) : (
-              !contextMenu.account.is_active &&
-              contextMenu.account.email !== activeAccount && (
-                <button
-                  onClick={async () => {
-                    const target = contextMenu.account.email
-                    setContextMenu(null)
-                    try {
-                      await api.switchAccount(target, true)
-                      setSwitchFeedback(null)
-                      onRefresh()
-                      setTimeout(onRefresh, 3000)
-                    } catch (err: any) {
-                      setSwitchFeedback('Switch failed: ' + err.message)
-                    }
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    width: '100%',
-                    padding: '8px 16px',
-                    fontSize: '12px',
-                    textAlign: 'left',
-                    color: 'var(--primary)',
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                >
-                  <ArrowRightLeft size={13} /> Switch to this Account
-                </button>
-              )
+              ))}
+            </>
+          ) : (
+            !contextMenu.account.is_active &&
+            contextMenu.account.email !== activeAccount && (
+              <button
+                onClick={async () => {
+                  const target = contextMenu.account.email
+                  setContextMenu(null)
+                  try {
+                    await api.switchAccount(target, true)
+                    setSwitchFeedback(null)
+                    onRefresh()
+                    setTimeout(onRefresh, 3000)
+                  } catch (err: any) {
+                    setSwitchFeedback('Switch failed: ' + err.message)
+                  }
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  width: '100%',
+                  padding: '8px 16px',
+                  fontSize: '12px',
+                  textAlign: 'left',
+                  color: 'var(--primary)',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--tonal)')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                <ArrowRightLeft size={13} /> Switch to this Account
+              </button>
             )
-          })()}
+          )}
           <button
             onClick={() => {
               navigator.clipboard.writeText(contextMenu.account.email)
