@@ -520,7 +520,7 @@ func (s *Shield) LaunchHostIDE() error {
 		cmd = exec.Command(binPath)
 	}
 
-	if err := core.LaunchDetachedProcessHiddenConsole(cmd); err != nil {
+	if err := core.LaunchDetachedGUIProcess(cmd); err != nil {
 		return fmt.Errorf("failed to launch Antigravity (%s): %w", binPath, err)
 	}
 
