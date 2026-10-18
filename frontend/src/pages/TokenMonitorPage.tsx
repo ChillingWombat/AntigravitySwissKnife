@@ -1243,7 +1243,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                       </td>
                       <td style={{ padding: '10px 12px', color: 'var(--text)', textAlign: 'center' }}>
                         {pr.input_price_per_m === null || pr.input_price_per_m === undefined ? (
-                          <span style={{ color: '#b06000', fontSize: '12px', fontWeight: 500 }}>null (Manual Entry)</span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '12px', fontWeight: 400 }}>—</span>
                         ) : (
                           `$${pr.input_price_per_m.toFixed(3)}`
                         )}
@@ -1257,7 +1257,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                       </td>
                       <td style={{ padding: '10px 12px', color: 'var(--text)', textAlign: 'center' }}>
                         {pr.output_price_per_m === null || pr.output_price_per_m === undefined ? (
-                          <span style={{ color: '#b06000', fontSize: '12px', fontWeight: 500 }}>null (Manual Entry)</span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '12px', fontWeight: 400 }}>—</span>
                         ) : (
                           `$${pr.output_price_per_m.toFixed(2)}`
                         )}
