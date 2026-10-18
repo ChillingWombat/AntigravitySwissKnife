@@ -47,18 +47,7 @@ type DevToolsTarget struct {
 }
 
 func (inj *Injector) isPortLive(port int) bool {
-	client := &http.Client{Timeout: 600 * time.Millisecond}
-	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/json/version", port))
-	if err == nil {
-		_ = resp.Body.Close()
-		return resp.StatusCode == http.StatusOK
-	}
-	resp2, err2 := client.Get(fmt.Sprintf("http://127.0.0.1:%d/json", port))
-	if err2 == nil {
-		_ = resp2.Body.Close()
-		return resp2.StatusCode == http.StatusOK
-	}
-	return false
+	return isCDPEndpointLive(port)
 }
 
 // IsTestExecution returns true if the current process is running inside a Go test runner.
@@ -155,8 +144,8 @@ func (inj *Injector) FindDevToolsPort() (int, error) {
 	return 0, fmt.Errorf("DevToolsActivePort file not found, empty, or port not responding (Antigravity may not be running)")
 }
 
-// GetPageTargets fetches the active page targets from the DevTools endpoint.
-func (inj *Injector) GetPageTargets(port int) ([]DevToolsTarget, error) {
+// fetchTargets lists every CDP target of the given DevTools endpoint.
+func (inj *Injector) fetchTargets(port int) ([]DevToolsTarget, error) {
 	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/json", port))
 	if err != nil {
@@ -171,6 +160,15 @@ func (inj *Injector) GetPageTargets(port int) ([]DevToolsTarget, error) {
 	var targets []DevToolsTarget
 	if err := json.NewDecoder(resp.Body).Decode(&targets); err != nil {
 		return nil, fmt.Errorf("failed to decode CDP targets: %w", err)
+	}
+	return targets, nil
+}
+
+// GetPageTargets fetches the active page targets from the DevTools endpoint.
+func (inj *Injector) GetPageTargets(port int) ([]DevToolsTarget, error) {
+	targets, err := inj.fetchTargets(port)
+	if err != nil {
+		return nil, err
 	}
 
 	var pages []DevToolsTarget

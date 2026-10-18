@@ -63,6 +63,9 @@ const (
 	TargetAppCLI     = "agy"
 	TargetAppVSCode  = "vscode"
 
+	// DefaultVSCodeDebugPort is the loopback CDP port Swiss Knife launches VS Code with.
+	DefaultVSCodeDebugPort = 9333
+
 	// Session Continuation Prompt
 	DefaultSessionResumePrompt = "Please continue ongoing tasks and subagents."
 
