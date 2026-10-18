@@ -14,3 +14,9 @@ func SetDetachedProcess(cmd *exec.Cmd) {
 	}
 	cmd.SysProcAttr.Setsid = true
 }
+
+// SetDetachedProcessHiddenConsole is the Unix equivalent of the Windows variant:
+// a new session already detaches from any controlling terminal.
+func SetDetachedProcessHiddenConsole(cmd *exec.Cmd) {
+	SetDetachedProcess(cmd)
+}
