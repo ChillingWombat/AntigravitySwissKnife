@@ -2624,3 +2624,15 @@ func TestGenerateAuxiliaryPluginsScript_InterceptorWithoutSessionToken(t *testin
 		t.Fatalf("interceptor must be present even when no session token exists")
 	}
 }
+
+func TestGenerateAuxiliaryPluginsScript_AutoAcceptsSecurityNotice(t *testing.T) {
+	script := GenerateAuxiliaryPluginsScript()
+	if !strings.Contains(script, "swissAutoAcceptSecurityNotice") {
+		t.Fatalf("expected the security-notice auto-accept routine")
+	}
+	// Only the mandatory Accept button is clicked; the data-sharing checkbox
+	// must never be touched on the user's behalf.
+	if strings.Contains(script, "help improve Antigravity") {
+		t.Fatalf("auto-accept must not interact with the optional data-sharing checkbox")
+	}
+}

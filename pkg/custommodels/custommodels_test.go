@@ -3,6 +3,7 @@ package custommodels
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -839,10 +840,20 @@ func TestOpenCodeEndpointResolution(t *testing.T) {
 }
 
 func TestOpenCodeQuotaLiveDetection(t *testing.T) {
+	// Live network test: hits opencode.ai with a real key, so its outcome
+	// depends on an external service (key validity, plan, rate limits,
+	// egress rules). Opt in explicitly instead of failing every CI run.
+	if os.Getenv("SWISS_LIVE_QUOTA_TESTS") != "1" {
+		t.Skip("live quota detection against opencode.ai; set SWISS_LIVE_QUOTA_TESTS=1 to run")
+	}
+	apiKey := os.Getenv("OPENCODE_API_KEY")
+	if apiKey == "" {
+		apiKey = "oc_sk_da7cccd32ee8_Y87ZRKcQU8ErRhBnZRwPxd8IsGqmYkE2"
+	}
 	m := CustomModel{
 		ProviderType: ProviderOpenAI,
 		BaseURL:      "https://opencode.ai/zen/go",
-		APIKey:       "oc_sk_da7cccd32ee8_Y87ZRKcQU8ErRhBnZRwPxd8IsGqmYkE2",
+		APIKey:       apiKey,
 		Name:         "deepseek-v4-flash",
 	}
 	res := DetectAndFetchQuota(m)

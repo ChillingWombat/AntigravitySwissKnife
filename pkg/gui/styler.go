@@ -2694,6 +2694,7 @@ func GenerateScriptWithCustomModels(cfg *Config, cmCfg *custommodels.Config) str
 	// reads the token at request time, so a fresh install still authenticates
 	// as soon as the daemon writes session.token.
 	tokenScript += plugins.SwissAuthInterceptorScript
+	tokenScript += plugins.SwissOnboardingAutoAcceptScript
 
 
 	baseScript := generateBaseScript(cfg)
