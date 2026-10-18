@@ -76,6 +76,15 @@ const inferProviderType = (url: string): ProviderType => {
 const gcpBaseUrlForRegion = (region: string): string =>
   region === 'global' ? 'https://aiplatform.googleapis.com' : `https://${region}-aiplatform.googleapis.com`
 
+// The GCP modal has no location selector: the Vertex AI location is derived from the
+// model id. Claude models on Vertex AI are served from us-east5; every other model uses
+// the region-less "global" endpoint. Editing an existing model keeps the location it was
+// saved with so older regional models keep working unchanged.
+const resolveGcpRegion = (modelId: string, editing: CustomModel | null): string => {
+  if (editing?.gcp_region) return editing.gcp_region
+  return modelId.toLowerCase().includes('claude') ? 'us-east5' : 'global'
+}
+
 const normalizeQuotaType = (t?: string | null): QuotaType => {
   if (t === 'balance' || t === 'cost_based') return 'balance'
   if (t === 'quota' || t === 'quota_based') return 'quota'
@@ -170,7 +179,6 @@ export const CustomModelsPage: React.FC = () => {
   const [gcpParseError, setGcpParseError] = useState<string | null>(null)
   const [gcpProjectId, setGcpProjectId] = useState<string>('')
   const [gcpClientEmail, setGcpClientEmail] = useState<string>('')
-  const [gcpRegion, setGcpRegion] = useState<string>('us-central1')
   const [gcpCustomModel, setGcpCustomModel] = useState<string>('')
   const [gcpDisplayName, setGcpDisplayName] = useState<string>('')
   const [gcpIsDefault, setGcpIsDefault] = useState<boolean>(false)
@@ -187,7 +195,6 @@ export const CustomModelsPage: React.FC = () => {
     setGcpParseError(null)
     setGcpProjectId('')
     setGcpClientEmail('')
-    setGcpRegion('us-central1')
     setGcpCustomModel('')
     setGcpDisplayName('')
     setGcpIsDefault((config?.models?.length ?? 0) === 0)
@@ -202,7 +209,6 @@ export const CustomModelsPage: React.FC = () => {
     setGcpEditingModel(model)
     setGcpCustomModel(model.name)
     setGcpDisplayName(model.display_name)
-    setGcpRegion(model.gcp_region || 'us-central1')
     let projectId = model.gcp_project_id || ''
     if (!projectId && model.base_url) {
       const match = model.base_url.match(/\/projects\/([^/]+)/)
@@ -312,14 +318,16 @@ export const CustomModelsPage: React.FC = () => {
     setGcpError(null)
     setGcpTestResult(null)
 
+    const region = resolveGcpRegion(effModel, isEdit ? gcpEditingModel : null)
+
     const draftGcpModel: CustomModel = {
       id: isEdit ? gcpEditingModel.id : 'gcp-test-draft',
       name: effModel,
       display_name: gcpDisplayName.trim() || effModel,
       provider_type: 'gcp',
-      base_url: gcpBaseUrlForRegion(gcpRegion),
+      base_url: gcpBaseUrlForRegion(region),
       gcp_project_id: project,
-      gcp_region: gcpRegion,
+      gcp_region: region,
       gcp_service_account_key: effSaKey,
       project_mappings: ['*'],
       quota_type: 'balance',
@@ -334,12 +342,10 @@ export const CustomModelsPage: React.FC = () => {
 
     try {
       const res = await api.testCustomModel(draftGcpModel)
+      // gcpTestResult is the single error surface for connection tests; do not also
+      // set gcpError here or the same failure renders twice.
       setGcpTestResult(res)
-      if (!res.success) {
-        setGcpError(`GCP Vertex AI test failed: ${res.message}`)
-      }
     } catch (err: any) {
-      setGcpError(`GCP test connection failed: ${err.message}`)
       setGcpTestResult({
         success: false,
         status_code: 0,
@@ -384,6 +390,7 @@ export const CustomModelsPage: React.FC = () => {
     setGcpError(null)
 
     const isClaude = effModel.toLowerCase().includes('claude')
+    const region = resolveGcpRegion(effModel, isEdit ? gcpEditingModel : null)
     const isReasoning = /thinking|gemini-2\.0-flash-thinking|gemini-2\.5|gemini-3|gemini-4|claude-3-7|claude-4|o1|o3|r1/i.test(effModel)
 
     let ctxWindow = 1048576
@@ -401,9 +408,9 @@ export const CustomModelsPage: React.FC = () => {
       name: effModel,
       display_name: gcpDisplayName.trim() || `${effModel} (GCP Vertex)`,
       provider_type: 'gcp',
-      base_url: gcpBaseUrlForRegion(gcpRegion),
+      base_url: gcpBaseUrlForRegion(region),
       gcp_project_id: project,
-      gcp_region: gcpRegion,
+      gcp_region: region,
       gcp_service_account_key: saKey,
       project_mappings: isEdit ? gcpEditingModel.project_mappings : ['*'],
       quota_type: gcpTestResult?.quota_result?.quota_type || gcpEditingModel?.quota_type || 'balance',
@@ -420,7 +427,7 @@ export const CustomModelsPage: React.FC = () => {
       supports_thinking: isReasoning,
       thinking_levels: isReasoning ? ['off', 'low', 'medium', 'high'] : [],
       thinking_level: isReasoning ? 'high' : 'off',
-      notes: `GCP Vertex AI (${gcpRegion}) - Project ${project} via ${gcpClientEmail || 'Service Account'}`,
+      notes: `GCP Vertex AI (${region}) - Project ${project} via ${gcpClientEmail || 'Service Account'}`,
     }
 
     try {
@@ -2912,45 +2919,18 @@ export const CustomModelsPage: React.FC = () => {
               )}
             </div>
 
-            {/* Project ID & Region Grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                  GCP Project ID:
-                </label>
-                <input
-                  type="text"
-                  placeholder="Auto-detected from JSON key"
-                  value={gcpProjectId}
-                  onChange={(e) => setGcpProjectId(e.target.value)}
-                  style={{ width: '100%', fontSize: '12px', padding: '8px 10px', boxSizing: 'border-box' }}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                  Vertex AI Location:
-                </label>
-                <select
-                  value={gcpRegion}
-                  onChange={(e) => {
-                    setGcpRegion(e.target.value)
-                    setGcpTestResult(null)
-                  }}
-                  style={{ width: '100%', fontSize: '12px', padding: '8px 10px', boxSizing: 'border-box' }}
-                >
-                  <option value="global">global (Global endpoint - Gemini models, e.g. gemini-4-argon)</option>
-                  <option value="us">us (Multi-region: United States)</option>
-                  <option value="eu">eu (Multi-region: European Union)</option>
-                  <option value="us-central1">us-central1 (Iowa)</option>
-                  <option value="us-east5">us-east5 (Ohio - Claude on Vertex)</option>
-                  <option value="us-east4">us-east4 (N. Virginia)</option>
-                  <option value="us-west1">us-west1 (Oregon)</option>
-                  <option value="europe-west1">europe-west1 (Belgium)</option>
-                  <option value="europe-west4">europe-west4 (Netherlands)</option>
-                  <option value="asia-northeast1">asia-northeast1 (Tokyo)</option>
-                  <option value="asia-southeast1">asia-southeast1 (Singapore)</option>
-                </select>
-              </div>
+            {/* Project ID */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                GCP Project ID:
+              </label>
+              <input
+                type="text"
+                placeholder="Auto-detected from JSON key"
+                value={gcpProjectId}
+                onChange={(e) => setGcpProjectId(e.target.value)}
+                style={{ width: '100%', fontSize: '12px', padding: '8px 10px', boxSizing: 'border-box' }}
+              />
             </div>
 
             {/* Model ID Manual Input with External Link to Model Garden */}
@@ -2991,9 +2971,6 @@ export const CustomModelsPage: React.FC = () => {
                   setGcpTestResult(null)
                   if (!gcpDisplayName || gcpDisplayName === gcpCustomModel || gcpDisplayName === `${gcpCustomModel} (GCP Vertex)` || gcpDisplayName === 'Gemini 4 Argon (GCP Vertex)') {
                     setGcpDisplayName(val ? `${val} (GCP Vertex)` : '')
-                  }
-                  if (val.toLowerCase().includes('claude') && gcpRegion === 'us-central1') {
-                    setGcpRegion('us-east5')
                   }
                 }}
                 style={{ width: '100%', fontSize: '12px', padding: '8px 10px', boxSizing: 'border-box' }}
@@ -3066,32 +3043,6 @@ export const CustomModelsPage: React.FC = () => {
                       ? `Connection successful! (${gcpTestResult.latency_ms}ms) - Model responded correctly.`
                       : `Connection test failed: ${gcpTestResult.message}`}
                   </span>
-                  {!gcpTestResult.success && gcpTestResult.status_code === 404 && gcpRegion !== 'global' && (
-                    <div style={{ fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                      <span>
-                        The model may not be available in the &quot;{gcpRegion}&quot; location. Gemini models such as gemini-4-argon are served from the global location.
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setGcpRegion('global')
-                          setGcpTestResult(null)
-                        }}
-                        style={{
-                          background: 'none',
-                          border: '1px solid #b3261e',
-                          borderRadius: '999px',
-                          padding: '2px 10px',
-                          fontSize: '11px',
-                          fontWeight: 600,
-                          color: '#b3261e',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Switch to global
-                      </button>
-                    </div>
-                  )}
                   {gcpTestResult.success && (gcpTestResult.quota_result?.balance_value || gcpTestResult.quota_result?.quota_value) && (
                     <div style={{ fontSize: '11px', fontWeight: 600, color: '#137333', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span>GCP Credit Balance: {gcpTestResult.quota_result.balance_value || gcpTestResult.quota_result.quota_value}</span>

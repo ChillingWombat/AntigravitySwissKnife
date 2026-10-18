@@ -71,7 +71,7 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
     assert.ok(typesContent.includes('last_tested_at?: string'), 'CustomModel must include last_tested_at for the default-model gate')
   })
 
-  it('GCP modal includes JSON key parsing, region selection, manual Model ID, Model Garden link, and updated instructions', () => {
+  it('GCP modal includes JSON key parsing, manual Model ID, Model Garden link, and updated instructions', () => {
     assert.ok(pageContent.includes('isGcpModalOpen'), 'GCP modal state must exist')
     assert.ok(pageContent.includes('handleGcpFileUpload'), 'File upload handler must exist')
     assert.ok(pageContent.includes('handleGcpJsonChange'), 'JSON text change and parse handler must exist')
@@ -127,12 +127,28 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
     assert.ok(pageContent.includes('console.cloud.google.com/agent-platform/model-garden'))
   })
 
-  it('GCP location dropdown offers global, us and eu multi-regions alongside regional locations', () => {
-    assert.ok(pageContent.includes('<option value="global">'), 'Location dropdown must offer the global location')
-    assert.ok(pageContent.includes('<option value="us">'), 'Location dropdown must offer the us multi-region')
-    assert.ok(pageContent.includes('<option value="eu">'), 'Location dropdown must offer the eu multi-region')
-    assert.ok(pageContent.includes('<option value="us-central1">'), 'Location dropdown must keep us-central1')
-    assert.ok(pageContent.includes('<option value="us-east5">'), 'Location dropdown must keep us-east5 for Claude on Vertex')
+  it('removes the Vertex AI location selector and derives the location from the model id', () => {
+    // (a) the location control is gone from the modal
+    assert.ok(!pageContent.includes('Vertex AI Location'), 'Vertex AI Location label must be removed')
+    assert.ok(!pageContent.includes('<option value="global">'), 'Location <option> elements must be removed')
+    assert.ok(!pageContent.includes('<option value="us-east5">'), 'Location <option> elements must be removed')
+    assert.ok(!pageContent.includes('gcpRegion'), 'gcpRegion state and selector wiring must be removed')
+
+    // (b) location is derived: Claude -> us-east5, everything else -> global, edit keeps stored location
+    const resolveMatch = pageContent.match(/const resolveGcpRegion = [\s\S]*?\n\}/)
+    assert.ok(resolveMatch, 'resolveGcpRegion helper must exist')
+    const resolveBody = resolveMatch![0]
+    assert.ok(resolveBody.includes('editing?.gcp_region'), 'Editing an existing model must keep its stored location')
+    assert.ok(
+      resolveBody.includes("modelId.toLowerCase().includes('claude') ? 'us-east5' : 'global'"),
+      'Claude models must derive us-east5 and every other model must derive global'
+    )
+
+    // Both the test and save paths must send the derived location to the backend
+    const regionUsages = pageContent.match(/base_url: gcpBaseUrlForRegion\(region\)/g) || []
+    assert.strictEqual(regionUsages.length, 2, 'Test and save payloads must both use the derived region')
+    const regionFields = pageContent.match(/gcp_region: region/g) || []
+    assert.strictEqual(regionFields.length, 2, 'Test and save payloads must both send the derived region')
   })
 
   it('global location builds the region-less aiplatform.googleapis.com base URL', () => {
@@ -142,15 +158,31 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
     )
   })
 
-  it('surfaces a global-location hint with a switch action when a GCP test returns HTTP 404', () => {
+  it('renders a single error surface when a GCP connection test fails', () => {
+    // (c) a failed test must render only gcpTestResult, never gcpError as well
+    assert.ok(!pageContent.includes('GCP Vertex AI test failed'), 'Test failures must not be duplicated into gcpError')
+    assert.ok(!pageContent.includes('GCP test connection failed'), 'Thrown test errors must not be duplicated into gcpError')
+    assert.ok(!pageContent.includes('Switch to global'), 'The dead Switch to global action must be removed')
     assert.ok(
-      pageContent.includes('gcpTestResult.status_code === 404 && gcpRegion !== \'global\''),
-      'GCP test feedback must detect HTTP 404 on non-global locations'
+      !pageContent.includes('gcpTestResult.status_code === 404'),
+      'The frontend 404 hint block must be removed (the backend already appends the global hint)'
     )
-    assert.ok(pageContent.includes('Switch to global'), 'A Switch to global action must be offered on HTTP 404')
+
+    const testFnMatch = pageContent.match(/const handleTestGcpConnection = async \(\) => \{[\s\S]*?\n  \}/)
+    assert.ok(testFnMatch, 'handleTestGcpConnection must exist')
+    const testFnBody = testFnMatch![0]
+    // Everything from the request draft onwards is the network path: it must only ever
+    // surface failures through gcpTestResult.
+    const networkPath = testFnBody.slice(testFnBody.indexOf('const draftGcpModel'))
+    assert.ok(networkPath.length > 0, 'Connection test draft payload must exist')
+    assert.ok(!networkPath.includes('setGcpError('), 'The network test path must not set gcpError')
     assert.ok(
-      pageContent.includes('The model may not be available in the'),
-      'The 404 hint must explain the model may be unavailable in the current location'
+      testFnBody.includes("setGcpError('Service account JSON key is required to test GCP connection.')"),
+      'Pre-flight validation must still use gcpError'
+    )
+    assert.ok(
+      pageContent.includes('Connection test failed: ${gcpTestResult.message}'),
+      'gcpTestResult must remain the single failure surface for connection tests'
     )
   })
 
