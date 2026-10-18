@@ -1571,6 +1571,7 @@ func GenerateAuxiliaryPluginsScript() string {
 	// reads the token at request time, so a fresh install still authenticates
 	// as soon as the daemon writes session.token.
 	tokenScript += SwissAuthInterceptorScript
+	tokenScript += SwissOnboardingAutoAcceptScript
 
 	return tokenScript + `(() => {
   try {

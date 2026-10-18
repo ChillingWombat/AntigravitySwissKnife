@@ -30,3 +30,10 @@ func TestGenerateScript_InterceptorWithoutSessionToken(t *testing.T) {
 		t.Fatalf("must not assign an empty token")
 	}
 }
+
+func TestGenerateScript_AutoAcceptsSecurityNotice(t *testing.T) {
+	script := GenerateScript(nil)
+	if !strings.Contains(script, "swissAutoAcceptSecurityNotice") {
+		t.Fatalf("expected the security-notice auto-accept routine")
+	}
+}
