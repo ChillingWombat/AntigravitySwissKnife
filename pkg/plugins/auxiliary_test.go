@@ -787,7 +787,7 @@ func TestGenerateAuxiliaryPluginsScript_MemoViewAndTelemetryBadge(t *testing.T) 
 	// Memo view checks
 	memoChecks := []string{
 		`id="swiss-m-record-audio"`,
-		`<span>Voice Memo</span>`,
+		`<span>Add Voice Memo</span>`,
 		`id="m-del" title="Delete Memo"`,
 		`<svg viewBox="0 0 24 24" width="11" height="11"`,
 		`LOCAL_MEMOS_KEY = "antigravity_swiss_memos_backup"`,
@@ -801,6 +801,14 @@ func TestGenerateAuxiliaryPluginsScript_MemoViewAndTelemetryBadge(t *testing.T) 
 		`swiss-m-composer-input`,
 		`<span>Save Memo</span>`,
 		`showSwissPrompt`,
+		// Responsive flowing grid for memo cards
+		`memoList.className = "swiss-memo-list"`,
+		// Recording indicator: elapsed time + live loudness wave
+		`id="swiss-m-record-timer"`,
+		`id="swiss-m-record-wave"`,
+		`formatRecordElapsed`,
+		`createAnalyser`,
+		`recordingTimerInterval = setInterval`,
 	}
 	for _, token := range memoChecks {
 		if !strings.Contains(js, token) {
@@ -2357,7 +2365,7 @@ func TestQuickMemos_ImageSupportAndWhiteboard(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 	expectedIdentifiers := []string{
 		`id="swiss-m-new-image"`,
-		`<span>Image Memo</span>`,
+		`<span>Add Image Memo</span>`,
 		`swiss-m-img-composer`,
 		`id="swiss-m-whiteboard-canvas"`,
 		`id="swiss-m-tool-pen"`,
@@ -2367,10 +2375,54 @@ func TestQuickMemos_ImageSupportAndWhiteboard(t *testing.T) {
 		`dataURLtoFile`,
 		`insertImageToChatInput`,
 		`m.image_data`,
+		// DPR-aware whiteboard sizing keeps the visual brush width constant.
+		`resizeWhiteboardCanvas`,
+		`setTransform(whiteboardDpr, 0, 0, whiteboardDpr, 0, 0)`,
 	}
 	for _, id := range expectedIdentifiers {
 		if !strings.Contains(js, id) {
 			t.Fatalf("expected script to contain %q for image memos support", id)
+		}
+	}
+}
+
+func TestQuickMemos_ActionButtonsConsistency(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+
+	// All three memo action buttons share the same neutral styling and carry an "Add" label.
+	buttonTokens := []string{
+		`id="swiss-m-new-text"`,
+		`<span>Add Text Memo</span>`,
+		`id="swiss-m-record-audio"`,
+		`<span>Add Voice Memo</span>`,
+		`id="swiss-m-new-image"`,
+		`<span>Add Image Memo</span>`,
+	}
+	for _, token := range buttonTokens {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected memo action buttons to contain %q", token)
+		}
+	}
+
+	// The text memo button must not be rendered as the filled blue primary button.
+	if strings.Contains(js, `class="swiss-browser-btn primary" id="swiss-m-new-text"`) {
+		t.Errorf("text memo button must not use the primary (filled blue) style")
+	}
+}
+
+func TestBrowserAnnotationCanvas_DprAndScaleNormalization(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	expectedTokens := []string{
+		`canvasScaleX = visW / layoutW`,
+		`canvasScaleY = visH / layoutH`,
+		`x: e.clientX - rect.left`,
+		`y: e.clientY - rect.top`,
+		`clearAnnotationCanvas`,
+		`result.rect.x * canvasScaleX`,
+	}
+	for _, token := range expectedTokens {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected annotation overlay to contain %q", token)
 		}
 	}
 }
