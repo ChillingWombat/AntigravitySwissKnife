@@ -2,8 +2,10 @@ package bridge
 
 import (
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -251,5 +253,196 @@ func TestTunnelManager_RejectsLoopbackAndInsecureCustom(t *testing.T) {
 	st := tm.GetStatus()
 	if st.Active || st.GatewayURL != "" || st.Type != "" {
 		t.Errorf("rejected starts must leave the tunnel status untouched, got active=%v gateway=%q type=%q", st.Active, st.GatewayURL, st.Type)
+	}
+}
+
+// TestCustomEndpointRejectsLoopbackAndHostlessURLs converts the PR #124 review reproducer
+// into a regression test: a custom endpoint must carry BOTH a valid https:// scheme and a
+// non-empty, non-loopback host. Host-less input such as "https://" used to pass the prefix
+// check and was surfaced as a canonical (dead) endpoint; loopback hosts were accepted and
+// leaked to the UI through the raw TunnelStatus fields.
+func TestCustomEndpointRejectsLoopbackAndHostlessURLs(t *testing.T) {
+	rejected := []string{
+		"",
+		"https://",
+		"https:///remote",
+		"https://:8766",
+		"https://127.0.0.1:8766",
+		"https://127.8.8.8:8766/remote",
+		"https://localhost:8766/remote",
+		"https://[::1]:8766",
+		"http://insecure.example.com",
+		"ftp://files.example.com",
+		"custom.example.com",
+		"https:// space.example.com",
+		"https://exa mple.com",
+	}
+	for _, raw := range rejected {
+		tm := NewTunnelManager(8766, "/remote")
+		if st, err := tm.Start("custom", raw); err == nil {
+			t.Errorf("Start(custom, %q) must be rejected, got active=%v gateway=%q", raw, st.Active, st.GatewayURL)
+		}
+		if st := tm.GetStatus(); st.Active || st.GatewayURL != "" || st.PublicURL != "" {
+			t.Errorf("rejected custom URL %q left residue: active=%v gateway=%q public=%q", raw, st.Active, st.GatewayURL, st.PublicURL)
+		}
+	}
+
+	// A rejected request must never tear down an already working tunnel (PR #124 review
+	// reproducer 2); the live tunnel keeps being reported on every path.
+	tm := NewTunnelManager(8766, "/remote")
+	if _, err := tm.Start("custom", "https://live.example.com"); err != nil {
+		t.Fatalf("setup: valid custom tunnel rejected: %v", err)
+	}
+	for _, raw := range []string{"https://", "https://127.0.0.1:8766", "http://insecure.example.com"} {
+		if _, err := tm.Start("custom", raw); err == nil {
+			t.Errorf("Start(custom, %q) must be rejected while a live tunnel exists", raw)
+		}
+		st := tm.GetStatus()
+		if !st.Active || st.Type != "custom" || !strings.Contains(st.GatewayURL, "live.example.com") {
+			t.Errorf("rejected %q must preserve the live tunnel, got active=%v type=%q gateway=%q", raw, st.Active, st.Type, st.GatewayURL)
+		}
+	}
+	tm.Stop()
+
+	// Well-formed external endpoints are still accepted; surrounding whitespace is tolerated
+	// and trimmed before use.
+	valid := []struct{ in, want string }{
+		{"https://subdomain.ngrok-free.app", "https://subdomain.ngrok-free.app/remote"},
+		{"  https://padded.example.com  ", "https://padded.example.com/remote"},
+		{"https://custom.example.com/remote", "https://custom.example.com/remote"},
+		{"HTTPS://UPPER.EXAMPLE.CO.UK", "HTTPS://UPPER.EXAMPLE.CO.UK/remote"},
+	}
+	for _, tc := range valid {
+		tm := NewTunnelManager(8766, "/remote")
+		st, err := tm.Start("custom", tc.in)
+		if err != nil {
+			t.Errorf("Start(custom, %q) must be accepted: %v", tc.in, err)
+			continue
+		}
+		if st.GatewayURL != tc.want {
+			t.Errorf("Start(custom, %q).GatewayURL = %q, want %q", tc.in, st.GatewayURL, tc.want)
+		}
+		tm.Stop()
+	}
+}
+
+// TestTunnelStatusNeverExposesLoopbackEndpoint asserts that no outward-facing path of the
+// bridge ever carries a loopback or host-less endpoint, because the raw TunnelStatus is
+// serialized verbatim to the UI (RemoteControlPage.tsx renders tunnel.gateway_url).
+func TestTunnelStatusNeverExposesLoopbackEndpoint(t *testing.T) {
+	assertExternal := func(where, raw string) {
+		t.Helper()
+		if raw == "" {
+			t.Errorf("%s is empty while a tunnel is active", where)
+			return
+		}
+		if isLoopbackURL(raw) {
+			t.Errorf("%s exposes a loopback endpoint: %q", where, raw)
+		}
+		if u, err := url.Parse(raw); err != nil || u.Hostname() == "" {
+			t.Errorf("%s is not a host-bearing URL: %q", where, raw)
+		}
+	}
+
+	// 1. A loopback custom endpoint is rejected outright — there is no "active but hidden"
+	//    state that could desync the UI.
+	tm := NewTunnelManager(8766, "/remote")
+	if _, err := tm.Start("custom", "https://127.0.0.1:8766"); err == nil {
+		t.Fatal("loopback custom endpoint must be rejected")
+	}
+
+	// 2. A legitimate endpoint is surfaced consistently through the raw TunnelStatus and the
+	//    canonical endpoint helper.
+	if _, err := tm.Start("custom", "https://remote.example.com"); err != nil {
+		t.Fatalf("valid custom tunnel rejected: %v", err)
+	}
+	st := tm.GetStatus()
+	assertExternal("TunnelManager.GetStatus().GatewayURL", st.GatewayURL)
+	assertExternal("TunnelManager.GetStatus().PublicURL", st.PublicURL)
+	if got := externalEndpoint(st); got != "https://remote.example.com/remote" {
+		t.Errorf("externalEndpoint() = %q, want the external endpoint", got)
+	}
+	tm.Stop()
+
+	// 3. RemoteManager: canonical endpoint, nested raw tunnel status and persisted config all
+	//    go through the same sanitized TunnelStatus.
+	rm := NewRemoteManager(filepath.Join(t.TempDir(), "remote_control.json"))
+	if _, err := rm.StartTunnel("custom", "https://remote.example.com"); err != nil {
+		t.Fatalf("RemoteManager.StartTunnel failed: %v", err)
+	}
+	rs := rm.GetStatus("test@example.com", 0)
+	assertExternal("RemoteControlStatus.EndpointURL", rs.EndpointURL)
+	assertExternal("RemoteControlStatus.Tunnel.GatewayURL", rs.Tunnel.GatewayURL)
+	assertExternal("RemoteControlStatus.Tunnel.PublicURL", rs.Tunnel.PublicURL)
+	assertExternal("RemoteControlConfig.TunnelURL", rm.GetConfig().TunnelURL)
+	rm.StopTunnel()
+
+	// 4. Gemini Bridge service status exposes the same raw snapshot via BridgeStatus.Tunnel.
+	svc, err := NewService(filepath.Join(t.TempDir(), "gemini_bridge.json"))
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+	if _, err := svc.StartTunnel("custom", "https://remote.example.com"); err != nil {
+		t.Fatalf("Service.StartTunnel failed: %v", err)
+	}
+	bs := svc.GetStatus()
+	assertExternal("BridgeStatus.GatewayURL", bs.GatewayURL)
+	assertExternal("BridgeStatus.Tunnel.GatewayURL", bs.Tunnel.GatewayURL)
+	assertExternal("BridgeStatus.Tunnel.PublicURL", bs.Tunnel.PublicURL)
+	svc.StopTunnel()
+
+	// 5. Defense in depth: even a polluted raw snapshot is sanitized on read, so a future
+	//    write path can never leak loopback endpoints to the UI.
+	polluted := NewTunnelManager(8766, "/remote")
+	polluted.mu.Lock()
+	polluted.status = TunnelStatus{
+		Active:     true,
+		Type:       "custom",
+		GatewayURL: "https://127.0.0.1:8766/remote",
+		PublicURL:  "https://127.0.0.1:8766",
+	}
+	polluted.mu.Unlock()
+	got := polluted.GetStatus()
+	if got.GatewayURL != "" || got.PublicURL != "" {
+		t.Errorf("GetStatus must sanitize polluted loopback endpoints, got gateway=%q public=%q", got.GatewayURL, got.PublicURL)
+	}
+	if gotEp := externalEndpoint(got); gotEp != "" {
+		t.Errorf("externalEndpoint must not surface polluted loopback, got %q", gotEp)
+	}
+
+	// 6. Persisted config is sanitized both on load and on update, so the config API can
+	//    neither serve a stale loopback endpoint nor accept a new one.
+	staleRemoteCfg := filepath.Join(t.TempDir(), "remote_control.json")
+	staleJSON := []byte(`{"tunnel_type":"custom","tunnel_url":"https://127.0.0.1:8766/remote"}`)
+	if err := os.WriteFile(staleRemoteCfg, staleJSON, 0644); err != nil {
+		t.Fatalf("write stale remote config: %v", err)
+	}
+	staleRM := NewRemoteManager(staleRemoteCfg)
+	if loaded := staleRM.GetConfig().TunnelURL; loaded != "" {
+		t.Errorf("loaded remote config must drop stale loopback TunnelURL, got %q", loaded)
+	}
+	if err := staleRM.UpdateConfig(RemoteControlConfig{TunnelURL: "https://127.0.0.1:8766/remote"}); err != nil {
+		t.Fatalf("RemoteManager.UpdateConfig failed: %v", err)
+	}
+	if stored := staleRM.GetConfig().TunnelURL; stored != "" {
+		t.Errorf("RemoteManager.UpdateConfig must strip loopback TunnelURL, got %q", stored)
+	}
+
+	staleBridgeCfg := filepath.Join(t.TempDir(), "gemini_bridge.json")
+	if err := os.WriteFile(staleBridgeCfg, staleJSON, 0644); err != nil {
+		t.Fatalf("write stale bridge config: %v", err)
+	}
+	staleSvc, err := NewService(staleBridgeCfg)
+	if err != nil {
+		t.Fatalf("NewService(stale config) failed: %v", err)
+	}
+	if loaded := staleSvc.GetConfig().TunnelURL; loaded != "" {
+		t.Errorf("loaded bridge config must drop stale loopback TunnelURL, got %q", loaded)
+	}
+	if err := staleSvc.UpdateConfig(Config{TunnelURL: "https://127.0.0.1:8766/remote"}); err != nil {
+		t.Fatalf("Service.UpdateConfig failed: %v", err)
+	}
+	if stored := staleSvc.GetConfig().TunnelURL; stored != "" {
+		t.Errorf("Service.UpdateConfig must strip loopback TunnelURL, got %q", stored)
 	}
 }

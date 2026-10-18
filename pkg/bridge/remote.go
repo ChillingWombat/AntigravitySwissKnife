@@ -96,6 +96,9 @@ func (rm *RemoteManager) load() error {
 	if err := json.Unmarshal(data, &c); err != nil {
 		return err
 	}
+	// Issue #120 review: never carry over a stale loopback endpoint persisted by an older
+	// build — the config API must not serve one.
+	c.TunnelURL = sanitizeEndpointURL(c.TunnelURL)
 	rm.config = c
 	return nil
 }
@@ -129,6 +132,9 @@ func (rm *RemoteManager) GetRemoteConfigRedacted() RemoteControlConfig {
 
 // UpdateConfig persists updated remote control configuration.
 func (rm *RemoteManager) UpdateConfig(c RemoteControlConfig) error {
+	// Issue #120 review: the config API accepts external input — strip any loopback endpoint
+	// before it can be persisted or echoed back to callers.
+	c.TunnelURL = sanitizeEndpointURL(c.TunnelURL)
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 	if c.SecurityPIN == "******" || c.SecurityPIN == "[REDACTED]" || strings.TrimSpace(c.SecurityPIN) == "" {

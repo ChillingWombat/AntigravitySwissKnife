@@ -259,6 +259,9 @@ func (s *Service) loadConfig() error {
 	if c.PairingPIN == "" {
 		c.PairingPIN = GeneratePairingPIN()
 	}
+	// Issue #120 review: never carry over a stale loopback endpoint persisted by an older
+	// build — the config API must not serve one.
+	c.TunnelURL = sanitizeEndpointURL(c.TunnelURL)
 	s.config = c
 	return nil
 }
@@ -281,6 +284,9 @@ func (s *Service) GetConfig() Config {
 
 // UpdateConfig updates and persists bridge configuration.
 func (s *Service) UpdateConfig(c Config) error {
+	// Issue #120 review: the config API accepts external input — strip any loopback endpoint
+	// before it can be persisted or echoed back to callers.
+	c.TunnelURL = sanitizeEndpointURL(c.TunnelURL)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.config = c
