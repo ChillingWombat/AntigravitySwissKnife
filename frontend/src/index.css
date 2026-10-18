@@ -26,6 +26,15 @@
   --border-info: #d2e3fc;
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+  --on-primary: #ffffff;
+  --accent-subtle: rgba(59, 130, 246, 0.08);
+  --badge-blue-bg: #e8f0fe;
+  --badge-blue-text: #1a73e8;
+  --yellow-bg-hover: #fef08a;
+  --yellow-bg-restore: #fef9c3;
+  --hover-overlay: rgba(0, 0, 0, 0.04);
+  --scrollbar-thumb: #c4c7c5;
+  --scrollbar-thumb-hover: #8e918f;
 
   /* Layout & Grid Tokens (Base 4-pixel grid & Golden Ratio) */
   --grid-unit: 4px;
@@ -36,6 +45,45 @@
   --workspace-min-width: 1016px;
   --workspace-min-height: 612px;
   --phi: 1.6180339887;
+}
+
+/* Dark theme overrides — applied when <html data-theme="dark"> is set
+   (see src/theme.ts: "auto" resolves the OS prefers-color-scheme preference). */
+:root[data-theme="dark"] {
+  --canvas: #131314;
+  --surface: #1e1f20;
+  --border: #3c4043;
+  --border-subtle: #2b2c2f;
+  --primary: #a8c7fa;
+  --primary-hover: #b5cffb;
+  --primary-container: #0842a0;
+  --on-primary-container: #d3e3fd;
+  --tonal: #2b2c2f;
+  --tonal-hover: #3c4043;
+  --text: #e3e3e3;
+  --text-muted: #c4c7c5;
+  --text-subtle: #9aa0a6;
+  --green: #81c995;
+  --green-bg: #0e3a1e;
+  --yellow: #fdd663;
+  --yellow-bg: #3b2f00;
+  --red: #f28b82;
+  --red-bg: #3c1a17;
+  --border-success: #1e4620;
+  --border-danger: #5c1a15;
+  --border-warning: #4d3b00;
+  --border-info: #1f3a68;
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.35), 0 2px 4px -2px rgba(0, 0, 0, 0.25);
+  --on-primary: #062e6f;
+  --accent-subtle: rgba(168, 199, 250, 0.12);
+  --badge-blue-bg: #1f3a68;
+  --badge-blue-text: #a8c7fa;
+  --yellow-bg-hover: #4d3d00;
+  --yellow-bg-restore: #3b2f00;
+  --hover-overlay: rgba(255, 255, 255, 0.08);
+  --scrollbar-thumb: #5f6368;
+  --scrollbar-thumb-hover: #9aa0a6;
 }
 
 * {
@@ -64,11 +112,11 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #c4c7c5;
+  background: var(--scrollbar-thumb);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #8e918f;
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* Base button resets and utility classes */
@@ -87,7 +135,7 @@ input, select, textarea {
   border: 1px solid var(--text-subtle);
   border-radius: 8px;
   padding: 8px 12px;
-  background: #ffffff;
+  background: var(--surface);
   color: var(--text);
   outline: none;
   transition: border-color 0.15s ease;
@@ -102,7 +150,7 @@ input:focus, select:focus, textarea:focus {
 /* Google Pill Button Styles */
 .btn-pill-primary {
   background-color: var(--primary);
-  color: #ffffff;
+  color: var(--on-primary);
   border-radius: 20px;
   padding: 8px 16px;
   font-size: 13px;
@@ -147,7 +195,7 @@ input:focus, select:focus, textarea:focus {
   white-space: nowrap;
 }
 .btn-pill-outlined:hover {
-  background-color: rgba(0, 0, 0, 0.04);
+  background-color: var(--hover-overlay);
   border-color: var(--text);
 }
 
@@ -202,8 +250,8 @@ input:focus, select:focus, textarea:focus {
   color: var(--red);
 }
 .badge-blue {
-  background-color: #e8f0fe;
-  color: #1a73e8;
+  background-color: var(--badge-blue-bg);
+  color: var(--badge-blue-text);
   border: 1px solid var(--border-info);
 }
 .badge-neutral {
