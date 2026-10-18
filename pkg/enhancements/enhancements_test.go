@@ -222,6 +222,15 @@ func TestPromptJumpBar_StableTurnEnumeration(t *testing.T) {
 		t.Errorf("expected the daemon chat-metrics turn count to feed the jump bar")
 	}
 
+	// 1b. The active dash must stay in turn-index space: the click jump resolves in
+	// the turn space, while getLowestPromptOnScreen keeps step-array indexing.
+	if !strings.Contains(script, "if (isClickJumping && clickTargetIdx >= 0) return clickTargetIdx;") {
+		t.Errorf("expected the click jump to pin the active dash in turn-index space")
+	}
+	if got := strings.Count(script, "return clickTargetIdx;"); got != 1 {
+		t.Errorf("expected exactly one clickTargetIdx return (inside resolveActiveTurnIndex), got %d", got)
+	}
+
 	// 2. Behaviour of the extracted pure helpers under a virtualized transcript.
 	startMarker := "/* __SWISS_JUMP_BAR_HELPERS_START__ */"
 	endMarker := "/* __SWISS_JUMP_BAR_HELPERS_END__ */"

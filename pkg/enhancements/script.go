@@ -568,17 +568,16 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     }
 
     function resolveActiveTurnIndex(steps, stepTurnIndexes, viewport) {
+      // A click jump pins the active dash to the clicked turn until scrolling settles.
+      if (isClickJumping && clickTargetIdx >= 0) return clickTargetIdx;
       if (!steps || !steps.length || !stepTurnIndexes || !stepTurnIndexes.length) return -1;
       const lowestStep = getLowestPromptOnScreen(steps, viewport);
       if (lowestStep >= 0 && lowestStep < stepTurnIndexes.length) return stepTurnIndexes[lowestStep];
       return -1;
     }
 
+    // Returns the index (into the steps array) of the lowest prompt turn on screen.
     function getLowestPromptOnScreen(steps, viewport) {
-      if (isClickJumping && clickTargetIdx >= 0) {
-        return clickTargetIdx;
-      }
-
       const vpRect = viewport ? viewport.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
       let latestVisibleIdx = -1;
 
@@ -612,6 +611,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         if (bar) bar.remove();
         if (tooltip) tooltip.remove();
         lastActiveIdx = -1;
+        lastJumpBarTotal = -1;
+        lastJumpBarConversationKey = null;
         return;
       }
 
