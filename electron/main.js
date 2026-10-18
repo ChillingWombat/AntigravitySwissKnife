@@ -846,7 +846,7 @@ function registerIpcHandlers() {
             }
           }
         }
-        const child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
+        const child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true });
         child.unref();
         return { success: true, message: 'Antigravity process launched' };
       } catch (spawnErr) {
