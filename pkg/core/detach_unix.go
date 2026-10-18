@@ -20,3 +20,9 @@ func SetDetachedProcess(cmd *exec.Cmd) {
 func SetDetachedProcessHiddenConsole(cmd *exec.Cmd) {
 	SetDetachedProcess(cmd)
 }
+
+// SetDetachedGUIProcess is the Unix counterpart of the Windows helper: a new
+// session, no controlling terminal, and no startup show-state games.
+func SetDetachedGUIProcess(cmd *exec.Cmd) {
+	SetDetachedProcess(cmd)
+}
