@@ -282,19 +282,35 @@ function getTrayIcon() {
   const isMac = process.platform === 'darwin';
   const isWin = process.platform === 'win32';
 
-  const preferredFile = isMac
-    ? path.join(__dirname, '..', 'assets', 'icons', 'icon_24x24.png')
-    : isWin
-      ? path.join(__dirname, '..', 'assets', 'icons', 'icon_16x16.png')
-      : path.join(__dirname, '..', 'assets', 'icons', 'icon_24x24.png');
-
+  // Windows 11 renders notification-area icons at 24 px (30 px at 125 % DPI,
+  // 32 px at 150 %). Feeding the shell a 16x16 PNG and letting it upscale is
+  // what made the tray icon look blurry, so on Windows use the 32 px bitmap
+  // (downsampled from the 636 px master) and fall back to the multi-size .ico.
   let img;
-  if (fs.existsSync(preferredFile)) {
-    img = nativeImage.createFromPath(preferredFile);
-  } else {
-    const rawPath = getIconPath();
-    if (rawPath) {
-      img = nativeImage.createFromPath(rawPath);
+  if (isWin) {
+    const png32 = path.join(__dirname, '..', 'assets', 'icons', 'icon_32x32.png');
+    if (fs.existsSync(png32)) {
+      img = nativeImage.createFromPath(png32);
+    }
+    if (!img || img.isEmpty()) {
+      const icoPath = path.join(__dirname, '..', 'assets', 'icons', 'icon.ico');
+      if (fs.existsSync(icoPath)) {
+        img = nativeImage.createFromPath(icoPath);
+      }
+    }
+  }
+
+  if (!img || img.isEmpty()) {
+    const preferredFile = isMac
+      ? path.join(__dirname, '..', 'assets', 'icons', 'icon_24x24.png')
+      : path.join(__dirname, '..', 'assets', 'icons', 'icon_24x24.png');
+    if (fs.existsSync(preferredFile)) {
+      img = nativeImage.createFromPath(preferredFile);
+    } else {
+      const rawPath = getIconPath();
+      if (rawPath) {
+        img = nativeImage.createFromPath(rawPath);
+      }
     }
   }
 
@@ -302,21 +318,22 @@ function getTrayIcon() {
     return null;
   }
 
-  // Exact OS standard tray dimensions:
-  // macOS status item icon standard: 18x18 template image (avoids covering half the top bar)
-  // Windows notification tray icons: 16x16
-  // Linux system tray icons standard: 22x22
+  // Windows: return the native image untouched — resizing it to 16 px would
+  // reintroduce the blur the .ico just fixed.
+  if (isWin) {
+    return img;
+  }
+
+  // macOS status item icons are 18x18 template images (avoids covering half
+  // the top bar); Linux tray icons are conventionally 22x22.
   if (isMac) {
     const resized = img.resize({ width: 18, height: 18 });
     if (typeof resized.setTemplateImage === 'function') {
       resized.setTemplateImage(true);
     }
     return resized;
-  } else if (isWin) {
-    return img.resize({ width: 16, height: 16 });
-  } else {
-    return img.resize({ width: 22, height: 22 });
   }
+  return img.resize({ width: 22, height: 22 });
 }
 
 function switchAccountViaHttp(email) {
