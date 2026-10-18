@@ -21,7 +21,7 @@ export const TopRibbon: React.FC<TopRibbonProps> = ({
     <header
       style={{
         height: '72px',
-        backgroundColor: '#ffffff',
+        backgroundColor: 'var(--surface)',
         borderBottom: '1px solid var(--border)',
         boxSizing: 'border-box',
         display: 'flex',
@@ -53,7 +53,7 @@ export const TopRibbon: React.FC<TopRibbonProps> = ({
                 fontSize: '12px',
                 fontWeight: isActive ? 600 : 500,
                 color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                backgroundColor: isActive ? '#ffffff' : 'transparent',
+                backgroundColor: isActive ? 'var(--surface)' : 'transparent',
                 boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                 border: 'none',
                 cursor: 'pointer',

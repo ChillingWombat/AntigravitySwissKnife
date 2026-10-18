@@ -31,7 +31,7 @@ export const NavRail: React.FC<NavRailProps> = ({
     <aside
       style={{
         width: '200px',
-        backgroundColor: '#ffffff',
+        backgroundColor: 'var(--surface)',
         borderRight: '1px solid var(--border)',
         display: 'flex',
         flexDirection: 'column',

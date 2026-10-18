@@ -747,6 +747,16 @@ export const api = {
       body: JSON.stringify({ runtime_mode }),
     }),
 
+  getTheme: () =>
+    request<{ theme: 'auto' | 'light' | 'dark' }>('/api/settings/theme'),
+
+  setTheme: (theme: 'auto' | 'light' | 'dark') =>
+    request<{ success: boolean; theme: 'auto' | 'light' | 'dark' }>('/api/settings/theme', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ theme }),
+    }),
+
   startDaemon: () =>
     request<{ success: boolean; daemon_running?: boolean; message?: string }>('/api/daemon/start', {
       method: 'POST',

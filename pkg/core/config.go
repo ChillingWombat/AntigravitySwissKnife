@@ -59,6 +59,7 @@ type Config struct {
 	SubagentCustomModelsEnabled bool                        `json:"subagent_custom_models_enabled"`
 	SubagentModelStrategy      string                       `json:"subagent_model_strategy"`
 	SessionResumePrompt        string                       `json:"session_resume_prompt,omitempty"`
+	Theme                      string                       `json:"theme,omitempty"`
 
 	mu sync.RWMutex `json:"-"`
 }
@@ -109,6 +110,7 @@ func DefaultConfig() *Config {
 		ActiveAppAccounts:          make(map[string]string),
 		SubagentCustomModelsEnabled: false,
 		SubagentModelStrategy:      DefaultSubagentModelStrategy,
+		Theme:                      DefaultThemeMode,
 		Memo: MemoConfig{
 			StorageLocation: "global",
 			ViewScope:       "all",
@@ -166,6 +168,7 @@ func LoadConfig() (*Config, error) {
 		cfg.ActiveAppAccounts = make(map[string]string)
 	}
 	cfg.SubagentModelStrategy = NormalizeSubagentModelStrategy(cfg.SubagentModelStrategy)
+	cfg.Theme = NormalizeThemeMode(cfg.Theme)
 	if cfg.QuotaRefreshMode == "" {
 		if !cfg.DynamicQuotaRefreshEnabled && strings.Contains(string(data), "\"dynamic_quota_refresh_enabled\":false") {
 			cfg.QuotaRefreshMode = QuotaRefreshModeManual
@@ -484,6 +487,36 @@ func (c *Config) SetActiveAppAccount(appType, email string) error {
 			c.ActiveAccount = email
 		}
 	}
+	c.mu.Unlock()
+	return c.Save()
+}
+
+// NormalizeThemeMode validates and defaults the UI theme mode ("auto" | "light" | "dark").
+func NormalizeThemeMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case ThemeModeLight:
+		return ThemeModeLight
+	case ThemeModeDark:
+		return ThemeModeDark
+	default:
+		return ThemeModeAuto
+	}
+}
+
+// GetTheme returns the configured UI theme mode in a thread-safe manner.
+func (c *Config) GetTheme() string {
+	if c == nil {
+		return DefaultThemeMode
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return NormalizeThemeMode(c.Theme)
+}
+
+// SetTheme updates and persists the UI theme mode in a thread-safe manner.
+func (c *Config) SetTheme(mode string) error {
+	c.mu.Lock()
+	c.Theme = NormalizeThemeMode(mode)
 	c.mu.Unlock()
 	return c.Save()
 }

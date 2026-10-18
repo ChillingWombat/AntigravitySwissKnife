@@ -9,11 +9,32 @@
         --surface: #f0f4f9;
         --canvas: #f8fafd;
       }
+      :root[data-theme="dark"] {
+        --surface: #1e1f20;
+        --canvas: #131314;
+      }
       body {
         margin: 0;
-        background-color: #f0f4f9;
+        background-color: var(--canvas);
       }
     </style>
+    <script>
+      // Apply the stored theme before the app bundle paints to avoid a flash
+      // of the wrong theme. Mirrors the resolution logic in src/theme.ts.
+      (function () {
+        try {
+          var mode = localStorage.getItem('antigravity_theme') || 'auto';
+          var dark =
+            mode === 'dark' ||
+            (mode !== 'light' &&
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        } catch (e) {
+          document.documentElement.dataset.theme = 'light';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

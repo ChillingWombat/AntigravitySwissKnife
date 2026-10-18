@@ -51,6 +51,12 @@ const (
 	SubagentModelStrategyAutoDecide        = "auto_decide"
 	DefaultSubagentModelStrategy           = SubagentModelStrategyDefaultCustomOnly
 
+	// UI Theme Modes
+	ThemeModeAuto    = "auto"
+	ThemeModeLight   = "light"
+	ThemeModeDark    = "dark"
+	DefaultThemeMode = ThemeModeAuto
+
 	// Target Apps for Account Switching
 	TargetAppAll     = "all"
 	TargetAppDesktop = "desktop"

@@ -18,6 +18,9 @@ import {
   AppWindow,
   Server,
   Play,
+  Sun,
+  Moon,
+  Monitor,
 } from 'lucide-react'
 import type {
   SystemStatus,
@@ -30,6 +33,7 @@ import type {
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { GithubIcon } from '../components/GithubIcon'
 import { api } from '../api'
+import { applyTheme, getStoredThemeMode, normalizeThemeMode, type ThemeMode } from '../theme'
 import soloCanImg from '../assets/solo_can.png'
 
 interface SystemSettingsPageProps {
@@ -91,6 +95,10 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
     return stored === null ? true : stored === 'true'
   })
   const [togglingPersistentVisual, setTogglingPersistentVisual] = useState<boolean>(false)
+
+  // UI Theme Mode state (auto | light | dark)
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => getStoredThemeMode())
+  const [savingTheme, setSavingTheme] = useState<boolean>(false)
 
   // Storage and Path state
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null)
@@ -177,6 +185,16 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
         }
       })
       .catch(() => {})
+    api
+      .getTheme()
+      .then((res) => {
+        if (res && typeof res.theme === 'string') {
+          const mode = normalizeThemeMode(res.theme)
+          setThemeMode(mode)
+          applyTheme(mode)
+        }
+      })
+      .catch(() => {})
   }, [])
 
   const handleSelectRuntimeMode = async (mode: 'app' | 'daemon') => {
@@ -194,6 +212,20 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
       console.warn('Failed to update runtime mode setting:', err)
     } finally {
       setSavingRuntimeMode(false)
+    }
+  }
+
+  const handleSelectTheme = async (mode: ThemeMode) => {
+    if (themeMode === mode) return
+    setThemeMode(mode)
+    applyTheme(mode)
+    setSavingTheme(true)
+    try {
+      await api.setTheme(mode)
+    } catch (err: any) {
+      console.warn('Failed to update theme setting:', err)
+    } finally {
+      setSavingTheme(false)
     }
   }
 
@@ -868,6 +900,71 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
             </div>
           </div>
 
+          {/* Appearance (Theme Mode) Card */}
+          <div className="google-card">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+                Appearance
+              </div>
+              <span className="badge-chip badge-neutral" style={{ fontSize: '10px', padding: '2px 8px' }}>
+                {savingTheme ? 'SAVING...' : themeMode === 'auto' ? 'FOLLOWS SYSTEM' : themeMode.toUpperCase()}
+              </span>
+            </div>
+
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px', lineHeight: '1.45' }}>
+              Choose how the interface looks. Auto follows your operating system light or dark appearance.
+            </div>
+
+            {/* Theme Mode (1x3 Grid) */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+              {[
+                { mode: 'auto' as ThemeMode, label: 'Auto', desc: 'Follows your operating system light or dark appearance.', Icon: Monitor },
+                { mode: 'light' as ThemeMode, label: 'Light', desc: 'Always use the light appearance.', Icon: Sun },
+                { mode: 'dark' as ThemeMode, label: 'Dark', desc: 'Always use the dark appearance.', Icon: Moon },
+              ].map(({ mode, label, desc, Icon }) => {
+                const isActive = themeMode === mode
+                return (
+                  <div
+                    key={mode}
+                    id={`themeOption-${mode}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleSelectTheme(mode)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleSelectTheme(mode) }}
+                    style={{
+                      padding: '14px 16px',
+                      borderRadius: '8px',
+                      backgroundColor: isActive ? 'var(--accent-subtle)' : 'var(--canvas)',
+                      border: isActive ? '1px solid var(--primary)' : '1px solid var(--border)',
+                      cursor: savingTheme ? 'wait' : 'pointer',
+                      transition: 'all 0.15s ease',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <Icon size={16} color={isActive ? 'var(--primary)' : 'var(--text-muted)'} />
+                          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                            {label}
+                          </span>
+                        </div>
+                        <span className={`badge-chip ${isActive ? 'badge-blue' : 'badge-neutral'}`} style={{ fontSize: '10px', padding: '2px 8px' }}>
+                          {isActive ? 'ACTIVE' : 'SELECT'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+                        {desc}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
           {/* App Access Password Protection Card */}
           <div className="google-card">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
@@ -1141,7 +1238,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                           value={detectedPath}
                           style={{
                             flex: 1,
-                            backgroundColor: '#ffffff',
+                            backgroundColor: 'var(--surface)',
                             fontFamily: 'monospace',
                             fontSize: '12px',
                             padding: '6px 10px',
@@ -1177,7 +1274,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                           placeholder={placeholder}
                           style={{
                             flex: 1,
-                            backgroundColor: '#ffffff',
+                            backgroundColor: 'var(--surface)',
                             fontFamily: 'monospace',
                             fontSize: '12px',
                             padding: '6px 10px',
@@ -1509,7 +1606,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
 
                 <pre
                   style={{
-                    backgroundColor: '#ffffff',
+                    backgroundColor: 'var(--surface)',
                     border: '1px solid var(--border)',
                     borderRadius: '8px',
                     padding: '12px',
@@ -1571,10 +1668,10 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                   transition: 'background-color 0.15s ease, transform 0.15s ease',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#fef08a'
+                  e.currentTarget.style.backgroundColor = 'var(--yellow-bg-hover)'
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '#fef9c3'
+                  e.currentTarget.style.backgroundColor = 'var(--yellow-bg-restore)'
                 }}
               >
                 <img

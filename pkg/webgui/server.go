@@ -456,6 +456,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/settings/cache_clear", s.handleSettingsCacheClear)
 	mux.HandleFunc("/api/settings/privacy", s.handleSettingsPrivacy)
 	mux.HandleFunc("/api/settings/runtime-mode", s.handleSettingsRuntimeMode)
+	mux.HandleFunc("/api/settings/theme", s.handleSettingsTheme)
 	mux.HandleFunc("/api/settings/diagnose-issue", s.handleSettingsDiagnoseIssue)
 	mux.HandleFunc("/api/daemon/start", s.handleDaemonStart)
 	mux.HandleFunc("/api/system/factory_reset", s.handleSystemFactoryReset)
@@ -3583,6 +3584,47 @@ func (s *Server) handleDaemonStart(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, map[string]interface{}{"success": true, "daemon_running": false, "message": "daemon spawned, awaiting socket"})
+}
+
+// handleSettingsTheme serves GET (current theme mode) and POST (update theme mode)
+// for the UI appearance setting ("auto" | "light" | "dark").
+func (s *Server) handleSettingsTheme(w http.ResponseWriter, r *http.Request) {
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		writeJSON(w, map[string]interface{}{
+			"theme": cfg.GetTheme(),
+		})
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		var req struct {
+			Theme string `json:"theme"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		theme := core.NormalizeThemeMode(req.Theme)
+		if req.Theme != "" && theme != req.Theme {
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, map[string]interface{}{"success": false, "error": "invalid theme: must be 'auto', 'light', or 'dark'"})
+			return
+		}
+		if err := cfg.SetTheme(theme); err != nil {
+			writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]interface{}{"success": true, "theme": theme})
+		return
+	}
+
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 }
 
 func (s *Server) handleSettingsAppPath(w http.ResponseWriter, r *http.Request) {

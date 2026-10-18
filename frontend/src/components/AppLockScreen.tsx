@@ -40,7 +40,7 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({ onUnlocked }) => {
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: '#f8fafc',
+        backgroundColor: 'var(--canvas)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -54,7 +54,7 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({ onUnlocked }) => {
           width: '420px',
           maxWidth: '100%',
           padding: '36px 32px',
-          backgroundColor: '#ffffff',
+          backgroundColor: 'var(--surface)',
           borderRadius: '10px',
           boxShadow: 'var(--shadow-md)',
           textAlign: 'center',
