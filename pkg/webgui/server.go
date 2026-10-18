@@ -768,12 +768,6 @@ func redactAccountExport(exp keyring.AccountExport) keyring.AccountExport {
 	if r.RefreshToken != "" {
 		r.RefreshToken = "[REDACTED]"
 	}
-	if r.OathToken != "" {
-		r.OathToken = "[REDACTED]"
-	}
-	if r.OAuthToken != "" {
-		r.OAuthToken = "[REDACTED]"
-	}
 	return r
 }
 
