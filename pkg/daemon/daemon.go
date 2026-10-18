@@ -60,9 +60,16 @@ type Daemon struct {
 	ignitedMu       sync.RWMutex
 
 	lastDesktopInstallAttempt time.Time
+	// lastVSCodeInjectCheck throttles the periodic re-apply of the Swiss Knife
+	// enhancements into VS Code (guarded by mu).
+	lastVSCodeInjectCheck time.Time
 
 	configUpdated chan struct{}
 }
+
+// vscodeReinjectInterval throttles the periodic VS Code enhancement re-apply;
+// the CDP probe is cheap but evaluating the full script in every target is not.
+const vscodeReinjectInterval = 30 * time.Second
 
 // NewDaemon initializes all subsystem stores and sets up JSON-RPC method handlers.
 func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
@@ -672,6 +679,48 @@ func (d *Daemon) registerRPCHandlers() {
 	d.Server.Register("swiss.launchIDE", launchHandler)
 	d.Server.Register("desktop.launch", launchHandler)
 
+	// VS Code Launch with a CDP debug port (VS Code only exposes CDP when started
+	// with --remote-debugging-port; the port is persisted as vscode_debug_port).
+	vscodeLaunchHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
+		var p struct {
+			Folder string `json:"folder"`
+		}
+		if len(params) > 0 {
+			_ = json.Unmarshal(params, &p)
+		}
+		if os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" {
+			return map[string]interface{}{
+				"success": true,
+				"message": "VS Code launch skipped (dry run)",
+			}, nil
+		}
+		res, err := gui.LaunchVSCode(p.Folder)
+		if err != nil && res == nil {
+			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
+		}
+		if err != nil {
+			return res, nil
+		}
+		// Attach as soon as the fresh instance exposes its CDP endpoint
+		// (the periodic GUI monitor retries later if the cold start is slower).
+		go func() {
+			time.Sleep(3 * time.Second)
+			if d.GUIStore == nil {
+				return
+			}
+			d.mu.RLock()
+			enhanceVSCode := d.Config.GetApplyEnhancementsToVSCode()
+			d.mu.RUnlock()
+			if !enhanceVSCode {
+				return
+			}
+			cfg := d.GUIStore.GetConfig()
+			_, _ = gui.NewInjector(0).ApplyConfigForApp(gui.AppVSCode, &cfg)
+		}()
+		return res, nil
+	}
+	d.Server.Register("swiss.launchVSCode", vscodeLaunchHandler)
+
 	// Active Conversations & Subagent State Detection
 	getActiveConversationsHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		targetApp := ""
@@ -1066,6 +1115,8 @@ func (d *Daemon) registerRPCHandlers() {
 			"subagent_model_strategy":          d.Config.GetSubagentModelStrategy(),
 			"session_resume_prompt":            d.Config.GetSessionResumePrompt(),
 			"board_overview_auto_hide":         d.Config.GetBoardOverviewAutoHide(),
+			"apply_enhancements_to_vscode":     d.Config.GetApplyEnhancementsToVSCode(),
+			"vscode_debug_port":                d.Config.GetVSCodeDebugPort(),
 			"installed_apps":                   installedMap,
 		}, nil
 	}
@@ -1103,11 +1154,14 @@ func (d *Daemon) registerRPCHandlers() {
 			SubagentModelStrategy       *string            `json:"subagent_model_strategy"`
 			SessionResumePrompt         *string            `json:"session_resume_prompt"`
 			BoardOverviewAutoHide       *bool              `json:"board_overview_auto_hide"`
+			ApplyEnhancementsToVSCode   *bool              `json:"apply_enhancements_to_vscode"`
+			VSCodeDebugPort             *int               `json:"vscode_debug_port"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: err.Error()}
 		}
 
+		applyVSCodeNow := false
 		d.mu.Lock()
 		if p.AutoSwitchEnabled != nil {
 			d.Config.AutoSwitchEnabled = *p.AutoSwitchEnabled
@@ -1203,9 +1257,26 @@ func (d *Daemon) registerRPCHandlers() {
 		if p.BoardOverviewAutoHide != nil {
 			d.Config.BoardOverviewAutoHide = *p.BoardOverviewAutoHide
 		}
+		if p.ApplyEnhancementsToVSCode != nil {
+			d.Config.ApplyEnhancementsToVSCode = *p.ApplyEnhancementsToVSCode
+			applyVSCodeNow = *p.ApplyEnhancementsToVSCode
+		}
+		if p.VSCodeDebugPort != nil {
+			if *p.VSCodeDebugPort < 1024 || *p.VSCodeDebugPort > 65535 {
+				d.mu.Unlock()
+				return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: "vscode_debug_port must be between 1024 and 65535"}
+			}
+			d.Config.VSCodeDebugPort = *p.VSCodeDebugPort
+		}
 		_ = d.Config.Save()
 		d.mu.Unlock()
 		d.notifyConfigUpdated()
+		if applyVSCodeNow && d.GUIStore != nil {
+			go func() {
+				cfg := d.GUIStore.GetConfig()
+				_, _ = gui.NewInjector(0).ApplyConfigForApp(gui.AppVSCode, &cfg)
+			}()
+		}
 
 		return map[string]interface{}{"success": true}, nil
 	}
@@ -1664,6 +1735,16 @@ func (d *Daemon) monitorAndInjectGUI() {
 		inj = gui.NewInjector(0)
 	}
 
+	// b2) Re-apply the Swiss Knife enhancements into VS Code (Antigravity extension)
+	// when the toggle is on. VS Code only exposes CDP when launched with
+	// --remote-debugging-port, so this is a no-op for ordinary VS Code sessions.
+	d.mu.RLock()
+	enhanceVSCode := d.Config.GetApplyEnhancementsToVSCode()
+	d.mu.RUnlock()
+	if enhanceVSCode {
+		d.monitorAndInjectVSCode(inj)
+	}
+
 	port, err := inj.FindDevToolsPort()
 	if err != nil || port <= 0 {
 		return
@@ -1711,6 +1792,54 @@ func (d *Daemon) monitorAndInjectGUI() {
 			_, _ = inj.ExecuteScript(page.WebSocketDebuggerURL, refreshScript)
 		}
 	}
+}
+
+// monitorAndInjectVSCode re-applies the Swiss Knife enhancements to every injectable
+// VS Code target whose injected markers are missing. Throttled so the full script is
+// not re-evaluated in every workbench/webview target on each GUI tick.
+func (d *Daemon) monitorAndInjectVSCode(inj *gui.Injector) {
+	if d.GUIStore == nil || inj == nil {
+		return
+	}
+
+	d.mu.Lock()
+	due := d.lastVSCodeInjectCheck.IsZero() || time.Since(d.lastVSCodeInjectCheck) >= vscodeReinjectInterval
+	if due {
+		d.lastVSCodeInjectCheck = time.Now()
+	}
+	d.mu.Unlock()
+	if !due {
+		return
+	}
+
+	port, err := inj.FindDevToolsPortForApp(gui.AppVSCode)
+	if err != nil || port <= 0 {
+		return
+	}
+	targets, err := inj.GetInjectableTargets(gui.AppVSCode, port)
+	if err != nil || len(targets) == 0 {
+		return
+	}
+
+	const checkScript = `Boolean(window.__SWISS_ENH_CONFIG__ || document.getElementById("antigravity-swiss-styles"))`
+	needsApply := false
+	for _, target := range targets {
+		res, err := inj.ExecuteScriptWithTimeout(target.WebSocketDebuggerURL, checkScript, 1500*time.Millisecond)
+		if err != nil {
+			continue
+		}
+		injected, ok := res["value"].(bool)
+		if !ok || !injected {
+			needsApply = true
+			break
+		}
+	}
+	if !needsApply {
+		return
+	}
+
+	cfg := d.GUIStore.GetConfig()
+	_, _ = inj.ApplyConfigForApp(gui.AppVSCode, &cfg)
 }
 
 func (d *Daemon) schedulerLoop() {

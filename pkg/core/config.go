@@ -63,6 +63,12 @@ type Config struct {
 	// BoardOverviewAutoHide collapses the Antigravity IDE's own right-hand
 	// Overview panel while the Antigravity Swiss Knife board page is open.
 	BoardOverviewAutoHide bool `json:"board_overview_auto_hide"`
+	// ApplyEnhancementsToVSCode injects the Swiss Knife UI enhancements into VS
+	// Code running the Google Antigravity extension (needs CDP: VS Code must
+	// have been launched with --remote-debugging-port, e.g. via swiss.launchVSCode).
+	ApplyEnhancementsToVSCode bool `json:"apply_enhancements_to_vscode"`
+	// VSCodeDebugPort is the loopback CDP port used when Swiss Knife launches VS Code.
+	VSCodeDebugPort int `json:"vscode_debug_port"`
 	// ACPAgents stores user overrides for the built-in ACP presets plus any
 	// custom agents added from the Utilities > ACP Agent Mesh page.
 	ACPAgents []ACPAgentConfig `json:"acp_agents,omitempty"`
@@ -140,6 +146,8 @@ func DefaultConfig() *Config {
 		},
 		PreferredIDE: "code",
 		BoardOverviewAutoHide: true,
+		ApplyEnhancementsToVSCode: true,
+		VSCodeDebugPort:           DefaultVSCodeDebugPort,
 	}
 }
 
@@ -210,6 +218,9 @@ func LoadConfig() (*Config, error) {
 	if cfg.PostResetDelaySec <= 0 {
 		cfg.PostResetDelaySec = DefaultPostResetDelaySeconds
 		cfg.WarmupLeadTimeSec = DefaultWarmupLeadTimeSeconds
+	}
+	if cfg.VSCodeDebugPort <= 0 || cfg.VSCodeDebugPort > 65535 {
+		cfg.VSCodeDebugPort = DefaultVSCodeDebugPort
 	}
 	return cfg, nil
 }
@@ -595,6 +606,50 @@ func (c *Config) GetBoardOverviewAutoHide() bool {
 func (c *Config) SetBoardOverviewAutoHide(enabled bool) error {
 	c.mu.Lock()
 	c.BoardOverviewAutoHide = enabled
+	c.mu.Unlock()
+	return c.Save()
+}
+
+// GetApplyEnhancementsToVSCode reports whether the Swiss Knife UI enhancements
+// should also be injected into VS Code running the Antigravity extension.
+// It defaults to true for configurations that predate the setting.
+func (c *Config) GetApplyEnhancementsToVSCode() bool {
+	if c == nil {
+		return true
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ApplyEnhancementsToVSCode
+}
+
+// SetApplyEnhancementsToVSCode updates and persists the VS Code enhancement toggle.
+func (c *Config) SetApplyEnhancementsToVSCode(enabled bool) error {
+	c.mu.Lock()
+	c.ApplyEnhancementsToVSCode = enabled
+	c.mu.Unlock()
+	return c.Save()
+}
+
+// GetVSCodeDebugPort returns the loopback CDP port used when launching VS Code.
+func (c *Config) GetVSCodeDebugPort() int {
+	if c == nil {
+		return DefaultVSCodeDebugPort
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.VSCodeDebugPort <= 0 || c.VSCodeDebugPort > 65535 {
+		return DefaultVSCodeDebugPort
+	}
+	return c.VSCodeDebugPort
+}
+
+// SetVSCodeDebugPort updates and persists the VS Code CDP debugging port.
+func (c *Config) SetVSCodeDebugPort(port int) error {
+	if port <= 0 || port > 65535 {
+		port = DefaultVSCodeDebugPort
+	}
+	c.mu.Lock()
+	c.VSCodeDebugPort = port
 	c.mu.Unlock()
 	return c.Save()
 }

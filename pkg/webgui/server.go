@@ -391,6 +391,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/gui/desktop/relaunch", s.handleDesktopRelaunch)
 	mux.HandleFunc("/api/desktop/launch", s.handleDesktopLaunch)
 	mux.HandleFunc("/api/gui/desktop/launch", s.handleDesktopLaunch)
+	mux.HandleFunc("/api/vscode/launch", s.handleVSCodeLaunch)
+	mux.HandleFunc("/api/gui/vscode/launch", s.handleVSCodeLaunch)
 
 	// Active Conversations & Subagent Revival
 	mux.HandleFunc("/api/conversations/active", s.handleConversationsActive)
@@ -2761,6 +2763,42 @@ func (s *Server) handleDesktopLaunch(w http.ResponseWriter, r *http.Request) {
 		res = map[string]interface{}{
 			"success": true,
 			"message": "Antigravity host IDE launch initiated",
+		}
+	}
+	writeJSON(w, res)
+}
+
+// handleVSCodeLaunch starts VS Code with --remote-debugging-port so the daemon can
+// attach and inject the Swiss Knife enhancements into the Antigravity extension.
+func (s *Server) handleVSCodeLaunch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" {
+		writeJSON(w, map[string]interface{}{
+			"success": true,
+			"message": "VS Code launch skipped (dry run)",
+		})
+		return
+	}
+
+	var payload struct {
+		Folder string `json:"folder"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+	}
+
+	var res map[string]interface{}
+	if err := s.client.Call("swiss.launchVSCode", payload, &res); err != nil {
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			_, _ = gui.LaunchVSCode(payload.Folder)
+		}()
+		res = map[string]interface{}{
+			"success": true,
+			"message": "VS Code launch with CDP debugging initiated",
 		}
 	}
 	writeJSON(w, res)

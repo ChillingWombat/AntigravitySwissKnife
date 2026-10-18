@@ -235,3 +235,80 @@ func TestLoadConfig_QuotaRefreshModePersistence(t *testing.T) {
 }
 
 
+
+func TestDefaultConfig_VSCodeEnhancements(t *testing.T) {
+	cfg := DefaultConfig()
+	if !cfg.ApplyEnhancementsToVSCode {
+		t.Error("expected ApplyEnhancementsToVSCode to default to true")
+	}
+	if cfg.VSCodeDebugPort != DefaultVSCodeDebugPort {
+		t.Errorf("expected VSCodeDebugPort %d, got %d", DefaultVSCodeDebugPort, cfg.VSCodeDebugPort)
+	}
+}
+
+func TestLoadConfig_VSCodeEnhancementSettings(t *testing.T) {
+	t.Run("explicit values are preserved", func(t *testing.T) {
+		tempDir := t.TempDir()
+		t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+
+		raw := map[string]interface{}{
+			"apply_enhancements_to_vscode": false,
+			"vscode_debug_port":            9444,
+		}
+		data, err := json.Marshal(raw)
+		if err != nil {
+			t.Fatalf("failed to marshal test config: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(tempDir, "config.json"), data, 0600); err != nil {
+			t.Fatalf("failed to write test config: %v", err)
+		}
+
+		cfg, err := LoadConfig()
+		if err != nil {
+			t.Fatalf("LoadConfig returned error: %v", err)
+		}
+		if cfg.GetApplyEnhancementsToVSCode() {
+			t.Error("expected apply_enhancements_to_vscode=false to be preserved")
+		}
+		if cfg.GetVSCodeDebugPort() != 9444 {
+			t.Errorf("expected vscode_debug_port 9444, got %d", cfg.GetVSCodeDebugPort())
+		}
+	})
+
+	t.Run("legacy configs keep the enabled default", func(t *testing.T) {
+		tempDir := t.TempDir()
+		t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+
+		if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(`{"auto_switch_enabled":true}`), 0600); err != nil {
+			t.Fatalf("failed to write test config: %v", err)
+		}
+
+		cfg, err := LoadConfig()
+		if err != nil {
+			t.Fatalf("LoadConfig returned error: %v", err)
+		}
+		if !cfg.GetApplyEnhancementsToVSCode() {
+			t.Error("expected apply_enhancements_to_vscode to default to true for legacy configs")
+		}
+		if cfg.GetVSCodeDebugPort() != DefaultVSCodeDebugPort {
+			t.Errorf("expected default vscode_debug_port %d, got %d", DefaultVSCodeDebugPort, cfg.GetVSCodeDebugPort())
+		}
+	})
+
+	t.Run("invalid port falls back to the default", func(t *testing.T) {
+		tempDir := t.TempDir()
+		t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+
+		if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(`{"vscode_debug_port": -5}`), 0600); err != nil {
+			t.Fatalf("failed to write test config: %v", err)
+		}
+
+		cfg, err := LoadConfig()
+		if err != nil {
+			t.Fatalf("LoadConfig returned error: %v", err)
+		}
+		if cfg.GetVSCodeDebugPort() != DefaultVSCodeDebugPort {
+			t.Errorf("expected default vscode_debug_port %d, got %d", DefaultVSCodeDebugPort, cfg.GetVSCodeDebugPort())
+		}
+	})
+}
