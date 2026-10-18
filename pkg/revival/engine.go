@@ -183,7 +183,9 @@ func (e *Engine) executeDesktopRevival(intent *RevivalIntent) error {
 		return nil
 	}
 
-	return e.CDPTrigger.TriggerDesktopContinuation(intent.RootConversationID, prompt, 30*time.Second)
+	// Pass IntentID so the CDP trigger arbitrates on the same in-page dedupe key
+	// the injected auto-revival loop uses — exactly one resume prompt per intent.
+	return e.CDPTrigger.TriggerDesktopContinuation(intent.RootConversationID, prompt, intent.IntentID, 30*time.Second)
 }
 
 func (e *Engine) executeCLIRevival(intent *RevivalIntent) error {

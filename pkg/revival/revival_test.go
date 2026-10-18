@@ -351,7 +351,7 @@ func TestCDPTrigger_MockExecution(t *testing.T) {
 		}, nil
 	}
 
-	err := cdp.TriggerDesktopContinuation("test-convo-id", "Continue work", 2*time.Second)
+	err := cdp.TriggerDesktopContinuation("test-convo-id", "Continue work", "", 2*time.Second)
 	if err != nil {
 		t.Fatalf("expected successful continuation trigger, got error: %v", err)
 	}
@@ -368,7 +368,7 @@ func TestCDPTrigger_Timeout(t *testing.T) {
 		return 9222, []gui.DevToolsTarget{}, nil
 	}
 
-	err := cdp.TriggerDesktopContinuation("test-convo-id", "Continue work", 200*time.Millisecond)
+	err := cdp.TriggerDesktopContinuation("test-convo-id", "Continue work", "", 200*time.Millisecond)
 	if err == nil {
 		t.Fatalf("expected timeout error, got nil")
 	}

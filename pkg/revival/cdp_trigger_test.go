@@ -45,7 +45,7 @@ func TestCDPTrigger_ScriptContent_HardenedDispatch(t *testing.T) {
 		},
 	}
 
-	err := trigger.TriggerDesktopContinuation(convID, prompt, 2*time.Second)
+	err := trigger.TriggerDesktopContinuation(convID, prompt, "intent-hardened-dispatch", 2*time.Second)
 	if err != nil {
 		t.Fatalf("TriggerDesktopContinuation failed: %v", err)
 	}
@@ -119,6 +119,63 @@ func TestCDPTrigger_ScriptContent_HardenedDispatch(t *testing.T) {
 	}
 }
 
+// TestCDPTrigger_SharedIntentKeyArbitration is the regression guard for the
+// "resume prompt sent twice after app restart" defect.
+//
+// Two independent dispatchers observe the same persisted revival intent after a
+// relaunch: this Go-side CDP trigger and the injected in-page auto-revival loop
+// (pkg/enhancements -> checkAndExecuteConversationRevival). Arbitration happens
+// through the page-global window.__swissDispatchedIntents map, so both MUST use
+// the same key. The CDP trigger previously used a private "cdp-<conversationID>"
+// namespace, so neither dispatcher ever suppressed the other: one copy was sent
+// immediately and the IDE queued the second behind the running turn.
+func TestCDPTrigger_SharedIntentKeyArbitration(t *testing.T) {
+	convID := "aabbccdd-1122-3344-5566-778899aabbcc"
+	prompt := "Please continue ongoing tasks and subagents."
+
+	cases := []struct {
+		name     string
+		intentID string
+		wantKey  string
+	}{
+		{"persisted intent id wins (matches pending.intent_id in the injected loop)", "intent-1750000000000000000", "intent-1750000000000000000"},
+		{"no intent id falls back to the injected loop's auto-revive key", "", "auto-revive-" + convID},
+	}
+
+	for _, tc := range cases {
+		var capturedScript string
+		trigger := &CDPTrigger{
+			CustomPort: 9222,
+			TargetFinder: func(port int) (int, []gui.DevToolsTarget, error) {
+				return port, []gui.DevToolsTarget{
+					{
+						ID:                   "target-1",
+						Title:                "Antigravity",
+						Type:                 "page",
+						URL:                  "http://127.0.0.1:9222/c/" + convID,
+						WebSocketDebuggerURL: "ws://127.0.0.1:9222/devtools/page/target-1",
+					},
+				}, nil
+			},
+			ScriptExecutor: func(wsURL, expression string) (map[string]interface{}, error) {
+				capturedScript = expression
+				return map[string]interface{}{"status": "already_sent", "ready": true, "success": true}, nil
+			},
+		}
+
+		if err := trigger.TriggerDesktopContinuation(convID, prompt, tc.intentID, 2*time.Second); err != nil {
+			t.Fatalf("%s: TriggerDesktopContinuation failed: %v", tc.name, err)
+		}
+		wantAssignment := fmt.Sprintf("const intentKey = %q;", tc.wantKey)
+		if !strings.Contains(capturedScript, wantAssignment) {
+			t.Errorf("%s: expected generated script to contain %s", tc.name, wantAssignment)
+		}
+		if strings.Contains(capturedScript, "cdp-") {
+			t.Errorf("%s: generated script must not use the legacy private 'cdp-' key namespace", tc.name)
+		}
+	}
+}
+
 // TestCDPTrigger_RetryOnSendTimeout verifies that when an initial send attempt times out
 // (e.g. editor is still holding text and send button didn't trigger immediately),
 // TriggerDesktopContinuation does NOT prematurely terminate with success or set the intent,
@@ -160,7 +217,7 @@ func TestCDPTrigger_RetryOnSendTimeout(t *testing.T) {
 		},
 	}
 
-	err := trigger.TriggerDesktopContinuation(convID, prompt, 3*time.Second)
+	err := trigger.TriggerDesktopContinuation(convID, prompt, "intent-retry-on-timeout", 3*time.Second)
 	if err != nil {
 		t.Fatalf("expected retry to succeed on 2nd attempt, got error: %v", err)
 	}
@@ -198,7 +255,7 @@ func TestCDPTrigger_UserDraftProtection(t *testing.T) {
 		},
 	}
 
-	err := trigger.TriggerDesktopContinuation(convID, prompt, 2*time.Second)
+	err := trigger.TriggerDesktopContinuation(convID, prompt, "intent-user-draft-protection", 2*time.Second)
 	if err != nil {
 		t.Fatalf("expected user_draft_in_progress to complete cleanly, got error: %v", err)
 	}

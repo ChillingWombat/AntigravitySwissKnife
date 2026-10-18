@@ -51,9 +51,38 @@ func NewCDPTrigger(customPort int) *CDPTrigger {
 	}
 }
 
+// DedupeKey returns the single arbitration key shared by every resume-prompt
+// dispatcher that runs inside the IDE page.
+//
+// Two independent dispatchers can observe the same persisted revival intent
+// after a relaunch: this Go-side CDP trigger, and the injected in-page
+// auto-revival loop (pkg/enhancements, `checkAndExecuteConversationRevival`).
+// Both record their dispatch in the same page-global map
+// `window.__swissDispatchedIntents`, so BOTH must derive the key the same way,
+// otherwise the second dispatcher injects the prompt again (duplicate
+// submission that the IDE then queues behind the running turn).
+//
+// The in-page loop uses `pending.intent_id || "auto-revive-" + conversationID`;
+// this helper mirrors that contract exactly.
+func DedupeKey(intentID, cascadeID string) string {
+	if key := strings.TrimSpace(intentID); key != "" {
+		return key
+	}
+	clean := strings.TrimPrefix(strings.TrimSpace(cascadeID), "/c/")
+	if clean == "" {
+		return ""
+	}
+	return "auto-revive-" + clean
+}
+
 // TriggerDesktopContinuation connects to the IDE via CDP, navigates to the conversation if needed,
 // and submits the continuation prompt to Lexical editor.
-func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string, timeout time.Duration) error {
+//
+// intentID is the persisted RevivalIntent.IntentID and doubles as the shared
+// in-page dedupe key (see DedupeKey). Pass an empty intentID only for callers
+// that have no persisted intent; the key then falls back to
+// "auto-revive-<cascadeID>", which is exactly what the in-page dispatcher uses.
+func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string, intentID string, timeout time.Duration) error {
 	if (gui.IsTestExecution() || os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1" || core.IsRunningTests()) && c.CustomPort == 0 {
 		return nil
 	}
@@ -70,8 +99,13 @@ func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string,
 	cleanCascadeID := strings.TrimPrefix(strings.TrimSpace(cascadeID), "/c/")
 	targetPath := "/c/" + cleanCascadeID
 	deadline := time.Now().Add(timeout)
-	// Deterministic dedupe key per cascade intent to prevent duplicate prompts across retries
-	intentKey := fmt.Sprintf("cdp-%s", cleanCascadeID)
+	// Deterministic dedupe key per cascade intent. It is deliberately the SAME
+	// key the injected in-page auto-revival loop uses for this intent, so the
+	// two dispatchers can never both submit the resume prompt.
+	intentKey := DedupeKey(intentID, cleanCascadeID)
+	if intentKey == "" {
+		return fmt.Errorf("cannot derive a dedupe key for cascadeID %q", cascadeID)
+	}
 
 	script := fmt.Sprintf(`(async () => {
 		try {
@@ -105,7 +139,10 @@ func (c *CDPTrigger) TriggerDesktopContinuation(cascadeID string, prompt string,
 				return { status: "mismatched_target_conversation", ready: false, success: false };
 			}
 
-			// 1.5. Prevent duplicate trigger loops for the exact same intent
+			// 1.5. Prevent duplicate dispatch loops for the exact same intent.
+			// The injected in-page auto-revival loop (pkg/enhancements) arbitrates
+			// on this very same window-global map with the same key, so whichever
+			// dispatcher submits first suppresses the other one inside this page.
 			window.__swissDispatchedIntents = window.__swissDispatchedIntents || {};
 			const intentKey = %q;
 			if (window.__swissDispatchedIntents[intentKey]) {

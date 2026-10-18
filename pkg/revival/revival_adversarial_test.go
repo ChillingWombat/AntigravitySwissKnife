@@ -225,25 +225,39 @@ func TestAdversarial_Store_ConcurrentTTLPruningAndSave(t *testing.T) {
 	}
 }
 
-// TestAdversarial_DeterministicIntentKey verifies that intentKey generated for CDP triggers
-// is strictly deterministic across retries, leading/trailing spaces, and path variations.
+// TestAdversarial_DeterministicIntentKey verifies that the dedupe key used by the CDP
+// trigger is deterministic across retries, spaces and path variations, and that it is the
+// SAME key the injected in-page auto-revival loop derives for the same intent
+// (intent_id when present, "auto-revive-<conversationID>" otherwise).
 func TestAdversarial_DeterministicIntentKey(t *testing.T) {
 	testCases := []struct {
+		intentID       string
 		inputCascadeID string
 		expectedKey    string
 	}{
-		{"44556677-8899-aabb-ccdd-eeff00112233", "cdp-44556677-8899-aabb-ccdd-eeff00112233"},
-		{"/c/44556677-8899-aabb-ccdd-eeff00112233", "cdp-44556677-8899-aabb-ccdd-eeff00112233"},
-		{" /c/44556677-8899-aabb-ccdd-eeff00112233 ", "cdp-44556677-8899-aabb-ccdd-eeff00112233"},
-		{"44556677-8899-aabb-ccdd-eeff00112233 ", "cdp-44556677-8899-aabb-ccdd-eeff00112233"},
+		{"", "44556677-8899-aabb-ccdd-eeff00112233", "auto-revive-44556677-8899-aabb-ccdd-eeff00112233"},
+		{"", "/c/44556677-8899-aabb-ccdd-eeff00112233", "auto-revive-44556677-8899-aabb-ccdd-eeff00112233"},
+		{"", " /c/44556677-8899-aabb-ccdd-eeff00112233 ", "auto-revive-44556677-8899-aabb-ccdd-eeff00112233"},
+		{"", "44556677-8899-aabb-ccdd-eeff00112233 ", "auto-revive-44556677-8899-aabb-ccdd-eeff00112233"},
+		// A persisted intent always wins: this is the key the injected in-page loop
+		// reads from `pending.intent_id`, so both dispatchers must agree on it.
+		{"intent-1750000000000000000", "44556677-8899-aabb-ccdd-eeff00112233", "intent-1750000000000000000"},
+		{"  intent-spaced  ", "/c/44556677-8899-aabb-ccdd-eeff00112233", "intent-spaced"},
 	}
 
 	for _, tc := range testCases {
-		cleanID := strings.TrimPrefix(strings.TrimSpace(tc.inputCascadeID), "/c/")
-		generatedKey := fmt.Sprintf("cdp-%s", cleanID)
+		generatedKey := DedupeKey(tc.intentID, tc.inputCascadeID)
 		if generatedKey != tc.expectedKey {
-			t.Errorf("input %q: got key %q, want %q", tc.inputCascadeID, generatedKey, tc.expectedKey)
+			t.Errorf("intentID %q cascadeID %q: got key %q, want %q", tc.intentID, tc.inputCascadeID, generatedKey, tc.expectedKey)
 		}
+		if strings.HasPrefix(generatedKey, "cdp-") {
+			t.Errorf("intentID %q cascadeID %q: legacy private 'cdp-' key namespace must not be used, got %q", tc.intentID, tc.inputCascadeID, generatedKey)
+		}
+	}
+
+	// An empty cascade ID without an intent cannot produce a key.
+	if key := DedupeKey("", "  "); key != "" {
+		t.Errorf("expected empty key for empty cascadeID, got %q", key)
 	}
 }
 
@@ -452,7 +466,7 @@ func TestAdversarial_CDPScript_SyntaxAndEscaping(t *testing.T) {
 	for _, p := range adversarialPrompts {
 		cleanCascadeID := "test-conv-uuid"
 		targetPath := "/c/" + cleanCascadeID
-		intentKey := fmt.Sprintf("cdp-%s", cleanCascadeID)
+		intentKey := DedupeKey("", cleanCascadeID)
 
 		// Exact script template from cdp_trigger.go
 		script := fmt.Sprintf(`(async () => {
@@ -530,6 +544,7 @@ func TestAdversarial_InvalidAndMaliciousConversationIDs(t *testing.T) {
 func TestAdversarial_CDPScript_HardenedSimulation(t *testing.T) {
 	convID := "77889900-aabb-ccdd-eeff-001122334455"
 	prompt := "Please continue ongoing tasks and subagents."
+	intentID := "intent-adversarial-shared-key"
 
 	var capturedScript string
 	trigger := &CDPTrigger{
@@ -551,7 +566,7 @@ func TestAdversarial_CDPScript_HardenedSimulation(t *testing.T) {
 		},
 	}
 
-	_ = trigger.TriggerDesktopContinuation(convID, prompt, 1*time.Second)
+	_ = trigger.TriggerDesktopContinuation(convID, prompt, intentID, 1*time.Second)
 	if capturedScript == "" {
 		t.Fatalf("failed to capture CDP script")
 	}
@@ -667,7 +682,7 @@ function createDOMHarness(options = {}) {
 		location: doc.location,
 		document: doc,
 		getSelection: doc.getSelection,
-		__swissDispatchedIntents: {},
+		__swissDispatchedIntents: Object.assign({}, options.dispatchedIntents || {}),
 		Event, CustomEvent, InputEvent, KeyboardEvent, MouseEvent, PointerEvent,
 		setTimeout,
 		clearTimeout,
@@ -696,7 +711,7 @@ async function run() {
 		if (pointerEvents.length === 0) {
 			throw new Error("Case 1 failed: sendBtn did not receive pointerdown!");
 		}
-		const intentKey = "cdp-%s";
+		const intentKey = %q;
 		if (!harness.win.__swissDispatchedIntents[intentKey]) {
 			throw new Error("Case 1 failed: intent was not recorded in __swissDispatchedIntents after successful send!");
 		}
@@ -712,7 +727,7 @@ async function run() {
 		if (result.success || result.status !== 'send_button_timeout') {
 			throw new Error("Case 2 failed: expected send_button_timeout, got " + JSON.stringify(result));
 		}
-		const intentKey = "cdp-%s";
+		const intentKey = %q;
 		if (harness.win.__swissDispatchedIntents[intentKey]) {
 			throw new Error("Case 2 failed: intent MUST NOT be recorded in __swissDispatchedIntents when send timed out!");
 		}
@@ -730,6 +745,28 @@ async function run() {
 		}
 	}
 
+	// Case 4: The injected in-page auto-revival loop (pkg/enhancements) already dispatched
+	// this exact intent inside the same page. Both dispatchers arbitrate on the shared
+	// window.__swissDispatchedIntents map, so the CDP trigger must bail out WITHOUT
+	// injecting the prompt again nor clicking send — otherwise the IDE receives the
+	// resume prompt twice and queues the duplicate behind the running turn.
+	{
+		const harness = createDOMHarness({ dispatchedIntents: { %q: Date.now() } });
+		const fn = new Function('window', 'document', 'Event', 'CustomEvent', 'InputEvent', 'KeyboardEvent', 'MouseEvent', 'PointerEvent', 'setTimeout', 'clearTimeout', 'Promise',
+			'return ' + %q);
+		const result = await fn(harness.win, harness.doc, harness.win.Event, harness.win.CustomEvent, harness.win.InputEvent, harness.win.KeyboardEvent, harness.win.MouseEvent, harness.win.PointerEvent, setTimeout, clearTimeout, Promise);
+
+		if (!result.success || result.status !== 'already_sent') {
+			throw new Error("Case 4 failed: expected already_sent because the shared in-page key was already dispatched, got " + JSON.stringify(result));
+		}
+		if (harness.eventsDispatched.some(e => e.target === 'sendBtn')) {
+			throw new Error("Case 4 failed: the send button must not be touched when the intent was already dispatched in this page!");
+		}
+		if (harness.editor.innerText !== "") {
+			throw new Error("Case 4 failed: the editor must not be re-injected, got " + JSON.stringify(harness.editor.innerText));
+		}
+	}
+
 	console.log("All Node.js DOM simulation tests passed successfully");
 }
 
@@ -737,7 +774,7 @@ run().catch(err => {
 	console.error(err);
 	process.exit(1);
 });
-`, convID, capturedScript, convID, capturedScript, convID, capturedScript)
+`, convID, capturedScript, intentID, capturedScript, intentID, capturedScript, intentID, capturedScript)
 
 	scriptPath := filepath.Join(t.TempDir(), "sim_harness.js")
 	if err := os.WriteFile(scriptPath, []byte(nodeHarness), 0644); err != nil {
