@@ -78,7 +78,7 @@
         "nsis"
       ],
       "signAndEditExecutable": false,
-      "icon": "assets/logo.png",
+      "icon": "assets/icons/icon.ico",
       "extraResources": [
         {
           "from": "bin/swiss.exe",

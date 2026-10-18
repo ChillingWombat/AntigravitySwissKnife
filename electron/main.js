@@ -15,6 +15,11 @@ const {
   buildTrayMenuTemplate,
 } = require('./tray-account-menu');
 
+// Windows taskbar/notification identity: must match build.appId in package.json
+if (app && typeof app.setAppUserModelId === 'function') {
+  app.setAppUserModelId('com.antigravity.swiss-knife');
+}
+
 // Only append no-sandbox switches if explicitly requested via environment variable
 if (process.platform === 'linux' && process.env.ELECTRON_NO_SANDBOX === '1' && app && app.commandLine) {
   app.commandLine.appendSwitch('no-sandbox');
@@ -259,6 +264,13 @@ function getIconPath() {
 }
 
 function getWindowIcon() {
+  // Windows prefers a multi-size .ico for window/taskbar icons
+  if (process.platform === 'win32') {
+    const icoPath = path.join(__dirname, '..', 'assets', 'icons', 'icon.ico');
+    if (fs.existsSync(icoPath)) {
+      return icoPath;
+    }
+  }
   const iconPath = path.join(__dirname, '..', 'assets', 'icons', 'icon_256x256.png');
   if (fs.existsSync(iconPath)) {
     return iconPath;
