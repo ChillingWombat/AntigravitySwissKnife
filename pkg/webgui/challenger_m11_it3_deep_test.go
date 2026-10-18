@@ -2,6 +2,7 @@ package webgui
 
 import (
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -85,6 +86,9 @@ func TestChallenger_M11_It3_SpecificRequirements(t *testing.T) {
 
 	// Item 3: 8.3 aliasing: C:\Users\RUNNER~1 correctly resolves and matches when runneradmin exists
 	t.Run("8.3 aliasing RUNNER~1 and runneradmin", func(t *testing.T) {
+		if runtime.GOOS != "windows" {
+			t.Skip("8.3 short-name aliases are an NTFS/Windows feature")
+		}
 		target := `C:\Users\runneradmin`
 		probe := `C:\Users\RUNNER~1\AppData\Local\Temp`
 
