@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNormalizeVertexAIModel(t *testing.T) {
@@ -353,6 +354,310 @@ func TestBuildVertexAIEndpoint_ClaudeRegionRemap(t *testing.T) {
 	epGemini := BuildVertexAIEndpoint("us-central1", "test-proj", "gemini-2.5-flash")
 	if !strings.Contains(epGemini, "https://us-central1-aiplatform.googleapis.com") {
 		t.Errorf("expected Gemini in us-central1 to remain in us-central1, got %s", epGemini)
+	}
+}
+
+func TestBuildVertexAIEndpoint_GlobalLocation(t *testing.T) {
+	// The global location must use the region-less host and /locations/global/ path.
+	epGlobal := BuildVertexAIEndpoint("global", "chillingwombat", "gemini-4-argon")
+	expectedGlobal := "https://aiplatform.googleapis.com/v1/projects/chillingwombat/locations/global/publishers/google/models/gemini-4-argon:generateContent"
+	if epGlobal != expectedGlobal {
+		t.Errorf("BuildVertexAIEndpoint(global) got %q; want %q", epGlobal, expectedGlobal)
+	}
+
+	// Location matching must be case-insensitive.
+	epGlobalUpper := BuildVertexAIEndpoint("Global", "chillingwombat", "gemini-4-argon")
+	if epGlobalUpper != expectedGlobal {
+		t.Errorf("BuildVertexAIEndpoint(Global) got %q; want %q", epGlobalUpper, expectedGlobal)
+	}
+
+	// Claude is NOT available in the global location, so the us-east5 remap must not apply there.
+	epClaudeGlobal := BuildVertexAIEndpoint("global", "test-proj", "claude-3-7-sonnet")
+	expectedClaudeGlobal := "https://aiplatform.googleapis.com/v1/projects/test-proj/locations/global/publishers/anthropic/models/claude-3-7-sonnet@20250219:rawPredict"
+	if epClaudeGlobal != expectedClaudeGlobal {
+		t.Errorf("BuildVertexAIEndpoint(global, claude) got %q; want %q", epClaudeGlobal, expectedClaudeGlobal)
+	}
+
+	// The us/eu multi-regions keep the region-prefixed host and their own location path.
+	epUS := BuildVertexAIEndpoint("us", "test-proj", "gemini-4-argon")
+	expectedUS := "https://us-aiplatform.googleapis.com/v1/projects/test-proj/locations/us/publishers/google/models/gemini-4-argon:generateContent"
+	if epUS != expectedUS {
+		t.Errorf("BuildVertexAIEndpoint(us) got %q; want %q", epUS, expectedUS)
+	}
+	epEU := BuildVertexAIEndpoint("eu", "test-proj", "gemini-4-argon")
+	expectedEU := "https://eu-aiplatform.googleapis.com/v1/projects/test-proj/locations/eu/publishers/google/models/gemini-4-argon:generateContent"
+	if epEU != expectedEU {
+		t.Errorf("BuildVertexAIEndpoint(eu) got %q; want %q", epEU, expectedEU)
+	}
+
+	// Claude in the us multi-region is preserved (remap only applies to us-central1/empty).
+	epClaudeUS := BuildVertexAIEndpoint("us", "test-proj", "claude-3-7-sonnet")
+	if !strings.Contains(epClaudeUS, "https://us-aiplatform.googleapis.com/v1/projects/test-proj/locations/us/publishers/anthropic/") {
+		t.Errorf("expected Claude in us multi-region to stay in us, got %s", epClaudeUS)
+	}
+}
+
+func TestExtractVertexAIRegionFromHost(t *testing.T) {
+	tests := []struct {
+		host        string
+		expectedReg string
+		expectedOK  bool
+	}{
+		{"aiplatform.googleapis.com", "global", true},
+		{"us-central1-aiplatform.googleapis.com", "us-central1", true},
+		{"us-aiplatform.googleapis.com", "us", true},
+		{"eu-aiplatform.googleapis.com", "eu", true},
+		{"US-EAST5-AIPLATFORM.GOOGLEAPIS.COM", "us-east5", true},
+		{"api.openai.com", "", false},
+		{"-aiplatform.googleapis.com", "", false},
+		{"", "", false},
+	}
+	for _, tc := range tests {
+		region, ok := extractVertexAIRegionFromHost(tc.host)
+		if ok != tc.expectedOK || region != tc.expectedReg {
+			t.Errorf("extractVertexAIRegionFromHost(%q) = (%q, %v); want (%q, %v)", tc.host, region, ok, tc.expectedReg, tc.expectedOK)
+		}
+	}
+}
+
+func TestResolveEndpoint_GCPGlobalHost(t *testing.T) {
+	// The region-less global host must resolve to the global location, not us-central1.
+	globalBase := "https://aiplatform.googleapis.com"
+	resolved := ResolveEndpoint(ProviderGCP, globalBase, "gemini-4-argon")
+	expected := "https://aiplatform.googleapis.com/v1/projects//locations/global/publishers/google/models/gemini-4-argon:generateContent"
+	if resolved != expected {
+		t.Errorf("ResolveEndpoint(%q) = %q; want %q", globalBase, resolved, expected)
+	}
+
+	// A us multi-region host resolves to the us location.
+	usBase := "https://us-aiplatform.googleapis.com"
+	resolvedUS := ResolveEndpoint(ProviderGCP, usBase, "gemini-4-argon")
+	expectedUS := "https://us-aiplatform.googleapis.com/v1/projects//locations/us/publishers/google/models/gemini-4-argon:generateContent"
+	if resolvedUS != expectedUS {
+		t.Errorf("ResolveEndpoint(%q) = %q; want %q", usBase, resolvedUS, expectedUS)
+	}
+}
+
+func TestCustomModelValidate_GCP_GlobalRegion(t *testing.T) {
+	// A global-location GCP model must build the region-less endpoint and keep region "global".
+	m := CustomModel{
+		ID:           "gcp-global-1",
+		Name:         "gemini-4-argon",
+		ProviderType: ProviderGCP,
+		GCPProjectID: "chillingwombat",
+		GCPRegion:    "global",
+	}
+	if err := m.Validate(); err != nil {
+		t.Fatalf("Validate failed: %v", err)
+	}
+	if m.GCPRegion != "global" {
+		t.Errorf("expected GCPRegion 'global', got %q", m.GCPRegion)
+	}
+	expected := "https://aiplatform.googleapis.com/v1/projects/chillingwombat/locations/global/publishers/google/models/gemini-4-argon:generateContent"
+	if m.BaseURL != expected {
+		t.Errorf("expected BaseURL %q, got %q", expected, m.BaseURL)
+	}
+
+	// A stale global root-domain BaseURL must be rebuilt to the full global endpoint.
+	mRoot := CustomModel{
+		ID:           "gcp-global-2",
+		Name:         "gemini-4-argon",
+		ProviderType: ProviderGCP,
+		GCPProjectID: "chillingwombat",
+		GCPRegion:    "global",
+		BaseURL:      "https://aiplatform.googleapis.com",
+	}
+	if err := mRoot.Validate(); err != nil {
+		t.Fatalf("Validate failed: %v", err)
+	}
+	if mRoot.BaseURL != expected {
+		t.Errorf("expected root global BaseURL rebuilt to %q, got %q", expected, mRoot.BaseURL)
+	}
+
+	// Claude must NOT be remapped away from a regional location to global, and the
+	// existing us-central1 -> us-east5 remap still applies for regional locations.
+	mClaude := CustomModel{
+		ID:           "gcp-global-3",
+		Name:         "claude-3-7-sonnet",
+		ProviderType: ProviderGCP,
+		GCPProjectID: "chillingwombat",
+		GCPRegion:    "us-central1",
+	}
+	if err := mClaude.Validate(); err != nil {
+		t.Fatalf("Validate failed: %v", err)
+	}
+	if mClaude.GCPRegion != "us-east5" {
+		t.Errorf("expected Claude us-central1 remapped to us-east5, got %q", mClaude.GCPRegion)
+	}
+}
+
+func TestGCPModelNotFoundHint(t *testing.T) {
+	// Regional locations get the global suggestion.
+	if hint := gcpModelNotFoundHint("us-central1"); hint == "" {
+		t.Error("expected a hint for regional locations on HTTP 404")
+	} else if !strings.Contains(hint, "global") {
+		t.Errorf("expected hint to suggest the global location, got %q", hint)
+	}
+	// The global location itself gets no hint.
+	if hint := gcpModelNotFoundHint("global"); hint != "" {
+		t.Errorf("expected no hint when already using the global location, got %q", hint)
+	}
+}
+
+func TestStore_RecordModelTestResult(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	if err := store.SaveModel(CustomModel{
+		ID:           "gcp-argon-1",
+		Name:         "gemini-4-argon",
+		ProviderType: ProviderGCP,
+		GCPProjectID: "proj",
+		GCPRegion:    "us-central1",
+	}); err != nil {
+		t.Fatalf("SaveModel failed: %v", err)
+	}
+
+	// Initially the model has never been tested.
+	m, err := store.GetModel("gcp-argon-1")
+	if err != nil {
+		t.Fatalf("GetModel failed: %v", err)
+	}
+	if m.LastTestSuccess != nil {
+		t.Errorf("expected LastTestSuccess=nil before any test, got %v", *m.LastTestSuccess)
+	}
+
+	// Record a failed test and verify persistence across a reload.
+	if err := store.RecordModelTestResult("gcp-argon-1", false); err != nil {
+		t.Fatalf("RecordModelTestResult failed: %v", err)
+	}
+	reloaded, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore (reload) failed: %v", err)
+	}
+	m2, err := reloaded.GetModel("gcp-argon-1")
+	if err != nil {
+		t.Fatalf("GetModel after reload failed: %v", err)
+	}
+	if m2.LastTestSuccess == nil || *m2.LastTestSuccess {
+		t.Errorf("expected persisted LastTestSuccess=false after failed test, got %v", m2.LastTestSuccess)
+	}
+	if m2.LastTestedAt == "" {
+		t.Error("expected LastTestedAt to be persisted")
+	}
+
+	// Recording for an unknown model must fail.
+	if err := store.RecordModelTestResult("does-not-exist", true); err == nil {
+		t.Error("expected error recording test result for unknown model")
+	}
+}
+
+func TestStore_DefaultModelGateOnFailedLastTest(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	base := CustomModel{
+		ID:           "gcp-argon-1",
+		Name:         "gemini-4-argon",
+		ProviderType: ProviderGCP,
+		GCPProjectID: "proj",
+		GCPRegion:    "us-central1",
+	}
+	if err := store.SaveModel(base); err != nil {
+		t.Fatalf("SaveModel failed: %v", err)
+	}
+
+	// A model that has never been tested may still be promoted to default.
+	neverTested := base
+	neverTested.IsDefault = true
+	if err := store.SaveModel(neverTested); err != nil {
+		t.Fatalf("expected never-tested model to be promotable, got: %v", err)
+	}
+	if m, _ := store.GetModel("gcp-argon-1"); m == nil || !m.IsDefault {
+		t.Fatal("precondition failed: model should be default")
+	}
+
+	// The failed test is recorded afterwards; plain field edits must still succeed
+	// because the model is already the default (no promotion happening).
+	if err := store.RecordModelTestResult("gcp-argon-1", false); err != nil {
+		t.Fatalf("RecordModelTestResult failed: %v", err)
+	}
+	toggle := base
+	toggle.IsDefault = true
+	toggle.DisplayName = "Gemini 4 Argon (edited)"
+	if err := store.SaveModel(toggle); err != nil {
+		t.Fatalf("expected edit of already-default model to succeed, got: %v", err)
+	}
+
+	// Clear the default flag, then a promotion must be refused while the last test failed.
+	if err := store.ClearDefaultFlags(); err != nil {
+		t.Fatalf("ClearDefaultFlags failed: %v", err)
+	}
+	promote := base
+	promote.IsDefault = true
+	if err := store.SaveModel(promote); err == nil {
+		t.Fatal("expected error promoting a model whose last test failed")
+	}
+	if m, _ := store.GetModel("gcp-argon-1"); m != nil && m.IsDefault {
+		t.Error("model must not be marked default after a refused promotion")
+	}
+
+	// A stale failed-test payload must not override a newer successful test.
+	if err := store.RecordModelTestResult("gcp-argon-1", true); err != nil {
+		t.Fatalf("RecordModelTestResult (success) failed: %v", err)
+	}
+	staleFailure := base
+	staleFailure.IsDefault = true
+	failed := false
+	staleFailure.LastTestSuccess = &failed
+	staleFailure.LastTestedAt = "2020-01-01T00:00:00Z"
+	if err := store.SaveModel(staleFailure); err != nil {
+		t.Fatalf("expected stale failed-test payload to be ignored in favor of the newer stored success, got: %v", err)
+	}
+
+	// A fresh failed test supplied with the save payload must block the promotion.
+	if err := store.ClearDefaultFlags(); err != nil {
+		t.Fatalf("ClearDefaultFlags failed: %v", err)
+	}
+	freshFailure := base
+	freshFailure.IsDefault = true
+	freshFailure.LastTestSuccess = &failed
+	freshFailure.LastTestedAt = time.Now().UTC().Add(time.Minute).Format(time.RFC3339)
+	if err := store.SaveModel(freshFailure); err == nil {
+		t.Fatal("expected error promoting a model with a fresh failed test in the payload")
+	}
+}
+
+func TestStore_FindModelByIdOrName(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	if err := store.SaveModel(CustomModel{
+		ID:           "gcp-argon-1",
+		Name:         "gemini-4-argon",
+		ProviderType: ProviderGCP,
+		GCPProjectID: "proj",
+		GCPRegion:    "us-central1",
+	}); err != nil {
+		t.Fatalf("SaveModel failed: %v", err)
+	}
+
+	byID, err := store.FindModelByIdOrName("gcp-argon-1")
+	if err != nil || byID == nil || byID.Name != "gemini-4-argon" {
+		t.Fatalf("FindModelByIdOrName by ID failed: %v", err)
+	}
+	byName, err := store.FindModelByIdOrName("gemini-4-argon")
+	if err != nil || byName == nil || byName.ID != "gcp-argon-1" {
+		t.Fatalf("FindModelByIdOrName by name failed: %v", err)
+	}
+	if _, err := store.FindModelByIdOrName("missing"); err == nil {
+		t.Error("expected error for unknown model identifier")
 	}
 }
 

@@ -395,6 +395,8 @@ export interface CustomModel {
   price_source?: string
   price_updated_at?: string
   is_default: boolean
+  last_test_success?: boolean
+  last_tested_at?: string
   context_window?: number
   supports_thinking?: boolean
   thinking_levels?: string[]

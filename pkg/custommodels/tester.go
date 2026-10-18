@@ -69,11 +69,10 @@ func (t *Tester) TestEndpoint(model CustomModel) (*TestResult, error) {
 				projectID = rem[:slash]
 			}
 		}
-		if region == "" && strings.Contains(endpoint, "-aiplatform.googleapis.com") {
+		if region == "" {
 			if u, err := url.Parse(endpoint); err == nil {
-				host := u.Hostname()
-				if idx := strings.Index(host, "-aiplatform.googleapis.com"); idx != -1 {
-					region = host[:idx]
+				if extracted, ok := extractVertexAIRegionFromHost(u.Hostname()); ok {
+					region = extracted
 				}
 			}
 		}
@@ -312,12 +311,14 @@ func ResolveEndpoint(providerType ProviderType, rawBaseURL string, modelName str
 
 	switch providerType {
 	case ProviderGCP:
-		region := "us-central1"
+		region := ""
 		if u, err := url.Parse(baseURL); err == nil && u.Hostname() != "" {
-			host := u.Hostname()
-			if idx := strings.Index(host, "-aiplatform.googleapis.com"); idx != -1 {
-				region = host[:idx]
+			if extracted, ok := extractVertexAIRegionFromHost(u.Hostname()); ok {
+				region = extracted
 			}
+		}
+		if region == "" {
+			region = "us-central1"
 		}
 		projectID := ""
 		if idx := strings.Index(baseURL, "/projects/"); idx != -1 {
@@ -410,4 +411,3 @@ func ResolveEndpoint(providerType ProviderType, rawBaseURL string, modelName str
 		return baseURL + "/v1/chat/completions"
 	}
 }
-

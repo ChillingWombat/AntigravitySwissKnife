@@ -38,8 +38,6 @@ func NewStore(configDir string) (*Store, error) {
 		return nil, err
 	}
 
-
-
 	return s, nil
 }
 
@@ -123,6 +121,7 @@ func (s *Store) GetConfig() Config {
 		mCopy.InputPricePerM = cloneFloatPtr(m.InputPricePerM)
 		mCopy.CachedInputPricePerM = cloneFloatPtr(m.CachedInputPricePerM)
 		mCopy.OutputPricePerM = cloneFloatPtr(m.OutputPricePerM)
+		mCopy.LastTestSuccess = cloneBoolPtr(m.LastTestSuccess)
 		modelsCopy[i] = mCopy
 	}
 
@@ -179,6 +178,7 @@ func (s *Store) ListModels() []CustomModel {
 		mCopy.InputPricePerM = cloneFloatPtr(m.InputPricePerM)
 		mCopy.CachedInputPricePerM = cloneFloatPtr(m.CachedInputPricePerM)
 		mCopy.OutputPricePerM = cloneFloatPtr(m.OutputPricePerM)
+		mCopy.LastTestSuccess = cloneBoolPtr(m.LastTestSuccess)
 		res[i] = mCopy
 	}
 	return res
@@ -197,10 +197,52 @@ func (s *Store) GetModel(id string) (*CustomModel, error) {
 			mCopy.InputPricePerM = cloneFloatPtr(m.InputPricePerM)
 			mCopy.CachedInputPricePerM = cloneFloatPtr(m.CachedInputPricePerM)
 			mCopy.OutputPricePerM = cloneFloatPtr(m.OutputPricePerM)
+			mCopy.LastTestSuccess = cloneBoolPtr(m.LastTestSuccess)
 			return &mCopy, nil
 		}
 	}
 	return nil, fmt.Errorf("custom model with ID %q not found", id)
+}
+
+// FindModelByIdOrName retrieves a custom model by ID or by model name.
+func (s *Store) FindModelByIdOrName(idOrName string) (*CustomModel, error) {
+	key := strings.TrimSpace(idOrName)
+	if key == "" {
+		return nil, fmt.Errorf("empty model identifier")
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, m := range s.config.Models {
+		if m.ID == key || m.Name == key {
+			mCopy := m
+			mCopy.QuotaFraction = cloneFloatPtr(m.QuotaFraction)
+			mCopy.BudgetCapValue = cloneFloatPtr(m.BudgetCapValue)
+			mCopy.InputPricePerM = cloneFloatPtr(m.InputPricePerM)
+			mCopy.CachedInputPricePerM = cloneFloatPtr(m.CachedInputPricePerM)
+			mCopy.OutputPricePerM = cloneFloatPtr(m.OutputPricePerM)
+			mCopy.LastTestSuccess = cloneBoolPtr(m.LastTestSuccess)
+			return &mCopy, nil
+		}
+	}
+	return nil, fmt.Errorf("custom model %q not found", key)
+}
+
+// RecordModelTestResult persists the outcome of the latest connectivity test for a model
+// so the default-model gate can refuse models whose last test failed.
+func (s *Store) RecordModelTestResult(id string, success bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i := range s.config.Models {
+		if s.config.Models[i].ID == id {
+			ok := success
+			s.config.Models[i].LastTestSuccess = &ok
+			s.config.Models[i].LastTestedAt = time.Now().UTC().Format(time.RFC3339)
+			return s.saveLocked()
+		}
+	}
+	return fmt.Errorf("custom model with ID %q not found", id)
 }
 
 // SaveModel inserts or updates a custom model and synchronizes its pricing record.
@@ -222,6 +264,29 @@ func (s *Store) SaveModel(m CustomModel) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Resolve the stored record (if any) so fresh last-test state from the caller can be
+	// merged with the persisted one and the default-model gate can be enforced.
+	var existing *CustomModel
+	for i := range s.config.Models {
+		if s.config.Models[i].ID == m.ID {
+			stored := s.config.Models[i]
+			existing = &stored
+			break
+		}
+	}
+	if existing != nil {
+		// Prefer whichever last-test record is newer; fall back to the stored one when the
+		// incoming payload carries none (e.g. plain field edits from the UI).
+		if m.LastTestedAt == "" || (existing.LastTestedAt != "" && existing.LastTestedAt > m.LastTestedAt) {
+			m.LastTestSuccess = cloneBoolPtr(existing.LastTestSuccess)
+			m.LastTestedAt = existing.LastTestedAt
+		}
+		// Refuse to promote a model whose latest connectivity test failed to the default model.
+		if m.IsDefault && !existing.IsDefault && m.LastTestSuccess != nil && !*m.LastTestSuccess {
+			return fmt.Errorf("cannot set %q as the default model: its last connectivity test failed", m.Name)
+		}
+	}
 
 	for _, existing := range s.config.Models {
 		if existing.ID == m.ID {
@@ -473,4 +538,3 @@ func (s *Store) SetThinkingLevel(modelID string, level string) error {
 	}
 	return s.saveLocked()
 }
-

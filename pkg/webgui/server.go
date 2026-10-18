@@ -1899,6 +1899,15 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if val, ok := p["default_custom_model"].(string); ok {
+				// Refuse to promote a custom model whose latest connectivity test failed.
+				if val != "" && s.getCustomModelsStore() != nil {
+					if target, findErr := s.customModelsStore.FindModelByIdOrName(val); findErr == nil && target != nil {
+						if target.LastTestSuccess != nil && !*target.LastTestSuccess {
+							http.Error(w, fmt.Sprintf("cannot set %q as the default custom model: its last connectivity test failed", val), http.StatusBadRequest)
+							return
+						}
+					}
+				}
 				c.DefaultCustomModel = val
 				if val == "" && s.getCustomModelsStore() != nil {
 					_ = s.customModelsStore.ClearDefaultFlags()
@@ -3015,6 +3024,12 @@ func (s *Server) handleCustomModelTest(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, res)
 		return
+	}
+	// Persist the latest test outcome so the default-model gate can refuse
+	// models whose most recent connectivity test failed. Draft models that are
+	// not stored yet simply have nothing to record.
+	if m.ID != "" && s.getCustomModelsStore() != nil {
+		_ = s.customModelsStore.RecordModelTestResult(m.ID, res.Success)
 	}
 	writeJSON(w, res)
 }

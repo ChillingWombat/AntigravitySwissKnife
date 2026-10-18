@@ -63,6 +63,8 @@ type CustomModel struct {
 	PriceSource          string       `json:"price_source,omitempty"`
 	PriceUpdatedAt       string       `json:"price_updated_at,omitempty"`
 	IsDefault            bool         `json:"is_default"`
+	LastTestSuccess      *bool        `json:"last_test_success,omitempty"` // nil = never tested
+	LastTestedAt         string       `json:"last_tested_at,omitempty"`
 	ContextWindow        int          `json:"context_window,omitempty"`
 	SupportsThinking     bool         `json:"supports_thinking,omitempty"`
 	ThinkingLevels       []string     `json:"thinking_levels,omitempty"` // e.g. ["off", "low", "medium", "high"]
@@ -124,7 +126,7 @@ func (m *CustomModel) Validate() error {
 			}
 		}
 		m.GCPRegion = region
-		if strings.TrimSpace(m.BaseURL) == "" || strings.Contains(m.BaseURL, "-aiplatform.googleapis.com") {
+		if strings.TrimSpace(m.BaseURL) == "" || strings.Contains(m.BaseURL, "aiplatform.googleapis.com") {
 			m.BaseURL = BuildVertexAIEndpoint(region, m.GCPProjectID, m.Name)
 		}
 		if !m.QuotaManualOverride && (m.QuotaType == "" || m.QuotaType == QuotaTypeNA || m.QuotaType == QuotaNone || m.QuotaType == QuotaTypeQuota) {

@@ -67,6 +67,8 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
     assert.ok(typesContent.includes('gcp_project_id?: string'), 'CustomModel must include gcp_project_id')
     assert.ok(typesContent.includes('gcp_region?: string'), 'CustomModel must include gcp_region')
     assert.ok(typesContent.includes('gcp_service_account_key?: string'), 'CustomModel must include gcp_service_account_key')
+    assert.ok(typesContent.includes('last_test_success?: boolean'), 'CustomModel must include last_test_success for the default-model gate')
+    assert.ok(typesContent.includes('last_tested_at?: string'), 'CustomModel must include last_tested_at for the default-model gate')
   })
 
   it('GCP modal includes JSON key parsing, region selection, manual Model ID, Model Garden link, and updated instructions', () => {
@@ -121,8 +123,54 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
 
   it('enforces manual Model ID entry with zero preset buttons or dropdowns in GCP modal', () => {
     // Model ID input is an input field linking out to Google Cloud Model Garden
-    assert.ok(pageContent.includes('placeholder="Enter Model ID (e.g. gemini-2.5-flash or meta/llama-3.3-70b-instruct)"'))
+    assert.ok(pageContent.includes('placeholder="Enter Model ID (e.g. gemini-4-argon or meta/llama-3.3-70b-instruct)"'))
     assert.ok(pageContent.includes('console.cloud.google.com/agent-platform/model-garden'))
+  })
+
+  it('GCP location dropdown offers global, us and eu multi-regions alongside regional locations', () => {
+    assert.ok(pageContent.includes('<option value="global">'), 'Location dropdown must offer the global location')
+    assert.ok(pageContent.includes('<option value="us">'), 'Location dropdown must offer the us multi-region')
+    assert.ok(pageContent.includes('<option value="eu">'), 'Location dropdown must offer the eu multi-region')
+    assert.ok(pageContent.includes('<option value="us-central1">'), 'Location dropdown must keep us-central1')
+    assert.ok(pageContent.includes('<option value="us-east5">'), 'Location dropdown must keep us-east5 for Claude on Vertex')
+  })
+
+  it('global location builds the region-less aiplatform.googleapis.com base URL', () => {
+    assert.ok(
+      pageContent.includes("region === 'global' ? 'https://aiplatform.googleapis.com' : `https://${region}-aiplatform.googleapis.com`"),
+      'gcpBaseUrlForRegion must map global to the region-less host'
+    )
+  })
+
+  it('surfaces a global-location hint with a switch action when a GCP test returns HTTP 404', () => {
+    assert.ok(
+      pageContent.includes('gcpTestResult.status_code === 404 && gcpRegion !== \'global\''),
+      'GCP test feedback must detect HTTP 404 on non-global locations'
+    )
+    assert.ok(pageContent.includes('Switch to global'), 'A Switch to global action must be offered on HTTP 404')
+    assert.ok(
+      pageContent.includes('The model may not be available in the'),
+      'The 404 hint must explain the model may be unavailable in the current location'
+    )
+  })
+
+  it('blocks setting a model as default while its last connection test failed', () => {
+    assert.ok(
+      pageContent.includes('Cannot set this model as the default while its last connection test failed. Run a successful test first.'),
+      'Save handlers must refuse default promotion after a failed test'
+    )
+    assert.ok(
+      pageContent.includes('last_test_success: gcpTestResult ? gcpTestResult.success : gcpEditingModel?.last_test_success'),
+      'GCP save payload must carry the latest test outcome'
+    )
+    assert.ok(
+      pageContent.includes('last_test_success: modalTestResult ? modalTestResult.success : editingModel?.last_test_success'),
+      'Generic modal save payload must carry the latest test outcome'
+    )
+    assert.ok(
+      pageContent.includes('The last connection test failed'),
+      'GCP modal default toggle must explain why it is disabled after a failed test'
+    )
   })
 
   it('preserves gemini-4-argon without forced rollback and supports default toggle in GCP modal', () => {
