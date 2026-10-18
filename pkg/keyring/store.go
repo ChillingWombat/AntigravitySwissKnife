@@ -756,8 +756,6 @@ type AccountExport struct {
 	TOTPSecret           string  `json:"totp_secret,omitempty"`
 	HasTOTP              bool    `json:"has_totp"`
 	IsActive             bool    `json:"is_active"`
-	OathToken            string  `json:"oath_token,omitempty"`
-	OAuthToken           string  `json:"oauth_token,omitempty"`
 	RefreshToken         string  `json:"refresh_token,omitempty"`
 	AccessToken          string  `json:"access_token,omitempty"`
 	Credits              float64 `json:"credits,omitempty"`
@@ -785,8 +783,6 @@ func (s *Store) ExportAccounts() []AccountExport {
 			TOTPSecret:           acc.TOTPSecret,
 			HasTOTP:              acc.HasTOTP || (acc.TOTPSecret != ""),
 			IsActive:             acc.IsActive || (acc.Email == s.activeEmail),
-			OathToken:            acc.RefreshToken,
-			OAuthToken:           acc.RefreshToken,
 			RefreshToken:         acc.RefreshToken,
 			AccessToken:          acc.AccessToken,
 			Credits:              acc.Credits,

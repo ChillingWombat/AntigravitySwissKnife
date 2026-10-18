@@ -433,8 +433,8 @@ func TestBatchImportAndExportAccounts(t *testing.T) {
 	if alice.MFA != "JBSWY3DPEHPK3PXP" || alice.TOTPSecret != "JBSWY3DPEHPK3PXP" {
 		t.Errorf("expected MFA/TOTP to match, got %s", alice.MFA)
 	}
-	if alice.OathToken != "1//oauth_refresh_alice" || alice.RefreshToken != "1//oauth_refresh_alice" {
-		t.Errorf("expected OathToken/RefreshToken to match, got %s", alice.OathToken)
+	if alice.RefreshToken != "1//oauth_refresh_alice" {
+		t.Errorf("expected RefreshToken to match, got %s", alice.RefreshToken)
 	}
 
 	// Verify reload from disk
@@ -454,6 +454,66 @@ func TestBatchImportAndExportAccounts(t *testing.T) {
 	}
 	if bob.RefreshToken != "1//oauth_refresh_bob" {
 		t.Errorf("expected reloaded bob RefreshToken to match, got %s", bob.RefreshToken)
+	}
+}
+
+func TestExportAccountsEmitsSingleRefreshTokenKey(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
+	tmpDir := t.TempDir()
+	accountsPath := filepath.Join(tmpDir, "accounts.json")
+
+	store, err := NewStore(accountsPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	// Import via the legacy "oath_token" alias to prove old exports still import.
+	items := []BatchImportItem{
+		{
+			Email:     "carol@work.com",
+			OathToken: "1//single_refresh_carol",
+			Label:     "Carol Work",
+		},
+	}
+	if _, err := store.BatchImportAccounts(items); err != nil {
+		t.Fatalf("BatchImportAccounts error: %v", err)
+	}
+
+	exported := store.ExportAccounts()
+	if len(exported) != 1 {
+		t.Fatalf("expected 1 exported account, got %d", len(exported))
+	}
+
+	data, err := json.Marshal(exported[0])
+	if err != nil {
+		t.Fatalf("failed to marshal export: %v", err)
+	}
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatalf("failed to unmarshal export: %v", err)
+	}
+
+	for _, legacyKey := range []string{"oath_token", "oauth_token"} {
+		if _, ok := fields[legacyKey]; ok {
+			t.Errorf("export must not contain legacy token key %q, got %s", legacyKey, data)
+		}
+	}
+
+	rawToken, ok := fields["refresh_token"]
+	if !ok {
+		t.Fatalf("export missing refresh_token key, got %s", data)
+	}
+	var token string
+	if err := json.Unmarshal(rawToken, &token); err != nil {
+		t.Fatalf("failed to unmarshal refresh_token: %v", err)
+	}
+	if token != "1//single_refresh_carol" {
+		t.Errorf("expected refresh_token to match account token, got %q", token)
+	}
+
+	if count := strings.Count(string(data), "1//single_refresh_carol"); count != 1 {
+		t.Errorf("expected token value to appear exactly once in export, got %d occurrences: %s", count, data)
 	}
 }
 
@@ -1372,6 +1432,3 @@ func TestStore_LoadAndSaveRecoverCredentialsFromNotes(t *testing.T) {
 		t.Errorf("expected saved credential.refresh_token to be non-empty")
 	}
 }
-
-
-
