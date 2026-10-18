@@ -292,7 +292,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   }
 
   const formatCost = (usd: number | null | undefined) =>
-    usd === null || usd === undefined ? 'null' : `$${usd.toFixed(4)}`
+    usd === null || usd === undefined ? '—' : `$${usd.toFixed(4)}`
 
   // Capitalized classification label ("native" -> "Native", missing -> "Native")
   const formatClassification = (classification: string | null | undefined) => {

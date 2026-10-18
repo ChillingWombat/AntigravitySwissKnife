@@ -21,7 +21,7 @@ export const RemoteControlPage: React.FC = () => {
 
   const [status, setStatus] = useState<any>({
     active: false,
-    endpoint_url: 'http://127.0.0.1:8766/remote',
+    endpoint_url: '',
     account_resilience: true,
     current_antigravity_pid: 0,
     devtools_port: 0,
@@ -147,9 +147,12 @@ export const RemoteControlPage: React.FC = () => {
   }
 
   const isTunnelActive = Boolean(status?.tunnel?.active)
+  // Issue #120: a loopback endpoint is never surfaced as a remote endpoint. Until an external
+  // tunnel is active there is no shareable URL — the page shows guidance instead of
+  // http://127.0.0.1. Externally reachable endpoints are HTTPS.
   const displayUrl = isTunnelActive
-    ? (status?.tunnel?.gateway_url || status?.tunnel?.public_url || status.endpoint_url)
-    : (status.endpoint_url || `http://127.0.0.1:${config.port}/remote`)
+    ? (status?.tunnel?.gateway_url || status?.tunnel?.public_url || '')
+    : ''
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -161,14 +164,6 @@ export const RemoteControlPage: React.FC = () => {
               <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                 Antigravity Remote Control Wrapper
               </h2>
-              <span className={`badge-chip ${status.active ? 'badge-green' : 'badge-neutral'}`}>
-                {status.active ? 'Listener Online' : 'Standby'}
-              </span>
-              {isTunnelActive && (
-                <span className="badge-chip badge-blue">
-                  Remote Tunnel Active
-                </span>
-              )}
             </div>
             <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
               Wraps Antigravity remote control with persistent session re-binding across Google account switches for out-of-home access.
@@ -270,30 +265,48 @@ export const RemoteControlPage: React.FC = () => {
             }}
           >
             <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              {isTunnelActive ? 'Remote Public HTTPS URL (Out-of-Home)' : 'Local Host URL'}
+              Remote Endpoint
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <code style={{ fontSize: '13px', flex: 1, color: 'var(--text)', wordBreak: 'break-all' }}>
-                {displayUrl}
-              </code>
-              <button
-                onClick={() => copyToClipboard(displayUrl, 'url')}
-                className="btn-pill-tonal"
-                style={{ padding: '6px 12px', fontSize: '12px' }}
-              >
-                {copied === 'url' ? <Check size={14} color="var(--green)" /> : <Copy size={14} />}
-                <span>{copied === 'url' ? 'Copied' : 'Copy'}</span>
-              </button>
-              <a
-                href={displayUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="btn-pill-outlined"
-                style={{ padding: '6px 12px', fontSize: '12px', textDecoration: 'none' }}
-              >
-                <ExternalLink size={14} />
-                <span>Open</span>
-              </a>
+              {displayUrl ? (
+                <>
+                  <code style={{ fontSize: '13px', flex: 1, color: 'var(--text)', wordBreak: 'break-all' }}>
+                    {displayUrl}
+                  </code>
+                  <button
+                    onClick={() => copyToClipboard(displayUrl, 'url')}
+                    className="btn-pill-tonal"
+                    style={{ padding: '6px 12px', fontSize: '12px' }}
+                  >
+                    {copied === 'url' ? <Check size={14} color="var(--green)" /> : <Copy size={14} />}
+                    <span>{copied === 'url' ? 'Copied' : 'Copy'}</span>
+                  </button>
+                  <a
+                    href={displayUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-pill-outlined"
+                    style={{ padding: '6px 12px', fontSize: '12px', textDecoration: 'none' }}
+                  >
+                    <ExternalLink size={14} />
+                    <span>Open</span>
+                  </a>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)', flex: 1 }}>
+                    Not exposed to the internet — start Remote Access to get an https endpoint
+                  </span>
+                  <button
+                    disabled
+                    className="btn-pill-tonal"
+                    style={{ padding: '6px 12px', fontSize: '12px', opacity: 0.5, cursor: 'not-allowed' }}
+                  >
+                    <Copy size={14} />
+                    <span>Copy</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
 

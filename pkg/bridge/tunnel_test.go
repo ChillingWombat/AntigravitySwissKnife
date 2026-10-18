@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 )
@@ -19,8 +18,15 @@ func TestTunnelManager_InitializationAndPaths(t *testing.T) {
 		t.Errorf("expected /api/bridge/mcp, got %s", tmBridge.endpointPath)
 	}
 	st := tmBridge.GetStatus()
-	if st.GatewayURL != "http://127.0.0.1:8765/api/bridge/mcp" {
-		t.Errorf("unexpected bridge gateway URL: %s", st.GatewayURL)
+	// Issue #120: no loopback fallback endpoint — a fresh manager is simply "not exposed".
+	if st.GatewayURL != "" {
+		t.Errorf("expected empty gateway URL before a tunnel starts, got %s", st.GatewayURL)
+	}
+	if st.Active {
+		t.Errorf("expected inactive tunnel before start")
+	}
+	if st.Type != "" {
+		t.Errorf("expected empty tunnel type before start, got %s", st.Type)
 	}
 
 	// 2. Remote Control tunnel manager
@@ -32,8 +38,8 @@ func TestTunnelManager_InitializationAndPaths(t *testing.T) {
 		t.Errorf("expected /remote, got %s", tmRemote.endpointPath)
 	}
 	stRemote := tmRemote.GetStatus()
-	if stRemote.GatewayURL != "http://127.0.0.1:8766/remote" {
-		t.Errorf("unexpected remote gateway URL: %s", stRemote.GatewayURL)
+	if stRemote.GatewayURL != "" {
+		t.Errorf("expected empty remote gateway URL before a tunnel starts, got %s", stRemote.GatewayURL)
 	}
 
 	// 3. Custom URL appending endpointPath
@@ -45,15 +51,22 @@ func TestTunnelManager_InitializationAndPaths(t *testing.T) {
 		t.Errorf("expected custom URL to append /remote, got %s", customSt.GatewayURL)
 	}
 
-	// 4. Return to loopback
+	// 4. Issue #120: loopback is not a remote endpoint — starting it must fail and leave the
+	//     active custom tunnel untouched.
 	loopSt, err := tmRemote.Start("loopback", "")
-	if err != nil {
-		t.Fatalf("loopback start failed: %v", err)
+	if err == nil {
+		t.Fatalf("expected loopback start to be rejected")
 	}
-	if loopSt.GatewayURL != "http://127.0.0.1:8766/remote" {
-		t.Errorf("expected loopback gateway URL, got %s", loopSt.GatewayURL)
+	if loopSt.Type != "custom" || !loopSt.Active {
+		t.Errorf("rejected loopback request must not tear down the active tunnel, got type=%q active=%v", loopSt.Type, loopSt.Active)
 	}
+
+	// 5. Stop clears the endpoint entirely (no loopback fallback).
 	tmRemote.Stop()
+	stoppedSt := tmRemote.GetStatus()
+	if stoppedSt.GatewayURL != "" || stoppedSt.Type != "" || stoppedSt.Active {
+		t.Errorf("expected cleared tunnel status after stop, got gateway=%q type=%q active=%v", stoppedSt.GatewayURL, stoppedSt.Type, stoppedSt.Active)
+	}
 }
 
 func TestTunnelManager_ConcurrencyAndNoDeadlock(t *testing.T) {
@@ -74,7 +87,7 @@ func TestTunnelManager_ConcurrencyAndNoDeadlock(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			if idx%2 == 0 {
-				_, _ = tm.Start("loopback", "")
+				_, _ = tm.Start("custom", "https://concurrency.example.com")
 			} else {
 				tm.Stop()
 			}
@@ -94,11 +107,12 @@ func TestRemoteManager_TunnelIntegration(t *testing.T) {
 
 	rm := NewRemoteManager(cfgPath)
 	st := rm.GetStatus("david@example.com", 1234)
-	if st.Tunnel.GatewayURL != "http://127.0.0.1:8766/remote" {
-		t.Errorf("expected initial loopback gateway URL, got %s", st.Tunnel.GatewayURL)
+	// Issue #120: no loopback endpoint before a tunnel starts.
+	if st.Tunnel.GatewayURL != "" {
+		t.Errorf("expected empty gateway URL before a tunnel starts, got %s", st.Tunnel.GatewayURL)
 	}
-	if !strings.Contains(st.EndpointURL, ":8766/remote") {
-		t.Errorf("expected endpoint URL on port 8766, got %s", st.EndpointURL)
+	if st.EndpointURL != "" {
+		t.Errorf("expected no remote endpoint URL before a tunnel starts, got %s", st.EndpointURL)
 	}
 
 	// Start custom tunnel
@@ -116,11 +130,14 @@ func TestRemoteManager_TunnelIntegration(t *testing.T) {
 		t.Errorf("expected EndpointURL to reflect active tunnel GatewayURL, got %s", stAfter.EndpointURL)
 	}
 
-	// Stop tunnel returns to loopback
+	// Stop tunnel clears the endpoint entirely (no loopback fallback)
 	rm.StopTunnel()
 	stStopped := rm.GetStatus("david@example.com", 1234)
-	if !strings.Contains(stStopped.EndpointURL, ":8766/remote") {
-		t.Errorf("expected EndpointURL returned to local loopback, got %s", stStopped.EndpointURL)
+	if stStopped.EndpointURL != "" {
+		t.Errorf("expected EndpointURL cleared after stop, got %s", stStopped.EndpointURL)
+	}
+	if stStopped.Tunnel.GatewayURL != "" {
+		t.Errorf("expected tunnel gateway URL cleared after stop, got %s", stStopped.Tunnel.GatewayURL)
 	}
 }
 
@@ -166,5 +183,73 @@ func TestBridge_ConfigAliasAndDefaultDisabled(t *testing.T) {
 	}
 	if st.OperatingMode != "lead" {
 		t.Errorf("expected operating mode 'lead' loaded from bridge.json alias, got %s", st.OperatingMode)
+	}
+}
+
+// Issue #120: pure-function tests for external-endpoint selection and loopback detection.
+func TestExternalEndpointSelection(t *testing.T) {
+	cases := []struct {
+		name string
+		st   TunnelStatus
+		want string
+	}{
+		{"inactive tunnel never exposes", TunnelStatus{Active: false, GatewayURL: "https://a.example.com/x"}, ""},
+		{"empty gateway", TunnelStatus{Active: true, GatewayURL: ""}, ""},
+		{"active https gateway", TunnelStatus{Active: true, GatewayURL: "https://abc.trycloudflare.com/api/bridge/mcp"}, "https://abc.trycloudflare.com/api/bridge/mcp"},
+		{"loopback ipv4 rejected", TunnelStatus{Active: true, GatewayURL: "http://127.0.0.1:8765/api/bridge/mcp"}, ""},
+		{"loopback localhost rejected", TunnelStatus{Active: true, GatewayURL: "http://localhost:8765/remote"}, ""},
+		{"loopback ipv6 rejected", TunnelStatus{Active: true, GatewayURL: "http://[::1]:8765/remote"}, ""},
+		{"whitespace trimmed", TunnelStatus{Active: true, GatewayURL: "  https://x.example.com/a  "}, "https://x.example.com/a"},
+	}
+	for _, tc := range cases {
+		if got := externalEndpoint(tc.st); got != tc.want {
+			t.Errorf("%s: externalEndpoint() = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestIsLoopbackURL(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want bool
+	}{
+		{"http://127.0.0.1:8765/api/bridge/mcp", true},
+		{"http://127.8.8.8/remote", true},
+		{"https://localhost:8766/remote", true},
+		{"http://[::1]:8765/remote", true},
+		{"https://abc.trycloudflare.com", false},
+		{"https://mymachine.tailnet.ts.net:8765/remote", false},
+		{"not-a-url", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		if got := isLoopbackURL(tc.raw); got != tc.want {
+			t.Errorf("isLoopbackURL(%q) = %v, want %v", tc.raw, got, tc.want)
+		}
+	}
+}
+
+func TestTunnelManager_RejectsLoopbackAndInsecureCustom(t *testing.T) {
+	tm := NewTunnelManager(8765, "/api/bridge/mcp")
+
+	// Issue #120: loopback is not a remote endpoint.
+	if _, err := tm.Start("loopback", ""); err == nil {
+		t.Errorf("expected loopback start to be rejected")
+	}
+	// External custom endpoints must be HTTPS.
+	if _, err := tm.Start("custom", "http://insecure.example.com"); err == nil {
+		t.Errorf("expected http custom endpoint to be rejected")
+	}
+	if _, err := tm.Start("custom", ""); err == nil {
+		t.Errorf("expected empty custom URL to be rejected")
+	}
+	if _, err := tm.Start("bogus", ""); err == nil {
+		t.Errorf("expected unknown tunnel type to be rejected")
+	}
+
+	// Rejections must leave the (inactive) status untouched.
+	st := tm.GetStatus()
+	if st.Active || st.GatewayURL != "" || st.Type != "" {
+		t.Errorf("rejected starts must leave the tunnel status untouched, got active=%v gateway=%q type=%q", st.Active, st.GatewayURL, st.Type)
 	}
 }

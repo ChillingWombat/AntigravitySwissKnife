@@ -261,7 +261,7 @@ export const GeminiBridgePage: React.FC = () => {
     {
       mcpServers: {
         antigravity: {
-          url: status?.gateway_url || 'http://127.0.0.1:8765/api/bridge/mcp',
+          url: status?.gateway_url || '',
           headers: {
             Authorization: `Bearer ${status?.auth_token || 'swiss-gemini-bridge-auth-token'}`,
           },
@@ -288,6 +288,9 @@ export const GeminiBridgePage: React.FC = () => {
 
   const isTunnelActive = Boolean(status?.tunnel?.active && status.tunnel.type !== 'loopback')
   const currentMode = status?.operating_mode || 'hybrid'
+  // Issue #120: loopback is never presented as an external endpoint. The MCP endpoint stays empty
+  // until a tunnel exposes an HTTPS URL.
+  const activeEndpoint = status?.gateway_url || ''
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -299,12 +302,6 @@ export const GeminiBridgePage: React.FC = () => {
               <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                 Gemini Agent Chat Bridge
               </h2>
-              <span className={`badge-chip ${status?.enabled ? 'badge-green' : 'badge-neutral'}`}>
-                {status?.enabled ? 'Online' : 'Disabled'}
-              </span>
-              <span className={`badge-chip ${isTunnelActive ? 'badge-blue' : 'badge-neutral'}`}>
-                {isTunnelActive ? (status?.tunnel?.type || 'tunnel').toUpperCase() : 'Loopback'}
-              </span>
             </div>
             <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
               Two-way agent orchestration connecting Gemini App / Web to local Antigravity surfaces across account rotations.
@@ -417,19 +414,28 @@ export const GeminiBridgePage: React.FC = () => {
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '320px', flex: 1 }}>
             <Radio size={16} color="var(--primary)" />
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
-              Active Endpoint:
-            </span>
-            <code style={{ fontSize: '12px', color: 'var(--primary)', fontWeight: 600, wordBreak: 'break-all' }}>
-              {status?.gateway_url || 'http://127.0.0.1:8765/api/bridge/mcp'}
-            </code>
+            {activeEndpoint ? (
+              <>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                  Active Endpoint:
+                </span>
+                <code style={{ fontSize: '12px', color: 'var(--primary)', fontWeight: 600, wordBreak: 'break-all' }}>
+                  {activeEndpoint}
+                </code>
+              </>
+            ) : (
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                Not exposed to the internet — start Remote Access to get an https endpoint
+              </span>
+            )}
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
-              onClick={() => copyToClipboard(status?.gateway_url || '', setCopiedUrl)}
+              onClick={() => copyToClipboard(activeEndpoint, setCopiedUrl)}
+              disabled={!activeEndpoint}
               className="btn-pill-tonal"
-              style={{ padding: '6px 12px', fontSize: '12px' }}
+              style={{ padding: '6px 12px', fontSize: '12px', opacity: activeEndpoint ? 1 : 0.5, cursor: activeEndpoint ? 'pointer' : 'not-allowed' }}
             >
               {copiedUrl ? <CheckCircle2 size={13} color="var(--green)" /> : <Copy size={13} />}
               <span>{copiedUrl ? 'Copied' : 'Copy Endpoint'}</span>

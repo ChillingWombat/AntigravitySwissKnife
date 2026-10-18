@@ -1620,20 +1620,6 @@ code .swiss-inchat-metrics {
   font-family: monospace;
   font-size: 11px;
 }
-.swiss-wysiwyg-raw {
-  flex: 1;
-  width: 100%;
-  height: 100%;
-  padding: 16px;
-  font-family: monospace;
-  font-size: 12px;
-  border: none;
-  outline: none;
-  background: var(--canvas, #ffffff);
-  color: var(--text, #1e293b);
-  resize: none;
-  box-sizing: border-box;
-}
 ` + "\n" + GenerateGitHubExtensionCSS()
 }
 
@@ -1666,6 +1652,10 @@ func GenerateAuxiliaryPluginsScript() string {
       document.querySelectorAll(".swiss-aux-btn-group, .swiss-aux-tabs-divider, .swiss-aux-tabs-divider-left, .swiss-aux-tabs-divider-right").forEach(el => el.remove());
       const existingAuxContainer = document.getElementById("swiss-aux-container");
       if (existingAuxContainer && existingAuxContainer.dataset) {
+        if (typeof existingAuxContainer.__swissTabTeardown === "function") {
+          try { existingAuxContainer.__swissTabTeardown(); } catch (_) {}
+          existingAuxContainer.__swissTabTeardown = null;
+        }
         delete existingAuxContainer.dataset.renderedTab;
       }
     }
@@ -2300,9 +2290,9 @@ func GenerateAuxiliaryPluginsScript() string {
 
     function renderSwissTabContent(container, tabId) {
       // Let the outgoing view release listeners, timers and media streams before its DOM is wiped.
-      if (container && typeof container.__swissMemosTeardown === "function") {
-        try { container.__swissMemosTeardown(); } catch (_) {}
-        container.__swissMemosTeardown = null;
+      if (container && typeof container.__swissTabTeardown === "function") {
+        try { container.__swissTabTeardown(); } catch (_) {}
+        container.__swissTabTeardown = null;
       }
       container.dataset.renderedTab = tabId;
       container.innerHTML = "";
@@ -3935,6 +3925,24 @@ func GenerateAuxiliaryPluginsScript() string {
       }
 
       toolbar.querySelector("#swiss-b-send-chat").onclick = executeSendToChatWorkflow;
+
+      // Container-level teardown (issue P4-a), invoked before this view's DOM is destroyed on a
+      // tab switch. Releases the ResizeObservers and the window resize listeners so they never
+      // keep observing detached nodes or run against a destroyed toolbar.
+      const teardownBrowserView = () => {
+        if (window.__swissBrowserCanvasRO) {
+          try { window.__swissBrowserCanvasRO.disconnect(); } catch (_) {}
+          window.__swissBrowserCanvasRO = null;
+        }
+        if (window.__swissToolbarRO) {
+          try { window.__swissToolbarRO.disconnect(); } catch (_) {}
+          window.__swissToolbarRO = null;
+        }
+        window.removeEventListener("resize", updateToolbarResponsiveness);
+        window.removeEventListener("resize", applyDeviceScale);
+        window.__swissResizeBound = false;
+      };
+      container.__swissTabTeardown = teardownBrowserView;
     }
 
     // ----------------------------------------------------
@@ -3962,7 +3970,19 @@ func GenerateAuxiliaryPluginsScript() string {
       return map[id] || (ideId ? ideId : "VS Code");
     }
 
+    function isMarkdownFile(item) {
+      if (!item) return false;
+      if (item.type === "markdown") return true;
+      const name = (item.name || item.path || "").toLowerCase();
+      return name.endsWith(".md") || name.endsWith(".markdown");
+    }
+
     function renderFilesView(container) {
+      // Self-clearing: the WYSIWYG / in-place editors hand control back by calling this function
+      // directly. Without this, the explorer would be appended *below* the outgoing editor
+      // instead of replacing it (issue #117a — back-to-explorer opened a second file list).
+      container.innerHTML = "";
+
       const wrap = document.createElement("div");
       wrap.className = "swiss-files-view";
 
@@ -4223,11 +4243,14 @@ func GenerateAuxiliaryPluginsScript() string {
               }
             };
 
-            // Double click: open directory or open in-place editor
+            // Double click: open directory, markdown files enter the WYSIWYG editor directly
+            // (issue #117c — single unified editing mode), everything else opens in-place.
             row.ondblclick = (e) => {
               e.stopPropagation();
               if (item.isDir) {
                 loadFiles(item.path);
+              } else if (isMarkdownFile(item)) {
+                openWYSIWYGMarkdownEditor(container, item.path, item.name);
               } else {
                 openInPlaceEditor(container, item.path, item.name, item.type);
               }
@@ -4413,8 +4436,26 @@ func GenerateAuxiliaryPluginsScript() string {
         initialTargetPath = resolveProjectFolder(auxFilePath || ((activeProj && activeProj !== ".") ? activeProj : "."));
         currentFilePath = initialTargetPath;
         fileHistory = auxFileHistory;
+        // Issue #118: stamp which project this listing belongs to, so the project-scope
+        // synchronizer below can detect a stale panel after a project switch.
+        container.__swissRenderedProject = activeProj;
       }
       loadFiles(initialTargetPath, false);
+    }
+
+    // Issue #118 — auxiliary panel is project-scoped: when the active project changes while the
+    // file explorer is showing, replace the stale listing with the new project's contents. The
+    // explorer stamps the project it rendered with on the container; editors are left untouched
+    // so an open file is never torn down mid-edit.
+    function syncAuxProjectScope() {
+      try {
+        const aux = document.getElementById("swiss-aux-container");
+        if (!aux || aux.dataset.renderedTab !== "files") return;
+        if (!aux.querySelector(".swiss-files-view")) return;
+        const proj = (typeof window.__swissGetActiveProject === "function" && window.__swissGetActiveProject()) || ".";
+        if (aux.__swissRenderedProject === proj) return;
+        renderSwissTabContent(aux, "files");
+      } catch (_) {}
     }
 
     // WYSIWYG Markdown Editor
@@ -4439,12 +4480,12 @@ func GenerateAuxiliaryPluginsScript() string {
               <div style="display:flex; align-items:center; gap:8px;">
                 <button class="swiss-browser-btn" id="swiss-wy-back"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg><span>Files</span></button>
                 <span style="font-size:11px; font-weight:600; color:var(--text,#1e293b);">${escapeHtml(name)}</span>
-                <span style="font-size:10px; color:#94a3b8; font-family:monospace;">(WYSIWYG)</span>
               </div>
               <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
                 <button type="button" class="swiss-browser-btn" id="swiss-wy-bold" title="Bold (Ctrl+B)" style="padding:3px 7px;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12h9a4 4 0 0 1 0 8H6v-8Z"/><path d="M6 4h8a4 4 0 0 1 0 8H6V4Z"/></svg></button>
                 <button type="button" class="swiss-browser-btn" id="swiss-wy-italic" title="Italic (Ctrl+I)" style="padding:3px 7px;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" x2="10" y1="4" y2="4"/><line x1="14" x2="5" y1="20" y2="20"/><line x1="15" x2="9" y1="4" y2="20"/></svg></button>
                 <button type="button" class="swiss-browser-btn" id="swiss-wy-list" title="Bullet List (Ctrl+.)" style="padding:3px 7px;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg></button>
+                <button type="button" class="swiss-browser-btn" id="swiss-wy-code" title="Inline Code / Pre" style="padding:3px 7px;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></button>
                 <select id="swiss-wy-heading" title="Header Level (Ctrl+0 to Ctrl+6)" style="font-size:11px; padding:2px 6px; border-radius:4px; border:1px solid var(--border,#cbd5e1); background:var(--canvas,#ffffff); color:var(--text,#1e293b);">
                   <option value="p">Normal text (Ctrl+0)</option>
                   <option value="h1">Heading 1 (Ctrl+1)</option>
@@ -4454,9 +4495,6 @@ func GenerateAuxiliaryPluginsScript() string {
                   <option value="h5">Heading 5 (Ctrl+5)</option>
                   <option value="h6">Heading 6 (Ctrl+6)</option>
                 </select>
-                <div style="width:1px; height:16px; background:var(--border,#cbd5e1); margin:0 2px;"></div>
-                <button type="button" class="swiss-browser-btn" id="swiss-wy-code" title="Inline Code / Pre" style="padding:3px 7px;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></button>
-                <button type="button" class="swiss-browser-btn" id="swiss-wy-mode" title="Toggle Raw Markdown / Visual" style="padding:3px 7px; font-size:10px;"><span>Raw MD</span></button>
               </div>
               <div style="display:flex; gap:6px;">
                 <button class="swiss-browser-btn" id="swiss-wy-annotate" title="Annotate selection to chat"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Chat</span></button>
@@ -4465,25 +4503,20 @@ func GenerateAuxiliaryPluginsScript() string {
             </div>
             <div class="swiss-editor-body" style="flex:1; display:flex; flex-direction:column; overflow:hidden; position:relative;">
               <div class="swiss-wysiwyg-content" contenteditable="true" spellcheck="false"></div>
-              <textarea class="swiss-wysiwyg-raw" spellcheck="false" style="display:none;"></textarea>
             </div>
           ` + "`" + `;
 
           container.appendChild(editor);
 
           const visualContent = editor.querySelector(".swiss-wysiwyg-content");
-          const rawTextarea = editor.querySelector(".swiss-wysiwyg-raw");
           const btnBold = editor.querySelector("#swiss-wy-bold");
           const btnItalic = editor.querySelector("#swiss-wy-italic");
           const btnList = editor.querySelector("#swiss-wy-list");
           const headingSelect = editor.querySelector("#swiss-wy-heading");
           const btnCode = editor.querySelector("#swiss-wy-code");
-          const btnMode = editor.querySelector("#swiss-wy-mode");
           const btnBack = editor.querySelector("#swiss-wy-back");
           const btnSave = editor.querySelector("#swiss-wy-save");
           const btnAnnotate = editor.querySelector("#swiss-wy-annotate");
-
-          let isRawMode = false;
 
           const escapeText = (t) => String(t || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
           const formatInline = (t) => {
@@ -4615,7 +4648,6 @@ func GenerateAuxiliaryPluginsScript() string {
           };
 
           visualContent.innerHTML = mdToHtml(data.content || "");
-          rawTextarea.value = data.content || "";
           setTimeout(() => visualContent.focus(), 40);
 
           const format = (cmd, val) => {
@@ -4681,30 +4713,9 @@ func GenerateAuxiliaryPluginsScript() string {
           };
 
           visualContent.addEventListener("keydown", handleKeyShortcuts);
-          rawTextarea.addEventListener("keydown", handleKeyShortcuts);
-
-          btnMode.onclick = () => {
-            if (isRawMode) {
-              visualContent.innerHTML = mdToHtml(rawTextarea.value);
-              rawTextarea.style.display = "none";
-              visualContent.style.display = "block";
-              btnMode.innerHTML = "<span>Raw MD</span>";
-              btnMode.classList.remove("active");
-              visualContent.focus();
-              isRawMode = false;
-            } else {
-              rawTextarea.value = htmlToMd(visualContent);
-              visualContent.style.display = "none";
-              rawTextarea.style.display = "block";
-              btnMode.innerHTML = "<span>Visual</span>";
-              btnMode.classList.add("active");
-              rawTextarea.focus();
-              isRawMode = true;
-            }
-          };
 
           const saveDoc = async () => {
-            const currentMd = isRawMode ? rawTextarea.value : htmlToMd(visualContent);
+            const currentMd = htmlToMd(visualContent);
             try {
               const res = await fetch(API_BASE + "/api/files/write", {
                 method: "POST",
@@ -4727,7 +4738,7 @@ func GenerateAuxiliaryPluginsScript() string {
 
           btnAnnotate.onclick = async () => {
             const sel = window.getSelection();
-            const selectedText = (isRawMode ? rawTextarea.value.substring(rawTextarea.selectionStart, rawTextarea.selectionEnd) : (sel ? sel.toString() : "")).trim();
+            const selectedText = (sel ? sel.toString() : "").trim();
             if (!selectedText) {
               showToast("Select markdown text first, then click Chat!", "warning");
               return;
@@ -4765,7 +4776,6 @@ func GenerateAuxiliaryPluginsScript() string {
                 <span style="font-size:10px; color:#94a3b8; font-family:monospace;">(${type})</span>
               </div>
               <div style="display:flex; gap:6px;">
-                ${(type === "markdown" || (name && (name.toLowerCase().endsWith(".md") || name.toLowerCase().endsWith(".markdown")))) ? '<button class="swiss-browser-btn" id="swiss-ed-wysiwyg" title="Switch to WYSIWYG Editor"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg><span>WYSIWYG</span></button>' : ''}
                 <button class="swiss-browser-btn primary" id="swiss-ed-annotate"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Annotate to Chat</span></button>
                 <button class="swiss-browser-btn" id="swiss-ed-save"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg><span>Save</span></button>
               </div>
@@ -4820,10 +4830,6 @@ func GenerateAuxiliaryPluginsScript() string {
             insertTextToChatInput(snippetMsg);
             showToast("Annotation snippet injected into Antigravity chat input!");
           };
-
-          editor.querySelector("#swiss-ed-wysiwyg")?.addEventListener("click", () => {
-            openWYSIWYGMarkdownEditor(container, path, name);
-          });
         });
     }
 
@@ -4886,7 +4892,7 @@ func GenerateAuxiliaryPluginsScript() string {
       const isSingle = !selectedItems || selectedItems.length <= 1;
       const targets = (selectedItems && selectedItems.length > 0) ? selectedItems : [item];
       const hasClipboard = swissClipboard.items && swissClipboard.items.length > 0;
-      const isMarkdown = !item.isDir && (item.type === "markdown" || (item.name && (item.name.toLowerCase().endsWith(".md") || item.name.toLowerCase().endsWith(".markdown"))));
+      const isMarkdown = !item.isDir && isMarkdownFile(item);
 
       const menu = document.createElement("div");
       menu.className = "swiss-context-menu";
@@ -6060,7 +6066,7 @@ func GenerateAuxiliaryPluginsScript() string {
           delete window.__swissMemoFilterOutsideHandler;
         }
       };
-      container.__swissMemosTeardown = teardownMemosView;
+      container.__swissTabTeardown = teardownMemosView;
 
       const searchInput = searchRow.querySelector("#swiss-m-search-input");
       const searchClear = searchRow.querySelector("#swiss-m-search-clear");
@@ -6490,6 +6496,7 @@ func GenerateAuxiliaryPluginsScript() string {
     window.__swissAuxIntervalId = setInterval(() => {
       setupAuxiliaryTabs();
       setupInChatTelemetry();
+      syncAuxProjectScope();
     }, 2500);
 
     if (window.__swissAuxObserverInstance) {
@@ -6519,6 +6526,7 @@ func GenerateAuxiliaryPluginsScript() string {
         document.querySelectorAll('[role="dialog"] .swiss-inchat-metrics, [aria-modal="true"] .swiss-inchat-metrics, .settings-tab-content .swiss-inchat-metrics, #swiss-aux-container .swiss-inchat-metrics, pre .swiss-inchat-metrics, code .swiss-inchat-metrics').forEach(el => el.remove());
         setupAuxiliaryTabs();
         setupInChatTelemetry();
+        syncAuxProjectScope();
       });
     });
     window.__swissAuxObserverInstance = observer;

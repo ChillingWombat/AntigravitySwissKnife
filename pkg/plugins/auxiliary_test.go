@@ -2461,12 +2461,17 @@ func TestMemoCanvasResizeObserversAndCostTeardown(t *testing.T) {
 		`memoCanvasRO = new ResizeObserver`,
 		`memoCanvasRO.observe(whiteboardCanvas)`,
 		// Container teardown stops the microphone / timers / listeners when the view is destroyed.
-		`container.__swissMemosTeardown = teardownMemosView`,
-		`typeof container.__swissMemosTeardown === "function"`,
+		`container.__swissTabTeardown = teardownMemosView`,
+		`typeof container.__swissTabTeardown === "function"`,
 		`mediaRecorder.onstop = null`,
 		`window.removeEventListener("resize", window.__swissMemoCanvasResizeHandler)`,
 		`document.removeEventListener("click", window.__swissMemoFilterOutsideHandler)`,
 		`memoCanvasRO.disconnect()`,
+		// Browser view teardown releases its ResizeObservers and resize listeners (issue P4-a).
+		`container.__swissTabTeardown = teardownBrowserView`,
+		`window.__swissBrowserCanvasRO.disconnect()`,
+		`window.__swissToolbarRO.disconnect()`,
+		`window.removeEventListener("resize", applyDeviceScale)`,
 		// Destroyed-view fallbacks inside the recording loops.
 		`timerEl.isConnected`,
 		`waveCanvas.isConnected`,
@@ -2505,12 +2510,15 @@ func TestWYSIWYGMarkdownEditor_Implementation(t *testing.T) {
 	expectedCSS := []string{
 		".swiss-wysiwyg-container",
 		".swiss-wysiwyg-content",
-		".swiss-wysiwyg-raw",
 	}
 	for _, c := range expectedCSS {
 		if !strings.Contains(css, c) {
 			t.Fatalf("expected CSS to contain %q for WYSIWYG editor", c)
 		}
+	}
+	// Issue #117c: the raw-markdown textarea is gone — a single WYSIWYG mode remains.
+	if strings.Contains(css, ".swiss-wysiwyg-raw") {
+		t.Errorf("raw markdown textarea styles must be removed (single WYSIWYG mode)")
 	}
 
 	js := GenerateAuxiliaryPluginsScript()
@@ -2518,11 +2526,11 @@ func TestWYSIWYGMarkdownEditor_Implementation(t *testing.T) {
 		"openWYSIWYGMarkdownEditor",
 		`id="ctx-file-wysiwyg"`,
 		`<span>WYSIWYG Markdown Editor</span>`,
-		`id="swiss-ed-wysiwyg"`,
 		`id="swiss-wy-bold"`,
 		`id="swiss-wy-italic"`,
 		`id="swiss-wy-list"`,
 		`id="swiss-wy-heading"`,
+		`id="swiss-wy-code"`,
 		`Ctrl+B`,
 		`Ctrl+I`,
 		`Ctrl+.`,
@@ -2536,6 +2544,49 @@ func TestWYSIWYGMarkdownEditor_Implementation(t *testing.T) {
 	for _, j := range expectedJS {
 		if !strings.Contains(js, j) {
 			t.Fatalf("expected script to contain %q for WYSIWYG editor", j)
+		}
+	}
+
+	// Issue #117c: the raw-mode toggle, its textarea, the mode badge and the in-place editor's
+	// WYSIWYG switch are all removed; markdown routes into WYSIWYG on double click.
+	removedTokens := []string{
+		`id="swiss-wy-mode"`,
+		`id="swiss-ed-wysiwyg"`,
+		`swiss-wysiwyg-raw`,
+		`isRawMode`,
+		`(WYSIWYG)`,
+	}
+	for _, r := range removedTokens {
+		if strings.Contains(js, r) {
+			t.Errorf("expected script to no longer contain %q (single WYSIWYG mode)", r)
+		}
+	}
+	if !strings.Contains(js, "isMarkdownFile(item)") {
+		t.Errorf("expected markdown double-click routing through isMarkdownFile into the WYSIWYG editor")
+	}
+
+	// Issue #117b: the inline-code button sits to the LEFT of the header selector.
+	codeIdx := strings.Index(js, `id="swiss-wy-code"`)
+	headingIdx := strings.Index(js, `id="swiss-wy-heading"`)
+	if codeIdx == -1 || headingIdx == -1 || codeIdx > headingIdx {
+		t.Errorf("inline-code button must sit to the left of the header selector (issue #117b)")
+	}
+}
+
+func TestAuxiliaryPanelProjectScopeIsolation(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+
+	// Issue #118: the explorer stamps the project it rendered with, and the periodic sync
+	// (interval + mutation observer) re-renders the stale listing after a project switch.
+	required := []string{
+		"syncAuxProjectScope",
+		"container.__swissRenderedProject = activeProj",
+		"aux.__swissRenderedProject === proj",
+		`renderSwissTabContent(aux, "files")`,
+	}
+	for _, token := range required {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected project-scope isolation to contain %q", token)
 		}
 	}
 }

@@ -24,7 +24,7 @@ type RemoteControlConfig struct {
 	Quality           string `json:"quality"` // "high" | "medium" | "low"
 	FrameRate         int    `json:"frame_rate"`
 	AccountResilience bool   `json:"account_resilience"`
-	TunnelType        string `json:"tunnel_type,omitempty"` // "quick" | "tailscale" | "loopback" | "custom"
+	TunnelType        string `json:"tunnel_type,omitempty"` // "quick" | "tailscale" | "custom" | "" (not exposed)
 	TunnelURL         string `json:"tunnel_url,omitempty"`
 }
 
@@ -63,7 +63,7 @@ func DefaultRemoteConfig() RemoteControlConfig {
 		Quality:           "high",
 		FrameRate:         30,
 		AccountResilience: true,
-		TunnelType:        "loopback",
+		TunnelType:        "",
 		TunnelURL:         "",
 	}
 }
@@ -155,7 +155,7 @@ func (rm *RemoteManager) StartTunnel(tType, customURL string) (TunnelStatus, err
 func (rm *RemoteManager) StopTunnel() {
 	rm.tunnelMgr.Stop()
 	rm.mu.Lock()
-	rm.config.TunnelType = "loopback"
+	rm.config.TunnelType = ""
 	_ = rm.save()
 	rm.mu.Unlock()
 }
@@ -186,17 +186,13 @@ func (rm *RemoteManager) GetStatus(activeEmail string, activePID int) RemoteCont
 		cdpPort = port
 	}
 
-	endpoint := fmt.Sprintf("http://%s:%d/remote", rm.config.BindAddr, rm.config.Port)
-	if rm.config.BindAddr == "0.0.0.0" {
-		endpoint = fmt.Sprintf("http://127.0.0.1:%d/remote", rm.config.Port)
-	}
-
+	endpoint := ""
+	// Issue #120: only an active external tunnel yields a remote endpoint URL. A loopback
+	// address (http://127.0.0.1:...) is never reported as a remote endpoint.
 	var tSt TunnelStatus
 	if rm.tunnelMgr != nil {
 		tSt = rm.tunnelMgr.GetStatus()
-		if tSt.Active && tSt.GatewayURL != "" {
-			endpoint = tSt.GatewayURL
-		}
+		endpoint = externalEndpoint(tSt)
 	}
 
 	rotatedStr := ""

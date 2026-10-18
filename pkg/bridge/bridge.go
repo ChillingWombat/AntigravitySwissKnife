@@ -21,7 +21,7 @@ type Config struct {
 	Enabled         bool     `json:"enabled"`
 	Port            int      `json:"port"`
 	OperatingMode   string   `json:"operating_mode"` // "hybrid" | "lead" | "direct"
-	TunnelType      string   `json:"tunnel_type"`    // "quick" | "tailscale" | "loopback" | "custom"
+	TunnelType      string   `json:"tunnel_type"`    // "quick" | "tailscale" | "custom" | "" (not exposed)
 	TunnelURL       string   `json:"tunnel_url"`
 	AuthToken       string   `json:"auth_token"`
 	PairingPIN      string   `json:"pairing_pin"`
@@ -152,7 +152,9 @@ func NewService(configPath string) (*Service, error) {
 		return s.saveConfig()
 	})
 
-	if s.config.AutoStartTunnel && s.config.TunnelType != "loopback" {
+	// Issue #120: "loopback" is no longer a valid tunnel type. Skip it (and empty) so a stale
+	// config value from an older build never triggers a failed auto-start.
+	if s.config.AutoStartTunnel && s.config.TunnelType != "" && s.config.TunnelType != "loopback" {
 		go func() {
 			_, _ = s.tunnelMgr.Start(s.config.TunnelType, s.config.TunnelURL)
 		}()
@@ -302,7 +304,7 @@ func (s *Service) StartTunnel(tType, customURL string) (TunnelStatus, error) {
 func (s *Service) StopTunnel() {
 	s.tunnelMgr.Stop()
 	s.mu.Lock()
-	s.config.TunnelType = "loopback"
+	s.config.TunnelType = ""
 	_ = s.saveConfig()
 	s.mu.Unlock()
 }
@@ -405,10 +407,9 @@ func (s *Service) GetStatus() BridgeStatus {
 	surfaces := s.DetectSurfaces()
 	tunnelStatus := s.tunnelMgr.GetStatus()
 
-	gatewayURL := tunnelStatus.GatewayURL
-	if gatewayURL == "" {
-		gatewayURL = fmt.Sprintf("http://127.0.0.1:%d/api/bridge/mcp", s.config.Port)
-	}
+	// Issue #120: no 127.0.0.1 fallback — an empty gateway URL simply means the bridge is not
+	// exposed to the internet. Only externally reachable (non-loopback) endpoints are reported.
+	gatewayURL := externalEndpoint(tunnelStatus)
 
 	recent := make([]Invocation, len(s.invocations))
 	copy(recent, s.invocations)
