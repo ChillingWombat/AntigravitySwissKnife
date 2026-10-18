@@ -1284,6 +1284,73 @@ div:has(> .shrink-0.flex.items-center.border-b),
 .swiss-memo-list > .swiss-memo-list-status {
   grid-column: 1 / -1;
 }
+/* Memo type filter (in the search row) */
+.swiss-memo-filter-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.swiss-memo-filter-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 60;
+  min-width: 148px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #cbd5e1);
+  background: var(--canvas, #ffffff);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.14);
+}
+.swiss-memo-filter-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text, #1e293b);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.swiss-memo-filter-item:hover {
+  background: rgba(148, 163, 184, 0.15);
+}
+.swiss-memo-filter-item.active {
+  background: rgba(26, 115, 232, 0.12);
+  color: #1a73e8;
+  font-weight: 600;
+}
+:is(.dark, [data-theme="dark"]) .swiss-memo-filter-menu {
+  background: var(--card, #1e293b);
+  border-color: var(--border, #334155);
+}
+:is(.dark, [data-theme="dark"]) .swiss-memo-filter-item {
+  color: #f8fafc;
+}
+.swiss-memo-filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 7px;
+  background: rgba(26, 115, 232, 0.15);
+  color: #1a73e8;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+}
+:is(.dark, [data-theme="dark"]) .swiss-memo-filter-count {
+  background: rgba(96, 165, 250, 0.25);
+  color: #bfdbfe;
+}
 .swiss-memo-card {
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 8px;
@@ -5024,7 +5091,15 @@ func GenerateAuxiliaryPluginsScript() string {
           <input type="text" id="swiss-m-search-input" placeholder="Search memos..." class="swiss-memo-search-input" style="width:100%; padding:5px 24px 5px 26px; font-size:11px; border-radius:6px; border:1px solid var(--border,#cbd5e1); background:var(--canvas,#ffffff); color:var(--text,#1e293b); box-sizing:border-box; outline:none;" />
           <button type="button" id="swiss-m-search-clear" style="display:none; position:absolute; right:6px; background:none; border:none; padding:2px; cursor:pointer; color:var(--text-muted,#64748b);"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
         </div>
-        <button type="button" id="swiss-m-scope-toggle" class="swiss-browser-btn" title="Toggle Search Scope: Text only vs Text + Voice" style="padding:4px 8px; font-size:10px; white-space:nowrap;"><span id="swiss-m-scope-label">Text</span></button>
+        <div class="swiss-memo-filter-wrap">
+          <button type="button" id="swiss-m-filter-toggle" class="swiss-browser-btn" title="Filter memos by type" style="padding:4px 8px; font-size:10px; white-space:nowrap;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M7 12h10"/><path d="M11 18h2"/></svg><span id="swiss-m-filter-label">Filter: All</span><span id="swiss-m-filter-count" class="swiss-memo-filter-count">0</span></button>
+          <div id="swiss-m-filter-menu" class="swiss-memo-filter-menu" style="display:none;">
+            <button type="button" class="swiss-memo-filter-item active" data-filter="all">All Memos</button>
+            <button type="button" class="swiss-memo-filter-item" data-filter="text">Text</button>
+            <button type="button" class="swiss-memo-filter-item" data-filter="voice">Voice</button>
+            <button type="button" class="swiss-memo-filter-item" data-filter="image">Images</button>
+          </div>
+        </div>
       ` + "`" + `;
       wrap.appendChild(searchRow);
 
@@ -5105,7 +5180,8 @@ func GenerateAuxiliaryPluginsScript() string {
 
       let allMemos = [];
       let searchQuery = "";
-      let searchScope = "text";
+      let typeFilter = "all";
+      const FILTER_LABELS = { all: "All", text: "Text", voice: "Voice", image: "Image" };
 
       let mediaStream = null;
       let mediaRecorder = null;
@@ -5142,16 +5218,19 @@ func GenerateAuxiliaryPluginsScript() string {
         });
       };
 
-      const filterMemosList = (memos, query, scope) => {
+      const filterMemosList = (memos, query, filter) => {
         if (!Array.isArray(memos)) return [];
+        const effFilter = (filter === "text" || filter === "voice" || filter === "image") ? filter : "all";
         const trimmed = (query || "").trim();
-        if (!trimmed) return memos;
         const q = trimmed.toLowerCase();
-        const effScope = scope === "all" ? "all" : "text";
         return memos.filter(m => {
           if (!m) return false;
           const isVoice = m.type === "voice" || m.type === "audio" || (Array.isArray(m.tags) && m.tags.includes("voice") && m.type !== "text");
-          if (effScope === "text" && isVoice) return false;
+          const isImage = m.type === "image";
+          if (effFilter === "text" && (isVoice || isImage)) return false;
+          if (effFilter === "voice" && !isVoice) return false;
+          if (effFilter === "image" && !isImage) return false;
+          if (!q) return true;
           const titleMatch = Boolean(m.title && m.title.toLowerCase().includes(q));
           const contentMatch = Boolean(m.content && m.content.toLowerCase().includes(q));
           const transcriptMatch = Boolean(m.transcript && m.transcript.toLowerCase().includes(q));
@@ -5166,9 +5245,12 @@ func GenerateAuxiliaryPluginsScript() string {
         if (!Array.isArray(memos) || memos.length === 0) {
           if (trimmedQ) {
             memoList.innerHTML = '<div class="swiss-memo-empty-search">No memos found matching "' + escapeHtml(trimmedQ) + '"</div>';
+          } else if (typeFilter !== "all") {
+            memoList.innerHTML = "<div class='swiss-memo-list-status' style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No " + escapeHtml(FILTER_LABELS[typeFilter] || "") + " memos yet.</div>";
           } else {
             memoList.innerHTML = "<div class='swiss-memo-list-status' style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No memos yet. Click Add Text Memo, Add Voice Memo, or Add Image Memo!</div>";
           }
+          updateFilterUi(0);
           return;
         }
 
@@ -5227,10 +5309,11 @@ func GenerateAuxiliaryPluginsScript() string {
 
           memoList.appendChild(card);
         });
+        updateFilterUi(memos.length);
       };
 
       const applyFilterAndRender = () => {
-        const filtered = filterMemosList(allMemos, searchQuery, searchScope);
+        const filtered = filterMemosList(allMemos, searchQuery, typeFilter);
         renderCards(filtered);
       };
 
@@ -5886,13 +5969,57 @@ func GenerateAuxiliaryPluginsScript() string {
 
       const searchInput = searchRow.querySelector("#swiss-m-search-input");
       const searchClear = searchRow.querySelector("#swiss-m-search-clear");
-      const scopeToggle = searchRow.querySelector("#swiss-m-scope-toggle");
-      const scopeLabel = searchRow.querySelector("#swiss-m-scope-label");
+      const filterToggle = searchRow.querySelector("#swiss-m-filter-toggle");
+      const filterLabel = searchRow.querySelector("#swiss-m-filter-label");
+      const filterCount = searchRow.querySelector("#swiss-m-filter-count");
+      const filterMenu = searchRow.querySelector("#swiss-m-filter-menu");
+
+      const updateFilterUi = (visibleCount) => {
+        if (filterLabel) filterLabel.textContent = "Filter: " + (FILTER_LABELS[typeFilter] || "All");
+        if (filterCount) filterCount.textContent = String(visibleCount || 0);
+        if (filterMenu) {
+          filterMenu.querySelectorAll(".swiss-memo-filter-item").forEach(item => {
+            item.classList.toggle("active", (item.dataset.filter || "all") === typeFilter);
+          });
+        }
+      };
+
+      const closeFilterMenu = () => {
+        if (filterMenu) filterMenu.style.display = "none";
+      };
+
+      filterToggle.onclick = (e) => {
+        e.stopPropagation();
+        filterMenu.style.display = filterMenu.style.display === "none" ? "flex" : "none";
+      };
+
+      filterMenu.querySelectorAll(".swiss-memo-filter-item").forEach(item => {
+        item.onclick = (e) => {
+          e.stopPropagation();
+          typeFilter = item.dataset.filter || "all";
+          closeFilterMenu();
+          applyFilterAndRender();
+        };
+      });
+
+      if (window.__swissMemoFilterOutsideHandler) {
+        document.removeEventListener("click", window.__swissMemoFilterOutsideHandler);
+      }
+      window.__swissMemoFilterOutsideHandler = (e) => {
+        if (!filterMenu || filterMenu.style.display === "none") return;
+        if (filterMenu.contains(e.target) || filterToggle.contains(e.target)) return;
+        closeFilterMenu();
+      };
+      document.addEventListener("click", window.__swissMemoFilterOutsideHandler);
 
       searchInput.addEventListener("input", () => {
         searchQuery = searchInput.value;
         searchClear.style.display = searchQuery ? "block" : "none";
         applyFilterAndRender();
+      });
+
+      searchInput.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") closeFilterMenu();
       });
 
       searchClear.onclick = () => {
@@ -5903,18 +6030,7 @@ func GenerateAuxiliaryPluginsScript() string {
         applyFilterAndRender();
       };
 
-      scopeToggle.onclick = () => {
-        if (searchScope === "text") {
-          searchScope = "all";
-          scopeLabel.textContent = "Text+Voice";
-          scopeToggle.classList.add("primary");
-        } else {
-          searchScope = "text";
-          scopeLabel.textContent = "Text";
-          scopeToggle.classList.remove("primary");
-        }
-        applyFilterAndRender();
-      };
+      updateFilterUi(allMemos.length);
 
       const initialMemos = getLocalMemos();
       if (initialMemos.length > 0) {

@@ -2410,6 +2410,36 @@ func TestQuickMemos_ActionButtonsConsistency(t *testing.T) {
 	}
 }
 
+func TestQuickMemos_TypeFilterControl(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	expectedTokens := []string{
+		`id="swiss-m-filter-toggle"`,
+		`id="swiss-m-filter-menu"`,
+		`<span id="swiss-m-filter-label">Filter: All</span>`,
+		`id="swiss-m-filter-count"`,
+		`data-filter="all"`,
+		`data-filter="text"`,
+		`data-filter="voice"`,
+		`data-filter="image"`,
+		`FILTER_LABELS`,
+		`typeFilter = item.dataset.filter || "all"`,
+		`let typeFilter = "all";`,
+	}
+	for _, token := range expectedTokens {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected memo type filter to contain %q", token)
+		}
+	}
+
+	// The legacy search-scope toggle must be gone (replaced by the type filter).
+	if strings.Contains(js, `swiss-m-scope-toggle`) {
+		t.Errorf("legacy search scope toggle must be removed")
+	}
+	if strings.Contains(js, `searchScope`) {
+		t.Errorf("legacy searchScope state must be removed")
+	}
+}
+
 func TestBrowserAnnotationCanvas_DprAndScaleNormalization(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 	expectedTokens := []string{

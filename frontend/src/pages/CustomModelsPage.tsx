@@ -21,6 +21,7 @@ import {
   KeyRound,
   Upload,
   ExternalLink,
+  Wallet,
 } from 'lucide-react'
 import type {
   CustomModel,
@@ -130,8 +131,9 @@ export const CustomModelsPage: React.FC = () => {
   const [thinkingLevels, setThinkingLevels] = useState<string[]>(['low', 'medium', 'high'])
   const [thinkingLevel, setThinkingLevel] = useState<string>('high')
 
-  // Foldable Quota & Price Section States
-  const [isQuotaPriceOpen, setIsQuotaPriceOpen] = useState<boolean>(true)
+  // Foldable Quota & Price Section States — collapsed by default; once the user expands it,
+  // the state persists for the session (we never force it back to true on modal open).
+  const [isQuotaPriceOpen, setIsQuotaPriceOpen] = useState<boolean>(false)
   const [quotaType, setQuotaType] = useState<QuotaType>('na')
   const [quotaManualOverride, setQuotaManualOverride] = useState<boolean>(false)
   const [balanceValue, setBalanceValue] = useState<string>('')
@@ -186,6 +188,9 @@ export const CustomModelsPage: React.FC = () => {
   const [gcpTestResult, setGcpTestResult] = useState<TestResult | null>(null)
   const [gcpSaving, setGcpSaving] = useState<boolean>(false)
   const [gcpError, setGcpError] = useState<string | null>(null)
+  const [gcpBalanceValue, setGcpBalanceValue] = useState<string>('')
+  const [gcpBudgetCapType, setGcpBudgetCapType] = useState<'none' | 'dollar' | 'percentage' | 'tokens'>('none')
+  const [gcpBudgetCapValue, setGcpBudgetCapValue] = useState<number | null>(null)
   const gcpFileInputRef = useRef<HTMLInputElement>(null)
 
   const openAddGcpModal = () => {
@@ -202,6 +207,9 @@ export const CustomModelsPage: React.FC = () => {
     setGcpTestResult(null)
     setGcpSaving(false)
     setGcpError(null)
+    setGcpBalanceValue('')
+    setGcpBudgetCapType('none')
+    setGcpBudgetCapValue(null)
     setIsGcpModalOpen(true)
   }
 
@@ -221,6 +229,9 @@ export const CustomModelsPage: React.FC = () => {
     setGcpSaving(false)
     setGcpError(null)
     setGcpParseError(null)
+    setGcpBalanceValue(model.balance_value || '')
+    setGcpBudgetCapType((model.budget_cap_type as 'none' | 'dollar' | 'percentage' | 'tokens') || 'none')
+    setGcpBudgetCapValue(model.budget_cap_value !== undefined && model.budget_cap_value !== null ? model.budget_cap_value : null)
 
     if (model.gcp_service_account_key && model.gcp_service_account_key !== '[REDACTED]') {
       setGcpJsonContent(model.gcp_service_account_key)
@@ -403,6 +414,12 @@ export const CustomModelsPage: React.FC = () => {
       ctxWindow = 128000
     }
 
+    // GCP models are manual-entry only for balance/budget: no automatic quota probing.
+    // quota_manual_override=true keeps the store's GCP auto-migration from overwriting the values.
+    const manualBalance = gcpBalanceValue.trim()
+    const effectiveBalance = manualBalance || (isEdit ? (gcpEditingModel?.balance_value || '') : '') || 'Active (GCP Billing)'
+    const effectiveQuota = manualBalance || (isEdit ? (gcpEditingModel?.quota_value || '') : '') || effectiveBalance
+
     const finalModel: CustomModel = {
       id: isEdit ? gcpEditingModel.id : `gcp-${effModel.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`,
       name: effModel,
@@ -413,12 +430,15 @@ export const CustomModelsPage: React.FC = () => {
       gcp_region: region,
       gcp_service_account_key: saKey,
       project_mappings: isEdit ? gcpEditingModel.project_mappings : ['*'],
-      quota_type: gcpTestResult?.quota_result?.quota_type || gcpEditingModel?.quota_type || 'balance',
-      quota_value: gcpTestResult?.quota_result?.quota_value || gcpEditingModel?.quota_value || 'Active (GCP Billing)',
-      balance_value: gcpTestResult?.quota_result?.balance_value || gcpTestResult?.quota_result?.quota_value || gcpEditingModel?.balance_value || 'Active (GCP Billing)',
-      prepaid_balance: 0,
-      total_budget: 0,
-      quota_fraction: null,
+      quota_type: 'balance',
+      quota_manual_override: true,
+      quota_value: effectiveQuota,
+      balance_value: effectiveBalance,
+      prepaid_balance: isEdit ? (gcpEditingModel?.prepaid_balance || 0) : 0,
+      total_budget: isEdit ? (gcpEditingModel?.total_budget || 0) : 0,
+      quota_fraction: isEdit ? (gcpEditingModel?.quota_fraction ?? null) : null,
+      budget_cap_type: gcpBudgetCapType,
+      budget_cap_value: gcpBudgetCapType === 'none' ? null : gcpBudgetCapValue,
       is_default: gcpIsDefault,
       last_test_success: gcpTestResult ? gcpTestResult.success : gcpEditingModel?.last_test_success,
       last_tested_at: gcpTestResult ? new Date().toISOString() : gcpEditingModel?.last_tested_at,
@@ -525,7 +545,6 @@ export const CustomModelsPage: React.FC = () => {
     setNotes('')
     setThinkingLevels(['low', 'medium', 'high'])
     setThinkingLevel('high')
-    setIsQuotaPriceOpen(true)
     setQuotaType('na')
     setQuotaManualOverride(false)
     setBalanceValue('')
@@ -570,7 +589,6 @@ export const CustomModelsPage: React.FC = () => {
     const rawLevels = (model.thinking_levels || ['low', 'medium', 'high']).filter((l) => l.toLowerCase() !== 'off')
     setThinkingLevels(rawLevels.length > 0 ? rawLevels : ['low', 'medium', 'high'])
     setThinkingLevel(isThinking ? (model.thinking_level || 'high') : '')
-    setIsQuotaPriceOpen(true)
     setQuotaType(normalizeQuotaType(model.quota_type))
     setQuotaManualOverride(!!model.quota_manual_override)
     setBalanceValue(model.balance_value || '')
@@ -2504,39 +2522,35 @@ export const CustomModelsPage: React.FC = () => {
                         <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
                           Token Pricing ($/1M Tokens)
                         </label>
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            fontWeight: 600,
-                            padding: '2px 8px',
-                            borderRadius: '10px',
-                            backgroundColor:
-                              priceSource === 'provider'
-                                ? '#e6f4ea'
-                                : priceSource === 'third_party' || priceSource === 'api'
-                                ? '#e8f0fe'
-                                : priceSource === 'manual'
-                                ? '#f3e8ff'
-                                : '#fef3c7',
-                            color:
-                              priceSource === 'provider'
-                                ? '#137333'
-                                : priceSource === 'third_party' || priceSource === 'api'
-                                ? 'var(--primary)'
-                                : priceSource === 'manual'
-                                ? '#7e22ce'
-                                : '#b45309',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {priceSource === 'provider'
-                            ? 'Provider Official'
-                            : priceSource === 'third_party' || priceSource === 'api'
-                            ? '3rd-Party Backup'
-                            : priceSource === 'manual'
-                            ? 'Manual Override'
-                            : 'Null — Manual Entry Required'}
-                        </span>
+                        {['provider', 'third_party', 'api', 'manual'].includes(priceSource) && (
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              padding: '2px 8px',
+                              borderRadius: '10px',
+                              backgroundColor:
+                                priceSource === 'provider'
+                                  ? '#e6f4ea'
+                                  : priceSource === 'third_party' || priceSource === 'api'
+                                  ? '#e8f0fe'
+                                  : '#f3e8ff',
+                              color:
+                                priceSource === 'provider'
+                                  ? '#137333'
+                                  : priceSource === 'third_party' || priceSource === 'api'
+                                  ? 'var(--primary)'
+                                  : '#7e22ce',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {priceSource === 'provider'
+                              ? 'Provider Official'
+                              : priceSource === 'third_party' || priceSource === 'api'
+                              ? '3rd-Party Backup'
+                              : 'Manual Override'}
+                          </span>
+                        )}
                       </div>
 
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
@@ -2989,6 +3003,112 @@ export const CustomModelsPage: React.FC = () => {
                 onChange={(e) => setGcpDisplayName(e.target.value)}
                 style={{ width: '100%', fontSize: '12px', padding: '8px 10px', boxSizing: 'border-box' }}
               />
+            </div>
+
+            {/* Foldable Quota & Budget Section — GCP models are manual-entry only (no auto probe) */}
+            <div style={{ border: '1px solid var(--border)', borderRadius: '8px', marginBottom: '16px', overflow: 'hidden' }}>
+              <button
+                type="button"
+                onClick={() => setIsQuotaPriceOpen(!isQuotaPriceOpen)}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 14px',
+                  backgroundColor: 'var(--canvas)',
+                  border: 'none',
+                  borderBottom: isQuotaPriceOpen ? '1px solid var(--border)' : 'none',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Wallet size={15} color="var(--primary)" />
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>Quota &amp; Budget</span>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>(manual entry only)</span>
+                </div>
+                {isQuotaPriceOpen ? <ChevronDown size={15} color="var(--text-muted)" /> : <ChevronRight size={15} color="var(--text-muted)" />}
+              </button>
+
+              {isQuotaPriceOpen && (
+                <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', backgroundColor: 'var(--canvas)', padding: '10px', borderRadius: '6px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '3px' }}>
+                        Current Balance:
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. $12.50 or ¥50.00"
+                        value={gcpBalanceValue}
+                        onChange={(e) => setGcpBalanceValue(e.target.value)}
+                        style={{ width: '100%', fontSize: '12px', padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', fontSize: '11px', color: 'var(--text-muted)', paddingTop: '16px' }}>
+                      Stored manually on the model; GCP balances are never auto-probed.
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                      Budget Cap:
+                    </label>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      {[
+                        { id: 'none' as const, label: 'No Cap' },
+                        { id: 'dollar' as const, label: 'USD Cap ($)' },
+                        { id: 'percentage' as const, label: 'Usage Cap (%)' },
+                        { id: 'tokens' as const, label: 'Token Count Cap' },
+                      ].map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => {
+                            setGcpBudgetCapType(c.id)
+                            if (c.id === 'none') setGcpBudgetCapValue(null)
+                          }}
+                          style={{
+                            padding: '5px 10px',
+                            borderRadius: '6px',
+                            fontSize: '11px',
+                            fontWeight: gcpBudgetCapType === c.id ? 600 : 500,
+                            color: gcpBudgetCapType === c.id ? 'var(--primary)' : 'var(--text)',
+                            backgroundColor: gcpBudgetCapType === c.id ? '#e8f0fe' : '#ffffff',
+                            border: gcpBudgetCapType === c.id ? '1px solid var(--primary)' : '1px solid var(--border)',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {c.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {gcpBudgetCapType !== 'none' && (
+                    <div style={{ backgroundColor: 'var(--canvas)', padding: '10px', borderRadius: '6px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '3px' }}>
+                        Cap Value {gcpBudgetCapType === 'dollar' ? '($ USD)' : gcpBudgetCapType === 'percentage' ? '(%)' : '(Tokens)'}:
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step={gcpBudgetCapType === 'dollar' ? '1' : gcpBudgetCapType === 'percentage' ? '1' : '10000'}
+                        placeholder={gcpBudgetCapType === 'dollar' ? 'e.g. 25.00' : gcpBudgetCapType === 'percentage' ? 'e.g. 85' : 'e.g. 1000000'}
+                        value={gcpBudgetCapValue !== null && gcpBudgetCapValue !== undefined ? gcpBudgetCapValue : ''}
+                        onChange={(e) => {
+                          const raw = e.target.value.trim()
+                          const v = raw === '' ? null : parseFloat(raw)
+                          setGcpBudgetCapValue(v !== null && !Number.isNaN(v) ? v : null)
+                        }}
+                        style={{ width: '100%', fontSize: '12px', padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Set as default custom model */}

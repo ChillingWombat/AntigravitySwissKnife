@@ -843,18 +843,18 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               {/* Grey horizontal split line in between */}
               <div style={{ height: '1px', backgroundColor: 'var(--border)', width: '100%', margin: '4px 0' }} />
 
-              {/* Row 2: Claude & GPT Models */}
+              {/* Row 2: Non-Gemini models (Claude, GPT, and other non-Gemini quotas) */}
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: '12px' }}>
                   <CircularGauge
                     percentage={gauge5hClaude}
-                    title="Claude/GPT 5H"
+                    title="Non-Gemini 5H"
                     size={72}
                     strokeWidth={8}
                   />
                   <CircularGauge
                     percentage={gaugeWeeklyClaude}
-                    title="Claude/GPT Weekly"
+                    title="Non-Gemini Weekly"
                     size={72}
                     strokeWidth={8}
                   />
@@ -1202,11 +1202,11 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                             </div>
                             <div>
                               <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
-                                <span>Claude &amp; GPT</span>
+                                <span>Non-Gemini</span>
                               </div>
                               <HorizontalQuotaBar
                                 fraction={acc.quota_5h_claude_gpt ?? 0}
-                                title="Claude/GPT 5h cycle"
+                                title="Non-Gemini 5h cycle"
                               />
                             </div>
                           </div>
@@ -1235,11 +1235,11 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                         </div>
                         <div>
                           <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
-                            <span>Claude &amp; GPT</span>
+                            <span>Non-Gemini</span>
                           </div>
                           <HorizontalQuotaBar
                             fraction={acc.quota_weekly_claude_gpt ?? 0}
-                            title="Claude/GPT 7-day cycle"
+                            title="Non-Gemini 7-day cycle"
                           />
                         </div>
                       </div>
