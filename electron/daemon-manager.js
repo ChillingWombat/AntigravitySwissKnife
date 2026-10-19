@@ -140,13 +140,14 @@ class DaemonManager {
 
   /**
    * Cleans up stale Unix domain socket file if it exists.
+  * @param {string} [customPath] Optional explicit socket path (e.g. for testing)
    */
-  cleanupSocket() {
+  cleanupSocket(customPath = null) {
     if (process.platform === 'win32') return;
     try {
-      const sockPath = this.getSocketPath();
+      const sockPath = customPath || this.getSocketPath();
       if (fs.existsSync(sockPath)) {
-        fs.unlinkSync(sockPath);
+        fs.rmSync(sockPath, { force: true });
         console.log(`[DaemonManager] Cleaned up socket file: ${sockPath}`);
       }
     } catch (err) {
