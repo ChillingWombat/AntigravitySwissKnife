@@ -2440,35 +2440,49 @@ func TestQuickMemos_TypeFilterControl(t *testing.T) {
 	}
 }
 
-func TestQuickMemos_FixedCardSizeGoldenRatio(t *testing.T) {
+func TestQuickMemos_FluidCardWidthGoldenRatio(t *testing.T) {
 	css := GenerateAuxiliaryPluginsCSS()
 
-	// Card width is derived from the narrowest panel the host IDE supports (285px),
-	// never from an arbitrary 220px card width.
+	// The card minimum is derived from the narrowest panel the host IDE supports
+	// (285px): 285 - 2 * 12 (view padding) - 12 (scrollbar allowance) = 249px.
 	requiredTokens := []string{
 		"--swiss-aux-panel-min-width: 285px;",
 		"--swiss-memo-view-padding: 12px;",
 		"--swiss-memo-scrollbar-allowance: 12px;",
-		"--swiss-memo-card-width: calc(var(--swiss-aux-panel-min-width) - 2 * var(--swiss-memo-view-padding) - var(--swiss-memo-scrollbar-allowance));",
-		// Golden ratio: height : width = 1 : 1.618 => height = width / 1.618.
-		"--swiss-memo-card-height: calc(var(--swiss-memo-card-width) / 1.618);",
-		// Responsive column count with a fixed track width that can never overflow.
-		"grid-template-columns: repeat(auto-fill, min(var(--swiss-memo-card-width), 100%));",
-		"width: var(--swiss-memo-card-width, 249px);",
-		"height: var(--swiss-memo-card-height, 154px);",
+		"--swiss-memo-card-min-width: calc(var(--swiss-aux-panel-min-width) - 2 * var(--swiss-memo-view-padding) - var(--swiss-memo-scrollbar-allowance));",
+		// auto-fill + 1fr is the sawtooth from issue #141: cards grow with the
+		// panel and reset to the minimum once another column fits.
+		"grid-template-columns: repeat(auto-fill, minmax(min(var(--swiss-memo-card-min-width), 100%), 1fr));",
+		// The grid decides the width; the height follows the real column width.
+		"width: auto;",
+		"aspect-ratio: 1.618 / 1;",
+		// A lone card must stay strictly below 2x the minimum: the 8px column gap
+		// would otherwise let it reach 2 * 249px + 8px - 1px.
+		"max-width: min(100%, calc(2 * var(--swiss-memo-card-min-width) - 1px));",
 	}
 	for _, token := range requiredTokens {
 		if !strings.Contains(css, token) {
-			t.Errorf("expected fixed memo card CSS to contain %q", token)
+			t.Errorf("expected fluid memo card CSS to contain %q", token)
 		}
 	}
 
-	// The legacy stretchy 1fr track made card widths vary per row (the dead gaps).
-	if strings.Contains(css, "minmax(min(220px, 100%), 1fr)") {
-		t.Errorf("memo grid must not stretch cards with a 1fr track anymore")
+	// Fixed card dimensions must be gone: they left a wide panel with one narrow
+	// column and a large empty area on the right.
+	for _, token := range []string{
+		"--swiss-memo-card-width",
+		"--swiss-memo-card-height",
+		"width: 249px",
+		"height: 154px",
+		"grid-template-columns: repeat(auto-fill, min(var(--swiss-memo-card-width), 100%));",
+	} {
+		if strings.Contains(css, token) {
+			t.Errorf("memo cards must not keep a fixed size, found %q", token)
+		}
 	}
-	if strings.Contains(css, "grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));") {
-		t.Errorf("unclamped minmax(220px, 1fr) must stay removed")
+
+	// The card body has to flex so the footer stays pinned and overflow clips.
+	if !strings.Contains(css, ".swiss-memo-card-body {\n  flex: 1 1 auto;\n  min-height: 0;\n  overflow: hidden;") {
+		t.Errorf("memo card body must keep flexing and clipping inside the fluid card")
 	}
 }
 

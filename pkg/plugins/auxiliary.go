@@ -1272,23 +1272,25 @@ div:has(> .shrink-0.flex.items-center.border-b),
   gap: 6px;
   align-items: center;
 }
-/* Fixed memo card size. The host IDE can shrink the right auxiliary panel down to
-   285px - the narrowest width the auxiliary tab header supports (see the
+/* Memo cards are fluid between a minimum width and just under 2x that minimum.
+   The host IDE can shrink the right auxiliary panel down to 285px - the
+   narrowest width the auxiliary tab header supports (see the
    @container (max-width: 285px) rule above). At that width the memos view has
-   285px - 2 * 12px (view padding) - 12px (vertical scrollbar allowance) = 249px of
-   content, so a 249px card never overflows the panel horizontally. Card height
-   follows the golden ratio: height : width = 1 : 1.618. The grid stays responsive:
-   auto-fill fits as many fixed-size cards per row as the panel allows. */
+   285px - 2 * 12px (view padding) - 12px (vertical scrollbar allowance) = 249px
+   of content, so 249px is the card minimum and a card never overflows the panel
+   horizontally (min(..., 100%) still covers panels narrower than that).
+   auto-fill + 1fr builds the requested sawtooth: a single column grows with the
+   panel until a second minimum-width column fits (249px * 2 + 8px gap = 506px),
+   then both columns reset to the minimum; the same repeats for 3, 4, ...
+   columns. */
 .swiss-memo-list {
   --swiss-aux-panel-min-width: 285px;
   --swiss-memo-view-padding: 12px;
   --swiss-memo-scrollbar-allowance: 12px;
-  --swiss-memo-card-width: calc(var(--swiss-aux-panel-min-width) - 2 * var(--swiss-memo-view-padding) - var(--swiss-memo-scrollbar-allowance));
-  --swiss-memo-card-height: calc(var(--swiss-memo-card-width) / 1.618);
+  --swiss-memo-card-min-width: calc(var(--swiss-aux-panel-min-width) - 2 * var(--swiss-memo-view-padding) - var(--swiss-memo-scrollbar-allowance));
   display: grid;
-  grid-template-columns: repeat(auto-fill, min(var(--swiss-memo-card-width), 100%));
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--swiss-memo-card-min-width), 100%), 1fr));
   gap: 8px;
-  justify-content: start;
   align-items: start;
 }
 .swiss-memo-list > .swiss-memo-empty-search,
@@ -1364,9 +1366,13 @@ div:has(> .shrink-0.flex.items-center.border-b),
 }
 .swiss-memo-card {
   box-sizing: border-box;
-  width: var(--swiss-memo-card-width, 249px);
-  max-width: 100%;
-  height: var(--swiss-memo-card-height, 154px);
+  /* The grid decides the width (all cards in a row stay equal) and the height
+     follows the golden ratio of the real column width. Without the cap below a
+     lone card would reach 2 * min + 8px (column gap) - 1px, i.e. more than twice
+     the minimum, before auto-fill opens the second column. */
+  width: auto;
+  max-width: min(100%, calc(2 * var(--swiss-memo-card-min-width) - 1px));
+  aspect-ratio: 1.618 / 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
