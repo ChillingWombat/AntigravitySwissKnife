@@ -10,33 +10,34 @@ type GUIConfig = Config
 
 // Config holds user customization settings for Antigravity desktop GUI improvements.
 type Config struct {
-	Enabled                     bool              `json:"enabled"`                       // Master toggle for GUI improvements
-	ColorStylingEnabled         bool              `json:"color_styling_enabled"`        // Toggle: Custom project colors & conversation tinting
-	SolidLeftEdge               bool              `json:"solid_left_edge"`              // Toggle: Include solid color edge on conversation tabs (default false)
-	TintOpacity                 float64           `json:"tint_opacity"`                 // Conversation tab tint opacity (default 0.15)
-	ActiveConversationIndicator string            `json:"active_conversation_indicator"`// "background" (accent fill), "border" (border outline), "left_bar" (left accent bar)
-	ActiveConversationBorderWidth string          `json:"active_conversation_border_width,omitempty"` // "1px", "1.5px", "2px" (default), "3px"
-	ActiveConversationBold      bool              `json:"active_conversation_bold"`     // Toggle: Bold text on open conversation tab (default false)
-	ProjectColors               map[string]string `json:"project_colors"`               // Map of project name -> hex color
-	DragRearrangeEnabled        bool              `json:"drag_rearrange_enabled"`       // Toggle: Drag to rearrange projects order
-	ProjectOrder                []string          `json:"project_order"`                // Custom ordering of projects
-	ArchivedProjects            []string          `json:"archived_projects"`            // Names or IDs of hidden/archived projects
-	ConversationTabsMode        string            `json:"conversation_tabs_mode"`        // "dynamic" (default) or "fixed" (by chat age)
-	ConversationTabsFixedLimit  int               `json:"conversation_tabs_fixed_limit"` // 1-10 (default 6)
-	ConversationTabsAgeThreshold string           `json:"conversation_tabs_age_threshold"` // "1d", "3d", "7d", "14d" (default), "30d"
-	ConversationTabsMin         int               `json:"conversation_tabs_min"`         // default 3 (range 1-10)
-	ConversationTabsMax         int               `json:"conversation_tabs_max"`         // default 6 (range 1-10)
-	ReplaceSeeAllTriangle       bool              `json:"replace_see_all_triangle"`      // Toggle: Replace "See all" and "See less" text buttons with triangle divider (default true)
-	ConsistentProjectSpacing    bool              `json:"consistent_project_spacing"`   // Toggle: Divider separation below projects without contracted conversation tabs (default true)
-	ConsistentProjectSpacingLine bool             `json:"consistent_project_spacing_line"` // Toggle: Add horizontal divider line centered in the existing project gap (default true)
-	AutoArchiveConversations    bool              `json:"auto_archive_conversations"`    // Toggle: Automatically archive stale conversations
-	AutoArchiveHorizon          string            `json:"auto_archive_horizon"`          // "3d", "7d", "14d" (default), "30d", "60d", "90d"
-	AutoInject                  bool              `json:"auto_inject"`                  // Automatically inject into Antigravity desktop app
-	ChatTelemetryInputTokens     bool              `json:"chat_telemetry_input_tokens"`      // default true
-	ChatTelemetryOutputTokens    bool              `json:"chat_telemetry_output_tokens"`     // default true
-	ChatTelemetryCacheHitRatio   bool              `json:"chat_telemetry_cache_hit_ratio"`   // default true
-	ChatTelemetryGenerationSpeed bool              `json:"chat_telemetry_generation_speed"`  // default true
-	ChatTelemetryScope           string            `json:"chat_telemetry_scope"`             // "aggregated" (default) or "main_only"
+	Enabled                       bool              `json:"enabled"`                                    // Master toggle for GUI improvements
+	ColorStylingEnabled           bool              `json:"color_styling_enabled"`                      // Toggle: Custom project colors & conversation tinting
+	SolidLeftEdge                 bool              `json:"solid_left_edge"`                            // Toggle: Include solid color edge on conversation tabs (default false)
+	TintOpacity                   float64           `json:"tint_opacity"`                               // Conversation tab tint opacity (default 0.15)
+	ActiveConversationIndicator   string            `json:"active_conversation_indicator"`              // "background" (accent fill), "border" (border outline), "left_bar" (left accent bar)
+	ActiveConversationBorderWidth string            `json:"active_conversation_border_width,omitempty"` // "1px", "1.5px", "2px" (default), "3px"
+	ActiveConversationBold        bool              `json:"active_conversation_bold"`                   // Toggle: Bold text on open conversation tab (default false)
+	ProjectColors                 map[string]string `json:"project_colors"`                             // Map of project name -> hex color
+	DragRearrangeEnabled          bool              `json:"drag_rearrange_enabled"`                     // Toggle: Drag to rearrange projects order
+	ProjectOrder                  []string          `json:"project_order"`                              // Custom ordering of projects
+	ArchivedProjects              []string          `json:"archived_projects"`                          // Names or IDs of hidden/archived projects
+	ConversationTabsMode          string            `json:"conversation_tabs_mode"`                     // "dynamic" (default) or "fixed" (by chat age)
+	ConversationTabsFixedLimit    int               `json:"conversation_tabs_fixed_limit"`              // 1-10 (default 6)
+	ConversationTabsAgeThreshold  string            `json:"conversation_tabs_age_threshold"`            // "1d", "3d", "7d", "14d" (default), "30d"
+	ConversationTabsMin           int               `json:"conversation_tabs_min"`                      // default 3 (range 1-10)
+	ConversationTabsMax           int               `json:"conversation_tabs_max"`                      // default 6 (range 1-10)
+	ReplaceSeeAllTriangle         bool              `json:"replace_see_all_triangle"`                   // Toggle: Replace "See all" and "See less" text buttons with triangle divider (default true)
+	ConsistentProjectSpacing      bool              `json:"consistent_project_spacing"`                 // Toggle: Divider separation below projects without contracted conversation tabs (default true)
+	ConsistentProjectSpacingLine  bool              `json:"consistent_project_spacing_line"`            // Toggle: Add horizontal divider line centered in the existing project gap (default true)
+	AutoArchiveConversations      bool              `json:"auto_archive_conversations"`                 // Toggle: Automatically archive stale conversations
+	AutoArchiveHorizon            string            `json:"auto_archive_horizon"`                       // "3d", "7d", "14d" (default), "30d", "60d", "90d"
+	AutoInject                    bool              `json:"auto_inject"`                                // Automatically inject into Antigravity desktop app
+	ChatTelemetryInputTokens      bool              `json:"chat_telemetry_input_tokens"`                // default true
+	ChatTelemetryOutputTokens     bool              `json:"chat_telemetry_output_tokens"`               // default true
+	ChatTelemetryCacheHitRatio    bool              `json:"chat_telemetry_cache_hit_ratio"`             // default true
+	ChatTelemetryGenerationSpeed  bool              `json:"chat_telemetry_generation_speed"`            // default true
+	ChatTelemetryScope            string            `json:"chat_telemetry_scope"`                       // "aggregated" (default) or "main_only"
+	ChatNavigatorMode             string            `json:"chat_navigator_mode"`                        // "panel" (default) or "line"
 }
 
 // FactoryProjectColors returns factory default project colors (clean empty map).
@@ -47,33 +48,34 @@ func FactoryProjectColors() map[string]string {
 // DefaultConfig returns the default GUI improvement configuration.
 func DefaultConfig() *Config {
 	return &Config{
-		Enabled:                     true,
-		ColorStylingEnabled:         true,
-		SolidLeftEdge:               false, // Legacy field preserved for backward compatibility
-		TintOpacity:                 0.15,
-		ActiveConversationIndicator: "background", // "background" (accent fill), "border" (outline), or "left_bar"
+		Enabled:                       true,
+		ColorStylingEnabled:           true,
+		SolidLeftEdge:                 false, // Legacy field preserved for backward compatibility
+		TintOpacity:                   0.15,
+		ActiveConversationIndicator:   "background", // "background" (accent fill), "border" (outline), or "left_bar"
 		ActiveConversationBorderWidth: "2px",
-		ActiveConversationBold:      false,        // Regular text weight on open conversation tab by default
-		ProjectColors:               FactoryProjectColors(),
-		DragRearrangeEnabled:        true,
-		ProjectOrder:                []string{},
-		ArchivedProjects:            []string{},
-		ConversationTabsMode:        "dynamic",
-		ConversationTabsFixedLimit:  6,
-		ConversationTabsAgeThreshold: "14d",
-		ConversationTabsMin:         3,
-		ConversationTabsMax:         6,
-		ReplaceSeeAllTriangle:       true,
-		ConsistentProjectSpacing:    true,
-		ConsistentProjectSpacingLine: true,
-		AutoArchiveConversations:    true,
-		AutoArchiveHorizon:          "14d",
-		AutoInject:                  true,
-		ChatTelemetryInputTokens:     true,
-		ChatTelemetryOutputTokens:    true,
-		ChatTelemetryCacheHitRatio:   true,
-		ChatTelemetryGenerationSpeed: true,
-		ChatTelemetryScope:           "aggregated",
+		ActiveConversationBold:        false, // Regular text weight on open conversation tab by default
+		ProjectColors:                 FactoryProjectColors(),
+		DragRearrangeEnabled:          true,
+		ProjectOrder:                  []string{},
+		ArchivedProjects:              []string{},
+		ConversationTabsMode:          "dynamic",
+		ConversationTabsFixedLimit:    6,
+		ConversationTabsAgeThreshold:  "14d",
+		ConversationTabsMin:           3,
+		ConversationTabsMax:           6,
+		ReplaceSeeAllTriangle:         true,
+		ConsistentProjectSpacing:      true,
+		ConsistentProjectSpacingLine:  true,
+		AutoArchiveConversations:      true,
+		AutoArchiveHorizon:            "14d",
+		AutoInject:                    true,
+		ChatTelemetryInputTokens:      true,
+		ChatTelemetryOutputTokens:     true,
+		ChatTelemetryCacheHitRatio:    true,
+		ChatTelemetryGenerationSpeed:  true,
+		ChatTelemetryScope:            "aggregated",
+		ChatNavigatorMode:             "panel",
 	}
 }
 
