@@ -1116,7 +1116,7 @@ const row2Html = js.slice(actionsStart, actionsEnd + 6);
 const extractIds = (html) => Array.from(html.matchAll(/\bid="([^"]+)"/g), m => m[1]);
 assert.deepStrictEqual(
   extractIds(row1Html),
-  ["swiss-f-home", "swiss-f-refresh", "swiss-f-path", "swiss-f-reveal", "swiss-f-new-file", "swiss-f-new-dir"]
+  ["swiss-f-home", "swiss-f-refresh", "swiss-f-path", "swiss-f-jump", "swiss-f-reveal", "swiss-f-new-file", "swiss-f-new-dir"]
 );
 assert.deepStrictEqual(
   extractIds(row2Html),
@@ -3327,3 +3327,118 @@ func TestQuickMemos_DoubleClickEditing(t *testing.T) {
 		t.Errorf("double-click handler must branch on the memo kind")
 	}
 }
+
+// Issue #158: the address field grows a caret that opens a folder-jump menu with
+// a Parents group (ancestors, root first) and a Siblings group (folders fetched
+// from the parent directory). Navigation must reuse loadFiles and the address input.
+func TestFileExplorerFolderJumpDropdown(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	css := GenerateAuxiliaryPluginsCSS()
+
+	for _, rule := range []string{
+		".swiss-files-path-wrap {",
+		".swiss-files-path-caret {",
+		".swiss-files-path-input {\n  flex: 1;\n  min-width: 0;\n  padding: 4px 26px 4px 8px;",
+		".swiss-dir-jump-menu {",
+		".swiss-dir-jump-group-label {",
+		".swiss-dir-jump-list {",
+		"max-height: 168px;",
+		".swiss-dir-jump-item.active",
+	} {
+		if !strings.Contains(css, rule) {
+			t.Errorf("expected folder jump CSS to contain %q", rule)
+		}
+	}
+
+	// The caret must live inside the address field wrapper, after the input, so it
+	// renders at the right end of the input (the input reserves right padding for it).
+	addrStart := strings.Index(js, `<div class="swiss-files-address-bar">`)
+	wrapStart := strings.Index(js, `<span class="swiss-files-path-wrap">`)
+	pathStart := strings.Index(js, `id="swiss-f-path"`)
+	jumpStart := strings.Index(js, `id="swiss-f-jump"`)
+	wrapEnd := strings.Index(js[wrapStart:], `</span>`)
+	if addrStart < 0 || wrapStart < 0 || pathStart < 0 || jumpStart < 0 || wrapEnd < 0 {
+		t.Fatalf("expected caret markup inside the explorer address bar")
+	}
+	wrapEnd += wrapStart
+	if !(addrStart < wrapStart && wrapStart < pathStart && pathStart < jumpStart && jumpStart < wrapEnd) {
+		t.Errorf("expected caret inside .swiss-files-path-wrap right after #swiss-f-path, got addr=%d wrap=%d path=%d jump=%d wrapEnd=%d",
+			addrStart, wrapStart, pathStart, jumpStart, wrapEnd)
+	}
+
+	requiredTokens := []string{
+		`class="swiss-browser-btn swiss-files-path-caret" id="swiss-f-jump" title="Jump to Folder" aria-haspopup="menu"`,
+		`'<div class="swiss-dir-jump-group-label">Parents</div>'`,
+		`'<div class="swiss-dir-jump-group-label">Siblings</div>'`,
+		`parentsGroup.dataset.group = "parents";`,
+		`siblingsGroup.dataset.group = "siblings";`,
+		`const ancestorChain = (raw) => {`,
+		`const parentOfDir = (raw) => {`,
+		`const buildDirJumpMenu = () => {`,
+		`const toggleDirJumpMenu = (e) => {`,
+		`const navigateFromDirJump = (target) => {`,
+		`loadFiles(target);`,
+		`if (input) input.value = target;`,
+		`API_BASE + "/api/files/list?path=" + encodeURIComponent(parent)`,
+		`{ headers: getSwissAuthHeaders() }`,
+		`.filter((item) => item && item.isDir)`,
+		`normalizeJumpPath(item.path).toLowerCase() !== currentNorm`,
+		`current.className = "swiss-dir-jump-item swiss-dir-jump-current active";`,
+		`current.setAttribute("aria-disabled", "true");`,
+		`console.warn("[swiss] Unable to load sibling folders:", err);`,
+		`siblingsGroup.style.display = "none";`,
+		`document.addEventListener("mousedown", onDirJumpOutsideClick, true);`,
+		`window.addEventListener("scroll", onDirJumpScroll, true);`,
+		`if (e.key === "Escape") {`,
+		`if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Enter") return;`,
+		`items[next].focus();`,
+		`focused.click();`,
+		`loadDirJumpSiblings(menu);`,
+	}
+	for _, tok := range requiredTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected folder jump dropdown to contain %q", tok)
+		}
+	}
+
+	for _, decl := range []string{
+		"const toggleDirJumpMenu = (e) => {",
+		"item.addEventListener(\"click\", (e) => {",
+	} {
+		block := extractJSHandlerBlock(t, js, decl)
+		for _, tok := range []string{"e.preventDefault();", "e.stopPropagation();"} {
+			if !strings.Contains(block, tok) {
+				t.Errorf("%q must call %q so explorer click handlers stay silent", decl, tok)
+			}
+		}
+	}
+
+	// Runtime check of the path math (Windows drive roots and POSIX roots).
+	if nodePath, err := exec.LookPath("node"); err == nil {
+		nodeScript := `
+const assert = require("assert");
+const fs = require("fs");
+const js = fs.readFileSync(0, "utf8");
+const start = js.indexOf("const normalizeJumpPath");
+const end = js.indexOf("let dirJumpCaret = null;", start);
+assert(start !== -1 && end !== -1, "folder jump helpers not found");
+const api = new Function(js.slice(start, end) + "; return { normalizeJumpPath, parentOfDir, dirBaseName, ancestorChain };")();
+assert.deepStrictEqual(api.ancestorChain("D:\\Projects\\app"), ["D:\\", "D:\\Projects"]);
+assert.deepStrictEqual(api.ancestorChain("/home/me/proj"), ["/", "/home", "/home/me"]);
+assert.strictEqual(api.parentOfDir("D:\\Projects"), "D:\\");
+assert.strictEqual(api.parentOfDir("D:\\"), "");
+assert.strictEqual(api.parentOfDir("/"), "");
+assert.strictEqual(api.parentOfDir("/home"), "/");
+assert.strictEqual(api.dirBaseName("D:\\Projects"), "Projects");
+assert.strictEqual(api.dirBaseName("/"), "/");
+assert.strictEqual(api.normalizeJumpPath("C:\\Temp\\\\"), "C:\\Temp");
+`
+		cmd := exec.Command(nodePath, "-e", nodeScript)
+		cmd.Stdin = strings.NewReader(js)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("Node.js folder jump path math failed: %v\n%s", err, string(out))
+		}
+	}
+}
+

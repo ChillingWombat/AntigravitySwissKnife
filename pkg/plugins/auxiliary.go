@@ -1030,16 +1030,114 @@ div:has(> .shrink-0.flex.items-center.border-b),
   align-items: center;
   gap: 6px;
 }
+.swiss-files-path-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
 .swiss-files-path-input {
   flex: 1;
   min-width: 0;
-  padding: 4px 8px;
+  padding: 4px 26px 4px 8px;
   font-size: 11px;
   border-radius: 4px;
   border: 1px solid var(--border, #cbd5e1);
   background: var(--canvas, #ffffff);
   color: var(--text, #1e293b);
   font-family: monospace;
+}
+.swiss-files-path-caret {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  padding: 2px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+}
+.swiss-files-path-caret:hover,
+.swiss-files-path-caret[aria-expanded="true"] {
+  background: rgba(148, 163, 184, 0.22);
+  color: #1e293b;
+}
+.swiss-dir-jump-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 9999;
+  min-width: 280px;
+  max-width: min(440px, 92vw);
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--canvas, #ffffff);
+  border: 1px solid var(--border, #cbd5e1);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  font-size: 11px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.swiss-dir-jump-group + .swiss-dir-jump-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+}
+.swiss-dir-jump-group-label {
+  padding: 4px 8px 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.swiss-dir-jump-list {
+  max-height: 168px;
+  overflow-y: auto;
+}
+.swiss-dir-jump-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  color: var(--text, #1e293b);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.swiss-dir-jump-item:hover,
+.swiss-dir-jump-item:focus {
+  background: rgba(26, 115, 232, 0.09);
+  outline: none;
+}
+.swiss-dir-jump-item.active,
+.swiss-dir-jump-item[aria-disabled="true"] {
+  background: rgba(26, 115, 232, 0.08);
+  color: #1a73e8;
+  font-weight: 600;
+  cursor: default;
+}
+.swiss-dir-jump-item svg {
+  flex-shrink: 0;
+}
+.swiss-dir-jump-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.swiss-dir-jump-arrow {
+  margin-left: auto;
+  opacity: 0.45;
+}
+.swiss-dir-jump-loading,
+.swiss-dir-jump-empty {
+  padding: 5px 8px;
+  color: #94a3b8;
+  font-style: italic;
 }
 .swiss-files-list {
   flex: 1;
@@ -4216,7 +4314,10 @@ func GenerateAuxiliaryPluginsScript() string {
         <div class="swiss-files-address-bar">
           <button class="swiss-browser-btn" id="swiss-f-home" title="Home Folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></button>
           <button class="swiss-browser-btn" id="swiss-f-refresh" title="Refresh"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button>
-          <input type="text" class="swiss-files-path-input" id="swiss-f-path" value="${currentFilePath}" />
+          <span class="swiss-files-path-wrap">
+            <input type="text" class="swiss-files-path-input" id="swiss-f-path" value="${currentFilePath}" />
+            <button class="swiss-browser-btn swiss-files-path-caret" id="swiss-f-jump" title="Jump to Folder" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+          </span>
           <button class="swiss-browser-btn" id="swiss-f-reveal" title="Open in System File Manager"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/></svg></button>
           <button class="swiss-browser-btn" id="swiss-f-new-file" title="New File"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><polyline points="14 2 14 8 20 8"/><line x1="12" x2="12" y1="18" y2="12"/><line x1="9" x2="15" y1="15" y2="15"/></svg></button>
           <button class="swiss-browser-btn" id="swiss-f-new-dir" title="New Folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></button>
@@ -4511,6 +4612,244 @@ func GenerateAuxiliaryPluginsScript() string {
           updateNavButtons();
         }
       };
+
+      // Issue #158: folder jump dropdown. The caret sits inside the address field and
+      // lists the ancestor chain (Parents) plus the directories next to the current one
+      // (Siblings). Navigation reuses loadFiles so history, path input and rows stay in sync.
+      const normalizeJumpPath = (raw) => {
+        let p = (raw || "").trim();
+        if (p.startsWith("file://")) p = p.replace(/^file:\/\//, "");
+        if (p.length > 1) p = p.replace(/[/\\]+$/, "");
+        return p || "/";
+      };
+      const isDriveRoot = (p) => /^[A-Za-z]:$/.test(p);
+      const parentOfDir = (raw) => {
+        const p = normalizeJumpPath(raw);
+        if (p === "/" || isDriveRoot(p)) return "";
+        const idx = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+        if (idx < 0) return "";
+        if (idx === 0) return "/";
+        const parent = p.substring(0, idx);
+        return isDriveRoot(parent) ? parent + "\\" : parent;
+      };
+      const dirBaseName = (raw) => {
+        const p = normalizeJumpPath(raw);
+        if (p === "/" || isDriveRoot(p)) return p;
+        const idx = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+        return idx >= 0 ? p.substring(idx + 1) : p;
+      };
+      const ancestorChain = (raw) => {
+        const chain = [];
+        let cursor = parentOfDir(raw);
+        while (cursor) {
+          chain.unshift(cursor);
+          cursor = parentOfDir(cursor);
+        }
+        return chain;
+      };
+
+      let dirJumpCaret = null;
+
+      const closeDirJumpMenu = () => {
+        const open = document.getElementById("swiss-dir-jump-menu");
+        if (open) open.remove();
+        if (dirJumpCaret) dirJumpCaret.setAttribute("aria-expanded", "false");
+        document.removeEventListener("mousedown", onDirJumpOutsideClick, true);
+        window.removeEventListener("scroll", onDirJumpScroll, true);
+      };
+
+      const navigateFromDirJump = (target) => {
+        if (!target) return;
+        closeDirJumpMenu();
+        loadFiles(target);
+        const input = toolbar.querySelector("#swiss-f-path");
+        if (input) input.value = target;
+      };
+
+      const buildDirJumpItem = (path, label) => {
+        const item = document.createElement("div");
+        item.className = "swiss-dir-jump-item";
+        item.setAttribute("role", "menuitem");
+        item.tabIndex = -1;
+        item.dataset.path = path;
+        item.title = path;
+        item.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg><span class="swiss-dir-jump-name"></span><svg class="swiss-dir-jump-arrow" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
+        item.querySelector(".swiss-dir-jump-name").textContent = label || path;
+        item.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          navigateFromDirJump(path);
+        });
+        return item;
+      };
+
+      const buildDirJumpMenu = () => {
+        const menu = document.createElement("div");
+        menu.className = "swiss-dir-jump-menu";
+        menu.id = "swiss-dir-jump-menu";
+        menu.setAttribute("role", "menu");
+        menu.setAttribute("aria-label", "Jump to folder");
+        menu.tabIndex = -1;
+
+        const current = document.createElement("div");
+        current.className = "swiss-dir-jump-item swiss-dir-jump-current active";
+        current.setAttribute("role", "menuitem");
+        current.setAttribute("aria-disabled", "true");
+        current.setAttribute("aria-current", "true");
+        current.title = "Current folder";
+        current.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg><span class="swiss-dir-jump-name"></span>';
+        current.querySelector(".swiss-dir-jump-name").textContent = currentFilePath;
+        menu.appendChild(current);
+
+        const parentsGroup = document.createElement("div");
+        parentsGroup.className = "swiss-dir-jump-group";
+        parentsGroup.dataset.group = "parents";
+        parentsGroup.innerHTML = '<div class="swiss-dir-jump-group-label">Parents</div>';
+        const parentsList = document.createElement("div");
+        parentsList.className = "swiss-dir-jump-list";
+        parentsList.setAttribute("role", "group");
+        parentsList.setAttribute("aria-label", "Parents");
+        const parents = ancestorChain(currentFilePath);
+        if (!parents.length) {
+          const empty = document.createElement("div");
+          empty.className = "swiss-dir-jump-empty";
+          empty.textContent = "No parent folder";
+          parentsList.appendChild(empty);
+        }
+        parents.forEach((p) => {
+          parentsList.appendChild(buildDirJumpItem(p, dirBaseName(p)));
+        });
+        parentsGroup.appendChild(parentsList);
+        menu.appendChild(parentsGroup);
+
+        const siblingsGroup = document.createElement("div");
+        siblingsGroup.className = "swiss-dir-jump-group";
+        siblingsGroup.dataset.group = "siblings";
+        siblingsGroup.innerHTML = '<div class="swiss-dir-jump-group-label">Siblings</div>';
+        const siblingsList = document.createElement("div");
+        siblingsList.className = "swiss-dir-jump-list";
+        siblingsList.id = "swiss-dir-jump-siblings";
+        siblingsList.setAttribute("role", "group");
+        siblingsList.setAttribute("aria-label", "Siblings");
+        siblingsList.innerHTML = '<div class="swiss-dir-jump-loading">Loading folders...</div>';
+        siblingsGroup.appendChild(siblingsList);
+        menu.appendChild(siblingsGroup);
+
+        return menu;
+      };
+
+      const loadDirJumpSiblings = async (menu) => {
+        const list = menu.querySelector("#swiss-dir-jump-siblings");
+        if (!list) return;
+        const siblingsGroup = list.closest(".swiss-dir-jump-group");
+        const parent = parentOfDir(currentFilePath);
+        if (!parent) {
+          if (siblingsGroup) siblingsGroup.style.display = "none";
+          return;
+        }
+        let data = null;
+        try {
+          const res = await fetch(
+            API_BASE + "/api/files/list?path=" + encodeURIComponent(parent),
+            { headers: getSwissAuthHeaders() }
+          );
+          if (!res.ok) throw new Error("HTTP " + res.status + ": " + res.statusText);
+          data = await res.json();
+          if (!data || !data.success) throw new Error((data && data.error) || "Unknown error");
+        } catch (err) {
+          // Siblings are a shortcut only: a failed lookup must never block parent navigation.
+          console.warn("[swiss] Unable to load sibling folders:", err);
+          if (siblingsGroup) siblingsGroup.style.display = "none";
+          return;
+        }
+        const currentNorm = normalizeJumpPath(currentFilePath).toLowerCase();
+        const others = (data.files || [])
+          .filter((item) => item && item.isDir)
+          .filter((item) => normalizeJumpPath(item.path).toLowerCase() !== currentNorm)
+          .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        if (!others.length) {
+          const empty = document.createElement("div");
+          empty.className = "swiss-dir-jump-empty";
+          empty.textContent = "No other folders here";
+          list.innerHTML = "";
+          list.appendChild(empty);
+          return;
+        }
+        list.innerHTML = "";
+        others.forEach((item) => {
+          list.appendChild(buildDirJumpItem(item.path, item.name));
+        });
+      };
+
+      const dirJumpItems = (menu) => Array.from(menu.querySelectorAll(".swiss-dir-jump-item:not(.active)"));
+
+      const onDirJumpMenuKeydown = (e) => {
+        const menu = e.currentTarget;
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          closeDirJumpMenu();
+          const input = toolbar.querySelector("#swiss-f-path");
+          if (input) input.focus();
+          return;
+        }
+        if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Enter") return;
+        const items = dirJumpItems(menu);
+        if (!items.length) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.key === "Enter") {
+          const focused = document.activeElement;
+          if (focused && focused.classList && focused.classList.contains("swiss-dir-jump-item")) {
+            focused.click();
+          }
+          return;
+        }
+        const current = items.indexOf(document.activeElement);
+        const next = e.key === "ArrowDown"
+          ? (current < 0 ? 0 : (current + 1) % items.length)
+          : (current <= 0 ? items.length - 1 : current - 1);
+        items[next].focus();
+      };
+
+      function onDirJumpOutsideClick(e) {
+        const menu = document.getElementById("swiss-dir-jump-menu");
+        if (!menu) return;
+        if (menu.contains(e.target)) return;
+        if (e.target.closest && e.target.closest("#swiss-f-jump")) return;
+        closeDirJumpMenu();
+      }
+
+      function onDirJumpScroll(e) {
+        const menu = document.getElementById("swiss-dir-jump-menu");
+        if (menu && e.target && menu.contains(e.target)) return;
+        closeDirJumpMenu();
+      }
+
+      const toggleDirJumpMenu = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const existing = document.getElementById("swiss-dir-jump-menu");
+        if (existing) {
+          closeDirJumpMenu();
+          return;
+        }
+        const anchor = toolbar.querySelector(".swiss-files-path-wrap");
+        if (!anchor) return;
+        const menu = buildDirJumpMenu();
+        menu.addEventListener("keydown", onDirJumpMenuKeydown);
+        anchor.appendChild(menu);
+        if (dirJumpCaret) dirJumpCaret.setAttribute("aria-expanded", "true");
+        menu.focus();
+        document.addEventListener("mousedown", onDirJumpOutsideClick, true);
+        window.addEventListener("scroll", onDirJumpScroll, true);
+        loadDirJumpSiblings(menu);
+      };
+
+      dirJumpCaret = toolbar.querySelector("#swiss-f-jump");
+      if (dirJumpCaret) {
+        dirJumpCaret.onclick = toggleDirJumpMenu;
+      }
 
       // Background right-click on listContainer
       listContainer.oncontextmenu = (e) => {
