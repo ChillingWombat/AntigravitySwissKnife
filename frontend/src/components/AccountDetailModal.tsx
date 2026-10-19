@@ -233,9 +233,9 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     api.exportAccounts(account.email)
       .then((exported) => {
         if (cancelled || !Array.isArray(exported) || exported.length === 0) return
-        const found =
-          exported.find((a: any) => a.email?.toLowerCase() === account.email.toLowerCase()) ||
-          exported[0]
+        const found = exported.find(
+          (a: any) => a.email?.toLowerCase() === account.email.toLowerCase()
+        )
         if (!found) return
 
         const touched = credentialTouchedRef.current

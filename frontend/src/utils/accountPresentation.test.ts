@@ -347,6 +347,10 @@ describe('accountPresentation utility', () => {
         modalSrc.includes('credentialTouchedRef.current.totpSecret = true'),
         'should protect a user-edited MFA secret from async hydration'
       )
+      assert.ok(
+        !modalSrc.includes('||\n          exported[0]') && !modalSrc.includes('|| exported[0]'),
+        'should never fall back to another account credential'
+      )
     })
   })
 })
