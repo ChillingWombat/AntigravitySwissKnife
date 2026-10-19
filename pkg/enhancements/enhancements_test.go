@@ -195,11 +195,485 @@ func TestGenerateEnhancementsScript(t *testing.T) {
 	}
 }
 
+// TestChatNavigatorPanel_ModeGate pins the chat_navigator_mode contract: the
+// rail reads the setting from the GUI config (the same object that carries the
+// chat telemetry switches), "panel" is the default for missing/unknown values,
+// and "line" keeps today's dash-only rail with the hover tooltip.
+func TestChatNavigatorPanel_ModeGate(t *testing.T) {
+	script := GenerateEnhancementsScript(DefaultConfig())
+
+	if !strings.Contains(script, `let chatNavigatorMode = "panel";`) {
+		t.Errorf("expected the chat navigator style to default to \"panel\"")
+	}
+	if !strings.Contains(script, "loadedGui.chat_navigator_mode") {
+		t.Errorf("expected the navigator style to be read from the GUI config next to chat_telemetry_*")
+	}
+	if !strings.Contains(script, "normalizeNavigatorMode(loadedGui.chat_navigator_mode)") {
+		t.Errorf("expected the GUI config value to be normalized (unknown -> panel)")
+	}
+	if !strings.Contains(script, "function normalizeNavigatorMode(mode)") {
+		t.Errorf("expected a normalizeNavigatorMode helper")
+	}
+	if !strings.Contains(script, "const navigatorMode = normalizeNavigatorMode(chatNavigatorMode);") {
+		t.Errorf("expected the rail render to resolve the navigator mode")
+	}
+	if !strings.Contains(script, `if (navigatorMode !== "panel") {`) {
+		t.Errorf("expected line mode to suppress the hover panel")
+	}
+	if !strings.Contains(script, `if (tooltip && navigatorMode === "line")`) {
+		t.Errorf("expected the hover tooltip to remain exclusive to line mode")
+	}
+	if !strings.Contains(script, `if (!isNavigatorPanelMode()) return;`) {
+		t.Errorf("expected the panel to refuse to open outside panel mode")
+	}
+	if !strings.Contains(script, "scheduleOpenPromptNavigatorPanel();") {
+		t.Errorf("expected hovering a dash to schedule opening the hover panel")
+	}
+	if !strings.Contains(script, "scheduleClosePromptNavigatorPanel();") {
+		t.Errorf("expected leaving a dash to schedule closing the hover panel")
+	}
+}
+
+// TestChatNavigatorPanel_Helpers runs the extracted pure helpers in Node: the
+// mode gate, the prompt-text condensation and the virtualized-turn text cache
+// (keyed by conversation + ordinal, unknown turns -> muted "…", never invented).
+func TestChatNavigatorPanel_Helpers(t *testing.T) {
+	script := GenerateEnhancementsScript(DefaultConfig())
+
+	startMarker := "/* __SWISS_NAV_PANEL_HELPERS_START__ */"
+	endMarker := "/* __SWISS_NAV_PANEL_HELPERS_END__ */"
+	startIdx := strings.Index(script, startMarker)
+	endIdx := strings.Index(script, endMarker)
+	if startIdx == -1 || endIdx == -1 || endIdx <= startIdx {
+		t.Fatalf("expected the pure navigator helpers to be delimited by %q and %q", startMarker, endMarker)
+	}
+	helpers := script[startIdx+len(startMarker) : endIdx]
+
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available")
+	}
+
+	driver := helpers + `
+const assert = require("assert");
+
+// Mode gate: only the exact "line" value opts out; everything else is "panel".
+assert.strictEqual(normalizeNavigatorMode("line"), "line");
+assert.strictEqual(normalizeNavigatorMode("panel"), "panel");
+assert.strictEqual(normalizeNavigatorMode(undefined), "panel", "missing setting must default to panel");
+assert.strictEqual(normalizeNavigatorMode(null), "panel");
+assert.strictEqual(normalizeNavigatorMode(""), "panel");
+assert.strictEqual(normalizeNavigatorMode("mirrored"), "panel", "unknown values must not disable the panel");
+
+// Prompt text: collapsed to one line, trimmed, capped at ~200 chars.
+assert.strictEqual(condensePromptText("  hello \n  world  "), "hello world");
+assert.strictEqual(condensePromptText(null), "");
+assert.strictEqual(condensePromptText(undefined), "");
+assert.strictEqual(condensePromptText("   "), "");
+const capped = condensePromptText("x".repeat(400));
+assert.strictEqual(capped.length, 201, "long prompts must be capped at 200 chars plus an ellipsis");
+assert.ok(capped.endsWith("…"));
+
+// The cache is keyed by (conversation, ordinal): a mounted window of the
+// virtualized transcript must not shadow other turns or other conversations.
+const cache = {};
+cachePromptText(cache, "conv-a", 0, "first prompt");
+cachePromptText(cache, "conv-a", 3, "fourth prompt");
+assert.strictEqual(getCachedPromptText(cache, "conv-a", 0), "first prompt");
+assert.strictEqual(getCachedPromptText(cache, "conv-a", 3), "fourth prompt");
+
+// Unknown turns render the muted ellipsis, never fabricated text.
+assert.strictEqual(getCachedPromptText(cache, "conv-a", 1), "…");
+assert.strictEqual(getCachedPromptText(cache, "conv-a", 99), "…");
+assert.strictEqual(getCachedPromptText(cache, "conv-b", 0), "…", "another conversation must not leak cached text");
+assert.strictEqual(getCachedPromptText(cache, null, 0), "…");
+assert.strictEqual(getCachedPromptText(cache, "conv-a", -1), "…");
+
+// Empty prompt text is not cached; the same ordinal in another conversation is
+// an independent entry.
+cachePromptText(cache, "conv-a", 7, "   ");
+assert.strictEqual(getCachedPromptText(cache, "conv-a", 7), "…", "blank prompts must not be cached");
+cachePromptText(cache, "conv-b", 0, "conv b first");
+assert.notStrictEqual(promptTextCacheKey("conv-a", 0), promptTextCacheKey("conv-b", 0));
+assert.strictEqual(getCachedPromptText(cache, "conv-a", 0), "first prompt");
+
+// Row markup: dash marker + single-line, left-aligned, ellipsized text.
+function makeEl(tag) {
+  return {
+    tagName: tag,
+    className: "",
+    style: {},
+    attributes: {},
+    children: [],
+    textContent: "",
+    setAttribute(k, v) { this.attributes[k] = v; },
+    getAttribute(k) { return this.attributes[k]; },
+    appendChild(c) { this.children.push(c); return c; }
+  };
+}
+const doc = { createElement: (tag) => makeEl(tag) };
+const ui = {
+  dashWidth: 14,
+  activeThickness: 2.5,
+  inactiveThickness: 1.5,
+  activeColor: "ACTIVE",
+  defaultColor: "DEFAULT",
+  activeRowBackground: "ROW_BG",
+  mutedColor: "MUTED"
+};
+const activated = [];
+const row = createNavigatorRow(doc, 4, "cached prompt text", true, ui, (idx) => activated.push(idx));
+assert.strictEqual(row.attributes.role, "menuitem");
+assert.strictEqual(row.attributes.tabindex, "-1");
+assert.strictEqual(row.attributes["data-prompt-index"], "4");
+assert.ok(row.className.indexOf("swiss-navigator-row-active") !== -1, "the active turn must be highlighted");
+assert.strictEqual(row.style.background, "ROW_BG");
+
+const marker = row.children[0];
+assert.strictEqual(marker.className, "swiss-navigator-row-dash active");
+assert.strictEqual(marker.style.width, "14px");
+assert.strictEqual(marker.style.height, "2.5px");
+assert.strictEqual(marker.style.background, "ACTIVE");
+
+const label = row.children[1];
+assert.strictEqual(label.className, "swiss-navigator-row-text");
+assert.strictEqual(label.textContent, "cached prompt text");
+assert.ok(label.style.cssText.indexOf("white-space: nowrap") !== -1, "rows must stay on a single line");
+assert.ok(label.style.cssText.indexOf("text-overflow: ellipsis") !== -1, "rows must ellipsize");
+assert.ok(label.style.cssText.indexOf("text-align: left") !== -1, "rows must be left-aligned");
+assert.ok(label.style.cssText.indexOf("text-align: right") === -1, "the reference screenshot's mirrored direction is wrong");
+
+row.onclick();
+assert.deepStrictEqual(activated, [4], "clicking a row must activate that turn");
+
+// Unknown turns: muted ellipsis label, inactive default-colored marker.
+const unknownRow = createNavigatorRow(doc, 5, "", false, ui, () => {});
+assert.strictEqual(unknownRow.className, "swiss-navigator-row");
+assert.strictEqual(unknownRow.style.background, "transparent");
+assert.strictEqual(unknownRow.children[1].textContent, "…");
+assert.strictEqual(unknownRow.children[1].style.color, "MUTED");
+assert.strictEqual(unknownRow.children[0].className, "swiss-navigator-row-dash");
+assert.strictEqual(unknownRow.children[0].style.height, "1.5px");
+assert.strictEqual(unknownRow.children[0].style.background, "DEFAULT");
+
+console.log("nav panel helpers OK");
+`
+
+	cmd := exec.Command(nodePath, "-")
+	cmd.Stdin = strings.NewReader(driver)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("chat navigator helper test failed: %v\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "nav panel helpers OK") {
+		t.Fatalf("expected the helper driver to run, got:\n%s", string(out))
+	}
+}
+
+// TestChatNavigatorPanel_IsolationAndDismiss pins the hover panel's lifecycle:
+// fixed-position element attached to document.body (so the chat pane cannot clip
+// it), positioned to the right of the rail and clamped to the viewport, opened
+// and closed through a ~150ms grace timer, dismissed on transcript scroll,
+// Escape or rail rebuild, and jumping through the exact dash click path.
+func TestChatNavigatorPanel_IsolationAndDismiss(t *testing.T) {
+	script := GenerateEnhancementsScript(DefaultConfig())
+
+	required := []string{
+		`id = "swiss-prompt-navigator-panel"`,
+		`panel.setAttribute("data-swiss-component", "prompt-navigator-panel")`,
+		`panel.setAttribute("role", "menu")`,
+		`panel.style.cssText = "position: fixed; z-index: 10001;`,
+		`document.body.appendChild(panel)`,
+		`let left = rect.right + gap;`,
+		`vh * 0.6`,
+		`const NAV_PANEL_GRACE_MS = 150;`,
+		`panel.onmouseenter = cancelNavigatorPanelClose;`,
+		`panel.onmouseleave = scheduleClosePromptNavigatorPanel;`,
+		`function onNavigatorPanelOutsideScroll(e)`,
+		`viewport.addEventListener("scroll", onNavigatorPanelOutsideScroll`,
+		`if (panel && typeof panel.remove === "function") panel.remove();`,
+		`function triggerNavigatorJump(turnIdx)`,
+		`dash.click();`,
+		`'.swiss-prompt-dash[data-prompt-index="' + turnIdx + '"]'`,
+		`bar.setAttribute("tabindex", "0");`,
+		`function handleNavigatorKeydown(e)`,
+		`if (e.key === "Escape") {`,
+		`if (e.key === "ArrowDown" || e.key === "ArrowUp") {`,
+		`if (e.key === "Enter") {`,
+		`if (e.key === "Escape")`,
+	}
+	for _, want := range required {
+		if !strings.Contains(script, want) {
+			t.Errorf("expected the chat navigator panel to contain %q", want)
+		}
+	}
+
+	// The panel is created exactly once, inside the opener: while closed there is
+	// no element in the DOM at all, so it cannot intercept pointer events.
+	if got := strings.Count(script, `id = "swiss-prompt-navigator-panel"`); got != 1 {
+		t.Errorf("expected a single panel creation site, got %d", got)
+	}
+	if got := strings.Count(script, "}, NAV_PANEL_GRACE_MS);"); got != 2 {
+		t.Errorf("expected the grace delay on both open and close timers, got %d", got)
+	}
+
+	// The panel is torn down on disable, on an empty rail, on rail rebuild, and
+	// when switching to line mode.
+	if got := strings.Count(script, "closePromptNavigatorPanel();"); got < 5 {
+		t.Errorf("expected the panel to be dropped on teardown/rebuild paths, got %d close call sites", got)
+	}
+
+	if !strings.Contains(script, "document.addEventListener(\"keydown\", (e) => handleNavigatorKeydown(e), true);") {
+		t.Errorf("expected a document-level capture keydown listener for the navigator")
+	}
+}
+
+// TestChatNavigatorPanel_Runtime drives the extracted panel logic (helpers +
+// logic between the __SWISS_NAV_PANEL_* markers) inside a mock DOM: the panel
+// lands on document.body as a fixed element to the right of the rail, lists the
+// cached prompts with the active turn highlighted, is opened/closed through the
+// grace timer, jumps through the dash click path, and closes on Escape.
+func TestChatNavigatorPanel_Runtime(t *testing.T) {
+	script := GenerateEnhancementsScript(DefaultConfig())
+
+	logicStart := "/* __SWISS_NAV_PANEL_LOGIC_START__ */"
+	logicEnd := "/* __SWISS_NAV_PANEL_LOGIC_END__ */"
+	startIdx := strings.Index(script, logicStart)
+	endIdx := strings.Index(script, logicEnd)
+	if startIdx == -1 || endIdx == -1 || endIdx <= startIdx {
+		t.Fatalf("expected the panel logic to be delimited by %q and %q", logicStart, logicEnd)
+	}
+	logic := script[startIdx+len(logicStart) : endIdx]
+
+	helpersStart := "/* __SWISS_NAV_PANEL_HELPERS_START__ */"
+	helpersEnd := "/* __SWISS_NAV_PANEL_HELPERS_END__ */"
+	helpersStartIdx := strings.Index(script, helpersStart)
+	helpersEndIdx := strings.Index(script, helpersEnd)
+	if helpersStartIdx == -1 || helpersEndIdx == -1 || helpersEndIdx <= helpersStartIdx {
+		t.Fatalf("expected the pure navigator helpers to be delimited")
+	}
+	helpers := script[helpersStartIdx+len(helpersStart) : helpersEndIdx]
+
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available")
+	}
+
+	driver := `
+const assert = require("assert");
+
+function matches(el, sel) {
+  if (sel.charAt(0) === "." && sel.indexOf("[") === -1) {
+    return el.className.split(" ").indexOf(sel.substring(1)) !== -1;
+  }
+  if (sel.indexOf('[data-prompt-index="') !== -1) {
+    const m = sel.match(/\[data-prompt-index="(\d+)"\]/);
+    return el.className.split(" ").indexOf("swiss-prompt-dash") !== -1 && el.getAttribute("data-prompt-index") === m[1];
+  }
+  if (sel === '[role="menuitem"]') return el.getAttribute("role") === "menuitem";
+  return false;
+}
+function collect(root, sel, out) {
+  for (const child of root.children) {
+    if (matches(child, sel)) out.push(child);
+    collect(child, sel, out);
+  }
+  return out;
+}
+class El {
+  constructor(tag) {
+    this.tagName = tag;
+    this.id = "";
+    this.className = "";
+    this.style = {};
+    this.attributes = {};
+    this.children = [];
+    this.textContent = "";
+    this.parentElement = null;
+    this.clicks = 0;
+    const self = this;
+    this.classList = {
+      contains: (c) => self.className.split(" ").indexOf(c) !== -1,
+      add: (c) => { if (self.className.split(" ").indexOf(c) === -1) self.className = (self.className + " " + c).trim(); },
+      remove: (c) => { self.className = self.className.split(" ").filter((x) => x && x !== c).join(" "); }
+    };
+  }
+  setAttribute(k, v) { this.attributes[k] = v; if (k === "id") this.id = v; }
+  getAttribute(k) { return this.attributes[k] !== undefined ? this.attributes[k] : null; }
+  appendChild(c) { c.parentElement = this; this.children.push(c); return c; }
+  remove() {
+    if (this.parentElement) {
+      const i = this.parentElement.children.indexOf(this);
+      if (i !== -1) this.parentElement.children.splice(i, 1);
+      this.parentElement = null;
+    }
+  }
+  querySelectorAll(sel) { return collect(this, sel, []); }
+  querySelector(sel) { const all = this.querySelectorAll(sel); return all.length ? all[0] : null; }
+  contains(node) { if (node === this) return true; return this.children.some((c) => c.contains(node)); }
+  closest(sel) { let cur = this; while (cur) { if (matches(cur, sel)) return cur; cur = cur.parentElement; } return null; }
+  click() { this.clicks++; if (typeof this.onclick === "function") this.onclick(); }
+  focus() { document.activeElement = this; }
+  scrollIntoView() { this.scrolledIntoView = true; }
+  getBoundingClientRect() { return { top: 100, left: 18, right: 40, bottom: 400, width: 22, height: 300 }; }
+}
+
+const body = new El("body");
+const bar = new El("div");
+bar.id = "swiss-prompt-jump-bar";
+bar.style.display = "flex";
+bar.setAttribute("data-prompt-index-holder", "1");
+const dashes = [];
+for (let i = 0; i < 3; i++) {
+  const dash = new El("div");
+  dash.className = "swiss-prompt-dash" + (i === 0 ? " active" : "");
+  dash.setAttribute("data-prompt-index", String(i));
+  bar.appendChild(dash);
+  dashes.push(dash);
+}
+body.appendChild(bar);
+
+const windowListeners = [];
+const document = {
+  body: body,
+  activeElement: null,
+  createElement: (tag) => new El(tag),
+  getElementById: (id) => {
+    if (id === "swiss-prompt-jump-bar") return bar;
+    const found = body.children.filter((c) => c.id === id);
+    return found.length ? found[0] : null;
+  },
+  querySelector: () => null,
+  querySelectorAll: () => []
+};
+const window = {
+  innerWidth: 1024,
+  innerHeight: 768,
+  addEventListener: (type, handler, options) => windowListeners.push({ type: type, handler: handler, options: options }),
+  removeEventListener: (type, handler, options) => {
+    const i = windowListeners.findIndex((l) => l.type === type && l.handler === handler);
+    if (i !== -1) windowListeners.splice(i, 1);
+  }
+};
+const enhConfig = { prompt_jump_bar: { dash_width: 14, dash_thickness: 2.5, inactive_thickness: 1.5 } };
+const isDarkMode = () => false;
+const getActiveAndHoverColor = () => "ACTIVE";
+let chatNavigatorMode = "panel";
+let navigatorPanelOpenTimer = null;
+let navigatorPanelCloseTimer = null;
+let navigatorPanelDismissTargets = [];
+const jumpBarPromptTextCache = {};
+let lastJumpBarConversationKey = "conv-a";
+let lastJumpBarTotal = 3;
+
+` + helpers + `
+` + logic + `
+
+const getPanel = () => document.getElementById("swiss-prompt-navigator-panel");
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+(async () => {
+  cachePromptText(jumpBarPromptTextCache, "conv-a", 0, "first prompt");
+  cachePromptText(jumpBarPromptTextCache, "conv-a", 2, "third prompt");
+
+  // The rail keeps a panel attached to document.body to the RIGHT of the rail.
+  openPromptNavigatorPanel();
+  const panel = getPanel();
+  assert.ok(panel, "the hover panel must be created in panel mode");
+  assert.strictEqual(panel.parentElement, body, "the panel must live in document.body (chat pane overflow can clip it)");
+  assert.ok(panel.style.cssText.indexOf("position: fixed") !== -1, "the panel must be fixed-positioned");
+  assert.ok(panel.style.cssText.indexOf("overflow-y: auto") !== -1, "long lists must scroll");
+  assert.ok(panel.style.cssText.indexOf("pointer-events: auto") !== -1);
+  assert.strictEqual(panel.getAttribute("role"), "menu");
+  assert.strictEqual(panel.style.left, "50px", "panel sits to the right of the rail (rail right + gap)");
+  assert.strictEqual(panel.style.top, "100px", "panel aligns with the rail top");
+
+  const rows = panel.querySelectorAll(".swiss-navigator-row");
+  assert.strictEqual(rows.length, 3, "one row per turn");
+  assert.strictEqual(rows[0].className, "swiss-navigator-row swiss-navigator-row-active", "the active turn is highlighted");
+  assert.strictEqual(rows[1].className, "swiss-navigator-row");
+  assert.strictEqual(rows[0].querySelector(".swiss-navigator-row-text").textContent, "first prompt");
+  assert.strictEqual(rows[1].querySelector(".swiss-navigator-row-text").textContent, "…", "unmounted turns show the muted ellipsis");
+  assert.strictEqual(rows[2].querySelector(".swiss-navigator-row-text").textContent, "third prompt");
+  assert.strictEqual(rows[0].getAttribute("role"), "menuitem");
+  assert.strictEqual(rows[2].getAttribute("data-prompt-index"), "2");
+
+  // Clicking a row jumps through the exact dash click path.
+  rows[2].click();
+  assert.strictEqual(dashes[2].clicks, 1, "row clicks must go through the dash click handler");
+
+  // Closing removes the element entirely (nothing to intercept pointer events).
+  closePromptNavigatorPanel();
+  assert.strictEqual(getPanel(), null, "closing must remove the panel from the document");
+  assert.strictEqual(windowListeners.length, 0, "dismiss listeners must be detached on close");
+
+  // Line mode refuses to open a panel.
+  chatNavigatorMode = "line";
+  scheduleOpenPromptNavigatorPanel();
+  await wait(200);
+  assert.strictEqual(getPanel(), null, "line mode must never open the panel");
+
+  // Panel mode opens after the ~150ms grace delay, and closes after the same
+  // grace so the pointer can travel from the rail into the panel.
+  chatNavigatorMode = "panel";
+  scheduleOpenPromptNavigatorPanel();
+  assert.strictEqual(getPanel(), null, "the open must wait for the grace delay");
+  await wait(220);
+  assert.ok(getPanel(), "the panel must open after the grace delay");
+  scheduleClosePromptNavigatorPanel();
+  assert.ok(getPanel(), "the close must wait for the grace delay");
+  await wait(220);
+  assert.strictEqual(getPanel(), null, "the panel must close after the grace delay");
+
+  // Keyboard: ArrowDown on the rail opens the panel and walks the rows.
+  handleNavigatorKeydown({ key: "ArrowDown", target: bar, preventDefault: () => {} });
+  const reopened = getPanel();
+  assert.ok(reopened, "ArrowDown on the rail must open the panel");
+  const reopenedRows = reopened.querySelectorAll(".swiss-navigator-row");
+  assert.strictEqual(document.activeElement, reopenedRows[1], "ArrowDown moves focus to the next row");
+  handleNavigatorKeydown({ key: "ArrowDown", target: document.activeElement, preventDefault: () => {} });
+  assert.strictEqual(document.activeElement, reopenedRows[2], "ArrowDown keeps walking the rows");
+
+  // Enter jumps the focused row through the dash path.
+  handleNavigatorKeydown({ key: "Enter", target: document.activeElement, preventDefault: () => {} });
+  assert.strictEqual(dashes[2].clicks, 2, "Enter must jump via the dash click path");
+
+  // Escape closes the panel.
+  handleNavigatorKeydown({ key: "Escape", target: bar, preventDefault: () => {} });
+  assert.strictEqual(getPanel(), null, "Escape must close the panel");
+
+  // The keyboard path honours the "last seen turn" highlight for the active row.
+  rows[0].classList.remove("swiss-navigator-row-active");
+  dashes[1].classList.add("active");
+  dashes[0].classList.remove("active");
+  openPromptNavigatorPanel();
+  const panel2 = getPanel();
+  assert.strictEqual(panel2.querySelector(".swiss-navigator-row-active").getAttribute("data-prompt-index"), "1", "the panel must highlight the rail's active turn");
+  updateNavigatorPanelActiveHighlight(2);
+  assert.strictEqual(panel2.querySelector(".swiss-navigator-row-active").getAttribute("data-prompt-index"), "2", "the highlight must follow the rail");
+  closePromptNavigatorPanel();
+
+  console.log("nav panel runtime OK");
+})().catch((e) => { console.error(e); process.exit(1); });
+`
+
+	cmd := exec.Command(nodePath, "-")
+	cmd.Stdin = strings.NewReader(driver)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("chat navigator runtime test failed: %v\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "nav panel runtime OK") {
+		t.Fatalf("expected the runtime driver to complete, got:\n%s", string(out))
+	}
+}
+
 // TestPromptJumpBar_StableTurnEnumeration pins the "jumper" contract: the rail
 // must show one bar per prompt turn of the whole session, in a fixed order, with
 // a count that does not change while the virtualized transcript mounts and
 // unmounts turns around the viewport.
 func TestPromptJumpBar_StableTurnEnumeration(t *testing.T) {
+
 	script := GenerateEnhancementsScript(DefaultConfig())
 
 	// 1. The rail no longer derives its bar count from the mounted DOM alone.
