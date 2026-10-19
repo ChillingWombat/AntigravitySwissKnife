@@ -100,6 +100,7 @@ func TestSecurityRegression_DefaultDenyAuthEnforcement(t *testing.T) {
 		{http.MethodGet, "/api/quota/fleet", ""},
 		{http.MethodGet, "/api/files/list?path=" + tempDir, ""},
 		{http.MethodGet, "/api/accounts/export", ""},
+		{http.MethodPost, "/api/memos/extract", `{"memo_id":"security-probe"}`},
 	}
 
 	for _, tc := range protectedRoutes {

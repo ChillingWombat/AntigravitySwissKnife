@@ -129,9 +129,25 @@ func (s *Server) handleMemosExtract(w http.ResponseWriter, r *http.Request) {
 	}
 
 	transcript = strings.TrimSpace(transcript)
-	if transcript == "" && memo.Type == "audio" {
-		writeExtractError(w, http.StatusBadGateway,
-			"model returned an empty transcript; the audio may contain no speech or the request was refused")
+	if transcript == "" {
+		// Never overwrite an existing transcript with nothing. When the model
+		// legitimately finds no text (e.g. an image without text) or returns no
+		// candidates at all, the memo's current transcript is the best data we
+		// have, so report it back unchanged and leave the file untouched.
+		existing := memo.Transcript
+		if strings.TrimSpace(existing) != "" {
+			writeJSON(w, map[string]interface{}{
+				"success":    true,
+				"transcript": existing,
+				"empty":      true,
+			})
+			return
+		}
+		writeJSON(w, map[string]interface{}{
+			"success":    true,
+			"transcript": "",
+			"empty":      true,
+		})
 		return
 	}
 
@@ -406,8 +422,9 @@ func callVertexExtract(ctx context.Context, endpoint, token, prompt, mimeType, p
 	}
 
 	var parsed struct {
-		Candidates []struct {
-			Content struct {
+		Candidates *[]struct {
+			FinishReason string `json:"finishReason"`
+			Content      struct {
 				Parts []struct {
 					Text string `json:"text"`
 				} `json:"parts"`
@@ -423,22 +440,53 @@ func callVertexExtract(ctx context.Context, endpoint, token, prompt, mimeType, p
 			Message: "model returned an unreadable response",
 		}
 	}
+	if parsed.Candidates == nil {
+		return "", &upstreamExtractError{
+			Status:  http.StatusBadGateway,
+			Message: "model returned an unreadable response: no candidates field",
+		}
+	}
 
-	for _, candidate := range parsed.Candidates {
+	for _, candidate := range *parsed.Candidates {
 		for _, part := range candidate.Content.Parts {
 			if strings.TrimSpace(part.Text) != "" {
 				return part.Text, nil
 			}
 		}
 	}
-	if parsed.PromptFeedback != nil && strings.TrimSpace(parsed.PromptFeedback.BlockReason) != "" {
-		return "", &upstreamExtractError{
-			Status: http.StatusBadGateway,
-			Message: fmt.Sprintf("model blocked the request: %s",
-				strings.TrimSpace(parsed.PromptFeedback.BlockReason)),
+
+	if parsed.PromptFeedback != nil {
+		if reason := strings.TrimSpace(parsed.PromptFeedback.BlockReason); reason != "" {
+			return "", &upstreamExtractError{
+				Status: http.StatusBadGateway,
+				Message: fmt.Sprintf(
+					"the model blocked this request (%s); nothing was saved — try a different file or review the content policy",
+					reason),
+			}
+		}
+	}
+	for _, candidate := range *parsed.Candidates {
+		reason := strings.ToUpper(strings.TrimSpace(candidate.FinishReason))
+		if memoExtractBlockedFinishReasons[reason] {
+			return "", &upstreamExtractError{
+				Status: http.StatusBadGateway,
+				Message: fmt.Sprintf(
+					"the model refused to process this media (%s); nothing was saved — try a different file or review the content policy",
+					reason),
+			}
 		}
 	}
 	return "", nil
+}
+
+// memoExtractBlockedFinishReasons are finish reasons that mean the model
+// declined to produce output for policy or safety reasons rather than simply
+// finding no text. They must surface as an error, not as an empty transcript.
+var memoExtractBlockedFinishReasons = map[string]bool{
+	"SAFETY":             true,
+	"RECITATION":         true,
+	"BLOCKLIST":          true,
+	"PROHIBITED_CONTENT": true,
 }
 
 func isTimeoutError(ctx context.Context, err error) bool {

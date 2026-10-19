@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
 )
@@ -91,6 +92,15 @@ func stubExtractUpstream(t *testing.T, handler http.HandlerFunc) *httptest.Serve
 func postExtract(t *testing.T, srv *Server, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/api/memos/extract", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.handleMemosExtract(rec, req)
+	return rec
+}
+
+func postExtractWithContext(t *testing.T, srv *Server, ctx context.Context, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/memos/extract", strings.NewReader(body)).WithContext(ctx)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	srv.handleMemosExtract(rec, req)
@@ -351,24 +361,224 @@ func encodeTestMedia(b ...byte) string {
 	return base64.StdEncoding.EncodeToString(b)
 }
 
-func TestMemosExtractOcrEmptyTextIsSuccess(t *testing.T) {
-	memo := MemoItem{ID: "memo-img-empty", Type: "image", ImageData: extractTestPNG, Transcript: "stale"}
+func TestMemosExtractEmptyResultKeepsExistingTranscript(t *testing.T) {
+	// An image with nothing to OCR must not wipe a transcript the user already
+	// has. Both an empty candidates array and an empty text part count as empty.
+	cases := []struct {
+		name string
+		body string
+	}{
+		{name: "no candidates", body: `{"candidates":[]}`},
+		{name: "empty text part", body: `{"candidates":[{"content":{"parts":[{"text":""}]}}]}`},
+		{name: "whitespace text part", body: `{"candidates":[{"content":{"parts":[{"text":"   \n"}]}}]}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			memo := MemoItem{ID: "memo-img-empty", Type: "image", ImageData: extractTestPNG, Transcript: "stale"}
+			srv, memoPath, _ := newExtractTestServer(t, []MemoItem{memo}, []custommodels.CustomModel{testGCPModel()})
+
+			before, err := os.ReadFile(memoPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stubExtractUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(tc.body))
+			})
+
+			rec := postExtract(t, srv, `{"memo_id":"memo-img-empty"}`)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200; body = %s", rec.Code, rec.Body.String())
+			}
+			payload := decodeExtractResponse(t, rec)
+			if payload["success"] != true {
+				t.Errorf("success = %v, want true", payload["success"])
+			}
+			if payload["transcript"] != "stale" {
+				t.Errorf("transcript = %v, want the existing value preserved", payload["transcript"])
+			}
+			if payload["empty"] != true {
+				t.Errorf("empty = %v, want true for an empty extraction", payload["empty"])
+			}
+			if got := storedTranscript(t, memoPath, "memo-img-empty"); got != "stale" {
+				t.Errorf("persisted transcript = %q, want stale", got)
+			}
+			after, err := os.ReadFile(memoPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(before) != string(after) {
+				t.Errorf("memos file was rewritten on an empty extraction:\nbefore=%s\nafter=%s", before, after)
+			}
+		})
+	}
+}
+
+func TestMemosExtractEmptyResultWithoutExistingTranscript(t *testing.T) {
+	memo := MemoItem{ID: "memo-img-blank", Type: "image", ImageData: extractTestPNG}
 	srv, memoPath, _ := newExtractTestServer(t, []MemoItem{memo}, []custommodels.CustomModel{testGCPModel()})
 
 	stubExtractUpstream(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":""}]}}]}`))
+		_, _ = w.Write([]byte(`{"candidates":[]}`))
 	})
 
-	rec := postExtract(t, srv, `{"memo_id":"memo-img-empty"}`)
+	rec := postExtract(t, srv, `{"memo_id":"memo-img-blank"}`)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+		t.Fatalf("status = %d, want 200; body = %s", rec.Code, rec.Body.String())
 	}
 	payload := decodeExtractResponse(t, rec)
-	if payload["success"] != true || payload["transcript"] != "" {
-		t.Errorf("payload = %v, want success with empty transcript", payload)
+	if payload["success"] != true || payload["transcript"] != "" || payload["empty"] != true {
+		t.Errorf("payload = %v, want success with empty transcript and empty=true", payload)
 	}
-	if got := storedTranscript(t, memoPath, "memo-img-empty"); got != "" {
+	if got := storedTranscript(t, memoPath, "memo-img-blank"); got != "" {
 		t.Errorf("persisted transcript = %q, want empty", got)
+	}
+}
+
+func TestMemosExtractAudioEmptyTextIsSuccess(t *testing.T) {
+	webm := base64.StdEncoding.EncodeToString([]byte{0x1A, 0x45, 0xDF, 0xA3, 0x42, 0x82, 0x84, 'w', 'e', 'b', 'm'})
+	memo := MemoItem{ID: "memo-audio-empty", Type: "audio", AudioData: webm}
+	srv, memoPath, _ := newExtractTestServer(t, []MemoItem{memo}, []custommodels.CustomModel{testGCPModel()})
+
+	stubExtractUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[]},"finishReason":"STOP"}]}`))
+	})
+
+	rec := postExtract(t, srv, `{"memo_id":"memo-audio-empty"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", rec.Code, rec.Body.String())
+	}
+	payload := decodeExtractResponse(t, rec)
+	if payload["success"] != true || payload["transcript"] != "" || payload["empty"] != true {
+		t.Errorf("payload = %v, want success with empty transcript and empty=true", payload)
+	}
+	if got := storedTranscript(t, memoPath, "memo-audio-empty"); got != "" {
+		t.Errorf("persisted transcript = %q, want empty", got)
+	}
+}
+
+func TestMemosExtractBlockedResponseIsBadGateway(t *testing.T) {
+	cases := []struct {
+		name        string
+		body        string
+		wantInErr   string
+		existingTxt string
+	}{
+		{
+			name:        "finishReason SAFETY",
+			body:        `{"candidates":[{"content":{"parts":[]},"finishReason":"SAFETY"}]}`,
+			wantInErr:   "SAFETY",
+			existingTxt: "original",
+		},
+		{
+			name:        "finishReason PROHIBITED_CONTENT",
+			body:        `{"candidates":[{"content":{"parts":[]},"finishReason":"PROHIBITED_CONTENT"}]}`,
+			wantInErr:   "PROHIBITED_CONTENT",
+			existingTxt: "original",
+		},
+		{
+			name:        "promptFeedback blockReason",
+			body:        `{"candidates":[],"promptFeedback":{"blockReason":"OTHER"}}`,
+			wantInErr:   "OTHER",
+			existingTxt: "original",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			memo := MemoItem{ID: "memo-img-blocked", Type: "image", ImageData: extractTestPNG, Transcript: tc.existingTxt}
+			srv, memoPath, _ := newExtractTestServer(t, []MemoItem{memo}, []custommodels.CustomModel{testGCPModel()})
+
+			before, err := os.ReadFile(memoPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stubExtractUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(tc.body))
+			})
+
+			rec := postExtract(t, srv, `{"memo_id":"memo-img-blocked"}`)
+			if rec.Code != http.StatusBadGateway {
+				t.Fatalf("status = %d, want 502; body = %s", rec.Code, rec.Body.String())
+			}
+			payload := decodeExtractResponse(t, rec)
+			if payload["success"] != false {
+				t.Errorf("success = %v, want false", payload["success"])
+			}
+			msg, _ := payload["error"].(string)
+			if !strings.Contains(msg, tc.wantInErr) {
+				t.Errorf("error = %q, want it to mention %q", msg, tc.wantInErr)
+			}
+			if got := storedTranscript(t, memoPath, "memo-img-blocked"); got != tc.existingTxt {
+				t.Errorf("transcript changed to %q on a blocked response", got)
+			}
+			after, err := os.ReadFile(memoPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(before) != string(after) {
+				t.Error("memos file was rewritten on a blocked response")
+			}
+		})
+	}
+}
+
+func TestMemosExtractTimeoutIsGatewayTimeout(t *testing.T) {
+	memo := MemoItem{ID: "memo-img-timeout", Type: "image", ImageData: extractTestPNG, Transcript: "original"}
+	srv, memoPath, _ := newExtractTestServer(t, []MemoItem{memo}, []custommodels.CustomModel{testGCPModel()})
+
+	stubExtractUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("upstream must not be reached when the request context is already expired")
+	})
+
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Minute))
+	defer cancel()
+
+	rec := postExtractWithContext(t, srv, ctx, `{"memo_id":"memo-img-timeout"}`)
+	if rec.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want 504; body = %s", rec.Code, rec.Body.String())
+	}
+	payload := decodeExtractResponse(t, rec)
+	if payload["success"] != false {
+		t.Errorf("success = %v, want false", payload["success"])
+	}
+	msg, _ := payload["error"].(string)
+	if !strings.Contains(msg, "timed out") {
+		t.Errorf("error = %q, want a timeout explanation", msg)
+	}
+	if got := storedTranscript(t, memoPath, "memo-img-timeout"); got != "original" {
+		t.Errorf("transcript changed to %q on timeout", got)
+	}
+}
+
+func TestMemosExtractMalformedUpstreamResponse(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{name: "not json", body: `<html>gateway error</html>`},
+		{name: "missing candidates field", body: `{"promptFeedback":null}`},
+		{name: "candidates wrong type", body: `{"candidates":"nope"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			memo := MemoItem{ID: "memo-img-malformed", Type: "image", ImageData: extractTestPNG, Transcript: "original"}
+			srv, memoPath, _ := newExtractTestServer(t, []MemoItem{memo}, []custommodels.CustomModel{testGCPModel()})
+
+			stubExtractUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(tc.body))
+			})
+
+			rec := postExtract(t, srv, `{"memo_id":"memo-img-malformed"}`)
+			if rec.Code != http.StatusBadGateway {
+				t.Fatalf("status = %d, want 502; body = %s", rec.Code, rec.Body.String())
+			}
+			payload := decodeExtractResponse(t, rec)
+			if payload["success"] != false {
+				t.Errorf("success = %v, want false", payload["success"])
+			}
+			if got := storedTranscript(t, memoPath, "memo-img-malformed"); got != "original" {
+				t.Errorf("transcript changed to %q on a malformed response", got)
+			}
+		})
 	}
 }
 
