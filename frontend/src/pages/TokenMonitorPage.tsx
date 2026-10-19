@@ -7,13 +7,16 @@ import {
 } from 'lucide-react'
 import type {
   ModelPricingRecord,
+  TokenRange,
   TokenSummaryResponse,
+  TokenTrendBucket,
   TokenModelBreakdown,
   TokenProjectBreakdown,
   TokenTelemetryEvent,
 } from '../types'
 import { api, isAbortError } from '../api'
 import { ToggleSwitch } from '../components/ToggleSwitch'
+import { buildTrendBars, bucketLabel, OTHERS_COLOR, TREND_COLORS } from '../utils/tokenTrend'
 
 import {
   GEMINI_SELECTOR_ORDER,
@@ -49,9 +52,11 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   const [internalActiveTab] = useState<number>(0)
   const activeTab = controlledActiveTab !== undefined ? controlledActiveTab : internalActiveTab
 
-  // State for Unit Toggle: Tokens vs USD
-  const [unitMode, setUnitMode] = useState<'usd' | 'tokens'>('usd')
-  const [timeRange, setTimeRange] = useState<'24h' | '7d' | '30d' | 'all'>('7d')
+  // State for Unit Toggle: USD vs Tokens vs Requests (#129)
+  const [unitMode, setUnitMode] = useState<'usd' | 'tokens' | 'requests'>('usd')
+  // Time range filter (#125): shared by the KPI cards and the histogram so both
+  // always describe the same window.
+  const [timeRange, setTimeRange] = useState<TokenRange>('7d')
   const [isFetchingPrices, setIsFetchingPrices] = useState(false)
   const [fetchFeedback, setFetchFeedback] = useState<string | null>(null)
   const [editingPricing, setEditingPricing] = useState<ModelPricingRecord | null>(null)
@@ -101,36 +106,12 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   // Usage trend gadget state
   const [trendGroup, setTrendGroup] = useState<'model' | 'project'>('model')
   const [trendTopN, setTrendTopN] = useState<number>(5)
+  const [hoverBucket, setHoverBucket] = useState<number | null>(null)
 
-  const USAGE_HISTORY_KEY = 'antigravity_token_usage_history'
-
-  const loadUsageHistory = (): { t: number; tokens: number; cost: number }[] => {
-    try {
-      const raw = localStorage.getItem(USAGE_HISTORY_KEY)
-      const parsed = raw ? JSON.parse(raw) : []
-      return Array.isArray(parsed) ? parsed : []
-    } catch {
-      return []
-    }
-  }
-
-  const recordUsageSnapshot = (tokens: number, cost: number) => {
-    const now = Date.now()
-    const history = loadUsageHistory()
-    const last = history[history.length - 1]
-    if (last && now - last.t < 60_000) return
-    history.push({ t: now, tokens, cost })
-    const cutoff = now - 35 * 24 * 3600 * 1000
-    const trimmed = history.filter((p) => p.t >= cutoff).slice(-4000)
-    try {
-      localStorage.setItem(USAGE_HISTORY_KEY, JSON.stringify(trimmed))
-    } catch {}
-  }
-
-  const loadLiveMetrics = async () => {
+  const loadLiveMetrics = async (range: TokenRange = timeRange) => {
     try {
       const [summaryData, rulesData, customModelsData, guiConfigData] = await Promise.all([
-        api.getTokenSummary().catch(() => null),
+        api.getTokenSummary(range).catch(() => null),
         api.getRules().catch(() => null),
         api.getCustomModels().catch(() => null),
         api.getGUIConfig().catch(() => null),
@@ -164,7 +145,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
 
       if (summaryData) {
         setSummary(summaryData)
-        recordUsageSnapshot(summaryData.total_tokens, summaryData.total_cost_usd)
         setModelBreakdowns(summaryData.model_breakdowns || [])
         setProjectBreakdowns(summaryData.project_breakdowns || [])
         setTelemetryEvents(summaryData.telemetry_events || [])
@@ -180,10 +160,10 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   }
 
   useEffect(() => {
-    loadLiveMetrics()
-    const interval = setInterval(loadLiveMetrics, 30_000)
+    loadLiveMetrics(timeRange)
+    const interval = setInterval(() => loadLiveMetrics(timeRange), 30_000)
     return () => clearInterval(interval)
-  }, [])
+  }, [timeRange])
 
   const handleUpdateTelemetrySetting = async (key: string, value: any) => {
     try {
@@ -306,66 +286,34 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
       return 'Unpriced (null)'
     }
     const v = value ?? 0
-    return unitMode === 'usd'
-      ? `$${v.toFixed(2)}`
-      : v >= 1000000
+    if (unitMode === 'usd') return `$${v.toFixed(2)}`
+    if (unitMode === 'requests') return `${Math.round(v).toLocaleString()} req`
+    return v >= 1000000
       ? `${(v / 1000000).toFixed(2)}M`
       : v >= 1000
       ? `${(v / 1000).toFixed(2)}k`
       : v.toFixed(0)
   }
 
-  const rangeBuckets: Record<string, { count: number; ms: number; label: (d: Date) => string }> = {
-    '24h': { count: 24, ms: 3600_000, label: (d) => `${d.getHours()}:00` },
-    '7d': { count: 7, ms: 86400_000, label: (d) => d.toLocaleDateString(undefined, { weekday: 'short' }) },
-    '30d': { count: 30, ms: 86400_000, label: (d) => `${d.getMonth() + 1}/${d.getDate()}` },
-    all: { count: 14, ms: 86400_000, label: (d) => `${d.getMonth() + 1}/${d.getDate()}` },
-  }
+  // The histogram is built exclusively from the backend's real per-bucket
+  // aggregates over the selected window (#125). There is no synthetic
+  // interpolation: an empty window renders an empty chart.
+  const trendBuckets: TokenTrendBucket[] = React.useMemo(
+    () => summary.trend?.buckets ?? [],
+    [summary]
+  )
 
-  const buildTrendTotals = (): { labels: string[]; totals: number[] } => {
-    const spec = rangeBuckets[timeRange] || rangeBuckets['7d']
-    const now = Date.now()
-    const buckets = new Array<number>(spec.count).fill(0)
-    const labels: string[] = []
-    for (let i = 0; i < spec.count; i++) {
-      labels.push(spec.label(new Date(now - (spec.count - 1 - i) * spec.ms)))
-    }
-    const history = loadUsageHistory()
-    const val = (v: { tokens: number; cost: number }) => (unitMode === 'usd' ? v.cost : v.tokens)
-    if (history.length >= 2) {
-      for (let i = 1; i < history.length; i++) {
-        const delta = Math.max(0, val(history[i]) - val(history[i - 1]))
-        const idx = spec.count - 1 - Math.floor((now - history[i].t) / spec.ms)
-        if (idx >= 0 && idx < spec.count) buckets[idx] += delta
-      }
-      const last = history[history.length - 1]
-      buckets[spec.count - 1] += Math.max(0, val({ tokens: summary.total_tokens, cost: summary.total_cost_usd }) - val(last))
-      return { labels, totals: buckets }
-    }
-    const totalVal = unitMode === 'usd' ? summary.total_cost_usd : summary.total_tokens
-    const weights = buckets.map((_, i) => 0.6 + 0.8 * Math.abs(Math.sin(i * 1.7 + 0.9)))
-    const wSum = weights.reduce((a, b) => a + b, 0) || 1
-    return { labels, totals: weights.map((w) => (totalVal * w) / wSum) }
-  }
+  const bucketLabelFor = React.useCallback(
+    (start: number) => bucketLabel(start, timeRange),
+    [timeRange]
+  )
 
-  const trendTotals = React.useMemo(buildTrendTotals, [timeRange, unitMode, summary, modelBreakdowns, projectBreakdowns])
-
-  const trendEntities = React.useMemo(() => {
-    const metric = (v: { total_tokens: number; cost_usd: number | null }) =>
-      unitMode === 'usd' ? (v.cost_usd ?? 0) : v.total_tokens
-    if (trendGroup === 'model') {
-      return modelBreakdowns
-        .map((m) => ({ name: m.model_name || m.name || 'Model', total: metric(m) }))
-        .sort((a, b) => b.total - a.total)
-        .slice(0, trendTopN)
-    }
-    return projectBreakdowns
-      .map((p) => ({ name: p.project_name, total: metric(p) }))
-      .sort((a, b) => b.total - a.total)
-      .slice(0, trendTopN)
-  }, [trendGroup, trendTopN, modelBreakdowns, projectBreakdowns, unitMode])
-
-  const TREND_COLORS = ['#0b57d0', '#137333', '#b06000', '#7e22ce', '#b3261e', '#0f766e', '#0369a1', '#be185d', '#c2410c', '#475569']
+  // Rank models/projects over the whole window, then split each bucket into the
+  // top N segments plus an aggregated "Others" segment for stacking.
+  const { bars: trendBars, entities: trendEntities, hasData: trendHasData } = React.useMemo(
+    () => buildTrendBars(trendBuckets, { unit: unitMode, group: trendGroup, topN: trendTopN }),
+    [trendBuckets, unitMode, trendGroup, trendTopN]
+  )
 
   // Input vs Output Cost breakdown calculation
   const { totalInputCost, totalOutputCost } = useMemo(() => {
@@ -448,7 +396,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-              {/* Unit Switcher: USD vs Tokens */}
+              {/* Unit Switcher: USD vs Tokens vs Requests */}
               <div
                 style={{
                   display: 'flex',
@@ -497,6 +445,26 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                   }}
                 >
                   <span>Tokens</span>
+                </button>
+                <button
+                  onClick={() => setUnitMode('requests')}
+                  style={{
+                    borderRadius: '6px',
+                    padding: '5px 12px',
+                    fontSize: '12px',
+                    fontWeight: unitMode === 'requests' ? 600 : 500,
+                    color: unitMode === 'requests' ? 'var(--primary)' : 'var(--text-muted)',
+                    backgroundColor: unitMode === 'requests' ? '#ffffff' : 'transparent',
+                    boxShadow: unitMode === 'requests' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <span>Requests</span>
                 </button>
               </div>
 
@@ -589,11 +557,15 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
         >
           <div>
             <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-              {unitMode === 'usd' ? 'Total Cost' : 'Total Tokens'}
+              {unitMode === 'usd' ? 'Total Cost' : unitMode === 'tokens' ? 'Total Tokens' : 'Total Requests'}
             </span>
           </div>
           <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {unitMode === 'usd' ? `$${(summary.total_cost_usd ?? 0).toFixed(2)}` : formatTokens(summary.total_tokens)}
+            {unitMode === 'usd'
+              ? `$${(summary.total_cost_usd ?? 0).toFixed(2)}`
+              : unitMode === 'tokens'
+              ? formatTokens(summary.total_tokens)
+              : (summary.requests_count ?? 0).toLocaleString()}
           </div>
         </div>
 
@@ -731,35 +703,35 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
         </div>
       </div>
 
-      {/* Usage Trend Over Time */}
+      {/* Usage Histogram Over Time (stacked) */}
       {(() => {
-        const totals = trendTotals.totals
-        const n = totals.length
-        const grandTotal = unitMode === 'usd' ? summary.total_cost_usd : summary.total_tokens
+        const n = trendBars.length
         const series = trendEntities.map((e, i) => ({
           name: e.name,
           total: e.total,
           color: TREND_COLORS[i % TREND_COLORS.length],
-          share: grandTotal > 0 ? e.total / grandTotal : 0,
         }))
-        const maxVal = Math.max(...totals, 1e-9)
+        const maxVal = Math.max(...trendBars.map((b) => b.total), 1e-9)
+        const hasData = trendHasData
         const W = 1000
         const H = 200
-        const px = (i: number) => (n <= 1 ? W / 2 : (i / (n - 1)) * W)
         const py = (v: number) => H - 12 - (v / maxVal) * (H - 24)
-        const pts = (vals: number[]) => vals.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ')
         const tickEvery = Math.max(1, Math.ceil(n / 8))
+        const slot = n > 0 ? W / n : W
+        const barWidth = Math.max(2, Math.min(48, slot * 0.7))
 
         const formatYTick = (v: number) => {
           if (unitMode === 'usd') {
             if (v === 0) return '$0'
             return v >= 10 ? `$${v.toFixed(0)}` : `$${v.toFixed(2)}`
           }
+          if (unitMode === 'requests') return v === 0 ? '0' : Math.round(v).toString()
           if (v === 0) return '0'
           if (v >= 1000000) return `${(v / 1000000).toFixed(1)}M`
           if (v >= 1000) return `${Math.round(v / 1000)}k`
           return Math.round(v).toString()
         }
+
         return (
           <div
             style={{
@@ -824,7 +796,8 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                 ))}
               </select>
               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                per {timeRange === '24h' ? 'hour' : 'day'} · {unitMode === 'usd' ? 'USD' : 'tokens'}
+                per {timeRange === '24h' ? 'hour' : 'day'} · {timeRange.toUpperCase()} ·{' '}
+                {unitMode === 'usd' ? 'USD' : unitMode === 'tokens' ? 'tokens' : 'requests'}
               </span>
             </div>
 
@@ -861,7 +834,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
               </div>
 
               {/* Main SVG Chart & X-Axis */}
-              <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
                 <svg
                   viewBox={`0 0 ${W} ${H}`}
                   style={{ width: '100%', height: '200px', display: 'block' }}
@@ -879,58 +852,122 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                       strokeWidth={1}
                     />
                   ))}
-                  {/* per-entity trend lines (below the total) */}
-                  {series.map((s) => (
-                    <polyline
-                      key={s.name}
-                      points={pts(totals.map((t) => t * s.share))}
-                      fill="none"
-                      stroke={s.color}
-                      strokeWidth={2}
-                      vectorEffect="non-scaling-stroke"
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                      opacity={0.9}
-                    />
-                  ))}
-                  {/* persistent grey daily usage line */}
-                  <polyline
-                    points={pts(totals)}
-                    fill="none"
-                    stroke="#9aa0a6"
-                    strokeWidth={2.5}
-                    vectorEffect="non-scaling-stroke"
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                  />
+                  {/* stacked histogram bars: height = real bucket total, one segment per entity */}
+                  {trendBars.map((bar, i) => {
+                    const x = i * slot + (slot - barWidth) / 2
+                    let acc = 0
+                    return (
+                      <g
+                        key={bar.start}
+                        onMouseEnter={() => setHoverBucket(i)}
+                        onMouseLeave={() => setHoverBucket((cur) => (cur === i ? null : cur))}
+                      >
+                        {/* invisible hover column */}
+                        <rect x={i * slot} y={0} width={slot} height={H} fill="transparent" />
+                        {bar.segments
+                          .filter((s) => s.value > 0)
+                          .map((s) => {
+                            const y0 = py(acc + s.value)
+                            const y1 = py(acc)
+                            acc += s.value
+                            return (
+                              <rect
+                                key={s.name}
+                                x={x}
+                                y={y0}
+                                width={barWidth}
+                                height={Math.max(0, y1 - y0)}
+                                fill={s.color}
+                                opacity={hoverBucket === null || hoverBucket === i ? 1 : 0.55}
+                              />
+                            )
+                          })}
+                      </g>
+                    )
+                  })}
+                  {!hasData && (
+                    <text
+                      x={W / 2}
+                      y={H / 2}
+                      textAnchor="middle"
+                      fill="#9aa0a6"
+                      fontSize="14"
+                      style={{ fontFamily: 'inherit' }}
+                    >
+                      No data in this range
+                    </text>
+                  )}
                 </svg>
+
+                {/* hover tooltip: per-segment values + total, respecting the unit */}
+                {hoverBucket !== null && trendBars[hoverBucket] && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '8px',
+                      left: `${Math.min(70, ((hoverBucket + 0.5) / Math.max(n, 1)) * 100)}%`,
+                      transform: 'translateX(-50%)',
+                      backgroundColor: '#1f2937',
+                      color: '#ffffff',
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      lineHeight: '1.5',
+                      whiteSpace: 'nowrap',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                      zIndex: 50,
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, marginBottom: '2px' }}>
+                      {bucketLabelFor(trendBars[hoverBucket].start)}
+                    </div>
+                    {trendBars[hoverBucket].segments
+                      .filter((s) => s.value > 0)
+                      .map((s) => (
+                        <div key={s.name} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ width: '8px', height: '8px', borderRadius: '2px', backgroundColor: s.color }} />
+                          <span>{s.name}</span>
+                          <span style={{ marginLeft: 'auto', fontWeight: 600 }}>{formatMetric(s.value)}</span>
+                        </div>
+                      ))}
+                    <div style={{ marginTop: '4px', borderTop: '1px solid rgba(255,255,255,0.25)', paddingTop: '4px', display: 'flex', gap: '10px' }}>
+                      <span>Total: {formatMetric(trendBars[hoverBucket].total)}</span>
+                      <span>Requests: {trendBars[hoverBucket].requests.toLocaleString()}</span>
+                    </div>
+                  </div>
+                )}
 
                 {/* x-axis ticks */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                  {trendTotals.labels.filter((_, i) => i % tickEvery === 0 || i === n - 1).map((l, i) => (
-                    <span key={`${l}-${i}`}>{l}</span>
-                  ))}
+                  {trendBars
+                    .filter((_, i) => i % tickEvery === 0 || i === n - 1)
+                    .map((b) => (
+                      <span key={b.start}>{bucketLabelFor(b.start)}</span>
+                    ))}
                 </div>
               </div>
             </div>
 
             {/* legend */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px', flexWrap: 'wrap', paddingLeft: '56px' }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                <span style={{ width: '14px', height: '3px', borderRadius: '2px', backgroundColor: '#9aa0a6' }} />
-                Total
-              </span>
               {series.length === 0 ? (
                 <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  No {trendGroup} usage recorded in this horizon yet.
+                  No {trendGroup} usage recorded in this range yet.
                 </span>
               ) : (
-                series.map((s) => (
+                series.slice(0, trendTopN).map((s) => (
                   <span key={s.name} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text)' }}>
-                    <span style={{ width: '14px', height: '3px', borderRadius: '2px', backgroundColor: s.color }} />
+                    <span style={{ width: '14px', height: '10px', borderRadius: '2px', backgroundColor: s.color }} />
                     {s.name} <span style={{ color: 'var(--text-muted)' }}>{formatMetric(s.total)}</span>
                   </span>
                 ))
+              )}
+              {trendEntities.length > trendTopN && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text)' }}>
+                  <span style={{ width: '14px', height: '10px', borderRadius: '2px', backgroundColor: OTHERS_COLOR }} />
+                  Others
+                </span>
               )}
             </div>
           </div>
@@ -970,7 +1007,18 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
               </div>
             ) : (
               modelBreakdowns.map((m) => {
-                const pct = summary.total_tokens > 0 ? (m.total_tokens / summary.total_tokens) * 100 : 0
+                const pct =
+                  unitMode === 'usd'
+                    ? summary.total_cost_usd > 0
+                      ? ((m.cost_usd ?? 0) / summary.total_cost_usd) * 100
+                      : 0
+                    : unitMode === 'requests'
+                    ? (summary.requests_count ?? 0) > 0
+                      ? (m.requests / (summary.requests_count as number)) * 100
+                      : 0
+                    : summary.total_tokens > 0
+                    ? (m.total_tokens / summary.total_tokens) * 100
+                    : 0
                 const provLower = (m.provider || '').toLowerCase()
                 return (
                   <div key={m.canonical_id || m.model_id}>
@@ -993,7 +1041,9 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                         </span>
                       </div>
                       <span style={{ fontWeight: 600, color: m.price_missing && unitMode === 'usd' ? '#b06000' : 'var(--primary)', whiteSpace: 'nowrap' }}>
-                        {formatMetric(unitMode === 'usd' ? m.cost_usd : m.total_tokens)}{' '}
+                        {formatMetric(
+                          unitMode === 'usd' ? m.cost_usd : unitMode === 'tokens' ? m.total_tokens : m.requests
+                        )}{' '}
                         <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>({pct.toFixed(2)}%)</span>
                       </span>
                     </div>
@@ -1051,13 +1101,26 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
               </div>
             ) : (
               projectBreakdowns.map((p) => {
-                const pct = summary.total_tokens > 0 ? (p.total_tokens / summary.total_tokens) * 100 : 0
+                const pct =
+                  unitMode === 'usd'
+                    ? summary.total_cost_usd > 0
+                      ? (p.cost_usd / summary.total_cost_usd) * 100
+                      : 0
+                    : unitMode === 'requests'
+                    ? (summary.requests_count ?? 0) > 0
+                      ? (((p.requests ?? 0) / summary.requests_count) * 100)
+                      : 0
+                    : summary.total_tokens > 0
+                    ? (p.total_tokens / summary.total_tokens) * 100
+                    : 0
                 return (
                   <div key={p.project_name}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
                       <span style={{ fontWeight: 600, color: 'var(--text)' }}>{p.project_name}</span>
                       <span style={{ fontWeight: 600, color: 'var(--primary)' }}>
-                        {formatMetric(unitMode === 'usd' ? p.cost_usd : p.total_tokens)}{' '}
+                        {formatMetric(
+                          unitMode === 'usd' ? p.cost_usd : unitMode === 'tokens' ? p.total_tokens : (p.requests ?? 0)
+                        )}{' '}
                         <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>({pct.toFixed(2)}%)</span>
                       </span>
                     </div>

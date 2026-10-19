@@ -8,6 +8,8 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,16 +17,29 @@ import (
 
 // QuotaResult represents the auto-derived balance, quota, and pricing details for a model.
 type QuotaResult struct {
-	QuotaType            QuotaType `json:"quota_type"`     // "na", "balance", "quota"
-	BalanceValue         string    `json:"balance_value"`  // e.g. "$12.34" or "¥10.00"
-	QuotaValue           string    `json:"quota_value"`    // e.g. "250,000 tokens" or "$10.00"
-	Fraction             *float64  `json:"fraction"`       // 0.0 to 1.0; nil if untracked/none
+	QuotaType            QuotaType `json:"quota_type"`    // "na", "balance", "quota"
+	BalanceValue         string    `json:"balance_value"` // e.g. "$12.34" or "¥10.00"
+	QuotaValue           string    `json:"quota_value"`   // e.g. "250,000 tokens" or "$10.00"
+	Fraction             *float64  `json:"fraction"`      // 0.0 to 1.0; nil if untracked/none
 	HasPercentage        bool      `json:"has_percentage"`
 	Message              string    `json:"message"`
 	InputPricePerM       *float64  `json:"input_price_per_m"`
 	CachedInputPricePerM *float64  `json:"cached_input_price_per_m"`
 	OutputPricePerM      *float64  `json:"output_price_per_m"`
 	PriceSource          string    `json:"price_source,omitempty"`
+	// Buckets carries every quota window the provider reported (5H / 7D /
+	// monthly ...). Providers that expose a single rolling window leave this
+	// empty and are rendered as a single gauge.
+	Buckets []QuotaBucket `json:"buckets,omitempty"`
+}
+
+// QuotaBucket is one quota window reported by a provider, e.g. the 5H window
+// together with a 7D/monthly window of the same plan.
+type QuotaBucket struct {
+	Label    string   `json:"label"`    // display label, e.g. "5H", "7D", "Monthly"
+	Fraction *float64 `json:"fraction"` // 0.0 to 1.0 remaining; nil if untracked
+	Value    string   `json:"value,omitempty"`
+	Message  string   `json:"message,omitempty"`
 }
 
 // ProviderQuotaRegistryEntry defines a known provider's balance/quota endpoint spec.
@@ -569,6 +584,14 @@ func probeQuotaEndpoint(ctx context.Context, client *http.Client, endpoint strin
 		return nil
 	}
 
+	jsonBuckets := ExtractQuotaBucketsFromJSON(body)
+	attach := func(res *QuotaResult) *QuotaResult {
+		if res != nil && len(res.Buckets) == 0 {
+			res.Buckets = jsonBuckets
+		}
+		return res
+	}
+
 	// A. OneAPI billing subscription: {"hard_limit_usd": 50.0, "total_usage": 1500}
 	var subData struct {
 		HardLimitUSD float64 `json:"hard_limit_usd"`
@@ -581,13 +604,13 @@ func probeQuotaEndpoint(ctx context.Context, client *http.Client, endpoint strin
 		}
 		f := avail / subData.HardLimitUSD
 		f = math.Max(0, math.Min(1, f))
-		return &QuotaResult{
+		return attach(&QuotaResult{
 			QuotaType:     QuotaTypeBalance,
 			BalanceValue:  fmt.Sprintf("$%.2f", avail),
 			Fraction:      &f,
 			HasPercentage: true,
 			Message:       fmt.Sprintf("Proxy Billing Balance: $%.2f", avail),
-		}
+		})
 	}
 
 	// B. OneAPI user token quota: {"success": true, "data": {"quota": 1000000, "used_quota": ...}}
@@ -607,13 +630,13 @@ func probeQuotaEndpoint(ctx context.Context, client *http.Client, endpoint strin
 			frac = &f
 			hasPct = true
 		}
-		return &QuotaResult{
+		return attach(&QuotaResult{
 			QuotaType:     QuotaTypeQuota,
 			QuotaValue:    fmt.Sprintf("%s tokens", formatTokens(uData.Data.Quota)),
 			Fraction:      frac,
 			HasPercentage: hasPct,
 			Message:       fmt.Sprintf("User Quota: %s tokens", formatTokens(uData.Data.Quota)),
-		}
+		})
 	}
 
 	// C. General Usage / Balance / Credits / Quota JSON
@@ -648,13 +671,13 @@ func probeQuotaEndpoint(ctx context.Context, client *http.Client, endpoint strin
 			}
 			f := avail / totCred
 			f = math.Max(0, math.Min(1, f))
-			return &QuotaResult{
+			return attach(&QuotaResult{
 				QuotaType:     QuotaTypeBalance,
 				BalanceValue:  fmt.Sprintf("$%.2f", avail),
 				Fraction:      &f,
 				HasPercentage: true,
 				Message:       fmt.Sprintf("Quota Balance: $%.2f", avail),
-			}
+			})
 		}
 
 		bal := parseRawFloat(genData.Balance)
@@ -665,11 +688,11 @@ func probeQuotaEndpoint(ctx context.Context, client *http.Client, endpoint strin
 			bal = parseRawFloat(genData.Data.Balance)
 		}
 		if bal > 0 {
-			return &QuotaResult{
+			return attach(&QuotaResult{
 				QuotaType:    QuotaTypeBalance,
 				BalanceValue: fmt.Sprintf("$%.2f", bal),
 				Message:      fmt.Sprintf("Balance: $%.2f", bal),
-			}
+			})
 		}
 
 		q := genData.Quota
@@ -680,15 +703,125 @@ func probeQuotaEndpoint(ctx context.Context, client *http.Client, endpoint strin
 			q = genData.TotalTokens
 		}
 		if q > 0 {
-			return &QuotaResult{
+			return attach(&QuotaResult{
 				QuotaType:  QuotaTypeQuota,
 				QuotaValue: fmt.Sprintf("%s tokens", formatTokens(q)),
 				Message:    fmt.Sprintf("Quota: %s tokens", formatTokens(q)),
+			})
+		}
+	}
+
+	// D. Multi-window-only payload: surface the reported windows directly.
+	if len(jsonBuckets) > 0 {
+		var frac *float64
+		worst := jsonBuckets[0]
+		for _, b := range jsonBuckets {
+			if b.Fraction != nil && (worst.Fraction == nil || *b.Fraction < *worst.Fraction) {
+				worst = b
 			}
+		}
+		frac = worst.Fraction
+		return &QuotaResult{
+			QuotaType:     QuotaTypeQuota,
+			Fraction:      frac,
+			HasPercentage: frac != nil,
+			Message:       "Multi-window quota tracking",
+			Buckets:       jsonBuckets,
 		}
 	}
 
 	return nil
+}
+
+// ExtractQuotaBucketsFromJSON parses multi-window quota payloads returned by
+// custom quota endpoints. Supported shapes:
+//
+//	{"buckets":[{"label":"5h","fraction":0.42,"value":"42%"}]}
+//	{"data":{"buckets":[...same fields...]}}
+//	{"limits":[{"window":"5h","used":42,"limit":100}]}
+//	{"data":{"limits":[{"type":"7d","used":42,"limit":100}]}}
+//
+// Providers that only report a single scalar quota yield no buckets.
+func ExtractQuotaBucketsFromJSON(body []byte) []QuotaBucket {
+	type rawBucket struct {
+		Label     string   `json:"label"`
+		Window    string   `json:"window"`
+		Name      string   `json:"name"`
+		Type      string   `json:"type"`
+		Fraction  *float64 `json:"fraction"`
+		Remaining *float64 `json:"remaining"`
+		Used      *float64 `json:"used"`
+		Limit     *float64 `json:"limit"`
+		Value     string   `json:"value"`
+	}
+	type rawDoc struct {
+		Buckets []rawBucket `json:"buckets"`
+		Limits  []rawBucket `json:"limits"`
+		Data    struct {
+			Buckets []rawBucket `json:"buckets"`
+			Limits  []rawBucket `json:"limits"`
+		} `json:"data"`
+	}
+
+	var doc rawDoc
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return nil
+	}
+
+	raw := make([]rawBucket, 0, len(doc.Buckets)+len(doc.Limits)+len(doc.Data.Buckets)+len(doc.Data.Limits))
+	raw = append(raw, doc.Buckets...)
+	raw = append(raw, doc.Limits...)
+	raw = append(raw, doc.Data.Buckets...)
+	raw = append(raw, doc.Data.Limits...)
+	if len(raw) == 0 {
+		return nil
+	}
+
+	seen := map[string]bool{}
+	buckets := make([]QuotaBucket, 0, len(raw))
+	for _, rb := range raw {
+		window := rb.Label
+		if window == "" {
+			window = rb.Window
+		}
+		if window == "" {
+			window = rb.Name
+		}
+		if window == "" {
+			window = rb.Type
+		}
+		label := FormatQuotaWindowLabel(window)
+		if seen[label] {
+			continue
+		}
+
+		var frac *float64
+		switch {
+		case rb.Fraction != nil:
+			f := math.Max(0, math.Min(1, *rb.Fraction))
+			frac = &f
+		case rb.Remaining != nil && rb.Limit != nil && *rb.Limit > 0:
+			f := math.Max(0, math.Min(1, *rb.Remaining / *rb.Limit))
+			frac = &f
+		case rb.Used != nil && rb.Limit != nil && *rb.Limit > 0:
+			f := math.Max(0, math.Min(1, 1-(*rb.Used / *rb.Limit)))
+			frac = &f
+		}
+		if frac == nil && rb.Value == "" {
+			// Nothing renderable for this entry; skip it rather than show a 0%.
+			continue
+		}
+		seen[label] = true
+		bucket := QuotaBucket{Label: label, Fraction: frac, Value: rb.Value}
+		if bucket.Value == "" && frac != nil {
+			bucket.Value = fmt.Sprintf("%d%%", int(math.Round(*frac*100)))
+		}
+		buckets = append(buckets, bucket)
+	}
+	if len(buckets) == 0 {
+		return nil
+	}
+	return buckets
 }
 
 // DetectAndFetchQuota inspects the model configuration and attempts to auto-derive
@@ -813,6 +946,13 @@ func DetectAndFetchQuota(model CustomModel) QuotaResult {
 // ParseRateLimitHeaders inspects HTTP headers from a test or completion response
 // to extract standard rate-limit quota metrics (e.g. Groq, Anthropic, OpenAI).
 func ParseRateLimitHeaders(headers http.Header) *QuotaResult {
+	// Multi-window providers (e.g. Claude's unified rate limit headers) expose a
+	// 5H window and a 7D window side by side. They must all be surfaced, not just
+	// the first one that happens to match.
+	buckets := parseWindowBucketsFromHeaders(headers)
+
+	var primary *QuotaResult
+
 	// 1. Tokens remaining & limit
 	remTokensStr := headers.Get("x-ratelimit-remaining-tokens")
 	if remTokensStr == "" {
@@ -839,7 +979,7 @@ func ParseRateLimitHeaders(headers http.Header) *QuotaResult {
 			quotaVal = fmt.Sprintf("%s tokens", formatTokens(remTokens))
 		}
 
-		return &QuotaResult{
+		primary = &QuotaResult{
 			QuotaType:     QuotaTypeQuota,
 			QuotaValue:    quotaVal,
 			Fraction:      frac,
@@ -849,32 +989,166 @@ func ParseRateLimitHeaders(headers http.Header) *QuotaResult {
 	}
 
 	// 2. Requests remaining & limit
-	remReqStr := headers.Get("x-ratelimit-remaining-requests")
-	if remReqStr == "" {
-		remReqStr = headers.Get("anthropic-ratelimit-requests-remaining")
-	}
-	limitReqStr := headers.Get("x-ratelimit-limit-requests")
-	if limitReqStr == "" {
-		limitReqStr = headers.Get("anthropic-ratelimit-requests-limit")
-	}
+	if primary == nil {
+		remReqStr := headers.Get("x-ratelimit-remaining-requests")
+		if remReqStr == "" {
+			remReqStr = headers.Get("anthropic-ratelimit-requests-remaining")
+		}
+		limitReqStr := headers.Get("x-ratelimit-limit-requests")
+		if limitReqStr == "" {
+			limitReqStr = headers.Get("anthropic-ratelimit-requests-limit")
+		}
 
-	if remReqStr != "" && limitReqStr != "" {
-		remReq, _ := strconv.ParseInt(remReqStr, 10, 64)
-		limitReq, _ := strconv.ParseInt(limitReqStr, 10, 64)
-		if limitReq > 0 {
-			f := float64(remReq) / float64(limitReq)
-			f = math.Max(0, math.Min(1, f))
-			return &QuotaResult{
-				QuotaType:     QuotaTypeQuota,
-				QuotaValue:    "", // percentage only -> renders 'Quota'
-				Fraction:      &f,
-				HasPercentage: true,
-				Message:       "Rate limit request percentage",
+		if remReqStr != "" && limitReqStr != "" {
+			remReq, _ := strconv.ParseInt(remReqStr, 10, 64)
+			limitReq, _ := strconv.ParseInt(limitReqStr, 10, 64)
+			if limitReq > 0 {
+				f := float64(remReq) / float64(limitReq)
+				f = math.Max(0, math.Min(1, f))
+				primary = &QuotaResult{
+					QuotaType:     QuotaTypeQuota,
+					QuotaValue:    "", // percentage only -> renders 'Quota'
+					Fraction:      &f,
+					HasPercentage: true,
+					Message:       "Rate limit request percentage",
+				}
 			}
 		}
 	}
 
-	return nil
+	// 3. Windowed headers only: derive the headline value from the most
+	// constrained window (lowest remaining fraction) for backwards compatibility.
+	if primary == nil && len(buckets) > 0 {
+		worst := buckets[0]
+		for _, b := range buckets {
+			if b.Fraction != nil && (worst.Fraction == nil || *b.Fraction < *worst.Fraction) {
+				worst = b
+			}
+		}
+		primary = &QuotaResult{
+			QuotaType:     QuotaTypeQuota,
+			QuotaValue:    "",
+			Fraction:      worst.Fraction,
+			HasPercentage: worst.Fraction != nil,
+			Message:       fmt.Sprintf("Rate limit window %s", worst.Label),
+		}
+	}
+
+	if primary == nil {
+		return nil
+	}
+	primary.Buckets = buckets
+	return primary
+}
+
+// windowBucketHeaderRe matches rate-limit headers that describe a specific
+// rolling window, e.g. anthropic-ratelimit-unified-5h-utilization or
+// x-ratelimit-7d-remaining / x-ratelimit-7d-limit.
+var windowBucketHeaderRe = regexp.MustCompile(`^(?:anthropic-ratelimit-unified|anthropic-ratelimit|x-ratelimit)-([0-9]+[a-z]|[a-z]+)-(utilization|remaining|limit)$`)
+
+// FormatQuotaWindowLabel renders a quota window name as a compact display label:
+// "5h" -> "5H", "7d"/"weekly" -> "7D" (matching the dashboard convention),
+// "monthly" -> "Monthly".
+func FormatQuotaWindowLabel(window string) string {
+	w := strings.ToLower(strings.TrimSpace(window))
+	switch w {
+	case "", "all", "overall":
+		return "Quota"
+	case "5h", "5hr", "5hour", "5hours":
+		return "5H"
+	case "7d", "7day", "7days", "weekly", "week":
+		return "7D"
+	case "30d", "monthly", "month":
+		return "Monthly"
+	case "24h", "daily", "day":
+		return "24H"
+	}
+	if len(w) <= 3 {
+		return strings.ToUpper(w)
+	}
+	return strings.ToUpper(w[:1]) + w[1:]
+}
+
+// parseWindowBucketsFromHeaders extracts every rolling-window quota advertised
+// via rate-limit headers. Utilization-style headers report a *consumed*
+// fraction, so they are inverted into remaining fractions.
+func parseWindowBucketsFromHeaders(headers http.Header) []QuotaBucket {
+	type windowState struct {
+		window string
+		util   *float64
+		remain *float64
+		limit  *float64
+	}
+	states := map[string]*windowState{}
+
+	getWindow := func(window string) *windowState {
+		key := strings.ToLower(window)
+		st, ok := states[key]
+		if !ok {
+			st = &windowState{window: key}
+			states[key] = st
+		}
+		return st
+	}
+
+	for key, values := range headers {
+		m := windowBucketHeaderRe.FindStringSubmatch(strings.ToLower(strings.TrimSpace(key)))
+		if m == nil || len(values) == 0 {
+			continue
+		}
+		v, err := strconv.ParseFloat(strings.TrimSpace(values[0]), 64)
+		if err != nil {
+			continue
+		}
+		st := getWindow(m[1])
+		switch m[2] {
+		case "utilization":
+			val := v
+			st.util = &val
+		case "remaining":
+			val := v
+			st.remain = &val
+		case "limit":
+			val := v
+			st.limit = &val
+		}
+	}
+
+	if len(states) == 0 {
+		return nil
+	}
+
+	// Deterministic order: shorter windows first (5H before 7D before Monthly).
+	keys := make([]string, 0, len(states))
+	for k := range states {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	buckets := make([]QuotaBucket, 0, len(states))
+	for _, k := range keys {
+		st := states[k]
+		var frac *float64
+		switch {
+		case st.util != nil:
+			f := 1.0 - *st.util
+			f = math.Max(0, math.Min(1, f))
+			frac = &f
+		case st.remain != nil && st.limit != nil && *st.limit > 0:
+			f := *st.remain / *st.limit
+			f = math.Max(0, math.Min(1, f))
+			frac = &f
+		}
+		bucket := QuotaBucket{
+			Label:    FormatQuotaWindowLabel(st.window),
+			Fraction: frac,
+		}
+		if frac != nil {
+			bucket.Value = fmt.Sprintf("%d%%", int(math.Round(*frac*100)))
+		}
+		buckets = append(buckets, bucket)
+	}
+	return buckets
 }
 
 // UntrackedQuotaResult returns a default N/A quota result.

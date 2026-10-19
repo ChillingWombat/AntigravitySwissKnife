@@ -82,11 +82,19 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
     assert.ok(pageContent.includes('handleSaveGcpModel'), 'Save GCP model handler must exist')
   })
 
-  it('quota progress ring defaults untracked models to empty grey ring with N/A', () => {
+  it('quota indicators default untracked models to an empty grey ring with N/A', () => {
     // Untracked / unverified models must never default to 100%
     assert.ok(!pageContent.includes("gaugePct = 100\n            emptyGrey = false\n            gaugeTitle = 'Untracked'"))
     assert.ok(pageContent.includes("gaugePct = null"))
-    assert.ok(pageContent.includes("emptyGrey = true"))
+    // The card delegates rendering to QuotaIndicatorGroup (#127): a single window
+    // keeps the ring (null fraction -> empty grey ring), multiple reported
+    // windows render one labelled bar per window.
+    assert.ok(pageContent.includes('<QuotaIndicatorGroup'), 'Model card must render the shared QuotaIndicatorGroup')
+    assert.ok(
+      pageContent.includes('fraction: gaugePct !== null ? gaugePct / 100 : null'),
+      'Untracked quota must pass a null fraction so the ring stays empty/grey'
+    )
+    assert.ok(pageContent.includes('quota_buckets'), 'Multi-window quotas must be read from quota_buckets')
   })
 
   it('renders official Google Cloud logo on GCP model cards (R2)', () => {

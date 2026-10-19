@@ -275,11 +275,11 @@ func TestTokenMonitor_TPS_ForwardLookahead(t *testing.T) {
 	if tps < 85.0 || tps > 95.0 {
 		t.Errorf("expected realistic ~89.3 TPS, got %.2f TPS (must eliminate >700 TPS bug)", tps)
 	}
-	if len(stats.recentSteps) != 1 {
-		t.Fatalf("expected 1 recent step, got %d", len(stats.recentSteps))
+	if len(stats.steps) != 1 {
+		t.Fatalf("expected 1 recent step, got %d", len(stats.steps))
 	}
-	if stats.recentSteps[0].durationMs != 38000 {
-		t.Errorf("expected recent step duration 38000ms, got %dms", stats.recentSteps[0].durationMs)
+	if stats.steps[0].durationMs != 38000 {
+		t.Errorf("expected recent step duration 38000ms, got %dms", stats.steps[0].durationMs)
 	}
 }
 
@@ -341,7 +341,7 @@ func TestTokenMonitor_TPS_RealisticBounding(t *testing.T) {
 	if tps > 350.0 {
 		t.Errorf("generation speed must be bounded to realistic thresholds <= 350 TPS, got %.2f", tps)
 	}
-	if stats.recentSteps[0].durationMs <= 0 {
-		t.Errorf("expected bounded durationMs, got %d", stats.recentSteps[0].durationMs)
+	if stats.steps[0].durationMs <= 0 {
+		t.Errorf("expected bounded durationMs, got %d", stats.steps[0].durationMs)
 	}
 }
