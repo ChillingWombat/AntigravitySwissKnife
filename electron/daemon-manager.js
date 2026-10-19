@@ -156,47 +156,68 @@ class DaemonManager {
   }
 
   /**
-   * Checks daemon liveness by probing GET /api/status.
+   * Reads a bounded JSON object from a daemon endpoint.
    */
-  checkStatus(timeoutMs = 1000) {
+  requestJson(pathname, timeoutMs = 1000, headers = {}) {
     return new Promise((resolve) => {
-      const req = http.get(`${this.baseUrl}/health`, { timeout: timeoutMs }, (res) => {
-        if (res.statusCode === 200) {
-          let data = '';
-          res.on('data', (chunk) => { data += chunk; });
-          res.on('end', () => {
-            try {
-              const parsed = JSON.parse(data);
-              resolve({ daemon_running: true, ...parsed });
-            } catch {
-              resolve({ daemon_running: true });
-            }
-          });
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+
+      const req = http.get(`${this.baseUrl}${pathname}`, { timeout: timeoutMs, headers }, (res) => {
+        const contentType = String(res.headers['content-type'] || '').toLowerCase();
+        if (res.statusCode !== 200 || !contentType.includes('application/json')) {
+          res.resume();
+          finish(null);
           return;
         }
-        http.get(`${this.baseUrl}/api/status`, { timeout: timeoutMs, headers: this.getAuthHeaders() }, (res2) => {
-          if (res2.statusCode === 200 || res2.statusCode === 401) {
-            resolve({ daemon_running: true });
-            return;
+
+        let data = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          data += chunk;
+          if (data.length > 64 * 1024) {
+            res.destroy();
+            finish(null);
           }
-          resolve(null);
-        }).on('error', () => resolve(null));
+        });
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            finish(parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null);
+          } catch {
+            finish(null);
+          }
+        });
+        res.on('error', () => finish(null));
       });
 
-      req.on('error', () => {
-        http.get(`${this.baseUrl}/api/status`, { timeout: timeoutMs, headers: this.getAuthHeaders() }, (res2) => {
-          if (res2.statusCode === 200 || res2.statusCode === 401) {
-            resolve({ daemon_running: true });
-            return;
-          }
-          resolve(null);
-        }).on('error', () => resolve(null));
-      });
+      req.on('error', () => finish(null));
       req.on('timeout', () => {
         req.destroy();
-        resolve(null);
+        finish(null);
       });
     });
+  }
+
+  /**
+   * Checks daemon identity by validating /health, then /api/status.
+   * A 401 is not identity: both contracts require Swiss JSON fields.
+   */
+  async checkStatus(timeoutMs = 1000) {
+    const health = await this.requestJson('/health', timeoutMs);
+    if (health && health.status === 'ok' && typeof health.version === 'string' && health.version.trim()) {
+      return { ...health, daemon_running: true };
+    }
+
+    const status = await this.requestJson('/api/status', timeoutMs, this.getAuthHeaders());
+    if (status && status.daemon_running === true && typeof status.version === 'string' && status.version.trim()) {
+      return status;
+    }
+    return null;
   }
 
   /**
