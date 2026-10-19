@@ -1207,9 +1207,11 @@ div:has(> .shrink-0.flex.items-center.border-b),
   flex-shrink: 0;
   stroke: currentColor;
 }
-.swiss-context-item:hover:not(.disabled) {
+.swiss-context-item:hover:not(.disabled),
+.swiss-context-item:focus-visible:not(.disabled) {
   background: rgba(26, 115, 232, 0.08);
   color: #1a73e8;
+  outline: none;
 }
 .swiss-context-divider {
   height: 1px;
@@ -2030,6 +2032,7 @@ func GenerateAuxiliaryPluginsScript() string {
       document.removeEventListener("contextmenu", onDocContextMenu);
       document.removeEventListener("keydown", onDocKeydown);
       window.removeEventListener("resize", removeContextMenu);
+      window.removeEventListener("scroll", removeContextMenu, true);
     }
     function onDocClick(e) {
       if (activeContextMenu && !activeContextMenu.contains(e.target)) {
@@ -2073,6 +2076,7 @@ func GenerateAuxiliaryPluginsScript() string {
         document.addEventListener("contextmenu", onDocContextMenu);
         document.addEventListener("keydown", onDocKeydown);
         window.addEventListener("resize", removeContextMenu);
+        window.addEventListener("scroll", removeContextMenu, true);
       }, 10);
     }
 
@@ -5359,12 +5363,16 @@ func GenerateAuxiliaryPluginsScript() string {
       composer.id = "swiss-m-composer";
       composer.style.display = "none";
       composer.innerHTML = ` + "`" + `
+        <div class="swiss-prompt-title" id="swiss-m-composer-label">New text memo</div>
+        <input type="text" id="swiss-m-composer-title" class="swiss-prompt-input" placeholder="Title (optional)..." />
         <textarea id="swiss-m-composer-input" class="swiss-memo-composer-textarea" placeholder="Type quick memo... (Enter or Ctrl+Enter to save, Esc to cancel)" rows="3"></textarea>
         <div class="swiss-memo-composer-actions">
           <button type="button" class="swiss-browser-btn" id="swiss-m-composer-cancel"><span>Cancel</span></button>
-          <button type="button" class="swiss-browser-btn primary" id="swiss-m-composer-save"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg><span>Save Memo</span></button>
+          <button type="button" class="swiss-browser-btn primary" id="swiss-m-composer-save"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg><span id="swiss-m-composer-save-label">Save Memo</span></button>
         </div>
       ` + "`" + `;
+      composer.setAttribute("role", "dialog");
+      composer.setAttribute("aria-label", "Text memo");
       wrap.appendChild(composer);
 
       const imgComposer = document.createElement("div");
@@ -5432,6 +5440,9 @@ func GenerateAuxiliaryPluginsScript() string {
       let allMemos = [];
       let searchQuery = "";
       let typeFilter = "all";
+      // A drag on a card also emits a dblclick on release in some browsers; the
+      // flag keeps the double-click editor from opening after a drag (#153).
+      let memoDragInProgress = false;
       const FILTER_LABELS = { all: "All", text: "Text", voice: "Voice", image: "Image" };
 
       let mediaStream = null;
@@ -5479,6 +5490,42 @@ func GenerateAuxiliaryPluginsScript() string {
         if (memo.type === "image") return "image";
         if (memo.type === "voice" || memo.type === "audio" || (Array.isArray(memo.tags) && memo.tags.includes("voice") && memo.type !== "text")) return "voice";
         return "text";
+      };
+
+      // ---- Memo naming (issue #150) ----
+      // Older voice memos were stored with a "[Voice] " marker in the title. New
+      // memos never get that prefix and the marker is stripped on render, so an
+      // existing memos.json still displays cleanly.
+      const stripMemoVoicePrefix = (title) => String(title === undefined || title === null ? "" : title).replace(/^\[Voice\]\s*/i, "").trim();
+      const memoDisplayTitle = (memo) => stripMemoVoicePrefix(memo && memo.title) || "Memo";
+      const MEMO_TITLE_PREFIXES = { voice: "Voice Memo", image: "Sketch" };
+
+      // Lowest free positive integer for titles shaped "<prefix> <n>". Gaps are
+      // reused, non-matching titles are ignored and numbering starts at 1.
+      const nextMemoNumber = (titles, prefix) => {
+        const escaped = String(prefix || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const pattern = new RegExp("^" + escaped + " ([0-9]+)$");
+        const taken = [];
+        (Array.isArray(titles) ? titles : []).forEach((title) => {
+          const match = pattern.exec(String(title === undefined || title === null ? "" : title).trim());
+          if (match) taken.push(parseInt(match[1], 10));
+        });
+        let n = 1;
+        while (taken.indexOf(n) !== -1) n++;
+        return n;
+      };
+
+      const nextMemoTitle = (kind) => {
+        const prefix = MEMO_TITLE_PREFIXES[kind];
+        if (!prefix) return "";
+        const titles = (Array.isArray(allMemos) ? allMemos : []).map(memoDisplayTitle);
+        return prefix + " " + nextMemoNumber(titles, prefix);
+      };
+
+      const autoMemoTitle = (text) => {
+        const trimmed = String(text || "").trim();
+        if (!trimmed) return "Memo";
+        return trimmed.substring(0, 24) + (trimmed.length > 24 ? "..." : "");
       };
 
       const PLAY_ICON = '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"/></svg>';
@@ -5652,13 +5699,13 @@ func GenerateAuxiliaryPluginsScript() string {
           card.innerHTML = ` + "`" + `
             <div class="swiss-memo-card-head">
               <div class="swiss-memo-card-title-wrap">
-                <span class="swiss-memo-card-title">${escapeHtml(m.title || "Memo")}</span>
+                <span class="swiss-memo-card-title">${escapeHtml(memoDisplayTitle(m))}</span>
                 ${m.duration ? ('<span class="swiss-memo-card-duration">(' + escapeHtml(m.duration) + ')</span>') : ""}
               </div>
               <span class="swiss-memo-card-date">${escapeHtml(m.created_at || m.createdAt || "")}</span>
             </div>
             <div class="swiss-memo-card-body">
-              ${m.image_data ? ('<div class="swiss-memo-card-img-wrap"><img class="swiss-memo-card-img" src="' + escapeHtml(m.image_data) + '" alt="' + escapeHtml(m.title || "Memo Image") + '" /></div>') : ""}
+              ${m.image_data ? ('<div class="swiss-memo-card-img-wrap"><img class="swiss-memo-card-img" src="' + escapeHtml(m.image_data) + '" alt="' + escapeHtml(memoDisplayTitle(m)) + '" /></div>') : ""}
               ${primaryText ? ('<div class="swiss-memo-card-text">' + escapeHtml(primaryText) + '</div>') : ""}
               ${transcriptText ? ('<div class="swiss-memo-card-text swiss-memo-card-transcript" data-memo-transcript="1">' + escapeHtml(transcriptText) + '</div>') : ""}
               ${extractPending ? '<div class="swiss-memo-card-text swiss-memo-card-transcript swiss-memo-card-extract-pending">Extracting text…</div>' : ""}
@@ -5674,16 +5721,20 @@ func GenerateAuxiliaryPluginsScript() string {
           ` + "`" + `;
 
           card.ondragstart = (e) => {
+            memoDragInProgress = true;
             if (m.image_data) {
               try {
                 const file = dataURLtoFile(m.image_data, (m.title ? m.title.replace(/[^a-z0-9]/gi, '_') : 'memo') + ".png");
                 if (file) e.dataTransfer.items.add(file);
               } catch (_) {}
-              e.dataTransfer.setData("text/plain", m.content ? (m.content + "\n" + (m.title || "Memo Image")) : (m.title || "Memo Image"));
+              e.dataTransfer.setData("text/plain", m.content ? (m.content + "\n" + memoDisplayTitle(m)) : memoDisplayTitle(m));
               e.dataTransfer.setData("text/uri-list", m.image_data);
             } else {
               e.dataTransfer.setData("text/plain", m.transcript || m.content || "");
             }
+          };
+          card.ondragend = () => {
+            setTimeout(() => { memoDragInProgress = false; }, 0);
           };
 
           card.querySelector(".swiss-memo-insert-btn").onclick = () => {
@@ -5695,13 +5746,36 @@ func GenerateAuxiliaryPluginsScript() string {
           };
 
           card.querySelector(".swiss-memo-del-btn").onclick = async () => {
-            allMemos = allMemos.filter(item => item.id !== m.id);
-            saveLocalMemos(allMemos);
-            applyFilterAndRender();
-            try {
-              await fetch(` + "`" + `${API_BASE}/api/memos/delete?id=${encodeURIComponent(m.id)}` + "`" + `, { method: "POST" });
-            } catch (_) {}
-            loadMemos(true);
+            await deleteMemoById(m);
+          };
+
+          // Issue #152: right-click opens the per-card menu. The handlers below
+          // call preventDefault/stopPropagation so the card's click and dblclick
+          // handlers never see this event.
+          card.oncontextmenu = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const selection = window.getSelection && window.getSelection();
+            if (selection && selection.removeAllRanges) selection.removeAllRanges();
+            showMemoCardContextMenu(e.clientX, e.clientY, m);
+          };
+
+          // Issue #153: double-click edits text and image memos in place. Voice
+          // memos have no editor, and a double-click right after a drag must not
+          // open one (the browser still emits dblclick for drag-release pairs).
+          card.ondblclick = (e) => {
+            if (memoDragInProgress) return;
+            if (e.target && e.target.closest && e.target.closest("button, a, input, textarea, .swiss-memo-player, .swiss-memo-progress")) return;
+            const kind = memoKindOf(m);
+            if (kind === "text") {
+              e.preventDefault();
+              e.stopPropagation();
+              openComposer(m);
+            } else if (kind === "image") {
+              e.preventDefault();
+              e.stopPropagation();
+              openImageComposer(m);
+            }
           };
 
           const extractBtn = card.querySelector(".swiss-memo-extract-btn");
@@ -5863,6 +5937,165 @@ func GenerateAuxiliaryPluginsScript() string {
         return { qs: "?scope=current&workspace_path=" + encodeURIComponent(activeProj), wsPath: activeProj };
       };
 
+      // Upsert an existing memo through the same endpoint the create flows use,
+      // so a rename or an in-place edit updates instead of duplicating (#151-#153).
+      const persistMemo = async (memo) => {
+        if (!memo || !memo.id) return false;
+        const mq = getMemoQueryInfo();
+        try {
+          const res = await fetch(API_BASE + "/api/memos/save", {
+            method: "POST",
+            headers: getSwissAuthHeaders(),
+            body: JSON.stringify({
+              id: memo.id,
+              title: memo.title || "",
+              content: memo.content || "",
+              type: memo.type || "text",
+              tags: Array.isArray(memo.tags) ? memo.tags : [],
+              image_data: memo.image_data || undefined,
+              audio_data: memo.audio_data || undefined,
+              transcript: memo.transcript || undefined,
+              duration: memo.duration || undefined,
+              workspace_path: memo.workspace_path || mq.wsPath || undefined,
+              created_at: memo.created_at || new Date().toLocaleString()
+            })
+          });
+          if (!res.ok) {
+            let payload = null;
+            try { payload = await res.json(); } catch (_) { payload = null; }
+            showToast((payload && payload.error) || ("Save failed (HTTP " + res.status + ")"), "error");
+            return false;
+          }
+          return true;
+        } catch (err) {
+          showToast("Save failed: " + (err && err.message ? err.message : "network error"), "error");
+          return false;
+        } finally {
+          loadMemos(true);
+        }
+      };
+
+      // Shared by the card's trash button and the context menu (#152), so both
+      // paths delete exactly the same way.
+      async function deleteMemoById(memo) {
+        if (!memo || !memo.id) return;
+        allMemos = allMemos.filter(item => item.id !== memo.id);
+        saveLocalMemos(allMemos);
+        applyFilterAndRender();
+        try {
+          await fetch(API_BASE + "/api/memos/delete?id=" + encodeURIComponent(memo.id), {
+            method: "POST",
+            headers: getSwissAuthHeaders()
+          });
+        } catch (_) {}
+        loadMemos(true);
+      }
+
+      // Issue #152: per-card context menu. Reuses the shared .swiss-context-menu
+      // styles/positioning (outside click, Escape, resize and scroll dismissal)
+      // and adds roving keyboard focus so Enter/Space activate the focused item.
+      function showMemoCardContextMenu(x, y, memo) {
+        if (!memo || !memo.id) return;
+        const menu = document.createElement("div");
+        menu.className = "swiss-context-menu";
+        menu.setAttribute("role", "menu");
+        menu.setAttribute("aria-label", "Memo actions");
+        menu.tabIndex = -1;
+        menu.innerHTML =
+          '<div class="swiss-context-item" id="ctx-memo-rename" role="menuitem" tabindex="0"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg><span>Change title</span></div>' +
+          '<div class="swiss-context-item" id="ctx-memo-export" role="menuitem" tabindex="0"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg><span>Save to computer</span></div>' +
+          '<div class="swiss-context-divider"></div>' +
+          '<div class="swiss-context-item" id="ctx-memo-delete" role="menuitem" tabindex="0" style="color:#ef4444;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg><span>Delete</span></div>';
+        positionContextMenu(menu, x, y);
+
+        const menuItems = Array.prototype.slice.call(menu.querySelectorAll(".swiss-context-item"));
+        const focusItemAt = (index) => {
+          if (!menuItems.length) return;
+          menuItems[(index + menuItems.length) % menuItems.length].focus();
+        };
+        menu.addEventListener("contextmenu", (e) => { e.preventDefault(); });
+        menu.addEventListener("keydown", (e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            removeContextMenu();
+          } else if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+            const active = document.activeElement;
+            const target = (active && active.classList && active.classList.contains("swiss-context-item")) ? active : menuItems[0];
+            if (target) {
+              e.preventDefault();
+              e.stopPropagation();
+              target.click();
+            }
+          } else if (e.key === "ArrowDown") {
+            e.preventDefault();
+            focusItemAt(menuItems.indexOf(document.activeElement) + 1);
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            focusItemAt(menuItems.indexOf(document.activeElement) - 1);
+          } else if (e.key === "Home") {
+            e.preventDefault();
+            focusItemAt(0);
+          } else if (e.key === "End") {
+            e.preventDefault();
+            focusItemAt(menuItems.length - 1);
+          }
+        });
+
+        const renameItem = menu.querySelector("#ctx-memo-rename");
+        if (renameItem) {
+          renameItem.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            removeContextMenu();
+            const currentTitle = memoDisplayTitle(memo);
+            const nextTitle = await showSwissPrompt("Rename memo:", currentTitle);
+            if (nextTitle === null) return;
+            const trimmed = String(nextTitle || "").trim();
+            if (!trimmed || trimmed === currentTitle) return;
+            memo.title = trimmed;
+            saveLocalMemos(allMemos);
+            applyFilterAndRender();
+            await persistMemo(memo);
+          });
+        }
+
+        const exportItem = menu.querySelector("#ctx-memo-export");
+        if (exportItem) {
+          exportItem.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            removeContextMenu();
+            try {
+              const res = await fetch(API_BASE + "/api/memos/export", {
+                method: "POST",
+                headers: getSwissAuthHeaders(),
+                body: JSON.stringify({ memo_id: memo.id })
+              });
+              let payload = null;
+              try { payload = await res.json(); } catch (_) { payload = null; }
+              if (!res.ok || !payload || payload.success !== true) {
+                showToast((payload && payload.error) || ("Export failed (HTTP " + res.status + ")"), "error");
+                return;
+              }
+              showToast("Saved to " + payload.path);
+            } catch (err) {
+              showToast("Export failed: " + (err && err.message ? err.message : "network error"), "error");
+            }
+          });
+        }
+
+        const deleteItem = menu.querySelector("#ctx-memo-delete");
+        if (deleteItem) {
+          deleteItem.addEventListener("click", (e) => {
+            e.stopPropagation();
+            removeContextMenu();
+            deleteMemoById(memo);
+          });
+        }
+
+        focusItemAt(0);
+        if (!menu.contains(document.activeElement) && menu.focus) menu.focus();
+      }
+
       // Issue #143 (UI half): automatic extraction is a daemon-side setting. When
       // auto_extract is on the backend transcribes voice memos / OCRs images as
       // they are saved, so the per-card manual buttons are redundant and must not
@@ -5980,31 +6213,43 @@ func GenerateAuxiliaryPluginsScript() string {
       const composerInput = composer.querySelector("#swiss-m-composer-input");
       const composerCancel = composer.querySelector("#swiss-m-composer-cancel");
       const composerSave = composer.querySelector("#swiss-m-composer-save");
+      const composerTitleInput = composer.querySelector("#swiss-m-composer-title");
+      const composerLabel = composer.querySelector("#swiss-m-composer-label");
+      const composerSaveLabel = composer.querySelector("#swiss-m-composer-save-label");
+      // null while creating a new memo; the memo id while editing one (#153).
+      let composerEditingId = null;
 
       const closeComposer = () => {
         composer.style.display = "none";
         composerInput.value = "";
+        composerTitleInput.value = "";
+        composerEditingId = null;
+        if (composerLabel) composerLabel.textContent = "New text memo";
+        if (composerSaveLabel) composerSaveLabel.textContent = "Save Memo";
       };
 
-      const openComposer = () => {
+      // Issue #151: the composer asks for an optional Title next to the body.
+      // Double-clicking a text card reuses it as an in-place editor (#153).
+      const openComposer = (memo) => {
         closeImageComposer();
+        composerEditingId = memo && memo.id ? memo.id : null;
+        composerInput.value = memo ? (memo.content || "") : "";
+        composerTitleInput.value = memo ? stripMemoVoicePrefix(memo.title) : "";
+        if (composerLabel) composerLabel.textContent = memo ? "Edit text memo" : "New text memo";
+        if (composerSaveLabel) composerSaveLabel.textContent = memo ? "Update Memo" : "Save Memo";
         composer.style.display = "flex";
+        try { composer.scrollIntoView({ block: "nearest" }); } catch (_) {}
+        // The title stays optional, so the body keeps the caret.
         setTimeout(() => composerInput.focus(), 30);
       };
 
       const createAndSaveMemo = async (text, memoType, tags, imageData, customTitle) => {
         const trimmed = (text || "").trim();
         const effType = memoType || "text";
-        if (!trimmed && !imageData) return;
+        const explicitTitle = (customTitle || "").trim();
+        if (!trimmed && !imageData && !explicitTitle) return;
 
-        let titleStr = customTitle || "";
-        if (!titleStr) {
-          if (trimmed) {
-            titleStr = trimmed.substring(0, 24) + (trimmed.length > 24 ? "..." : "");
-          } else {
-            titleStr = effType === "image" ? "Image Memo" : "Memo";
-          }
-        }
+        const titleStr = explicitTitle || (effType === "image" ? nextMemoTitle("image") : autoMemoTitle(trimmed));
 
         const newMemo = {
           id: "memo-" + Date.now(),
@@ -6044,12 +6289,35 @@ func GenerateAuxiliaryPluginsScript() string {
         loadMemos(true);
       };
 
+      const saveTextComposer = async () => {
+        const text = composerInput.value;
+        const title = composerTitleInput.value.trim();
+        if (!text.trim() && !title) {
+          composerTitleInput.focus();
+          return;
+        }
+        const editingMemo = composerEditingId ? findMemoById(composerEditingId) : null;
+        const wasEditing = Boolean(editingMemo);
+        closeComposer();
+        if (wasEditing) {
+          editingMemo.title = title || autoMemoTitle(text);
+          editingMemo.content = text.trim();
+          saveLocalMemos(allMemos);
+          applyFilterAndRender();
+          await persistMemo(editingMemo);
+          return;
+        }
+        await createAndSaveMemo(text, "text", ["quick"], undefined, title);
+      };
+
       topBar.querySelector("#swiss-m-new-text").onclick = () => {
         if (composer.style.display === "none") {
           openComposer();
         } else {
-          if (!composerInput.value.trim()) {
+          if (!composerInput.value.trim() && !composerTitleInput.value.trim()) {
             closeComposer();
+          } else if (!composerTitleInput.value.trim()) {
+            composerTitleInput.focus();
           } else {
             composerInput.focus();
           }
@@ -6061,26 +6329,30 @@ func GenerateAuxiliaryPluginsScript() string {
       };
 
       composerSave.onclick = async () => {
-        const text = composerInput.value;
-        if (!text.trim()) {
-          composerInput.focus();
-          return;
-        }
-        closeComposer();
-        await createAndSaveMemo(text, "text", ["quick"]);
+        await saveTextComposer();
       };
 
-      composerInput.onkeydown = async (e) => {
+      const composerKeydown = async (e) => {
         if (e.isComposing || e.keyCode === 229) return;
         if (e.key === "Escape") {
           e.preventDefault();
           closeComposer();
         } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey || !e.shiftKey)) {
           e.preventDefault();
-          const text = composerInput.value;
-          if (!text.trim()) return;
+          await saveTextComposer();
+        }
+      };
+      composerInput.onkeydown = composerKeydown;
+      // Enter in the optional title field moves on to the body instead of
+      // submitting a half-typed memo.
+      composerTitleInput.onkeydown = (e) => {
+        if (e.isComposing || e.keyCode === 229) return;
+        if (e.key === "Escape") {
+          e.preventDefault();
           closeComposer();
-          await createAndSaveMemo(text, "text", ["quick"]);
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          composerInput.focus();
         }
       };
 
@@ -6316,19 +6588,36 @@ func GenerateAuxiliaryPluginsScript() string {
         }
       });
 
+      // null while drawing a new sketch; the memo id while editing one (#153).
+      let imgEditingId = null;
+
       const closeImageComposer = () => {
         imgComposer.style.display = "none";
         imgTitleInput.value = "";
         imgCaptionInput.value = "";
+        imgEditingId = null;
+        imgTitleInput.placeholder = "Memo Title (optional)...";
       };
 
-      const openImageComposer = () => {
+      // Issue #150: new sketches default to "Sketch <n>"; #153: passing a memo
+      // preloads its image and saves back into the same memo instead of a new one.
+      const openImageComposer = (memo) => {
         closeComposer();
+        imgEditingId = memo && memo.id ? memo.id : null;
         imgComposer.style.display = "flex";
+        imgTitleInput.value = memo ? stripMemoVoicePrefix(memo.title) : "";
+        imgCaptionInput.value = memo ? (memo.content || "") : "";
+        if (!memo) imgTitleInput.placeholder = nextMemoTitle("image") + " (optional)...";
         // The canvas has no layout size while the composer is hidden; sync its backing store now
         // that it is visible so drawing works at the correct DPR-aware resolution.
         setTimeout(() => {
           resizeWhiteboardCanvas();
+          initWhiteboard();
+          if (memo && memo.image_data) {
+            const img = new Image();
+            img.onload = () => drawImageToCanvas(img);
+            img.src = memo.image_data;
+          }
           imgTitleInput.focus();
         }, 30);
       };
@@ -6339,8 +6628,20 @@ func GenerateAuxiliaryPluginsScript() string {
 
       imgSaveBtn.onclick = async () => {
         const dataUrl = whiteboardCanvas.toDataURL("image/png");
-        const customTitle = imgTitleInput.value.trim() || "Whiteboard Sketch";
+        const titleValue = imgTitleInput.value.trim();
         const caption = imgCaptionInput.value.trim();
+        const editingMemo = imgEditingId ? findMemoById(imgEditingId) : null;
+        if (editingMemo) {
+          closeImageComposer();
+          editingMemo.title = titleValue || editingMemo.title || nextMemoTitle("image");
+          editingMemo.content = caption;
+          editingMemo.image_data = dataUrl;
+          saveLocalMemos(allMemos);
+          applyFilterAndRender();
+          await persistMemo(editingMemo);
+          return;
+        }
+        const customTitle = titleValue || nextMemoTitle("image");
         closeImageComposer();
         await createAndSaveMemo(caption, "image", ["image", "sketch"], dataUrl, customTitle);
       };
@@ -6552,19 +6853,19 @@ func GenerateAuxiliaryPluginsScript() string {
               }
 
               const finalTranscript = (speechTranscript || "").trim();
+              // Issue #150: no "[Voice] " marker any more; untitled recordings
+              // get the next free "Voice Memo <n>".
+              const defaultVoiceTitle = nextMemoTitle("voice");
               let noteText = null;
               if (finalTranscript) {
                 noteText = await showSwissPrompt("Voice recorded & transcribed! Edit title:", finalTranscript);
               } else {
-                noteText = await showSwissPrompt("Voice recorded! Enter a transcript / note title:", "Voice Memo Note");
+                noteText = await showSwissPrompt("Voice recorded! Enter a transcript / note title:", defaultVoiceTitle);
               }
 
               if (noteText !== null) {
-                const userTitle = noteText.trim() || (finalTranscript ? finalTranscript : "Voice Memo Note");
-                let titleStr = "[Voice] " + userTitle;
-                if (userTitle.toLowerCase().startsWith("[voice]")) {
-                  titleStr = userTitle;
-                }
+                const userTitle = String(noteText || "").trim() || (finalTranscript ? finalTranscript : defaultVoiceTitle);
+                const titleStr = stripMemoVoicePrefix(userTitle) || userTitle;
                 const contentStr = finalTranscript || userTitle;
                 const mq = getMemoQueryInfo();
                 const newMemo = {
@@ -6632,6 +6933,8 @@ func GenerateAuxiliaryPluginsScript() string {
       // script re-injection) so an in-flight recording never keeps the microphone, timers or
       // AudioContext alive. Registered on the host container; the caller invokes it pre-clear.
       const teardownMemosView = () => {
+        removeContextMenu();
+        memoDragInProgress = false;
         stopActivePlayback();
         clearPendingExtractPoll();
         const wasRecording = Boolean(recordingTimerInterval) ||
