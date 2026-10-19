@@ -299,14 +299,14 @@ func TestGenerateAuxiliaryPluginsScript_DOMInspector(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 
 	requiredInspectorTokens := []string{
-		"getCssSelector",           // CSS selector generator function
-		"outerHTML",                // Outer HTML capture
-		"getBoundingClientRect",    // Bounding rect measurement
-		"SWISS_INSPECT_RESULT",     // Message bridge token
-		"SWISS_INSPECT_CANCEL",     // Message bridge cancellation token on Escape
+		"getCssSelector",            // CSS selector generator function
+		"outerHTML",                 // Outer HTML capture
+		"getBoundingClientRect",     // Bounding rect measurement
+		"SWISS_INSPECT_RESULT",      // Message bridge token
+		"SWISS_INSPECT_CANCEL",      // Message bridge cancellation token on Escape
 		"swiss-dom-inspect-overlay", // Highlight overlay ID
 		"swiss-dom-inspect-badge",   // Selector tag badge ID
-		"exitInspectTool",          // Helper to exit inspect element tool
+		"exitInspectTool",           // Helper to exit inspect element tool
 	}
 
 	for _, token := range requiredInspectorTokens {
@@ -787,7 +787,7 @@ func TestGenerateAuxiliaryPluginsScript_MemoViewAndTelemetryBadge(t *testing.T) 
 	// Memo view checks
 	memoChecks := []string{
 		`id="swiss-m-record-audio"`,
-		`<span>Add Voice Memo</span>`,
+		`<span>Voice Memo</span>`,
 		`id="m-del" title="Delete Memo"`,
 		`<svg viewBox="0 0 24 24" width="11" height="11"`,
 		`LOCAL_MEMOS_KEY = "antigravity_swiss_memos_backup"`,
@@ -1281,12 +1281,12 @@ func TestAuxiliaryPerExtensionVisibilityAndOrientation(t *testing.T) {
 	css := GenerateAuxiliaryPluginsCSS()
 
 	jsTokens := []string{
-		"isAuxExtensionVisible",                        // per-extension aux panel gate
-		"aux_panel",                                    // EnhancementsConfig.extensions visibility key
-		`id="swiss-b-orientation"`,                     // Portrait|Landscape control
-		"antigravity_swiss_browser_orientation",        // persisted IDE-side orientation key
-		"deviceOrientation",                            // orientation state variable
-		"swiss-landscape",                              // landscape class applied to device frame
+		"isAuxExtensionVisible",                 // per-extension aux panel gate
+		"aux_panel",                             // EnhancementsConfig.extensions visibility key
+		`id="swiss-b-orientation"`,              // Portrait|Landscape control
+		"antigravity_swiss_browser_orientation", // persisted IDE-side orientation key
+		"deviceOrientation",                     // orientation state variable
+		"swiss-landscape",                       // landscape class applied to device frame
 	}
 	for _, tok := range jsTokens {
 		if !strings.Contains(js, tok) {
@@ -2365,7 +2365,7 @@ func TestQuickMemos_ImageSupportAndWhiteboard(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 	expectedIdentifiers := []string{
 		`id="swiss-m-new-image"`,
-		`<span>Add Image Memo</span>`,
+		`<span>Image Memo</span>`,
 		`swiss-m-img-composer`,
 		`id="swiss-m-whiteboard-canvas"`,
 		`id="swiss-m-tool-pen"`,
@@ -2389,14 +2389,14 @@ func TestQuickMemos_ImageSupportAndWhiteboard(t *testing.T) {
 func TestQuickMemos_ActionButtonsConsistency(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 
-	// All three memo action buttons share the same neutral styling and carry an "Add" label.
+	// All three memo action buttons share the same neutral styling and carry a plain label (issue #134).
 	buttonTokens := []string{
 		`id="swiss-m-new-text"`,
-		`<span>Add Text Memo</span>`,
+		`<span>Text Memo</span>`,
 		`id="swiss-m-record-audio"`,
-		`<span>Add Voice Memo</span>`,
+		`<span>Voice Memo</span>`,
 		`id="swiss-m-new-image"`,
-		`<span>Add Image Memo</span>`,
+		`<span>Image Memo</span>`,
 	}
 	for _, token := range buttonTokens {
 		if !strings.Contains(js, token) {
@@ -2440,13 +2440,129 @@ func TestQuickMemos_TypeFilterControl(t *testing.T) {
 	}
 }
 
-func TestQuickMemos_ResponsiveGridNarrowPanel(t *testing.T) {
+func TestQuickMemos_FixedCardSizeGoldenRatio(t *testing.T) {
 	css := GenerateAuxiliaryPluginsCSS()
-	if !strings.Contains(css, "grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));") {
-		t.Errorf("memo grid must clamp the min track to the panel width (avoid horizontal scroll on narrow panels)")
+
+	// Card width is derived from the narrowest panel the host IDE supports (285px),
+	// never from an arbitrary 220px card width.
+	requiredTokens := []string{
+		"--swiss-aux-panel-min-width: 285px;",
+		"--swiss-memo-view-padding: 12px;",
+		"--swiss-memo-scrollbar-allowance: 12px;",
+		"--swiss-memo-card-width: calc(var(--swiss-aux-panel-min-width) - 2 * var(--swiss-memo-view-padding) - var(--swiss-memo-scrollbar-allowance));",
+		// Golden ratio: height : width = 1 : 1.618 => height = width / 1.618.
+		"--swiss-memo-card-height: calc(var(--swiss-memo-card-width) / 1.618);",
+		// Responsive column count with a fixed track width that can never overflow.
+		"grid-template-columns: repeat(auto-fill, min(var(--swiss-memo-card-width), 100%));",
+		"width: var(--swiss-memo-card-width, 249px);",
+		"height: var(--swiss-memo-card-height, 154px);",
+	}
+	for _, token := range requiredTokens {
+		if !strings.Contains(css, token) {
+			t.Errorf("expected fixed memo card CSS to contain %q", token)
+		}
+	}
+
+	// The legacy stretchy 1fr track made card widths vary per row (the dead gaps).
+	if strings.Contains(css, "minmax(min(220px, 100%), 1fr)") {
+		t.Errorf("memo grid must not stretch cards with a 1fr track anymore")
 	}
 	if strings.Contains(css, "grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));") {
-		t.Errorf("unclamped minmax(220px, 1fr) must be replaced by a width-clamped min() track")
+		t.Errorf("unclamped minmax(220px, 1fr) must stay removed")
+	}
+}
+
+func TestQuickMemos_RecordingWaveBarsThinner(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	expectedTokens := []string{
+		"const bars = 5;",
+		// 4 device px on the 2x backing store = 2 CSS px wide bars (issue #133).
+		"const barW = 4;",
+		"const barGap = Math.max(1, Math.floor((w - barW * bars) / (bars - 1)));",
+		"recordingWaveRaf = requestAnimationFrame(drawWave);",
+	}
+	for _, token := range expectedTokens {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected recording wave to contain %q", token)
+		}
+	}
+	if strings.Contains(js, "Math.max(2, Math.floor((w - barGap * (bars - 1)) / bars))") {
+		t.Errorf("the old thick-bar width formula must be replaced by the fixed 2px bar")
+	}
+}
+
+func TestQuickMemos_VoiceCardBodyHasNoPlaceholderLine(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	expectedTokens := []string{
+		// Voice cards render only a real transcript, never the memo content fallback.
+		`const primaryText = kind === "voice" ? "" : (m.content || "");`,
+		`const transcriptText = kind === "text" ? "" : (m.transcript || "");`,
+		`class="swiss-memo-card-body"`,
+		`data-memo-transcript="1"`,
+	}
+	for _, token := range expectedTokens {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected voice card body to contain %q", token)
+		}
+	}
+	if strings.Contains(js, `m.content ? ('<div style="font-size:11px;`) {
+		t.Errorf("voice cards must not print memo content in the body (the 'Voice Memo Note' placeholder line)")
+	}
+}
+
+func TestQuickMemos_PlayerTracksRealAudioProgress(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	expectedTokens := []string{
+		// Progress is driven by the real <audio> element, smoothly via rAF.
+		`audio.addEventListener("timeupdate", renderProgress);`,
+		`audio.addEventListener("loadedmetadata", renderProgress);`,
+		`audio.addEventListener("durationchange", renderProgress);`,
+		`audio.addEventListener("seeking", renderProgress);`,
+		`audio.addEventListener("seeked", renderProgress);`,
+		`rafId = requestAnimationFrame(tick);`,
+		`audio.currentTime = ratio * duration;`,
+		// WebM blobs report Infinity/NaN durations; fall back to the recorded label.
+		`const fallbackDuration = parseDurationLabel(m.duration);`,
+		`const resolveDuration = () => {`,
+		`if (isFinite(d) && d > 0) return d;`,
+		`return fallbackDuration;`,
+		// One player at a time and a reset on ended.
+		`if (activePlayback && activePlayback.audio !== audio) stopActivePlayback();`,
+		`try { audio.currentTime = 0; } catch (_) {}`,
+	}
+	for _, token := range expectedTokens {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected voice player to contain %q", token)
+		}
+	}
+	if strings.Contains(js, `<audio controls`) {
+		t.Errorf("native <audio controls> must be replaced by the custom progress player")
+	}
+}
+
+func TestQuickMemos_ExtractButtons(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	expectedTokens := []string{
+		`API_BASE + "/api/memos/extract"`,
+		`JSON.stringify({ memo_id: memo.id })`,
+		`headers: getSwissAuthHeaders()`,
+		`payload.success !== true`,
+		`memo.transcript = transcript;`,
+		`"Convert to Text"`,
+		`"OCR"`,
+		`"Text ✓"`,
+		`"OCR ✓"`,
+		`swiss-memo-extract-spinner`,
+		`swiss-memo-card-foot`,
+	}
+	for _, token := range expectedTokens {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected memo extract button support to contain %q", token)
+		}
+	}
+	// Failures must surface the server message, never fabricate a transcript.
+	if !strings.Contains(js, `payload && payload.error ? payload.error :`) {
+		t.Errorf("extract failure must toast the server-provided error message")
 	}
 }
 
@@ -2776,7 +2892,6 @@ func TestAuxiliaryConversationTabsExpansion(t *testing.T) {
 		t.Errorf("expected CSS to only constrain icon-only buttons without text")
 	}
 }
-
 
 func TestGenerateAuxiliaryPluginsScript_InstallsAuthInterceptor(t *testing.T) {
 	script := GenerateAuxiliaryPluginsScript()
