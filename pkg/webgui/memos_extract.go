@@ -372,13 +372,26 @@ type vertexExtractInline struct {
 	Data     string `json:"data"`
 }
 
+type vertexExtractContent struct {
+	Role  string              `json:"role"`
+	Parts []vertexExtractPart `json:"parts"`
+}
+
+type vertexExtractRequest struct {
+	Contents []vertexExtractContent `json:"contents"`
+}
+
 // callVertexExtract posts the prompt and media to a Vertex AI generateContent
 // endpoint and returns the first candidate's text.
 func callVertexExtract(ctx context.Context, endpoint, token, prompt, mimeType, payload string) (string, error) {
-	reqBody := map[string]interface{}{
-		"contents": []map[string]interface{}{
+	// Vertex rejects contents without an explicit role ("Please use a valid
+	// role: user, model."), so the role must sit alongside parts on the content
+	// object, not on the individual parts.
+	reqBody := vertexExtractRequest{
+		Contents: []vertexExtractContent{
 			{
-				"parts": []vertexExtractPart{
+				Role: "user",
+				Parts: []vertexExtractPart{
 					{Text: prompt},
 					{InlineData: &vertexExtractInline{MIMEType: mimeType, Data: payload}},
 				},
