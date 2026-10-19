@@ -14,6 +14,29 @@ import type { EnhancementsConfig } from '../types'
 
 const IDE_PRESETS = ['code', 'cursor', 'windsurf', 'codium', 'zed']
 
+// Transcription / OCR language choices shared by both memo language selectors.
+const MEMO_LANGUAGES: Array<{ code: string; label: string }> = [
+  { code: 'auto', label: 'Auto detect' },
+  { code: 'en', label: 'English' },
+  { code: 'zh-Hans', label: '简体中文' },
+  { code: 'zh-Hant', label: '繁體中文' },
+  { code: 'ja', label: '日本語' },
+  { code: 'ko', label: '한국어' },
+  { code: 'es', label: 'Español' },
+  { code: 'fr', label: 'Français' },
+  { code: 'de', label: 'Deutsch' },
+  { code: 'pt', label: 'Português' },
+  { code: 'ru', label: 'Русский' },
+  { code: 'ar', label: 'العربية' },
+  { code: 'hi', label: 'हिन्दी' },
+  { code: 'it', label: 'Italiano' },
+  { code: 'nl', label: 'Nederlands' },
+  { code: 'tr', label: 'Türkçe' },
+  { code: 'vi', label: 'Tiếng Việt' },
+  { code: 'th', label: 'ไทย' },
+  { code: 'id', label: 'Bahasa Indonesia' },
+]
+
 type ExtensionVisibility = { aux_panel: boolean; main_page: boolean }
 const DEFAULT_EXT_VIS: ExtensionVisibility = { aux_panel: true, main_page: false }
 
@@ -72,6 +95,15 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = () => {
   })
   const [memoSearchScope, setMemoSearchScope] = useState<'text' | 'all'>(() => {
     return (localStorage.getItem('antigravity_memo_search_scope') as 'text' | 'all') || 'text'
+  })
+  const [memoAutoExtract, setMemoAutoExtract] = useState<boolean>(() => {
+    return localStorage.getItem('antigravity_memo_auto_extract') === 'true'
+  })
+  const [memoVoiceLanguage, setMemoVoiceLanguage] = useState<string>(() => {
+    return localStorage.getItem('antigravity_memo_voice_language') || 'auto'
+  })
+  const [memoOcrLanguage, setMemoOcrLanguage] = useState<string>(() => {
+    return localStorage.getItem('antigravity_memo_ocr_language') || 'auto'
   })
 
   // Mobile Simulator
@@ -134,6 +166,19 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = () => {
           setMemoSearchScope(cfg.search_scope)
           localStorage.setItem('antigravity_memo_search_scope', cfg.search_scope)
         }
+        // Fields added by the extraction-mode / language PR; undefined means "keep the default".
+        if (typeof cfg.auto_extract === 'boolean') {
+          setMemoAutoExtract(cfg.auto_extract)
+          localStorage.setItem('antigravity_memo_auto_extract', cfg.auto_extract ? 'true' : 'false')
+        }
+        if (typeof cfg.voice_language === 'string' && cfg.voice_language) {
+          setMemoVoiceLanguage(cfg.voice_language)
+          localStorage.setItem('antigravity_memo_voice_language', cfg.voice_language)
+        }
+        if (typeof cfg.ocr_language === 'string' && cfg.ocr_language) {
+          setMemoOcrLanguage(cfg.ocr_language)
+          localStorage.setItem('antigravity_memo_ocr_language', cfg.ocr_language)
+        }
       })
       .catch(() => {})
   }, [])
@@ -158,19 +203,31 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = () => {
       storage_location: 'global' | 'project'
       view_scope: 'all' | 'current'
       search_scope: 'text' | 'all'
+      auto_extract: boolean
+      voice_language: string
+      ocr_language: string
     }>
   ) => {
     const next = {
       storage_location: patch.storage_location ?? memoStorageLocation,
       view_scope: patch.view_scope ?? memoViewScope,
       search_scope: patch.search_scope ?? memoSearchScope,
+      auto_extract: patch.auto_extract ?? memoAutoExtract,
+      voice_language: patch.voice_language ?? memoVoiceLanguage,
+      ocr_language: patch.ocr_language ?? memoOcrLanguage,
     }
     setMemoStorageLocation(next.storage_location)
     setMemoViewScope(next.view_scope)
     setMemoSearchScope(next.search_scope)
+    setMemoAutoExtract(next.auto_extract)
+    setMemoVoiceLanguage(next.voice_language)
+    setMemoOcrLanguage(next.ocr_language)
     localStorage.setItem('antigravity_memo_storage_location', next.storage_location)
     localStorage.setItem('antigravity_memo_view_scope', next.view_scope)
     localStorage.setItem('antigravity_memo_search_scope', next.search_scope)
+    localStorage.setItem('antigravity_memo_auto_extract', next.auto_extract ? 'true' : 'false')
+    localStorage.setItem('antigravity_memo_voice_language', next.voice_language)
+    localStorage.setItem('antigravity_memo_ocr_language', next.ocr_language)
     api
       .updateMemoConfig(next)
       .then((res) => showFeedback(res?.success ? 'Quick Memos settings saved' : 'Quick Memos settings saved locally'))
@@ -803,6 +860,98 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = () => {
                       Semantic
                     </button>
                   </div>
+                </div>
+              </div>
+
+              {/* Row 3: Text Extraction Mode */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', minWidth: '100px' }}>
+                    Extraction:
+                  </span>
+                  <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--tonal)', padding: '2px', borderRadius: '6px' }}>
+                    <button
+                      onClick={() => handleUpdateMemoConfig({ auto_extract: false })}
+                      style={segBtnStyle(!memoAutoExtract)}
+                      aria-pressed={!memoAutoExtract}
+                    >
+                      Manual
+                    </button>
+                    <button
+                      onClick={() => handleUpdateMemoConfig({ auto_extract: true })}
+                      style={segBtnStyle(memoAutoExtract)}
+                      aria-pressed={memoAutoExtract}
+                    >
+                      Automatic
+                    </button>
+                  </div>
+                </div>
+                <p
+                  style={{
+                    margin: 0,
+                    marginLeft: '112px',
+                    fontSize: '12px',
+                    color: 'var(--text-muted)',
+                    lineHeight: 1.45,
+                    maxWidth: '640px',
+                  }}
+                >
+                  {memoAutoExtract
+                    ? 'Extract text as soon as a voice or image memo is saved.'
+                    : 'Extract text per memo from the card buttons.'}
+                </p>
+              </div>
+
+              {/* Row 4: Voice + OCR language */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', minWidth: '100px' }}>
+                    Voice Language:
+                  </span>
+                  <select
+                    aria-label="Voice language"
+                    value={memoVoiceLanguage}
+                    onChange={(e) => handleUpdateMemoConfig({ voice_language: e.target.value })}
+                    style={{
+                      fontSize: '12px',
+                      padding: '5px 10px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      backgroundColor: 'var(--canvas)',
+                      color: 'var(--text)',
+                    }}
+                  >
+                    {MEMO_LANGUAGES.map((lang) => (
+                      <option key={lang.code} value={lang.code}>
+                        {lang.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', minWidth: '100px' }}>
+                    OCR Language:
+                  </span>
+                  <select
+                    aria-label="OCR language"
+                    value={memoOcrLanguage}
+                    onChange={(e) => handleUpdateMemoConfig({ ocr_language: e.target.value })}
+                    style={{
+                      fontSize: '12px',
+                      padding: '5px 10px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      backgroundColor: 'var(--canvas)',
+                      color: 'var(--text)',
+                    }}
+                  >
+                    {MEMO_LANGUAGES.map((lang) => (
+                      <option key={lang.code} value={lang.code}>
+                        {lang.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>

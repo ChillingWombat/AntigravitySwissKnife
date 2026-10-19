@@ -287,6 +287,27 @@ export async function request<T>(url: string, options?: RequestOptions): Promise
 }
 
 
+/** Quick Memos daemon-persisted configuration (new fields optional until the daemon reports them). */
+export interface MemoConfigPatch {
+  storage_location?: string;
+  view_scope?: string;
+  search_scope?: string;
+  auto_extract?: boolean;
+  voice_language?: string;
+  ocr_language?: string;
+}
+
+export interface MemoConfigResponse {
+  success: boolean;
+  config: MemoConfigPatch;
+  storage_location?: string;
+  view_scope?: string;
+  search_scope?: string;
+  auto_extract?: boolean;
+  voice_language?: string;
+  ocr_language?: string;
+}
+
 export const api = {
   getStatus: (options?: RequestOptions) => request<SystemStatus>('/api/status', options),
 
@@ -961,22 +982,10 @@ export const api = {
   },
 
   getMemoConfig: () =>
-    request<{
-      success: boolean;
-      config: { storage_location: string; view_scope: string; search_scope: string };
-      storage_location?: string;
-      view_scope?: string;
-      search_scope?: string;
-    }>('/api/memos/config'),
+    request<MemoConfigResponse>('/api/memos/config'),
 
-  updateMemoConfig: (cfg: { storage_location?: string; view_scope?: string; search_scope?: string }) =>
-    request<{
-      success: boolean;
-      config: { storage_location: string; view_scope: string; search_scope: string };
-      storage_location?: string;
-      view_scope?: string;
-      search_scope?: string;
-    }>('/api/memos/config', {
+  updateMemoConfig: (cfg: MemoConfigPatch) =>
+    request<MemoConfigResponse>('/api/memos/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cfg),
