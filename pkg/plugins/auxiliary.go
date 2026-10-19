@@ -1444,6 +1444,11 @@ div:has(> .shrink-0.flex.items-center.border-b),
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* A real transcript must stay visible when the body also holds an image/caption. */
+.swiss-memo-card-img-wrap ~ .swiss-memo-card-transcript {
+  flex: 0 0 auto;
+  max-height: 70%;
+}
 .swiss-memo-card-img-wrap {
   flex: 1 1 auto;
   min-height: 0;
