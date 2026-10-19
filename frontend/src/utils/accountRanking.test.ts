@@ -336,7 +336,7 @@ describe('accountRanking utility', () => {
       const res = evaluateAutoSwitch([weeklyDepletedActive, standbyReady], active.email, 0.05, 'balanced', 0, 0.05)
       assert.strictEqual(res.shouldSwitch, true)
       assert.strictEqual(res.successor?.email, 'standby@gmail.com')
-      assert.ok(res.reason.includes('Active weekly quota (4.0%)'))
+      assert.ok(res.reason.includes('Active 7D quota (4.0%)'))
       assert.ok(res.reason.includes('dropped below threshold'))
     })
   })

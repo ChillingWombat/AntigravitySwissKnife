@@ -255,10 +255,10 @@ describe('accountPresentation utility', () => {
         'utf8'
       )
       assert.ok(pageSrc.includes('title="Non-Gemini 5H"'), 'should title the 5h gauge Non-Gemini 5H')
-      assert.ok(pageSrc.includes('title="Non-Gemini Weekly"'), 'should title the weekly gauge Non-Gemini Weekly')
+      assert.ok(pageSrc.includes('title="Non-Gemini 7D"'), 'should title the weekly gauge Non-Gemini 7D')
       assert.ok(pageSrc.includes('<span>Non-Gemini</span>'), 'should label detail rows Non-Gemini')
       assert.ok(pageSrc.includes('title="Non-Gemini 5h cycle"'), 'should title the 5h bar Non-Gemini 5h cycle')
-      assert.ok(pageSrc.includes('title="Non-Gemini 7-day cycle"'), 'should title the weekly bar Non-Gemini 7-day cycle')
+      assert.ok(pageSrc.includes('title="Non-Gemini 7D cycle"'), 'should title the weekly bar Non-Gemini 7-day cycle')
       assert.ok(!pageSrc.includes('Claude/GPT'), 'should not contain legacy Claude/GPT quota labels')
       assert.ok(!pageSrc.includes('Claude &amp; GPT'), 'should not contain legacy Claude & GPT quota labels')
     })

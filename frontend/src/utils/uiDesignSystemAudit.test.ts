@@ -174,7 +174,7 @@ describe('UI Design System Audit & Voice Invariants (Milestone 16)', () => {
         'SwitcherSettingsPage strategy subtitle must be humanized'
       )
       assert.ok(
-        content.includes('Rotates when active quota hits the threshold. Ranks standby accounts by combined 5-hour and weekly quota.'),
+        content.includes('Rotates when active quota hits the threshold. Ranks standby accounts by combined 5H and 7D quota.'),
         'SwitcherSettingsPage balanced mode copy must be humanized'
       )
       assert.ok(
