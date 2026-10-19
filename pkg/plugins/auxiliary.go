@@ -1226,6 +1226,11 @@ div:has(> .shrink-0.flex.items-center.border-b),
   overflow-y: auto;
   padding: 12px;
   gap: 10px;
+  /* Issue #145: the view is its own container so the narrow-panel rule below
+     tracks the width the memos actually get, in the auxiliary panel and in the
+     main stage alike. */
+  container-type: inline-size;
+  container-name: swissmemo;
 }
 .swiss-memo-composer {
   display: flex;
@@ -1455,6 +1460,13 @@ div:has(> .shrink-0.flex.items-center.border-b),
   flex: 0 0 auto;
   max-height: 70%;
 }
+/* Issue #143: daemon-side auto extraction is async, so a freshly saved card
+   shows a muted pending line (same line-clamp container) until the transcript
+   arrives — it is not an error state. */
+.swiss-memo-card-extract-pending {
+  color: var(--text-muted, #64748b);
+  font-style: italic;
+}
 .swiss-memo-card-img-wrap {
   flex: 1 1 auto;
   min-height: 0;
@@ -1542,6 +1554,15 @@ div:has(> .shrink-0.flex.items-center.border-b),
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   flex-shrink: 0;
+}
+/* Issue #145: at the narrowest panel width the loudness wave squeezes the
+   record button and overlaps neighbouring buttons. Drop the wave bars only;
+   the icon and elapsed timer stay visible at every width because they are
+   what the user needs while recording. */
+@container swissmemo (max-width: 285px) {
+  .swiss-memo-record-wave {
+    display: none !important;
+  }
 }
 .swiss-memo-extract-btn {
   padding: 2px 6px;
@@ -5424,6 +5445,11 @@ func GenerateAuxiliaryPluginsScript() string {
       let recordingWaveRaf = 0;
       let recordingTimerInterval = 0;
 
+      // Issue #143: memos whose transcript is being produced by the daemon after
+      // a save. Drives the per-card pending line and the bounded list polling.
+      const pendingExtractMemoIds = new Set();
+      let pendingExtractTimers = [];
+
       const LOCAL_MEMOS_KEY = "antigravity_swiss_memos_backup";
       const getLocalMemos = () => {
         try {
@@ -5612,6 +5638,7 @@ func GenerateAuxiliaryPluginsScript() string {
           const extractIdleLabel = extractKind === "image" ? "OCR" : "Convert to Text";
           const extractDoneLabel = extractKind === "image" ? "OCR ✓" : "Text ✓";
           const extractDone = Boolean(m.transcript);
+          const extractPending = autoExtractEnabled && !transcriptText && pendingExtractMemoIds.has(m.id);
           const cardKey = memoCardDomKey(m.id);
           const playerHtml = m.audio_data ? (
             '<div class="swiss-memo-player">' +
@@ -5634,10 +5661,11 @@ func GenerateAuxiliaryPluginsScript() string {
               ${m.image_data ? ('<div class="swiss-memo-card-img-wrap"><img class="swiss-memo-card-img" src="' + escapeHtml(m.image_data) + '" alt="' + escapeHtml(m.title || "Memo Image") + '" /></div>') : ""}
               ${primaryText ? ('<div class="swiss-memo-card-text">' + escapeHtml(primaryText) + '</div>') : ""}
               ${transcriptText ? ('<div class="swiss-memo-card-text swiss-memo-card-transcript" data-memo-transcript="1">' + escapeHtml(transcriptText) + '</div>') : ""}
+              ${extractPending ? '<div class="swiss-memo-card-text swiss-memo-card-transcript swiss-memo-card-extract-pending">Extracting text…</div>' : ""}
             </div>
             ${playerHtml}
             <div class="swiss-memo-card-foot">
-              ${extractKind ? ('<button type="button" class="swiss-browser-btn swiss-memo-extract-btn" id="swiss-memo-extract-' + cardKey + '"' + (extractDone ? ' disabled' : '') + '>' + escapeHtml(extractDone ? extractDoneLabel : extractIdleLabel) + '</button>') : ""}
+              ${(extractKind && !autoExtractEnabled) ? ('<button type="button" class="swiss-browser-btn swiss-memo-extract-btn" id="swiss-memo-extract-' + cardKey + '"' + (extractDone ? ' disabled' : '') + '>' + escapeHtml(extractDone ? extractDoneLabel : extractIdleLabel) + '</button>') : ""}
               <div class="swiss-memo-card-actions">
                 <button class="swiss-browser-btn swiss-memo-insert-btn" id="swiss-memo-insert-${cardKey}" style="padding:2px 6px; font-size:10px;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Chat</span></button>
                 <button class="swiss-browser-btn swiss-memo-del-btn" id="swiss-memo-del-${cardKey}" title="Delete Memo" style="padding:2px 6px; font-size:10px; color:#ef4444;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
@@ -5835,7 +5863,87 @@ func GenerateAuxiliaryPluginsScript() string {
         return { qs: "?scope=current&workspace_path=" + encodeURIComponent(activeProj), wsPath: activeProj };
       };
 
-      const loadMemos = async (silent = false) => {
+      // Issue #143 (UI half): automatic extraction is a daemon-side setting. When
+      // auto_extract is on the backend transcribes voice memos / OCRs images as
+      // they are saved, so the per-card manual buttons are redundant and must not
+      // be rendered. The config is refreshed on every memos-view render.
+      let autoExtractEnabled = false;
+      const readAutoExtractFlag = (payload) => {
+        if (!payload || typeof payload !== "object") return false;
+        const cfg = (payload.config && typeof payload.config === "object") ? payload.config : payload;
+        return cfg.auto_extract === true || cfg.autoExtract === true;
+      };
+
+      const loadMemoConfig = async () => {
+        try {
+          const res = await fetch(API_BASE + "/api/memos/config", { headers: getSwissAuthHeaders() });
+          if (!res.ok) return;
+          const payload = await res.json();
+          const next = readAutoExtractFlag(payload);
+          if (next === autoExtractEnabled) return;
+          autoExtractEnabled = next;
+          // Pick the new mode up without leaving the tab.
+          applyFilterAndRender();
+        } catch (_) {
+          // Keep the manual buttons when the config endpoint is unavailable.
+        }
+      };
+
+      // Auto extraction runs in the daemon after the save response, so the card
+      // cannot know the transcript yet. Poll the list on a bounded schedule
+      // (attempts at 2s, 5s, 10s and 20s after the save) instead of calling
+      // /api/memos/extract again: a second call would pay for a second model
+      // extraction. Stop as soon as the transcript lands or the view is gone.
+      const AUTO_EXTRACT_POLL_DELAYS = [2000, 3000, 5000, 10000];
+      const findMemoById = (memoId) => {
+        for (let i = 0; i < allMemos.length; i++) {
+          if (allMemos[i] && allMemos[i].id === memoId) return allMemos[i];
+        }
+        return null;
+      };
+      const hasTranscript = (memo) => Boolean(memo && typeof memo.transcript === "string" && memo.transcript.trim());
+      const isMemoViewAlive = () => {
+        if (!container || container.isConnected === false) return false;
+        const renderedTab = container.dataset ? container.dataset.renderedTab : "";
+        return !renderedTab || renderedTab === "memos";
+      };
+      const clearPendingExtractPoll = () => {
+        pendingExtractTimers.forEach((timer) => clearTimeout(timer));
+        pendingExtractTimers = [];
+        pendingExtractMemoIds.clear();
+      };
+      const scheduleAutoExtractPoll = (memoId) => {
+        if (!autoExtractEnabled || !memoId) return;
+        if (hasTranscript(findMemoById(memoId))) return;
+        pendingExtractMemoIds.add(memoId);
+        applyFilterAndRender();
+        let elapsedMs = 0;
+        AUTO_EXTRACT_POLL_DELAYS.forEach((delayMs, attempt) => {
+          elapsedMs += delayMs;
+          const timer = setTimeout(async () => {
+            pendingExtractTimers = pendingExtractTimers.filter((t) => t !== timer);
+            if (!pendingExtractMemoIds.has(memoId)) return;
+            if (!isMemoViewAlive() || hasTranscript(findMemoById(memoId))) {
+              pendingExtractMemoIds.delete(memoId);
+              return;
+            }
+            await loadMemos(true, true);
+            if (hasTranscript(findMemoById(memoId))) {
+              pendingExtractMemoIds.delete(memoId);
+              return;
+            }
+            if (attempt === AUTO_EXTRACT_POLL_DELAYS.length - 1) {
+              // Give up quietly: the manual path is hidden in auto mode, so the
+              // card just keeps whatever the daemon stored.
+              pendingExtractMemoIds.delete(memoId);
+              applyFilterAndRender();
+            }
+          }, elapsedMs);
+          pendingExtractTimers.push(timer);
+        });
+      };
+
+      const loadMemos = async (silent = false, force = false) => {
         if (!silent && memoList.children.length === 0) {
           memoList.innerHTML = "<div class='swiss-memo-list-status' style='font-size:11px; color:#94a3b8;'>Loading memos...</div>";
         }
@@ -5857,6 +5965,8 @@ func GenerateAuxiliaryPluginsScript() string {
           saveLocalMemos(allMemos);
           applyFilterAndRender();
         } catch (err) {
+          // A forced (polling) refresh must not repaint stale local cache.
+          if (force) return;
           const fallback = getLocalMemos();
           if (fallback.length > 0) {
             allMemos = fallback;
@@ -5911,7 +6021,7 @@ func GenerateAuxiliaryPluginsScript() string {
 
         try {
           const mq = getMemoQueryInfo();
-          await fetch(` + "`" + `${API_BASE}/api/memos/save` + "`" + `, {
+          const saveRes = await fetch(` + "`" + `${API_BASE}/api/memos/save` + "`" + `, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -5925,6 +6035,11 @@ func GenerateAuxiliaryPluginsScript() string {
               workspace_path: mq.wsPath || undefined
             })
           });
+          // Issue #143: only voice/image memos get auto-extracted; text memos
+          // already carry their content.
+          if (saveRes.ok && autoExtractEnabled && effType !== "text") {
+            scheduleAutoExtractPoll(newMemo.id);
+          }
         } catch (_) {}
         loadMemos(true);
       };
@@ -6239,6 +6354,8 @@ func GenerateAuxiliaryPluginsScript() string {
       };
 
       const recordBtn = topBar.querySelector("#swiss-m-record-audio");
+      recordBtn.setAttribute("aria-label", "Voice Memo");
+      recordBtn.title = "Voice Memo";
 
       // ---- Voice memo recording indicator: elapsed time + live loudness wave ----
       const REC_IDLE_LABEL = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg><span>Voice Memo</span>';
@@ -6276,11 +6393,14 @@ func GenerateAuxiliaryPluginsScript() string {
       const startRecordingIndicator = () => {
         stopRecordingIndicator();
         recordBtn.classList.add("active");
+        // Issue #145: the visible "Stop Recording" text is gone from this narrow
+        // button; the accessible name keeps the action discoverable.
+        recordBtn.setAttribute("aria-label", "Stop Recording");
+        recordBtn.title = "Stop Recording";
         recordBtn.innerHTML =
           '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="12" height="12" x="6" y="6" rx="2"/></svg>' +
-          '<span>Stop Recording</span>' +
           '<span id="swiss-m-record-timer" style="font-variant-numeric:tabular-nums; font-weight:600;">0:00</span>' +
-          '<canvas id="swiss-m-record-wave" width="48" height="24" style="width:24px; height:12px; display:block;"></canvas>';
+          '<canvas id="swiss-m-record-wave" class="swiss-memo-record-wave" width="48" height="24" style="width:24px; height:12px; display:block;"></canvas>';
 
         const timerEl = recordBtn.querySelector("#swiss-m-record-timer");
         const waveCanvas = recordBtn.querySelector("#swiss-m-record-wave");
@@ -6354,6 +6474,8 @@ func GenerateAuxiliaryPluginsScript() string {
       const restoreRecordButton = () => {
         stopRecordingIndicator();
         recordBtn.classList.remove("active");
+        recordBtn.setAttribute("aria-label", "Voice Memo");
+        recordBtn.title = "Voice Memo";
         recordBtn.innerHTML = REC_IDLE_LABEL;
       };
 
@@ -6462,7 +6584,7 @@ func GenerateAuxiliaryPluginsScript() string {
                 applyFilterAndRender();
 
                 try {
-                  await fetch(` + "`" + `${API_BASE}/api/memos/save` + "`" + `, {
+                  const saveRes = await fetch(` + "`" + `${API_BASE}/api/memos/save` + "`" + `, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -6478,6 +6600,11 @@ func GenerateAuxiliaryPluginsScript() string {
                       created_at: newMemo.created_at
                     })
                   });
+                  // Issue #143: the daemon transcribes after responding; poll for
+                  // it when this recording has no transcript of its own yet.
+                  if (saveRes.ok && autoExtractEnabled) {
+                    scheduleAutoExtractPoll(newMemo.id);
+                  }
                 } catch (_) {}
                 loadMemos(true);
               }
@@ -6506,6 +6633,7 @@ func GenerateAuxiliaryPluginsScript() string {
       // AudioContext alive. Registered on the host container; the caller invokes it pre-clear.
       const teardownMemosView = () => {
         stopActivePlayback();
+        clearPendingExtractPoll();
         const wasRecording = Boolean(recordingTimerInterval) ||
           Boolean(recordingWaveRaf) ||
           Boolean(mediaRecorder && mediaRecorder.state !== "inactive");
@@ -6616,7 +6744,7 @@ func GenerateAuxiliaryPluginsScript() string {
         allMemos = initialMemos;
         applyFilterAndRender();
       }
-      loadMemos(initialMemos.length > 0);
+      loadMemoConfig().then(() => loadMemos(initialMemos.length > 0));
     }
 
     // ----------------------------------------------------
