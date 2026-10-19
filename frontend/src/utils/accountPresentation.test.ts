@@ -304,5 +304,16 @@ describe('accountPresentation utility', () => {
       assert.strictEqual(fallback.isValidationRequired, false)
       assert.strictEqual(fallback.verificationUrl, null)
     })
+
+    it('verifies AccountDetailModal loads unredacted credentials via exportAccounts for existing accounts', async () => {
+      const fs = await import('node:fs')
+      const path = await import('node:path')
+      const modalSrc = fs.readFileSync(
+        path.resolve(import.meta.dirname, '../components/AccountDetailModal.tsx'),
+        'utf8'
+      )
+      assert.ok(modalSrc.includes('api.exportAccounts(account.email)'), 'should call api.exportAccounts with account email')
+      assert.ok(modalSrc.includes("found.refresh_token !== '[REDACTED]'"), 'should verify refresh token is not redacted')
+    })
   })
 })

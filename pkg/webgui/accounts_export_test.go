@@ -153,3 +153,75 @@ func TestAccountsExportUnredactedCredentials(t *testing.T) {
 		t.Errorf("restored RefreshToken mismatch: got '%s'", restored[0].RefreshToken)
 	}
 }
+
+func TestAccountsExportFilterByEmail(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
+	tmpDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tmpDir)
+
+	store, err := keyring.NewStore(filepath.Join(tmpDir, "accounts.json"))
+	if err != nil {
+		t.Fatalf("failed to initialize keyring store: %v", err)
+	}
+
+	importItems := []keyring.BatchImportItem{
+		{
+			Email:        "alpha@example.com",
+			Password:     "PassAlpha123!",
+			TOTPSecret:   "JBSWY3DPEHPK3PXP",
+			RefreshToken: "1//refresh_token_alpha",
+		},
+		{
+			Email:        "beta@example.com",
+			Password:     "PassBeta456!",
+			TOTPSecret:   "JBSWY3DPEHPK3PXQ",
+			RefreshToken: "1//refresh_token_beta",
+		},
+	}
+
+	if _, err := store.BatchImportAccounts(importItems); err != nil {
+		t.Fatalf("failed to batch import accounts: %v", err)
+	}
+
+	srv := NewServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	// 1. Filter for alpha@example.com (case-insensitive)
+	respAlpha, err := http.Get("http://" + srv.Addr() + "/api/accounts/export?email=ALPHA@example.com")
+	if err != nil {
+		t.Fatalf("GET /api/accounts/export?email=... failed: %v", err)
+	}
+	defer respAlpha.Body.Close()
+
+	var alphaList []keyring.AccountExport
+	if err := json.NewDecoder(respAlpha.Body).Decode(&alphaList); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(alphaList) != 1 {
+		t.Fatalf("expected 1 account for alpha, got %d", len(alphaList))
+	}
+	if alphaList[0].Email != "alpha@example.com" {
+		t.Errorf("expected alpha@example.com, got %s", alphaList[0].Email)
+	}
+	if alphaList[0].RefreshToken != "1//refresh_token_alpha" {
+		t.Errorf("expected 1//refresh_token_alpha, got %s", alphaList[0].RefreshToken)
+	}
+
+	// 2. Filter for non-existent email
+	respNone, err := http.Get("http://" + srv.Addr() + "/api/accounts/export?email=nonexistent@example.com")
+	if err != nil {
+		t.Fatalf("GET /api/accounts/export?email=nonexistent failed: %v", err)
+	}
+	defer respNone.Body.Close()
+
+	var noneList []keyring.AccountExport
+	if err := json.NewDecoder(respNone.Body).Decode(&noneList); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(noneList) != 0 {
+		t.Fatalf("expected 0 accounts for nonexistent email, got %d", len(noneList))
+	}
+}

@@ -343,7 +343,8 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  exportAccounts: () => request<any[]>('/api/accounts/export'),
+  exportAccounts: (email?: string) =>
+    request<any[]>(email ? `/api/accounts/export?email=${encodeURIComponent(email)}` : '/api/accounts/export'),
 
   batchImportAccounts: (accounts: any) =>
     request<{ success: boolean; imported: number; message: string }>('/api/accounts/batch-import', {
