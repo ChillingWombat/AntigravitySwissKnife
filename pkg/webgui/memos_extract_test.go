@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,9 +24,85 @@ const (
 
 type extractUpstreamCapture struct {
 	auth      string
+	method    string
+	path      string
+	role      string
+	partCount int
 	prompt    string
 	mimeType  string
 	mediaData string
+}
+
+// extractTestEndpointPath mirrors the real generateContent path so tests can
+// assert that callVertexExtract posts to the right action.
+const extractTestEndpointPath = "/v1/projects/test-project/locations/global/publishers/google/models/gemini-2.5-flash:generateContent"
+
+// captureExtractRequest decodes the outgoing Vertex request and fills capture.
+// It also asserts the shape Vertex itself requires: a role on the content
+// object ("user") and exactly two parts (prompt text + inline media). Tests
+// that only mock the response without checking the request body would keep
+// passing while every real call fails with "Please use a valid role: user,
+// model.", so these assertions live on the request side.
+func captureExtractRequest(t *testing.T, r *http.Request, capture *extractUpstreamCapture) {
+	t.Helper()
+	capture.method = r.Method
+	capture.path = r.URL.Path
+	capture.auth = r.Header.Get("Authorization")
+
+	var body struct {
+		Contents []struct {
+			Role  string `json:"role"`
+			Parts []struct {
+				Text       string `json:"text"`
+				InlineData *struct {
+					MIMEType string `json:"mimeType"`
+					Data     string `json:"data"`
+				} `json:"inlineData"`
+			} `json:"parts"`
+		} `json:"contents"`
+	}
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Errorf("read upstream body: %v", err)
+		return
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Errorf("decode upstream body %q: %v", string(raw), err)
+		return
+	}
+	if len(body.Contents) != 1 {
+		t.Errorf("contents length = %d, want 1; body = %s", len(body.Contents), string(raw))
+		return
+	}
+
+	content := body.Contents[0]
+	capture.role = content.Role
+	capture.partCount = len(content.Parts)
+	if content.Role != "user" {
+		t.Errorf("contents[0].role = %q, want %q; body = %s", content.Role, "user", string(raw))
+	}
+	if len(content.Parts) != 2 {
+		t.Errorf("contents[0].parts length = %d, want 2; body = %s", len(content.Parts), string(raw))
+		return
+	}
+
+	capture.prompt = content.Parts[0].Text
+	if strings.TrimSpace(capture.prompt) == "" {
+		t.Errorf("contents[0].parts[0].text is empty; body = %s", string(raw))
+	}
+	inline := content.Parts[1].InlineData
+	if inline == nil {
+		t.Errorf("contents[0].parts[1].inlineData is missing; body = %s", string(raw))
+		return
+	}
+	capture.mimeType = inline.MIMEType
+	capture.mediaData = inline.Data
+	if strings.TrimSpace(inline.MIMEType) == "" {
+		t.Errorf("contents[0].parts[1].inlineData.mimeType is empty; body = %s", string(raw))
+	}
+	if strings.TrimSpace(inline.Data) == "" {
+		t.Errorf("contents[0].parts[1].inlineData.data is empty; body = %s", string(raw))
+	}
 }
 
 // newExtractTestServer wires an isolated Server with a temp memos file and store.
@@ -81,7 +158,7 @@ func stubExtractUpstream(t *testing.T, handler http.HandlerFunc) *httptest.Serve
 		return "test-token", nil
 	}
 	memoExtractEndpoint = func(region, project, model string) string {
-		return fake.URL
+		return fake.URL + extractTestEndpointPath
 	}
 	t.Cleanup(func() {
 		memoExtractHTTPClient, memoExtractTokenMinter, memoExtractEndpoint = oldClient, oldMinter, oldEndpoint
@@ -132,33 +209,11 @@ func TestMemosExtractImageOCRHappyPath(t *testing.T) {
 	srv, memoPath, _ := newExtractTestServer(t, []MemoItem{memo}, []custommodels.CustomModel{testGCPModel()})
 
 	capture := &extractUpstreamCapture{}
-	fake := stubExtractUpstream(t, func(w http.ResponseWriter, r *http.Request) {
-		capture.auth = r.Header.Get("Authorization")
-		var body struct {
-			Contents []struct {
-				Parts []struct {
-					Text       string `json:"text"`
-					InlineData *struct {
-						MIMEType string `json:"mimeType"`
-						Data     string `json:"data"`
-					} `json:"inlineData"`
-				} `json:"parts"`
-			} `json:"contents"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Errorf("decode upstream body: %v", err)
-		}
-		if len(body.Contents) == 1 && len(body.Contents[0].Parts) == 2 {
-			capture.prompt = body.Contents[0].Parts[0].Text
-			if inline := body.Contents[0].Parts[1].InlineData; inline != nil {
-				capture.mimeType = inline.MIMEType
-				capture.mediaData = inline.Data
-			}
-		}
+	stubExtractUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+		captureExtractRequest(t, r, capture)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"  hello world  "}]}}]}`))
 	})
-	_ = fake
 
 	rec := postExtract(t, srv, `{"memo_id":"memo-img-1"}`)
 	if rec.Code != http.StatusOK {
@@ -173,6 +228,18 @@ func TestMemosExtractImageOCRHappyPath(t *testing.T) {
 	}
 	if capture.auth != "Bearer test-token" {
 		t.Errorf("Authorization = %q, want bearer token", capture.auth)
+	}
+	if capture.method != http.MethodPost {
+		t.Errorf("upstream method = %q, want POST", capture.method)
+	}
+	if capture.path != extractTestEndpointPath {
+		t.Errorf("upstream path = %q, want %q", capture.path, extractTestEndpointPath)
+	}
+	if capture.role != "user" {
+		t.Errorf("contents[0].role = %q, want user", capture.role)
+	}
+	if capture.partCount != 2 {
+		t.Errorf("contents[0].parts length = %d, want 2", capture.partCount)
 	}
 	if capture.prompt != memoExtractImagePrompt {
 		t.Errorf("prompt = %q, want OCR prompt", capture.prompt)
@@ -195,23 +262,7 @@ func TestMemosExtractAudioUsesAudioPrompt(t *testing.T) {
 
 	capture := &extractUpstreamCapture{}
 	stubExtractUpstream(t, func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Contents []struct {
-				Parts []struct {
-					Text       string `json:"text"`
-					InlineData *struct {
-						MIMEType string `json:"mimeType"`
-					} `json:"inlineData"`
-				} `json:"parts"`
-			} `json:"contents"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		if len(body.Contents) == 1 && len(body.Contents[0].Parts) == 2 {
-			capture.prompt = body.Contents[0].Parts[0].Text
-			if inline := body.Contents[0].Parts[1].InlineData; inline != nil {
-				capture.mimeType = inline.MIMEType
-			}
-		}
+		captureExtractRequest(t, r, capture)
 		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"spoken words"}]}}]}`))
 	})
 
@@ -614,5 +665,64 @@ func TestMemosExtractPrefersConfiguredDefaultModel(t *testing.T) {
 	}
 	if calledModel != "gemini-preferred" {
 		t.Errorf("called model = %q, want the configured default gemini-preferred", calledModel)
+	}
+}
+
+// TestCallVertexExtractSendsVertexCompatibleBody pins the exact shape Vertex
+// accepts. Without contents[0].role the real API rejects every request with
+// HTTP 400 "Please use a valid role: user, model.", so this test must fail if
+// the role moves or disappears — even though the response is mocked.
+func TestCallVertexExtractSendsVertexCompatibleBody(t *testing.T) {
+	capture := &extractUpstreamCapture{}
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captureExtractRequest(t, r, capture)
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"transcribed"}]}}]}`))
+	}))
+	defer fake.Close()
+
+	oldClient := memoExtractHTTPClient
+	client := fake.Client()
+	client.Timeout = memoExtractTimeout
+	memoExtractHTTPClient = client
+	t.Cleanup(func() { memoExtractHTTPClient = oldClient })
+
+	text, err := callVertexExtract(context.Background(), fake.URL+extractTestEndpointPath,
+		"test-token", memoExtractAudioPrompt, "audio/webm",
+		encodeTestMedia(0x1A, 0x45, 0xDF, 0xA3, 0x42))
+	if err != nil {
+		t.Fatalf("callVertexExtract: %v", err)
+	}
+	if text != "transcribed" {
+		t.Errorf("text = %q, want transcribed", text)
+	}
+	if capture.role != "user" || capture.partCount != 2 {
+		t.Fatalf("request shape = role %q, %d parts; want role user and 2 parts",
+			capture.role, capture.partCount)
+	}
+	if capture.auth != "Bearer test-token" {
+		t.Errorf("Authorization = %q, want Bearer test-token", capture.auth)
+	}
+	if capture.method != http.MethodPost || capture.path != extractTestEndpointPath {
+		t.Errorf("request = %s %s, want POST %s", capture.method, capture.path, extractTestEndpointPath)
+	}
+	if capture.prompt != memoExtractAudioPrompt {
+		t.Errorf("parts[0].text = %q, want the audio prompt", capture.prompt)
+	}
+	if capture.mimeType != "audio/webm" {
+		t.Errorf("parts[1].inlineData.mimeType = %q, want audio/webm", capture.mimeType)
+	}
+	if capture.mediaData == "" {
+		t.Error("parts[1].inlineData.data is empty")
+	}
+}
+
+// TestMemoExtractEndpointHitsGenerateContent guards the real (non-mocked)
+// endpoint builder: the global location must use the region-less host and the
+// :generateContent action.
+func TestMemoExtractEndpointHitsGenerateContent(t *testing.T) {
+	endpoint := custommodels.BuildVertexAIEndpoint("global", "proj-1", "gemini-4-argon")
+	want := "https://aiplatform.googleapis.com/v1/projects/proj-1/locations/global/publishers/google/models/gemini-4-argon:generateContent"
+	if endpoint != want {
+		t.Errorf("endpoint = %q, want %q", endpoint, want)
 	}
 }
