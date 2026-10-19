@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -299,13 +300,23 @@ func TestSecurityRegression_CredentialScrubbingContract(t *testing.T) {
 	}
 }
 
-// TestSecurityRegression_PlatformIndependentPathJail validates path handling:
-// 1. Files inside legitimate temporary directories are accepted.
-// 2. Traversal sequences (../, ..\, null bytes, encoded delimiters) are blocked.
-// 3. Absolute system paths are readable (browsing is unrestricted, issue #157).
-// 4. Destructive operations on system paths are still rejected.
-// 5. Dangerous deletion attempts on home directory or root aliases are rejected by validateDeletablePath.
-func TestSecurityRegression_PlatformIndependentPathJail(t *testing.T) {
+// TestSecurityRegression_PlatformIndependentPathContract validates the path
+// contract that replaced the directory whitelist (issue #157):
+//  1. Files inside legitimate temporary directories are accepted.
+//  2. Relative paths and traversal sequences (../, ..\, null bytes, encoded
+//     delimiters) are blocked — a relative path is never resolved against the
+//     working directory.
+//  3. Any absolute path, including one outside the home directory, can be
+//     listed and read through the file API.
+//  4. Reads of sensitive locations are allowed, destructive writes to them are
+//     not (read allowed / write denied).
+//  5. Dangerous deletion attempts on home directory or root aliases are rejected
+//     by validateDeletablePath.
+//
+// Renamed from TestSecurityRegression_PlatformIndependentPathJail: there is no
+// path jail any more, so the old name asserted semantics the code no longer has.
+func TestSecurityRegression_PlatformIndependentPathContract(t *testing.T) {
+	s := &Server{}
 	tempDir := t.TempDir()
 	legitFile := filepath.Join(tempDir, "safe.txt")
 	if err := os.WriteFile(legitFile, []byte("ok"), 0600); err != nil {
@@ -315,57 +326,154 @@ func TestSecurityRegression_PlatformIndependentPathJail(t *testing.T) {
 	// 1. Legitimate file inside TempDir must succeed
 	resolved, err := validateJailedPath(legitFile)
 	if err != nil {
-		t.Errorf("[PATH JAIL] validateJailedPath rejected valid temp file: %v", err)
+		t.Errorf("[PATH CONTRACT] validateJailedPath rejected valid temp file: %v", err)
 	}
 	if resolved == "" {
-		t.Errorf("[PATH JAIL] validateJailedPath returned empty resolved path")
+		t.Errorf("[PATH CONTRACT] validateJailedPath returned empty resolved path")
 	}
 
-	// 2. Universal hostile attack vectors
+	// 2. Universal hostile attack vectors. All of these are either relative or
+	//    malformed, so they must be rejected on every platform.
 	universalHostile := []string{
 		"../../../../../../../../etc/passwd",
 		"../../../../../../../../etc/shadow",
+		`..\..\Windows\System32\cmd.exe`,
+		"relative/file.txt",
+		".",
 		"safe.txt\x00evil.exe",
 		"safe.txt%00",
 		"safe.txt%2500",
 		"..%2f..%2fetc/passwd",
 		"..%5c..%5cWindows",
 		"%2e%2e%2f%2e%2e%2fetc/passwd",
+		"%25252e%25252e/%25252e%25252e/etc/passwd",
 	}
 
 	for _, vec := range universalHostile {
 		if res, err := validateJailedPath(vec); err == nil {
-			t.Errorf("[PATH JAIL VULNERABILITY] Accepted universal hostile vector %q -> %q", vec, res)
+			t.Errorf("[PATH CONTRACT VULNERABILITY] Accepted universal hostile vector %q -> %q", vec, res)
+		}
+
+		// The same vectors must be refused by the read endpoint, not just the
+		// resolver.
+		req := httptest.NewRequest(http.MethodGet, "/api/files/read?path="+url.QueryEscape(vec), nil)
+		w := httptest.NewRecorder()
+		s.handleFilesRead(w, req)
+		var resp struct {
+			Success bool `json:"success"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode read response for %q: %v", vec, err)
+		}
+		if resp.Success {
+			t.Errorf("[PATH CONTRACT VULNERABILITY] /api/files/read accepted hostile vector %q: %s", vec, w.Body.String())
 		}
 	}
 
-	// 3. Absolute system paths are readable; only destructive operations are refused.
-	var readableSystemPaths, destructiveSystemPaths []string
+	// 3. An absolute path outside the home directory is listable and readable.
+	//    This is the behaviour the whitelist removal was requested for.
+	outsideDir := createDirOutsideHome(t)
+	outsideFile := filepath.Join(outsideDir, "outside-home.txt")
+	if err := os.WriteFile(outsideFile, []byte("outside-ok"), 0600); err != nil {
+		t.Fatalf("failed to create outside-home file: %v", err)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/files/list?path="+url.QueryEscape(outsideDir), nil)
+	listW := httptest.NewRecorder()
+	s.handleFilesList(listW, listReq)
+	var listResp struct {
+		Success bool `json:"success"`
+		Files   []struct {
+			Name string `json:"name"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(listW.Body.Bytes(), &listResp); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if !listResp.Success {
+		t.Errorf("[PATH CONTRACT] /api/files/list refused outside-home directory %q: %s", outsideDir, listW.Body.String())
+	}
+	found := false
+	for _, f := range listResp.Files {
+		if strings.EqualFold(f.Name, "outside-home.txt") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("[PATH CONTRACT] outside-home listing did not include outside-home.txt: %s", listW.Body.String())
+	}
+
+	readOutsideReq := httptest.NewRequest(http.MethodGet, "/api/files/read?path="+url.QueryEscape(outsideFile), nil)
+	readOutsideW := httptest.NewRecorder()
+	s.handleFilesRead(readOutsideW, readOutsideReq)
+	var readOutsideResp struct {
+		Success bool   `json:"success"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(readOutsideW.Body.Bytes(), &readOutsideResp); err != nil {
+		t.Fatalf("decode outside-home read response: %v", err)
+	}
+	if !readOutsideResp.Success || readOutsideResp.Content != "outside-ok" {
+		t.Errorf("[PATH CONTRACT] outside-home read failed: success=%v content=%q body=%s",
+			readOutsideResp.Success, readOutsideResp.Content, readOutsideW.Body.String())
+	}
+
+	// 4. Sensitive locations are readable; destructive writes to them are not.
+	var sensitiveReadPath, sensitiveWritePath string
 	if runtime.GOOS == "windows" {
-		readableSystemPaths = []string{`C:\Windows`, `C:\Windows\System32`, `C:\Program Files`, `C:\ProgramData`}
-		destructiveSystemPaths = []string{
-			`C:\Windows\System32\cmd.exe`,
-			`C:\Program Files\evil.exe`,
-			`C:\ProgramData\evil.txt`,
-		}
+		sensitiveReadPath = `C:\Windows\System32\drivers\etc\hosts`
+		sensitiveWritePath = `C:\Windows\System32\swiss-regression-test.txt`
 	} else {
-		readableSystemPaths = []string{"/etc", "/usr", "/var", "/bin"}
-		destructiveSystemPaths = []string{"/etc/passwd", "/usr/local/bin/evil", "/var/log/evil"}
+		sensitiveReadPath = "/etc/hosts"
+		sensitiveWritePath = "/etc/swiss-regression-test"
 	}
-	for _, p := range readableSystemPaths {
-		if res, err := validateJailedPath(p); err != nil {
-			t.Errorf("[REGRESSION] read of previously-forbidden path %q was rejected: %v", p, err)
-		} else if res == "" {
-			t.Errorf("[REGRESSION] validateJailedPath(%q) returned empty path", p)
-		}
+
+	reqReadSensitive := httptest.NewRequest(http.MethodGet, "/api/files/read?path="+url.QueryEscape(sensitiveReadPath), nil)
+	wReadSensitive := httptest.NewRecorder()
+	s.handleFilesRead(wReadSensitive, reqReadSensitive)
+	var respReadSensitive struct {
+		Success bool `json:"success"`
 	}
-	for _, p := range destructiveSystemPaths {
-		if res, err := validateDestructivePath(p); err == nil {
-			t.Errorf("[PATH JAIL VULNERABILITY] Destructive operation accepted system path %q -> %q", p, res)
+	if err := json.Unmarshal(wReadSensitive.Body.Bytes(), &respReadSensitive); err != nil {
+		t.Fatalf("decode sensitive read response: %v", err)
+	}
+	if !respReadSensitive.Success {
+		t.Errorf("[REGRESSION] reading sensitive location %q was refused: %s", sensitiveReadPath, wReadSensitive.Body.String())
+	}
+
+	writeBody, _ := json.Marshal(map[string]string{"path": sensitiveWritePath, "content": "x"})
+	reqWriteSensitive := httptest.NewRequest(http.MethodPost, "/api/files/write", bytes.NewReader(writeBody))
+	wWriteSensitive := httptest.NewRecorder()
+	s.handleFilesWrite(wWriteSensitive, reqWriteSensitive)
+	var respWriteSensitive struct {
+		Success bool `json:"success"`
+	}
+	if err := json.Unmarshal(wWriteSensitive.Body.Bytes(), &respWriteSensitive); err != nil {
+		t.Fatalf("decode sensitive write response: %v", err)
+	}
+	if respWriteSensitive.Success {
+		t.Errorf("[PATH CONTRACT VULNERABILITY] write to sensitive location %q was allowed: %s",
+			sensitiveWritePath, wWriteSensitive.Body.String())
+	}
+
+	// Credential stores are refused for destructive operations on every platform.
+	if home, errHome := os.UserHomeDir(); errHome == nil && home != "" {
+		for _, credential := range []string{
+			filepath.Join(home, ".ssh", "authorized_keys"),
+			filepath.Join(home, ".aws", "credentials"),
+			filepath.Join(home, ".config", "gcloud", "credentials.db"),
+		} {
+			if res, err := validateDestructivePath(credential); err == nil {
+				t.Errorf("[PATH CONTRACT VULNERABILITY] destructive operation on credential path %q allowed -> %q", credential, res)
+			}
+			if res, err := validateJailedPath(credential); err != nil {
+				t.Errorf("[REGRESSION] read of credential path %q was refused: %v (resolved %q)", credential, err, res)
+			}
 		}
 	}
 
-	// 4. Verify validateDeletablePath blocks destructive root deletions
+	// 5. Verify validateDeletablePath blocks destructive root deletions
 	home, _ := os.UserHomeDir()
 	dangerousDeletions := []string{
 		"",
@@ -386,16 +494,16 @@ func TestSecurityRegression_PlatformIndependentPathJail(t *testing.T) {
 		}
 	}
 
-	// 5. Legitimate sub-file in tempDir must be allowed for deletion
+	// 6. Legitimate sub-file in tempDir must be allowed for deletion
 	legitDeletable := filepath.Join(tempDir, "deletable-item.json")
 	if err := os.WriteFile(legitDeletable, []byte("{}"), 0600); err != nil {
 		t.Fatalf("Failed to create deletable temp file: %v", err)
 	}
 	delResolved, err := validateDeletablePath(legitDeletable)
 	if err != nil {
-		t.Errorf("[PATH JAIL] validateDeletablePath rejected valid sub-file: %v", err)
+		t.Errorf("[PATH CONTRACT] validateDeletablePath rejected valid sub-file: %v", err)
 	}
 	if delResolved == "" {
-		t.Errorf("[PATH JAIL] validateDeletablePath returned empty resolved path")
+		t.Errorf("[PATH CONTRACT] validateDeletablePath returned empty resolved path")
 	}
 }

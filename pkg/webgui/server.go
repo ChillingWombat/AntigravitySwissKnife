@@ -4326,7 +4326,38 @@ func (s *Server) loadAllProjectMemos(currentWs string) []MemoItem {
 	return result
 }
 
-func cleanUserPath(raw string) string {
+// resolveProjectAlias maps a bare project name to its configured absolute
+// folder. Inputs containing path separators, "." or ".." are never treated as
+// aliases: they are paths and must pass the absolute-path rule.
+func resolveProjectAlias(raw string) string {
+	name := strings.TrimSpace(raw)
+	name = strings.Trim(name, "\"'`")
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
+		return ""
+	}
+	resolved := github.ResolveProjectPath(name)
+	if resolved == "" || !filepath.IsAbs(resolved) {
+		return ""
+	}
+	return resolved
+}
+
+// defaultUserPath returns the working directory for requests that omit a path.
+// The file API accepts absolute paths only, so "." can no longer be passed to
+// validateJailedPath directly.
+func defaultUserPath() string {
+	if wd, err := os.Getwd(); err == nil {
+		return wd
+	}
+	return ""
+}
+
+// normaliseUserPath decodes a user-supplied path without ever resolving it
+// against the working directory: quotes, percent escapes, file:// prefixes, ~
+// and '+' aliases are handled, but relative input stays relative. File API
+// endpoints use this so that a relative path cannot silently become an
+// absolute one through cwd or project lookup.
+func normaliseUserPath(raw string) string {
 	p := stripExtendedPrefix(strings.TrimSpace(raw))
 	p = strings.Trim(p, "\"'`")
 	for strings.HasPrefix(p, "file://") {
@@ -4378,9 +4409,20 @@ func cleanUserPath(raw string) string {
 			}
 		}
 	}
+	return p
+}
+
+// cleanUserPath resolves relative inputs against the working directory or a
+// known project. It is used for workspace/memo bookkeeping only; file API
+// requests go through normaliseUserPath and require an absolute path.
+func cleanUserPath(raw string) string {
+	p := normaliseUserPath(raw)
+	if p == "" {
+		return ""
+	}
 	// If relative path, check if it exists relative to working directory or resolves to a known project
 	if !filepath.IsAbs(p) {
-		if p == "." || p == "" || strings.EqualFold(p, "global") {
+		if p == "." || strings.EqualFold(p, "global") {
 			if resolved := github.ResolveProjectPath(p); filepath.IsAbs(resolved) {
 				p = resolved
 			}
@@ -4615,8 +4657,13 @@ func isSameOrAncestor(ancestorCandidate, child string) bool {
 // There is intentionally no directory whitelist: this daemon listens on the
 // loopback interface and requires X-Session-Token, and the operator explicitly
 // asked for unrestricted browsing (issue #157). The remaining checks are not
-// browsing restrictions — they only reject paths that cannot be resolved safely
-// (relative paths, null bytes, encoded traversal, dangling symlinks).
+// browsing restrictions — they only enforce the input contract:
+//   - the path must be absolute (a relative path is never resolved against the
+//     working directory, so "..\..\Windows\..." cannot turn into a real path);
+//   - null bytes and percent-encoded traversal/null forms are rejected;
+//   - dangling or unresolvable symlinks are rejected.
+//
+// Reading sensitive locations (system directories, ~/.ssh, ...) is allowed.
 func validateJailedPath(raw string) (string, error) {
 	return resolveUserPath(raw, false)
 }
@@ -4645,19 +4692,20 @@ func resolveUserPath(raw string, destructive bool) (string, error) {
 		return "", fmt.Errorf("access denied: encoded path traversal prohibited in path")
 	}
 
-	cleaned := cleanUserPath(raw)
-	if cleaned == "" {
+	normalised := normaliseUserPath(raw)
+	if normalised == "" {
 		return "", fmt.Errorf("empty path")
 	}
-
-	cleaned = filepath.Clean(cleaned)
+	cleaned := stripExtendedPrefix(filepath.Clean(normalised))
 	if strings.ContainsRune(cleaned, 0) || strings.Contains(cleaned, "\x00") {
 		return "", fmt.Errorf("access denied: null byte prohibited in path")
 	}
 
-	// Only absolute paths are accepted. cleanUserPath resolves existing
-	// working-directory-relative inputs, so a still-relative path here cannot be
-	// resolved unambiguously and is rejected rather than guessed.
+	// Only absolute paths are accepted. Relative input is rejected rather than
+	// resolved against the working directory: otherwise "../../etc/passwd"
+	// turns into a valid absolute path and the traversal check becomes a no-op.
+	// '~' and file:// inputs are already expanded by normaliseUserPath, so a
+	// still-relative path here cannot be trusted.
 	if !filepath.IsAbs(cleaned) {
 		return "", fmt.Errorf("access denied: absolute path required: %s", cleaned)
 	}
@@ -5204,10 +5252,15 @@ func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if rawPath == "" {
-		if wd, err := os.Getwd(); err == nil && wd != "" {
-			rawPath = wd
-		} else {
-			rawPath = "."
+		rawPath = defaultUserPath()
+	}
+	// A bare project name (no path separators) is a lookup key configured in
+	// ~/.gemini/config/projects, not a relative filesystem path. Map it to its
+	// absolute folder before validation; everything that looks like a path is
+	// left to the absolute-path rule and stays rejected when relative.
+	if !filepath.IsAbs(rawPath) {
+		if resolved := resolveProjectAlias(rawPath); resolved != "" {
+			rawPath = resolved
 		}
 	}
 	dirPath, errJail := validateJailedPath(rawPath)
@@ -5709,7 +5762,7 @@ func (s *Server) handleFilesReveal(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&p)
 	raw := p.Path
 	if raw == "" {
-		raw = "."
+		raw = defaultUserPath()
 	}
 	target, errJail := validateJailedPath(raw)
 	if errJail != nil {
@@ -5736,7 +5789,7 @@ func (s *Server) handleFilesTerminal(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&p)
 	raw := p.Path
 	if raw == "" {
-		raw = "."
+		raw = defaultUserPath()
 	}
 	dir, errJail := validateJailedPath(raw)
 	if errJail != nil {
@@ -5808,7 +5861,7 @@ func (s *Server) handleFilesOpenIDE(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&p)
 	rawDir := p.Path
 	if rawDir == "" {
-		rawDir = "."
+		rawDir = defaultUserPath()
 	}
 	dir, errJail := validateJailedPath(rawDir)
 	if errJail != nil {
