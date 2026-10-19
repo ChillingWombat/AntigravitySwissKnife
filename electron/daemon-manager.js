@@ -110,6 +110,33 @@ class DaemonManager {
     }
     return path.join(os.tmpdir(), 'antigravity-swiss', 'daemon.sock');
   }
+  /**
+   * Reaps unmanaged orphaned swiss daemon processes on Linux if no daemon is responding on HTTP.
+   * Returns true if any orphaned process was signaled.
+   */
+  reapOrphanedProcesses() {
+    if (process.platform !== 'linux') return false;
+    let signaled = false;
+    try {
+      const procEntries = fs.readdirSync('/proc');
+      for (const entry of procEntries) {
+        if (!/^\d+$/.test(entry)) continue;
+        const pid = parseInt(entry, 10);
+        if (pid === process.pid || pid <= 1) continue;
+        try {
+          const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8');
+          if ((cmdline.includes('swiss') || cmdline.includes('antigravity-swiss')) && cmdline.includes('daemon')) {
+            console.log(`[DaemonManager] Reaping unmanaged orphaned Go daemon process (PID: ${pid})...`);
+            try {
+              process.kill(pid, 'SIGTERM');
+              signaled = true;
+            } catch (_) {}
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return signaled;
+  }
 
   /**
    * Cleans up stale Unix domain socket file if it exists.
@@ -195,6 +222,13 @@ class DaemonManager {
       this.isManagedChild = false;
       return;
     }
+
+    // Reap unmanaged orphaned Go daemon processes before spawning a new sidecar
+    if (this.reapOrphanedProcesses()) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    // Clean up any stale Unix domain socket file defensively
+    this.cleanupSocket();
 
     // 2. Resolve binary
     const binPath = this.resolveBinaryPath();
