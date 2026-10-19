@@ -128,6 +128,7 @@ const DAEMON_URL = `http://${DAEMON_HOST}:${DAEMON_PORT}`;
 // Helper: verify that target URL belongs strictly to the local daemon origin (P1-16)
 function isTrustedDaemonOrigin(targetUrl, daemonBase = DAEMON_URL) {
   if (!targetUrl || typeof targetUrl !== 'string') return false;
+  if (targetUrl.startsWith('data:text/html')) return true;
   try {
     const parsed = new URL(targetUrl);
     const expected = new URL(daemonBase);
@@ -661,18 +662,8 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
-  // Load backend web GUI URL with resilient retry loop
-  const loadDaemonUrlWithRetry = async (maxRetries = 10, delayMs = 1000) => {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      if (!mainWindow || mainWindow.isDestroyed()) return;
-      try {
-        await mainWindow.loadURL(DAEMON_URL);
-        return;
-      } catch (err) {
-        if (attempt === maxRetries) {
-          console.error('[Window] Exhausted retries loading daemon URL:', err.message);
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            const html = `<!DOCTYPE html>
+  // Load backend web GUI URL with resilient retry loop and live health check
+  const getConnectingFallbackHtml = () => `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -683,17 +674,82 @@ async function createWindow() {
     p { color: #8e918f; font-size: 14px; margin-bottom: 24px; }
     button { background: #1a73e8; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; }
     button:hover { background: #1557b0; }
+    button:disabled { background: #3c4043; cursor: not-allowed; }
   </style>
 </head>
 <body>
   <h2>Connecting to Daemon...</h2>
   <p>The companion service is starting or unreachable on port 8765.</p>
-  <button onclick="location.href='${DAEMON_URL}'">Retry Connection</button>
-  <script>setTimeout(() => { location.href='${DAEMON_URL}'; }, 3000);</script>
+  <button id="retryBtn" onclick="checkAndRetry()">Retry Connection</button>
+  <script>
+    async function checkAndRetry() {
+      const btn = document.getElementById("retryBtn");
+      if (btn) btn.disabled = true;
+      try {
+        const res = await fetch("${DAEMON_URL}/healthz", { cache: "no-store" });
+        if (res.ok) {
+          window.location.replace("${DAEMON_URL}");
+          return;
+        }
+      } catch (_) {}
+      if (btn) btn.disabled = false;
+    }
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch("${DAEMON_URL}/healthz", { cache: "no-store" });
+        if (res.ok) {
+          clearInterval(timer);
+          window.location.replace("${DAEMON_URL}");
+        }
+      } catch (_) {}
+    }, 1500);
+  </script>
 </body>
 </html>`;
-            mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).catch(() => {});
-          }
+
+  const showConnectingFallback = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const html = getConnectingFallbackHtml();
+    mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).catch(() => {});
+  };
+
+  let backgroundRetryTimer = null;
+  const startBackgroundDaemonProbe = () => {
+    if (backgroundRetryTimer) return;
+    backgroundRetryTimer = setInterval(async () => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        clearInterval(backgroundRetryTimer);
+        backgroundRetryTimer = null;
+        return;
+      }
+      const status = await probeDaemonStatus(600);
+      if (status) {
+        clearInterval(backgroundRetryTimer);
+        backgroundRetryTimer = null;
+        const currentUrl = mainWindow.webContents.getURL();
+        if (!currentUrl.startsWith(DAEMON_URL)) {
+          console.log('[Window] Daemon became healthy; loading daemon URL...');
+          mainWindow.loadURL(DAEMON_URL).catch(() => {});
+        }
+      }
+    }, 2000);
+  };
+
+  const loadDaemonUrlWithRetry = async (maxRetries = 10, delayMs = 1000) => {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      try {
+        await mainWindow.loadURL(DAEMON_URL);
+        if (backgroundRetryTimer) {
+          clearInterval(backgroundRetryTimer);
+          backgroundRetryTimer = null;
+        }
+        return;
+      } catch (err) {
+        if (attempt === maxRetries) {
+          console.error('[Window] Exhausted retries loading daemon URL:', err.message);
+          showConnectingFallback();
+          startBackgroundDaemonProbe();
         } else {
           await new Promise((r) => setTimeout(r, delayMs));
         }
@@ -702,7 +758,19 @@ async function createWindow() {
   };
   loadDaemonUrlWithRetry();
 
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, _errorDescription, validatedURL) => {
+    if (isTrustedDaemonOrigin(validatedURL) && !validatedURL.startsWith('data:')) {
+      console.warn(`[Window] Navigation to ${validatedURL} failed (code ${errorCode}). Showing connecting fallback.`);
+      showConnectingFallback();
+      startBackgroundDaemonProbe();
+    }
+  });
+
   mainWindow.on('closed', () => {
+    if (backgroundRetryTimer) {
+      clearInterval(backgroundRetryTimer);
+      backgroundRetryTimer = null;
+    }
     mainWindow = null;
   });
 }
