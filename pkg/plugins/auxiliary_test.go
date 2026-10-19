@@ -794,11 +794,11 @@ func TestGenerateAuxiliaryPluginsScript_MemoViewAndTelemetryBadge(t *testing.T) 
 		`Array.isArray(data.memos)`,
 		`saveLocalMemos`,
 		`getLocalMemos`,
-		`titleStr = "[Voice] "`,
+		`const titleStr = stripMemoVoicePrefix(userTitle)`,
 		`id: newMemo.id`,
 		`swiss-m-composer`,
 		`swiss-m-composer-input`,
-		`<span>Save Memo</span>`,
+		`id="swiss-m-composer-save-label"`,
 		`showSwissPrompt`,
 		// Responsive flowing grid for memo cards
 		`memoList.className = "swiss-memo-list"`,
@@ -2058,7 +2058,7 @@ func TestGenerateAuxiliaryPluginsScript_VoiceTranscriptionAndAudioPayload(t *tes
 	// 3. Verify speech transcription prompt and fallback prompt handling
 	promptTokens := []string{
 		`await showSwissPrompt("Voice recorded & transcribed! Edit title:", finalTranscript)`,
-		`await showSwissPrompt("Voice recorded! Enter a transcript / note title:", "Voice Memo Note")`,
+		`await showSwissPrompt("Voice recorded! Enter a transcript / note title:", defaultVoiceTitle)`,
 		`showToast("Microphone access error: " + err.message, "error")`,
 	}
 	for _, tok := range promptTokens {
@@ -3146,5 +3146,184 @@ func TestGenerateAuxiliaryPluginsScript_AutoAcceptsSecurityNotice(t *testing.T) 
 	// must never be touched on the user's behalf.
 	if strings.Contains(script, "help improve Antigravity") {
 		t.Fatalf("auto-accept must not interact with the optional data-sharing checkbox")
+	}
+}
+
+// extractJSHandlerBlock returns the source of an arrow handler starting at
+// `declaration` and ending at its matching closing brace. The handlers it runs
+// on keep braces out of strings/comments, so brace counting is enough.
+func extractJSHandlerBlock(t *testing.T, js, declaration string) string {
+	t.Helper()
+	start := strings.Index(js, declaration)
+	if start < 0 {
+		t.Fatalf("expected script to declare %q", declaration)
+	}
+	open := strings.Index(js[start:], "{")
+	if open < 0 {
+		t.Fatalf("expected %q to have a body", declaration)
+	}
+	open += start
+	depth := 0
+	for i := open; i < len(js); i++ {
+		switch js[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return js[start : i+1]
+			}
+		}
+	}
+	t.Fatalf("unterminated body for %q", declaration)
+	return ""
+}
+
+// Issue #150: memo titles never get a "[Voice] " marker, existing markers are
+// stripped on render, and defaults number themselves with the lowest free value.
+func TestQuickMemos_MemoNamingAndVoicePrefix(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+
+	requiredTokens := []string{
+		"const stripMemoVoicePrefix = (title) =>",
+		`replace(/^\[Voice\]\s*/i, "")`,
+		"const memoDisplayTitle = (memo) =>",
+		"const nextMemoNumber = (titles, prefix) =>",
+		`const MEMO_TITLE_PREFIXES = { voice: "Voice Memo", image: "Sketch" };`,
+		`const nextMemoTitle = (kind) => {`,
+		`return prefix + " " + nextMemoNumber(titles, prefix);`,
+		`const defaultVoiceTitle = nextMemoTitle("voice");`,
+		`nextMemoTitle("image")`,
+		`escapeHtml(memoDisplayTitle(m))`,
+	}
+	for _, tok := range requiredTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected memo naming support to contain %q", tok)
+		}
+	}
+
+	// The create path must not prepend the marker any more.
+	if strings.Contains(js, `"[Voice] " +`) {
+		t.Errorf("voice memo creation must not prepend a [Voice] prefix")
+	}
+	if strings.Contains(js, `"Voice Memo Note"`) {
+		t.Errorf("voice memo fallback must use the numbered default title instead of the old placeholder")
+	}
+
+	if nodePath, err := exec.LookPath("node"); err == nil {
+		fn := extractJSHandlerBlock(t, js, "const nextMemoNumber = ")
+		if !strings.HasSuffix(fn, ";") {
+			fn += ";"
+		}
+		nodeTestScript := fn + `
+const assert = require("assert");
+assert.strictEqual(nextMemoNumber([], "Voice Memo"), 1, "empty list starts at 1");
+assert.strictEqual(nextMemoNumber(["Voice Memo 1", "Voice Memo 2"], "Voice Memo"), 3, "appends after the highest run");
+assert.strictEqual(nextMemoNumber(["Voice Memo 1", "Voice Memo 3"], "Voice Memo"), 2, "reuses gaps");
+assert.strictEqual(nextMemoNumber(["Sketch 1", "Untitled memo", "Voice Memo 2"], "Voice Memo"), 1, "ignores other titles");
+assert.strictEqual(nextMemoNumber(["Sketch 5", "Sketch 2"], "Sketch"), 1, "starts at the lowest free number");
+assert.strictEqual(nextMemoNumber(null, "Sketch"), 1, "tolerates a missing list");
+assert.strictEqual(nextMemoNumber(["Voice Memo 1 (copy)"], "Voice Memo"), 1, "suffixed titles do not count");
+console.log("NEXT_MEMO_NUMBER_OK");
+`
+		cmd := exec.Command(nodePath, "-e", nodeTestScript)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("node nextMemoNumber test failed: %v\n%s", err, string(out))
+		}
+		if !strings.Contains(string(out), "NEXT_MEMO_NUMBER_OK") {
+			t.Fatalf("expected NEXT_MEMO_NUMBER_OK, got %q", string(out))
+		}
+	}
+}
+
+// Issue #151: creating a text memo asks for an optional title next to the body.
+func TestQuickMemos_TextMemoOptionalTitle(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	requiredTokens := []string{
+		`id="swiss-m-composer-title"`,
+		`placeholder="Title (optional)..."`,
+		`id="swiss-m-composer-label"`,
+		`composer.setAttribute("role", "dialog")`,
+		"const composerTitleInput = composer.querySelector",
+		"const title = composerTitleInput.value.trim();",
+		`createAndSaveMemo(text, "text", ["quick"], undefined, title)`,
+		`editingMemo.title = title || autoMemoTitle(text);`,
+	}
+	for _, tok := range requiredTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected text memo create flow to contain %q", tok)
+		}
+	}
+}
+
+// Issue #152: right-clicking a card opens Change title / Save to computer /
+// Delete, with auth headers, error toasts and keyboard activation.
+func TestQuickMemos_CardContextMenu(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	requiredTokens := []string{
+		"card.oncontextmenu = (e) => {",
+		"showMemoCardContextMenu(e.clientX, e.clientY, m);",
+		"function showMemoCardContextMenu(x, y, memo) {",
+		"<span>Change title</span>",
+		"<span>Save to computer</span>",
+		"<span>Delete</span>",
+		`menu.setAttribute("role", "menu")`,
+		`API_BASE + "/api/memos/export"`,
+		`JSON.stringify({ memo_id: memo.id })`,
+		`headers: getSwissAuthHeaders()`,
+		`showToast("Saved to " + payload.path);`,
+		`(payload && payload.error)`,
+		`await showSwissPrompt("Rename memo:", currentTitle)`,
+		"deleteMemoById(memo);",
+		`if (e.key === "Escape") {`,
+		`} else if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {`,
+		`} else if (e.key === "ArrowDown") {`,
+		`} else if (e.key === "ArrowUp") {`,
+		`window.addEventListener("scroll", removeContextMenu, true);`,
+	}
+	for _, tok := range requiredTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected memo card context menu to contain %q", tok)
+		}
+	}
+
+	handler := extractJSHandlerBlock(t, js, "card.oncontextmenu = (e) => {")
+	for _, tok := range []string{"e.preventDefault();", "e.stopPropagation();"} {
+		if !strings.Contains(handler, tok) {
+			t.Errorf("contextmenu handler must call %q so card handlers stay silent", tok)
+		}
+	}
+}
+
+// Issue #153: double-click edits text and image memos only; voice memos have no
+// editor and a drag release must not open one.
+func TestQuickMemos_DoubleClickEditing(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	requiredTokens := []string{
+		"card.ondblclick = (e) => {",
+		"if (memoDragInProgress) return;",
+		"openComposer(m);",
+		"openImageComposer(m);",
+		"let composerEditingId = null;",
+		"let imgEditingId = null;",
+		"imgEditingId = memo && memo.id ? memo.id : null;",
+		"const editingMemo = imgEditingId ? findMemoById(imgEditingId) : null;",
+		"await persistMemo(editingMemo);",
+		`composerTitleInput.value = memo ? stripMemoVoicePrefix(memo.title) : "";`,
+		"memoDragInProgress = true;",
+	}
+	for _, tok := range requiredTokens {
+		if !strings.Contains(js, tok) {
+			t.Errorf("expected double-click editing to contain %q", tok)
+		}
+	}
+
+	handler := extractJSHandlerBlock(t, js, "card.ondblclick = (e) => {")
+	if strings.Contains(handler, `"voice"`) {
+		t.Errorf("voice memos must not open an editor on double-click: %q", handler)
+	}
+	if !strings.Contains(handler, "memoKindOf(m)") {
+		t.Errorf("double-click handler must branch on the memo kind")
 	}
 }
