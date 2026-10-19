@@ -3350,6 +3350,24 @@ func TestFileExplorerFolderJumpDropdown(t *testing.T) {
 		}
 	}
 
+	// The dropdown must escape the explorer's overflow clipping: fixed positioning on
+	// document.body, with placement derived from the caret rect.
+	menuCSSStart := strings.Index(css, ".swiss-dir-jump-menu {")
+	if menuCSSStart < 0 {
+		t.Fatalf("expected .swiss-dir-jump-menu CSS block")
+	}
+	menuCSSEnd := strings.Index(css[menuCSSStart:], "}")
+	if menuCSSEnd < 0 {
+		t.Fatalf("unterminated .swiss-dir-jump-menu CSS block")
+	}
+	menuCSS := css[menuCSSStart : menuCSSStart+menuCSSEnd]
+	if !strings.Contains(menuCSS, "position: fixed;") {
+		t.Errorf("expected .swiss-dir-jump-menu to use position: fixed so ancestor overflow cannot clip it")
+	}
+	if strings.Contains(menuCSS, "position: absolute;") {
+		t.Errorf("expected .swiss-dir-jump-menu to avoid position: absolute inside .swiss-files-view")
+	}
+
 	// The caret must live inside the address field wrapper, after the input, so it
 	// renders at the right end of the input (the input reserves right padding for it).
 	addrStart := strings.Index(js, `<div class="swiss-files-address-bar">`)
@@ -3394,6 +3412,12 @@ func TestFileExplorerFolderJumpDropdown(t *testing.T) {
 		`items[next].focus();`,
 		`focused.click();`,
 		`loadDirJumpSiblings(menu);`,
+		`const clampMenuPosition = (anchor, menuSize, viewport) => {`,
+		`dirJumpCaret.getBoundingClientRect()`,
+		`menu.style.maxHeight = pos.maxHeight + "px";`,
+		`document.body.appendChild(menu);`,
+		`positionDirJumpMenu(menu);`,
+		`window.addEventListener("resize", closeDirJumpMenu);`,
 	}
 	for _, tok := range requiredTokens {
 		if !strings.Contains(js, tok) {
@@ -3432,6 +3456,49 @@ assert.strictEqual(api.parentOfDir("/home"), "/");
 assert.strictEqual(api.dirBaseName("D:\\Projects"), "Projects");
 assert.strictEqual(api.dirBaseName("/"), "/");
 assert.strictEqual(api.normalizeJumpPath("C:\\Temp\\\\"), "C:\\Temp");
+
+// Placement math: right-aligned to the caret, clamped to the viewport, flipped up
+// when the space below cannot fit the menu, and capped to the available space.
+const placeStart = js.indexOf("const clampMenuPosition");
+const placeEnd = js.indexOf("const positionDirJumpMenu", placeStart);
+assert(placeStart !== -1 && placeEnd !== -1, "clampMenuPosition not found");
+const place = new Function(js.slice(placeStart, placeEnd) + "; return clampMenuPosition;")();
+
+const down = place(
+  { top: 100, bottom: 120, left: 400, right: 500 },
+  { width: 300, height: 200 },
+  { width: 800, height: 600 }
+);
+assert.strictEqual(down.left, 200);
+assert.strictEqual(down.top, 124);
+assert.strictEqual(down.width, 300);
+assert.strictEqual(down.maxHeight, 360);
+assert.strictEqual(down.opensUp, false);
+
+const rightOverflow = place(
+  { top: 100, bottom: 120, left: 900, right: 1000 },
+  { width: 300, height: 200 },
+  { width: 800, height: 600 }
+);
+assert.strictEqual(rightOverflow.left, 492);
+assert.strictEqual(rightOverflow.left + rightOverflow.width, 792);
+
+const leftOverflow = place(
+  { top: 100, bottom: 120, left: 0, right: 50 },
+  { width: 400, height: 200 },
+  { width: 800, height: 600 }
+);
+assert.strictEqual(leftOverflow.left, 8);
+
+const flipped = place(
+  { top: 350, bottom: 370, left: 100, right: 500 },
+  { width: 300, height: 300 },
+  { width: 800, height: 400 }
+);
+assert.strictEqual(flipped.opensUp, true);
+assert.strictEqual(flipped.maxHeight, 240);
+assert.strictEqual(flipped.top, 106);
+assert(flipped.top + flipped.maxHeight <= 350 - 4, "flipped menu must clear the anchor");
 `
 		cmd := exec.Command(nodePath, "-e", nodeScript)
 		cmd.Stdin = strings.NewReader(js)

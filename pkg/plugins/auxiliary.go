@@ -1066,10 +1066,10 @@ div:has(> .shrink-0.flex.items-center.border-b),
   color: #1e293b;
 }
 .swiss-dir-jump-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 9999;
+  /* Fixed + appended to document.body: the file view clips its overflow, and the
+     menu must escape that clipping context when the panel is short. */
+  position: fixed;
+  z-index: 99999;
   min-width: 280px;
   max-width: min(440px, 92vw);
   max-height: 60vh;
@@ -4305,6 +4305,11 @@ func GenerateAuxiliaryPluginsScript() string {
       // instead of replacing it (issue #117a — back-to-explorer opened a second file list).
       container.innerHTML = "";
 
+      // The folder jump menu is fixed-positioned on document.body, so re-rendering this
+      // view must drop any menu bound to the previous DOM instead of orphaning it.
+      const staleDirJumpMenu = document.getElementById("swiss-dir-jump-menu");
+      if (staleDirJumpMenu) staleDirJumpMenu.remove();
+
       const wrap = document.createElement("div");
       wrap.className = "swiss-files-view";
 
@@ -4648,7 +4653,43 @@ func GenerateAuxiliaryPluginsScript() string {
         return chain;
       };
 
+      // Pure placement math so the fixed dropdown stays inside the viewport: align its
+      // right edge with the caret, clamp horizontally, flip up when the space below is
+      // too small, and cap the height to the space actually available on that side.
       let dirJumpCaret = null;
+
+      const clampMenuPosition = (anchor, menuSize, viewport) => {
+        const margin = 8;
+        const gap = 4;
+        const width = Math.min(menuSize.width, Math.max(0, viewport.width - margin * 2));
+        let left = anchor.right - width;
+        if (left + width > viewport.width - margin) left = viewport.width - width - margin;
+        if (left < margin) left = margin;
+        const spaceBelow = Math.max(0, viewport.height - anchor.bottom - gap - margin);
+        const spaceAbove = Math.max(0, anchor.top - gap - margin);
+        const opensUp = menuSize.height > spaceBelow && spaceAbove > spaceBelow;
+        const available = opensUp ? spaceAbove : spaceBelow;
+        const maxHeight = Math.min(viewport.height * 0.6, available);
+        const height = Math.min(menuSize.height, maxHeight);
+        const top = opensUp ? Math.max(margin, anchor.top - height - gap) : anchor.bottom + gap;
+        return { left: left, top: top, width: width, maxHeight: maxHeight, opensUp: opensUp };
+      };
+
+      const positionDirJumpMenu = (menu) => {
+        const anchor = dirJumpCaret
+          ? dirJumpCaret.getBoundingClientRect()
+          : { top: 0, bottom: 0, left: 0, right: 0 };
+        menu.style.maxHeight = "none";
+        const natural = menu.getBoundingClientRect();
+        const viewport = { width: window.innerWidth, height: window.innerHeight };
+        const pos = clampMenuPosition(anchor, { width: natural.width, height: natural.height }, viewport);
+        menu.style.left = pos.left + "px";
+        menu.style.top = pos.top + "px";
+        menu.style.width = pos.width + "px";
+        menu.style.minWidth = Math.min(280, Math.max(0, viewport.width - 16)) + "px";
+        menu.style.maxHeight = pos.maxHeight + "px";
+        menu.style.visibility = "visible";
+      };
 
       const closeDirJumpMenu = () => {
         const open = document.getElementById("swiss-dir-jump-menu");
@@ -4656,6 +4697,7 @@ func GenerateAuxiliaryPluginsScript() string {
         if (dirJumpCaret) dirJumpCaret.setAttribute("aria-expanded", "false");
         document.removeEventListener("mousedown", onDirJumpOutsideClick, true);
         window.removeEventListener("scroll", onDirJumpScroll, true);
+        window.removeEventListener("resize", closeDirJumpMenu);
       };
 
       const navigateFromDirJump = (target) => {
@@ -4773,12 +4815,16 @@ func GenerateAuxiliaryPluginsScript() string {
           empty.textContent = "No other folders here";
           list.innerHTML = "";
           list.appendChild(empty);
+          positionDirJumpMenu(menu);
           return;
         }
         list.innerHTML = "";
         others.forEach((item) => {
           list.appendChild(buildDirJumpItem(item.path, item.name));
         });
+        // The menu grew: re-run the placement so an upward flip keeps clearing the caret
+        // and the height cap follows the space that is actually left.
+        positionDirJumpMenu(menu);
       };
 
       const dirJumpItems = (menu) => Array.from(menu.querySelectorAll(".swiss-dir-jump-item:not(.active)"));
@@ -4814,7 +4860,10 @@ func GenerateAuxiliaryPluginsScript() string {
 
       function onDirJumpOutsideClick(e) {
         const menu = document.getElementById("swiss-dir-jump-menu");
-        if (!menu) return;
+        if (!menu) {
+          closeDirJumpMenu();
+          return;
+        }
         if (menu.contains(e.target)) return;
         if (e.target.closest && e.target.closest("#swiss-f-jump")) return;
         closeDirJumpMenu();
@@ -4822,7 +4871,11 @@ func GenerateAuxiliaryPluginsScript() string {
 
       function onDirJumpScroll(e) {
         const menu = document.getElementById("swiss-dir-jump-menu");
-        if (menu && e.target && menu.contains(e.target)) return;
+        if (!menu) {
+          closeDirJumpMenu();
+          return;
+        }
+        if (e.target && menu.contains(e.target)) return;
         closeDirJumpMenu();
       }
 
@@ -4834,15 +4887,17 @@ func GenerateAuxiliaryPluginsScript() string {
           closeDirJumpMenu();
           return;
         }
-        const anchor = toolbar.querySelector(".swiss-files-path-wrap");
-        if (!anchor) return;
         const menu = buildDirJumpMenu();
         menu.addEventListener("keydown", onDirJumpMenuKeydown);
-        anchor.appendChild(menu);
+        menu.style.visibility = "hidden";
+        // document.body keeps the menu out of every ancestor overflow/transform clip.
+        document.body.appendChild(menu);
+        positionDirJumpMenu(menu);
         if (dirJumpCaret) dirJumpCaret.setAttribute("aria-expanded", "true");
         try { menu.focus({ preventScroll: true }); } catch (_) { menu.focus(); }
         document.addEventListener("mousedown", onDirJumpOutsideClick, true);
         window.addEventListener("scroll", onDirJumpScroll, true);
+        window.addEventListener("resize", closeDirJumpMenu);
         loadDirJumpSiblings(menu);
       };
 
