@@ -211,7 +211,48 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         }).catch(() => {})
       }
     }
-  }, [account.email])
+  }, [account.email, refreshToken])
+
+  useEffect(() => {
+    if (!isNewAccount && account.email) {
+      api.exportAccounts(account.email).then((exported) => {
+        if (!Array.isArray(exported) || exported.length === 0) return
+        const found =
+          exported.find((a: any) => a.email?.toLowerCase() === account.email.toLowerCase()) ||
+          exported[0]
+        if (!found) return
+        if (found.refresh_token && found.refresh_token !== '[REDACTED]') {
+          setRefreshToken((prev) =>
+            prev === '' || prev === '[REDACTED]' || prev === account.refresh_token ? found.refresh_token : prev
+          )
+        } else if (!found.refresh_token) {
+          setRefreshToken((prev) => (prev === '[REDACTED]' ? '' : prev))
+        }
+        if (found.password && found.password !== '[REDACTED]') {
+          setPassword((prev) =>
+            prev === '' || prev === '[REDACTED]' || prev === account.password ? found.password : prev
+          )
+        } else if (!found.password) {
+          setPassword((prev) => (prev === '[REDACTED]' ? '' : prev))
+        }
+        const secret = found.totp_secret || found.mfa
+        if (secret && secret !== '[REDACTED]') {
+          setTotpSecret((prev) =>
+            prev === '' || prev === '[REDACTED]' || prev === account.totp_secret ? secret : prev
+          )
+        } else if (!secret) {
+          setTotpSecret((prev) => (prev === '[REDACTED]' ? '' : prev))
+        }
+        if (found.access_token && found.access_token !== '[REDACTED]') {
+          setExtractedAccessToken((prev) =>
+            prev === '' || prev === '[REDACTED]' ? found.access_token : prev
+          )
+        }
+      }).catch((err) => {
+        console.warn('Failed to load unredacted account credentials:', err)
+      })
+    }
+  }, [isNewAccount, account.email, account.refresh_token, account.password, account.totp_secret])
 
   useEffect(() => {
     if (isNewAccount || (currentStatus || '').toUpperCase() !== 'ERROR') return

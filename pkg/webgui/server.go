@@ -1028,6 +1028,15 @@ func (s *Server) handleAccountsExport(w http.ResponseWriter, r *http.Request) {
 		}
 		exported = store.ExportAccounts()
 	}
+	if email := strings.TrimSpace(r.URL.Query().Get("email")); email != "" {
+		filtered := make([]keyring.AccountExport, 0, len(exported))
+		for _, item := range exported {
+			if strings.EqualFold(item.Email, email) {
+				filtered = append(filtered, item)
+			}
+		}
+		exported = filtered
+	}
 	if r.URL.Query().Get("download") == "1" {
 		w.Header().Set("Content-Disposition", "attachment; filename=\"antigravity_accounts.json\"")
 	}
