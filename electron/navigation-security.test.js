@@ -62,17 +62,19 @@ test('isSafeExternalUrl - restricts shell.openExternal strictly to http and http
 test('DaemonManager - cleanupSocket removes existing socket file and handles nonexistent gracefully', () => {
   const { DaemonManager } = require('./daemon-manager');
   const path = require('path');
+  const os = require('os');
   const dm = new DaemonManager({ port: 8765, host: '127.0.0.1' });
-  const sockPath = dm.getSocketPath();
+  const testSockPath = path.join(os.tmpdir(), `antigravity-swiss-test-${Date.now()}`, 'daemon.sock');
 
-  fs.mkdirSync(path.dirname(sockPath), { recursive: true });
-  fs.writeFileSync(sockPath, 'dummy-socket');
-  assert.equal(fs.existsSync(sockPath), true);
+  fs.mkdirSync(path.dirname(testSockPath), { recursive: true });
+  fs.writeFileSync(testSockPath, 'dummy-socket');
+  assert.equal(fs.existsSync(testSockPath), true);
 
-  dm.cleanupSocket();
-  assert.equal(fs.existsSync(sockPath), false);
+  dm.cleanupSocket(testSockPath);
+  assert.equal(fs.existsSync(testSockPath), false);
 
-  assert.doesNotThrow(() => dm.cleanupSocket());
+  assert.doesNotThrow(() => dm.cleanupSocket(testSockPath));
+  try { fs.rmdirSync(path.dirname(testSockPath)); } catch {}
 });
 
 test('DaemonManager - reapOrphanedProcesses does not throw and returns boolean', () => {
