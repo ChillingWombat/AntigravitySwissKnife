@@ -501,6 +501,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/memos/delete", s.handleMemosDelete)
 	mux.HandleFunc("/api/memos/config", s.handleMemosConfig)
 	mux.HandleFunc("/api/memos/extract", s.handleMemosExtract)
+	mux.HandleFunc("/api/memos/export", s.handleMemosExport)
 
 	// Real Filesystem Explorer API
 	mux.HandleFunc("/api/files/list", s.handleFilesList)
