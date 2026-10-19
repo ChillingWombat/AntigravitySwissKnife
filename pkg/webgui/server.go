@@ -5096,9 +5096,9 @@ func (s *Server) handleMemosSave(w http.ResponseWriter, r *http.Request) {
 
 	storageQuery := r.URL.Query().Get("storage")
 	storagePath, isFallback := s.resolveStorageDestination(r, storageQuery, memo.WorkspacePath)
+	memoCfg := loadMemoConfig()
 
 	s.memoMu.Lock()
-	defer s.memoMu.Unlock()
 
 	if memo.WorkspacePath != "" {
 		if fi, err := os.Stat(memo.WorkspacePath); err == nil && fi.IsDir() {
@@ -5121,8 +5121,11 @@ func (s *Server) handleMemosSave(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		memos = append([]MemoItem{memo}, memos...)
 	}
-	if err := writeMemosFile(storagePath, memos); err != nil {
-		http.Error(w, "failed to persist memo: "+err.Error(), http.StatusInternalServerError)
+	writeErr := writeMemosFile(storagePath, memos)
+	s.memoMu.Unlock()
+
+	if writeErr != nil {
+		http.Error(w, "failed to persist memo: "+writeErr.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -5135,6 +5138,10 @@ func (s *Server) handleMemosSave(w http.ResponseWriter, r *http.Request) {
 		res["storage_location_effective"] = "global"
 	}
 	writeJSON(w, res)
+
+	// Extraction runs after the response so it can never slow down or fail the
+	// save; the memo itself is already persisted at this point.
+	s.scheduleMemoAutoExtract(memo, storagePath, memoCfg)
 }
 
 func (s *Server) handleMemosDelete(w http.ResponseWriter, r *http.Request) {
@@ -5192,6 +5199,54 @@ func (s *Server) handleMemosDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{"success": true, "deleted": id})
 }
 
+// memoConfigPayload is the wire shape accepted by POST /api/memos/config.
+// The pointer fields let an absent value mean "keep the current setting",
+// which matters for auto_extract: a plain bool cannot distinguish false from
+// absent.
+type memoConfigPayload struct {
+	StorageLocation string  `json:"storage_location"`
+	ViewScope       string  `json:"view_scope"`
+	SearchScope     string  `json:"search_scope"`
+	AutoExtract     *bool   `json:"auto_extract"`
+	VoiceLanguage   *string `json:"voice_language"`
+	OCRLanguage     *string `json:"ocr_language"`
+}
+
+// apply overlays the fields that were present on m.
+func (p memoConfigPayload) apply(m *core.MemoConfig) {
+	if p.StorageLocation != "" {
+		m.StorageLocation = p.StorageLocation
+	}
+	if p.ViewScope != "" {
+		m.ViewScope = p.ViewScope
+	}
+	if p.SearchScope != "" {
+		m.SearchScope = p.SearchScope
+	}
+	if p.AutoExtract != nil {
+		m.AutoExtract = *p.AutoExtract
+	}
+	if p.VoiceLanguage != nil {
+		m.VoiceLanguage = *p.VoiceLanguage
+	}
+	if p.OCRLanguage != nil {
+		m.OCRLanguage = *p.OCRLanguage
+	}
+}
+
+func memoConfigResponse(m core.MemoConfig) map[string]interface{} {
+	return map[string]interface{}{
+		"success":          true,
+		"config":           m,
+		"storage_location": m.StorageLocation,
+		"view_scope":       m.ViewScope,
+		"search_scope":     m.SearchScope,
+		"auto_extract":     m.AutoExtract,
+		"voice_language":   m.VoiceLanguage,
+		"ocr_language":     m.OCRLanguage,
+	}
+}
+
 func (s *Server) handleMemosConfig(w http.ResponseWriter, r *http.Request) {
 	cfg, err := core.LoadConfig()
 	if err != nil {
@@ -5199,23 +5254,14 @@ func (s *Server) handleMemosConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == http.MethodGet {
-		mCfg := cfg.GetMemoConfig()
-		writeJSON(w, map[string]interface{}{
-			"success":          true,
-			"config":           mCfg,
-			"storage_location": mCfg.StorageLocation,
-			"view_scope":       mCfg.ViewScope,
-			"search_scope":     mCfg.SearchScope,
-		})
+		writeJSON(w, memoConfigResponse(cfg.GetMemoConfig()))
 		return
 	}
 
 	if r.Method == http.MethodPost {
 		var req struct {
-			StorageLocation string           `json:"storage_location"`
-			ViewScope       string           `json:"view_scope"`
-			SearchScope     string           `json:"search_scope"`
-			Config          *core.MemoConfig `json:"config,omitempty"`
+			memoConfigPayload
+			Config *memoConfigPayload `json:"config,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -5223,25 +5269,9 @@ func (s *Server) handleMemosConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		current := cfg.GetMemoConfig()
 		if req.Config != nil {
-			if req.Config.StorageLocation != "" {
-				current.StorageLocation = req.Config.StorageLocation
-			}
-			if req.Config.ViewScope != "" {
-				current.ViewScope = req.Config.ViewScope
-			}
-			if req.Config.SearchScope != "" {
-				current.SearchScope = req.Config.SearchScope
-			}
+			req.Config.apply(&current)
 		}
-		if req.StorageLocation != "" {
-			current.StorageLocation = req.StorageLocation
-		}
-		if req.ViewScope != "" {
-			current.ViewScope = req.ViewScope
-		}
-		if req.SearchScope != "" {
-			current.SearchScope = req.SearchScope
-		}
+		req.memoConfigPayload.apply(&current)
 		if current.StorageLocation != "project" && current.StorageLocation != "global" {
 			current.StorageLocation = "global"
 		}
@@ -5257,13 +5287,7 @@ func (s *Server) handleMemosConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writeJSON(w, map[string]interface{}{
-			"success":          true,
-			"config":           current,
-			"storage_location": current.StorageLocation,
-			"view_scope":       current.ViewScope,
-			"search_scope":     current.SearchScope,
-		})
+		writeJSON(w, memoConfigResponse(cfg.GetMemoConfig()))
 		return
 	}
 

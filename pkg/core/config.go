@@ -97,6 +97,37 @@ type MemoConfig struct {
 	StorageLocation string `json:"storage_location"` // "global" | "project"
 	ViewScope       string `json:"view_scope"`       // "all" | "current"
 	SearchScope     string `json:"search_scope"`     // "text" | "all"
+	// AutoExtract runs transcription/OCR automatically after a memo with media
+	// is saved. Manual extraction (false) is the default: a missing field in an
+	// existing config therefore means "off".
+	AutoExtract bool `json:"auto_extract"`
+	// VoiceLanguage and OCRLanguage are BCP-47-ish codes ("en", "zh-Hans", …)
+	// or "auto" to let the model detect the language.
+	VoiceLanguage string `json:"voice_language"`
+	OCRLanguage   string `json:"ocr_language"`
+}
+
+// MemoLanguageAuto keeps model-side language detection.
+const MemoLanguageAuto = "auto"
+
+// normalizeMemoConfig fills in the defaults for empty memo settings.
+func normalizeMemoConfig(m MemoConfig) MemoConfig {
+	if m.StorageLocation == "" {
+		m.StorageLocation = "global"
+	}
+	if m.ViewScope == "" {
+		m.ViewScope = "all"
+	}
+	if m.SearchScope == "" {
+		m.SearchScope = "text"
+	}
+	if strings.TrimSpace(m.VoiceLanguage) == "" {
+		m.VoiceLanguage = MemoLanguageAuto
+	}
+	if strings.TrimSpace(m.OCRLanguage) == "" {
+		m.OCRLanguage = MemoLanguageAuto
+	}
+	return m
 }
 
 // DefaultConfig returns default configuration parameters.
@@ -143,6 +174,9 @@ func DefaultConfig() *Config {
 			StorageLocation: "global",
 			ViewScope:       "all",
 			SearchScope:     "text",
+			AutoExtract:     false, // manual extraction by default
+			VoiceLanguage:   MemoLanguageAuto,
+			OCRLanguage:     MemoLanguageAuto,
 		},
 		PreferredIDE: "code",
 		BoardOverviewAutoHide: true,
@@ -180,15 +214,7 @@ func LoadConfig() (*Config, error) {
 	if cfg.AutoPruneMaxAgeDays < 0 {
 		cfg.AutoPruneMaxAgeDays = 0.0
 	}
-	if cfg.Memo.StorageLocation == "" {
-		cfg.Memo.StorageLocation = "global"
-	}
-	if cfg.Memo.ViewScope == "" {
-		cfg.Memo.ViewScope = "all"
-	}
-	if cfg.Memo.SearchScope == "" {
-		cfg.Memo.SearchScope = "text"
-	}
+	cfg.Memo = normalizeMemoConfig(cfg.Memo)
 	if cfg.StorageMode != "system_default" {
 		cfg.StorageMode = "system_default"
 	}
@@ -411,32 +437,13 @@ func (c *Config) GetAccountOverride(appType, email string) string {
 func (c *Config) GetMemoConfig() MemoConfig {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	res := c.Memo
-	if res.StorageLocation == "" {
-		res.StorageLocation = "global"
-	}
-	if res.ViewScope == "" {
-		res.ViewScope = "all"
-	}
-	if res.SearchScope == "" {
-		res.SearchScope = "text"
-	}
-	return res
+	return normalizeMemoConfig(c.Memo)
 }
 
 // SetMemoConfig updates and persists memo configuration.
 func (c *Config) SetMemoConfig(cfg MemoConfig) error {
 	c.mu.Lock()
-	if cfg.StorageLocation == "" {
-		cfg.StorageLocation = "global"
-	}
-	if cfg.ViewScope == "" {
-		cfg.ViewScope = "all"
-	}
-	if cfg.SearchScope == "" {
-		cfg.SearchScope = "text"
-	}
-	c.Memo = cfg
+	c.Memo = normalizeMemoConfig(cfg)
 	c.mu.Unlock()
 	return c.Save()
 }

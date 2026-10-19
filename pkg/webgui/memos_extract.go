@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -36,6 +37,116 @@ var (
 	memoExtractEndpoint    = custommodels.BuildVertexAIEndpoint
 )
 
+// memoAutoExtractRunner launches the post-save extraction off the save path.
+// Tests replace it with a synchronous runner so assertions cannot race the
+// background goroutine.
+var memoAutoExtractRunner = func(run func()) { go run() }
+
+// memoExtractLanguages maps the stored language codes to the human-readable
+// names used in prompts. Keys are lower case so lookups stay case-insensitive.
+var memoExtractLanguages = map[string]string{
+	"en":      "English",
+	"zh-hans": "Simplified Chinese",
+	"zh-hant": "Traditional Chinese",
+	"ja":      "Japanese",
+	"ko":      "Korean",
+	"es":      "Spanish",
+	"fr":      "French",
+	"de":      "German",
+	"pt":      "Portuguese",
+	"ru":      "Russian",
+	"ar":      "Arabic",
+	"hi":      "Hindi",
+	"it":      "Italian",
+	"nl":      "Dutch",
+	"tr":      "Turkish",
+	"vi":      "Vietnamese",
+	"th":      "Thai",
+	"id":      "Indonesian",
+}
+
+// memoExtractLanguageName returns the prompt-facing name for a stored code, or
+// "" when the code means automatic detection, is empty, or is unknown.
+func memoExtractLanguageName(code string) string {
+	normalized := strings.ToLower(strings.TrimSpace(code))
+	if normalized == "" || normalized == core.MemoLanguageAuto {
+		return ""
+	}
+	return memoExtractLanguages[normalized]
+}
+
+// extractionPrompt builds the instruction sent to the model for a memo kind
+// ("audio" or "image"). "auto", empty and unknown language codes keep the
+// language-agnostic prompt; an explicit, known code names the language.
+func extractionPrompt(kind, languageCode string) string {
+	language := memoExtractLanguageName(languageCode)
+	switch kind {
+	case "audio":
+		if language == "" {
+			return memoExtractAudioPrompt
+		}
+		return fmt.Sprintf("The audio is in %s. Transcribe it verbatim. Output only the transcript.", language)
+	case "image":
+		if language == "" {
+			return memoExtractImagePrompt
+		}
+		return fmt.Sprintf(
+			"Extract all text from this image in %s (OCR). Output only the text. If there is no text, output an empty string.",
+			language)
+	}
+	return ""
+}
+
+// memoNeedsExtraction reports whether a memo holds media that can be extracted.
+func memoNeedsExtraction(memo MemoItem) bool {
+	switch memo.Type {
+	case "audio":
+		return strings.TrimSpace(memo.AudioData) != ""
+	case "image":
+		return strings.TrimSpace(memo.ImageData) != ""
+	}
+	return false
+}
+
+// scheduleMemoAutoExtract starts a background extraction when automatic
+// extraction is enabled and the just-saved memo has media but no transcript.
+// Call it only after the save response has been written: the save must never
+// block on or fail because of extraction.
+func (s *Server) scheduleMemoAutoExtract(memo MemoItem, storagePath string, memoCfg core.MemoConfig) {
+	if !memoCfg.AutoExtract || strings.TrimSpace(memo.Transcript) != "" || !memoNeedsExtraction(memo) {
+		return
+	}
+	memoAutoExtractRunner(func() {
+		s.autoExtractMemo(memo.ID, storagePath, memoCfg)
+	})
+}
+
+// autoExtractMemo re-reads the memo from storage before extracting so a memo
+// that gained a transcript (or was deleted) since the save is skipped.
+func (s *Server) autoExtractMemo(id, storagePath string, memoCfg core.MemoConfig) {
+	s.memoMu.RLock()
+	memos := readMemosFile(storagePath)
+	s.memoMu.RUnlock()
+
+	var memo *MemoItem
+	for i := range memos {
+		if memos[i].ID == id {
+			found := memos[i]
+			memo = &found
+			break
+		}
+	}
+	if memo == nil || strings.TrimSpace(memo.Transcript) != "" || !memoNeedsExtraction(*memo) {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), memoExtractTimeout)
+	defer cancel()
+	if _, _, err := s.extractMemo(ctx, memo, storagePath, memoCfg); err != nil {
+		log.Printf("[memos] automatic extraction failed for memo %s: %v", id, err)
+	}
+}
+
 // handleMemosExtract transcribes an audio memo or OCRs an image memo with a GCP
 // multimodal model and persists the result into the memo's transcript field.
 func (s *Server) handleMemosExtract(w http.ResponseWriter, r *http.Request) {
@@ -63,61 +174,10 @@ func (s *Server) handleMemosExtract(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var media string
-	var prompt string
-	switch memo.Type {
-	case "audio":
-		media = memo.AudioData
-		prompt = memoExtractAudioPrompt
-	case "image":
-		media = memo.ImageData
-		prompt = memoExtractImagePrompt
-	default:
-		writeExtractError(w, http.StatusBadRequest,
-			fmt.Sprintf("memo %q has type %q; only audio and image memos can be extracted", memoID, memo.Type))
-		return
-	}
-	if strings.TrimSpace(media) == "" {
-		writeExtractError(w, http.StatusBadRequest,
-			fmt.Sprintf("memo %q has no %s data to extract", memoID, memo.Type))
-		return
-	}
-
-	payload, mimeType, err := normalizeMemoMedia(media, memo.Type)
-	if err != nil {
-		writeExtractError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	model, err := selectMemoExtractModel(s.getCustomModelsStore())
-	if err != nil {
-		writeExtractError(w, http.StatusUnprocessableEntity, err.Error())
-		return
-	}
-
-	saKey, err := custommodels.ParseServiceAccountKey([]byte(model.GCPServiceAccountKey))
-	if err != nil {
-		writeExtractError(w, http.StatusBadGateway,
-			fmt.Sprintf("configured model %q has an invalid service-account key: %v", model.Name, err))
-		return
-	}
-
-	projectID := strings.TrimSpace(model.GCPProjectID)
-	if projectID == "" {
-		projectID = saKey.ProjectID
-	}
-
 	ctx, cancel := context.WithTimeout(r.Context(), memoExtractTimeout)
 	defer cancel()
 
-	token, err := memoExtractTokenMinter(ctx, saKey)
-	if err != nil {
-		writeExtractError(w, http.StatusBadGateway, shortExtractError("could not authenticate with Google Cloud", err))
-		return
-	}
-
-	endpoint := memoExtractEndpoint(model.GCPRegion, projectID, model.Name)
-	transcript, err := callVertexExtract(ctx, endpoint, token, prompt, mimeType, payload)
+	transcript, empty, err := s.extractMemo(ctx, memo, storagePath, loadMemoConfig())
 	if err != nil {
 		var upstream *upstreamExtractError
 		if errors.As(err, &upstream) {
@@ -128,31 +188,16 @@ func (s *Server) handleMemosExtract(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	transcript = strings.TrimSpace(transcript)
-	if transcript == "" {
+	if empty {
 		// Never overwrite an existing transcript with nothing. When the model
 		// legitimately finds no text (e.g. an image without text) or returns no
 		// candidates at all, the memo's current transcript is the best data we
 		// have, so report it back unchanged and leave the file untouched.
-		existing := memo.Transcript
-		if strings.TrimSpace(existing) != "" {
-			writeJSON(w, map[string]interface{}{
-				"success":    true,
-				"transcript": existing,
-				"empty":      true,
-			})
-			return
-		}
 		writeJSON(w, map[string]interface{}{
 			"success":    true,
-			"transcript": "",
+			"transcript": memo.Transcript,
 			"empty":      true,
 		})
-		return
-	}
-
-	if err := s.persistMemoTranscript(memoID, storagePath, transcript); err != nil {
-		writeExtractError(w, http.StatusInternalServerError, "failed to persist transcript: "+err.Error())
 		return
 	}
 
@@ -160,6 +205,98 @@ func (s *Server) handleMemosExtract(w http.ResponseWriter, r *http.Request) {
 		"success":    true,
 		"transcript": transcript,
 	})
+}
+
+// loadMemoConfig returns the persisted memo settings, falling back to defaults
+// when the config cannot be read.
+func loadMemoConfig() core.MemoConfig {
+	cfg, err := core.LoadConfig()
+	if err != nil || cfg == nil {
+		return core.DefaultConfig().GetMemoConfig()
+	}
+	return cfg.GetMemoConfig()
+}
+
+// extractMemo is the shared extraction pipeline used by the HTTP handler and the
+// post-save automatic path: it validates the media, selects the configured
+// model, authenticates, calls the model and persists the transcript. empty
+// reports a model response without text, in which case nothing is written.
+func (s *Server) extractMemo(ctx context.Context, memo *MemoItem, storagePath string, memoCfg core.MemoConfig) (transcript string, empty bool, err error) {
+	var media, prompt string
+	switch memo.Type {
+	case "audio":
+		media = memo.AudioData
+		prompt = extractionPrompt("audio", memoCfg.VoiceLanguage)
+	case "image":
+		media = memo.ImageData
+		prompt = extractionPrompt("image", memoCfg.OCRLanguage)
+	default:
+		return "", false, &upstreamExtractError{
+			Status: http.StatusBadRequest,
+			Message: fmt.Sprintf("memo %q has type %q; only audio and image memos can be extracted",
+				memo.ID, memo.Type),
+		}
+	}
+	if strings.TrimSpace(media) == "" {
+		return "", false, &upstreamExtractError{
+			Status:  http.StatusBadRequest,
+			Message: fmt.Sprintf("memo %q has no %s data to extract", memo.ID, memo.Type),
+		}
+	}
+
+	payload, mimeType, err := normalizeMemoMedia(media, memo.Type)
+	if err != nil {
+		return "", false, &upstreamExtractError{Status: http.StatusBadRequest, Message: err.Error()}
+	}
+
+	model, err := selectMemoExtractModel(s.getCustomModelsStore())
+	if err != nil {
+		return "", false, &upstreamExtractError{Status: http.StatusUnprocessableEntity, Message: err.Error()}
+	}
+
+	saKey, err := custommodels.ParseServiceAccountKey([]byte(model.GCPServiceAccountKey))
+	if err != nil {
+		return "", false, &upstreamExtractError{
+			Status:  http.StatusBadGateway,
+			Message: fmt.Sprintf("configured model %q has an invalid service-account key: %v", model.Name, err),
+		}
+	}
+
+	projectID := strings.TrimSpace(model.GCPProjectID)
+	if projectID == "" {
+		projectID = saKey.ProjectID
+	}
+
+	token, err := memoExtractTokenMinter(ctx, saKey)
+	if err != nil {
+		return "", false, &upstreamExtractError{
+			Status:  http.StatusBadGateway,
+			Message: shortExtractError("could not authenticate with Google Cloud", err),
+		}
+	}
+
+	endpoint := memoExtractEndpoint(model.GCPRegion, projectID, model.Name)
+	text, err := callVertexExtract(ctx, endpoint, token, prompt, mimeType, payload)
+	if err != nil {
+		var upstream *upstreamExtractError
+		if errors.As(err, &upstream) {
+			return "", false, upstream
+		}
+		return "", false, &upstreamExtractError{Status: http.StatusBadGateway, Message: err.Error()}
+	}
+
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", true, nil
+	}
+
+	if err := s.persistMemoTranscript(memo.ID, storagePath, text); err != nil {
+		return "", false, &upstreamExtractError{
+			Status:  http.StatusInternalServerError,
+			Message: "failed to persist transcript: " + err.Error(),
+		}
+	}
+	return text, false, nil
 }
 
 // findMemoByID locates a memo in the current workspace, known workspaces, or the

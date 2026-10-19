@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -311,4 +312,144 @@ func TestLoadConfig_VSCodeEnhancementSettings(t *testing.T) {
 			t.Errorf("expected default vscode_debug_port %d, got %d", DefaultVSCodeDebugPort, cfg.GetVSCodeDebugPort())
 		}
 	})
+}
+
+func TestMemoConfig_AutoExtractDefaultsOff(t *testing.T) {
+	cfg := DefaultConfig()
+	memo := cfg.GetMemoConfig()
+	if memo.AutoExtract {
+		t.Error("expected auto_extract to default to false (manual extraction)")
+	}
+	if memo.VoiceLanguage != MemoLanguageAuto {
+		t.Errorf("expected voice_language %q, got %q", MemoLanguageAuto, memo.VoiceLanguage)
+	}
+	if memo.OCRLanguage != MemoLanguageAuto {
+		t.Errorf("expected ocr_language %q, got %q", MemoLanguageAuto, memo.OCRLanguage)
+	}
+}
+
+func TestLoadConfig_MemoExtractionSettings(t *testing.T) {
+	t.Run("missing fields keep manual defaults", func(t *testing.T) {
+		tempDir := t.TempDir()
+		t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+
+		if err := os.WriteFile(filepath.Join(tempDir, "config.json"),
+			[]byte(`{"memo":{"storage_location":"project","view_scope":"current","search_scope":"all"}}`), 0600); err != nil {
+			t.Fatalf("failed to write test config: %v", err)
+		}
+
+		cfg, err := LoadConfig()
+		if err != nil {
+			t.Fatalf("LoadConfig returned error: %v", err)
+		}
+		memo := cfg.GetMemoConfig()
+		if memo.AutoExtract {
+			t.Error("expected a missing auto_extract field to mean false")
+		}
+		if memo.VoiceLanguage != MemoLanguageAuto || memo.OCRLanguage != MemoLanguageAuto {
+			t.Errorf("expected both languages to normalise to %q, got %q/%q",
+				MemoLanguageAuto, memo.VoiceLanguage, memo.OCRLanguage)
+		}
+		if memo.StorageLocation != "project" || memo.ViewScope != "current" || memo.SearchScope != "all" {
+			t.Errorf("existing memo fields were not preserved: %+v", memo)
+		}
+	})
+
+	t.Run("explicit values are preserved", func(t *testing.T) {
+		tempDir := t.TempDir()
+		t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+
+		raw := `{"memo":{"auto_extract":true,"voice_language":"ja","ocr_language":"zh-Hant"}}`
+		if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(raw), 0600); err != nil {
+			t.Fatalf("failed to write test config: %v", err)
+		}
+
+		cfg, err := LoadConfig()
+		if err != nil {
+			t.Fatalf("LoadConfig returned error: %v", err)
+		}
+		memo := cfg.GetMemoConfig()
+		if !memo.AutoExtract {
+			t.Error("expected auto_extract=true to be preserved")
+		}
+		if memo.VoiceLanguage != "ja" || memo.OCRLanguage != "zh-Hant" {
+			t.Errorf("expected ja/zh-Hant, got %q/%q", memo.VoiceLanguage, memo.OCRLanguage)
+		}
+	})
+
+	t.Run("empty languages normalise to auto", func(t *testing.T) {
+		tempDir := t.TempDir()
+		t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+
+		raw := `{"memo":{"auto_extract":true,"voice_language":"  ","ocr_language":""}}`
+		if err := os.WriteFile(filepath.Join(tempDir, "config.json"), []byte(raw), 0600); err != nil {
+			t.Fatalf("failed to write test config: %v", err)
+		}
+
+		cfg, err := LoadConfig()
+		if err != nil {
+			t.Fatalf("LoadConfig returned error: %v", err)
+		}
+		memo := cfg.GetMemoConfig()
+		if memo.VoiceLanguage != MemoLanguageAuto || memo.OCRLanguage != MemoLanguageAuto {
+			t.Errorf("expected both languages to normalise to %q, got %q/%q",
+				MemoLanguageAuto, memo.VoiceLanguage, memo.OCRLanguage)
+		}
+	})
+}
+
+func TestSetMemoConfig_PersistsExtractionSettings(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+
+	cfg := DefaultConfig()
+	if err := cfg.SetMemoConfig(MemoConfig{
+		StorageLocation: "project",
+		ViewScope:       "current",
+		SearchScope:     "all",
+		AutoExtract:     true,
+		VoiceLanguage:   "en",
+		OCRLanguage:     "ko",
+	}); err != nil {
+		t.Fatalf("SetMemoConfig: %v", err)
+	}
+
+	reloaded, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig returned error: %v", err)
+	}
+	memo := reloaded.GetMemoConfig()
+	if !memo.AutoExtract {
+		t.Error("expected auto_extract to survive a save/load round-trip")
+	}
+	if memo.VoiceLanguage != "en" {
+		t.Errorf("voice_language = %q, want en", memo.VoiceLanguage)
+	}
+	if memo.OCRLanguage != "ko" {
+		t.Errorf("ocr_language = %q, want ko", memo.OCRLanguage)
+	}
+	if memo.StorageLocation != "project" || memo.ViewScope != "current" || memo.SearchScope != "all" {
+		t.Errorf("existing memo fields were not persisted: %+v", memo)
+	}
+
+	// Empty languages must round-trip as "auto", not as empty strings.
+	if err := reloaded.SetMemoConfig(MemoConfig{}); err != nil {
+		t.Fatalf("SetMemoConfig(empty): %v", err)
+	}
+	if got := reloaded.GetMemoConfig(); got.VoiceLanguage != MemoLanguageAuto || got.OCRLanguage != MemoLanguageAuto {
+		t.Errorf("expected empty languages to be stored as %q, got %q/%q",
+			MemoLanguageAuto, got.VoiceLanguage, got.OCRLanguage)
+	}
+}
+
+func TestMemoConfig_JSONFieldNames(t *testing.T) {
+	data, err := json.Marshal(DefaultConfig().Memo)
+	if err != nil {
+		t.Fatalf("marshal memo config: %v", err)
+	}
+	for _, key := range []string{`"auto_extract"`, `"voice_language"`, `"ocr_language"`} {
+		if !strings.Contains(string(data), key) {
+			t.Errorf("memo config JSON %s is missing %s", data, key)
+		}
+	}
 }
