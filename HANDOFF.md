@@ -1,15 +1,16 @@
 # HANDOFF — Antigravity Swiss Knife
 
-> 面向后续 agent 的项目交接文档。最后更新：2026-10-19 18:05（Sydney）。
+> 面向后续 agent 的项目交接文档。最后更新：2026-10-20 03:03（Melbourne）。
 > 与 `.workbuddy/memory/` 日志互补：那里记流水，这里记可复用的结构与坑。
 
 ## 1. 项目概览
 
 - **是什么**：Google Antigravity IDE 的多账号 / 配额管理工具（Go 后端 + React 前端 + Electron 桌面壳 + Web GUI）。
-- **主检出**：`D:/Projects/Antigravity Swiss Knife`（git 主工作树，main 分支）。
-- **并行 worktree**：`D:/Projects/swiss-wt/{gcp,switch,theme,inj,fe,be,rev,rev2,acct,acp,icon,gcpui}`（历史与近期 subagent 并行开发用；各自 frontend/node_modules 用 junction 指向主检出，见 §5）。**合并后可清理**。
-- **状态（截至更新时）**：2026-10-19 全天 33 个 PR（#111–#165）已合并入 main；GitHub 开放 issue / 开放 PR 均为 0；桌面应用运行中（`swiss status` 查 daemon PID），服务 bundle `index-CYTZ13GE.js`。
-- **验证过的运行命令**：`npm run desktop`（需 `env -u ELECTRON_RUN_AS_NODE`）、`bin/swiss.exe status`、`curl -H "X-Session-Token: $(cat "$APPDATA/antigravity-swiss/session.token")" http://127.0.0.1:8765/api/...`。
+- **主检出**：`/mnt/Data/Projects/Antigravity Swiss Knife`（git 主工作树，main 分支）。
+- **并行 worktree**：近期 Linux subagent worktree 为 `/tmp/swiss-wt/{181,182,185}`；git 元数据仍有一批指向 `D:/Projects/swiss-wt/*` 的 prunable 记录，可 `git worktree prune`。
+- **状态（截至更新时）**：main 为 `cb34bfe`；黑屏修复链 PR #170/#172/#174 及本轮 PR #176/#179/#180/#183/#184 已合并，issue #175/#177/#178/#181/#182 已关闭；#185 是本次 handoff 刷新。服务 bundle 为 `index-DYiS4sTJ.js`。
+- **Linux / 真机验证**：out-of-tree 安装在 `~/.local/share/antigravity-swiss-knife/app`，入口 `~/.local/bin/antigravity-swiss-knife`；daemon 在 `127.0.0.1:8765` 正常；账户详情的 OAuth Refresh Token 显隐已实测显示真实值，不再把 `[REDACTED]` 当作 token。
+- **验证过的运行命令（Linux）**：`~/.local/bin/antigravity-swiss-knife`、`curl -fsS http://127.0.0.1:8765/healthz`。
 
 ## 2. 构建与运行（Windows 开发机）
 
@@ -245,13 +246,25 @@ live CDP fiber → jetski token → `app_storage.json`。vault 的 `active_accou
 
 教训补充：**外部 API 的请求体必须断言**（mock 响应会让 100% 失败的功能全绿）；**虚拟化列表只能缓存已挂载项**；**用户文本进 `innerHTML` 必须转义**；**`overflow:hidden` 容器里的浮层要 `fixed` + body**；**缺口编号规则要能复用空洞**。
 
+## 7.3 会话完成的工作（2026-10-19 深夜至 2026-10-20）
+
+| PR | Issue | 内容 | 验证 |
+|---|---|---|---|
+| #176 | #175 | 账户详情按 email 取未脱敏 export，OAuth Refresh Token / password / TOTP 不再停在 `[REDACTED]` | Linux 安装后真机显隐验证 |
+| #179 | #177 | `/api/files/list` 对非法路径返回 400/404/403/500，不再 `200 + error` | `go test ./pkg/webgui` |
+| #180 | #178 | 仅在凭据被脱敏时取 export；延迟回填不覆盖用户输入 | 针对性回归覆盖通过 |
+| #183 | #182 | `/api/accounts/export` 只允许 GET/HEAD，其它方法 405 + `Allow: GET, HEAD` | `go test ./pkg/webgui` |
+| #184 | #181 | health/status 校验 Swiss daemon 身份；Connecting 重试改走 preload IPC / 主进程导航 | Electron 测试 + `npm test` |
+
+以上 PR 合并后，issue #175/#177/#178/#181/#182 均已关闭。
+
 ## 8. 待办 / 下一步
 
 1. **Defender 全盘/脱机扫描**（用户侧，未完成）——vshost 驻留过久，凭据轮换建议已发出。
 2. **注入式 UI 的目视验证**（用户侧，唯一无法自动化的一类）：文件查看器单一 WYSIWYG、面板切项目刷新、jumper 悬浮面板的位置/宽度与暗色对比度、Split Right 双窗格、直方图 hover 分解、录音时长/波形、卡片在 285px 最小面板下的排布、跳转下拉在矮面板下的浮层表现。
 3. **真实设备/网络验证**：真麦克风下的录音 teardown、cloudflared quick tunnel 与 Tailscale 端到端、多窗口配额（5H/7D）对真实 provider 响应。
 4. **VS Code 扩展开箱即用**：需先用应用的启动入口重启 VS Code（已运行的实例忽略 `--remote-debugging-port`）。
-5. **已知小瑕疵（不阻塞，未修）**：`/api/files/list` 对非法路径返回 `200 + 空列表`（应 4xx）；解析器错误以 `200 + error` 字段返回；`/api/memos/config` 返回扁平对象而其它接口用 `{config}` 包裹。
-6. 无开放 PR / issue；main 即完整状态。新功能按 §4 带 dist 重建，按 §5 末行建 issue + 独立复核后合并。
-7. `D:/Projects/swiss-wt/` 下的 20+ 个并行 worktree 已完成使命，可择机清理（`git worktree remove`）；保留主检出即可。
+5. **已知小瑕疵（不阻塞，未修）**：文件写入 / 重命名等解析器错误仍以 `200 + error` 字段返回；`/api/memos/config` 返回扁平对象而其它接口用 `{config}` 包裹。
+6. 本 PR 合并并关闭 #185 后，main 即完整状态。新功能按 §4 带 dist 重建，按 §5 末行建 issue + 独立复核后合并。
+7. `/tmp/swiss-wt/{181,182,185}` 等近期 worktree 已完成各自任务，可择机清理；`D:/Projects/swiss-wt/*` 的失联记录可统一 prune。
 8. subagent 并行开发模式（worktree + junction node_modules + 显式 `git add` + 独立复核）在本项目多次验证有效；汇报必须独立核实（§5），复核结论优先看可复跑脚本。
