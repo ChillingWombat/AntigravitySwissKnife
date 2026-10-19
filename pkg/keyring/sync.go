@@ -2,6 +2,7 @@ package keyring
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -253,7 +254,9 @@ func WriteSecretServiceToken(acc *Account) error {
 		return fmt.Errorf("failed to marshal secret payload: %w", err)
 	}
 
-	cmd := exec.Command("secret-tool", "store",
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "secret-tool", "store",
 		"--label=Password for 'antigravity' on 'gemini'",
 		"service", "gemini",
 		"username", "antigravity",

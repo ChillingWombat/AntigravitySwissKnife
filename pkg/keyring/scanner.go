@@ -1,6 +1,7 @@
 package keyring
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"os"
@@ -836,7 +837,9 @@ func readSecretServiceToken() (*secretTokenData, error) {
 	if os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" {
 		return nil, nil
 	}
-	cmd := exec.Command("secret-tool", "lookup", "service", "gemini", "username", "antigravity")
+	ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "secret-tool", "lookup", "service", "gemini", "username", "antigravity")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, err
