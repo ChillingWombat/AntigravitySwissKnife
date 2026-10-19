@@ -243,3 +243,15 @@ func TestMemosExportMethodNotAllowed(t *testing.T) {
 		t.Fatalf("status = %d, want 405", rec.Code)
 	}
 }
+
+// Memos recorded before the naming change carry a "[Voice] " tag in their
+// stored title; exported files must use the clean name the UI shows.
+func TestMemosExportStripsLegacyVoicePrefix(t *testing.T) {
+	memo := MemoItem{ID: "memo-audio-legacy", Title: "[Voice] Voice Memo Note", Type: "audio", AudioData: b64(append([]byte{0x1A, 0x45, 0xDF, 0xA3}, []byte("legacy")...))}
+	srv, _ := newExportTestServer(t, []MemoItem{memo})
+
+	path := exportedPath(t, postExport(t, srv, `{"memo_id":"memo-audio-legacy"}`))
+	if filepath.Base(path) != "Voice Memo Note.webm" {
+		t.Fatalf("filename = %q, want Voice Memo Note.webm", filepath.Base(path))
+	}
+}

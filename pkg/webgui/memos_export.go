@@ -179,7 +179,7 @@ func decodeMemoBase64(s string) ([]byte, error) {
 // memoExportBaseName derives a filesystem-safe name from the memo title,
 // falling back to memo-<id> when the title is empty or entirely unusable.
 func memoExportBaseName(memo MemoItem) string {
-	base := sanitizeMemoExportName(memo.Title)
+	base := sanitizeMemoExportName(stripLegacyVoicePrefix(memo.Title))
 	if base == "" {
 		if id := sanitizeMemoExportName(memo.ID); id != "" {
 			base = "memo-" + id
@@ -193,6 +193,18 @@ func memoExportBaseName(memo MemoItem) string {
 		base = "_" + base
 	}
 	return base
+}
+
+// stripLegacyVoicePrefix drops the "[Voice] " tag that memos recorded before
+// the naming change carry in their stored title, so the exported file name
+// matches the clean header the UI renders.
+func stripLegacyVoicePrefix(title string) string {
+	trimmed := strings.TrimSpace(title)
+	const prefix = "[Voice]"
+	if len(trimmed) >= len(prefix) && strings.EqualFold(trimmed[:len(prefix)], prefix) {
+		return strings.TrimSpace(trimmed[len(prefix):])
+	}
+	return title
 }
 
 // sanitizeMemoExportName replaces separators, Windows-reserved characters and
