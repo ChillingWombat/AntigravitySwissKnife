@@ -20,6 +20,8 @@ interface AccountDetailModalProps {
   onSaved: () => void
 }
 
+const REDACTED_CREDENTIAL = '[REDACTED]'
+
 export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   account,
   onClose,
@@ -54,6 +56,11 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const credentialTouchedRef = useRef({
+    refreshToken: false,
+    password: false,
+    totpSecret: false,
+  })
 
   const [liveQuota5h, setLiveQuota5h] = useState<number | null>(
     account.quota_5h_available ?? account.quota_5h_current ?? null
@@ -211,46 +218,56 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         }).catch(() => {})
       }
     }
-  }, [account.email, refreshToken])
+  }, [account.email])
 
   useEffect(() => {
-    if (!isNewAccount && account.email) {
-      api.exportAccounts(account.email).then((exported) => {
-        if (!Array.isArray(exported) || exported.length === 0) return
-        const found =
-          exported.find((a: any) => a.email?.toLowerCase() === account.email.toLowerCase()) ||
-          exported[0]
+    const hasRedactedCredentials =
+      !isNewAccount &&
+      Boolean(account.email) &&
+      [account.refresh_token, account.password, account.totp_secret].some(
+        (value) => value === REDACTED_CREDENTIAL
+      )
+    if (!hasRedactedCredentials) return
+
+    let cancelled = false
+    api.exportAccounts(account.email)
+      .then((exported) => {
+        if (cancelled || !Array.isArray(exported) || exported.length === 0) return
+        const found = exported.find(
+          (a: any) => a.email?.toLowerCase() === account.email.toLowerCase()
+        )
         if (!found) return
-        if (found.refresh_token && found.refresh_token !== '[REDACTED]') {
-          setRefreshToken((prev) =>
-            prev === '' || prev === '[REDACTED]' || prev === account.refresh_token ? found.refresh_token : prev
+
+        const touched = credentialTouchedRef.current
+        if (account.refresh_token === REDACTED_CREDENTIAL && !touched.refreshToken) {
+          setRefreshToken(
+            found.refresh_token && found.refresh_token !== REDACTED_CREDENTIAL
+              ? found.refresh_token
+              : ''
           )
-        } else if (!found.refresh_token) {
-          setRefreshToken((prev) => (prev === '[REDACTED]' ? '' : prev))
         }
-        if (found.password && found.password !== '[REDACTED]') {
-          setPassword((prev) =>
-            prev === '' || prev === '[REDACTED]' || prev === account.password ? found.password : prev
+        if (account.password === REDACTED_CREDENTIAL && !touched.password) {
+          setPassword(
+            found.password && found.password !== REDACTED_CREDENTIAL ? found.password : ''
           )
-        } else if (!found.password) {
-          setPassword((prev) => (prev === '[REDACTED]' ? '' : prev))
         }
-        const secret = found.totp_secret || found.mfa
-        if (secret && secret !== '[REDACTED]') {
-          setTotpSecret((prev) =>
-            prev === '' || prev === '[REDACTED]' || prev === account.totp_secret ? secret : prev
-          )
-        } else if (!secret) {
-          setTotpSecret((prev) => (prev === '[REDACTED]' ? '' : prev))
-        }
-        if (found.access_token && found.access_token !== '[REDACTED]') {
-          setExtractedAccessToken((prev) =>
-            prev === '' || prev === '[REDACTED]' ? found.access_token : prev
-          )
+        if (account.totp_secret === REDACTED_CREDENTIAL && !touched.totpSecret) {
+          const secret =
+            found.totp_secret && found.totp_secret !== REDACTED_CREDENTIAL
+              ? found.totp_secret
+              : found.mfa && found.mfa !== REDACTED_CREDENTIAL
+                ? found.mfa
+                : ''
+          setTotpSecret(secret)
         }
       }).catch((err) => {
-        console.warn('Failed to load unredacted account credentials:', err)
+        if (!cancelled) {
+          console.warn('Failed to load unredacted account credentials:', err)
+        }
       })
+
+    return () => {
+      cancelled = true
     }
   }, [isNewAccount, account.email, account.refresh_token, account.password, account.totp_secret])
 
@@ -430,6 +447,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     try {
       const res = await api.startGoogleOAuth(controller.signal)
       if (res.success && res.refresh_token) {
+        credentialTouchedRef.current.refreshToken = true
         setRefreshToken(res.refresh_token)
         if (res.access_token) {
           setExtractedAccessToken(res.access_token)
@@ -472,6 +490,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     try {
       const res = await api.exchangeGoogleOAuth({ callback_url: urlToExchange })
       if (res.success && res.refresh_token) {
+        credentialTouchedRef.current.refreshToken = true
         setRefreshToken(res.refresh_token)
         if (res.access_token) {
           setExtractedAccessToken(res.access_token)
@@ -1004,7 +1023,10 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 type={showPassword ? 'text' : 'password'}
                 placeholder={ACCOUNT_SETUP_TEXTS.PASSWORD_PLACEHOLDER}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  credentialTouchedRef.current.password = true
+                  setPassword(e.target.value)
+                }}
                 style={{ width: '100%', height: CONTROL_HEIGHT, boxSizing: 'border-box', paddingRight: '40px' }}
               />
               <button
@@ -1039,7 +1061,10 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   type={showOAuth ? 'text' : 'password'}
                   placeholder={ACCOUNT_SETUP_TEXTS.OAUTH_REFRESH_PLACEHOLDER}
                   value={refreshToken}
-                  onChange={(e) => setRefreshToken(e.target.value)}
+                  onChange={(e) => {
+                    credentialTouchedRef.current.refreshToken = true
+                    setRefreshToken(e.target.value)
+                  }}
                   style={{ width: '100%', height: CONTROL_HEIGHT, boxSizing: 'border-box', fontFamily: 'monospace', paddingRight: '40px' }}
                 />
                 <button
@@ -1214,7 +1239,10 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   type={showTotp ? 'text' : 'password'}
                   placeholder="e.g. JBSWY3DPEHPK3PXP"
                   value={totpSecret}
-                  onChange={(e) => setTotpSecret(e.target.value)}
+                  onChange={(e) => {
+                    credentialTouchedRef.current.totpSecret = true
+                    setTotpSecret(e.target.value)
+                  }}
                   style={{ width: '100%', height: CONTROL_HEIGHT, boxSizing: 'border-box', fontFamily: 'monospace', paddingRight: '40px' }}
                 />
                 <button

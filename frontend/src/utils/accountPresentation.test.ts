@@ -305,15 +305,52 @@ describe('accountPresentation utility', () => {
       assert.strictEqual(fallback.verificationUrl, null)
     })
 
-    it('verifies AccountDetailModal loads unredacted credentials via exportAccounts for existing accounts', async () => {
+    it('fetches unredacted credentials only when redacted and does not rerun after hydration', async () => {
       const fs = await import('node:fs')
       const path = await import('node:path')
       const modalSrc = fs.readFileSync(
         path.resolve(import.meta.dirname, '../components/AccountDetailModal.tsx'),
         'utf8'
       )
+      const exportEffect = modalSrc.match(
+        /useEffect\(\(\) => \{\s*const hasRedactedCredentials[\s\S]*?\n  \}, \[([^\]]+)\]\)/
+      )
+
       assert.ok(modalSrc.includes('api.exportAccounts(account.email)'), 'should call api.exportAccounts with account email')
-      assert.ok(modalSrc.includes("found.refresh_token !== '[REDACTED]'"), 'should verify refresh token is not redacted')
+      assert.ok(exportEffect, 'should have a dedicated credential export effect')
+      assert.ok(modalSrc.includes("'[REDACTED]'"), 'should define the redacted credential sentinel')
+      assert.ok(
+        modalSrc.includes('[account.refresh_token, account.password, account.totp_secret]'),
+        'should inspect only the credentials displayed in the modal'
+      )
+      assert.ok(
+        modalSrc.includes('if (!hasRedactedCredentials) return'),
+        'should skip the export when no displayed credential is redacted'
+      )
+      assert.ok(
+        exportEffect && !exportEffect[1].includes('refreshToken'),
+        'should not rerun the export when local credential state is hydrated'
+      )
+      assert.ok(
+        !modalSrc.includes('[account.email, refreshToken]'),
+        'should not rerun quota loading when the refresh token is hydrated'
+      )
+      assert.ok(
+        modalSrc.includes('credentialTouchedRef.current.refreshToken = true'),
+        'should protect a user-edited refresh token from async hydration'
+      )
+      assert.ok(
+        modalSrc.includes('credentialTouchedRef.current.password = true'),
+        'should protect a user-edited password from async hydration'
+      )
+      assert.ok(
+        modalSrc.includes('credentialTouchedRef.current.totpSecret = true'),
+        'should protect a user-edited MFA secret from async hydration'
+      )
+      assert.ok(
+        !modalSrc.includes('||\n          exported[0]') && !modalSrc.includes('|| exported[0]'),
+        'should never fall back to another account credential'
+      )
     })
   })
 })
