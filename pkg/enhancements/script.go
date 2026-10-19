@@ -693,6 +693,18 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       return 0;
     }
 
+    // Prompt text reaches this tooltip as user input: escape it before it is
+    // interpolated into innerHTML, otherwise a prompt containing markup would
+    // execute inside the host page.
+    function escapeNavigatorText(text) {
+      return String(text == null ? "" : text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
     function renderPromptJumpBar() {
       const isEnabled = enhConfig.enabled && enhConfig.prompt_jump_bar?.enabled;
       const navigatorMode = normalizeNavigatorMode(chatNavigatorMode);
@@ -866,7 +878,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           if (tooltip && navigatorMode === "line") {
             const rect = dash.getBoundingClientRect();
             const snippetHTML = snippet
-              ? "<div style='color: var(--foreground, #101010); font-size: 12px; font-weight: 400;'>" + snippet + "</div>"
+              ? "<div style='color: var(--foreground, #101010); font-size: 12px; font-weight: 400;'>" + escapeNavigatorText(snippet) + "</div>"
               : "<div style='color: var(--muted-foreground, #64748b); font-size: 12px; font-weight: 400;'>Jumps to this turn</div>";
             tooltip.innerHTML = "<div style='font-weight: 500; font-size: 11px; color: var(--muted-foreground, #64748b); margin-bottom: 2px;'>Prompt #" + (turnIdx + 1) + (dash.classList.contains("active") ? " (Current)" : "") + "</div>" + snippetHTML;
             tooltip.style.left = (rect.right + 12) + "px";

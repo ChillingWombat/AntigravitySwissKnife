@@ -1491,3 +1491,24 @@ func TestGenerateEnhancementsScript_ContextWindowProgressRing_Deduplication(t *t
 
 
 
+
+// Prompt text is user input: it must never be interpolated into innerHTML
+// unescaped, otherwise a prompt containing markup executes in the host page.
+func TestChatNavigatorPanel_EscapesPromptTextInTooltip(t *testing.T) {
+	script := GenerateEnhancementsScript(DefaultConfig())
+
+	if !strings.Contains(script, "function escapeNavigatorText") {
+		t.Fatal("missing escapeNavigatorText helper")
+	}
+	if !strings.Contains(script, "escapeNavigatorText(snippet)") {
+		t.Error("tooltip snippet must be escaped before interpolation")
+	}
+	if strings.Contains(script, "'>\" + snippet + \"</div>") {
+		t.Error("raw snippet interpolation into innerHTML is still present")
+	}
+	for _, entity := range []string{"&amp;", "&lt;", "&gt;", "&quot;", "&#39;"} {
+		if !strings.Contains(script, entity) {
+			t.Errorf("escape table missing %s", entity)
+		}
+	}
+}
