@@ -13,6 +13,13 @@ import (
 
 // TestP1_7_HandleFilesTerminal_Security verifies that handleFilesTerminal rejects path traversal
 // and executes safely without raw shell string concatenation.
+//
+// The traversal assertion is enforced by the absolute-path contract in
+// validateJailedPath: a relative path is never resolved against the working
+// directory, so "../../etc/passwd" cannot become a real directory even when
+// /etc/passwd exists. The launch path builds exec.Command(argv...) directly and
+// never goes through a shell, so the directory is passed as an argument and not
+// as shell text.
 func TestP1_7_HandleFilesTerminal_Security(t *testing.T) {
 	s := &Server{}
 

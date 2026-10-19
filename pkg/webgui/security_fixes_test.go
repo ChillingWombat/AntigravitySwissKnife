@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -220,21 +221,28 @@ func TestFilesPathTraversalJailing(t *testing.T) {
 
 	baseURL := "http://" + srv.Addr()
 
-	// 1. Path traversal reading system files (Issue 41)
-	resp, err := http.Get(baseURL + "/api/files/read?path=/etc/hostname")
+	readableSystemPath := "/etc/hosts"
+	writableSystemPath := "/etc/cron.d/evil_cron"
+	if runtime.GOOS == "windows" {
+		readableSystemPath = `C:\Windows\win.ini`
+		writableSystemPath = `C:\Windows\System32\drivers\etc\evil_swiss_test`
+	}
+
+	// 1. Reading a previously-forbidden absolute path is allowed (issue #157).
+	resp, err := http.Get(baseURL + "/api/files/read?path=" + url.QueryEscape(readableSystemPath))
 	if err != nil {
 		t.Fatalf("GET /api/files/read failed: %v", err)
 	}
 	defer resp.Body.Close()
 	var readRes map[string]interface{}
 	_ = json.NewDecoder(resp.Body).Decode(&readRes)
-	if readRes["success"] == true {
-		t.Errorf("expected path traversal /etc/hostname to be rejected, got success=true")
+	if readRes["success"] != true {
+		t.Errorf("expected read of %q to succeed, got %v", readableSystemPath, readRes)
 	}
 
-	// 2. Path traversal writing system files
+	// 2. Destructive writes to system directories are still refused.
 	writePayload := map[string]string{
-		"path":    "/etc/cron.d/evil_cron",
+		"path":    writableSystemPath,
 		"content": "* * * * * root reboot",
 	}
 	wb, _ := json.Marshal(writePayload)
@@ -246,12 +254,12 @@ func TestFilesPathTraversalJailing(t *testing.T) {
 	var writeRes map[string]interface{}
 	_ = json.NewDecoder(respW.Body).Decode(&writeRes)
 	if writeRes["success"] == true {
-		t.Errorf("expected write to /etc/cron.d to be rejected, got success=true")
+		t.Errorf("expected write to %q to be rejected, got success=true", writableSystemPath)
 	}
 
-	// 3. Path traversal deleting system files
+	// 3. Deleting a system file is still refused.
 	delPayload := map[string]string{
-		"path": "/etc/hosts",
+		"path": readableSystemPath,
 	}
 	db, _ := json.Marshal(delPayload)
 	respD, err := http.Post(baseURL+"/api/files/delete", "application/json", bytes.NewReader(db))
@@ -262,7 +270,7 @@ func TestFilesPathTraversalJailing(t *testing.T) {
 	var delRes map[string]interface{}
 	_ = json.NewDecoder(respD.Body).Decode(&delRes)
 	if delRes["success"] == true {
-		t.Errorf("expected delete of /etc/hosts to be rejected, got success=true")
+		t.Errorf("expected delete of %q to be rejected, got success=true", readableSystemPath)
 	}
 
 	// 4. Valid operations inside temp directory must succeed with 0600 permissions
@@ -511,4 +519,3 @@ func TestGoogleOAuthExchange_CSRFStateValidation(t *testing.T) {
 		t.Errorf("expected success to be false for attacker state")
 	}
 }
-
