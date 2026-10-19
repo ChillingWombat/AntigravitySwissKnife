@@ -4840,7 +4840,7 @@ func GenerateAuxiliaryPluginsScript() string {
         menu.addEventListener("keydown", onDirJumpMenuKeydown);
         anchor.appendChild(menu);
         if (dirJumpCaret) dirJumpCaret.setAttribute("aria-expanded", "true");
-        menu.focus();
+        try { menu.focus({ preventScroll: true }); } catch (_) { menu.focus(); }
         document.addEventListener("mousedown", onDirJumpOutsideClick, true);
         window.addEventListener("scroll", onDirJumpScroll, true);
         loadDirJumpSiblings(menu);
