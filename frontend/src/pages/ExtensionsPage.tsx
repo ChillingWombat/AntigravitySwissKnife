@@ -552,18 +552,17 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = () => {
                 </div>
 
                 {auxAgentScope === 'all' && (
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '12px', color: 'var(--text)' }}>
-                    <input
-                      type="checkbox"
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px', color: 'var(--text)' }}>
+                    <span>Pin focused chat to top</span>
+                    <ToggleSwitch
+                      size="sm"
                       checked={auxPinFocused}
-                      onChange={(e) => {
-                        const val = e.target.checked
+                      onChange={(val) => {
                         setAuxPinFocused(val)
                         localStorage.setItem('antigravity_github_aux_pin_focused', val ? 'true' : 'false')
                       }}
-                      style={{ cursor: 'pointer', accentColor: 'var(--accent, var(--primary, #1a73e8))' }}
+                      ariaLabel="Pin focused chat to top"
                     />
-                    <span>Pin focused chat to top</span>
                   </label>
                 )}
               </div>
