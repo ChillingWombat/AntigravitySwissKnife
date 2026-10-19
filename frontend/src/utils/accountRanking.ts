@@ -545,7 +545,7 @@ export function shouldSwitchProactivelyMaxTokens(
     if (sec7dActive <= 0 || sec7dActive > 86400.0) {
       return {
         shouldSwitch: true,
-        reason: `Proactive rotation to harvest standby expiring weekly quota (${bestStandby.email})`,
+        reason: `Proactive rotation to harvest standby expiring 7D quota (${bestStandby.email})`,
       }
     }
   }
@@ -612,9 +612,9 @@ export function evaluateAutoSwitch(
       if (is5hBreached && isWeeklyBreached) {
         reason = `Active quota (5h: ${(cur5h * 100).toFixed(1)}%, weekly: ${(weekly * 100).toFixed(1)}%) dropped below thresholds (5h: ${(threshold * 100).toFixed(1)}%, weekly: ${(thresholdWeekly * 100).toFixed(1)}%)`
       } else if (is5hBreached) {
-        reason = `Active 5h quota (${(cur5h * 100).toFixed(1)}%) dropped below threshold (${(threshold * 100).toFixed(1)}%)`
+        reason = `Active 5H quota (${(cur5h * 100).toFixed(1)}%) dropped below threshold (${(threshold * 100).toFixed(1)}%)`
       } else {
-        reason = `Active weekly quota (${(weekly * 100).toFixed(1)}%) dropped below threshold (${(thresholdWeekly * 100).toFixed(1)}%)`
+        reason = `Active 7D quota (${(weekly * 100).toFixed(1)}%) dropped below threshold (${(thresholdWeekly * 100).toFixed(1)}%)`
       }
       return { shouldSwitch: true, successor: best, reason }
     }

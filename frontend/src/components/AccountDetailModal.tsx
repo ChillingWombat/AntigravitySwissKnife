@@ -870,13 +870,13 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 fraction={isQuotaConnected ? (liveQuota5h ?? (account.quota_5h_available ?? account.quota_5h_current ?? 0)) : 0}
                 disabled={!isQuotaConnected}
                 maxWidth="100%"
-                title={isQuotaConnected ? (liveResetHorizon || account.reset_horizon_text || 'Resets in 5h cycle') : 'Pending login and connection'}
+                title={isQuotaConnected ? (liveResetHorizon || account.reset_horizon_text || 'Resets in 5H cycle') : 'Pending login and connection'}
               />
             </div>
 
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px' }}>
-                <span style={{ fontWeight: 500, color: 'var(--text)' }}>Weekly Quota:</span>
+                <span style={{ fontWeight: 500, color: 'var(--text)' }}>7D Quota:</span>
                 <span style={{ color: 'var(--text-muted)' }}>
                   {isQuotaConnected ? (liveResetHorizonWeekly || account.reset_horizon_weekly_text || liveResetHorizon || account.reset_horizon_text || 'Ready') : 'Not connected'}
                 </span>
@@ -885,7 +885,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 fraction={isQuotaConnected ? (liveQuotaWeekly ?? (account.quota_weekly ?? 0)) : 0}
                 disabled={!isQuotaConnected}
                 maxWidth="100%"
-                title={isQuotaConnected ? (liveResetHorizonWeekly || account.reset_horizon_weekly_text || 'Resets on 7-day rolling cycle') : 'Pending login and connection'}
+                title={isQuotaConnected ? (liveResetHorizonWeekly || account.reset_horizon_weekly_text || 'Resets on 7D cycle') : 'Pending login and connection'}
               />
             </div>
           </div>

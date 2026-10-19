@@ -833,7 +833,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   />
                   <CircularGauge
                     percentage={gaugeWeeklyGemini}
-                    title="Gemini Weekly"
+                    title="Gemini 7D"
                     size={72}
                     strokeWidth={8}
                   />
@@ -854,7 +854,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   />
                   <CircularGauge
                     percentage={gaugeWeeklyClaude}
-                    title="Non-Gemini Weekly"
+                    title="Non-Gemini 7D"
                     size={72}
                     strokeWidth={8}
                   />
@@ -878,7 +878,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               />
               <CircularGauge
                 percentage={gaugeWeekly}
-                title="Weekly"
+                title="7D"
               />
             </div>
           )}
@@ -929,8 +929,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 <option value="identity">Account Name</option>
                 <option value="credits">Credit</option>
                 <option value="priority">Priority</option>
-                <option value="quota_5h">5-Hour Quota</option>
-                <option value="quota_weekly">Weekly Quota</option>
+                <option value="quota_5h">5H Quota</option>
+                <option value="quota_weekly">7D Quota</option>
               </select>
               <ArrowUpDown
                 size={13}
@@ -993,10 +993,10 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   cursor: 'pointer',
                   userSelect: 'none',
                 }}
-                title="Click to sort by 5-Hour Quota"
+                title="Click to sort by 5H Quota"
               >
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                  <span>5-Hour Quota</span>
+                  <span>5H Quota</span>
                   {sortMode === 'quota_5h' && <ArrowUpDown size={11} />}
                 </div>
               </th>
@@ -1017,10 +1017,10 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   cursor: 'pointer',
                   userSelect: 'none',
                 }}
-                title="Click to sort by Weekly Quota"
+                title="Click to sort by 7D Quota"
               >
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                  <span>Weekly Quota</span>
+                  <span>7D Quota</span>
                   {sortMode === 'quota_weekly' && <ArrowUpDown size={11} />}
                 </div>
               </th>
@@ -1230,7 +1230,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                           </div>
                           <HorizontalQuotaBar
                             fraction={acc.quota_weekly ?? 0}
-                            title={acc.reset_horizon_weekly_text || 'Gemini 7-day rolling cycle'}
+                            title={acc.reset_horizon_weekly_text || 'Gemini 7D cycle'}
                           />
                         </div>
                         <div>
@@ -1239,14 +1239,14 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                           </div>
                           <HorizontalQuotaBar
                             fraction={acc.quota_weekly_claude_gpt ?? 0}
-                            title="Non-Gemini 7-day cycle"
+                            title="Non-Gemini 7D cycle"
                           />
                         </div>
                       </div>
                     ) : (
                       <HorizontalQuotaBar
                         fraction={acc.quota_weekly ?? 0}
-                        title={acc.reset_horizon_weekly_text || '7-day rolling cycle'}
+                        title={acc.reset_horizon_weekly_text || '7D cycle'}
                       />
                     )}
                   </td>
@@ -1507,8 +1507,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                                 }}
                                 title={
                                   (acc.quota_weekly ?? 0) <= thresholdWeekly
-                                    ? 'Active account 7-day (weekly) quota is depleted below threshold'
-                                    : 'Active account 5-hour quota is depleted below threshold'
+                                    ? 'Active account 7D quota is depleted below threshold'
+                                    : 'Active account 5H quota is depleted below threshold'
                                 }
                               >
                                 <AlertTriangle size={12} />{' '}
