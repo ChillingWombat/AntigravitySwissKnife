@@ -1226,6 +1226,11 @@ div:has(> .shrink-0.flex.items-center.border-b),
   overflow-y: auto;
   padding: 12px;
   gap: 10px;
+  /* Issue #145: the view is its own container so the narrow-panel rule below
+     tracks the width the memos actually get, in the auxiliary panel and in the
+     main stage alike. */
+  container-type: inline-size;
+  container-name: swissmemo;
 }
 .swiss-memo-composer {
   display: flex;
@@ -1542,6 +1547,15 @@ div:has(> .shrink-0.flex.items-center.border-b),
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   flex-shrink: 0;
+}
+/* Issue #145: at the narrowest panel width the loudness wave squeezes the
+   record button and overlaps neighbouring buttons. Drop the wave bars only;
+   the icon and elapsed timer stay visible at every width because they are
+   what the user needs while recording. */
+@container swissmemo (max-width: 285px) {
+  .swiss-memo-record-wave {
+    display: none !important;
+  }
 }
 .swiss-memo-extract-btn {
   padding: 2px 6px;
@@ -5637,7 +5651,7 @@ func GenerateAuxiliaryPluginsScript() string {
             </div>
             ${playerHtml}
             <div class="swiss-memo-card-foot">
-              ${extractKind ? ('<button type="button" class="swiss-browser-btn swiss-memo-extract-btn" id="swiss-memo-extract-' + cardKey + '"' + (extractDone ? ' disabled' : '') + '>' + escapeHtml(extractDone ? extractDoneLabel : extractIdleLabel) + '</button>') : ""}
+              ${(extractKind && !autoExtractEnabled) ? ('<button type="button" class="swiss-browser-btn swiss-memo-extract-btn" id="swiss-memo-extract-' + cardKey + '"' + (extractDone ? ' disabled' : '') + '>' + escapeHtml(extractDone ? extractDoneLabel : extractIdleLabel) + '</button>') : ""}
               <div class="swiss-memo-card-actions">
                 <button class="swiss-browser-btn swiss-memo-insert-btn" id="swiss-memo-insert-${cardKey}" style="padding:2px 6px; font-size:10px;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Chat</span></button>
                 <button class="swiss-browser-btn swiss-memo-del-btn" id="swiss-memo-del-${cardKey}" title="Delete Memo" style="padding:2px 6px; font-size:10px; color:#ef4444;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
@@ -5833,6 +5847,32 @@ func GenerateAuxiliaryPluginsScript() string {
         }
         const activeProj = (typeof window.__swissGetActiveProject === "function" && window.__swissGetActiveProject()) || ".";
         return { qs: "?scope=current&workspace_path=" + encodeURIComponent(activeProj), wsPath: activeProj };
+      };
+
+      // Issue #143 (UI half): automatic extraction is a daemon-side setting. When
+      // auto_extract is on the backend transcribes voice memos / OCRs images as
+      // they are saved, so the per-card manual buttons are redundant and must not
+      // be rendered. The config is refreshed on every memos-view render.
+      let autoExtractEnabled = false;
+      const readAutoExtractFlag = (payload) => {
+        if (!payload || typeof payload !== "object") return false;
+        const cfg = (payload.config && typeof payload.config === "object") ? payload.config : payload;
+        return cfg.auto_extract === true || cfg.autoExtract === true;
+      };
+
+      const loadMemoConfig = async () => {
+        try {
+          const res = await fetch(API_BASE + "/api/memos/config", { headers: getSwissAuthHeaders() });
+          if (!res.ok) return;
+          const payload = await res.json();
+          const next = readAutoExtractFlag(payload);
+          if (next === autoExtractEnabled) return;
+          autoExtractEnabled = next;
+          // Pick the new mode up without leaving the tab.
+          applyFilterAndRender();
+        } catch (_) {
+          // Keep the manual buttons when the config endpoint is unavailable.
+        }
       };
 
       const loadMemos = async (silent = false) => {
@@ -6239,6 +6279,8 @@ func GenerateAuxiliaryPluginsScript() string {
       };
 
       const recordBtn = topBar.querySelector("#swiss-m-record-audio");
+      recordBtn.setAttribute("aria-label", "Voice Memo");
+      recordBtn.title = "Voice Memo";
 
       // ---- Voice memo recording indicator: elapsed time + live loudness wave ----
       const REC_IDLE_LABEL = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg><span>Voice Memo</span>';
@@ -6276,11 +6318,14 @@ func GenerateAuxiliaryPluginsScript() string {
       const startRecordingIndicator = () => {
         stopRecordingIndicator();
         recordBtn.classList.add("active");
+        // Issue #145: the visible "Stop Recording" text is gone from this narrow
+        // button; the accessible name keeps the action discoverable.
+        recordBtn.setAttribute("aria-label", "Stop Recording");
+        recordBtn.title = "Stop Recording";
         recordBtn.innerHTML =
           '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="12" height="12" x="6" y="6" rx="2"/></svg>' +
-          '<span>Stop Recording</span>' +
           '<span id="swiss-m-record-timer" style="font-variant-numeric:tabular-nums; font-weight:600;">0:00</span>' +
-          '<canvas id="swiss-m-record-wave" width="48" height="24" style="width:24px; height:12px; display:block;"></canvas>';
+          '<canvas id="swiss-m-record-wave" class="swiss-memo-record-wave" width="48" height="24" style="width:24px; height:12px; display:block;"></canvas>';
 
         const timerEl = recordBtn.querySelector("#swiss-m-record-timer");
         const waveCanvas = recordBtn.querySelector("#swiss-m-record-wave");
@@ -6354,6 +6399,8 @@ func GenerateAuxiliaryPluginsScript() string {
       const restoreRecordButton = () => {
         stopRecordingIndicator();
         recordBtn.classList.remove("active");
+        recordBtn.setAttribute("aria-label", "Voice Memo");
+        recordBtn.title = "Voice Memo";
         recordBtn.innerHTML = REC_IDLE_LABEL;
       };
 
@@ -6616,7 +6663,7 @@ func GenerateAuxiliaryPluginsScript() string {
         allMemos = initialMemos;
         applyFilterAndRender();
       }
-      loadMemos(initialMemos.length > 0);
+      loadMemoConfig().then(() => loadMemos(initialMemos.length > 0));
     }
 
     // ----------------------------------------------------

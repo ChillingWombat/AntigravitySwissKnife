@@ -795,7 +795,6 @@ func TestGenerateAuxiliaryPluginsScript_MemoViewAndTelemetryBadge(t *testing.T) 
 		`saveLocalMemos`,
 		`getLocalMemos`,
 		`titleStr = "[Voice] "`,
-		`Stop Recording</span>`,
 		`id: newMemo.id`,
 		`swiss-m-composer`,
 		`swiss-m-composer-input`,
@@ -806,6 +805,7 @@ func TestGenerateAuxiliaryPluginsScript_MemoViewAndTelemetryBadge(t *testing.T) 
 		// Recording indicator: elapsed time + live loudness wave
 		`id="swiss-m-record-timer"`,
 		`id="swiss-m-record-wave"`,
+		`class="swiss-memo-record-wave"`,
 		`formatRecordElapsed`,
 		`createAnalyser`,
 		`recordingTimerInterval = setInterval`,
@@ -813,6 +813,20 @@ func TestGenerateAuxiliaryPluginsScript_MemoViewAndTelemetryBadge(t *testing.T) 
 	for _, token := range memoChecks {
 		if !strings.Contains(js, token) {
 			t.Errorf("expected script to contain memo view token %q", token)
+		}
+	}
+
+	// Issue #145: the recording button keeps the icon, timer and wave canvas but
+	// drops the visible "Stop Recording" label; the accessible name carries it.
+	if strings.Contains(js, "Stop Recording</span>") {
+		t.Errorf("recording button must not render a visible 'Stop Recording' text label")
+	}
+	for _, token := range []string{
+		`recordBtn.setAttribute("aria-label", "Stop Recording")`,
+		`recordBtn.setAttribute("aria-label", "Voice Memo")`,
+	} {
+		if !strings.Contains(js, token) {
+			t.Errorf("recording button must keep its accessible name: missing %q", token)
 		}
 	}
 
@@ -2579,6 +2593,87 @@ func TestQuickMemos_ExtractButtons(t *testing.T) {
 	// Failures must surface the server message, never fabricate a transcript.
 	if !strings.Contains(js, `payload && payload.error ? payload.error :`) {
 		t.Errorf("extract failure must toast the server-provided error message")
+	}
+}
+
+func TestQuickMemos_RecorderHidesWaveOnNarrowPanel(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	css := GenerateAuxiliaryPluginsCSS()
+
+	// The memos view must be its own inline-size container so the rule tracks the
+	// width the view actually gets (aux panel and main stage alike).
+	for _, token := range []string{
+		`container-type: inline-size;`,
+		`container-name: swissmemo;`,
+	} {
+		if !strings.Contains(css, token) {
+			t.Errorf("expected .swiss-memos-view container token %q", token)
+		}
+	}
+
+	const rule = "@container swissmemo (max-width: 285px)"
+	idx := strings.Index(css, rule)
+	if idx < 0 {
+		t.Fatalf("expected CSS to include %q so the wave bars can hide on narrow panels", rule)
+	}
+	blockEnd := strings.Index(css[idx:], "}")
+	if blockEnd < 0 {
+		t.Fatalf("unterminated %q block", rule)
+	}
+	block := css[idx : idx+blockEnd+1]
+	if !strings.Contains(block, ".swiss-memo-record-wave") {
+		t.Errorf("narrow-panel rule must target the loudness wave canvas, got %q", block)
+	}
+	if !strings.Contains(block, "display: none !important;") {
+		t.Errorf("narrow-panel rule must hide the wave canvas, got %q", block)
+	}
+	// The timer is the one thing that must never be hidden at small widths.
+	if strings.Contains(block, "swiss-m-record-timer") {
+		t.Errorf("narrow-panel rule must not hide the elapsed timer, got %q", block)
+	}
+
+	// The wave canvas must still be wired for the analyser loop at wider widths.
+	for _, token := range []string{
+		`waveCanvas.isConnected`,
+		`recordingAnalyser.getByteFrequencyData(levels)`,
+	} {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected live loudness wave to stay functional, missing %q", token)
+		}
+	}
+}
+
+func TestQuickMemos_AutoExtractHidesManualButtons(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+
+	// Issue #143 (UI half): the manual Convert to Text / OCR buttons only exist
+	// in manual mode; auto_extract comes from the daemon config endpoint.
+	for _, token := range []string{
+		`API_BASE + "/api/memos/config"`,
+		`fetch(API_BASE + "/api/memos/config", { headers: getSwissAuthHeaders() })`,
+		`(payload.config && typeof payload.config === "object") ? payload.config : payload`,
+		`cfg.auto_extract === true`,
+		`let autoExtractEnabled = false;`,
+		`(extractKind && !autoExtractEnabled)`,
+		`loadMemoConfig().then(() => loadMemos(`,
+	} {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected auto_extract UI gate to contain %q", token)
+		}
+	}
+
+	// Manual mode still renders and wires the buttons, and auto mode never
+	// fabricates a transcript locally: the backend owns extraction.
+	for _, token := range []string{
+		`.swiss-memo-extract-btn`,
+		`runMemoExtract(m, extractKind, extractBtn)`,
+	} {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected manual extract path to remain intact, missing %q", token)
+		}
+	}
+	if strings.Contains(js, `memo.transcript = ""`) {
+		t.Errorf("auto mode must not fabricate an empty transcript locally")
 	}
 }
 
