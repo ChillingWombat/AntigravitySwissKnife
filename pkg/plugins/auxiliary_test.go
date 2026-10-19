@@ -2544,6 +2544,8 @@ func TestQuickMemos_ExtractButtons(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 	expectedTokens := []string{
 		`API_BASE + "/api/memos/extract"`,
+		`memo.workspace_path || getMemoQueryInfo().wsPath`,
+		`"?workspace_path=" + encodeURIComponent(memoWorkspace)`,
 		`JSON.stringify({ memo_id: memo.id })`,
 		`headers: getSwissAuthHeaders()`,
 		`payload.success !== true`,

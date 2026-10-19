@@ -5509,7 +5509,11 @@ func GenerateAuxiliaryPluginsScript() string {
         btn.disabled = true;
         btn.innerHTML = '<span class="swiss-memo-extract-spinner"></span><span>' + idleLabel + '</span>';
         try {
-          const res = await fetch(API_BASE + "/api/memos/extract", {
+          // Cross-workspace memos live in another memos.json: pass the memo's own
+          // workspace so the daemon can resolve it outside the current scope.
+          const memoWorkspace = memo.workspace_path || getMemoQueryInfo().wsPath || "";
+          const extractUrl = API_BASE + "/api/memos/extract" + (memoWorkspace ? ("?workspace_path=" + encodeURIComponent(memoWorkspace)) : "");
+          const res = await fetch(extractUrl, {
             method: "POST",
             headers: getSwissAuthHeaders(),
             body: JSON.stringify({ memo_id: memo.id })
