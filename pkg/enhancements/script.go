@@ -113,8 +113,19 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           });
           if (resGui.ok) {
             const loadedGui = await resGui.json();
-            if (loadedGui && loadedGui.project_colors) {
-              projectColors = loadedGui.project_colors;
+            if (loadedGui) {
+              // The chat navigator style lives in the GUI config next to the
+              // chat telemetry switches; missing/unknown values mean "panel".
+              const nextNavigatorMode = normalizeNavigatorMode(loadedGui.chat_navigator_mode);
+              if (nextNavigatorMode !== chatNavigatorMode) {
+                chatNavigatorMode = nextNavigatorMode;
+                // "line" drops the panel immediately; "panel" lets the next
+                // rail hover open it.
+                closePromptNavigatorPanel();
+              }
+              if (loadedGui.project_colors) {
+                projectColors = loadedGui.project_colors;
+              }
             }
           }
         }
@@ -466,6 +477,16 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     let lastAppliedActiveThickness = -1;
     let lastAppliedInactiveThickness = -1;
 
+    // Chat navigator hover panel state (issue #162). The mode mirrors the GUI
+    // config ("panel" default, "line" keeps the dash-only rail); the text cache
+    // stores the prompt of every turn that ever mounted, keyed by
+    // (conversation, turn ordinal), because the transcript is virtualized.
+    let chatNavigatorMode = "panel";
+    let navigatorPanelOpenTimer = null;
+    let navigatorPanelCloseTimer = null;
+    let navigatorPanelDismissTargets = [];
+    const jumpBarPromptTextCache = {};
+
     /* __SWISS_JUMP_BAR_HELPERS_START__ */
     // Pure helpers for the Quick Prompt Jump Bar (Turn Jump Navigator).
     // The chat transcript is a virtualized list: only the prompt turns near the
@@ -535,6 +556,76 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     }
     /* __SWISS_JUMP_BAR_HELPERS_END__ */
 
+    /* __SWISS_NAV_PANEL_HELPERS_START__ */
+    // Pure helpers for the chat navigator hover panel (issue #162).
+    // The rail keeps one dash per turn; the panel lists the same turns as one
+    // row each. The transcript is virtualized, so prompt texts are cached by
+    // (conversation, turn ordinal) while they are mounted; turns that were
+    // never mounted render a muted ellipsis instead of fabricated text.
+    const NAV_PANEL_GRACE_MS = 150;
+    const NAV_PANEL_MAX_TEXT = 200;
+    const NAV_PANEL_UNKNOWN_TEXT = "…";
+
+    function normalizeNavigatorMode(mode) {
+      return mode === "line" ? "line" : "panel";
+    }
+
+    function promptTextCacheKey(conversationKey, ordinal) {
+      return (conversationKey || "__unknown__") + "\u0000" + String(ordinal);
+    }
+
+    function condensePromptText(rawText) {
+      const collapsed = (rawText === null || rawText === undefined ? "" : String(rawText)).replace(/\s+/g, " ").trim();
+      if (!collapsed) return "";
+      if (collapsed.length <= NAV_PANEL_MAX_TEXT) return collapsed;
+      return collapsed.slice(0, NAV_PANEL_MAX_TEXT) + "…";
+    }
+
+    function cachePromptText(cache, conversationKey, ordinal, rawText) {
+      if (!cache || typeof ordinal !== "number" || ordinal < 0) return "";
+      const condensed = condensePromptText(rawText);
+      if (!condensed) return "";
+      cache[promptTextCacheKey(conversationKey, ordinal)] = condensed;
+      return condensed;
+    }
+
+    function getCachedPromptText(cache, conversationKey, ordinal) {
+      if (!cache || typeof ordinal !== "number" || ordinal < 0) return NAV_PANEL_UNKNOWN_TEXT;
+      return cache[promptTextCacheKey(conversationKey, ordinal)] || NAV_PANEL_UNKNOWN_TEXT;
+    }
+
+    // One menu row: a small dash marker plus the single-line, left-aligned
+    // prompt text. Text goes through textContent, never innerHTML.
+    function createNavigatorRow(doc, turnIdx, text, isActive, ui, onActivate) {
+      const row = doc.createElement("div");
+      row.className = "swiss-navigator-row" + (isActive ? " swiss-navigator-row-active" : "");
+      row.setAttribute("role", "menuitem");
+      row.setAttribute("tabindex", "-1");
+      row.setAttribute("data-prompt-index", String(turnIdx));
+      row.style.cssText = "display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 6px; cursor: pointer; text-align: left; user-select: none;";
+      row.style.background = isActive ? ui.activeRowBackground : "transparent";
+
+      const marker = doc.createElement("span");
+      marker.className = "swiss-navigator-row-dash" + (isActive ? " active" : "");
+      marker.style.cssText = "flex: 0 0 auto; display: block; border-radius: 2px;";
+      marker.style.width = ui.dashWidth + "px";
+      marker.style.height = (isActive ? ui.activeThickness : ui.inactiveThickness) + "px";
+      marker.style.background = isActive ? ui.activeColor : ui.defaultColor;
+
+      const hasText = !!(text && String(text).trim());
+      const label = doc.createElement("span");
+      label.className = "swiss-navigator-row-text";
+      label.textContent = hasText ? text : NAV_PANEL_UNKNOWN_TEXT;
+      label.style.cssText = "flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; font-size: 12px; line-height: 1.5;";
+      if (!hasText) label.style.color = ui.mutedColor;
+
+      row.appendChild(marker);
+      row.appendChild(label);
+      row.onclick = () => { if (onActivate) onActivate(turnIdx); };
+      return row;
+    }
+    /* __SWISS_NAV_PANEL_HELPERS_END__ */
+
     function resolveJumpBarConversationKey(hostEl) {
       try {
         const fiberId = getConversationIdFromElement(hostEl);
@@ -602,14 +693,28 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       return 0;
     }
 
+    // Prompt text reaches this tooltip as user input: escape it before it is
+    // interpolated into innerHTML, otherwise a prompt containing markup would
+    // execute inside the host page.
+    function escapeNavigatorText(text) {
+      return String(text == null ? "" : text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
     function renderPromptJumpBar() {
       const isEnabled = enhConfig.enabled && enhConfig.prompt_jump_bar?.enabled;
+      const navigatorMode = normalizeNavigatorMode(chatNavigatorMode);
       let bar = document.getElementById("swiss-prompt-jump-bar");
       let tooltip = document.getElementById("swiss-prompt-tooltip");
 
       if (!isEnabled) {
         if (bar) bar.remove();
         if (tooltip) tooltip.remove();
+        closePromptNavigatorPanel();
         lastActiveIdx = -1;
         lastJumpBarTotal = -1;
         lastJumpBarConversationKey = null;
@@ -629,6 +734,16 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       } else if (bar.parentElement !== targetParent) {
         targetParent.appendChild(bar);
       }
+      // Keyboard support is a panel-mode feature; "line" stays exactly the
+      // dash-only rail of before (no extra tab stop).
+      if (navigatorMode === "panel") {
+        bar.setAttribute("tabindex", "0");
+        bar.setAttribute("aria-label", "Chat navigator — prompt turns");
+        bar.setAttribute("aria-haspopup", "menu");
+      } else {
+        bar.removeAttribute("tabindex");
+        bar.removeAttribute("aria-haspopup");
+      }
 
       // Resolve one stable turn total for this conversation; steps are scoped to
       // the pane/transcript that hosts the rail.
@@ -639,13 +754,28 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const totalTurns = computeStableTurnTotal(ordinals, steps.length, daemonTurnCount, conversationKey, jumpBarTurnRegistry);
       if (totalTurns === 0) {
         bar.style.display = "none";
+        closePromptNavigatorPanel();
         lastJumpBarConversationKey = conversationKey;
         lastJumpBarTotal = 0;
         return;
       }
       const stepTurnIndexes = mapStepsToTurnIndexes(ordinals, totalTurns);
 
+      // The transcript virtualizes turns away, so remember the prompt text of
+      // every mounted turn by (conversation, turn index) while the rail
+      // refreshes. The hover panel reads this cache; unmounted turns show "…".
+      for (let i = 0; i < stepTurnIndexes.length; i++) {
+        const step = steps[i];
+        if (!step) continue;
+        const textEl = step.querySelector('.whitespace-pre-wrap') || step;
+        cachePromptText(jumpBarPromptTextCache, conversationKey, stepTurnIndexes[i], textEl ? textEl.textContent : "");
+      }
+
       bar.style.display = "flex";
+      if (navigatorMode !== "panel") {
+        // "line" mode is the dash-only rail: never leave a stale panel behind.
+        closePromptNavigatorPanel();
+      }
 
       const dark = isDarkMode();
       const isGutter = enhConfig.prompt_jump_bar?.position !== "floating";
@@ -701,6 +831,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         lastAppliedDashWidth = dashWidth;
         lastAppliedActiveThickness = activeThickness;
         lastAppliedInactiveThickness = inactiveThickness;
+        updateNavigatorPanelActiveHighlight(activeIdx);
       }
 
       // One bar per prompt turn, in fixed order (oldest first). The DOM is only
@@ -716,6 +847,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       }
 
       bar.innerHTML = "";
+      // The rail is rebuilt (conversation switch or new stable total): the panel
+      // rows are stale, so drop the panel; the next rail hover re-opens it.
+      closePromptNavigatorPanel();
       lastJumpBarConversationKey = conversationKey;
       lastJumpBarTotal = totalTurns;
 
@@ -740,10 +874,11 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           const hoverWidth = Math.max(22, curWidth + 8);
           dash.style.width = hoverWidth + "px";
           dash.style.background = activeColor;
-          if (tooltip) {
+          scheduleOpenPromptNavigatorPanel();
+          if (tooltip && navigatorMode === "line") {
             const rect = dash.getBoundingClientRect();
             const snippetHTML = snippet
-              ? "<div style='color: var(--foreground, #101010); font-size: 12px; font-weight: 400;'>" + snippet + "</div>"
+              ? "<div style='color: var(--foreground, #101010); font-size: 12px; font-weight: 400;'>" + escapeNavigatorText(snippet) + "</div>"
               : "<div style='color: var(--muted-foreground, #64748b); font-size: 12px; font-weight: 400;'>Jumps to this turn</div>";
             tooltip.innerHTML = "<div style='font-weight: 500; font-size: 11px; color: var(--muted-foreground, #64748b); margin-bottom: 2px;'>Prompt #" + (turnIdx + 1) + (dash.classList.contains("active") ? " (Current)" : "") + "</div>" + snippetHTML;
             tooltip.style.left = (rect.right + 12) + "px";
@@ -758,6 +893,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           const cur = dash.classList.contains("active");
           dash.style.background = cur ? activeColor : defaultColor;
           if (tooltip) tooltip.style.display = "none";
+          scheduleClosePromptNavigatorPanel();
         };
 
         dash.onclick = () => {
@@ -808,6 +944,323 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       lastActiveIdx = -1; // Force indicator sync on fresh render
       updateActiveIndicator(resolveActiveTurnIndex(steps, stepTurnIndexes, viewport));
     }
+
+    /* === Chat Navigator hover panel (issue #162) ===
+     * The rail keeps its dashes; in "panel" mode hovering it opens a panel to
+     * its RIGHT that lists every turn (dash marker + one-line prompt text).
+     * The panel is a fixed-position element attached to document.body so the
+     * chat pane's overflow clipping cannot cut it off; it is removed entirely
+     * when closed (never intercepts pointer events while closed) and dropped
+     * again on every rail rebuild or teardown. */
+    /* __SWISS_NAV_PANEL_LOGIC_START__ */
+    function isNavigatorPanelMode() {
+      return normalizeNavigatorMode(chatNavigatorMode) === "panel";
+    }
+
+    function getPromptNavigatorPanel() {
+      return document.getElementById("swiss-prompt-navigator-panel");
+    }
+
+    function navigatorPanelDefaultColor() {
+      return isDarkMode() ? "rgba(148, 163, 184, 0.45)" : "rgba(100, 116, 139, 0.42)";
+    }
+
+    function navigatorPanelActiveRowBackground() {
+      return isDarkMode() ? "rgba(148, 163, 184, 0.16)" : "rgba(100, 116, 139, 0.12)";
+    }
+
+    function buildNavigatorPanelUI() {
+      return {
+        dashWidth: enhConfig.prompt_jump_bar?.dash_width || 14,
+        activeThickness: enhConfig.prompt_jump_bar?.dash_thickness || 2.5,
+        inactiveThickness: enhConfig.prompt_jump_bar?.inactive_thickness || 1.5,
+        activeColor: getActiveAndHoverColor(),
+        defaultColor: navigatorPanelDefaultColor(),
+        activeRowBackground: navigatorPanelActiveRowBackground(),
+        mutedColor: "var(--muted-foreground, #64748b)"
+      };
+    }
+
+    function detachNavigatorPanelDismissListeners() {
+      for (let i = 0; i < navigatorPanelDismissTargets.length; i++) {
+        const entry = navigatorPanelDismissTargets[i];
+        try { entry.target.removeEventListener("scroll", entry.handler, entry.options); } catch (_) {}
+      }
+      navigatorPanelDismissTargets = [];
+    }
+
+    // Scrolls inside the panel itself (overflow-y) must not close it.
+    function onNavigatorPanelOutsideScroll(e) {
+      const panel = getPromptNavigatorPanel();
+      if (panel && e && e.target && typeof panel.contains === "function" && panel.contains(e.target)) return;
+      closePromptNavigatorPanel();
+    }
+
+    function attachNavigatorPanelDismissListeners() {
+      detachNavigatorPanelDismissListeners();
+      const viewport = document.querySelector('[data-testid="autoscroll-viewport"]') ||
+                       document.querySelector('.overflow-y-auto');
+      if (viewport && typeof viewport.addEventListener === "function") {
+        viewport.addEventListener("scroll", onNavigatorPanelOutsideScroll, { passive: true });
+        navigatorPanelDismissTargets.push({ target: viewport, handler: onNavigatorPanelOutsideScroll, options: { passive: true } });
+      }
+      if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+        window.addEventListener("scroll", onNavigatorPanelOutsideScroll, { passive: true, capture: true });
+        navigatorPanelDismissTargets.push({ target: window, handler: onNavigatorPanelOutsideScroll, options: { passive: true, capture: true } });
+      }
+    }
+
+    function closePromptNavigatorPanel() {
+      if (navigatorPanelOpenTimer) {
+        clearTimeout(navigatorPanelOpenTimer);
+        navigatorPanelOpenTimer = null;
+      }
+      if (navigatorPanelCloseTimer) {
+        clearTimeout(navigatorPanelCloseTimer);
+        navigatorPanelCloseTimer = null;
+      }
+      const panel = getPromptNavigatorPanel();
+      if (panel && typeof panel.remove === "function") panel.remove();
+      detachNavigatorPanelDismissListeners();
+    }
+
+    function cancelNavigatorPanelClose() {
+      if (navigatorPanelCloseTimer) {
+        clearTimeout(navigatorPanelCloseTimer);
+        navigatorPanelCloseTimer = null;
+      }
+    }
+
+    // Closing waits NAV_PANEL_GRACE_MS so the pointer can travel from the rail
+    // to the panel (10px gap) without the panel vanishing under it.
+    function scheduleClosePromptNavigatorPanel() {
+      if (navigatorPanelOpenTimer) {
+        clearTimeout(navigatorPanelOpenTimer);
+        navigatorPanelOpenTimer = null;
+      }
+      if (!getPromptNavigatorPanel()) return;
+      cancelNavigatorPanelClose();
+      navigatorPanelCloseTimer = setTimeout(() => {
+        navigatorPanelCloseTimer = null;
+        closePromptNavigatorPanel();
+      }, NAV_PANEL_GRACE_MS);
+    }
+
+    // Opening also waits the grace delay (hover intent): crossing the 7px gap
+    // between two dashes cancels the pending close and keeps the panel up.
+    function scheduleOpenPromptNavigatorPanel() {
+      if (!isNavigatorPanelMode()) return;
+      cancelNavigatorPanelClose();
+      if (getPromptNavigatorPanel()) return;
+      if (navigatorPanelOpenTimer) return;
+      navigatorPanelOpenTimer = setTimeout(() => {
+        navigatorPanelOpenTimer = null;
+        openPromptNavigatorPanel();
+      }, NAV_PANEL_GRACE_MS);
+    }
+
+    // Reuses the dash click path so row clicks and dash clicks stay in lockstep.
+    function triggerNavigatorJump(turnIdx) {
+      const bar = document.getElementById("swiss-prompt-jump-bar");
+      if (!bar) return false;
+      const dash = bar.querySelector('.swiss-prompt-dash[data-prompt-index="' + turnIdx + '"]');
+      if (!dash || typeof dash.click !== "function") return false;
+      dash.click();
+      return true;
+    }
+
+    function positionPromptNavigatorPanel(panel, bar) {
+      if (!panel || !bar || typeof bar.getBoundingClientRect !== "function") return;
+      const rect = bar.getBoundingClientRect();
+      const vw = (typeof window !== "undefined" && window.innerWidth) || 1024;
+      const vh = (typeof window !== "undefined" && window.innerHeight) || 768;
+      const gap = 10;
+      const margin = 8;
+      const panelWidth = panel.offsetWidth || 320;
+
+      let left = rect.right + gap;
+      if (left + panelWidth > vw - margin) {
+        // Not enough room on the right: flip to the left of the rail, then clamp.
+        left = rect.left - gap - panelWidth;
+      }
+      left = Math.max(margin, Math.min(left, Math.max(margin, vw - panelWidth - margin)));
+
+      const cap = Math.max(120, Math.min(vh * 0.6, vh - 2 * margin));
+      panel.style.maxHeight = cap + "px";
+      const panelHeight = Math.min(panel.offsetHeight || 0, cap);
+      let top = rect.top;
+      if (top + panelHeight > vh - margin) top = vh - margin - panelHeight;
+      top = Math.max(margin, top);
+
+      panel.style.left = left + "px";
+      panel.style.top = top + "px";
+      panel.style.maxHeight = Math.max(120, Math.min(vh * 0.6, vh - top - margin)) + "px";
+    }
+
+    function updateNavigatorPanelActiveHighlight(activeIdx) {
+      const panel = getPromptNavigatorPanel();
+      if (!panel) return;
+      const ui = buildNavigatorPanelUI();
+      panel.querySelectorAll(".swiss-navigator-row").forEach((row) => {
+        const idx = parseInt(row.getAttribute("data-prompt-index"), 10);
+        const isActive = idx === activeIdx;
+        if (isActive) {
+          row.classList.add("swiss-navigator-row-active");
+        } else {
+          row.classList.remove("swiss-navigator-row-active");
+        }
+        row.style.background = isActive ? ui.activeRowBackground : "transparent";
+        const marker = row.querySelector(".swiss-navigator-row-dash");
+        if (marker) {
+          if (isActive) {
+            marker.classList.add("active");
+          } else {
+            marker.classList.remove("active");
+          }
+          marker.style.height = (isActive ? ui.activeThickness : ui.inactiveThickness) + "px";
+          marker.style.background = isActive ? ui.activeColor : ui.defaultColor;
+        }
+      });
+    }
+
+    function openPromptNavigatorPanel() {
+      if (!isNavigatorPanelMode()) return;
+      const bar = document.getElementById("swiss-prompt-jump-bar");
+      if (!bar || bar.style.display === "none") return;
+      const dashes = bar.querySelectorAll(".swiss-prompt-dash");
+      if (!dashes || !dashes.length) return;
+
+      closePromptNavigatorPanel();
+
+      const conversationKey = lastJumpBarConversationKey || "";
+      const totalTurns = lastJumpBarTotal > 0 ? lastJumpBarTotal : dashes.length;
+      let activeIdx = -1;
+      dashes.forEach((d) => {
+        if (d.classList.contains("active")) {
+          const idx = parseInt(d.getAttribute("data-prompt-index"), 10);
+          if (!isNaN(idx)) activeIdx = idx;
+        }
+      });
+
+      const ui = buildNavigatorPanelUI();
+      const panel = document.createElement("div");
+      panel.id = "swiss-prompt-navigator-panel";
+      panel.setAttribute("data-swiss-component", "prompt-navigator-panel");
+      panel.setAttribute("role", "menu");
+      panel.setAttribute("aria-label", "Prompt turns");
+      panel.style.cssText = "position: fixed; z-index: 10001; width: 320px; max-width: calc(100vw - 24px); overflow-y: auto; overflow-x: hidden; padding: 4px; box-sizing: border-box; background: var(--card, #ffffff); color: var(--foreground, #101010); border: 1px solid var(--border, rgba(0,0,0,0.08)); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.16); font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; pointer-events: auto;";
+      document.body.appendChild(panel);
+
+      for (let turnIdx = 0; turnIdx < totalTurns; turnIdx++) {
+        const cached = getCachedPromptText(jumpBarPromptTextCache, conversationKey, turnIdx);
+        const known = cached !== NAV_PANEL_UNKNOWN_TEXT;
+        const row = createNavigatorRow(document, turnIdx, known ? cached : "", turnIdx === activeIdx, ui, triggerNavigatorJump);
+        panel.appendChild(row);
+      }
+
+      panel.onmouseenter = cancelNavigatorPanelClose;
+      panel.onmouseleave = scheduleClosePromptNavigatorPanel;
+
+      positionPromptNavigatorPanel(panel, bar);
+      attachNavigatorPanelDismissListeners();
+
+      // Long conversations: start the list at the current turn.
+      const activeRow = panel.querySelector(".swiss-navigator-row-active");
+      if (activeRow && typeof activeRow.scrollIntoView === "function") {
+        try { activeRow.scrollIntoView({ block: "nearest" }); } catch (_) {}
+      }
+    }
+
+    function focusNavigatorRow(panel, delta) {
+      const rows = Array.from(panel.querySelectorAll(".swiss-navigator-row"));
+      if (!rows.length) return;
+      let idx = -1;
+      try {
+        const focused = document.activeElement;
+        if (focused) idx = rows.indexOf(focused);
+      } catch (_) {}
+      if (idx === -1) {
+        const activeRow = panel.querySelector(".swiss-navigator-row-active");
+        idx = activeRow ? rows.indexOf(activeRow) : -1;
+      }
+      if (idx === -1) idx = delta > 0 ? -1 : 0;
+      let next = idx + delta;
+      if (next < 0) next = rows.length - 1;
+      if (next >= rows.length) next = 0;
+      const target = rows[next];
+      if (target && typeof target.focus === "function") {
+        try { target.focus(); } catch (_) {}
+      }
+    }
+
+    // Keyboard support: focus the rail, ArrowDown/ArrowUp opens and walks the
+    // rows, Enter jumps, Escape closes (and returns focus to the rail).
+    function handleNavigatorKeydown(e) {
+      if (!e || !e.key) return;
+      const panel = getPromptNavigatorPanel();
+      const bar = document.getElementById("swiss-prompt-jump-bar");
+      if (!bar) return;
+      let onRail = false;
+      let onPanel = false;
+      try {
+        onRail = e.target === bar || (typeof bar.contains === "function" && bar.contains(e.target));
+        onPanel = !!(panel && e.target && typeof panel.contains === "function" && panel.contains(e.target));
+      } catch (_) {}
+
+      if (e.key === "Escape") {
+        if (panel) {
+          // Escape closes the panel wherever focus is; only steal the key when
+          // the user is actually inside the navigator.
+          if (onPanel || onRail) e.preventDefault();
+          closePromptNavigatorPanel();
+          if ((onPanel || onRail) && typeof bar.focus === "function") {
+            try { bar.focus(); } catch (_) {}
+          }
+        }
+        return;
+      }
+
+      if (!isNavigatorPanelMode()) return;
+      if (!onRail && !onPanel) return;
+
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const delta = e.key === "ArrowDown" ? 1 : -1;
+        if (!panel) {
+          openPromptNavigatorPanel();
+          const opened = getPromptNavigatorPanel();
+          if (opened) focusNavigatorRow(opened, delta);
+        } else {
+          focusNavigatorRow(panel, delta);
+        }
+        return;
+      }
+
+      if (e.key === "Enter") {
+        if (onPanel) {
+          const row = e.target && typeof e.target.closest === "function" ? e.target.closest('[role="menuitem"]') : null;
+          if (row) {
+            e.preventDefault();
+            const idx = parseInt(row.getAttribute("data-prompt-index"), 10);
+            if (!isNaN(idx)) triggerNavigatorJump(idx);
+          }
+          return;
+        }
+        if (onRail) {
+          e.preventDefault();
+          if (!panel) {
+            openPromptNavigatorPanel();
+            return;
+          }
+          const activeRow = panel.querySelector(".swiss-navigator-row-active");
+          if (activeRow) {
+            const idx = parseInt(activeRow.getAttribute("data-prompt-index"), 10);
+            if (!isNaN(idx)) triggerNavigatorJump(idx);
+          }
+        }
+      }
+    }
+    /* __SWISS_NAV_PANEL_LOGIC_END__ */
 
     // Default Predefined Project for New Conversations
     function getSectionIdForProject(projectName) {
@@ -1253,6 +1706,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         lastAppliedDashWidth = dashWidth;
         lastAppliedActiveThickness = activeThickness;
         lastAppliedInactiveThickness = inactiveThickness;
+        updateNavigatorPanelActiveHighlight(activeIdx);
       });
     };
 
@@ -1300,6 +1754,11 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       window.addEventListener("wheel", () => window.__swissHandleUserInteraction && window.__swissHandleUserInteraction(), { passive: true });
       window.addEventListener("touchmove", () => window.__swissHandleUserInteraction && window.__swissHandleUserInteraction(), { passive: true });
       window.addEventListener("keydown", (e) => window.__swissHandleKeydown && window.__swissHandleKeydown(e), { passive: false });
+
+      // Chat navigator panel: keyboard support while the rail (or the panel) has focus.
+      if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+        document.addEventListener("keydown", (e) => handleNavigatorKeydown(e), true);
+      }
     }
 
     if (window.__swissEnhancementsObserver && typeof window.__swissEnhancementsObserver.disconnect === "function") {
