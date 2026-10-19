@@ -6,6 +6,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -5274,29 +5275,36 @@ func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
 	}
 	dirPath, errJail := validateJailedPath(rawPath)
 	if errJail != nil {
-		writeJSON(w, map[string]interface{}{"success": false, "error": errJail.Error(), "path": rawPath, "files": []FileItem{}})
+		writeJSONStatus(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": errJail.Error(), "path": rawPath, "files": []FileItem{}})
 		return
 	}
 
+	fi, errStat := os.Stat(dirPath)
 	// If dirPath does not exist or is not a directory, attempt resolving rawPath via project configuration
-	if fi, err := os.Stat(dirPath); err != nil || !fi.IsDir() {
+	if errStat != nil || !fi.IsDir() {
 		if resolved := github.ResolveProjectPath(rawPath); resolved != "" && resolved != dirPath {
 			if fiRes, errRes := os.Stat(resolved); errRes == nil && fiRes.IsDir() {
 				if jailedRes, errJ := validateJailedPath(resolved); errJ == nil {
 					dirPath = jailedRes
+					fi = fiRes
+					errStat = nil
 				}
 			}
 		}
 	}
 
-	// If target is a file instead of directory, list its parent directory
-	if fi, err := os.Stat(dirPath); err == nil && !fi.IsDir() {
-		dirPath = filepath.Dir(dirPath)
+	if errStat != nil {
+		writeJSONStatus(w, filesListErrorStatus(errStat), map[string]interface{}{"success": false, "error": errStat.Error(), "path": dirPath, "files": []FileItem{}})
+		return
+	}
+	if !fi.IsDir() {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": fmt.Sprintf("not a directory: %s", dirPath), "path": dirPath, "files": []FileItem{}})
+		return
 	}
 
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
-		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error(), "path": dirPath, "files": []FileItem{}})
+		writeJSONStatus(w, filesListErrorStatus(err), map[string]interface{}{"success": false, "error": err.Error(), "path": dirPath, "files": []FileItem{}})
 		return
 	}
 
@@ -5345,6 +5353,17 @@ func (s *Server) handleFilesList(w http.ResponseWriter, r *http.Request) {
 		"path":    dirPath,
 		"files":   files,
 	})
+}
+
+func filesListErrorStatus(err error) int {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return http.StatusNotFound
+	case errors.Is(err, fs.ErrPermission):
+		return http.StatusForbidden
+	default:
+		return http.StatusInternalServerError
+	}
 }
 
 func (s *Server) handleFilesRead(w http.ResponseWriter, r *http.Request) {
