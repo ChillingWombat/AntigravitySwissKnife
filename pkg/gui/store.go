@@ -28,6 +28,16 @@ type Store struct {
 	lastLoadedModTime time.Time
 }
 
+// normalizeChatNavigatorMode coerces the chat navigator mode to a supported
+// value: "line" is preserved, everything else (missing, empty, unknown) falls
+// back to the default "panel".
+func normalizeChatNavigatorMode(mode string) string {
+	if strings.ToLower(strings.TrimSpace(mode)) == "line" {
+		return "line"
+	}
+	return "panel"
+}
+
 // NewStore initializes or loads the GUI configuration from the specified directory.
 func NewStore(configDir string) (*Store, error) {
 	if configDir == "" {
@@ -129,6 +139,7 @@ func (s *Store) load() error {
 	if cfg.ChatTelemetryScope == "" {
 		cfg.ChatTelemetryScope = "aggregated"
 	}
+	cfg.ChatNavigatorMode = normalizeChatNavigatorMode(cfg.ChatNavigatorMode)
 	if cfg.ActiveConversationIndicator == "" {
 		cfg.ActiveConversationIndicator = "background"
 	}
@@ -257,33 +268,34 @@ func (s *Store) GetConfig() Config {
 	copy(archivedCopy, s.config.ArchivedProjects)
 
 	return Config{
-		Enabled:                     s.config.Enabled,
-		ColorStylingEnabled:         s.config.ColorStylingEnabled,
-		SolidLeftEdge:               s.config.SolidLeftEdge,
-		DragRearrangeEnabled:        s.config.DragRearrangeEnabled,
+		Enabled:                       s.config.Enabled,
+		ColorStylingEnabled:           s.config.ColorStylingEnabled,
+		SolidLeftEdge:                 s.config.SolidLeftEdge,
+		DragRearrangeEnabled:          s.config.DragRearrangeEnabled,
 		ActiveConversationIndicator:   s.config.ActiveConversationIndicator,
 		ActiveConversationBorderWidth: s.config.ActiveConversationBorderWidth,
 		ActiveConversationBold:        s.config.ActiveConversationBold,
-		ProjectColors:               colorsCopy,
-		ProjectOrder:                orderCopy,
-		ArchivedProjects:            archivedCopy,
-		TintOpacity:                 s.config.TintOpacity,
-		ConversationTabsMode:        s.config.ConversationTabsMode,
-		ConversationTabsFixedLimit:  s.config.ConversationTabsFixedLimit,
-		ConversationTabsAgeThreshold: s.config.ConversationTabsAgeThreshold,
-		ConversationTabsMin:         s.config.ConversationTabsMin,
-		ConversationTabsMax:         s.config.ConversationTabsMax,
-		ReplaceSeeAllTriangle:       s.config.ReplaceSeeAllTriangle,
-		ConsistentProjectSpacing:    s.config.ConsistentProjectSpacing,
-		ConsistentProjectSpacingLine: s.config.ConsistentProjectSpacingLine,
-		AutoArchiveConversations:    s.config.AutoArchiveConversations,
-		AutoArchiveHorizon:          s.config.AutoArchiveHorizon,
-		AutoInject:                  s.config.AutoInject,
-		ChatTelemetryInputTokens:     s.config.ChatTelemetryInputTokens,
-		ChatTelemetryOutputTokens:    s.config.ChatTelemetryOutputTokens,
-		ChatTelemetryCacheHitRatio:   s.config.ChatTelemetryCacheHitRatio,
-		ChatTelemetryGenerationSpeed: s.config.ChatTelemetryGenerationSpeed,
-		ChatTelemetryScope:           s.config.ChatTelemetryScope,
+		ProjectColors:                 colorsCopy,
+		ProjectOrder:                  orderCopy,
+		ArchivedProjects:              archivedCopy,
+		TintOpacity:                   s.config.TintOpacity,
+		ConversationTabsMode:          s.config.ConversationTabsMode,
+		ConversationTabsFixedLimit:    s.config.ConversationTabsFixedLimit,
+		ConversationTabsAgeThreshold:  s.config.ConversationTabsAgeThreshold,
+		ConversationTabsMin:           s.config.ConversationTabsMin,
+		ConversationTabsMax:           s.config.ConversationTabsMax,
+		ReplaceSeeAllTriangle:         s.config.ReplaceSeeAllTriangle,
+		ConsistentProjectSpacing:      s.config.ConsistentProjectSpacing,
+		ConsistentProjectSpacingLine:  s.config.ConsistentProjectSpacingLine,
+		AutoArchiveConversations:      s.config.AutoArchiveConversations,
+		AutoArchiveHorizon:            s.config.AutoArchiveHorizon,
+		AutoInject:                    s.config.AutoInject,
+		ChatTelemetryInputTokens:      s.config.ChatTelemetryInputTokens,
+		ChatTelemetryOutputTokens:     s.config.ChatTelemetryOutputTokens,
+		ChatTelemetryCacheHitRatio:    s.config.ChatTelemetryCacheHitRatio,
+		ChatTelemetryGenerationSpeed:  s.config.ChatTelemetryGenerationSpeed,
+		ChatTelemetryScope:            s.config.ChatTelemetryScope,
+		ChatNavigatorMode:             s.config.ChatNavigatorMode,
 	}
 }
 
@@ -296,6 +308,7 @@ func (s *Store) UpdateConfig(cfg *Config) error {
 	if cfg.ChatTelemetryScope == "" {
 		cfg.ChatTelemetryScope = "aggregated"
 	}
+	cfg.ChatNavigatorMode = normalizeChatNavigatorMode(cfg.ChatNavigatorMode)
 	if cfg.ProjectColors == nil {
 		cfg.ProjectColors = make(map[string]string)
 	}
@@ -441,6 +454,8 @@ func (s *Store) UpdateConfigPartial(rawJSON []byte) (*GUIConfig, error) {
 			_ = json.Unmarshal(v, &cfg.ChatTelemetryGenerationSpeed)
 		case "chat_telemetry_scope", "chattelemetryscope":
 			_ = json.Unmarshal(v, &cfg.ChatTelemetryScope)
+		case "chat_navigator_mode", "chatnavigatormode":
+			_ = json.Unmarshal(v, &cfg.ChatNavigatorMode)
 		}
 	}
 
@@ -450,6 +465,7 @@ func (s *Store) UpdateConfigPartial(rawJSON []byte) (*GUIConfig, error) {
 	if cfg.ChatTelemetryScope == "" {
 		cfg.ChatTelemetryScope = "aggregated"
 	}
+	cfg.ChatNavigatorMode = normalizeChatNavigatorMode(cfg.ChatNavigatorMode)
 	if cfg.TintOpacity <= 0 {
 		cfg.TintOpacity = 0.15
 	}
@@ -1223,5 +1239,3 @@ func (s *Store) OpenProjectSettings(nameOrID string) error {
 	_, err = s.injector.ExecuteScript(target.WebSocketDebuggerURL, jsExpr)
 	return err
 }
-
-

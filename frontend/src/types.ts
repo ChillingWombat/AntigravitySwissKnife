@@ -815,6 +815,7 @@ export interface GUIConfig {
   chat_telemetry_cache_hit_ratio?: boolean
   chat_telemetry_generation_speed?: boolean
   chat_telemetry_scope?: 'aggregated' | 'main_only'
+  chat_navigator_mode?: 'panel' | 'line'
 }
 
 // Token Monitor types
