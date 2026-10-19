@@ -1272,12 +1272,23 @@ div:has(> .shrink-0.flex.items-center.border-b),
   gap: 6px;
   align-items: center;
 }
-/* Responsive flowing grid: as many memo cards per row as the panel width allows,
-   each card keeping a readable minimum width. */
+/* Fixed memo card size. The host IDE can shrink the right auxiliary panel down to
+   285px - the narrowest width the auxiliary tab header supports (see the
+   @container (max-width: 285px) rule above). At that width the memos view has
+   285px - 2 * 12px (view padding) - 12px (vertical scrollbar allowance) = 249px of
+   content, so a 249px card never overflows the panel horizontally. Card height
+   follows the golden ratio: height : width = 1 : 1.618. The grid stays responsive:
+   auto-fill fits as many fixed-size cards per row as the panel allows. */
 .swiss-memo-list {
+  --swiss-aux-panel-min-width: 285px;
+  --swiss-memo-view-padding: 12px;
+  --swiss-memo-scrollbar-allowance: 12px;
+  --swiss-memo-card-width: calc(var(--swiss-aux-panel-min-width) - 2 * var(--swiss-memo-view-padding) - var(--swiss-memo-scrollbar-allowance));
+  --swiss-memo-card-height: calc(var(--swiss-memo-card-width) / 1.618);
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fill, min(var(--swiss-memo-card-width), 100%));
   gap: 8px;
+  justify-content: start;
   align-items: start;
 }
 .swiss-memo-list > .swiss-memo-empty-search,
@@ -1352,6 +1363,13 @@ div:has(> .shrink-0.flex.items-center.border-b),
   color: #bfdbfe;
 }
 .swiss-memo-card {
+  box-sizing: border-box;
+  width: var(--swiss-memo-card-width, 249px);
+  max-width: 100%;
+  height: var(--swiss-memo-card-height, 154px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 8px;
   padding: 10px 12px;
@@ -1368,6 +1386,181 @@ div:has(> .shrink-0.flex.items-center.border-b),
 .swiss-memo-card.recording {
   border-color: #ea4335;
   background: rgba(234, 67, 53, 0.04);
+}
+.swiss-memo-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  flex-shrink: 0;
+}
+.swiss-memo-card-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  min-width: 0;
+}
+.swiss-memo-card-title {
+  font-weight: 600;
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.swiss-memo-card-duration {
+  font-size: 9px;
+  color: #b06000;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.swiss-memo-card-date {
+  font-size: 9px;
+  color: #94a3b8;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+/* Body keeps the fixed card height: anything that does not fit is clipped. */
+.swiss-memo-card-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text, #1e293b);
+}
+.swiss-memo-card-text {
+  flex: 0 1 auto;
+  min-height: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* A real transcript must stay visible when the body also holds an image/caption. */
+.swiss-memo-card-img-wrap ~ .swiss-memo-card-transcript {
+  flex: 0 0 auto;
+  max-height: 70%;
+}
+.swiss-memo-card-img-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-height: 100%;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border, #cbd5e1);
+  background: #ffffff;
+  box-sizing: border-box;
+}
+.swiss-memo-card-img {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.swiss-memo-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+.swiss-memo-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+/* Voice player row (issue #136) */
+.swiss-memo-player {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 2px;
+  flex-shrink: 0;
+}
+.swiss-memo-play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border, #cbd5e1);
+  background: var(--canvas, #ffffff);
+  color: var(--text, #1e293b);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.swiss-memo-play:hover {
+  border-color: #1a73e8;
+  color: #1a73e8;
+}
+.swiss-memo-progress {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(148, 163, 184, 0.3);
+  cursor: pointer;
+  touch-action: none;
+}
+.swiss-memo-progress-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-radius: 3px;
+  background: #1a73e8;
+  pointer-events: none;
+}
+.swiss-memo-time {
+  font-size: 9px;
+  color: var(--text-muted, #64748b);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.swiss-memo-extract-btn {
+  padding: 2px 6px;
+  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.swiss-memo-extract-btn[disabled] {
+  opacity: 0.65;
+  cursor: default;
+}
+.swiss-memo-extract-spinner {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  box-sizing: border-box;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: swiss-memo-spin 0.7s linear infinite;
+}
+@keyframes swiss-memo-spin {
+  to { transform: rotate(360deg); }
 }
 .swiss-memo-search-row {
   display: flex;
@@ -5105,9 +5298,9 @@ func GenerateAuxiliaryPluginsScript() string {
       topBar.style.display = "flex";
       topBar.style.gap = "8px";
       topBar.innerHTML = ` + "`" + `
-        <button class="swiss-browser-btn" id="swiss-m-new-text" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 8px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/></svg><span>Add Text Memo</span></button>
-        <button class="swiss-browser-btn" id="swiss-m-record-audio" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 8px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg><span>Add Voice Memo</span></button>
-        <button class="swiss-browser-btn" id="swiss-m-new-image" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 8px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg><span>Add Image Memo</span></button>
+        <button class="swiss-browser-btn" id="swiss-m-new-text" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 8px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/></svg><span>Text Memo</span></button>
+        <button class="swiss-browser-btn" id="swiss-m-record-audio" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 8px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg><span>Voice Memo</span></button>
+        <button class="swiss-browser-btn" id="swiss-m-new-image" style="flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; padding: 6px 8px; box-sizing: border-box; white-space: nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg><span>Image Memo</span></button>
       ` + "`" + `;
       wrap.appendChild(topBar);
 
@@ -5249,6 +5442,118 @@ func GenerateAuxiliaryPluginsScript() string {
         });
       };
 
+      const memoKindOf = (memo) => {
+        if (!memo) return "text";
+        if (memo.type === "image") return "image";
+        if (memo.type === "voice" || memo.type === "audio" || (Array.isArray(memo.tags) && memo.tags.includes("voice") && memo.type !== "text")) return "voice";
+        return "text";
+      };
+
+      const PLAY_ICON = '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"/></svg>';
+      const PAUSE_ICON = '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" stroke="none"><rect x="7" y="5" width="3" height="14" rx="1"/><rect x="14" y="5" width="3" height="14" rx="1"/></svg>';
+
+      // HTML ids must be unique per document, so every card scopes its ids with
+      // the memo id. Only [A-Za-z0-9_-] survives, keeping the suffix safe inside
+      // attribute values and (defensive) selector strings.
+      const memoCardDomKey = (memoId) => {
+        const raw = memoId === undefined || memoId === null ? "" : String(memoId);
+        const safe = raw.replace(/[^A-Za-z0-9_-]/g, "_");
+        return safe || "anon";
+      };
+
+      const formatPlayerTime = (seconds) => {
+        const numeric = Number(seconds);
+        const total = isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
+        const mins = Math.floor(total / 60);
+        const secs = total % 60;
+        return mins + ":" + (secs < 10 ? "0" : "") + secs;
+      };
+
+      // "m:ss" duration labels recorded when the memo was created are the reliable
+      // fallback for WebM blobs whose <audio>.duration is Infinity/NaN (issue #136).
+      const parseDurationLabel = (label) => {
+        if (!label || typeof label !== "string") return 0;
+        let total = 0;
+        const parts = label.trim().split(":");
+        for (let i = 0; i < parts.length; i++) {
+          const n = parseInt(parts[i], 10);
+          if (!isFinite(n)) return 0;
+          total = total * 60 + n;
+        }
+        return total;
+      };
+
+      // Single active player: starting one memo stops the previous one.
+      let activePlayback = null;
+      const stopActivePlayback = () => {
+        if (!activePlayback) return;
+        const prev = activePlayback;
+        activePlayback = null;
+        prev.cancel();
+        try { prev.audio.pause(); } catch (_) {}
+        prev.setPlaying(false);
+      };
+
+      const renderTranscriptInCard = (memoId, transcript) => {
+        if (!transcript) return;
+        const cards = memoList.querySelectorAll(".swiss-memo-card");
+        let card = null;
+        for (let i = 0; i < cards.length; i++) {
+          if (cards[i].dataset && cards[i].dataset.memoId === memoId) { card = cards[i]; break; }
+        }
+        if (!card) return;
+        const body = card.querySelector(".swiss-memo-card-body");
+        if (!body) return;
+        let textEl = body.querySelector("[data-memo-transcript]");
+        if (!textEl) {
+          textEl = document.createElement("div");
+          textEl.className = "swiss-memo-card-text swiss-memo-card-transcript";
+          textEl.setAttribute("data-memo-transcript", "1");
+          body.appendChild(textEl);
+        }
+        textEl.textContent = transcript;
+      };
+
+      // Issue #137 (front-end half): ask the daemon to transcribe/OCR the memo.
+      // The endpoint persists the transcript; never fabricate one locally.
+      const runMemoExtract = async (memo, kind, btn) => {
+        if (!memo || !memo.id || !btn || btn.disabled) return;
+        const idleLabel = kind === "image" ? "OCR" : "Convert to Text";
+        const doneLabel = kind === "image" ? "OCR ✓" : "Text ✓";
+        btn.disabled = true;
+        btn.innerHTML = '<span class="swiss-memo-extract-spinner"></span><span>' + idleLabel + '</span>';
+        try {
+          // Cross-workspace memos live in another memos.json: pass the memo's own
+          // workspace so the daemon can resolve it outside the current scope.
+          const memoWorkspace = memo.workspace_path || getMemoQueryInfo().wsPath || "";
+          const extractUrl = API_BASE + "/api/memos/extract" + (memoWorkspace ? ("?workspace_path=" + encodeURIComponent(memoWorkspace)) : "");
+          const res = await fetch(extractUrl, {
+            method: "POST",
+            headers: getSwissAuthHeaders(),
+            body: JSON.stringify({ memo_id: memo.id })
+          });
+          let payload = null;
+          try { payload = await res.json(); } catch (_) { payload = null; }
+          if (!res.ok || !payload || payload.success !== true) {
+            const message = payload && payload.error ? payload.error : ("Extraction failed (HTTP " + res.status + ")");
+            showToast(message, "error");
+            btn.disabled = false;
+            btn.textContent = idleLabel;
+            return;
+          }
+          const transcript = typeof payload.transcript === "string" ? payload.transcript : "";
+          memo.transcript = transcript;
+          saveLocalMemos(allMemos);
+          btn.disabled = true;
+          btn.textContent = doneLabel;
+          renderTranscriptInCard(memo.id, transcript);
+        } catch (err) {
+          showToast("Extraction failed: " + (err && err.message ? err.message : "network error"), "error");
+          btn.disabled = false;
+          btn.textContent = idleLabel;
+        }
+      };
+
       const filterMemosList = (memos, query, filter) => {
         if (!Array.isArray(memos)) return [];
         const effFilter = (filter === "text" || filter === "voice" || filter === "image") ? filter : "all";
@@ -5256,8 +5561,9 @@ func GenerateAuxiliaryPluginsScript() string {
         const q = trimmed.toLowerCase();
         return memos.filter(m => {
           if (!m) return false;
-          const isVoice = m.type === "voice" || m.type === "audio" || (Array.isArray(m.tags) && m.tags.includes("voice") && m.type !== "text");
-          const isImage = m.type === "image";
+          const kind = memoKindOf(m);
+          const isVoice = kind === "voice";
+          const isImage = kind === "image";
           if (effFilter === "text" && (isVoice || isImage)) return false;
           if (effFilter === "voice" && !isVoice) return false;
           if (effFilter === "image" && !isImage) return false;
@@ -5271,6 +5577,8 @@ func GenerateAuxiliaryPluginsScript() string {
       };
 
       const renderCards = (memos) => {
+        // Cards own the <audio> elements: stop playback before replacing the DOM.
+        stopActivePlayback();
         memoList.innerHTML = "";
         const trimmedQ = (searchQuery || "").trim();
         if (!Array.isArray(memos) || memos.length === 0) {
@@ -5279,7 +5587,7 @@ func GenerateAuxiliaryPluginsScript() string {
           } else if (typeFilter !== "all") {
             memoList.innerHTML = "<div class='swiss-memo-list-status' style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No " + escapeHtml(FILTER_LABELS[typeFilter] || "") + " memos yet.</div>";
           } else {
-            memoList.innerHTML = "<div class='swiss-memo-list-status' style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No memos yet. Click Add Text Memo, Add Voice Memo, or Add Image Memo!</div>";
+            memoList.innerHTML = "<div class='swiss-memo-list-status' style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No memos yet. Click Text Memo, Voice Memo, or Image Memo!</div>";
           }
           updateFilterUi(0);
           return;
@@ -5289,21 +5597,45 @@ func GenerateAuxiliaryPluginsScript() string {
           const card = document.createElement("div");
           card.className = "swiss-memo-card";
           card.draggable = true;
+          card.dataset.memoId = m.id || "";
+
+          const kind = memoKindOf(m);
+          const primaryText = kind === "voice" ? "" : (m.content || "");
+          const transcriptText = kind === "text" ? "" : (m.transcript || "");
+          const extractKind = kind === "image" ? "image" : (kind === "voice" ? "voice" : "");
+          const extractIdleLabel = extractKind === "image" ? "OCR" : "Convert to Text";
+          const extractDoneLabel = extractKind === "image" ? "OCR ✓" : "Text ✓";
+          const extractDone = Boolean(m.transcript);
+          const cardKey = memoCardDomKey(m.id);
+          const playerHtml = m.audio_data ? (
+            '<div class="swiss-memo-player">' +
+              '<button type="button" class="swiss-memo-play" id="swiss-memo-play-' + cardKey + '" aria-label="Play" title="Play">' + PLAY_ICON + '</button>' +
+              '<div class="swiss-memo-progress" id="swiss-memo-progress-' + cardKey + '" role="slider" tabindex="0" aria-label="Playback position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="swiss-memo-progress-fill" id="swiss-memo-progress-fill-' + cardKey + '"></div></div>' +
+              '<span class="swiss-memo-time" id="swiss-memo-time-' + cardKey + '">0:00 / ' + escapeHtml(m.duration || "0:00") + '</span>' +
+            '</div>' +
+            '<audio class="swiss-memo-audio" id="swiss-memo-audio-' + cardKey + '" preload="metadata" src="' + escapeHtml(m.audio_data) + '" style="display:none;"></audio>'
+          ) : "";
 
           card.innerHTML = ` + "`" + `
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-              <div style="display:flex; align-items:center; gap:4px; overflow:hidden;">
-                <span style="font-weight:600; font-size:11px; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;">${escapeHtml(m.title || "Memo")}</span>
-                ${m.duration ? ('<span style="font-size:9px; color:#b06000; font-weight:600; white-space:nowrap;">(' + escapeHtml(m.duration) + ')</span>') : ""}
+            <div class="swiss-memo-card-head">
+              <div class="swiss-memo-card-title-wrap">
+                <span class="swiss-memo-card-title">${escapeHtml(m.title || "Memo")}</span>
+                ${m.duration ? ('<span class="swiss-memo-card-duration">(' + escapeHtml(m.duration) + ')</span>') : ""}
               </div>
-              <span style="font-size:9px; color:#94a3b8; white-space:nowrap;">${escapeHtml(m.created_at || m.createdAt || "")}</span>
+              <span class="swiss-memo-card-date">${escapeHtml(m.created_at || m.createdAt || "")}</span>
             </div>
-            ${m.image_data ? ('<div style="margin-bottom:6px; border-radius:4px; overflow:hidden; border:1px solid var(--border,#cbd5e1); background:#ffffff; max-height:160px; display:flex; align-items:center; justify-content:center;"><img src="' + escapeHtml(m.image_data) + '" alt="' + escapeHtml(m.title || "Memo Image") + '" style="max-width:100%; max-height:160px; object-fit:contain; display:block;" /></div>') : ""}
-            ${m.content ? ('<div style="font-size:11px; color:var(--text,#1e293b); white-space:pre-wrap; margin-bottom:8px;">' + escapeHtml(m.content) + '</div>') : ""}
-            ${m.audio_data ? ('<audio controls src="' + escapeHtml(m.audio_data) + '" style="width:100%; height:24px; margin-bottom:6px; outline:none;"></audio>') : ""}
-            <div style="display:flex; justify-content:flex-end; gap:6px;">
-              <button class="swiss-browser-btn" id="m-insert" style="padding:2px 6px; font-size:10px;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Chat</span></button>
-              <button class="swiss-browser-btn" id="m-del" title="Delete Memo" style="padding:2px 6px; font-size:10px; color:#ef4444;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+            <div class="swiss-memo-card-body">
+              ${m.image_data ? ('<div class="swiss-memo-card-img-wrap"><img class="swiss-memo-card-img" src="' + escapeHtml(m.image_data) + '" alt="' + escapeHtml(m.title || "Memo Image") + '" /></div>') : ""}
+              ${primaryText ? ('<div class="swiss-memo-card-text">' + escapeHtml(primaryText) + '</div>') : ""}
+              ${transcriptText ? ('<div class="swiss-memo-card-text swiss-memo-card-transcript" data-memo-transcript="1">' + escapeHtml(transcriptText) + '</div>') : ""}
+            </div>
+            ${playerHtml}
+            <div class="swiss-memo-card-foot">
+              ${extractKind ? ('<button type="button" class="swiss-browser-btn swiss-memo-extract-btn" id="swiss-memo-extract-' + cardKey + '"' + (extractDone ? ' disabled' : '') + '>' + escapeHtml(extractDone ? extractDoneLabel : extractIdleLabel) + '</button>') : ""}
+              <div class="swiss-memo-card-actions">
+                <button class="swiss-browser-btn swiss-memo-insert-btn" id="swiss-memo-insert-${cardKey}" style="padding:2px 6px; font-size:10px;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Chat</span></button>
+                <button class="swiss-browser-btn swiss-memo-del-btn" id="swiss-memo-del-${cardKey}" title="Delete Memo" style="padding:2px 6px; font-size:10px; color:#ef4444;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+              </div>
             </div>
           ` + "`" + `;
 
@@ -5320,7 +5652,7 @@ func GenerateAuxiliaryPluginsScript() string {
             }
           };
 
-          card.querySelector("#m-insert").onclick = () => {
+          card.querySelector(".swiss-memo-insert-btn").onclick = () => {
             if (m.image_data) {
               insertImageToChatInput(m.image_data, m.content || m.title || "");
             } else {
@@ -5328,7 +5660,7 @@ func GenerateAuxiliaryPluginsScript() string {
             }
           };
 
-          card.querySelector("#m-del").onclick = async () => {
+          card.querySelector(".swiss-memo-del-btn").onclick = async () => {
             allMemos = allMemos.filter(item => item.id !== m.id);
             saveLocalMemos(allMemos);
             applyFilterAndRender();
@@ -5337,6 +5669,143 @@ func GenerateAuxiliaryPluginsScript() string {
             } catch (_) {}
             loadMemos(true);
           };
+
+          const extractBtn = card.querySelector(".swiss-memo-extract-btn");
+          if (extractBtn) {
+            extractBtn.onclick = () => { runMemoExtract(m, extractKind, extractBtn); };
+          }
+
+          if (m.audio_data) {
+            const audio = card.querySelector(".swiss-memo-audio");
+            const playBtn = card.querySelector(".swiss-memo-play");
+            const track = card.querySelector(".swiss-memo-progress");
+            const fill = card.querySelector(".swiss-memo-progress-fill");
+            const timeEl = card.querySelector(".swiss-memo-time");
+            const fallbackDuration = parseDurationLabel(m.duration);
+            let rafId = 0;
+            let dragging = false;
+
+            const setPlaying = (playing) => {
+              if (!playBtn) return;
+              playBtn.innerHTML = playing ? PAUSE_ICON : PLAY_ICON;
+              playBtn.setAttribute("aria-label", playing ? "Pause" : "Play");
+              playBtn.title = playing ? "Pause" : "Play";
+            };
+
+            const resolveDuration = () => {
+              const d = audio.duration;
+              if (isFinite(d) && d > 0) return d;
+              return fallbackDuration;
+            };
+
+            const renderProgress = () => {
+              const duration = resolveDuration();
+              const current = isFinite(audio.currentTime) ? audio.currentTime : 0;
+              const ratio = duration > 0 ? Math.max(0, Math.min(1, current / duration)) : 0;
+              if (fill) fill.style.width = (ratio * 100) + "%";
+              if (timeEl) timeEl.textContent = formatPlayerTime(current) + " / " + formatPlayerTime(duration);
+              if (track) track.setAttribute("aria-valuenow", String(Math.round(ratio * 100)));
+            };
+
+            const cancelRaf = () => {
+              if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+            };
+
+            const tick = () => {
+              rafId = 0;
+              if (!audio.isConnected) { cancelRaf(); return; }
+              renderProgress();
+              if (!audio.paused && !audio.ended) rafId = requestAnimationFrame(tick);
+            };
+
+            const startRaf = () => {
+              cancelRaf();
+              rafId = requestAnimationFrame(tick);
+            };
+
+            const seekFromClientX = (clientX) => {
+              if (!track) return;
+              const rect = track.getBoundingClientRect();
+              const duration = resolveDuration();
+              if (!rect.width || !(duration > 0) || !isFinite(duration)) return;
+              const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+              try { audio.currentTime = ratio * duration; } catch (_) {}
+              renderProgress();
+            };
+
+            const controller = { audio: audio, cancel: cancelRaf, setPlaying: setPlaying };
+
+            playBtn.onclick = () => {
+              if (!audio.paused) {
+                audio.pause();
+                return;
+              }
+              if (activePlayback && activePlayback.audio !== audio) stopActivePlayback();
+              const playPromise = audio.play();
+              if (playPromise && playPromise.catch) {
+                playPromise.catch((err) => {
+                  showToast("Playback error: " + (err && err.message ? err.message : "unknown error"), "error");
+                });
+              }
+            };
+
+            audio.addEventListener("play", () => {
+              if (activePlayback && activePlayback.audio !== audio) stopActivePlayback();
+              activePlayback = controller;
+              setPlaying(true);
+              startRaf();
+            });
+            audio.addEventListener("pause", () => {
+              if (activePlayback && activePlayback.audio === audio) activePlayback = null;
+              cancelRaf();
+              setPlaying(false);
+              renderProgress();
+            });
+            audio.addEventListener("ended", () => {
+              if (activePlayback && activePlayback.audio === audio) activePlayback = null;
+              cancelRaf();
+              setPlaying(false);
+              try { audio.currentTime = 0; } catch (_) {}
+              renderProgress();
+            });
+            audio.addEventListener("timeupdate", renderProgress);
+            audio.addEventListener("loadedmetadata", renderProgress);
+            audio.addEventListener("durationchange", renderProgress);
+            audio.addEventListener("seeking", renderProgress);
+            audio.addEventListener("seeked", renderProgress);
+
+            track.addEventListener("pointerdown", (e) => {
+              dragging = true;
+              try { track.setPointerCapture(e.pointerId); } catch (_) {}
+              seekFromClientX(e.clientX);
+              e.preventDefault();
+            });
+            track.addEventListener("pointermove", (e) => {
+              if (dragging) seekFromClientX(e.clientX);
+            });
+            const endDrag = (e) => {
+              if (!dragging) return;
+              dragging = false;
+              if (e && e.pointerId) {
+                try { track.releasePointerCapture(e.pointerId); } catch (_) {}
+              }
+            };
+            track.addEventListener("pointerup", endDrag);
+            track.addEventListener("pointercancel", endDrag);
+            track.addEventListener("keydown", (e) => {
+              const duration = resolveDuration();
+              if (!(duration > 0) || !isFinite(duration)) return;
+              let delta = 0;
+              if (e.key === "ArrowRight") delta = 5;
+              else if (e.key === "ArrowLeft") delta = -5;
+              else return;
+              e.preventDefault();
+              try { audio.currentTime = Math.max(0, Math.min(duration, audio.currentTime + delta)); } catch (_) {}
+              renderProgress();
+            });
+
+            renderProgress();
+          }
 
           memoList.appendChild(card);
         });
@@ -5387,7 +5856,7 @@ func GenerateAuxiliaryPluginsScript() string {
             allMemos = fallback;
             applyFilterAndRender();
           } else if (!silent || memoList.children.length === 0) {
-            memoList.innerHTML = "<div class='swiss-memo-list-status' style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No memos yet. Click Add Text Memo or Add Voice Memo!</div>";
+            memoList.innerHTML = "<div class='swiss-memo-list-status' style='font-size:11px; color:#94a3b8; text-align:center; padding:20px 0;'>No memos yet. Click Text Memo, Voice Memo, or Image Memo!</div>";
           }
         }
       };
@@ -5766,7 +6235,7 @@ func GenerateAuxiliaryPluginsScript() string {
       const recordBtn = topBar.querySelector("#swiss-m-record-audio");
 
       // ---- Voice memo recording indicator: elapsed time + live loudness wave ----
-      const REC_IDLE_LABEL = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg><span>Add Voice Memo</span>';
+      const REC_IDLE_LABEL = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg><span>Voice Memo</span>';
 
       const formatRecordElapsed = () => {
         const elapsedSec = Math.max(0, Math.floor((Date.now() - recordingStartTime) / 1000));
@@ -5856,8 +6325,10 @@ func GenerateAuxiliaryPluginsScript() string {
             const h = waveCanvas.height;
             waveCtx.clearRect(0, 0, w, h);
             waveCtx.fillStyle = "#ffffff";
-            const barGap = 2;
-            const barW = Math.max(2, Math.floor((w - barGap * (bars - 1)) / bars));
+            // Canvas backing store is 2x its CSS box, so a 4px bar renders 2px wide
+            // (issue #133) while the 5-bar count and level animation stay unchanged.
+            const barW = 4;
+            const barGap = Math.max(1, Math.floor((w - barW * bars) / (bars - 1)));
             const usableBins = Math.max(1, Math.floor(levels.length * 0.6));
             const binsPerBar = Math.max(1, Math.floor(usableBins / bars));
             for (let i = 0; i < bars; i++) {
@@ -6028,6 +6499,7 @@ func GenerateAuxiliaryPluginsScript() string {
       // script re-injection) so an in-flight recording never keeps the microphone, timers or
       // AudioContext alive. Registered on the host container; the caller invokes it pre-clear.
       const teardownMemosView = () => {
+        stopActivePlayback();
         const wasRecording = Boolean(recordingTimerInterval) ||
           Boolean(recordingWaveRaf) ||
           Boolean(mediaRecorder && mediaRecorder.state !== "inactive");
