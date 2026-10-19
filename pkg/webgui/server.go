@@ -1020,6 +1020,11 @@ func (s *Server) handleAccountsExport(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	var exported []keyring.AccountExport
 	if err := s.client.Call("swiss.exportAccounts", nil, &exported); err != nil {
 		store, storeErr := keyring.NewStore("")
