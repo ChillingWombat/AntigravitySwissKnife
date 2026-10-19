@@ -364,6 +364,18 @@ export interface QuotaResult {
   output_price_per_m?: number | null
   price_source?: string
   price_updated_at?: string
+  // Multi-window quotas reported by the provider (e.g. Anthropic unified
+  // rate-limit headers expose both a 5H and a 7D window). Empty/absent means
+  // the provider only reported a single scalar quota.
+  buckets?: QuotaBucket[]
+}
+
+/** One quota window (5H / 7D / monthly ...) reported by a provider. */
+export interface QuotaBucket {
+  label: string
+  fraction: number | null
+  value?: string
+  message?: string
 }
 
 export interface CustomModel {
@@ -387,6 +399,8 @@ export interface CustomModel {
   total_budget: number
   token_limit?: number
   quota_fraction: number | null
+  /** Per-window quota breakdown persisted from the provider probe (#127). */
+  quota_buckets?: QuotaBucket[]
   budget_cap_type?: 'none' | 'dollar' | 'percentage' | 'tokens'
   budget_cap_value?: number | null
   input_price_per_m?: number | null
@@ -458,6 +472,7 @@ export interface TokenProjectBreakdown {
   saved_usd?: number
   cache_hit_ratio: number
   sessions_count?: number
+  requests?: number
   last_active: string
   primary_model?: string
 }
@@ -488,7 +503,37 @@ export interface ChatTelemetrySettings {
   scope: 'aggregated' | 'main_only'
 }
 
+/** One stacked histogram segment (model or project) inside a trend bucket. */
+export interface TokenTrendSegment {
+  name: string
+  tokens: number
+  cost_usd: number
+  requests: number
+}
+
+/** One histogram bar: a real time bucket with its aggregated usage. */
+export interface TokenTrendBucket {
+  start: number
+  fresh_tokens: number
+  cached_tokens: number
+  output_tokens: number
+  total_tokens: number
+  cost_usd: number
+  requests: number
+  models: TokenTrendSegment[]
+  projects: TokenTrendSegment[]
+}
+
+export interface TokenTrendResponse {
+  bucket_ms: number
+  buckets: TokenTrendBucket[]
+}
+
+export type TokenRange = '24h' | '7d' | '30d' | 'all'
+
 export interface TokenSummaryResponse {
+  /** Echo of the aggregation window the backend applied. */
+  range?: TokenRange
   total_tokens: number
   input_tokens: number
   cached_input_tokens: number
@@ -499,10 +544,12 @@ export interface TokenSummaryResponse {
   saved_cost_usd: number
   avg_tps: number
   requests_count: number
+  conversations_count?: number
   unpriced_models?: string[]
   model_breakdowns?: TokenModelBreakdown[]
   project_breakdowns?: TokenProjectBreakdown[]
   telemetry_events?: TokenTelemetryEvent[]
+  trend?: TokenTrendResponse
   pricing_records?: ModelPricingRecord[]
   models?: ModelPricingRecord[]
 }

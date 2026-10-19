@@ -28,11 +28,12 @@ import type {
   CustomModelsConfig,
   ModelInfo,
   ProviderType,
+  QuotaBucket,
   QuotaType,
   TestResult,
   SecurityAuditReport,
 } from '../types'
-import { CircularGauge } from '../components/CircularGauge'
+import { QuotaIndicatorGroup } from '../components/QuotaIndicatorGroup'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { SecurityReportModal } from '../components/SecurityReportModal'
 import { GoogleCloudLogoIcon } from '../components/AcpBrandIcons'
@@ -1334,52 +1335,56 @@ export const CustomModelsPage: React.FC = () => {
             const isTesting = testingModelId === m.id
             const isAuditing = auditingModelId === m.id
 
-            // Quota Gauge calculation
+            // Quota indicator calculation (#127): every reported window is kept.
+            // A single scalar quota keeps the legacy ring; two or more reported
+            // windows render one labelled progress bar per window.
             let gaugePct: number | null = null
             let gaugeTitle = 'N/A'
-            let emptyGrey = true
+            const reportedQuotaBuckets: QuotaBucket[] = (m.quota_buckets || []).filter((b) => b && b.label)
 
             const qType = (m.quota_type || '').toLowerCase()
 
             if (qType === 'balance' || qType === 'cost_based') {
               if (m.quota_fraction !== null && m.quota_fraction !== undefined) {
                 gaugePct = Math.max(0, Math.min(100, Math.round(m.quota_fraction * 100)))
-                emptyGrey = false
                 gaugeTitle = m.balance_value && m.balance_value.trim() ? `Balance: ${m.balance_value}` : 'Balance'
               } else if (m.total_budget > 0 && m.prepaid_balance > 0) {
                 gaugePct = Math.max(0, Math.min(100, Math.round((m.prepaid_balance / m.total_budget) * 100)))
-                emptyGrey = false
                 gaugeTitle = m.balance_value && m.balance_value.trim()
                   ? `Balance: ${m.balance_value}`
                   : `Balance: $${m.prepaid_balance.toFixed(2)}`
               } else if (m.balance_value && m.balance_value.trim()) {
-                emptyGrey = true
                 gaugePct = null
                 gaugeTitle = `Balance: ${m.balance_value}`
               } else {
-                emptyGrey = true
                 gaugePct = null
                 gaugeTitle = 'N/A'
               }
             } else if (qType === 'quota' || qType === 'quota_based') {
               if (m.quota_fraction !== null && m.quota_fraction !== undefined) {
                 gaugePct = Math.max(0, Math.min(100, Math.round(m.quota_fraction * 100)))
-                emptyGrey = false
                 gaugeTitle = m.quota_value && m.quota_value.trim() ? `Quota: ${m.quota_value}` : 'Quota'
               } else if (m.quota_value && m.quota_value.trim()) {
-                emptyGrey = true
                 gaugePct = null
                 gaugeTitle = `Quota: ${m.quota_value}`
               } else {
-                emptyGrey = true
                 gaugePct = null
                 gaugeTitle = 'N/A'
               }
             } else {
-              emptyGrey = true
               gaugePct = null
               gaugeTitle = 'N/A'
             }
+
+            const indicatorBuckets: QuotaBucket[] =
+              reportedQuotaBuckets.length > 0
+                ? reportedQuotaBuckets
+                : [
+                    {
+                      label: gaugeTitle,
+                      fraction: gaugePct !== null ? gaugePct / 100 : null,
+                    },
+                  ]
 
             return (
               <div
@@ -1523,12 +1528,11 @@ export const CustomModelsPage: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Circular Quota Gauge */}
+                    {/* Quota Indicators: one ring for a single quota, one labelled bar per quota when several are reported */}
                     <div style={{ flexShrink: 0 }}>
-                      <CircularGauge
-                        percentage={gaugePct}
-                        emptyGrey={emptyGrey}
-                        title={gaugeTitle}
+                      <QuotaIndicatorGroup
+                        buckets={indicatorBuckets}
+                        singleTitle={gaugeTitle}
                         size={88}
                         strokeWidth={8}
                       />

@@ -190,8 +190,8 @@ func TestChallenger_MassiveOutputBursts(t *testing.T) {
 				}
 			}
 
-			// Also verify recentSteps duration and TPS
-			for idx, step := range stats.recentSteps {
+			// Also verify per-step duration and TPS (stats.steps now keeps every step)
+			for idx, step := range stats.steps {
 				if step.durationMs > 0 && step.output > 0 {
 					stepTPS := float64(step.output) / (float64(step.durationMs) / 1000.0)
 					if math.IsNaN(stepTPS) || math.IsInf(stepTPS, 0) {

@@ -31,6 +31,7 @@ import type {
   PrivacySettings,
   DiagnosticResult,
   ModelPricingRecord,
+  TokenRange,
   TokenSummaryResponse,
   TargetApp,
   AcpAgentInput,
@@ -1016,8 +1017,8 @@ export const api = {
     }),
 
   // Real Token Analytics & Pricing API
-  getTokenSummary: () =>
-    request<TokenSummaryResponse>('/api/tokens/summary'),
+  getTokenSummary: (range?: TokenRange) =>
+    request<TokenSummaryResponse>(range ? `/api/tokens/summary?range=${encodeURIComponent(range)}` : '/api/tokens/summary'),
 
   getTokenPricing: (force?: boolean) =>
     request<{ success: boolean; pricing_records: ModelPricingRecord[]; models?: ModelPricingRecord[]; timestamp: string }>(

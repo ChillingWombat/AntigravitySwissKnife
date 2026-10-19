@@ -55,28 +55,31 @@ type CustomModel struct {
 	TotalBudget          float64      `json:"total_budget"`            // Total initial/prepaid budget in USD
 	TokenLimit           int64        `json:"token_limit,omitempty"`   // Total token quota limit when quota_type is "quota"
 	QuotaFraction        *float64     `json:"quota_fraction"`          // 0.0 to 1.0; nil if untracked/none
-	BudgetCapType        string       `json:"budget_cap_type,omitempty"`  // "none", "dollar", "percentage", "tokens"
-	BudgetCapValue       *float64     `json:"budget_cap_value"`           // Cap threshold in USD, %, or tokens
-	InputPricePerM       *float64     `json:"input_price_per_m"`
-	CachedInputPricePerM *float64     `json:"cached_input_price_per_m"`
-	OutputPricePerM      *float64     `json:"output_price_per_m"`
-	PriceSource          string       `json:"price_source,omitempty"`
-	PriceUpdatedAt       string       `json:"price_updated_at,omitempty"`
-	IsDefault            bool         `json:"is_default"`
-	LastTestSuccess      *bool        `json:"last_test_success,omitempty"` // nil = never tested
-	LastTestedAt         string       `json:"last_tested_at,omitempty"`
-	ContextWindow        int          `json:"context_window,omitempty"`
-	SupportsThinking     bool         `json:"supports_thinking,omitempty"`
-	ThinkingLevels       []string     `json:"thinking_levels,omitempty"` // e.g. ["off", "low", "medium", "high"]
-	ThinkingLevel        string       `json:"thinking_level,omitempty"`  // Active level e.g. "medium", "off"
-	Enabled              bool         `json:"enabled"`
-	Notes                string       `json:"notes,omitempty"` // User notes or description
-	SecurityRiskLevel    string       `json:"security_risk_level,omitempty"`
-	SecurityAuditScore   int          `json:"security_audit_score,omitempty"`
-	SecurityGrade        string       `json:"security_grade,omitempty"`
-	LastSecurityAudit    string       `json:"last_security_audit,omitempty"`
-	CreatedAt            string       `json:"created_at,omitempty"`
-	UpdatedAt            string       `json:"updated_at,omitempty"`
+	// QuotaBuckets carries every quota window reported by the provider
+	// (5H + 7D/monthly ...). Models with a single window leave this empty.
+	QuotaBuckets         []QuotaBucket `json:"quota_buckets,omitempty"`
+	BudgetCapType        string        `json:"budget_cap_type,omitempty"` // "none", "dollar", "percentage", "tokens"
+	BudgetCapValue       *float64      `json:"budget_cap_value"`          // Cap threshold in USD, %, or tokens
+	InputPricePerM       *float64      `json:"input_price_per_m"`
+	CachedInputPricePerM *float64      `json:"cached_input_price_per_m"`
+	OutputPricePerM      *float64      `json:"output_price_per_m"`
+	PriceSource          string        `json:"price_source,omitempty"`
+	PriceUpdatedAt       string        `json:"price_updated_at,omitempty"`
+	IsDefault            bool          `json:"is_default"`
+	LastTestSuccess      *bool         `json:"last_test_success,omitempty"` // nil = never tested
+	LastTestedAt         string        `json:"last_tested_at,omitempty"`
+	ContextWindow        int           `json:"context_window,omitempty"`
+	SupportsThinking     bool          `json:"supports_thinking,omitempty"`
+	ThinkingLevels       []string      `json:"thinking_levels,omitempty"` // e.g. ["off", "low", "medium", "high"]
+	ThinkingLevel        string        `json:"thinking_level,omitempty"`  // Active level e.g. "medium", "off"
+	Enabled              bool          `json:"enabled"`
+	Notes                string        `json:"notes,omitempty"` // User notes or description
+	SecurityRiskLevel    string        `json:"security_risk_level,omitempty"`
+	SecurityAuditScore   int           `json:"security_audit_score,omitempty"`
+	SecurityGrade        string        `json:"security_grade,omitempty"`
+	LastSecurityAudit    string        `json:"last_security_audit,omitempty"`
+	CreatedAt            string        `json:"created_at,omitempty"`
+	UpdatedAt            string        `json:"updated_at,omitempty"`
 }
 
 // Config holds the full custom models configuration file structure.

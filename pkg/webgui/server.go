@@ -2937,6 +2937,9 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 				if m.BalanceValue == "" {
 					m.BalanceValue = saved.BalanceValue
 				}
+				if len(m.QuotaBuckets) == 0 && len(saved.QuotaBuckets) > 0 {
+					m.QuotaBuckets = saved.QuotaBuckets
+				}
 			}
 		}
 		// Auto-derive balance or quota unless manually overridden by user
@@ -2947,6 +2950,7 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 				m.BalanceValue = quotaRes.BalanceValue
 				m.QuotaValue = quotaRes.QuotaValue
 				m.QuotaFraction = quotaRes.Fraction
+				m.QuotaBuckets = quotaRes.Buckets
 			}
 		}
 
@@ -3170,6 +3174,9 @@ func (s *Server) handleCustomModelRefreshQuotas(w http.ResponseWriter, r *http.R
 			cfg.Models[i].BalanceValue = quotaRes.BalanceValue
 			cfg.Models[i].QuotaValue = quotaRes.QuotaValue
 			cfg.Models[i].QuotaFraction = quotaRes.Fraction
+			// Persist every reported quota window (5H + 7D/monthly) so the model
+			// card can render one indicator per window.
+			cfg.Models[i].QuotaBuckets = quotaRes.Buckets
 		}
 		if cfg.Models[i].PriceSource != custommodels.PriceSourceManual {
 			inP, cacheP, outP, src := custommodels.FetchModelPricing(r.Context(), cfg.Models[i].Name, string(cfg.Models[i].ProviderType), cfg.Models[i].BaseURL, cfg.Models[i].APIKey)

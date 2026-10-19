@@ -353,8 +353,12 @@ describe('Token Price Table Sorting & Edit Rate Modal (Milestone 3 / R3)', () =>
       assert.match(source, /sortedPricingList\.map/, 'Table must map over sortedPricingList')
     })
 
-    it('verifies Metric Card 1 displays "Total Cost" when unitMode is usd', () => {
-      assert.match(source, /unitMode === 'usd' \? 'Total Cost' : 'Total Tokens'/, 'Card 1 must label Total Cost for usd and Total Tokens for tokens')
+    it('verifies Metric Card 1 labels Total Cost / Total Tokens / Total Requests per unit (#129)', () => {
+      assert.match(
+        source,
+        /unitMode === 'usd' \? 'Total Cost' : unitMode === 'tokens' \? 'Total Tokens' : 'Total Requests'/,
+        'Card 1 must label Total Cost for usd, Total Tokens for tokens and Total Requests for requests'
+      )
       assert.doesNotMatch(source, /Total Cost \(Spend\)/, 'Old label Total Cost (Spend) must be removed')
     })
 

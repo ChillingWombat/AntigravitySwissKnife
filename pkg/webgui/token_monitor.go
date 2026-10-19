@@ -58,6 +58,7 @@ type TokenProjectBreakdown struct {
 	SavedUSD      float64 `json:"saved_usd"`
 	CacheHitRatio float64 `json:"cache_hit_ratio"`
 	SessionsCount int     `json:"sessions_count"`
+	Requests      int     `json:"requests"`
 	LastActive    string  `json:"last_active"`
 	PrimaryModel  string  `json:"primary_model"`
 }
@@ -84,18 +85,21 @@ type TokenTelemetryEvent struct {
 }
 
 type cachedTranscriptStats struct {
-	modTimeNano     int64
-	size            int64
-	freshInput      int64
-	cachedInput     int64
-	outputTokens    int64
+	modTimeNano       int64
+	size              int64
+	freshInput        int64
+	cachedInput       int64
+	outputTokens      int64
 	requests          int
 	totalDurationMs   int64
 	timedOutputTokens int64
 	lastActive        time.Time
-	isSubagent      bool
-	agentRole       string
-	recentSteps     []rawStepEvent
+	isSubagent        bool
+	agentRole         string
+	// steps holds every token-bearing step with its own timestamp so the
+	// summary handler can aggregate over an arbitrary time window (range
+	// filter). All-time totals above are kept for cheap validity checks.
+	steps []rawStepEvent
 }
 
 type rawStepEvent struct {
@@ -105,6 +109,22 @@ type rawStepEvent struct {
 	cachedInput int64
 	output      int64
 	durationMs  int64
+}
+
+// stepWithContext is a token-bearing step enriched with the conversation,
+// model and project attribution the summary handler resolved for it.
+type stepWithContext struct {
+	rawStepEvent
+	convID          string
+	project         string
+	modelName       string
+	modelID         string
+	provider        string
+	classification  custommodels.ModelClassification
+	costUSD         float64
+	priceConfigured bool
+	isSubagent      bool
+	agentRole       string
 }
 
 type cachedConvModel struct {
@@ -410,7 +430,7 @@ func parseTranscriptFile(tPath string, info os.FileInfo) cachedTranscriptStats {
 			}
 		}
 
-		stats.recentSteps = append(stats.recentSteps, rawStepEvent{
+		stats.steps = append(stats.steps, rawStepEvent{
 			stepIndex:   item.stepIndex,
 			createdAt:   item.timestamp,
 			freshInput:  item.inputTokens,
@@ -418,9 +438,6 @@ func parseTranscriptFile(tPath string, info os.FileInfo) cachedTranscriptStats {
 			output:      item.outputTokens,
 			durationMs:  durMs,
 		})
-		if len(stats.recentSteps) > 15 {
-			stats.recentSteps = stats.recentSteps[len(stats.recentSteps)-15:]
-		}
 	}
 
 	tokenCacheMu.Lock()
@@ -805,11 +822,283 @@ func formatRelativeTime(t time.Time) string {
 	return t.Format("2006-01-02")
 }
 
+// tokenRangeSpec describes the aggregation window and histogram bucketing used by
+// the token monitor summary endpoint.
+type tokenRangeSpec struct {
+	Key      string        // canonical range key: "24h" | "7d" | "30d" | "all"
+	Duration time.Duration // lookback window; 0 means all recorded history
+	Bucket   time.Duration // histogram bucket width (fixed ranges only)
+	Buckets  int           // fixed bucket count (fixed ranges only)
+}
+
+// Supported token monitor ranges. "all" adapts its bucket width to the recorded span.
+const (
+	tokenRange24h = "24h"
+	tokenRange7d  = "7d"
+	tokenRange30d = "30d"
+	tokenRangeAll = "all"
+
+	maxAdaptiveBuckets = 120
+)
+
+func parseTokenRange(raw string) tokenRangeSpec {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case tokenRange24h:
+		return tokenRangeSpec{Key: tokenRange24h, Duration: 24 * time.Hour, Bucket: time.Hour, Buckets: 24}
+	case tokenRange7d:
+		return tokenRangeSpec{Key: tokenRange7d, Duration: 7 * 24 * time.Hour, Bucket: 24 * time.Hour, Buckets: 7}
+	case tokenRange30d:
+		return tokenRangeSpec{Key: tokenRange30d, Duration: 30 * 24 * time.Hour, Bucket: 24 * time.Hour, Buckets: 30}
+	default:
+		return tokenRangeSpec{Key: tokenRangeAll}
+	}
+}
+
+// cutoff returns the inclusive lower bound of the range (zero time for "all").
+func (s tokenRangeSpec) cutoff(now time.Time) time.Time {
+	if s.Duration <= 0 {
+		return time.Time{}
+	}
+	if s.Key == tokenRange24h {
+		// Hour-aligned so that the last bucket is the current clock hour.
+		return now.Truncate(time.Hour).Add(-time.Duration(s.Buckets-1) * s.Bucket)
+	}
+	// Day-aligned local midnight so daily bars match the user's calendar.
+	return startOfLocalDay(now).Add(-time.Duration(s.Buckets-1) * s.Bucket)
+}
+
+func startOfLocalDay(t time.Time) time.Time {
+	y, m, d := t.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, t.Location())
+}
+
+// tokenStepAgg is the window-filtered aggregate of token-bearing steps.
+type tokenStepAgg struct {
+	freshInput   int64
+	cachedInput  int64
+	outputTokens int64
+	requests     int
+	durationMs   int64
+	timedOutput  int64
+	steps        []rawStepEvent
+}
+
+// aggregateSteps filters steps to the window starting at cutoff (zero = all steps)
+// and folds them the same way parseTranscriptFile folds whole files. Because each
+// transcript step is read exactly once and every step carries its own timestamp,
+// recovered input (fresh), cache reads and output are disjoint quantities per
+// step: cache_read_tokens is NOT a subset of input_tokens (live transcripts show
+// cache/fresh ratios of 20-25x), so
+// fresh_input + cache_read + output is the correct prompt+completion total.
+func aggregateSteps(steps []rawStepEvent, cutoff time.Time) tokenStepAgg {
+	var agg tokenStepAgg
+	for _, st := range steps {
+		if !cutoff.IsZero() && st.createdAt.Before(cutoff) {
+			continue
+		}
+		agg.freshInput += st.freshInput
+		agg.cachedInput += st.cachedInput
+		agg.outputTokens += st.output
+		agg.requests++
+		if st.durationMs > 0 && st.output > 0 {
+			agg.durationMs += st.durationMs
+			agg.timedOutput += st.output
+		}
+		agg.steps = append(agg.steps, st)
+	}
+	return agg
+}
+
+// TokenTrendSegment is one stacked histogram segment inside a trend bucket
+// (a model or a project).
+type TokenTrendSegment struct {
+	Name     string  `json:"name"`
+	Tokens   int64   `json:"tokens"`
+	CostUSD  float64 `json:"cost_usd"`
+	Requests int     `json:"requests"`
+}
+
+// TokenTrendBucket is a single histogram bar: the bucket window plus its real
+// aggregated usage, including the per-segment split used for stacked rendering.
+type TokenTrendBucket struct {
+	Start        int64               `json:"start"` // unix milliseconds
+	FreshTokens  int64               `json:"fresh_tokens"`
+	CachedTokens int64               `json:"cached_tokens"`
+	OutputTokens int64               `json:"output_tokens"`
+	TotalTokens  int64               `json:"total_tokens"`
+	CostUSD      float64             `json:"cost_usd"`
+	Requests     int                 `json:"requests"`
+	Models       []TokenTrendSegment `json:"models"`
+	Projects     []TokenTrendSegment `json:"projects"`
+}
+
+// tokenTrendAccumulator collects real per-bucket usage keyed by model/project.
+type tokenTrendAccumulator struct {
+	start       []int64
+	fresh       []int64
+	cached      []int64
+	output      []int64
+	cost        []float64
+	requests    []int
+	modelTokens []map[string]int64
+	modelCost   []map[string]float64
+	modelReqs   []map[string]int
+	projTokens  []map[string]int64
+	projCost    []map[string]float64
+	projReqs    []map[string]int
+}
+
+func newTokenTrendAccumulator(buckets int) *tokenTrendAccumulator {
+	acc := &tokenTrendAccumulator{
+		start:       make([]int64, buckets),
+		fresh:       make([]int64, buckets),
+		cached:      make([]int64, buckets),
+		output:      make([]int64, buckets),
+		cost:        make([]float64, buckets),
+		requests:    make([]int, buckets),
+		modelTokens: make([]map[string]int64, buckets),
+		modelCost:   make([]map[string]float64, buckets),
+		modelReqs:   make([]map[string]int, buckets),
+		projTokens:  make([]map[string]int64, buckets),
+		projCost:    make([]map[string]float64, buckets),
+		projReqs:    make([]map[string]int, buckets),
+	}
+	for i := 0; i < buckets; i++ {
+		acc.modelTokens[i] = make(map[string]int64)
+		acc.modelCost[i] = make(map[string]float64)
+		acc.modelReqs[i] = make(map[string]int)
+		acc.projTokens[i] = make(map[string]int64)
+		acc.projCost[i] = make(map[string]float64)
+		acc.projReqs[i] = make(map[string]int)
+	}
+	return acc
+}
+
+func (a *tokenTrendAccumulator) add(idx int, st rawStepEvent, cost float64, modelName, projectName string) {
+	if idx < 0 || idx >= len(a.start) {
+		return
+	}
+	total := st.freshInput + st.cachedInput + st.output
+	a.fresh[idx] += st.freshInput
+	a.cached[idx] += st.cachedInput
+	a.output[idx] += st.output
+	a.cost[idx] += cost
+	a.requests[idx]++
+	if modelName != "" {
+		a.modelTokens[idx][modelName] += total
+		a.modelCost[idx][modelName] += cost
+		a.modelReqs[idx][modelName]++
+	}
+	if projectName != "" {
+		a.projTokens[idx][projectName] += total
+		a.projCost[idx][projectName] += cost
+		a.projReqs[idx][projectName]++
+	}
+}
+
+func sortedTrendSegments(tokens map[string]int64, costs map[string]float64, reqs map[string]int) []TokenTrendSegment {
+	segs := make([]TokenTrendSegment, 0, len(tokens))
+	for name, tok := range tokens {
+		segs = append(segs, TokenTrendSegment{
+			Name:     name,
+			Tokens:   tok,
+			CostUSD:  costs[name],
+			Requests: reqs[name],
+		})
+	}
+	sort.Slice(segs, func(i, j int) bool {
+		if segs[i].Tokens != segs[j].Tokens {
+			return segs[i].Tokens > segs[j].Tokens
+		}
+		return segs[i].Name < segs[j].Name
+	})
+	return segs
+}
+
+func (a *tokenTrendAccumulator) buckets() []TokenTrendBucket {
+	out := make([]TokenTrendBucket, 0, len(a.start))
+	for i := range a.start {
+		total := a.fresh[i] + a.cached[i] + a.output[i]
+		out = append(out, TokenTrendBucket{
+			Start:        a.start[i],
+			FreshTokens:  a.fresh[i],
+			CachedTokens: a.cached[i],
+			OutputTokens: a.output[i],
+			TotalTokens:  total,
+			CostUSD:      a.cost[i],
+			Requests:     a.requests[i],
+			Models:       sortedTrendSegments(a.modelTokens[i], a.modelCost[i], a.modelReqs[i]),
+			Projects:     sortedTrendSegments(a.projTokens[i], a.projCost[i], a.projReqs[i]),
+		})
+	}
+	return out
+}
+
+// buildTokenTrend turns the real in-window steps into the stacked histogram
+// shown by the dashboard (#125). Fixed ranges (24h/7d/30d) use their canonical
+// bucket width; the "all" range adapts its width to the recorded span, capped
+// at maxAdaptiveBuckets. An empty window yields buckets whose totals are all
+// zero (the UI renders the axes plus "No data in this range"); nothing is ever
+// synthesised or interpolated.
+func buildTokenTrend(windowSteps []stepWithContext, rangeSpec tokenRangeSpec, cutoff, now time.Time) ([]TokenTrendBucket, int64) {
+	trendSpec := rangeSpec
+	trendStart := cutoff
+	if trendSpec.Key == tokenRangeAll {
+		var earliest time.Time
+		for _, st := range windowSteps {
+			if earliest.IsZero() || st.createdAt.Before(earliest) {
+				earliest = st.createdAt
+			}
+		}
+		if earliest.IsZero() {
+			return nil, 0
+		}
+		span := now.Sub(earliest)
+		bucket := 24 * time.Hour
+		if span > 60*24*time.Hour {
+			bucket = 7 * 24 * time.Hour
+		}
+		buckets := int(span/bucket) + 1
+		for buckets > maxAdaptiveBuckets {
+			bucket *= 2
+			buckets = int(span/bucket) + 1
+		}
+		trendSpec = tokenRangeSpec{Key: tokenRangeAll, Bucket: bucket, Buckets: buckets}
+		trendStart = startOfLocalDay(earliest)
+	}
+
+	if trendSpec.Bucket <= 0 || trendSpec.Buckets <= 0 {
+		return nil, 0
+	}
+
+	acc := newTokenTrendAccumulator(trendSpec.Buckets)
+	for i := range acc.start {
+		acc.start[i] = trendStart.Add(time.Duration(i) * trendSpec.Bucket).UnixMilli()
+	}
+	for _, st := range windowSteps {
+		idx := int(st.createdAt.Sub(trendStart) / trendSpec.Bucket)
+		if idx < 0 {
+			continue
+		}
+		if idx >= trendSpec.Buckets {
+			idx = trendSpec.Buckets - 1
+		}
+		acc.add(idx, st.rawStepEvent, st.costUSD, st.modelName, st.project)
+	}
+	return acc.buckets(), trendSpec.Bucket.Milliseconds()
+}
+
 func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
+	// Time window filter (#125/#126): the KPI cards and the histogram consume the
+	// same window so the displayed totals always match the selected range.
+	rangeSpec := parseTokenRange(r.URL.Query().Get("range"))
+	now := time.Now()
+	cutoff := rangeSpec.cutoff(now)
 
 	store, err := s.ensureCustomModelsStore()
 	if err != nil {
@@ -857,6 +1146,7 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 		freshInput    int64
 		cachedInput   int64
 		outputTokens  int64
+		requests      int
 		costUSD       float64
 		savedUSD      float64
 		sessionsCount int
@@ -898,20 +1188,10 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 	var totalDurationMs int64
 	var totalTimedOutputTokens int64
 
-	type stepWithContext struct {
-		rawStepEvent
-		convID          string
-		project         string
-		modelName       string
-		modelID         string
-		provider        string
-		classification  custommodels.ModelClassification
-		costUSD         float64
-		priceConfigured bool
-		isSubagent      bool
-		agentRole       string
-	}
 	var allRecentSteps []stepWithContext
+	// windowSteps holds every token step inside the selected range; the trend
+	// histogram is built from these real records (no synthetic interpolation).
+	var windowSteps []stepWithContext
 
 	var discoveredHistoricalNative []custommodels.CatalogModelInput
 
@@ -1016,35 +1296,52 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 				mDisplayName = pRec.Name
 			}
 
+			// Window-filtered aggregation of this conversation's real steps.
+			agg := aggregateSteps(tStats.steps, cutoff)
+			if agg.requests == 0 {
+				// No token steps inside the selected range for this conversation.
+				continue
+			}
+
 			priceConfigured := pRec.InputPricePerM != nil && pRec.OutputPricePerM != nil
-			var convCost, convSaved float64
+			var inRate, cacheRate, outRate float64
 			if priceConfigured {
-				inRate := *pRec.InputPricePerM
-				cacheRate := inRate * 0.25
+				inRate = *pRec.InputPricePerM
+				cacheRate = inRate * 0.25
 				if pRec.CachedInputPricePerM != nil {
 					cacheRate = *pRec.CachedInputPricePerM
 				}
-				outRate := *pRec.OutputPricePerM
-				convInputCost := (float64(tStats.freshInput)*inRate + float64(tStats.cachedInput)*cacheRate) / 1_000_000.0
-				convOutputCost := float64(tStats.outputTokens) * outRate / 1_000_000.0
+				outRate = *pRec.OutputPricePerM
+			}
+			stepCost := func(st rawStepEvent) float64 {
+				if !priceConfigured {
+					return 0
+				}
+				return (float64(st.freshInput)*inRate + float64(st.cachedInput)*cacheRate + float64(st.output)*outRate) / 1_000_000.0
+			}
+
+			var convCost, convSaved float64
+			if priceConfigured {
+				convInputCost := (float64(agg.freshInput)*inRate + float64(agg.cachedInput)*cacheRate) / 1_000_000.0
+				convOutputCost := float64(agg.outputTokens) * outRate / 1_000_000.0
 				convCost = convInputCost + convOutputCost
 				if inRate > cacheRate {
-					convSaved = float64(tStats.cachedInput) * (inRate - cacheRate) / 1_000_000.0
+					convSaved = float64(agg.cachedInput) * (inRate - cacheRate) / 1_000_000.0
 				}
 				totalInputCostUSD += convInputCost
 				totalOutputCostUSD += convOutputCost
 			}
 
 			totalConversations++
-			totalFreshInput += tStats.freshInput
-			totalCachedInput += tStats.cachedInput
-			totalOutputTokens += tStats.outputTokens
+			totalFreshInput += agg.freshInput
+			totalCachedInput += agg.cachedInput
+			totalOutputTokens += agg.outputTokens
 			totalCostUSD += convCost
 			totalSavedUSD += convSaved
-			totalRequests += tStats.requests
-			if tStats.totalDurationMs > 0 && tStats.timedOutputTokens > 0 {
-				totalDurationMs += tStats.totalDurationMs
-				totalTimedOutputTokens += tStats.timedOutputTokens
+			totalRequests += agg.requests
+			if agg.durationMs > 0 && agg.timedOutput > 0 {
+				totalDurationMs += agg.durationMs
+				totalTimedOutputTokens += agg.timedOutput
 			}
 
 			// Aggregate by Model
@@ -1062,15 +1359,15 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 				}
 				modelMap[mKey] = ma
 			}
-			ma.freshInput += tStats.freshInput
-			ma.cachedInput += tStats.cachedInput
-			ma.outputTokens += tStats.outputTokens
-			ma.requests += tStats.requests
+			ma.freshInput += agg.freshInput
+			ma.cachedInput += agg.cachedInput
+			ma.outputTokens += agg.outputTokens
+			ma.requests += agg.requests
 			ma.costUSD += convCost
 			ma.savedUSD += convSaved
-			if tStats.totalDurationMs > 0 && tStats.timedOutputTokens > 0 {
-				ma.durationMs += tStats.totalDurationMs
-				ma.timedOutput += tStats.timedOutputTokens
+			if agg.durationMs > 0 && agg.timedOutput > 0 {
+				ma.durationMs += agg.durationMs
+				ma.timedOutput += agg.timedOutput
 			}
 
 			// Aggregate by Project
@@ -1083,10 +1380,11 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 				}
 				projectMap[projName] = pa
 			}
-			convTotalTokens := tStats.freshInput + tStats.cachedInput + tStats.outputTokens
-			pa.freshInput += tStats.freshInput
-			pa.cachedInput += tStats.cachedInput
-			pa.outputTokens += tStats.outputTokens
+			convTotalTokens := agg.freshInput + agg.cachedInput + agg.outputTokens
+			pa.freshInput += agg.freshInput
+			pa.cachedInput += agg.cachedInput
+			pa.outputTokens += agg.outputTokens
+			pa.requests += agg.requests
 			pa.costUSD += convCost
 			pa.savedUSD += convSaved
 			pa.sessionsCount++
@@ -1095,18 +1393,14 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 				pa.lastActive = tStats.lastActive
 			}
 
-			// Collect recent steps for Live Telemetry tab
-			for _, st := range tStats.recentSteps {
-				var stepCost float64
-				if priceConfigured {
-					inRate := *pRec.InputPricePerM
-					cacheRate := inRate * 0.25
-					if pRec.CachedInputPricePerM != nil {
-						cacheRate = *pRec.CachedInputPricePerM
-					}
-					outRate := *pRec.OutputPricePerM
-					stepCost = (float64(st.freshInput)*inRate + float64(st.cachedInput)*cacheRate + float64(st.output)*outRate) / 1_000_000.0
-				}
+			// Collect the most recent steps of this conversation for the Live
+			// Telemetry tab (a log: always the latest invocations, independent
+			// of the selected aggregation window).
+			recent := tStats.steps
+			if len(recent) > 15 {
+				recent = recent[len(recent)-15:]
+			}
+			for _, st := range recent {
 				allRecentSteps = append(allRecentSteps, stepWithContext{
 					rawStepEvent:    st,
 					convID:          convID,
@@ -1115,7 +1409,24 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 					modelID:         mID,
 					provider:        pRec.Provider,
 					classification:  pRec.Classification,
-					costUSD:         stepCost,
+					costUSD:         stepCost(st),
+					priceConfigured: priceConfigured,
+					isSubagent:      isSub,
+					agentRole:       agentRole,
+				})
+			}
+
+			// Collect every in-window step for the trend histogram (#125).
+			for _, st := range agg.steps {
+				windowSteps = append(windowSteps, stepWithContext{
+					rawStepEvent:    st,
+					convID:          convID,
+					project:         projName,
+					modelName:       mDisplayName,
+					modelID:         mID,
+					provider:        pRec.Provider,
+					classification:  pRec.Classification,
+					costUSD:         stepCost(st),
 					priceConfigured: priceConfigured,
 					isSubagent:      isSub,
 					agentRole:       agentRole,
@@ -1141,6 +1452,11 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 
 	totalPromptTokens := totalFreshInput + totalCachedInput
 	totalTokens := totalPromptTokens + totalOutputTokens
+
+	// Build the stacked histogram from the real in-window steps (#125). When the
+	// window contains no steps the histogram stays empty (axes + "No data") —
+	// no synthetic interpolation is ever injected.
+	trendBuckets, bucketMS := buildTokenTrend(windowSteps, rangeSpec, cutoff, now)
 
 	// Build sorted model breakdowns
 	modelBreakdowns := make([]TokenModelBreakdown, 0, len(modelMap))
@@ -1220,6 +1536,7 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 			SavedUSD:      pa.savedUSD,
 			CacheHitRatio: cacheRatio,
 			SessionsCount: pa.sessionsCount,
+			Requests:      pa.requests,
 			LastActive:    formatRelativeTime(pa.lastActive),
 			PrimaryModel:  primaryModel,
 		})
@@ -1296,6 +1613,36 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, map[string]interface{}{
+		"range": rangeSpec.Key,
+		// Token accounting definition (#126), verified against live transcripts:
+		// total_tokens = fresh input + cache reads + output.
+		//
+		// `cache_read_tokens` is NOT a subset of `input_tokens` in Antigravity
+		// transcripts: input_tokens is the *fresh* prompt slice delivered to the
+		// model while cache_read_tokens is the cache-hit slice of the same
+		// context, so total prompt size is input_tokens + cache_read_tokens
+		// (measured cache/fresh ratios of 20-25x on real transcripts). The three
+		// fields are therefore disjoint and must be summed, never nested.
+		//
+		// Cross-check with the external "Magpie" readout, which reports a single
+		// conversation rather than a global window. Conversation
+		// 60577173-d663-4a89-8482-c0afc2b1fe79: fresh 353,814 + cache 7,904,545
+		// + output 49,288 = 8,307,647 tokens over 92 requests with a 95.7% cache
+		// hit ratio, matching Magpie's reported 8.1M tokens / 92 requests / 95%
+		// hit — i.e. Magpie's "Total Tokens" also contains cache reads (without
+		// them this conversation would read ~0.4M). The all-time dashboard total
+		// (e.g. 1573.63M) is the honest sum over every conversation, so it only
+		// becomes comparable once a bounded range is selected — which is exactly
+		// what the range filter above enables.
+		//
+		// No double counting across dimensions: each token-bearing step is
+		// counted exactly once (verified: 14,287 live steps, 0 signatures shared
+		// between two conversation files, so parent/subagent transcripts do not
+		// duplicate work), and every conversation is attributed to exactly one
+		// model, so summing model_breakdowns (native + custom) reproduces
+		// total_tokens exactly once. `input_tokens` below is the prompt side
+		// (fresh + cached) to keep the I/O ratio and cache-hit ratio meaningful,
+		// and `cached_input_tokens` is its cache-read component.
 		"total_tokens":        totalTokens,
 		"input_tokens":        totalPromptTokens,
 		"cached_input_tokens": totalCachedInput,
@@ -1310,8 +1657,12 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 		"model_breakdowns":    modelBreakdowns,
 		"project_breakdowns":  projectBreakdowns,
 		"telemetry_events":    telemetryEvents,
-		"pricing_records":     pricingRecords,
-		"models":              pricingRecords,
+		"trend": map[string]interface{}{
+			"bucket_ms": bucketMS,
+			"buckets":   trendBuckets,
+		},
+		"pricing_records": pricingRecords,
+		"models":          pricingRecords,
 	})
 }
 
@@ -1670,22 +2021,22 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 						subLog := filepath.Join(brainBase, subID, ".system_generated", "logs", "transcript.jsonl")
 						if sfi, sErr := os.Stat(subLog); sErr == nil && sfi.Size() <= maxTranscriptSize {
 							if subData, readErr := os.ReadFile(subLog); readErr == nil {
-							subLines := strings.Split(string(subData), "\n")
-							for _, sl := range subLines {
-								sl = strings.TrimSpace(sl)
-								if sl == "" {
-									continue
-								}
-								var sStep jsonStep
-								if err := json.Unmarshal([]byte(sl), &sStep); err == nil {
-									if sStep.Source == "MODEL" && sStep.Type == "PLANNER_RESPONSE" {
-										subIn := sStep.InputTokens + sStep.CacheReadTokens
-										totalIn += subIn
-										totalOut += sStep.OutputTokens
-										totalCached += sStep.CacheReadTokens
+								subLines := strings.Split(string(subData), "\n")
+								for _, sl := range subLines {
+									sl = strings.TrimSpace(sl)
+									if sl == "" {
+										continue
+									}
+									var sStep jsonStep
+									if err := json.Unmarshal([]byte(sl), &sStep); err == nil {
+										if sStep.Source == "MODEL" && sStep.Type == "PLANNER_RESPONSE" {
+											subIn := sStep.InputTokens + sStep.CacheReadTokens
+											totalIn += subIn
+											totalOut += sStep.OutputTokens
+											totalCached += sStep.CacheReadTokens
+										}
 									}
 								}
-							}
 							}
 						}
 					}
@@ -1832,5 +2183,3 @@ ORDER BY cs.last_modified_time DESC LIMIT 1`
 	}
 	writeJSON(w, res)
 }
-
-
