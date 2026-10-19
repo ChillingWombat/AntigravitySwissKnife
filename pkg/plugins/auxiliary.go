@@ -5452,6 +5452,15 @@ func GenerateAuxiliaryPluginsScript() string {
       const PLAY_ICON = '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"/></svg>';
       const PAUSE_ICON = '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" stroke="none"><rect x="7" y="5" width="3" height="14" rx="1"/><rect x="14" y="5" width="3" height="14" rx="1"/></svg>';
 
+      // HTML ids must be unique per document, so every card scopes its ids with
+      // the memo id. Only [A-Za-z0-9_-] survives, keeping the suffix safe inside
+      // attribute values and (defensive) selector strings.
+      const memoCardDomKey = (memoId) => {
+        const raw = memoId === undefined || memoId === null ? "" : String(memoId);
+        const safe = raw.replace(/[^A-Za-z0-9_-]/g, "_");
+        return safe || "anon";
+      };
+
       const formatPlayerTime = (seconds) => {
         const numeric = Number(seconds);
         const total = isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
@@ -5597,13 +5606,14 @@ func GenerateAuxiliaryPluginsScript() string {
           const extractIdleLabel = extractKind === "image" ? "OCR" : "Convert to Text";
           const extractDoneLabel = extractKind === "image" ? "OCR ✓" : "Text ✓";
           const extractDone = Boolean(m.transcript);
+          const cardKey = memoCardDomKey(m.id);
           const playerHtml = m.audio_data ? (
             '<div class="swiss-memo-player">' +
-              '<button type="button" class="swiss-memo-play" id="m-play" aria-label="Play" title="Play">' + PLAY_ICON + '</button>' +
-              '<div class="swiss-memo-progress" id="m-progress" role="slider" tabindex="0" aria-label="Playback position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="swiss-memo-progress-fill" id="m-progress-fill"></div></div>' +
-              '<span class="swiss-memo-time" id="m-time">0:00 / ' + escapeHtml(m.duration || "0:00") + '</span>' +
+              '<button type="button" class="swiss-memo-play" id="swiss-memo-play-' + cardKey + '" aria-label="Play" title="Play">' + PLAY_ICON + '</button>' +
+              '<div class="swiss-memo-progress" id="swiss-memo-progress-' + cardKey + '" role="slider" tabindex="0" aria-label="Playback position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="swiss-memo-progress-fill" id="swiss-memo-progress-fill-' + cardKey + '"></div></div>' +
+              '<span class="swiss-memo-time" id="swiss-memo-time-' + cardKey + '">0:00 / ' + escapeHtml(m.duration || "0:00") + '</span>' +
             '</div>' +
-            '<audio id="m-audio" preload="metadata" src="' + escapeHtml(m.audio_data) + '" style="display:none;"></audio>'
+            '<audio class="swiss-memo-audio" id="swiss-memo-audio-' + cardKey + '" preload="metadata" src="' + escapeHtml(m.audio_data) + '" style="display:none;"></audio>'
           ) : "";
 
           card.innerHTML = ` + "`" + `
@@ -5621,10 +5631,10 @@ func GenerateAuxiliaryPluginsScript() string {
             </div>
             ${playerHtml}
             <div class="swiss-memo-card-foot">
-              ${extractKind ? ('<button type="button" class="swiss-browser-btn swiss-memo-extract-btn" id="m-extract"' + (extractDone ? ' disabled' : '') + '>' + escapeHtml(extractDone ? extractDoneLabel : extractIdleLabel) + '</button>') : ""}
+              ${extractKind ? ('<button type="button" class="swiss-browser-btn swiss-memo-extract-btn" id="swiss-memo-extract-' + cardKey + '"' + (extractDone ? ' disabled' : '') + '>' + escapeHtml(extractDone ? extractDoneLabel : extractIdleLabel) + '</button>') : ""}
               <div class="swiss-memo-card-actions">
-                <button class="swiss-browser-btn" id="m-insert" style="padding:2px 6px; font-size:10px;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Chat</span></button>
-                <button class="swiss-browser-btn" id="m-del" title="Delete Memo" style="padding:2px 6px; font-size:10px; color:#ef4444;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+                <button class="swiss-browser-btn swiss-memo-insert-btn" id="swiss-memo-insert-${cardKey}" style="padding:2px 6px; font-size:10px;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Chat</span></button>
+                <button class="swiss-browser-btn swiss-memo-del-btn" id="swiss-memo-del-${cardKey}" title="Delete Memo" style="padding:2px 6px; font-size:10px; color:#ef4444;"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
               </div>
             </div>
           ` + "`" + `;
@@ -5642,7 +5652,7 @@ func GenerateAuxiliaryPluginsScript() string {
             }
           };
 
-          card.querySelector("#m-insert").onclick = () => {
+          card.querySelector(".swiss-memo-insert-btn").onclick = () => {
             if (m.image_data) {
               insertImageToChatInput(m.image_data, m.content || m.title || "");
             } else {
@@ -5650,7 +5660,7 @@ func GenerateAuxiliaryPluginsScript() string {
             }
           };
 
-          card.querySelector("#m-del").onclick = async () => {
+          card.querySelector(".swiss-memo-del-btn").onclick = async () => {
             allMemos = allMemos.filter(item => item.id !== m.id);
             saveLocalMemos(allMemos);
             applyFilterAndRender();
@@ -5660,17 +5670,17 @@ func GenerateAuxiliaryPluginsScript() string {
             loadMemos(true);
           };
 
-          const extractBtn = card.querySelector("#m-extract");
+          const extractBtn = card.querySelector(".swiss-memo-extract-btn");
           if (extractBtn) {
             extractBtn.onclick = () => { runMemoExtract(m, extractKind, extractBtn); };
           }
 
           if (m.audio_data) {
-            const audio = card.querySelector("#m-audio");
-            const playBtn = card.querySelector("#m-play");
-            const track = card.querySelector("#m-progress");
-            const fill = card.querySelector("#m-progress-fill");
-            const timeEl = card.querySelector("#m-time");
+            const audio = card.querySelector(".swiss-memo-audio");
+            const playBtn = card.querySelector(".swiss-memo-play");
+            const track = card.querySelector(".swiss-memo-progress");
+            const fill = card.querySelector(".swiss-memo-progress-fill");
+            const timeEl = card.querySelector(".swiss-memo-time");
             const fallbackDuration = parseDurationLabel(m.duration);
             let rafId = 0;
             let dragging = false;

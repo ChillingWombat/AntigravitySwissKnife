@@ -788,7 +788,7 @@ func TestGenerateAuxiliaryPluginsScript_MemoViewAndTelemetryBadge(t *testing.T) 
 	memoChecks := []string{
 		`id="swiss-m-record-audio"`,
 		`<span>Voice Memo</span>`,
-		`id="m-del" title="Delete Memo"`,
+		`class="swiss-browser-btn swiss-memo-del-btn" id="swiss-memo-del-${cardKey}" title="Delete Memo"`,
 		`<svg viewBox="0 0 24 24" width="11" height="11"`,
 		`LOCAL_MEMOS_KEY = "antigravity_swiss_memos_backup"`,
 		`Array.isArray(data.memos)`,
@@ -2565,6 +2565,70 @@ func TestQuickMemos_ExtractButtons(t *testing.T) {
 	// Failures must surface the server message, never fabricate a transcript.
 	if !strings.Contains(js, `payload && payload.error ? payload.error :`) {
 		t.Errorf("extract failure must toast the server-provided error message")
+	}
+}
+
+func TestQuickMemos_CardScopedUniqueElementIds(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+
+	// A panel can render many memo cards at once, so every per-card element id is
+	// suffixed with a memo-derived key — repeated ids would violate the HTML
+	// uniqueness rule and make id lookups resolve to the first card.
+	uniqueIdTokens := []string{
+		`const cardKey = memoCardDomKey(m.id);`,
+		`raw.replace(/[^A-Za-z0-9_-]/g, "_")`,
+		`return safe || "anon";`,
+		`id="swiss-memo-play-' + cardKey + '"`,
+		`id="swiss-memo-progress-' + cardKey + '"`,
+		`id="swiss-memo-progress-fill-' + cardKey + '"`,
+		`id="swiss-memo-time-' + cardKey + '"`,
+		`id="swiss-memo-audio-' + cardKey + '"`,
+		`id="swiss-memo-extract-' + cardKey + '"`,
+		`id="swiss-memo-insert-${cardKey}"`,
+		`id="swiss-memo-del-${cardKey}"`,
+	}
+	for _, token := range uniqueIdTokens {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected memo card markup to contain unique id token %q", token)
+		}
+	}
+
+	// Element lookups stay card-scoped and class-based, so they never depend on
+	// those ids being globally unique.
+	scopedSelectorTokens := []string{
+		`card.querySelector(".swiss-memo-play")`,
+		`card.querySelector(".swiss-memo-progress")`,
+		`card.querySelector(".swiss-memo-progress-fill")`,
+		`card.querySelector(".swiss-memo-time")`,
+		`card.querySelector(".swiss-memo-audio")`,
+		`card.querySelector(".swiss-memo-extract-btn")`,
+		`card.querySelector(".swiss-memo-insert-btn")`,
+		`card.querySelector(".swiss-memo-del-btn")`,
+	}
+	for _, token := range scopedSelectorTokens {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected memo card lookups to contain %q", token)
+		}
+	}
+
+	// Regression guard: fixed per-card ids or id-based card lookups must not return.
+	if strings.Contains(js, `id="m-`) {
+		t.Errorf(`memo cards must not reuse fixed element ids such as id="m-play"`)
+	}
+	for _, legacy := range []string{
+		`querySelector("#m-play")`,
+		`querySelector("#m-progress")`,
+		`querySelector("#m-progress-fill")`,
+		`querySelector("#m-time")`,
+		`querySelector("#m-audio")`,
+		`querySelector("#m-extract")`,
+		`querySelector("#m-insert")`,
+		`querySelector("#m-del")`,
+		`querySelector("#swiss-memo-`,
+	} {
+		if strings.Contains(js, legacy) {
+			t.Errorf("memo card element lookups must be card-scoped and class-based, found %q", legacy)
+		}
 	}
 }
 
