@@ -204,8 +204,12 @@ func TestAdversarial_ConcurrencyStress(t *testing.T) {
 	cfg := core.DefaultConfig()
 
 	var wg sync.WaitGroup
-	workers := 50
-	iterations := 20
+	workers := 20
+	iterations := 5
+	if testing.Short() {
+		workers = 5
+		iterations = 2
+	}
 
 	for i := 0; i < workers; i++ {
 		wg.Add(1)

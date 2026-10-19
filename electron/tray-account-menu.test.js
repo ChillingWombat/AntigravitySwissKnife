@@ -586,8 +586,9 @@ describe('Tray Switch Google Account Menu', () => {
       assert.ok(mainJs.includes('setTemplateImage(true)'), 'macOS status item icon must be set as template image');
     });
 
-    it('enforces 16x16 icon for Windows notification tray', () => {
-      assert.ok(mainJs.includes('width: 16, height: 16'), 'Windows tray icon must resize to 16x16');
+    it('preserves native 32px glyph untouched for Windows notification tray', () => {
+      assert.ok(mainJs.includes('if (isWin) {'), 'Windows tray icon must check isWin');
+      assert.ok(mainJs.includes('return img;'), 'Windows tray icon must return native image untouched');
     });
 
     it('enforces 22x22 icon for Linux system tray standard', () => {
