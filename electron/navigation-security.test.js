@@ -1,7 +1,31 @@
 const fs = require('node:fs');
+const http = require('node:http');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { isTrustedDaemonOrigin, isSafeExternalUrl } = require('./main');
+const {
+  buildConnectingFallbackHtml,
+  recoverDaemonConnection,
+  isTrustedDaemonOrigin,
+  isSafeExternalUrl,
+  DAEMON_URL,
+} = require('./main');
+const { DaemonManager } = require('./daemon-manager');
+
+function startHttpServer(handler) {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer(handler);
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.removeListener('error', reject);
+      const { port } = server.address();
+      resolve({
+        server,
+        baseUrl: `http://127.0.0.1:${port}`,
+        close: () => new Promise((closeResolve) => server.close(closeResolve)),
+      });
+    });
+  });
+}
 
 test('isTrustedDaemonOrigin - verifies exact origin matching', () => {
   const DAEMON_URL = 'http://127.0.0.1:8765';
@@ -78,10 +102,147 @@ test('DaemonManager - cleanupSocket removes existing socket file and handles non
 });
 
 test('DaemonManager - reapOrphanedProcesses does not throw and returns boolean', () => {
-  const { DaemonManager } = require('./daemon-manager');
   const dm = new DaemonManager({ port: 8765, host: '127.0.0.1' });
   assert.doesNotThrow(() => {
     const signaled = dm.reapOrphanedProcesses();
     assert.equal(typeof signaled, 'boolean');
   });
+});
+
+test('DaemonManager - rejects unrelated HTTP 200 responses and bare 401s', async () => {
+  const fixture = await startHttpServer((req, res) => {
+    if (req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end('<html>unrelated local service</html>');
+      return;
+    }
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end('{"error":"unauthorized"}');
+  });
+
+  try {
+    const dm = new DaemonManager({ baseUrl: fixture.baseUrl });
+    assert.equal(await dm.checkStatus(250), null);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('DaemonManager - rejects health and status payloads that do not match the Swiss contract', async () => {
+  const fixture = await startHttpServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    if (req.url === '/health') {
+      res.end('{"status":"ok"}');
+      return;
+    }
+    res.end('{"daemon_running":true}');
+  });
+
+  try {
+    const dm = new DaemonManager({ baseUrl: fixture.baseUrl });
+    assert.equal(await dm.checkStatus(250), null);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('DaemonManager - accepts only a complete Swiss health contract', async () => {
+  const fixture = await startHttpServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    if (req.url === '/health') {
+      res.end('{"status":"ok","version":"0.1.0"}');
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  try {
+    const dm = new DaemonManager({ baseUrl: fixture.baseUrl });
+    assert.deepEqual(await dm.checkStatus(250), {
+      status: 'ok',
+      version: '0.1.0',
+      daemon_running: true,
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('DaemonManager - accepts an authenticated Swiss status contract when health is unavailable', async () => {
+  const fixture = await startHttpServer((req, res) => {
+    if (req.url === '/health') {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end('{"daemon_running":true,"daemon_pid":4242,"version":"0.1.0"}');
+  });
+
+  try {
+    const dm = new DaemonManager({
+      baseUrl: fixture.baseUrl,
+      getAuthHeaders: () => ({ 'X-Session-Token': 'valid-token' }),
+    });
+    assert.deepEqual(await dm.checkStatus(250), {
+      daemon_running: true,
+      daemon_pid: 4242,
+      version: '0.1.0',
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('Connecting fallback - retries through the preload IPC bridge without a data-origin fetch', () => {
+  const html = buildConnectingFallbackHtml();
+  assert.match(html, /retryDaemonConnection/);
+  assert.doesNotMatch(html, /\bfetch\s*\(/);
+});
+
+test('recoverDaemonConnection - starts the daemon and navigates only to the trusted daemon URL', async () => {
+  const loadedUrls = [];
+  let startCalls = 0;
+  const result = await recoverDaemonConnection({
+    manager: {
+      start: async () => {
+        startCalls += 1;
+      },
+      checkStatus: async () => ({
+        daemon_running: true,
+        status: 'ok',
+        version: '0.1.0',
+      }),
+    },
+    window: {
+      isDestroyed: () => false,
+      loadURL: async (url) => {
+        loadedUrls.push(url);
+      },
+    },
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(startCalls, 1);
+  assert.deepEqual(loadedUrls, [DAEMON_URL]);
+});
+
+test('recoverDaemonConnection - does not navigate when the daemon contract is invalid', async () => {
+  const loadedUrls = [];
+  const result = await recoverDaemonConnection({
+    manager: {
+      start: async () => {},
+      checkStatus: async () => null,
+    },
+    window: {
+      isDestroyed: () => false,
+      loadURL: async (url) => {
+        loadedUrls.push(url);
+      },
+    },
+  });
+
+  assert.equal(result.success, false);
+  assert.deepEqual(loadedUrls, []);
 });

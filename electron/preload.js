@@ -10,6 +10,7 @@ const electronAPI = {
   setRuntimeModeSetting: (mode) => ipcRenderer.invoke('desktop:set-runtime-mode-setting', mode),
   getSessionToken: () => ipcRenderer.invoke('desktop:get-session-token'),
   startDaemon: () => ipcRenderer.invoke('desktop:start-daemon'),
+  retryDaemonConnection: () => ipcRenderer.invoke('desktop:retry-daemon-connection'),
   onNavigate: (callback) => {
     if (typeof callback === 'function') {
       const subscription = (_event, toolIndex) => callback(toolIndex);

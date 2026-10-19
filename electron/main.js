@@ -238,6 +238,68 @@ function probeDaemonStatus(timeoutMs = 1500) {
   return daemonManager.checkStatus(timeoutMs);
 }
 
+function buildConnectingFallbackHtml() {
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Antigravity Swiss Knife - Connecting</title>
+  <style>
+    body { background: #131314; color: #e3e3e3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    h2 { margin-bottom: 8px; font-weight: 500; }
+    p { color: #8e918f; font-size: 14px; margin-bottom: 24px; }
+    button { background: #1a73e8; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; }
+    button:hover { background: #1557b0; }
+    button:disabled { background: #3c4043; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <h2>Connecting to Daemon...</h2>
+  <p>The companion service is starting or unreachable on port 8765.</p>
+  <button id="retryBtn" type="button" onclick="checkAndRetry()">Retry Connection</button>
+  <script>
+    const retryButton = document.getElementById("retryBtn");
+    let retryInFlight = false;
+
+    async function checkAndRetry() {
+      if (retryInFlight) return;
+      retryInFlight = true;
+      if (retryButton) retryButton.disabled = true;
+      try {
+        const result = await window.electronAPI?.retryDaemonConnection?.();
+        if (result?.success) return;
+      } catch (_) {}
+      retryInFlight = false;
+      if (retryButton) retryButton.disabled = false;
+    }
+
+    checkAndRetry();
+    setInterval(checkAndRetry, 1500);
+  </script>
+</body>
+</html>`;
+}
+
+async function recoverDaemonConnection(options = {}) {
+  const manager = options.manager || daemonManager;
+  const targetWindow = options.window === undefined ? mainWindow : options.window;
+
+  try {
+    await manager.start();
+    const status = await manager.checkStatus(1500);
+    if (!status || status.daemon_running !== true) {
+      return { success: false, error: 'Swiss daemon did not pass its health contract' };
+    }
+    if (!targetWindow || (typeof targetWindow.isDestroyed === 'function' && targetWindow.isDestroyed())) {
+      return { success: false, error: 'Application window is unavailable' };
+    }
+    await targetWindow.loadURL(DAEMON_URL);
+    return { success: true, status };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
 // Single instance lock
 if (app && typeof app.requestSingleInstanceLock === 'function') {
   const gotTheLock = app.requestSingleInstanceLock();
@@ -662,54 +724,9 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
-  // Load backend web GUI URL with resilient retry loop and live health check
-  const getConnectingFallbackHtml = () => `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Antigravity Swiss Knife - Connecting</title>
-  <style>
-    body { background: #131314; color: #e3e3e3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    h2 { margin-bottom: 8px; font-weight: 500; }
-    p { color: #8e918f; font-size: 14px; margin-bottom: 24px; }
-    button { background: #1a73e8; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; }
-    button:hover { background: #1557b0; }
-    button:disabled { background: #3c4043; cursor: not-allowed; }
-  </style>
-</head>
-<body>
-  <h2>Connecting to Daemon...</h2>
-  <p>The companion service is starting or unreachable on port 8765.</p>
-  <button id="retryBtn" onclick="checkAndRetry()">Retry Connection</button>
-  <script>
-    async function checkAndRetry() {
-      const btn = document.getElementById("retryBtn");
-      if (btn) btn.disabled = true;
-      try {
-        const res = await fetch("${DAEMON_URL}/healthz", { cache: "no-store" });
-        if (res.ok) {
-          window.location.replace("${DAEMON_URL}");
-          return;
-        }
-      } catch (_) {}
-      if (btn) btn.disabled = false;
-    }
-    const timer = setInterval(async () => {
-      try {
-        const res = await fetch("${DAEMON_URL}/healthz", { cache: "no-store" });
-        if (res.ok) {
-          clearInterval(timer);
-          window.location.replace("${DAEMON_URL}");
-        }
-      } catch (_) {}
-    }, 1500);
-  </script>
-</body>
-</html>`;
-
   const showConnectingFallback = () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
-    const html = getConnectingFallbackHtml();
+    const html = buildConnectingFallbackHtml();
     mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).catch(() => {});
   };
 
@@ -850,6 +867,13 @@ function registerIpcHandlers() {
   // directly (bypasses the need for the App Password lock screen in desktop mode).
   ipcMain.handle('desktop:get-session-token', async () => {
     return getDaemonSessionToken();
+  });
+
+  ipcMain.handle('desktop:retry-daemon-connection', async (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      return { success: false, error: 'Untrusted recovery request' };
+    }
+    return recoverDaemonConnection();
   });
 
   ipcMain.handle('desktop:notify', async (_event, params) => {
@@ -1154,6 +1178,8 @@ module.exports = {
   daemonManager,
   DaemonManager,
   probeDaemonStatus,
+  buildConnectingFallbackHtml,
+  recoverDaemonConnection,
   createWindow,
   createTray,
   updateTrayMenu,
