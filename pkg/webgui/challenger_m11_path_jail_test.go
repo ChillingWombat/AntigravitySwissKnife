@@ -240,17 +240,15 @@ func TestChallenger_ValidateDeletablePath_Adversarial(t *testing.T) {
 	}
 }
 
-// TestChallenger_ValidateJailedPath_WindowsVectors tests validateJailedPath against Windows-specific vectors:
-// - Windows extended length paths
-// - Windows system directory traversal
-// - Encoded traversal with backslashes
+// TestChallenger_ValidateJailedPath_WindowsVectors verifies malformed inputs stay
+// rejected while previously-forbidden system locations are readable. Since issue
+// #157 there is no directory whitelist; only destructive operations are blocked
+// for system/credential locations.
 func TestChallenger_ValidateJailedPath_WindowsVectors(t *testing.T) {
 	vectors := []struct {
 		name string
 		path string
 	}{
-		{"Extended path system directory", `\\?\C:\Windows\System32\cmd.exe`},
-		{"Extended path traversal", `\\?\C:\Users\runner\..\..\Windows\System32`},
 		{"Backslash traversal", `..\..\Windows\System32\cmd.exe`},
 		{"Encoded backslash traversal", `..%5c..%5cWindows`},
 		{"Double encoded backslash traversal", `..%255c..%255cWindows`},
@@ -266,10 +264,24 @@ func TestChallenger_ValidateJailedPath_WindowsVectors(t *testing.T) {
 			}
 		})
 	}
+
+	if runtime.GOOS != "windows" {
+		return
+	}
+
+	// Reading system locations is allowed; mutating them is not.
+	const systemFile = `C:\Windows\System32\cmd.exe`
+	if res, err := validateJailedPath(systemFile); err != nil {
+		t.Errorf("[REGRESSION] read of system path should be allowed, got error: %v (resolved %q)", err, res)
+	}
+	if res, err := validateDestructivePath(systemFile); err == nil {
+		t.Errorf("[VULNERABILITY] destructive operation on system path was allowed -> %q", res)
+	}
 }
 
-// TestChallenger_SymlinkAndJailEscapes tests symlink escape boundaries
-func TestChallenger_SymlinkAndJailEscapes(t *testing.T) {
+// TestChallenger_SymlinkEscapes tests that symlinks resolving outside the working
+// directory are readable (no browsing whitelist) but dangling symlinks stay rejected.
+func TestChallenger_SymlinkEscapes(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Legitimate nested file must be allowed
@@ -282,13 +294,26 @@ func TestChallenger_SymlinkAndJailEscapes(t *testing.T) {
 		t.Errorf("expected non-empty resolved path")
 	}
 
-	// Symlink pointing outside tempDir must be rejected
+	// A symlink that resolves outside tempDir is readable: the operator asked for
+	// unrestricted browsing.
 	if runtime.GOOS != "windows" {
 		evilLink := filepath.Join(tempDir, "evil_link")
-		_ = os.Symlink("/etc", evilLink)
-		_, err := validateJailedPath(evilLink)
-		if err == nil {
-			t.Errorf("[VULNERABILITY] symlink to /etc accepted by validateJailedPath")
+		if err := os.Symlink("/etc", evilLink); err != nil {
+			t.Skipf("cannot create symlink: %v", err)
 		}
+		if res, err := validateJailedPath(evilLink); err != nil {
+			t.Errorf("[REGRESSION] readable symlink to /etc rejected: %v", err)
+		} else if res == "" {
+			t.Errorf("expected non-empty resolved path for symlink")
+		}
+	}
+
+	// Dangling symlinks remain invalid.
+	dangling := filepath.Join(tempDir, "dangling_link")
+	if err := os.Symlink(filepath.Join(tempDir, "missing-target"), dangling); err != nil {
+		t.Skipf("cannot create symlink: %v", err)
+	}
+	if res, err := validateJailedPath(dangling); err == nil {
+		t.Errorf("[VULNERABILITY] dangling symlink accepted -> %q", res)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/ipc"
@@ -116,42 +117,18 @@ func TestEmpirical_CORSValidation(t *testing.T) {
 	}
 }
 
-// TestEmpirical_PathJailing stress-tests validateJailedPath against symlink traversal,
-// relative escapes, encoded traversal, and null byte injections.
+// TestEmpirical_PathJailing verifies that malformed paths, encoded traversal and
+// null-byte injections are rejected, while absolute paths outside the former
+// whitelist (including symlinks that resolve to them) are readable (issue #157).
 func TestEmpirical_PathJailing(t *testing.T) {
 	tempDir := t.TempDir()
 
-	// 1. Setup symlink traversal test
-	symlinkPath := filepath.Join(tempDir, "symlink_to_etc_hosts")
-	targetEtc := "/etc/hosts"
-	if err := os.Symlink(targetEtc, symlinkPath); err != nil {
-		t.Skipf("cannot create symlink: %v", err)
-	}
-
-	// Create symlink to directory /etc
-	symlinkDir := filepath.Join(tempDir, "symlink_to_etc_dir")
-	if err := os.Symlink("/etc", symlinkDir); err != nil {
-		t.Skipf("cannot create directory symlink: %v", err)
-	}
-	nestedInSymlink := filepath.Join(symlinkDir, "passwd")
-
-	traversalVectors := []struct {
+	// 1. Vectors that must stay invalid regardless of browsing restrictions.
+	rejectedVectors := []struct {
 		name string
 		path string
 	}{
-		{"Symlink to /etc/hosts", symlinkPath},
-		{"File through symlinked /etc dir", nestedInSymlink},
-		{"Direct /etc/passwd", "/etc/passwd"},
-		{"Direct /etc/shadow", "/etc/shadow"},
-		{"Direct /proc/cpuinfo", "/proc/cpuinfo"},
-		{"Direct /sys/kernel", "/sys/kernel"},
-		{"Direct /dev/null", "/dev/null"},
-		{"Direct /boot/grub", "/boot/grub"},
-		{"Direct /root/.bashrc", "/root/.bashrc"},
-		{"Direct /var/log/syslog", "/var/log/syslog"},
-		{"Direct /bin/sh", "/bin/sh"},
 		{"Deep relative traversal", "../../../../../../../../../../etc/passwd"},
-		{"Relative from temp dir escaping to /etc", filepath.Join(tempDir, "../../../../../../../../../../etc/passwd")},
 		{"Encoded dot dot slash ..%2f", "..%2f..%2fetc/passwd"},
 		{"Encoded dot dot slash %2e%2e", "%2e%2e%2f%2e%2e%2fetc%2fpasswd"},
 		{"Encoded dot dot slash %252e", "%252e%252e%252fetc/passwd"},
@@ -165,7 +142,6 @@ func TestEmpirical_PathJailing(t *testing.T) {
 		{"Triple URL-encoded traversal %25252e", "%25252e%25252e/%25252e%25252e/etc/passwd"},
 		{"Encoded Windows backslash ..%5c", "..%5c..%5cetc/passwd"},
 		{"Double encoded Windows backslash %255c", "..%255c..%255cetc/passwd"},
-		{"Direct file:///etc/passwd scheme in path", "file:///etc/passwd"},
 		{"Direct file://attacker/share/etc/passwd", "file://attacker/share/etc/passwd"},
 		{"Path with space and null byte", filepath.Join(tempDir, "safe test\x00.txt")},
 		{"Path with plus and null byte", filepath.Join(tempDir, "safe+test\x00.txt")},
@@ -177,7 +153,7 @@ func TestEmpirical_PathJailing(t *testing.T) {
 		{"Raw %252f vector", "%252f"},
 	}
 
-	for _, tc := range traversalVectors {
+	for _, tc := range rejectedVectors {
 		resolved, err := validateJailedPath(tc.path)
 		t.Logf("[Path Jailing] Vector: %-38s (%q) -> err: %v, resolved: %q", tc.name, tc.path, err, resolved)
 		if err == nil {
@@ -186,7 +162,36 @@ func TestEmpirical_PathJailing(t *testing.T) {
 		}
 	}
 
-	// 2. Verify legitimate paths inside allowed roots are accepted
+	// 2. Absolute paths outside the former whitelist are now readable.
+	var readableVectors []string
+	if runtime.GOOS == "windows" {
+		readableVectors = []string{`C:\Windows\win.ini`, `C:\Windows\System32\drivers\etc\hosts`, `C:\ProgramData`}
+	} else {
+		readableVectors = []string{"/etc/passwd", "/proc/cpuinfo", "/sys/kernel", "/bin/sh"}
+	}
+	for _, vec := range readableVectors {
+		res, err := validateJailedPath(vec)
+		if err != nil {
+			t.Errorf("[REGRESSION] validateJailedPath rejected readable path %q: %v", vec, err)
+		} else if res == "" {
+			t.Errorf("[REGRESSION] validateJailedPath(%q) returned empty path", vec)
+		}
+	}
+
+	// Symlinks resolving outside the working directory are readable.
+	if runtime.GOOS != "windows" {
+		symlinkDir := filepath.Join(tempDir, "symlink_to_etc_dir")
+		if err := os.Symlink("/etc", symlinkDir); err != nil {
+			t.Skipf("cannot create directory symlink: %v", err)
+		}
+		if res, err := validateJailedPath(filepath.Join(symlinkDir, "passwd")); err != nil {
+			t.Errorf("[REGRESSION] readable symlink to /etc/passwd rejected: %v", err)
+		} else if res == "" {
+			t.Errorf("expected non-empty resolved path for symlink")
+		}
+	}
+
+	// 3. Verify legitimate paths are accepted
 	legitTempFile := filepath.Join(tempDir, "legit_file.txt")
 	if err := os.WriteFile(legitTempFile, []byte("ok"), 0600); err != nil {
 		t.Fatalf("failed to write legit file: %v", err)

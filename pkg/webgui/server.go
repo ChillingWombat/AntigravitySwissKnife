@@ -4529,73 +4529,6 @@ func find8dot3Aliases(target string, probes ...string) []string {
 	return aliases
 }
 
-// getAllowedRoots returns all whitelisted root directories for path jailing,
-// including long forms, 8.3 short names (e.g. RUNNER~1 vs runneradmin), and resolved symlinks.
-func getAllowedRoots() []string {
-	var allowedRoots []string
-	seen := make(map[string]bool)
-
-	addRoot := func(r string) {
-		if r == "" {
-			return
-		}
-		r = stripExtendedPrefix(strings.TrimSpace(r))
-		c := filepath.Clean(r)
-		key := strings.ToLower(c)
-		if !seen[key] {
-			seen[key] = true
-			allowedRoots = append(allowedRoots, c)
-		}
-		if eval, err := filepath.EvalSymlinks(c); err == nil {
-			eval = stripExtendedPrefix(filepath.Clean(eval))
-			keyEval := strings.ToLower(eval)
-			if !seen[keyEval] {
-				seen[keyEval] = true
-				allowedRoots = append(allowedRoots, eval)
-			}
-		}
-	}
-
-	var homeDir string
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		homeDir = home
-		addRoot(home)
-	}
-	if cfgDir := core.GetConfigDir(); cfgDir != "" {
-		addRoot(cfgDir)
-	}
-	if wd, err := os.Getwd(); err == nil && wd != "" {
-		addRoot(wd)
-	}
-	tmpDir := os.TempDir()
-	if tmpDir != "" {
-		addRoot(tmpDir)
-	}
-
-	var probes []string
-	if tmpDir != "" {
-		probes = append(probes, tmpDir)
-	}
-	for _, envKey := range []string{"TEMP", "TMP", "LOCALAPPDATA", "USERPROFILE"} {
-		if v := os.Getenv(envKey); v != "" {
-			probes = append(probes, v)
-		}
-	}
-
-	if homeDir != "" {
-		for _, alias := range find8dot3Aliases(homeDir, probes...) {
-			addRoot(alias)
-		}
-	}
-	if tmpDir != "" {
-		for _, alias := range find8dot3Aliases(tmpDir, probes...) {
-			addRoot(alias)
-		}
-	}
-
-	return allowedRoots
-}
-
 // pathMatchesOrIsSubpath checks if candidate matches root or is inside root, with case-insensitivity on Windows
 // or when Windows drive letters are present. It also strips extended-length prefixes (\\?\) and prevents double-slash boundary bugs.
 func pathMatchesOrIsSubpath(candidate, root string) bool {
@@ -4676,7 +4609,27 @@ func isSameOrAncestor(ancestorCandidate, child string) bool {
 	return pathMatchesOrIsSubpath(child, ancestorCandidate)
 }
 
+// validateJailedPath resolves a user-supplied path for read-only operations
+// (list, read, reveal, terminal/IDE launch).
+//
+// There is intentionally no directory whitelist: this daemon listens on the
+// loopback interface and requires X-Session-Token, and the operator explicitly
+// asked for unrestricted browsing (issue #157). The remaining checks are not
+// browsing restrictions — they only reject paths that cannot be resolved safely
+// (relative paths, null bytes, encoded traversal, dangling symlinks).
 func validateJailedPath(raw string) (string, error) {
+	return resolveUserPath(raw, false)
+}
+
+// validateDestructivePath resolves a path for operations that modify or remove
+// data (write, create, rename, move, delete). In addition to the read-path
+// checks it blocks credential stores and OS directories. Reading those
+// locations stays allowed; only mutation is refused.
+func validateDestructivePath(raw string) (string, error) {
+	return resolveUserPath(raw, true)
+}
+
+func resolveUserPath(raw string, destructive bool) (string, error) {
 	if strings.ContainsRune(raw, 0) || strings.Contains(raw, "\x00") {
 		return "", fmt.Errorf("access denied: null byte prohibited in path")
 	}
@@ -4702,19 +4655,11 @@ func validateJailedPath(raw string) (string, error) {
 		return "", fmt.Errorf("access denied: null byte prohibited in path")
 	}
 
-	normRaw := strings.ToLower(strings.ReplaceAll(raw, "\\", "/"))
-	normClean := strings.ToLower(strings.ReplaceAll(cleaned, "\\", "/"))
-	for _, sysPrefix := range []string{
-		"/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/var", "/bin", "/sbin", "/usr",
-		"c:/windows", "c:/program files", "c:/program files (x86)", "c:/programdata",
-	} {
-		if normClean == sysPrefix || strings.HasPrefix(normClean, sysPrefix+"/") ||
-			normRaw == sysPrefix || strings.HasPrefix(normRaw, sysPrefix+"/") {
-			return "", fmt.Errorf("access denied: path inside system directory %q", sysPrefix)
-		}
-	}
-	if strings.Contains(normClean, "windows/system32") || strings.Contains(normRaw, "windows/system32") {
-		return "", fmt.Errorf("access denied: path inside system directory Windows/System32")
+	// Only absolute paths are accepted. cleanUserPath resolves existing
+	// working-directory-relative inputs, so a still-relative path here cannot be
+	// resolved unambiguously and is rejected rather than guessed.
+	if !filepath.IsAbs(cleaned) {
+		return "", fmt.Errorf("access denied: absolute path required: %s", cleaned)
 	}
 
 	fi, errLstat := os.Lstat(cleaned)
@@ -4762,62 +4707,10 @@ func validateJailedPath(raw string) (string, error) {
 		evalPath = stripExtendedPrefix(filepath.Clean(evalPath))
 	}
 
-	normEval := strings.ToLower(strings.ReplaceAll(evalPath, "\\", "/"))
-	for _, sysPrefix := range []string{
-		"/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/var", "/bin", "/sbin", "/usr",
-		"c:/windows", "c:/program files", "c:/program files (x86)", "c:/programdata",
-	} {
-		if normEval == sysPrefix || strings.HasPrefix(normEval, sysPrefix+"/") {
-			return "", fmt.Errorf("access denied: path resolves to system directory %q", sysPrefix)
+	if destructive {
+		if err := ensureNotSensitiveLocation(cleaned, evalPath); err != nil {
+			return "", err
 		}
-	}
-	if strings.Contains(normEval, "windows/system32") {
-		return "", fmt.Errorf("access denied: path resolves to system directory Windows/System32")
-	}
-
-	// Deny access to sensitive credentials and shell dotfiles
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		homeRoots := []string{home}
-		if eh, errH := filepath.EvalSymlinks(home); errH == nil {
-			homeRoots = append(homeRoots, stripExtendedPrefix(eh))
-		}
-		for _, alias := range find8dot3Aliases(home, os.TempDir()) {
-			homeRoots = append(homeRoots, alias)
-		}
-		for _, h := range homeRoots {
-			sensitivePaths := []string{
-				filepath.Join(h, ".ssh"),
-				filepath.Join(h, ".aws"),
-				filepath.Join(h, ".gnupg"),
-				filepath.Join(h, ".bashrc"),
-				filepath.Join(h, ".bash_profile"),
-				filepath.Join(h, ".profile"),
-				filepath.Join(h, ".zshrc"),
-				filepath.Join(h, ".config", "gcloud"),
-			}
-			for _, sp := range sensitivePaths {
-				if pathMatchesOrIsSubpath(evalPath, sp) || pathMatchesOrIsSubpath(cleaned, sp) {
-					return "", fmt.Errorf("access denied: path resolves to sensitive location %q", sp)
-				}
-			}
-		}
-	}
-
-	allowedRoots := getAllowedRoots()
-
-	isAllowed := false
-	for _, root := range allowedRoots {
-		if root == "" || root == "/" || root == "\\" {
-			continue
-		}
-		if pathMatchesOrIsSubpath(evalPath, root) || pathMatchesOrIsSubpath(cleaned, root) {
-			isAllowed = true
-			break
-		}
-	}
-
-	if !isAllowed {
-		return "", fmt.Errorf("access denied: path outside allowed directories: %s", cleaned)
 	}
 
 	if isSymlink {
@@ -4826,15 +4719,82 @@ func validateJailedPath(raw string) (string, error) {
 	return cleaned, nil
 }
 
+// ensureNotSensitiveLocation is the destructive-operation floor. The paths below
+// hold credentials or operating-system binaries: reading them is allowed (the
+// operator asked for unrestricted browsing), but writing, renaming, moving,
+// creating inside them, or deleting them is refused.
+func ensureNotSensitiveLocation(cleaned, evalPath string) error {
+	candidates := []string{cleaned}
+	if evalPath != "" && !strings.EqualFold(stripExtendedPrefix(evalPath), stripExtendedPrefix(cleaned)) {
+		candidates = append(candidates, evalPath)
+	}
+
+	systemPrefixes := []string{
+		"/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/var", "/bin", "/sbin", "/usr",
+		"c:/windows", "c:/program files", "c:/program files (x86)", "c:/programdata",
+	}
+	for _, candidate := range candidates {
+		norm := strings.ToLower(strings.ReplaceAll(stripExtendedPrefix(candidate), "\\", "/"))
+		for _, sysPrefix := range systemPrefixes {
+			if norm == sysPrefix || strings.HasPrefix(norm, sysPrefix+"/") {
+				return fmt.Errorf("access denied: destructive operation on system directory %q", sysPrefix)
+			}
+		}
+		if strings.Contains(norm, "windows/system32") {
+			return fmt.Errorf("access denied: destructive operation on system directory Windows/System32")
+		}
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return nil
+	}
+	homeRoots := []string{home}
+	if eh, errH := filepath.EvalSymlinks(home); errH == nil {
+		homeRoots = append(homeRoots, stripExtendedPrefix(eh))
+	}
+	for _, alias := range find8dot3Aliases(home, os.TempDir()) {
+		homeRoots = append(homeRoots, alias)
+	}
+	for _, h := range homeRoots {
+		sensitivePaths := []string{
+			filepath.Join(h, ".ssh"),
+			filepath.Join(h, ".aws"),
+			filepath.Join(h, ".gnupg"),
+			filepath.Join(h, ".bashrc"),
+			filepath.Join(h, ".bash_profile"),
+			filepath.Join(h, ".profile"),
+			filepath.Join(h, ".zshrc"),
+			filepath.Join(h, ".config", "gcloud"),
+			// Browser credential stores.
+			filepath.Join(h, ".mozilla"),
+			filepath.Join(h, ".config", "google-chrome"),
+			filepath.Join(h, ".config", "chromium"),
+			filepath.Join(h, "AppData", "Local", "Google", "Chrome", "User Data"),
+			filepath.Join(h, "AppData", "Local", "Microsoft", "Edge", "User Data"),
+			filepath.Join(h, "AppData", "Local", "BraveSoftware"),
+			filepath.Join(h, "AppData", "Roaming", "Mozilla", "Firefox", "Profiles"),
+		}
+		for _, sp := range sensitivePaths {
+			for _, candidate := range candidates {
+				if pathMatchesOrIsSubpath(candidate, sp) {
+					return fmt.Errorf("access denied: destructive operation on sensitive location %q", sp)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // validateDeletablePath strictly validates paths requested for deletion.
-// In addition to jailing within allowed directories, it prevents destructive wipes by:
+// There is no directory whitelist (issue #157); instead it prevents destructive
+// wipes by:
 // 1. Explicitly rejecting "", "~", ".", "/", "\", and tilde root shortcuts.
 // 2. Explicitly rejecting any candidate containing ".." parent directory traversal.
-// 3. Rejecting exact equality with any allowed root (e.g. home directory root, config root, cwd, tmp).
-// 4. Rejecting Windows drive roots (e.g. C:\, D:\, C:) and filesystem roots.
-// 5. Rejecting system directories (/etc, /usr, C:\Windows, C:\Program Files, etc.).
-// 6. Prohibiting deletion of the current working directory, config directory, or any parent/ancestor directory.
-// 7. Requiring that target is a strict descendant at least 1 directory level below an allowed root.
+// 3. Rejecting Windows drive roots (e.g. C:\, D:\, C:) and filesystem roots.
+// 4. Rejecting system and credential-store directories (via validateDestructivePath).
+// 5. Prohibiting deletion of the current working directory, config directory,
+//    user home directory, or any of their parent/ancestor directories.
 func validateDeletablePath(target string) (string, error) {
 	trimmed := strings.TrimSpace(target)
 	trimmed = strings.Trim(trimmed, "\"'`")
@@ -4870,7 +4830,7 @@ func validateDeletablePath(target string) (string, error) {
 		}
 	}
 
-	cPath, err := validateJailedPath(target)
+	cPath, err := validateDestructivePath(target)
 	if err != nil {
 		return "", err
 	}
@@ -4929,78 +4889,6 @@ func validateDeletablePath(target string) (string, error) {
 				return "", fmt.Errorf("prohibited: cannot delete user home directory or any parent/ancestor directory: %s", cleanPath)
 			}
 		}
-	}
-
-	// 5. Gather allowed roots and test strict descendant requirement
-	allowedRoots := getAllowedRoots()
-
-	// Check if cleanPath is equal to any allowed root
-	for _, root := range allowedRoots {
-		if root == "" || root == "/" || root == "\\" {
-			continue
-		}
-		if strings.EqualFold(cleanPath, root) {
-			return "", fmt.Errorf("prohibited: cannot delete root directory: %s", cleanPath)
-		}
-		if evalCP, errE := filepath.EvalSymlinks(cleanPath); errE == nil && strings.EqualFold(stripExtendedPrefix(evalCP), root) {
-			return "", fmt.Errorf("prohibited: cannot delete root directory: %s", cleanPath)
-		}
-	}
-
-	// 6. Require strict descendant depth (at least 1 directory level below an allowed root)
-	hasValidParent := false
-	candidates := []string{cleanPath}
-	if evalCP, errE := filepath.EvalSymlinks(cleanPath); errE == nil {
-		evalCP = stripExtendedPrefix(evalCP)
-		if evalCP != cleanPath {
-			candidates = append(candidates, evalCP)
-		}
-	}
-
-	for _, root := range allowedRoots {
-		if root == "" || root == "/" || root == "\\" {
-			continue
-		}
-		volRoot := getWindowsVolume(root)
-
-		for _, targetCandidate := range candidates {
-			volTarget := getWindowsVolume(targetCandidate)
-			// Cross-volume safe guard: if volumes differ, candidate cannot be a descendant of this root
-			if (volRoot != "" || volTarget != "") && !strings.EqualFold(volRoot, volTarget) {
-				continue
-			}
-
-			// If both are Windows paths or on Windows, use separator-normalized containment check
-			if volRoot != "" || volTarget != "" || runtime.GOOS == "windows" {
-				if pathMatchesOrIsSubpath(targetCandidate, root) && !strings.EqualFold(targetCandidate, root) {
-					normRoot := strings.ReplaceAll(root, "/", "\\")
-					if !strings.HasSuffix(normRoot, "\\") {
-						normRoot += "\\"
-					}
-					normTarget := strings.ReplaceAll(targetCandidate, "/", "\\")
-					if strings.HasPrefix(strings.ToLower(normTarget), strings.ToLower(normRoot)) {
-						remainder := normTarget[len(normRoot):]
-						if remainder != "" && remainder != "." && !strings.Contains(remainder, "..") {
-							hasValidParent = true
-							break
-						}
-					}
-				}
-			} else {
-				// Standard POSIX relative path calculation
-				rel, errRel := filepath.Rel(root, targetCandidate)
-				if errRel == nil && rel != "." && !strings.HasPrefix(rel, "..") && !strings.Contains(rel, "..") {
-					hasValidParent = true
-					break
-				}
-			}
-		}
-		if hasValidParent {
-			break
-		}
-	}
-	if !hasValidParent {
-		return "", fmt.Errorf("prohibited: path is not a safe sub-item of an allowed root: %s", cleanPath)
 	}
 
 	return cleanPath, nil
@@ -5447,7 +5335,7 @@ func (s *Server) handleFilesWrite(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing path parameter", http.StatusBadRequest)
 		return
 	}
-	targetPath, errJail := validateJailedPath(p.Path)
+	targetPath, errJail := validateDestructivePath(p.Path)
 	if errJail != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": errJail.Error(), "path": p.Path})
 		return
@@ -5476,12 +5364,12 @@ func (s *Server) handleFilesRename(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing old_path or new_path", http.StatusBadRequest)
 		return
 	}
-	oldPath, errOld := validateJailedPath(p.OldPath)
+	oldPath, errOld := validateDestructivePath(p.OldPath)
 	if errOld != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": "old_path: " + errOld.Error()})
 		return
 	}
-	newPath, errNew := validateJailedPath(p.NewPath)
+	newPath, errNew := validateDestructivePath(p.NewPath)
 	if errNew != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": "new_path: " + errNew.Error()})
 		return
@@ -5545,7 +5433,7 @@ func (s *Server) handleFilesCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing path", http.StatusBadRequest)
 		return
 	}
-	cPath, errJail := validateJailedPath(p.Path)
+	cPath, errJail := validateDestructivePath(p.Path)
 	if errJail != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": errJail.Error()})
 		return
@@ -5708,7 +5596,7 @@ func (s *Server) handleFilesCopy(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, map[string]interface{}{"success": false, "error": "src: " + errSrc.Error()})
 			return
 		}
-		dst, errDst := validateJailedPath(item.Dst)
+		dst, errDst := validateDestructivePath(item.Dst)
 		if errDst != nil {
 			writeJSON(w, map[string]interface{}{"success": false, "error": "dst: " + errDst.Error()})
 			return
@@ -5775,12 +5663,12 @@ func (s *Server) handleFilesMove(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(item.Src) == "" || strings.TrimSpace(item.Dst) == "" {
 			continue
 		}
-		src, errSrc := validateJailedPath(item.Src)
+		src, errSrc := validateDestructivePath(item.Src)
 		if errSrc != nil {
 			writeJSON(w, map[string]interface{}{"success": false, "error": "src: " + errSrc.Error()})
 			return
 		}
-		dst, errDst := validateJailedPath(item.Dst)
+		dst, errDst := validateDestructivePath(item.Dst)
 		if errDst != nil {
 			writeJSON(w, map[string]interface{}{"success": false, "error": "dst: " + errDst.Error()})
 			return

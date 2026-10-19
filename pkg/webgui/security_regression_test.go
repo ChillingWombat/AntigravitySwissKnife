@@ -299,11 +299,11 @@ func TestSecurityRegression_CredentialScrubbingContract(t *testing.T) {
 	}
 }
 
-// TestSecurityRegression_PlatformIndependentPathJail validates path jail constraints:
+// TestSecurityRegression_PlatformIndependentPathJail validates path handling:
 // 1. Files inside legitimate temporary directories are accepted.
 // 2. Traversal sequences (../, ..\, null bytes, encoded delimiters) are blocked.
-// 3. Unix system prefixes (/etc, /proc, /sys, /root, /dev) are rejected.
-// 4. Windows drive roots (C:\, D:\) and Windows system paths (C:\Windows, C:\Program Files) are rejected.
+// 3. Absolute system paths are readable (browsing is unrestricted, issue #157).
+// 4. Destructive operations on system paths are still rejected.
 // 5. Dangerous deletion attempts on home directory or root aliases are rejected by validateDeletablePath.
 func TestSecurityRegression_PlatformIndependentPathJail(t *testing.T) {
 	tempDir := t.TempDir()
@@ -339,37 +339,29 @@ func TestSecurityRegression_PlatformIndependentPathJail(t *testing.T) {
 		}
 	}
 
-	// 3. Platform-specific hostile vectors
+	// 3. Absolute system paths are readable; only destructive operations are refused.
+	var readableSystemPaths, destructiveSystemPaths []string
 	if runtime.GOOS == "windows" {
-		windowsHostile := []string{
-			"C:\\",
-			"C:\\Windows",
-			"C:\\Windows\\System32\\cmd.exe",
-			"C:\\Program Files",
-			"C:\\ProgramData",
-			"\\\\attacker\\share\\trojan.exe",
-			"//attacker/share/trojan.exe",
-			"D:\\",
-		}
-		for _, vec := range windowsHostile {
-			if res, err := validateJailedPath(vec); err == nil {
-				t.Errorf("[PATH JAIL VULNERABILITY] Windows: Accepted system path vector %q -> %q", vec, res)
-			}
+		readableSystemPaths = []string{`C:\Windows`, `C:\Windows\System32`, `C:\Program Files`, `C:\ProgramData`}
+		destructiveSystemPaths = []string{
+			`C:\Windows\System32\cmd.exe`,
+			`C:\Program Files\evil.exe`,
+			`C:\ProgramData\evil.txt`,
 		}
 	} else {
-		unixHostile := []string{
-			"/etc/passwd",
-			"/etc/shadow",
-			"/proc/cpuinfo",
-			"/sys/kernel",
-			"/dev/null",
-			"/root/.bashrc",
-			"/bin/sh",
+		readableSystemPaths = []string{"/etc", "/usr", "/var", "/bin"}
+		destructiveSystemPaths = []string{"/etc/passwd", "/usr/local/bin/evil", "/var/log/evil"}
+	}
+	for _, p := range readableSystemPaths {
+		if res, err := validateJailedPath(p); err != nil {
+			t.Errorf("[REGRESSION] read of previously-forbidden path %q was rejected: %v", p, err)
+		} else if res == "" {
+			t.Errorf("[REGRESSION] validateJailedPath(%q) returned empty path", p)
 		}
-		for _, vec := range unixHostile {
-			if res, err := validateJailedPath(vec); err == nil {
-				t.Errorf("[PATH JAIL VULNERABILITY] Unix: Accepted system path vector %q -> %q", vec, res)
-			}
+	}
+	for _, p := range destructiveSystemPaths {
+		if res, err := validateDestructivePath(p); err == nil {
+			t.Errorf("[PATH JAIL VULNERABILITY] Destructive operation accepted system path %q -> %q", p, res)
 		}
 	}
 

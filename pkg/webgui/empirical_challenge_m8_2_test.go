@@ -41,13 +41,14 @@ func TestEmpirical_RepoWipeViaParentTraversal(t *testing.T) {
 }
 
 // TestEmpirical_DanglingSymlinkBypass verifies whether validateJailedPath
-// allows dangling symlinks targeting non-existent system paths on Windows or Unix.
+// accepts dangling symlinks. Resolvable symlinks are readable now that browsing
+// is unrestricted (issue #157), but a symlink whose target does not exist cannot
+// be validated and must stay rejected.
 func TestEmpirical_DanglingSymlinkBypass(t *testing.T) {
 	tempDir := t.TempDir()
 
-	symlinkPath := filepath.Join(tempDir, "evil_symlink_to_hosts")
-	// Target /etc/hosts (which does not exist on Windows)
-	target := "/etc/hosts"
+	symlinkPath := filepath.Join(tempDir, "evil_symlink")
+	target := filepath.Join(tempDir, "definitely-does-not-exist")
 	if err := os.Symlink(target, symlinkPath); err != nil {
 		t.Skipf("Cannot create symlinks in this environment: %v", err)
 	}
