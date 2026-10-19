@@ -1,6 +1,6 @@
 # HANDOFF — Antigravity Swiss Knife
 
-> 面向后续 agent 的项目交接文档。最后更新：2026-10-19 13:00（Sydney）。
+> 面向后续 agent 的项目交接文档。最后更新：2026-10-19 18:05（Sydney）。
 > 与 `.workbuddy/memory/` 日志互补：那里记流水，这里记可复用的结构与坑。
 
 ## 1. 项目概览
@@ -8,7 +8,8 @@
 - **是什么**：Google Antigravity IDE 的多账号 / 配额管理工具（Go 后端 + React 前端 + Electron 桌面壳 + Web GUI）。
 - **主检出**：`D:/Projects/Antigravity Swiss Knife`（git 主工作树，main 分支）。
 - **并行 worktree**：`D:/Projects/swiss-wt/{gcp,switch,theme,inj,fe,be,rev,rev2,acct,acp,icon,gcpui}`（历史与近期 subagent 并行开发用；各自 frontend/node_modules 用 junction 指向主检出，见 §5）。**合并后可清理**。
-- **状态（截至更新时）**：2026-10-19 的 15 个 PR（#111–#124、#130）全部合并入 main；GitHub 开放 issue / 开放 PR 均为 0；桌面应用运行中（`swiss status` 查 daemon PID），服务 bundle `index-BY-ZvRoX.js`。
+- **状态（截至更新时）**：2026-10-19 全天 33 个 PR（#111–#165）已合并入 main；GitHub 开放 issue / 开放 PR 均为 0；桌面应用运行中（`swiss status` 查 daemon PID），服务 bundle `index-CYTZ13GE.js`。
+- **验证过的运行命令**：`npm run desktop`（需 `env -u ELECTRON_RUN_AS_NODE`）、`bin/swiss.exe status`、`curl -H "X-Session-Token: $(cat "$APPDATA/antigravity-swiss/session.token")" http://127.0.0.1:8765/api/...`。
 
 ## 2. 构建与运行（Windows 开发机）
 
@@ -82,10 +83,12 @@ live CDP fiber → jetski token → `app_storage.json`。vault 的 `active_accou
 - `LaunchDetachedProcessHiddenConsole` 会设 `HideWindow=true`（STARTF_USESHOWWINDOW + SW_HIDE）。Chromium/Electron **把启动显示状态应用到首个窗口** → Antigravity 以托盘态启动、没有可见窗口。同处设置的 `CREATE_NO_WINDOW` 对 GUI 子系统程序被 Windows 忽略，实际起作用的只有 SW_HIDE。
 - 正确入口：`core.LaunchDetachedGUIProcess` / `core.SetDetachedGUIProcess`（仅 `CREATE_NEW_PROCESS_GROUP`，并清除 `CREATE_NO_WINDOW`/`DETACHED_PROCESS` 与 HideWindow）。隐藏控制台 helper 只用于 console 子进程（如 `cmd.exe /c`）。
 
-### 3.10 托盘图标需要独立资产（PR #109/#110）
-- 任务栏图标 ≠ 托盘图标。托盘面板是白底，**用完整应用图标（白色圆角方块）会让白底消失**，只剩一个小 glyph，看起来又小又糊。
-- 资产：`assets/icons/tray_{16,24,32,48}.png` = 刀形 glyph 透明底、填充 92%，由 `scripts/regen_icons.py` 的洪水填充生成（封闭区域如白 G 保留）。Windows 用 32px（Win11 托盘 24/30/36px），macOS 18px template，Linux 24px。
-- 托盘代码在 `electron/main.js` 的 `getTrayIcon()`；**不要再 resize 到 16**。
+### 3.10 图标：单一来源 + 透明托盘 glyph（PR #109/#110/#149）
+- **源文件是 `assets/logo_square.png`**（600×600 白底方块，用户提供）。`scripts/regen_icons.py` 是唯一生成入口，改图标只跑它。
+- 生成规则（不要退回"抠色"老路）：背景色从**图像边缘采样**（不是固定 255——该图边缘有 246–253 近白噪点，固定阈值会把整张边界当成内容）；内容框由内容掩码求出；App 图标 = **白色圆角板（半径 0.2237×边）+ 内容 78% 居中**，4× 超采样后降采样；托盘 = 纯透明底 + 边界洪水填充（保住内部白色 G），填充 92%。
+- Windows 托盘用 `tray_32x32.png`（Win11 按 24/30/36px 渲染），**不要 resize 到 16**；`getTrayIcon()` 在 `electron/main.js`。
+- Electron 运行时从 `assets/icons/` 读图标：**换图标只需重启应用，不必重建 Go**。
+- 历史坑：旧实现按"外层画布色"抠透明度，但裁切框四角是白色圆角填充 → 输出成白**方**板（"四角还在"）；同一裁切框还切掉了底部浅蓝弧线。
 
 ### 3.11 Bridge / Remote 端点语义（PR #124）
 - **不允许对外暴露 loopback**：`sanitizeEndpointURL` / `sanitizeTunnelStatus` 在**所有写入点 + `GetStatus` 读取边界**净化；否则前端渲染原始 `TunnelStatus.GatewayURL` 时仍会显示 `127.0.0.1`（历史缺陷）。
@@ -117,6 +120,39 @@ live CDP fiber → jetski token → `app_storage.json`。vault 的 `active_accou
 - **凭据恢复途径**：Electron HTTP cache（`%APPDATA%\antigravity-swiss-knife\Cache\Cache_Data\data_2`）可能留有未脱敏 `/api/accounts` 响应；JSON 扫描 + `RefreshGoogleTokenFull` 验证可恢复。恢复 vault 时必须同时 heal keyring `gemini:antigravity`（`WriteWindowsKeyringToken`），否则应用起来是登出态。
 - **CLAUDE.md 是 AGENTS.md 的符号链接**；本 checkout `core.symlinks=false`，git 永远显示它 binary "modified"（IntxLNK 仿真）。提交时排除：`git add -A ':!CLAUDE.md'`；不要 checkout/重建它。
 
+### 3.20 备忘（Quick Memos）体系（2026-10-19）
+- **提取端点** `POST /api/memos/extract` `{memo_id}`（可选 `?workspace_path=`）：用配置的 GCP 自定义模型调 Vertex `generateContent`，媒体以 inline base64 传入，mime 由 magic bytes 判定。
+  - **请求体必须带 `contents[0].role:"user"`**：缺了 Vertex 直接 400 `Please use a valid role: user, model.`。单测只 mock 响应时永远发现不了 —— 涉及外部 API 的功能必须断言**请求体形状**（role/parts/mime/auth header），并用真实凭据跑一次 E2E。
+  - 空结果语义：不覆盖已有非空 `transcript`（返回原值 + `empty:true`）；`promptFeedback.blockReason` / `finishReason` ∈ {SAFETY, RECITATION, BLOCKLIST, PROHIBITED_CONTENT} → 502 且不改动原值。
+- **配置**（`config.json` 的 `memo` 对象）：`auto_extract`（默认 **false**=手动）、`voice_language`、`ocr_language`（默认 `"auto"`，19 种语言）。`/api/memos/config` 顶层与 `config` 内各返回一份。
+  - 在**已运行**的 daemon 上，该接口返回的是**扁平对象**（没有 `config` 包裹、没有 `success`），与其它接口形状不同，别照抄。
+- **自动模式**：保存后服务端 goroutine 异步提取（幂等：再次校验 type/media/transcript；不阻塞保存；失败只 `log.Printf`）。前端**不要**再调 extract（会二次计费），改为保存后 **bounded polling**（2/5/10/20s，拿到 transcript 或视图销毁即停）；自动模式下隐藏卡片的手动转换按钮。
+- **导出**：`POST /api/memos/export` → `~/Downloads/Antigravity Memos/`（不存在则创建）；文件名净化（非法字符/控制字符/Windows 设备名/120 rune 上限）+ **剥离历史 `[Voice] ` 前缀** + 魔数定扩展名 + ` (2)` 去重 + 返回绝对路径。
+- **卡片 UX**：命名 `Voice Memo N` / `Sketch N`（N = 同类标题里最小可用正整数，纯函数 `nextMemoNumber`，`[Voice] ` 前缀不再新增且渲染时剥离旧值）；文本备忘创建时可填可选标题；右键菜单 = 改标题 / 保存到电脑 / 删除；**文本与图片卡双击进编辑器**（保存为更新，不新建）。
+- **卡片尺寸**：宽从"最小面板宽"弹性增长到略小于 2× 最小（`repeat(auto-fill, minmax(min(var(--min),100%),1fr))` + `max-width: 2*min - 1px` —— 因为 `gap` 也占轨道预算，不加上限单卡会到 2.03×），高度 `aspect-ratio: 1.618/1`（黄金比随宽度自适应）。
+- **搜索**：matched `title` / `content` / `transcript` / `tags` —— 转写/OCR 结果写进 `transcript` 后即可按内容搜索，未转换的只能按名字搜。
+- 录音按钮：只显示图标 + 实时计时（无 "Stop Recording" 文案，aria-label 保留）；面板 ≤285px 时隐藏音量波形（容器查询）。
+
+### 3.21 文件浏览器（2026-10-19）
+- **没有路径白名单**（用户明确要求"no path restriction"）。解析器只强制**绝对路径**：相对路径、`..` 穿越、URL 编码/空字节变体一律拒绝；symlink 与 `\?\` 归一化保留。
+- **破坏性操作仍受保护**：write/create/rename/move/delete 在敏感位置（`C:\Windows`、`C:\Program Files*`、`~/.ssh`、`~/.aws`、`~/.gnupg`、`~/.config/gcloud`、shell dotfiles、浏览器 profile）被拒；**读取放行**。这不是"浏览限制"，别一起删。
+- **陷阱**：`cleanUserPath` 会把相对路径按 cwd/项目解析成绝对路径 → "必须绝对路径"的检查形同虚设（Linux 上 `../../../etc/passwd` 会变成真实绝对路径）。已拆为 `normaliseUserPath`（仅解码）+ `cleanUserPath`（cwd 解析，仅供 workspace/memo 记账）。
+- 地址栏右端有**跳转下拉**：Parents（祖先链）+ Siblings（同级目录，`/api/files/list` 只取 `isDir`、排除当前）；导航复用既有 `loadFiles`。
+- **浮层规则**：`.swiss-files-view` 是 `overflow: hidden`，锚在其中的菜单**必须 `position: fixed` + 挂 `document.body`** 并按可用空间钳制，否则矮面板会裁掉菜单。
+
+### 3.22 聊天导航器（jumper / chat navigator，2026-10-19）
+- 配置 `chat_navigator_mode`：**`panel`（默认）** / `line`；UI 在 TokenMonitorPage 的 In-Chat Telemetry Display 卡片（标签 "Chat navigator"）。
+- panel 模式 hover 导航条 → **向右**展开面板：逐行 dash + 单行省略的提示词、当前轮高亮、点击复用 dash 跳转；`fixed` 挂 body、150ms 开/关宽限、键盘 ↑↓/Enter/Esc。
+- **文本只能缓存已挂载轮次**（转写区是虚拟化列表），键为 (conversationKey, ordinal)，未见过的显示弱化 `…`；禁止编造文本。
+- 点击跳转触发的平滑滚动**不得**关面板（`isClickJumping` 守卫 + 滚动结束复位）；用户手动滚动 transcript 才关。
+- **提示词是用户输入**：line 模式 tooltip 曾把原文拼进 `innerHTML`（`<img onerror=…>` 会在 IDE 页面执行）→ 已改为 `escapeNavigatorText` 转义。任何把用户文本写进 `innerHTML` 的地方都必须转义。
+
+### 3.23 文案规范（用户明确要求，2026-10-19）
+- 配额窗口一律 **5H / 7D**：`Weekly Quota`、`5-Hour Quota`、`7-day rolling cycle` 等旧写法不得出现在任何界面（环标题、表头、排序下拉与 tooltip、账户弹窗、切换器设置、自动切换原因都要覆盖）。
+- 配额分桶叫 **Non-Gemini**（不是 Claude/GPT）；模型许可开关 "Allow Claude & GPT models" 保持原样。
+- **只改显示字符串**，不要动 `quota_weekly` / `quota_5h` 等数据键。
+- 自查：`grep -c "Weekly Quota\|5-Hour\|7-day" pkg/webgui/dist/assets/*.js` 应为 0。
+
 ## 4. webgui dist 构建产物约定
 
 - 每个前端 PR 按仓库惯例重建 `pkg/webgui/dist/`（go:embed 嵌入）。
@@ -141,6 +177,10 @@ live CDP fiber → jetski token → `app_storage.json`。vault 的 `active_accou
 | 团队上下文会**失效**（`SendMessage` 报 "Not in a team"），但 teammate 仍在跑 | 改用 `Agent(resume: <task_id>)` 继续该 worker |
 | 复核者常把结论写成**可复跑脚本**而非长文报告（agent 可能未回消息） | 直接跑它留下的脚本（如 `scratch_review_*.py`）复核结论，再自行补消费者的语义核对 |
 | 用户要求"所有任务建 issue 跟踪" | 流程：先 `gh issue create` → 派发 → PR 描述 `Fixes #N`（**每个 issue 单独一行或逗号分隔**，`Fixes #1 #2 #3` 只会自动关第一个）→ 合并后手动关闭漏网的 |
+| 本机 Go 不在 PATH；subagent 会去用 `C:	ools\go` | 一律用仓库自带便携工具链 `scratch/gotoolchain/go/bin/go.exe`（`go run/tidy/build/test` 均可） |
+| `go fmt ./...` / `gofmt -w` 会把大量**无关文件**按 CRLF 规范化（diff 噪声几百行） | 只对自己改的文件跑格式化；误改的无关文件 `git checkout --` 还原后再提交 |
+| 主检出 `npm run build` 会把 `claude.svg` **内联**进 bundle，worktree 构建会产出外部 `claude-*.svg` | 两者等价；以最后一次构建为准，别把外部 svg 当垃圾删（新 bundle 可能引用它） |
+| 生成的注入脚本改动没有天然测试面 | 在 `pkg/plugins` / `pkg/enhancements` 里加**源码级 token 断言**（如"label 块内必须是 ToggleSwitch 且无 checkbox"、"不得出现原始 innerHTML 拼接"）——本会话两次靠它挡住回归 |
 
 ## 6. 安全事件：vshost 恶意软件（2026-10-18 已清除）
 
@@ -165,7 +205,7 @@ live CDP fiber → jetski token → `app_storage.json`。vault 的 `active_accou
 
 收尾：dist 重建（9b5c727）→ `bin/swiss.exe` 从合并后 main 重建 → daemon 启动验证（RPC 正常、3 账户）→ 桌面应用已启动并全链路验证（8765 服务新 bundle `index-vCZdaxSh.js`、认证 API 正常、无 token 401）。
 
-## 7.1 本会话完成的工作（2026-10-19，15 个 PR）
+## 7.1 会话完成的工作（2026-10-19 上午，15 个 PR）
 
 用户当天连续报了 20+ 个问题，全部走「建 issue → 子 agent 并行实现 → 独立只读复核 → 修复复核发现 → 合并 → 重建重启 → 关 issue」流程。GitHub issue #117–#129 全部关闭。
 
@@ -183,12 +223,35 @@ live CDP fiber → jetski token → `app_storage.json`。vault 的 `active_accou
 
 关键遗留教训（都已写入 §3 / §5）：硬编码价格会短路上层动态源；HTML 正则缺 DOTALL 会静默失败；SW_HIDE 会隐藏 GUI 首窗口；托盘必须用透明 glyph；图表不得造数；token 字段互不包含（别看名猜子集）；虚拟化列表不能用来数总数；`Fixes #1 #2` 只关第一个 issue。
 
+## 7.2 会话完成的工作（2026-10-19 下午，17 个 PR）
+
+同一流程，issue **#132–#165** 全部关闭。这一段几乎全是「用户截图 → 我拆 issue → 两个 agent 各占一侧文件并行 → 合并 → 真机复核」。
+
+| PR | 内容 | 关键证据 |
+|---|---|---|
+| #138/#140 | 备忘转写/OCR 端点；修 `contents[0].role`（真机 400 才暴露） | 真机：`Hello Hello Hi`、`✓`，落盘 `memos.json` |
+| #139 | 卡片固定尺寸 + 播放进度 + 音量条 + 按钮标签 + 提取按钮 | 复核两轮；后由 #142 改为弹性宽度 |
+| #142 | 卡片宽度弹性（最小 → <2×最小）+ 黄金比高度 | 无头 Chrome 逐宽度实测 246→981px |
+| #146 | 录音按钮去文案、窄面板隐藏波形、自动模式隐藏提取按钮 + 保存后 bounded polling | 轮询 2/5/10/20s，停止条件已测 |
+| #147/#148 | 备忘设置：手动/自动 + 语音/OCR 语言（19 种） | 真机：auto=true 保存后 t+6s 自动出转录 |
+| #149 | 图标重建（透明圆角、无裁切；`logo_square.png` 为源） | corner-alpha=0、内容占比 77.9%×76.4% |
+| #154/#156 | `POST /api/memos/export` + 文件名剥离 `[Voice] ` | 真机：WebM 39,581B / PNG 6,505B，魔数校验 |
+| #155 | 卡片命名 `Voice Memo N`/`Sketch N`、右键菜单、双击编辑、文本可选标题 | 纯函数 `nextMemoNumber` + 单测 |
+| #159 | 文件浏览器地址栏跳转下拉（Parents/Siblings） | fixed 挂 body，逃出 overflow 裁剪 |
+| #160 | 移除路径白名单（绝对路径契约 + 破坏性操作敏感目录仍拒） | 真机：`D:\Projects\SML_GroupProject` 21 项；`C:\Windows` 写入被拒 |
+| #161 | 5H/7D 文案全量收口 | bundle 内旧写法 0 命中 |
+| #163/#164 | 聊天导航器 `chat_navigator_mode`（panel 默认/line）+ hover 面板 | 真机配置往返；补 `isClickJumping` 与 tooltip 转义 |
+| #165 | "Pin focused chat to top" 改 ToggleSwitch | bundle 内 checkbox 0 命中 |
+
+教训补充：**外部 API 的请求体必须断言**（mock 响应会让 100% 失败的功能全绿）；**虚拟化列表只能缓存已挂载项**；**用户文本进 `innerHTML` 必须转义**；**`overflow:hidden` 容器里的浮层要 `fixed` + body**；**缺口编号规则要能复用空洞**。
+
 ## 8. 待办 / 下一步
 
 1. **Defender 全盘/脱机扫描**（用户侧，未完成）——vshost 驻留过久，凭据轮换建议已发出。
-2. **注入式 UI 的目视验证**（用户侧）：文件查看器单一 WYSIWYG、面板切项目刷新、jumper 条数、Split Right 双窗格、直方图 hover 分解、录音时长/波形——这些只在 mock-DOM / 契约测试层面验证过，需真实 IDE 会话确认观感。
+2. **注入式 UI 的目视验证**（用户侧，唯一无法自动化的一类）：文件查看器单一 WYSIWYG、面板切项目刷新、jumper 悬浮面板的位置/宽度与暗色对比度、Split Right 双窗格、直方图 hover 分解、录音时长/波形、卡片在 285px 最小面板下的排布、跳转下拉在矮面板下的浮层表现。
 3. **真实设备/网络验证**：真麦克风下的录音 teardown、cloudflared quick tunnel 与 Tailscale 端到端、多窗口配额（5H/7D）对真实 provider 响应。
 4. **VS Code 扩展开箱即用**：需先用应用的启动入口重启 VS Code（已运行的实例忽略 `--remote-debugging-port`）。
-5. 无开放 PR / issue；main 即完整状态。新功能按 §4 约定带 dist 重建，按 §5 末行建 issue + 独立复核后合并。
-6. `D:/Projects/swiss-wt/` 下的并行 worktree 已完成使命，可择机清理（`git worktree remove`），保留主检出即可。
-7. subagent 并行开发模式（worktree + junction node_modules + 显式 `git add`）在本项目多次验证有效；汇报必须独立核实（§5 表末行），复核结论优先看可复跑脚本。
+5. **已知小瑕疵（不阻塞，未修）**：`/api/files/list` 对非法路径返回 `200 + 空列表`（应 4xx）；解析器错误以 `200 + error` 字段返回；`/api/memos/config` 返回扁平对象而其它接口用 `{config}` 包裹。
+6. 无开放 PR / issue；main 即完整状态。新功能按 §4 带 dist 重建，按 §5 末行建 issue + 独立复核后合并。
+7. `D:/Projects/swiss-wt/` 下的 20+ 个并行 worktree 已完成使命，可择机清理（`git worktree remove`）；保留主检出即可。
+8. subagent 并行开发模式（worktree + junction node_modules + 显式 `git add` + 独立复核）在本项目多次验证有效；汇报必须独立核实（§5），复核结论优先看可复跑脚本。
