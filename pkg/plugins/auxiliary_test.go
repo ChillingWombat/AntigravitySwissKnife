@@ -2677,6 +2677,52 @@ func TestQuickMemos_AutoExtractHidesManualButtons(t *testing.T) {
 	}
 }
 
+func TestQuickMemos_AutoExtractBoundedPolling(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+
+	// Auto extraction completes in the daemon after the save response. The card
+	// polls the list on a bounded schedule; it must never call the extract
+	// endpoint again (that would pay for a second extraction).
+	for _, token := range []string{
+		`const AUTO_EXTRACT_POLL_DELAYS = [2000, 3000, 5000, 10000];`,
+		`const scheduleAutoExtractPoll = (memoId) => {`,
+		`if (!autoExtractEnabled || !memoId) return;`,
+		`await loadMemos(true, true);`,
+		`const loadMemos = async (silent = false, force = false) => {`,
+		// Gated on the save succeeding and on auto mode being on.
+		`if (saveRes.ok && autoExtractEnabled && effType !== "text") {`,
+		`if (saveRes.ok && autoExtractEnabled) {`,
+		// Early stops: transcript arrived, view torn down, tab no longer memos.
+		`hasTranscript(findMemoById(memoId))`,
+		`container.isConnected === false`,
+		`renderedTab === "memos"`,
+		`pendingExtractMemoIds.delete(memoId);`,
+		// Timers never leak past teardown.
+		`clearPendingExtractPoll();`,
+		`pendingExtractTimers.forEach((timer) => clearTimeout(timer));`,
+		// Pending state is per-memo and only while the transcript is missing.
+		`const extractPending = autoExtractEnabled && !transcriptText && pendingExtractMemoIds.has(m.id);`,
+		`swiss-memo-card-extract-pending`,
+		`Extracting text…`,
+	} {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected bounded auto-extract polling to contain %q", token)
+		}
+	}
+
+	if got := strings.Count(js, `scheduleAutoExtractPoll(newMemo.id);`); got != 2 {
+		t.Errorf("expected both save paths to schedule auto-extract polling, got %d call sites", got)
+	}
+
+	// Only the manual button path may call the extract endpoint.
+	if got := strings.Count(js, `API_BASE + "/api/memos/extract"`); got != 1 {
+		t.Errorf("auto mode must not add a second extract call, found %d occurrences", got)
+	}
+	if got := strings.Count(js, `runMemoExtract(m, extractKind, extractBtn)`); got != 1 {
+		t.Errorf("runMemoExtract must only be wired to the manual button, found %d call sites", got)
+	}
+}
+
 func TestQuickMemos_CardScopedUniqueElementIds(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 

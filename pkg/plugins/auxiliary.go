@@ -1460,6 +1460,13 @@ div:has(> .shrink-0.flex.items-center.border-b),
   flex: 0 0 auto;
   max-height: 70%;
 }
+/* Issue #143: daemon-side auto extraction is async, so a freshly saved card
+   shows a muted pending line (same line-clamp container) until the transcript
+   arrives — it is not an error state. */
+.swiss-memo-card-extract-pending {
+  color: var(--text-muted, #64748b);
+  font-style: italic;
+}
 .swiss-memo-card-img-wrap {
   flex: 1 1 auto;
   min-height: 0;
@@ -5438,6 +5445,11 @@ func GenerateAuxiliaryPluginsScript() string {
       let recordingWaveRaf = 0;
       let recordingTimerInterval = 0;
 
+      // Issue #143: memos whose transcript is being produced by the daemon after
+      // a save. Drives the per-card pending line and the bounded list polling.
+      const pendingExtractMemoIds = new Set();
+      let pendingExtractTimers = [];
+
       const LOCAL_MEMOS_KEY = "antigravity_swiss_memos_backup";
       const getLocalMemos = () => {
         try {
@@ -5626,6 +5638,7 @@ func GenerateAuxiliaryPluginsScript() string {
           const extractIdleLabel = extractKind === "image" ? "OCR" : "Convert to Text";
           const extractDoneLabel = extractKind === "image" ? "OCR ✓" : "Text ✓";
           const extractDone = Boolean(m.transcript);
+          const extractPending = autoExtractEnabled && !transcriptText && pendingExtractMemoIds.has(m.id);
           const cardKey = memoCardDomKey(m.id);
           const playerHtml = m.audio_data ? (
             '<div class="swiss-memo-player">' +
@@ -5648,6 +5661,7 @@ func GenerateAuxiliaryPluginsScript() string {
               ${m.image_data ? ('<div class="swiss-memo-card-img-wrap"><img class="swiss-memo-card-img" src="' + escapeHtml(m.image_data) + '" alt="' + escapeHtml(m.title || "Memo Image") + '" /></div>') : ""}
               ${primaryText ? ('<div class="swiss-memo-card-text">' + escapeHtml(primaryText) + '</div>') : ""}
               ${transcriptText ? ('<div class="swiss-memo-card-text swiss-memo-card-transcript" data-memo-transcript="1">' + escapeHtml(transcriptText) + '</div>') : ""}
+              ${extractPending ? '<div class="swiss-memo-card-text swiss-memo-card-transcript swiss-memo-card-extract-pending">Extracting text…</div>' : ""}
             </div>
             ${playerHtml}
             <div class="swiss-memo-card-foot">
@@ -5875,7 +5889,61 @@ func GenerateAuxiliaryPluginsScript() string {
         }
       };
 
-      const loadMemos = async (silent = false) => {
+      // Auto extraction runs in the daemon after the save response, so the card
+      // cannot know the transcript yet. Poll the list on a bounded schedule
+      // (attempts at 2s, 5s, 10s and 20s after the save) instead of calling
+      // /api/memos/extract again: a second call would pay for a second model
+      // extraction. Stop as soon as the transcript lands or the view is gone.
+      const AUTO_EXTRACT_POLL_DELAYS = [2000, 3000, 5000, 10000];
+      const findMemoById = (memoId) => {
+        for (let i = 0; i < allMemos.length; i++) {
+          if (allMemos[i] && allMemos[i].id === memoId) return allMemos[i];
+        }
+        return null;
+      };
+      const hasTranscript = (memo) => Boolean(memo && typeof memo.transcript === "string" && memo.transcript.trim());
+      const isMemoViewAlive = () => {
+        if (!container || container.isConnected === false) return false;
+        const renderedTab = container.dataset ? container.dataset.renderedTab : "";
+        return !renderedTab || renderedTab === "memos";
+      };
+      const clearPendingExtractPoll = () => {
+        pendingExtractTimers.forEach((timer) => clearTimeout(timer));
+        pendingExtractTimers = [];
+        pendingExtractMemoIds.clear();
+      };
+      const scheduleAutoExtractPoll = (memoId) => {
+        if (!autoExtractEnabled || !memoId) return;
+        if (hasTranscript(findMemoById(memoId))) return;
+        pendingExtractMemoIds.add(memoId);
+        applyFilterAndRender();
+        let elapsedMs = 0;
+        AUTO_EXTRACT_POLL_DELAYS.forEach((delayMs, attempt) => {
+          elapsedMs += delayMs;
+          const timer = setTimeout(async () => {
+            pendingExtractTimers = pendingExtractTimers.filter((t) => t !== timer);
+            if (!pendingExtractMemoIds.has(memoId)) return;
+            if (!isMemoViewAlive() || hasTranscript(findMemoById(memoId))) {
+              pendingExtractMemoIds.delete(memoId);
+              return;
+            }
+            await loadMemos(true, true);
+            if (hasTranscript(findMemoById(memoId))) {
+              pendingExtractMemoIds.delete(memoId);
+              return;
+            }
+            if (attempt === AUTO_EXTRACT_POLL_DELAYS.length - 1) {
+              // Give up quietly: the manual path is hidden in auto mode, so the
+              // card just keeps whatever the daemon stored.
+              pendingExtractMemoIds.delete(memoId);
+              applyFilterAndRender();
+            }
+          }, elapsedMs);
+          pendingExtractTimers.push(timer);
+        });
+      };
+
+      const loadMemos = async (silent = false, force = false) => {
         if (!silent && memoList.children.length === 0) {
           memoList.innerHTML = "<div class='swiss-memo-list-status' style='font-size:11px; color:#94a3b8;'>Loading memos...</div>";
         }
@@ -5897,6 +5965,8 @@ func GenerateAuxiliaryPluginsScript() string {
           saveLocalMemos(allMemos);
           applyFilterAndRender();
         } catch (err) {
+          // A forced (polling) refresh must not repaint stale local cache.
+          if (force) return;
           const fallback = getLocalMemos();
           if (fallback.length > 0) {
             allMemos = fallback;
@@ -5951,7 +6021,7 @@ func GenerateAuxiliaryPluginsScript() string {
 
         try {
           const mq = getMemoQueryInfo();
-          await fetch(` + "`" + `${API_BASE}/api/memos/save` + "`" + `, {
+          const saveRes = await fetch(` + "`" + `${API_BASE}/api/memos/save` + "`" + `, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -5965,6 +6035,11 @@ func GenerateAuxiliaryPluginsScript() string {
               workspace_path: mq.wsPath || undefined
             })
           });
+          // Issue #143: only voice/image memos get auto-extracted; text memos
+          // already carry their content.
+          if (saveRes.ok && autoExtractEnabled && effType !== "text") {
+            scheduleAutoExtractPoll(newMemo.id);
+          }
         } catch (_) {}
         loadMemos(true);
       };
@@ -6509,7 +6584,7 @@ func GenerateAuxiliaryPluginsScript() string {
                 applyFilterAndRender();
 
                 try {
-                  await fetch(` + "`" + `${API_BASE}/api/memos/save` + "`" + `, {
+                  const saveRes = await fetch(` + "`" + `${API_BASE}/api/memos/save` + "`" + `, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -6525,6 +6600,11 @@ func GenerateAuxiliaryPluginsScript() string {
                       created_at: newMemo.created_at
                     })
                   });
+                  // Issue #143: the daemon transcribes after responding; poll for
+                  // it when this recording has no transcript of its own yet.
+                  if (saveRes.ok && autoExtractEnabled) {
+                    scheduleAutoExtractPoll(newMemo.id);
+                  }
                 } catch (_) {}
                 loadMemos(true);
               }
@@ -6553,6 +6633,7 @@ func GenerateAuxiliaryPluginsScript() string {
       // AudioContext alive. Registered on the host container; the caller invokes it pre-clear.
       const teardownMemosView = () => {
         stopActivePlayback();
+        clearPendingExtractPoll();
         const wasRecording = Boolean(recordingTimerInterval) ||
           Boolean(recordingWaveRaf) ||
           Boolean(mediaRecorder && mediaRecorder.state !== "inactive");
