@@ -266,4 +266,34 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
   it('removes the Null — Manual Entry Required badge', () => {
     assert.ok(!pageContent.includes('Manual Entry Required'), 'The yellow null-price pill must be removed')
   })
+
+  it('fetches and displays the stored JSON key when editing a GCP model', () => {
+    assert.ok(
+      pageContent.includes('api.getCustomModelKey(model.id)'),
+      'openEditGcpModal must query api.getCustomModelKey when editing an existing model'
+    )
+    assert.ok(
+      pageContent.includes('setGcpJsonContent(formatted)'),
+      'openEditGcpModal must populate gcpJsonContent with the formatted JSON'
+    )
+  })
+
+  it('treats manual numeric balance as 100% baseline budget with dynamic progress ring', () => {
+    assert.ok(
+      pageContent.includes('hasNumericBalance'),
+      'GCP save handler must detect numeric balance entry'
+    )
+    assert.ok(
+      pageContent.includes('effFraction = 1.0'),
+      'Saving a numeric balance must initialize fraction to 1.0 (100%)'
+    )
+    assert.ok(
+      pageContent.includes('m.total_budget > 0'),
+      'Model card must calculate gauge percentage when total_budget > 0'
+    )
+    assert.ok(
+      pageContent.includes('gaugePct = Math.max(0, Math.min(100, Math.round((m.prepaid_balance / m.total_budget) * 100)))'),
+      'Model card must compute progress percentage from prepaid_balance / total_budget'
+    )
+  })
 })

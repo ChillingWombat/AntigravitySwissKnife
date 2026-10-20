@@ -858,12 +858,34 @@ func DetectAndFetchQuota(model CustomModel) QuotaResult {
 		}
 
 		if balanceVal != "" {
-			return QuotaResult{
+			res := QuotaResult{
 				QuotaType:    QuotaTypeBalance,
 				QuotaValue:   balanceVal,
 				BalanceValue: balanceVal,
 				Message:      billingDesc,
 			}
+			if model.QuotaFraction != nil {
+				res.Fraction = model.QuotaFraction
+				res.HasPercentage = true
+			} else if model.TotalBudget > 0 {
+				f := model.PrepaidBalance / model.TotalBudget
+				if f < 0 {
+					f = 0
+				}
+				if f > 1 {
+					f = 1
+				}
+				res.Fraction = &f
+				res.HasPercentage = true
+			} else {
+				clean := strings.TrimLeft(strings.TrimSpace(balanceVal), "$¥€£")
+				if val, err := strconv.ParseFloat(clean, 64); err == nil && val > 0 {
+					one := 1.0
+					res.Fraction = &one
+					res.HasPercentage = true
+				}
+			}
+			return res
 		}
 
 		if model.QuotaType == QuotaTypeBalance {

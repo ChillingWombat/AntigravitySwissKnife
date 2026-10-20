@@ -3,6 +3,7 @@ package custommodels
 import (
 	"errors"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -199,7 +200,7 @@ func (m *CustomModel) CalculatePercentage() (int, bool) {
 			}
 			return int(math.Round(f * 100)), true
 		}
-		if m.TotalBudget > 0 && m.PrepaidBalance > 0 {
+		if m.TotalBudget > 0 {
 			fraction := m.PrepaidBalance / m.TotalBudget
 			if fraction < 0 {
 				fraction = 0
@@ -208,6 +209,16 @@ func (m *CustomModel) CalculatePercentage() (int, bool) {
 				fraction = 1
 			}
 			return int(math.Round(fraction * 100)), true
+		}
+		if m.PrepaidBalance > 0 {
+			return 100, true
+		}
+		if m.BalanceValue != "" {
+			clean := strings.TrimLeft(strings.TrimSpace(m.BalanceValue), "$¥€£")
+			clean = strings.TrimSpace(clean)
+			if val, err := strconv.ParseFloat(clean, 64); err == nil && val > 0 {
+				return 100, true
+			}
 		}
 		return 0, false
 

@@ -487,13 +487,24 @@ func GenerateCustomModelsScript(cfg *Config) string {
               pct = Math.min(100, Math.max(0, Math.round(m.quota_fraction * 100)));
               hasInfo = true;
               subtitle = (m.balance_value ? m.balance_value + " • " : "") + pct + "%% balance left";
-            } else if (m.total_budget > 0 && m.prepaid_balance > 0) {
+            } else if (m.total_budget > 0) {
               pct = Math.min(100, Math.max(0, Math.round((m.prepaid_balance / m.total_budget) * 100)));
               hasInfo = true;
               subtitle = "$" + m.prepaid_balance.toFixed(2) + " of $" + m.total_budget.toFixed(2) + " prepaid deposit left";
+            } else if (m.prepaid_balance > 0) {
+              pct = 100;
+              hasInfo = true;
+              subtitle = "$" + m.prepaid_balance.toFixed(2) + " prepaid deposit left";
             } else if (m.balance_value) {
-              hasInfo = false;
-              subtitle = "Balance: " + m.balance_value;
+              const num = parseFloat(m.balance_value.replace(/[^0-9.]/g, ""));
+              if (!isNaN(num) && num > 0) {
+                pct = 100;
+                hasInfo = true;
+                subtitle = "Balance: " + m.balance_value + " \u2022 100%% balance left";
+              } else {
+                hasInfo = false;
+                subtitle = "Balance: " + m.balance_value;
+              }
             } else {
               hasInfo = false;
               subtitle = "Balance (Untracked)";

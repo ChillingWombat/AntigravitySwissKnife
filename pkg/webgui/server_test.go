@@ -3484,3 +3484,93 @@ func TestCustomModels_DefaultGateOnFailedLastTest(t *testing.T) {
 	}
 	resp4.Body.Close()
 }
+
+
+func TestCustomModels_KeyEndpointAndDynamicBalanceReconciliation(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+
+	rawSAKey := `{"type":"service_account","project_id":"test-proj","private_key":"my-secret-key","client_email":"sa@test-proj.iam.gserviceaccount.com"}`
+	seed := fmt.Sprintf(`{
+  "version": "1.0.0",
+  "inference_supported": true,
+  "models": [
+    {
+      "id": "gcp-argon-1",
+      "name": "gemini-4-argon",
+      "display_name": "Gemini 4 Argon (GCP)",
+      "provider_type": "gcp",
+      "base_url": "https://aiplatform.googleapis.com/v1/projects/test-proj/locations/global/publishers/google/models/gemini-4-argon:generateContent",
+      "gcp_project_id": "test-proj",
+      "gcp_region": "global",
+      "gcp_service_account_key": %q,
+      "project_mappings": ["*"],
+      "quota_type": "balance",
+      "balance_value": "300",
+      "quota_value": "300",
+      "input_price_per_m": 2.0,
+      "cached_input_price_per_m": 0.1,
+      "output_price_per_m": 10.0,
+      "is_default": true,
+      "enabled": true
+    }
+  ],
+  "project_binds": {}
+}`, rawSAKey)
+	if err := os.WriteFile(filepath.Join(tempDir, "custom_models.json"), []byte(seed), 0600); err != nil {
+		t.Fatalf("failed to seed custom_models.json: %v", err)
+	}
+
+	dummySock := filepath.Join(tempDir, "dummy.sock")
+	srv := NewServer("127.0.0.1:0", dummySock)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+	baseURL := "http://" + srv.Addr()
+
+	// 1. GET /api/custom_models/key?id=gcp-argon-1 returns the unredacted key for modal population
+	keyResp, err := http.Get(baseURL + "/api/custom_models/key?id=gcp-argon-1")
+	if err != nil {
+		t.Fatalf("GET /api/custom_models/key failed: %v", err)
+	}
+	if keyResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/custom_models/key returned %d", keyResp.StatusCode)
+	}
+	var keyData struct {
+		Success              bool   `json:"success"`
+		ID                   string `json:"id"`
+		GCPServiceAccountKey string `json:"gcp_service_account_key"`
+	}
+	_ = json.NewDecoder(keyResp.Body).Decode(&keyData)
+	keyResp.Body.Close()
+	if !keyData.Success || keyData.GCPServiceAccountKey != rawSAKey {
+		t.Errorf("expected key endpoint to return raw key %q, got %q", rawSAKey, keyData.GCPServiceAccountKey)
+	}
+
+	// 2. GET /api/custom_models redacts the key in general list but reconciles 100%% baseline balance
+	listResp, err := http.Get(baseURL + "/api/custom_models")
+	if err != nil {
+		t.Fatalf("GET /api/custom_models failed: %v", err)
+	}
+	var listCfg custommodels.Config
+	_ = json.NewDecoder(listResp.Body).Decode(&listCfg)
+	listResp.Body.Close()
+	if len(listCfg.Models) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(listCfg.Models))
+	}
+	m := listCfg.Models[0]
+	if m.GCPServiceAccountKey != "[REDACTED]" {
+		t.Errorf("expected general list to redact key, got %q", m.GCPServiceAccountKey)
+	}
+	if m.TotalBudget != 300 || m.PrepaidBalance != 300 {
+		t.Errorf("expected TotalBudget=300, PrepaidBalance=300, got budget=%v, balance=%v", m.TotalBudget, m.PrepaidBalance)
+	}
+	if m.QuotaFraction == nil || *m.QuotaFraction != 1.0 {
+		t.Errorf("expected QuotaFraction=1.0, got %v", m.QuotaFraction)
+	}
+	pct, hasInfo := m.CalculatePercentage()
+	if !hasInfo || pct != 100 {
+		t.Errorf("expected CalculatePercentage() to return (100, true), got (%d, %v)", pct, hasInfo)
+	}
+}

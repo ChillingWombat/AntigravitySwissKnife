@@ -426,6 +426,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/custom_models/thinking_level", s.handleCustomModelThinkingLevel)
 	mux.HandleFunc("/api/custom_models/fetch_quota", s.handleCustomModelFetchQuota)
 	mux.HandleFunc("/api/custom_models/refresh_quotas", s.handleCustomModelRefreshQuotas)
+	mux.HandleFunc("/api/custom_models/key", s.handleCustomModelKey)
 	mux.HandleFunc("/api/custom_models/security-audit", s.handleCustomModelSecurityAudit)
 	mux.HandleFunc("/api/custom-models/security-audit", s.handleCustomModelSecurityAudit)
 
@@ -2909,6 +2910,7 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
+		s.reconcileCustomModelBalances(r.Context())
 		cfg := s.customModelsStore.GetConfigRedacted()
 		cfg.InferenceSupported = true
 		if coreCfg, err := core.LoadConfig(); err == nil && coreCfg.DefaultCustomModel != "" {
@@ -2992,9 +2994,33 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 			m.PriceUpdatedAt = nowShort
 		}
 
+		if m.TotalBudget <= 0 {
+			if m.PrepaidBalance > 0 {
+				m.TotalBudget = m.PrepaidBalance
+			} else if m.BalanceValue != "" {
+				clean := strings.TrimLeft(strings.TrimSpace(m.BalanceValue), "$¥€£")
+				if val, err := strconv.ParseFloat(clean, 64); err == nil && val > 0 {
+					m.TotalBudget = val
+					m.PrepaidBalance = val
+				}
+			}
+		}
+		if m.TotalBudget > 0 && m.QuotaFraction == nil {
+			frac := m.PrepaidBalance / m.TotalBudget
+			if frac < 0 {
+				frac = 0
+			}
+			if frac > 1 {
+				frac = 1
+			}
+			m.QuotaFraction = &frac
+		}
 		if err := s.customModelsStore.SaveModel(m); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
+		}
+		if m.TotalBudget > 0 {
+			s.reconcileCustomModelBalances(r.Context())
 		}
 		if m.IsDefault {
 			if c, err := core.LoadConfig(); err == nil {
@@ -3153,6 +3179,34 @@ func (s *Server) handleCustomModelThinkingLevel(w http.ResponseWriter, r *http.R
 	writeJSON(w, map[string]interface{}{"success": true, "model_id": p.ModelID, "level": p.Level})
 }
 
+func (s *Server) handleCustomModelKey(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if id == "" {
+		http.Error(w, "missing model id parameter", http.StatusBadRequest)
+		return
+	}
+	store := s.getCustomModelsStore()
+	if store == nil {
+		http.Error(w, "custom models store not initialized", http.StatusInternalServerError)
+		return
+	}
+	model, err := store.GetModel(id)
+	if err != nil || model == nil {
+		http.Error(w, "model not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success":                 true,
+		"id":                      model.ID,
+		"gcp_service_account_key": model.GCPServiceAccountKey,
+		"api_key":                 model.APIKey,
+	})
+}
+
 func (s *Server) handleCustomModelFetchQuota(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -3205,6 +3259,7 @@ func (s *Server) handleCustomModelRefreshQuotas(w http.ResponseWriter, r *http.R
 		}
 		_ = store.SaveModel(cfg.Models[i])
 	}
+	s.reconcileCustomModelBalances(r.Context())
 	writeJSON(w, store.GetConfigRedacted())
 }
 
