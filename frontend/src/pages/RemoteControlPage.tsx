@@ -6,6 +6,10 @@ import {
   ExternalLink,
   Play,
   Square,
+  AlertCircle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 import { api, isAbortError } from '../api'
 
@@ -16,6 +20,8 @@ export const RemoteControlPage: React.FC = () => {
   const [tunnelType, setTunnelType] = useState<string>('quick')
   const [customTunnelURL, setCustomTunnelURL] = useState<string>('')
   const [tunnelLoading, setTunnelLoading] = useState(false)
+  const [actionFeedback, setActionFeedback] = useState<{ text: string; isError: boolean } | null>(null)
+  const [showTunnelLogs, setShowTunnelLogs] = useState<boolean>(false)
 
   const [status, setStatus] = useState<any>({
     active: false,
@@ -48,8 +54,18 @@ export const RemoteControlPage: React.FC = () => {
     try {
       const res = await api.getRemoteControlStatus()
       if (res && res.success) {
-        if (res.status) setStatus(res.status)
-        if (res.config) setConfig(res.config)
+        if (res.status) {
+          setStatus(res.status)
+          if (res.status.tunnel?.type) {
+            setTunnelType(res.status.tunnel.type)
+          }
+        }
+        if (res.config) {
+          setConfig(res.config)
+          if (res.config.tunnel_type === 'custom' && res.config.tunnel_url) {
+            setCustomTunnelURL((prev) => prev || res.config.tunnel_url)
+          }
+        }
       }
     } catch (err) {
       if (isAbortError(err)) return
@@ -87,15 +103,20 @@ export const RemoteControlPage: React.FC = () => {
   const handleStartTunnel = async () => {
     try {
       setTunnelLoading(true)
+      setActionFeedback(null)
       const res = await api.startRemoteTunnel({
         type: tunnelType,
         custom_url: customTunnelURL,
       })
       if (res && res.success) {
         await fetchStatusAndConfig()
+        setActionFeedback({ text: 'Remote access tunnel started.', isError: false })
+      } else {
+        setActionFeedback({ text: (res as any)?.error || 'Failed to start remote tunnel.', isError: true })
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to start remote tunnel:', err)
+      setActionFeedback({ text: `Tunnel failed to start: ${err?.message || 'Unknown error'}`, isError: true })
     } finally {
       setTunnelLoading(false)
     }
@@ -104,12 +125,17 @@ export const RemoteControlPage: React.FC = () => {
   const handleStopTunnel = async () => {
     try {
       setTunnelLoading(true)
+      setActionFeedback(null)
       const res = await api.stopRemoteTunnel()
       if (res && res.success) {
         await fetchStatusAndConfig()
+        setActionFeedback({ text: 'Remote access tunnel stopped.', isError: false })
+      } else {
+        setActionFeedback({ text: (res as any)?.error || 'Failed to stop remote tunnel.', isError: true })
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to stop remote tunnel:', err)
+      setActionFeedback({ text: `Failed to stop tunnel: ${err?.message || 'Unknown error'}`, isError: true })
     } finally {
       setTunnelLoading(false)
     }
@@ -124,9 +150,12 @@ export const RemoteControlPage: React.FC = () => {
         if (res.config) setConfig(res.config)
         setSaveSuccess(true)
         setTimeout(() => setSaveSuccess(false), 3000)
+      } else {
+        setActionFeedback({ text: (res as any)?.error || 'Failed to save settings.', isError: true })
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to save remote config:', err)
+      setActionFeedback({ text: `Failed to save settings: ${err?.message || 'Unknown error'}`, isError: true })
     } finally {
       setLoading(false)
     }
@@ -156,6 +185,26 @@ export const RemoteControlPage: React.FC = () => {
             </p>
           </div>
         </div>
+
+        {actionFeedback && (
+          <div
+            style={{
+              padding: '10px 14px',
+              borderRadius: '8px',
+              border: `1px solid ${actionFeedback.isError ? 'var(--border-danger)' : 'var(--border-success)'}`,
+              backgroundColor: actionFeedback.isError ? 'var(--red-bg)' : 'var(--green-bg)',
+              fontSize: '12px',
+              color: actionFeedback.isError ? 'var(--red)' : 'var(--green)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              marginBottom: '16px',
+            }}
+          >
+            {actionFeedback.isError ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />}
+            <span>{actionFeedback.text}</span>
+          </div>
+        )}
 
         {/* Status Metrics Grid: 3 balanced cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '12px' }}>
@@ -418,6 +467,51 @@ export const RemoteControlPage: React.FC = () => {
             />
           </div>
         )}
+
+        {/* Tunnel Status & Log Collapse */}
+        <div style={{ marginTop: '10px' }}>
+          <button
+            onClick={() => setShowTunnelLogs(!showTunnelLogs)}
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: '4px 0',
+              fontSize: '11px',
+              color: 'var(--text-muted)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {showTunnelLogs ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            {showTunnelLogs ? 'Hide Connection Logs' : 'View Tunnel Diagnostics & Logs'}
+          </button>
+
+          {showTunnelLogs && (
+            <pre
+              style={{
+                marginTop: '8px',
+                padding: '12px',
+                backgroundColor: 'var(--canvas)',
+                borderRadius: '6px',
+                border: '1px solid var(--border)',
+                fontSize: '11px',
+                fontFamily: 'monospace',
+                maxHeight: '160px',
+                overflowY: 'auto',
+                whiteSpace: 'pre-wrap',
+                color: 'var(--text-muted)',
+                lineHeight: 1.4,
+              }}
+            >
+              {status?.tunnel?.logs && status.tunnel.logs.length > 0
+                ? status.tunnel.logs.join('\n')
+                : 'No tunnel log events recorded yet. Logs will stream here during sidecar lifecycle.'}
+            </pre>
+          )}
+        </div>
       </div>
 
       {/* 4. Configuration Settings */}

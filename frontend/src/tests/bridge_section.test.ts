@@ -124,6 +124,38 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.strictEqual(geminiContent.includes('Enable Bridge'), false, 'duplicate top-level enable toggle must be removed')
   })
 
+  it('RemoteControlPage includes tunnel diagnostics log viewer and action feedback banner', () => {
+    assert.ok(remoteContent.includes('View Tunnel Diagnostics & Logs'), 'must contain tunnel diagnostics log viewer trigger')
+    assert.ok(remoteContent.includes('Hide Connection Logs'), 'must contain hide log toggle text')
+    assert.ok(remoteContent.includes('showTunnelLogs'), 'must have state for tunnel logs')
+    assert.ok(remoteContent.includes('actionFeedback'), 'must have state for action feedback')
+    assert.ok(remoteContent.includes('actionFeedback.text'), 'must render actionFeedback text')
+    assert.ok(remoteContent.includes('status?.tunnel?.logs'), 'must display tunnel logs from status')
+  })
+
+  it('WhatsAppBridgePage, TelegramBridgePage, and DiscordBridgePage update status on test and fetch unredacted config', () => {
+    for (const { name, content } of [
+      { name: 'WhatsAppBridgePage', content: waContent },
+      { name: 'TelegramBridgePage', content: tgContent },
+      { name: 'DiscordBridgePage', content: dsContent },
+    ]) {
+      assert.ok(
+        content.includes('api.getChannelsConfig(true)'),
+        `${name} must fetch unredacted config with getChannelsConfig(true)`
+      )
+      assert.ok(
+        content.includes('setStatus(res.status)'),
+        `${name} must update status with setStatus(res.status) on test / save`
+      )
+    }
+  })
+
+  it('GeminiBridgePage merges rotated credentials and seeds custom tunnel URL', () => {
+    assert.ok(geminiContent.includes('res.auth_token || res.status?.auth_token'))
+    assert.ok(geminiContent.includes('res.pairing_pin || res.status?.pairing_pin'))
+    assert.ok(geminiContent.includes('setCustomTunnelURL((prev) => prev || res.tunnel.gateway_url)'))
+  })
+
   it('all 5 bridge pages eliminate banned AI buzzwords (utilize, supercharge, paradigm shift, delve)', () => {
     const pages = [
       { name: 'RemoteControlPage', content: remoteContent },

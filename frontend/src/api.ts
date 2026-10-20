@@ -1279,8 +1279,10 @@ export const api = {
   getChannelsStatus: () =>
     request<{ success: boolean; status: any }>('/api/bridge/channels/status'),
 
-  getChannelsConfig: () =>
-    request<{ success: boolean; config: any }>('/api/bridge/channels/config'),
+  getChannelsConfig: (unredacted?: boolean) =>
+    request<{ success: boolean; config: any }>(
+      unredacted ? '/api/bridge/channels/config?unredacted=true' : '/api/bridge/channels/config'
+    ),
 
   updateChannelsConfig: (config: any) =>
     request<{ success: boolean; config: any; status?: any }>('/api/bridge/channels/config', {
