@@ -508,3 +508,38 @@ func TestBridge_FindMostRecentConversationID(t *testing.T) {
 		}
 	}
 }
+
+
+func TestBridge_GetStatusUnmaskedToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "gemini_bridge.json")
+
+	svc, err := NewService(cfgPath)
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+
+	rawToken := svc.GetRawAuthToken()
+	if rawToken == "" {
+		t.Fatalf("raw token must not be empty")
+	}
+
+	st := svc.GetStatus()
+	if st.AuthToken != rawToken {
+		t.Fatalf("expected unmasked AuthToken %q in GetStatus(), got %q", rawToken, st.AuthToken)
+	}
+	if strings.Contains(st.AuthToken, "...") || strings.Contains(st.AuthToken, "[REDACTED]") {
+		t.Fatalf("AuthToken must not be masked or redacted, got %q", st.AuthToken)
+	}
+
+	// Also verify ServeRemoteHTTP delegates properly
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/remote", nil)
+	svc.ServeRemoteHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from ServeRemoteHTTP, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Antigravity Remote Control") {
+		t.Fatalf("expected ServeRemoteHTTP response to contain 'Antigravity Remote Control'")
+	}
+}
