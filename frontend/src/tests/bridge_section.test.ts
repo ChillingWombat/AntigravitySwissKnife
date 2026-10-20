@@ -56,16 +56,18 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.ok(bridgeContent.includes('<DiscordBridgePage />'))
   })
 
-  it('RemoteControlPage enforces David-Design and account-switch resilience', () => {
+  it('RemoteControlPage uses one operational remote-access control', () => {
     assert.strictEqual(emojiRegex.test(remoteContent), false, 'RemoteControlPage must not contain emojis')
-    assert.ok(remoteContent.includes('Account-Switch Resilience Mode'))
     assert.ok(remoteContent.includes('api.getRemoteControlStatus'))
     assert.ok(remoteContent.includes('api.updateRemoteControlConfig'))
     assert.ok(remoteContent.includes('api.rotateRemotePIN'))
     assert.ok(remoteContent.includes('Security PIN'))
     assert.ok(remoteContent.includes('DevTools Port'))
     assert.ok(remoteContent.includes('google-card'))
-    assert.ok(remoteContent.includes('ToggleSwitch'))
+    assert.ok(remoteContent.includes('Start Remote Access'))
+    assert.strictEqual(remoteContent.includes('Enable Remote'), false, 'duplicate top-level enable toggle must be removed')
+    assert.strictEqual(remoteContent.includes('Account-Switch Resilience Mode'), false, 'no-op resilience toggle must be removed')
+    assert.ok(remoteContent.includes('tunnel runs in the Swiss daemon'))
     assert.strictEqual(remoteContent.includes('Host Antigravity PID'), false, 'developer PID gadget must be removed')
     assert.strictEqual(remoteContent.includes('Survives account rotations'), false, 'duplicate resilience gadget must be removed')
     assert.ok(remoteContent.includes('Remote Endpoint'))

@@ -446,3 +446,27 @@ func TestTunnelStatusNeverExposesLoopbackEndpoint(t *testing.T) {
 		t.Errorf("Service.UpdateConfig must strip loopback TunnelURL, got %q", stored)
 	}
 }
+
+func TestRemoteManager_TunnelLifecycleDrivesEnabledAndClearsEndpoint(t *testing.T) {
+	rm := NewRemoteManager(filepath.Join(t.TempDir(), "remote_control.json"))
+
+	if _, err := rm.StartTunnel("custom", "https://remote.example.com"); err != nil {
+		t.Fatalf("StartTunnel failed: %v", err)
+	}
+	started := rm.GetConfig()
+	if !started.Enabled {
+		t.Fatal("starting a tunnel must mark the remote wrapper enabled")
+	}
+	if started.TunnelType != "custom" || started.TunnelURL == "" {
+		t.Fatalf("started tunnel config incomplete: type=%q url=%q", started.TunnelType, started.TunnelURL)
+	}
+
+	rm.StopTunnel()
+	stopped := rm.GetConfig()
+	if stopped.Enabled {
+		t.Fatal("stopping a tunnel must mark the remote wrapper disabled")
+	}
+	if stopped.TunnelType != "" || stopped.TunnelURL != "" {
+		t.Fatalf("stopping a tunnel must clear endpoint state: type=%q url=%q", stopped.TunnelType, stopped.TunnelURL)
+	}
+}
