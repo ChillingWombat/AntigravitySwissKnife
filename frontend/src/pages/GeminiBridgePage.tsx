@@ -497,15 +497,10 @@ export const GeminiBridgePage: React.FC = () => {
               cursor: 'pointer',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Network size={14} color="var(--primary)" />
-                <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
-                  Quick Tunnel (Recommended)
-                </span>
-              </div>
-              <span className="badge-chip badge-green">
-                Zero Signup
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+              <Network size={14} color="var(--primary)" />
+              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
+                Quick Tunnel
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -523,12 +518,9 @@ export const GeminiBridgePage: React.FC = () => {
               cursor: 'pointer',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
                 Tailscale Network
-              </span>
-              <span className="badge-chip badge-blue">
-                Private VPN
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -546,12 +538,9 @@ export const GeminiBridgePage: React.FC = () => {
               cursor: 'pointer',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
                 Custom HTTPS Tunnel
-              </span>
-              <span className="badge-chip badge-neutral">
-                Reverse Proxy
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>

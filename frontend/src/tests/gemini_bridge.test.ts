@@ -28,12 +28,16 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
     assert.ok(content.includes('<Terminal'))
   })
 
-  it('implements zero-setup remote tunneling controls', () => {
+  it('implements zero-setup remote tunneling controls without decorative tags', () => {
     assert.ok(content.includes('api.startBridgeTunnel'))
     assert.ok(content.includes('api.stopBridgeTunnel'))
-    assert.ok(content.includes('Quick Tunnel (Recommended)'))
-    assert.ok(content.includes('Zero Signup'))
+    assert.ok(content.includes('Quick Tunnel'))
     assert.ok(content.includes('Tailscale Network'))
+    assert.ok(content.includes('Custom HTTPS Tunnel'))
+    assert.strictEqual(content.includes('Quick Tunnel (Recommended)'), false)
+    assert.strictEqual(content.includes('Zero Signup'), false)
+    assert.strictEqual(content.includes('badge-chip badge-blue'), false)
+    assert.strictEqual(content.includes('Reverse Proxy'), false)
   })
 
   it('provides pairing PIN and Bearer token display with rotation', () => {
