@@ -57,9 +57,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       try {
         const rawFlags = localStorage.getItem("jetski.developer.customFlagOverrides") || "{}";
         const parsedFlags = JSON.parse(rawFlags);
-        if (parsedFlags && typeof parsedFlags === "object" && !Array.isArray(parsedFlags) && (parsedFlags["remote-control-setting-enabled"] !== true || parsedFlags["jetski-sidecar-declared-permissions"] !== false)) {
+        if (parsedFlags && typeof parsedFlags === "object" && !Array.isArray(parsedFlags) && (parsedFlags["remote-control-setting-enabled"] !== true || parsedFlags["jetski-sidecar-declared-permissions"] !== false || parsedFlags["enable-compact-slash-command"] !== true)) {
           parsedFlags["remote-control-setting-enabled"] = true;
           parsedFlags["jetski-sidecar-declared-permissions"] = false;
+          parsedFlags["enable-compact-slash-command"] = true;
           const nextFlags = JSON.stringify(parsedFlags);
           localStorage.setItem("jetski.developer.customFlagOverrides", nextFlags);
           if (typeof StorageEvent === "function") {
@@ -526,6 +527,14 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         html:not(.swiss-daemon-online) .swiss-inchat-metrics,
         html.swiss-daemon-offline .swiss-inchat-metrics {
           display: none !important;
+        }
+
+        @keyframes swiss-context-ring-spin {
+          0%% { transform: rotate(-90deg); }
+          100%% { transform: rotate(270deg); }
+        }
+        .swiss-context-window-ring[data-swiss-compacting="true"] svg {
+          animation: swiss-context-ring-spin 0.8s linear infinite !important;
         }
       `+"`"+`;
 
@@ -3055,6 +3064,270 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       }
     };
 
+    const compactingStateByRing = {};
+
+    function findInputBoxFiberProps(box) {
+      if (!box) return null;
+      if (box.memoizedProps && (typeof box.memoizedProps.handleSubmit === "function" || (box.memoizedProps.lexicalRef && box.memoizedProps.lexicalRef.current))) {
+        return box.memoizedProps;
+      }
+      let fiberKey = Object.keys(box).find(k => k.startsWith("__reactFiber"));
+      let startNode = fiberKey ? box[fiberKey] : null;
+      if (!startNode && box.querySelector) {
+        const inner = box.querySelector('[contenteditable="true"]') || box.querySelector('textarea') || (box.children && box.children[0]);
+        if (inner) {
+          if (inner.memoizedProps) return inner.memoizedProps;
+          fiberKey = Object.keys(inner).find(k => k.startsWith("__reactFiber"));
+          if (fiberKey) startNode = inner[fiberKey];
+        }
+      }
+      if (!startNode) return null;
+
+      let bestProps = null;
+      let curr = startNode;
+      while (curr) {
+        const mp = curr.memoizedProps;
+        if (mp) {
+          if (typeof mp.handleSubmit === "function" && mp.lexicalRef && mp.lexicalRef.current) {
+            return mp;
+          }
+          if (!bestProps && (typeof mp.handleSubmit === "function" || (mp.lexicalRef && mp.lexicalRef.current) || typeof mp.onSend === "function" || Array.isArray(mp.slashCommandItems))) {
+            bestProps = mp;
+          }
+        }
+        curr = curr.return;
+      }
+      if (bestProps) return bestProps;
+
+      const queue = [startNode];
+      const visited = new Set();
+      while (queue.length > 0 && visited.size < 300) {
+        const node = queue.shift();
+        if (!node || visited.has(node)) continue;
+        visited.add(node);
+        const mp = node.memoizedProps;
+        if (mp) {
+          if (typeof mp.handleSubmit === "function" && mp.lexicalRef && mp.lexicalRef.current) {
+            return mp;
+          }
+          if (!bestProps && (typeof mp.handleSubmit === "function" || (mp.lexicalRef && mp.lexicalRef.current) || typeof mp.onSend === "function" || Array.isArray(mp.slashCommandItems))) {
+            bestProps = mp;
+          }
+        }
+        if (node.child) queue.push(node.child);
+        if (node.sibling) queue.push(node.sibling);
+      }
+      return bestProps;
+    }
+
+    async function invokeNativeCompactCommand(ring, convId, e) {
+      if (e) {
+        try {
+          if (typeof e.preventDefault === "function") e.preventDefault();
+          if (typeof e.stopPropagation === "function") e.stopPropagation();
+        } catch (_) {}
+      }
+      const key = (ring && ring.id) || convId || "main";
+      if (compactingStateByRing[key] && compactingStateByRing[key].active) {
+        return;
+      }
+      if (ring) {
+        ring.setAttribute("data-swiss-compacting", "true");
+      }
+      const startTime = Date.now();
+      compactingStateByRing[key] = { active: true, startTime: startTime };
+
+      const inputBox = (ring && ring.closest ? ring.closest('[data-testid="agent-input-box"]') : null) || document.querySelector('[data-testid="agent-input-box"]');
+      const trigger = inputBox ? (inputBox.querySelector('[data-testid="model-selector-trigger"]') || inputBox.querySelector('button[aria-label*="Select model"]')) : (document.querySelector('[data-testid="model-selector-trigger"]') || document.querySelector('button[aria-label*="Select model"]'));
+      const modelName = trigger ? trigger.innerText.trim() : "";
+      const maxTokens = getModelContextWindow(modelName);
+      if (ring) {
+        updateProgressRing(ring, convId, maxTokens);
+      }
+
+      let dispatched = false;
+      if (inputBox) {
+        const props = findInputBoxFiberProps(inputBox);
+        if (props && props.lexicalRef && props.lexicalRef.current && typeof props.handleSubmit === "function") {
+          try {
+            const editor = props.lexicalRef.current;
+            let compactInfo = null;
+            if (Array.isArray(props.slashCommandItems)) {
+              compactInfo = props.slashCommandItems.find(item => item && (item.name === "compact" || (item.slashCommand && item.slashCommand.name === "compact")));
+            }
+            if (!compactInfo) {
+              compactInfo = {
+                $typeName: "exa.codeium_common_pb.SlashCommandInfo",
+                name: "compact",
+                type: 1
+              };
+            }
+            const mentionStateJSON = {
+              root: {
+                children: [
+                  {
+                    children: [
+                      {
+                        type: "contextScopeItemMention",
+                        version: 1,
+                        detail: compactInfo,
+                        slashCommandInfo: compactInfo,
+                        text: "/compact",
+                        value: "/compact"
+                      }
+                    ],
+                    direction: "ltr",
+                    format: "",
+                    indent: 0,
+                    type: "paragraph",
+                    version: 1
+                  }
+                ],
+                direction: "ltr",
+                format: "",
+                indent: 0,
+                type: "root",
+                version: 1
+              }
+            };
+            const fallbackStateJSON = {
+              root: {
+                children: [
+                  {
+                    children: [
+                      {
+                        detail: 0,
+                        format: 0,
+                        mode: "normal",
+                        style: "",
+                        text: "/compact",
+                        type: "text",
+                        version: 1
+                      }
+                    ],
+                    direction: "ltr",
+                    format: "",
+                    indent: 0,
+                    type: "paragraph",
+                    version: 1
+                  }
+                ],
+                direction: "ltr",
+                format: "",
+                indent: 0,
+                type: "root",
+                version: 1
+              }
+            };
+            let parsedState = null;
+            if (typeof editor.parseEditorState === "function") {
+              try {
+                parsedState = editor.parseEditorState(JSON.stringify(mentionStateJSON));
+              } catch (_) {
+                try {
+                  parsedState = editor.parseEditorState(JSON.stringify(fallbackStateJSON));
+                } catch (_) {}
+              }
+            }
+            if (parsedState && typeof editor.setEditorState === "function") {
+              editor.setEditorState(parsedState);
+            } else if (typeof editor.setEditorState === "function") {
+              try {
+                editor.setEditorState(mentionStateJSON);
+              } catch (_) {
+                try { editor.setEditorState(fallbackStateJSON); } catch (_) {}
+              }
+            }
+
+            // MessageDeliveryStrategy.NEXT_INVOCATION = 1 (send immediately, bypassing queue)
+            await props.handleSubmit(editor, 1);
+            dispatched = true;
+          } catch (_) {}
+        }
+
+        if (!dispatched) {
+          try {
+            const editable = inputBox.querySelector('[contenteditable="true"]') || inputBox.querySelector('textarea');
+            if (editable) {
+              if (editable.tagName === "TEXTAREA" || editable.tagName === "INPUT") {
+                editable.value = "/compact";
+                editable.dispatchEvent(new Event("input", { bubbles: true }));
+                editable.dispatchEvent(new Event("change", { bubbles: true }));
+              } else {
+                if (typeof editable.focus === "function") editable.focus();
+                editable.innerText = "/compact";
+                editable.textContent = "/compact";
+                try {
+                  editable.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "/compact" }));
+                } catch (_) {
+                  editable.dispatchEvent(new Event("input", { bubbles: true }));
+                }
+              }
+              const sendBtn = inputBox.querySelector('button[aria-label*="Send"], button[title*="Send"], [data-testid="send-button"]') ||
+                              document.querySelector('button[aria-label*="Send"], button[title*="Send"], [data-testid="send-button"]');
+              if (sendBtn && !sendBtn.disabled && typeof sendBtn.click === "function") {
+                sendBtn.click();
+              } else {
+                editable.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, altKey: true, bubbles: true }));
+                editable.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
+              }
+              dispatched = true;
+            }
+          } catch (_) {}
+        }
+      }
+
+      // Wait until both conditions are met:
+      // a) At least 1 full rotation cycle (850ms elapsed since startTime) has completed
+      // b) Any active compaction turn in the UI has finished (poll every 150ms checking if [data-testid="agent-loading"] with "Compacting" or active cancel/stop is still running, up to max timeout so it never hangs)
+      const minCycleDuration = 850;
+      const maxTimeoutMs = 120000;
+
+      const checkCompactionActive = () => {
+        try {
+          const loadingEl = document.querySelector('[data-testid="agent-loading"]');
+          if (loadingEl) {
+            const txt = (loadingEl.innerText || loadingEl.textContent || "").toLowerCase();
+            if (txt.includes("compact")) return true;
+          }
+          const stopBtn = (inputBox ? inputBox.querySelector('[data-testid="stop-button"], button[aria-label*="Stop"], button[aria-label*="Cancel"], button[title*="Stop"]') : null) ||
+                          document.querySelector('[data-testid="stop-button"], button[aria-label*="Stop"], button[aria-label*="Cancel"], button[title*="Stop"]');
+          if (stopBtn) {
+            const bodyText = (document.body && (document.body.innerText || document.body.textContent)) || "";
+            if (bodyText.includes("Compacting") || (loadingEl && (loadingEl.innerText || "").includes("Compacting"))) {
+              return true;
+            }
+          }
+        } catch (_) {}
+        return false;
+      };
+
+      const pollTimer = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        if (elapsed < minCycleDuration) {
+          return;
+        }
+
+        const isStillRunning = checkCompactionActive();
+        if (!isStillRunning || elapsed >= maxTimeoutMs) {
+          clearInterval(pollTimer);
+          delete compactingStateByRing[key];
+          if (ring) {
+            ring.removeAttribute("data-swiss-compacting");
+          }
+          const actualConvId = convId || (ring ? getConversationIdFromElement(ring) : null);
+          if (actualConvId) {
+            delete lastTokensFetchTimeByConv[actualConvId];
+            fetchActiveConversationTokens(actualConvId);
+          } else if (convId) {
+            delete lastTokensFetchTimeByConv[convId];
+            fetchActiveConversationTokens(convId);
+          }
+          renderContextWindowProgressRing();
+        }
+      }, 150);
+    }
+
     function updateProgressRing(ring, convId, maxTokens) {
       if (!ring) return;
       if (window.__swissDaemonOnline === false || !window.__swissDaemonOnline) {
@@ -3062,45 +3335,72 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         return;
       }
       ring.classList.add("swiss-context-window-ring");
-      ring.setAttribute("role", "status");
+      ring.setAttribute("role", "button");
       ring.setAttribute("tabindex", "0");
-      ring.style.cssText = "display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 6px; position: relative; user-select: none; flex-shrink: 0; vertical-align: middle;";
+      ring.style.cssText = "display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 6px; position: relative; user-select: none; flex-shrink: 0; vertical-align: middle; cursor: pointer;";
 
-      const hasReliableData = Boolean(convId && cachedTokensByConv && typeof cachedTokensByConv[convId] === "number");
-      if (!hasReliableData) {
-        ring.setAttribute("title", "Context window usage unavailable");
-        ring.setAttribute("aria-label", "Context window usage unavailable");
-        ring.style.opacity = "0.35";
-        ring.style.cursor = "default";
-        const greyHTML = '<svg width="18" height="18" viewBox="0 0 20 20" style="transform: rotate(-90deg); display: block;">' +
-          '<circle cx="10" cy="10" r="7" fill="none" stroke="rgba(148, 163, 184, 0.25)" stroke-width="2" />' +
-        '</svg>';
-        if (ring.innerHTML !== greyHTML) ring.innerHTML = greyHTML;
-      } else {
-        const usedTokens = cachedTokensByConv[convId];
-        const validMax = (typeof maxTokens === "number" && maxTokens > 0) ? maxTokens : 1000000;
-        const pct = Math.max(0, Math.min(100, Math.round((usedTokens / validMax) * 100)));
-        const formattedUsed = formatTokensUnit(usedTokens);
-        const formattedMax = formatTokensUnit(validMax);
-        const tooltipText = pct + "%% (" + formattedUsed + "/" + formattedMax + ")";
-
-        ring.setAttribute("title", tooltipText);
-        ring.setAttribute("aria-label", "Context window used: " + tooltipText);
+      const ringKey = (ring && ring.id) || convId || "main";
+      const isCompacting = ring.getAttribute("data-swiss-compacting") === "true" || Boolean(compactingStateByRing[ringKey] && compactingStateByRing[ringKey].active);
+      if (isCompacting) {
+        ring.setAttribute("data-swiss-compacting", "true");
+        ring.setAttribute("title", "Compacting context window...");
+        ring.setAttribute("aria-label", "Compacting context window...");
         ring.style.opacity = "1";
         ring.style.cursor = "pointer";
 
-        const circumference = 44;
-        const offset = Math.max(0, circumference - (circumference * pct / 100));
-
-        const ringHTML = '<svg width="18" height="18" viewBox="0 0 20 20" style="transform: rotate(-90deg); display: block;">' +
+        const spinningHTML = '<svg width="18" height="18" viewBox="0 0 20 20" style="transform: rotate(-90deg); display: block;">' +
           '<circle cx="10" cy="10" r="7" fill="none" stroke="rgba(148, 163, 184, 0.3)" stroke-width="2" />' +
-          '<circle cx="10" cy="10" r="7" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-dasharray="44" stroke-dashoffset="' + offset.toFixed(2) + '" style="transition: stroke-dashoffset 0.3s ease;" />' +
+          '<circle cx="10" cy="10" r="7" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-dasharray="44" stroke-dashoffset="14" />' +
         '</svg>';
+        if (ring.innerHTML !== spinningHTML) {
+          ring.innerHTML = spinningHTML;
+        }
+      } else {
+        const hasReliableData = Boolean(convId && cachedTokensByConv && typeof cachedTokensByConv[convId] === "number");
+        if (!hasReliableData) {
+          ring.setAttribute("title", "Context window usage unavailable — Click to compact");
+          ring.setAttribute("aria-label", "Context window usage unavailable — Click to compact");
+          ring.style.opacity = "0.35";
+          ring.style.cursor = "pointer";
+          const greyHTML = '<svg width="18" height="18" viewBox="0 0 20 20" style="transform: rotate(-90deg); display: block;">' +
+            '<circle cx="10" cy="10" r="7" fill="none" stroke="rgba(148, 163, 184, 0.25)" stroke-width="2" />' +
+          '</svg>';
+          if (ring.innerHTML !== greyHTML) ring.innerHTML = greyHTML;
+        } else {
+          const usedTokens = cachedTokensByConv[convId];
+          const validMax = (typeof maxTokens === "number" && maxTokens > 0) ? maxTokens : 1000000;
+          const pct = Math.max(0, Math.min(100, Math.round((usedTokens / validMax) * 100)));
+          const formattedUsed = formatTokensUnit(usedTokens);
+          const formattedMax = formatTokensUnit(validMax);
+          const tooltipText = pct + "%% (" + formattedUsed + "/" + formattedMax + ")" + " — Click to compact";
 
-        if (ring.innerHTML !== ringHTML) {
-          ring.innerHTML = ringHTML;
+          ring.setAttribute("title", tooltipText);
+          ring.setAttribute("aria-label", "Context window used: " + tooltipText);
+          ring.style.opacity = "1";
+          ring.style.cursor = "pointer";
+
+          const circumference = 44;
+          const offset = Math.max(0, circumference - (circumference * pct / 100));
+
+          const ringHTML = '<svg width="18" height="18" viewBox="0 0 20 20" style="transform: rotate(-90deg); display: block;">' +
+            '<circle cx="10" cy="10" r="7" fill="none" stroke="rgba(148, 163, 184, 0.3)" stroke-width="2" />' +
+            '<circle cx="10" cy="10" r="7" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-dasharray="44" stroke-dashoffset="' + offset.toFixed(2) + '" style="transition: stroke-dashoffset 0.3s ease;" />' +
+          '</svg>';
+
+          if (ring.innerHTML !== ringHTML) {
+            ring.innerHTML = ringHTML;
+          }
         }
       }
+
+      ring.onclick = (e) => {
+        invokeNativeCompactCommand(ring, convId, e);
+      };
+      ring.onkeydown = (e) => {
+        if (e.key === "Enter" || e.key === " " || e.keyCode === 13 || e.keyCode === 32) {
+          invokeNativeCompactCommand(ring, convId, e);
+        }
+      };
     }
 
     function renderContextWindowProgressRing() {
