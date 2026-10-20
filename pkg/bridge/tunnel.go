@@ -41,6 +41,7 @@ type TunnelManager struct {
 	logsMu            sync.Mutex
 	status            TunnelStatus
 	cmd               *exec.Cmd
+	tsListener        net.Listener
 	cancelFunc        context.CancelFunc
 	keepAliveCancel   context.CancelFunc
 	keepAliveInterval time.Duration
@@ -153,6 +154,10 @@ func (tm *TunnelManager) invalidateTunnel(reason string) {
 	if tm.cmd != nil && tm.cmd.Process != nil {
 		_ = tm.cmd.Process.Kill()
 		tm.cmd = nil
+	}
+	if tm.tsListener != nil {
+		_ = tm.tsListener.Close()
+		tm.tsListener = nil
 	}
 	tm.status.Active = false
 	tm.status.Type = ""
@@ -604,14 +609,66 @@ func (tm *TunnelManager) startTailscaleTunnel() (TunnelStatus, error) {
 		path = "/" + path
 	}
 
+	// Bind a TCP forwarder on the Tailscale interface IP (<tsIP>:<localPort> -> 127.0.0.1:<localPort>)
+	// so Tailnet peers can reach the loopback daemon directly with zero extra setup.
+	var forwardPort = tm.localPort
+	if ln, listenErr := net.Listen("tcp", fmt.Sprintf("%s:%d", tsIP, tm.localPort)); listenErr == nil {
+		if tcpAddr, ok := ln.Addr().(*net.TCPAddr); ok {
+			forwardPort = tcpAddr.Port
+		}
+		tm.mu.Lock()
+		if tm.tsListener != nil {
+			_ = tm.tsListener.Close()
+		}
+		tm.tsListener = ln
+		tm.mu.Unlock()
+		targetLoopback := fmt.Sprintf("127.0.0.1:%d", tm.localPort)
+		go func(l net.Listener, target string) {
+			for {
+				clientConn, acceptErr := l.Accept()
+				if acceptErr != nil {
+					return
+				}
+				go func(src net.Conn) {
+					defer src.Close()
+					dst, dialErr := net.DialTimeout("tcp", target, 3*time.Second)
+					if dialErr != nil {
+						return
+					}
+					defer dst.Close()
+					done := make(chan struct{}, 2)
+					go func() { _, _ = io.Copy(dst, src); done <- struct{}{} }()
+					go func() { _, _ = io.Copy(src, dst); done <- struct{}{} }()
+					<-done
+				}(clientConn)
+			}
+		}(ln, targetLoopback)
+	}
+
+	// Also attempt `tailscale funnel --bg` / `tailscale serve --bg` if operator mode is enabled
+	usedHTTPSServe := false
+	if magicDNS != "" {
+		for _, subcmd := range []string{"funnel", "serve"} {
+			c := exec.Command(tsBin, subcmd, "--bg", fmt.Sprintf("http://127.0.0.1:%d", tm.localPort))
+			core.SetHiddenConsole(c)
+			if err := c.Run(); err == nil {
+				usedHTTPSServe = true
+				break
+			}
+		}
+	}
+
 	var gatewayURL string
 	var publicURL string
-	if magicDNS != "" {
-		publicURL = fmt.Sprintf("http://%s:%d", magicDNS, tm.localPort)
-		gatewayURL = fmt.Sprintf("http://%s:%d%s", magicDNS, tm.localPort, path)
+	if usedHTTPSServe && magicDNS != "" {
+		publicURL = fmt.Sprintf("https://%s", magicDNS)
+		gatewayURL = fmt.Sprintf("https://%s%s", magicDNS, path)
+	} else if magicDNS != "" {
+		publicURL = fmt.Sprintf("http://%s:%d", magicDNS, forwardPort)
+		gatewayURL = fmt.Sprintf("http://%s:%d%s", magicDNS, forwardPort, path)
 	} else {
-		publicURL = fmt.Sprintf("http://%s:%d", tsIP, tm.localPort)
-		gatewayURL = fmt.Sprintf("http://%s:%d%s", tsIP, tm.localPort, path)
+		publicURL = fmt.Sprintf("http://%s:%d", tsIP, forwardPort)
+		gatewayURL = fmt.Sprintf("http://%s:%d%s", tsIP, forwardPort, path)
 	}
 
 	tm.mu.Lock()
@@ -644,6 +701,10 @@ func (tm *TunnelManager) Stop() {
 	if tm.cmd != nil && tm.cmd.Process != nil {
 		_ = tm.cmd.Process.Kill()
 		tm.cmd = nil
+	}
+	if tm.tsListener != nil {
+		_ = tm.tsListener.Close()
+		tm.tsListener = nil
 	}
 	tm.status.Active = false
 	// Issue #120: no loopback fallback endpoint — stopping a tunnel means the bridge is
