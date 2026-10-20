@@ -21,6 +21,7 @@ export const RemoteControlPage: React.FC = () => {
   const [tunnelLoading, setTunnelLoading] = useState(false)
   const [actionFeedback, setActionFeedback] = useState<{ text: string; isError: boolean } | null>(null)
   const [showTunnelLogs, setShowTunnelLogs] = useState<boolean>(false)
+  const wasTunnelActiveRef = React.useRef<boolean>(false)
 
   const [status, setStatus] = useState<any>({
     active: false,
@@ -54,6 +55,14 @@ export const RemoteControlPage: React.FC = () => {
       const res = await api.getRemoteControlStatus()
       if (res && res.success) {
         if (res.status) {
+          const nowActive = Boolean(res.status.tunnel?.active)
+          if (wasTunnelActiveRef.current && !nowActive && res.status.tunnel?.error) {
+            setActionFeedback({
+              text: `Tunnel stopped automatically: ${res.status.tunnel.error}`,
+              isError: true,
+            })
+          }
+          wasTunnelActiveRef.current = nowActive
           setStatus(res.status)
           if (res.status.tunnel?.type) {
             setTunnelType(res.status.tunnel.type)

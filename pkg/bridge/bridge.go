@@ -164,7 +164,7 @@ func NewService(configPath string) (*Service, error) {
 
 	// Issue #120: "loopback" is no longer a valid tunnel type. Skip it (and empty) so a stale
 	// config value from an older build never triggers a failed auto-start.
-	if s.config.AutoStartTunnel && s.config.TunnelType != "" && s.config.TunnelType != "loopback" {
+	if (s.config.AutoStartTunnel || (!gui.IsTestExecution() && s.config.Enabled)) && s.config.TunnelType != "" && s.config.TunnelType != "loopback" {
 		tunnelType := s.config.TunnelType
 		tunnelURL := s.config.TunnelURL
 		go func() {
@@ -173,6 +173,19 @@ func NewService(configPath string) (*Service, error) {
 	}
 
 	return s, nil
+}
+
+// SetPort updates the target daemon loopback port used by Gemini Bridge's tunnel manager.
+func (s *Service) SetPort(port int) {
+	if port <= 0 {
+		return
+	}
+	s.mu.Lock()
+	s.config.Port = port
+	s.mu.Unlock()
+	if s.tunnelMgr != nil {
+		s.tunnelMgr.SetPort(port)
+	}
 }
 
 // GetRemoteStatus returns current remote control status.

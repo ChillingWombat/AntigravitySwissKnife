@@ -362,4 +362,16 @@ func TestChallengerBridge_WebGUI_RemoteConsoleRouteAndAuth(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "Antigravity Remote Control") {
 		t.Errorf("expected Remote Control console HTML in response body")
 	}
+
+	// Keep-alive probe to /api/bridge/mcp with X-Swiss-KeepAlive: 1 returns 200 OK without recording a failed auth attempt
+	reqKA := httptest.NewRequest(http.MethodGet, "/api/bridge/mcp", nil)
+	reqKA.Header.Set("X-Swiss-KeepAlive", "1")
+	wKA := httptest.NewRecorder()
+	server.handleBridgeMCP(wKA, reqKA)
+	if wKA.Code != http.StatusOK {
+		t.Errorf("expected 200 OK for X-Swiss-KeepAlive on /api/bridge/mcp, got %d", wKA.Code)
+	}
+	if len(bridgeSvc.GetStatus().RecentAttempts) != 0 {
+		t.Errorf("keep-alive probe must not record failed auth attempts, got %d", len(bridgeSvc.GetStatus().RecentAttempts))
+	}
 }
