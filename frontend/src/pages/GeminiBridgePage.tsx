@@ -7,7 +7,6 @@ import {
   Copy,
   Send,
   RefreshCw,
-  ShieldCheck,
   Laptop,
   Code2,
   KeyRound,
@@ -20,7 +19,6 @@ import {
   ChevronUp,
 } from 'lucide-react'
 import { api, isAbortError } from '../api'
-import { ToggleSwitch } from '../components/ToggleSwitch'
 
 interface BridgeStatusData {
   enabled: boolean
@@ -134,29 +132,14 @@ export const GeminiBridgePage: React.FC = () => {
       if (res && res.status) {
         setStatus(res.status)
       }
-      setActionFeedback({ text: res?.message || 'Gemini Bridge connection verified successfully.', isError: false })
+      setActionFeedback({
+        text: res?.message || (res?.success ? 'Gemini Bridge connection verified successfully.' : 'Gemini Bridge verification failed.'),
+        isError: !res?.success,
+      })
     } catch (err: any) {
       setActionFeedback({ text: `Verification failed: ${err?.message || 'Network error'}`, isError: true })
     } finally {
       setTestingConnection(false)
-    }
-  }
-
-  const handleToggleEnable = async () => {
-    try {
-      const next = !status?.enabled
-      const res = await api.updateBridgeConfig({ enabled: next })
-      if (res?.status) {
-        setStatus(res.status)
-      } else {
-        loadStatus()
-      }
-      setActionFeedback({
-        text: next ? 'Gemini Bridge enabled.' : 'Gemini Bridge disabled.',
-        isError: false,
-      })
-    } catch (err: any) {
-      setActionFeedback({ text: `Failed to toggle Gemini Bridge: ${err?.message || 'Unknown error'}`, isError: true })
     }
   }
 
@@ -262,7 +245,7 @@ export const GeminiBridgePage: React.FC = () => {
         antigravity: {
           url: status?.gateway_url || '',
           headers: {
-            Authorization: `Bearer ${status?.auth_token || 'swiss-gemini-bridge-auth-token'}`,
+            Authorization: `Bearer ${status?.auth_token || ''}`,
           },
         },
       },
@@ -293,9 +276,9 @@ export const GeminiBridgePage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* 1. Overview, Live Status & Enable Toggle */}
+      {/* 1. Overview, Live Status, Endpoint & Pairing */}
       <div className="google-card">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
@@ -316,13 +299,6 @@ export const GeminiBridgePage: React.FC = () => {
               <RefreshCw size={14} className={testingConnection ? 'animate-spin' : ''} />
               <span>Verify Bridge</span>
             </button>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
-              <span style={{ whiteSpace: 'nowrap' }}>Enable Bridge</span>
-              <ToggleSwitch
-                checked={Boolean(status?.enabled)}
-                onChange={handleToggleEnable}
-              />
-            </label>
           </div>
         </div>
 
@@ -346,8 +322,8 @@ export const GeminiBridgePage: React.FC = () => {
           </div>
         )}
 
-        {/* Status Metrics Grid (harmonized with Remote, WhatsApp, Telegram, Discord, and BrainCache) */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '16px' }}>
+        {/* Status Metrics Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '12px' }}>
           <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
               Gateway Status
@@ -384,17 +360,6 @@ export const GeminiBridgePage: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
-              Desktop Surface
-            </div>
-            <div style={{ fontSize: '16px', fontWeight: 700, color: status?.surfaces?.desktop_app_connected ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
-              {status?.surfaces?.desktop_app_connected ? 'CDP Connected' : 'Standby'}
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Port {status?.surfaces?.desktop_cdp_port || 35779}
-            </div>
-          </div>
         </div>
 
         {/* Live Gateway URL & Copy */}
@@ -439,12 +404,6 @@ export const GeminiBridgePage: React.FC = () => {
               {copiedUrl ? <CheckCircle2 size={13} color="var(--green)" /> : <Copy size={13} />}
               <span>{copiedUrl ? 'Copied' : 'Copy Endpoint'}</span>
             </button>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <ShieldCheck size={16} color="var(--green)" />
-              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--green)', whiteSpace: 'nowrap' }}>
-                Account Shield Active
-              </span>
-            </div>
           </div>
         </div>
       </div>
@@ -628,7 +587,9 @@ export const GeminiBridgePage: React.FC = () => {
             </button>
             <button
               onClick={() => copyToClipboard(mcpConfigSnippet, setCopiedConfig)}
+              disabled={!status?.auth_token}
               className="btn-pill-tonal"
+              style={{ opacity: status?.auth_token ? 1 : 0.5, cursor: status?.auth_token ? 'pointer' : 'not-allowed' }}
             >
               {copiedConfig ? <CheckCircle2 size={13} color="var(--green)" /> : <Copy size={13} />}
               <span>{copiedConfig ? 'Copied' : 'Copy JSON Config'}</span>
@@ -655,15 +616,16 @@ export const GeminiBridgePage: React.FC = () => {
               </div>
               <button
                 onClick={() => copyToClipboard(status?.pairing_pin || '', setCopiedPIN)}
+                disabled={!status?.pairing_pin}
                 className="btn-pill-tonal"
-                style={{ padding: '3px 8px', fontSize: '11px' }}
+                style={{ padding: '3px 8px', fontSize: '11px', opacity: status?.pairing_pin ? 1 : 0.5, cursor: status?.pairing_pin ? 'pointer' : 'not-allowed' }}
               >
                 {copiedPIN ? <CheckCircle2 size={12} color="var(--green)" /> : <Copy size={12} />}
                 <span>{copiedPIN ? 'Copied' : 'Copy PIN'}</span>
               </button>
             </div>
             <div style={{ fontSize: '24px', letterSpacing: '4px', fontWeight: 700, color: 'var(--text)', fontFamily: 'monospace' }}>
-              {status?.pairing_pin || '582914'}
+              {status?.pairing_pin || '------'}
             </div>
             <p style={{ margin: '6px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
               Pass as header <code>X-Pairing-PIN</code> or URL query <code>?pin={status?.pairing_pin}</code>.
@@ -685,15 +647,16 @@ export const GeminiBridgePage: React.FC = () => {
               </span>
               <button
                 onClick={() => copyToClipboard(status?.auth_token || '', setCopiedToken)}
+                disabled={!status?.auth_token}
                 className="btn-pill-tonal"
-                style={{ padding: '3px 8px', fontSize: '11px' }}
+                style={{ padding: '3px 8px', fontSize: '11px', opacity: status?.auth_token ? 1 : 0.5, cursor: status?.auth_token ? 'pointer' : 'not-allowed' }}
               >
                 {copiedToken ? <CheckCircle2 size={12} color="var(--green)" /> : <Copy size={12} />}
                 <span>{copiedToken ? 'Copied' : 'Copy Token'}</span>
               </button>
             </div>
             <code style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', wordBreak: 'break-all' }}>
-              {status?.auth_token || 'swiss-gemini-auth-token'}
+              {status?.auth_token || 'Unavailable'}
             </code>
             <p style={{ margin: '6px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
               Configured via standard <code>Authorization: Bearer &lt;token&gt;</code> HTTP header.

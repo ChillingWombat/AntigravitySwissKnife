@@ -73,6 +73,7 @@ type BridgeStatus struct {
 // Service manages two-way bridging, tunnels, authentication, and execution modes.
 type Service struct {
 	mu          sync.RWMutex
+	tunnelMu    sync.Mutex
 	config      Config
 	configPath  string
 	invocations []Invocation
@@ -155,8 +156,10 @@ func NewService(configPath string) (*Service, error) {
 	// Issue #120: "loopback" is no longer a valid tunnel type. Skip it (and empty) so a stale
 	// config value from an older build never triggers a failed auto-start.
 	if s.config.AutoStartTunnel && s.config.TunnelType != "" && s.config.TunnelType != "loopback" {
+		tunnelType := s.config.TunnelType
+		tunnelURL := s.config.TunnelURL
 		go func() {
-			_, _ = s.tunnelMgr.Start(s.config.TunnelType, s.config.TunnelURL)
+			_, _ = s.StartTunnel(tunnelType, tunnelURL)
 		}()
 	}
 
@@ -295,22 +298,42 @@ func (s *Service) UpdateConfig(c Config) error {
 
 // StartTunnel initiates remote tunneling.
 func (s *Service) StartTunnel(tType, customURL string) (TunnelStatus, error) {
+	s.tunnelMu.Lock()
+	defer s.tunnelMu.Unlock()
+
 	st, err := s.tunnelMgr.Start(tType, customURL)
+	if err != nil {
+		if !st.Active {
+			s.mu.Lock()
+			s.config.Enabled = false
+			s.config.TunnelType = ""
+			s.config.TunnelURL = ""
+			_ = s.saveConfig()
+			s.mu.Unlock()
+		}
+		return st, err
+	}
 	s.mu.Lock()
+	s.config.Enabled = true
 	s.config.TunnelType = st.Type
 	if st.GatewayURL != "" {
 		s.config.TunnelURL = st.GatewayURL
 	}
 	_ = s.saveConfig()
 	s.mu.Unlock()
-	return st, err
+	return st, nil
 }
 
 // StopTunnel terminates remote tunneling.
 func (s *Service) StopTunnel() {
+	s.tunnelMu.Lock()
+	defer s.tunnelMu.Unlock()
+
 	s.tunnelMgr.Stop()
 	s.mu.Lock()
+	s.config.Enabled = false
 	s.config.TunnelType = ""
+	s.config.TunnelURL = ""
 	_ = s.saveConfig()
 	s.mu.Unlock()
 }
@@ -421,7 +444,7 @@ func (s *Service) GetStatus() BridgeStatus {
 	copy(recent, s.invocations)
 
 	return BridgeStatus{
-		Enabled:           s.config.Enabled,
+		Enabled:           tunnelStatus.Active,
 		OperatingMode:     s.config.OperatingMode,
 		GatewayURL:        gatewayURL,
 		TunnelType:        tunnelStatus.Type,
