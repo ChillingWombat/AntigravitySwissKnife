@@ -299,7 +299,7 @@ assert.strictEqual(getCachedPromptText(cache, "conv-a", 0), "first prompt");
 
 // Row markup: dash marker + single-line, left-aligned, ellipsized text.
 function makeEl(tag) {
-  return {
+  const el = {
     tagName: tag,
     className: "",
     style: {},
@@ -308,17 +308,25 @@ function makeEl(tag) {
     textContent: "",
     setAttribute(k, v) { this.attributes[k] = v; },
     getAttribute(k) { return this.attributes[k]; },
-    appendChild(c) { this.children.push(c); return c; }
+    appendChild(c) { c.parentElement = this; this.children.push(c); return c; }
   };
+  el.classList = {
+    contains: (c) => el.className.split(" ").indexOf(c) !== -1,
+    add: (c) => { if (el.className.split(" ").indexOf(c) === -1) el.className = (el.className + " " + c).trim(); },
+    remove: (c) => { el.className = el.className.split(" ").filter((x) => x && x !== c).join(" "); }
+  };
+  return el;
 }
 const doc = { createElement: (tag) => makeEl(tag) };
 const ui = {
   dashWidth: 14,
+  hoverDashWidth: 22,
   activeThickness: 2.5,
   inactiveThickness: 1.5,
   activeColor: "ACTIVE",
   defaultColor: "DEFAULT",
   activeRowBackground: "ROW_BG",
+  hoverRowBackground: "HOVER_ROW_BG",
   mutedColor: "MUTED"
 };
 const activated = [];
@@ -334,6 +342,19 @@ assert.strictEqual(marker.className, "swiss-navigator-row-dash active");
 assert.strictEqual(marker.style.width, "14px");
 assert.strictEqual(marker.style.height, "2.5px");
 assert.strictEqual(marker.style.background, "ACTIVE");
+assert.ok(marker.style.cssText.indexOf("transition: width 0.18s cubic-bezier(0.4, 0, 0.2, 1)") !== -1, "marker has smooth width transition");
+
+// Test row hover expanding left indicator line to 22px and restoring to 14px
+assert.strictEqual(typeof row.onmouseenter, "function");
+assert.strictEqual(typeof row.onmouseleave, "function");
+row.onmouseenter();
+assert.strictEqual(marker.style.width, "22px", "hover expands indicator line to 22px");
+assert.strictEqual(marker.style.background, "ACTIVE");
+assert.ok(row.className.indexOf("swiss-navigator-row-hover") !== -1);
+row.onmouseleave();
+assert.strictEqual(marker.style.width, "14px", "leaving restores indicator line to 14px");
+assert.strictEqual(row.className.indexOf("swiss-navigator-row-hover"), -1);
+assert.strictEqual(row.style.background, "ROW_BG", "active row keeps active background");
 
 const label = row.children[1];
 assert.strictEqual(label.className, "swiss-navigator-row-text");
@@ -356,6 +377,18 @@ assert.strictEqual(unknownRow.children[0].className, "swiss-navigator-row-dash")
 assert.strictEqual(unknownRow.children[0].style.height, "1.5px");
 assert.strictEqual(unknownRow.children[0].style.background, "DEFAULT");
 
+// Inactive row hover expands marker and applies hover background, then restores
+unknownRow.onmouseenter();
+assert.strictEqual(unknownRow.children[0].style.width, "22px");
+assert.strictEqual(unknownRow.children[0].style.background, "ACTIVE");
+assert.strictEqual(unknownRow.style.background, "HOVER_ROW_BG");
+assert.ok(unknownRow.className.indexOf("swiss-navigator-row-hover") !== -1);
+unknownRow.onmouseleave();
+assert.strictEqual(unknownRow.children[0].style.width, "14px");
+assert.strictEqual(unknownRow.children[0].style.background, "DEFAULT");
+assert.strictEqual(unknownRow.style.background, "transparent");
+assert.strictEqual(unknownRow.className.indexOf("swiss-navigator-row-hover"), -1);
+
 console.log("nav panel helpers OK");
 `
 
@@ -372,7 +405,7 @@ console.log("nav panel helpers OK");
 
 // TestChatNavigatorPanel_IsolationAndDismiss pins the hover panel's lifecycle:
 // fixed-position element attached to document.body (so the chat pane cannot clip
-// it), positioned to the right of the rail and clamped to the viewport, opened
+// it), positioned over the rail at rect.left and clamped to the viewport, opened
 // and closed through a ~150ms grace timer, dismissed on transcript scroll,
 // Escape or rail rebuild, and jumping through the exact dash click path.
 func TestChatNavigatorPanel_IsolationAndDismiss(t *testing.T) {
@@ -384,7 +417,21 @@ func TestChatNavigatorPanel_IsolationAndDismiss(t *testing.T) {
 		`panel.setAttribute("role", "menu")`,
 		`panel.style.cssText = "position: fixed; z-index: 10001;`,
 		`document.body.appendChild(panel)`,
-		`let left = rect.right + gap;`,
+		`let left = rect.left;`,
+		`bar.setAttribute("data-swiss-panel-open", "true");`,
+		`bar.style.opacity = "0";`,
+		`bar.style.visibility = "hidden";`,
+		`bar.style.pointerEvents = "none";`,
+		`bar.removeAttribute("data-swiss-panel-open");`,
+		`bar.style.opacity = "1";`,
+		`bar.style.visibility = "visible";`,
+		`bar.style.pointerEvents = "auto";`,
+		`bar.onmouseenter = () => { scheduleOpenPromptNavigatorPanel(); };`,
+		`bar.onmouseleave = () => { scheduleClosePromptNavigatorPanel(); };`,
+		`gap: 0px; padding: 4px 6px;`,
+		`padding: 3.5px 6px; box-sizing: content-box; background-clip: content-box;`,
+		`marker.style.width = hoverWidth + "px";`,
+		`marker.style.width = ui.dashWidth + "px";`,
 		`vh * 0.6`,
 		`const NAV_PANEL_GRACE_MS = 150;`,
 		`panel.onmouseenter = cancelNavigatorPanelClose;`,
@@ -500,6 +547,7 @@ class El {
   }
   setAttribute(k, v) { this.attributes[k] = v; if (k === "id") this.id = v; }
   getAttribute(k) { return this.attributes[k] !== undefined ? this.attributes[k] : null; }
+  removeAttribute(k) { delete this.attributes[k]; }
   appendChild(c) { c.parentElement = this; this.children.push(c); return c; }
   remove() {
     if (this.parentElement) {
@@ -585,8 +633,13 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.ok(panel.style.cssText.indexOf("overflow-y: auto") !== -1, "long lists must scroll");
   assert.ok(panel.style.cssText.indexOf("pointer-events: auto") !== -1);
   assert.strictEqual(panel.getAttribute("role"), "menu");
-  assert.strictEqual(panel.style.left, "50px", "panel sits to the right of the rail (rail right + gap)");
+  assert.strictEqual(panel.style.left, "18px", "panel overlays the rail at rect.left (18px)");
   assert.strictEqual(panel.style.top, "100px", "panel aligns with the rail top");
+
+  assert.strictEqual(bar.getAttribute("data-swiss-panel-open"), "true");
+  assert.strictEqual(bar.style.opacity, "0");
+  assert.strictEqual(bar.style.visibility, "hidden");
+  assert.strictEqual(bar.style.pointerEvents, "none");
 
   const rows = panel.querySelectorAll(".swiss-navigator-row");
   assert.strictEqual(rows.length, 3, "one row per turn");
@@ -595,6 +648,17 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.strictEqual(rows[0].querySelector(".swiss-navigator-row-text").textContent, "first prompt");
   assert.strictEqual(rows[1].querySelector(".swiss-navigator-row-text").textContent, "…", "unmounted turns show the muted ellipsis");
   assert.strictEqual(rows[2].querySelector(".swiss-navigator-row-text").textContent, "third prompt");
+
+  // Row hover expands indicator line to 22px
+  const marker0 = rows[0].querySelector(".swiss-navigator-row-dash");
+  assert.strictEqual(marker0.style.width, "14px");
+  rows[0].onmouseenter();
+  assert.strictEqual(marker0.style.width, "22px", "row hover expands marker to 22px");
+  assert.ok(rows[0].className.indexOf("swiss-navigator-row-hover") !== -1);
+  rows[0].onmouseleave();
+  assert.strictEqual(marker0.style.width, "14px", "row leave restores marker to 14px");
+  assert.strictEqual(rows[0].className.indexOf("swiss-navigator-row-hover"), -1);
+
   assert.strictEqual(rows[0].getAttribute("role"), "menuitem");
   assert.strictEqual(rows[2].getAttribute("data-prompt-index"), "2");
 
@@ -606,6 +670,10 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   closePromptNavigatorPanel();
   assert.strictEqual(getPanel(), null, "closing must remove the panel from the document");
   assert.strictEqual(windowListeners.length, 0, "dismiss listeners must be detached on close");
+  assert.strictEqual(bar.getAttribute("data-swiss-panel-open"), null);
+  assert.strictEqual(bar.style.opacity, "1");
+  assert.strictEqual(bar.style.visibility, "visible");
+  assert.strictEqual(bar.style.pointerEvents, "auto");
 
   // Line mode refuses to open a panel.
   chatNavigatorMode = "line";
@@ -620,10 +688,14 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.strictEqual(getPanel(), null, "the open must wait for the grace delay");
   await wait(220);
   assert.ok(getPanel(), "the panel must open after the grace delay");
+  assert.strictEqual(bar.getAttribute("data-swiss-panel-open"), "true");
+  assert.strictEqual(bar.style.opacity, "0");
   scheduleClosePromptNavigatorPanel();
   assert.ok(getPanel(), "the close must wait for the grace delay");
   await wait(220);
   assert.strictEqual(getPanel(), null, "the panel must close after the grace delay");
+  assert.strictEqual(bar.getAttribute("data-swiss-panel-open"), null);
+  assert.strictEqual(bar.style.opacity, "1");
 
   // Keyboard: ArrowDown on the rail opens the panel and walks the rows.
   handleNavigatorKeydown({ key: "ArrowDown", target: bar, preventDefault: () => {} });

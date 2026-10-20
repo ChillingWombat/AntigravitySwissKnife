@@ -686,7 +686,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
       const marker = doc.createElement("span");
       marker.className = "swiss-navigator-row-dash" + (isActive ? " active" : "");
-      marker.style.cssText = "flex: 0 0 auto; display: block; border-radius: 2px;";
+      marker.style.cssText = "flex: 0 0 auto; display: block; border-radius: 2px; transition: width 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease, height 0.15s ease;";
       marker.style.width = ui.dashWidth + "px";
       marker.style.height = (isActive ? ui.activeThickness : ui.inactiveThickness) + "px";
       marker.style.background = isActive ? ui.activeColor : ui.defaultColor;
@@ -701,6 +701,23 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       row.appendChild(marker);
       row.appendChild(label);
       row.onclick = () => { if (onActivate) onActivate(turnIdx); };
+
+      const hoverWidth = ui.hoverDashWidth || Math.max(22, (ui.dashWidth || 14) + 8);
+      row.onmouseenter = () => {
+        row.classList.add("swiss-navigator-row-hover");
+        marker.style.width = hoverWidth + "px";
+        marker.style.background = ui.activeColor;
+        if (!row.classList.contains("swiss-navigator-row-active")) {
+          row.style.background = ui.hoverRowBackground || ui.activeRowBackground;
+        }
+      };
+      row.onmouseleave = () => {
+        row.classList.remove("swiss-navigator-row-hover");
+        const currentlyActive = row.classList.contains("swiss-navigator-row-active");
+        marker.style.width = ui.dashWidth + "px";
+        marker.style.background = currentlyActive ? ui.activeColor : ui.defaultColor;
+        row.style.background = currentlyActive ? ui.activeRowBackground : "transparent";
+      };
       return row;
     }
     /* __SWISS_NAV_PANEL_HELPERS_END__ */
@@ -863,9 +880,18 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const inactiveThickness = enhConfig.prompt_jump_bar?.inactive_thickness || 1.5;
 
       if (isGutter && convView) {
-        bar.style.cssText = "position: absolute; left: 18px; top: 28px; z-index: 45; display: flex; flex-direction: column; gap: 7px; padding: 4px 2px; background: transparent; border: none; box-shadow: none; user-select: none; pointer-events: none;";
+        bar.style.cssText = "position: absolute; left: 18px; top: 28px; z-index: 45; display: flex; flex-direction: column; gap: 0px; padding: 4px 6px; background: transparent; border: none; box-shadow: none; user-select: none; pointer-events: auto;";
       } else {
-        bar.style.cssText = "position: fixed; left: 268px; top: 120px; z-index: 9999; display: flex; flex-direction: column; gap: 7px; padding: 4px 2px; background: transparent; border: none; box-shadow: none; user-select: none; pointer-events: none;";
+        bar.style.cssText = "position: fixed; left: 268px; top: 120px; z-index: 9999; display: flex; flex-direction: column; gap: 0px; padding: 4px 6px; background: transparent; border: none; box-shadow: none; user-select: none; pointer-events: auto;";
+      }
+
+      bar.onmouseenter = () => { scheduleOpenPromptNavigatorPanel(); };
+      bar.onmouseleave = () => { scheduleClosePromptNavigatorPanel(); };
+
+      if (getPromptNavigatorPanel() || bar.getAttribute("data-swiss-panel-open") === "true") {
+        bar.style.opacity = "0";
+        bar.style.visibility = "hidden";
+        bar.style.pointerEvents = "none";
       }
 
       if (!tooltip) {
@@ -946,7 +972,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         dash.setAttribute("data-prompt-index", turnIdx);
 
         // Height is explicitly fixed without transition to prevent bouncing / shining
-        dash.style.cssText = "width: " + dashWidth + "px; height: " + inactiveThickness + "px; border-radius: 2px; background: " + defaultColor + "; cursor: pointer; pointer-events: auto; transition: width 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease;";
+        dash.style.cssText = "width: " + dashWidth + "px; height: " + inactiveThickness + "px; padding: 3.5px 6px; box-sizing: content-box; background-clip: content-box; border-radius: 2px; background: " + defaultColor + "; cursor: pointer; pointer-events: auto; transition: width 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease;";
 
         dash.onmouseenter = () => {
           const curWidth = enhConfig.prompt_jump_bar?.dash_width || 14;
@@ -1051,11 +1077,13 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     function buildNavigatorPanelUI() {
       return {
         dashWidth: enhConfig.prompt_jump_bar?.dash_width || 14,
+        hoverDashWidth: Math.max(22, (enhConfig.prompt_jump_bar?.dash_width || 14) + 8),
         activeThickness: enhConfig.prompt_jump_bar?.dash_thickness || 2.5,
         inactiveThickness: enhConfig.prompt_jump_bar?.inactive_thickness || 1.5,
         activeColor: getActiveAndHoverColor(),
         defaultColor: navigatorPanelDefaultColor(),
         activeRowBackground: navigatorPanelActiveRowBackground(),
+        hoverRowBackground: isDarkMode() ? "rgba(148, 163, 184, 0.12)" : "rgba(100, 116, 139, 0.08)",
         mutedColor: "var(--muted-foreground, #64748b)"
       };
     }
@@ -1101,6 +1129,13 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const panel = getPromptNavigatorPanel();
       if (panel && typeof panel.remove === "function") panel.remove();
       detachNavigatorPanelDismissListeners();
+      const bar = document.getElementById("swiss-prompt-jump-bar");
+      if (bar) {
+        bar.removeAttribute("data-swiss-panel-open");
+        bar.style.opacity = "1";
+        bar.style.visibility = "visible";
+        bar.style.pointerEvents = "auto";
+      }
     }
 
     function cancelNavigatorPanelClose() {
@@ -1153,15 +1188,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const rect = bar.getBoundingClientRect();
       const vw = (typeof window !== "undefined" && window.innerWidth) || 1024;
       const vh = (typeof window !== "undefined" && window.innerHeight) || 768;
-      const gap = 10;
       const margin = 8;
       const panelWidth = panel.offsetWidth || 320;
 
-      let left = rect.right + gap;
-      if (left + panelWidth > vw - margin) {
-        // Not enough room on the right: flip to the left of the rail, then clamp.
-        left = rect.left - gap - panelWidth;
-      }
+      let left = rect.left;
       left = Math.max(margin, Math.min(left, Math.max(margin, vw - panelWidth - margin)));
 
       const cap = Math.max(120, Math.min(vh * 0.6, vh - 2 * margin));
@@ -1210,6 +1240,11 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       if (!dashes || !dashes.length) return;
 
       closePromptNavigatorPanel();
+
+      bar.setAttribute("data-swiss-panel-open", "true");
+      bar.style.opacity = "0";
+      bar.style.visibility = "hidden";
+      bar.style.pointerEvents = "none";
 
       const conversationKey = lastJumpBarConversationKey || "";
       const totalTurns = lastJumpBarTotal > 0 ? lastJumpBarTotal : dashes.length;
