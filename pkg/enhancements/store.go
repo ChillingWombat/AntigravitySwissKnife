@@ -2,9 +2,11 @@ package enhancements
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -108,6 +110,25 @@ func (s *Store) load() error {
 	// Migrate legacy global extension toggles into the per-extension visibility map
 	migratedExtensions := normalizeExtensions(&cfg)
 
+	if cfg.CommunityExtensions == nil {
+		cfg.CommunityExtensions = []CommunityExtension{}
+	}
+	if cfg.Extensions == nil {
+		cfg.Extensions = make(map[string]ExtensionVisibility)
+	}
+	for i := range cfg.CommunityExtensions {
+		ext := &cfg.CommunityExtensions[i]
+		if vis, ok := cfg.Extensions[ext.ID]; ok {
+			ext.AuxPanel = vis.AuxPanel
+			ext.MainPage = vis.MainPage
+		} else {
+			cfg.Extensions[ext.ID] = ExtensionVisibility{
+				AuxPanel: ext.AuxPanel,
+				MainPage: ext.MainPage,
+			}
+		}
+	}
+
 	s.config = cfg
 	if migratedExtensions {
 		// Persist the normalized config once so the map is authoritative from now on
@@ -177,6 +198,11 @@ func (s *Store) UpdateConfig(newCfg EnhancementsConfig) error {
 
 	newCfg.PromptJumpBar.ShowTooltip = true
 	newCfg.PromptJumpBar.SyncScroll = true
+
+	if newCfg.CommunityExtensions == nil && len(s.config.CommunityExtensions) > 0 {
+		newCfg.CommunityExtensions = s.config.CommunityExtensions
+	}
+
 	if len(newCfg.Extensions) == 0 {
 		// Clients that predate the per-extension map must not wipe it: keep the
 		// stored map when present, otherwise derive it from the legacy toggles.
@@ -186,6 +212,25 @@ func (s *Store) UpdateConfig(newCfg EnhancementsConfig) error {
 			normalizeExtensions(&newCfg)
 		}
 	}
+
+	if newCfg.Extensions == nil {
+		newCfg.Extensions = make(map[string]ExtensionVisibility)
+	}
+
+	// Synchronize visibility between Extensions and CommunityExtensions
+	for i := range newCfg.CommunityExtensions {
+		ext := &newCfg.CommunityExtensions[i]
+		if vis, ok := newCfg.Extensions[ext.ID]; ok {
+			ext.AuxPanel = vis.AuxPanel
+			ext.MainPage = vis.MainPage
+		} else {
+			newCfg.Extensions[ext.ID] = ExtensionVisibility{
+				AuxPanel: ext.AuxPanel,
+				MainPage: ext.MainPage,
+			}
+		}
+	}
+
 	s.config = newCfg
 	return s.save()
 }
@@ -280,5 +325,155 @@ func (s *Store) ToggleMainSectionExtensions(enabled bool) error {
 	return s.save()
 }
 
+func sanitizeOrSlugifyID(id, name string) string {
+	raw := strings.TrimSpace(id)
+	if raw == "" {
+		raw = strings.TrimSpace(name)
+	}
+	raw = strings.ToLower(raw)
+	var b strings.Builder
+	lastDash := false
+	for _, r := range raw {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			b.WriteRune(r)
+			lastDash = false
+		} else if r == '-' || r == ' ' || r == '.' || r == '/' || r == ':' {
+			if !lastDash && b.Len() > 0 {
+				b.WriteRune('-')
+				lastDash = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+// GetCommunityExtensions returns a copy of registered community extensions.
+func (s *Store) GetCommunityExtensions() []CommunityExtension {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if len(s.config.CommunityExtensions) == 0 {
+		return []CommunityExtension{}
+	}
+	res := make([]CommunityExtension, len(s.config.CommunityExtensions))
+	copy(res, s.config.CommunityExtensions)
+	return res
+}
+
+// SaveCommunityExtension creates or updates a community extension gadget.
+func (s *Store) SaveCommunityExtension(ext CommunityExtension) (CommunityExtension, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ext.Name = strings.TrimSpace(ext.Name)
+	if ext.Name == "" {
+		return ext, errors.New("extension name cannot be empty")
+	}
+
+	ext.ID = sanitizeOrSlugifyID(ext.ID, ext.Name)
+	if ext.ID == "" {
+		return ext, errors.New("extension id cannot be empty")
+	}
+
+	if IsBuiltinExtensionID(ext.ID) {
+		return ext, fmt.Errorf("extension id %q conflicts with builtin extension", ext.ID)
+	}
+
+	if ext.Version == "" {
+		ext.Version = "1.0.0"
+	}
+	if ext.Author == "" {
+		ext.Author = "Community"
+	}
+	if ext.Icon == "" {
+		ext.Icon = "blocks"
+	}
+
+	ext.SourceType = strings.ToLower(strings.TrimSpace(ext.SourceType))
+	if ext.SourceType == "" {
+		if strings.TrimSpace(ext.URL) != "" {
+			ext.SourceType = "url"
+		} else if strings.TrimSpace(ext.HTML) != "" {
+			ext.SourceType = "html"
+		} else {
+			ext.SourceType = "url"
+		}
+	}
+
+	if ext.SourceType != "url" && ext.SourceType != "html" {
+		return ext, fmt.Errorf("invalid source_type %q: must be 'url' or 'html'", ext.SourceType)
+	}
+
+	if ext.SourceType == "url" && strings.TrimSpace(ext.URL) == "" {
+		return ext, errors.New("url cannot be empty when source_type is url")
+	}
+
+	now := time.Now().UTC()
+	foundIdx := -1
+	for i, existing := range s.config.CommunityExtensions {
+		if existing.ID == ext.ID {
+			foundIdx = i
+			break
+		}
+	}
+
+	if foundIdx >= 0 {
+		if ext.CreatedAt.IsZero() {
+			ext.CreatedAt = s.config.CommunityExtensions[foundIdx].CreatedAt
+		}
+	} else {
+		if ext.CreatedAt.IsZero() {
+			ext.CreatedAt = now
+		}
+	}
+	ext.UpdatedAt = now
+
+	if foundIdx >= 0 {
+		s.config.CommunityExtensions[foundIdx] = ext
+	} else {
+		s.config.CommunityExtensions = append(s.config.CommunityExtensions, ext)
+	}
+
+	if s.config.Extensions == nil {
+		s.config.Extensions = make(map[string]ExtensionVisibility)
+	}
+	s.config.Extensions[ext.ID] = ExtensionVisibility{
+		AuxPanel: ext.AuxPanel,
+		MainPage: ext.MainPage,
+	}
+
+	if err := s.save(); err != nil {
+		return ext, err
+	}
+	return ext, nil
+}
+
+// DeleteCommunityExtension removes a community extension by its ID.
+func (s *Store) DeleteCommunityExtension(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	cleanID := strings.TrimSpace(id)
+	if cleanID == "" {
+		return errors.New("extension id cannot be empty")
+	}
+
+	foundIdx := -1
+	for i, ext := range s.config.CommunityExtensions {
+		if ext.ID == cleanID {
+			foundIdx = i
+			break
+		}
+	}
+	if foundIdx < 0 {
+		return fmt.Errorf("community extension %q not found", cleanID)
+	}
+
+	s.config.CommunityExtensions = append(s.config.CommunityExtensions[:foundIdx], s.config.CommunityExtensions[foundIdx+1:]...)
+	if s.config.Extensions != nil {
+		delete(s.config.Extensions, cleanID)
+	}
+	return s.save()
+}
 
 
