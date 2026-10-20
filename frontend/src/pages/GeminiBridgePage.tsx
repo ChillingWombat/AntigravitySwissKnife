@@ -11,7 +11,6 @@ import {
   Laptop,
   Code2,
   KeyRound,
-  Network,
   Play,
   Square,
   Bot,
@@ -452,17 +451,12 @@ export const GeminiBridgePage: React.FC = () => {
 
       {/* 2. Zero-Setup Remote Tunneling */}
       <div className="google-card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
-          <div>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '4px' }}>
-              Remote Internet Access (Zero-Setup)
-            </div>
-            <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
-              Connect from Gemini App on mobile phone or web when away from home with zero external account signups.
-            </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: '12px', marginBottom: '14px' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+            Remote Internet Access (Zero-Setup)
           </div>
 
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
             {isTunnelActive ? (
               <button
                 onClick={handleStopTunnel}
@@ -497,10 +491,9 @@ export const GeminiBridgePage: React.FC = () => {
               cursor: 'pointer',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-              <Network size={14} color="var(--primary)" />
+            <div style={{ marginBottom: '4px' }}>
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
-                Quick Tunnel
+                Cloudflare Quick Tunnel
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -520,7 +513,7 @@ export const GeminiBridgePage: React.FC = () => {
           >
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
-                Tailscale Network
+                Tailscale Funnel
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -540,7 +533,7 @@ export const GeminiBridgePage: React.FC = () => {
           >
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
-                Custom HTTPS Tunnel
+                Custom Domain
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>

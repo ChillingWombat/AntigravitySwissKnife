@@ -427,7 +427,7 @@ func (s *Service) GetStatus() BridgeStatus {
 		TunnelType:        tunnelStatus.Type,
 		TunnelOnline:      tunnelStatus.Active,
 		AuthToken:         maskToken(s.authMgr.GetToken()),
-		PairingPIN:        "******",
+		PairingPIN:        s.authMgr.GetPIN(),
 		Surfaces:          surfaces,
 		Tunnel:            tunnelStatus,
 		ActiveLeadSession: s.leadHdl.GetActiveSession(),

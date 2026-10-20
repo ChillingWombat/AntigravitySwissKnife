@@ -6,7 +6,6 @@ import {
   ExternalLink,
   Play,
   Square,
-  Network,
 } from 'lucide-react'
 import { api, isAbortError } from '../api'
 
@@ -310,17 +309,12 @@ export const RemoteControlPage: React.FC = () => {
 
       {/* 2. Out-of-Home Remote Internet Access (Tunneling) */}
       <div className="google-card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
-          <div>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '4px' }}>
-              Remote Internet Access (Out-of-Home Access)
-            </div>
-            <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
-              Dedicated strictly for when you are away from home and away from your PC. Access your Antigravity sessions securely via public HTTPS or private VPN.
-            </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: '12px', marginBottom: '14px' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+            Remote Internet Access (Out-of-Home Access)
           </div>
 
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
             {isTunnelActive ? (
               <button
                 onClick={handleStopTunnel}
@@ -355,10 +349,9 @@ export const RemoteControlPage: React.FC = () => {
               cursor: 'pointer',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-              <Network size={14} color="var(--primary)" />
+            <div style={{ marginBottom: '4px' }}>
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
-                Quick Tunnel
+                Cloudflare Quick Tunnel
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -378,7 +371,7 @@ export const RemoteControlPage: React.FC = () => {
           >
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
-                Tailscale Network
+                Tailscale Funnel
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -398,7 +391,7 @@ export const RemoteControlPage: React.FC = () => {
           >
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
-                Custom HTTPS Tunnel
+                Custom Domain
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -523,7 +516,7 @@ export const RemoteControlPage: React.FC = () => {
               Out-of-Home Access from Mobile or Laptop
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              The wrapper is strictly designed for when you are away from home and away from your PC. Start a Quick Tunnel (public HTTPS) or connect via Tailscale Network, enter your 6-digit Security PIN on your mobile device, and monitor or steer agents seamlessly.
+              The wrapper is strictly designed for when you are away from home and away from your PC. Start a Cloudflare Quick Tunnel (public HTTPS) or connect via Tailscale Funnel, enter your 6-digit Security PIN on your mobile device, and monitor or steer agents seamlessly.
             </div>
           </div>
 
