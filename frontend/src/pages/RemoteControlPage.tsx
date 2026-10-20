@@ -16,7 +16,6 @@ import { api, isAbortError } from '../api'
 export const RemoteControlPage: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
-  const [saveSuccess, setSaveSuccess] = useState(false)
   const [tunnelType, setTunnelType] = useState<string>('quick')
   const [customTunnelURL, setCustomTunnelURL] = useState<string>('')
   const [tunnelLoading, setTunnelLoading] = useState(false)
@@ -138,26 +137,6 @@ export const RemoteControlPage: React.FC = () => {
       setActionFeedback({ text: `Failed to stop tunnel: ${err?.message || 'Unknown error'}`, isError: true })
     } finally {
       setTunnelLoading(false)
-    }
-  }
-
-  const handleSaveConfig = async () => {
-    setLoading(true)
-    setSaveSuccess(false)
-    try {
-      const res = await api.updateRemoteControlConfig(config)
-      if (res && res.success) {
-        if (res.config) setConfig(res.config)
-        setSaveSuccess(true)
-        setTimeout(() => setSaveSuccess(false), 3000)
-      } else {
-        setActionFeedback({ text: (res as any)?.error || 'Failed to save settings.', isError: true })
-      }
-    } catch (err: any) {
-      console.error('Failed to save remote config:', err)
-      setActionFeedback({ text: `Failed to save settings: ${err?.message || 'Unknown error'}`, isError: true })
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -514,82 +493,7 @@ export const RemoteControlPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 4. Configuration Settings */}
-      <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
-          Remote Configuration
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
-                Listening Port
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                Local loopback TCP port for remote web app server.
-              </div>
-              <input
-                type="number"
-                value={config.port}
-                onChange={(e) => setConfig({ ...config, port: parseInt(e.target.value, 10) || 8766 })}
-                style={{ width: '100%' }}
-              />
-            </div>
-
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
-                Stream Quality
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                Screen stream compression preset.
-              </div>
-              <select
-                value={config.quality}
-                onChange={(e) => setConfig({ ...config, quality: e.target.value })}
-                style={{ width: '100%' }}
-              >
-                <option value="high">High (1080p, 30fps)</option>
-                <option value="medium">Medium (720p, 24fps)</option>
-                <option value="low">Low (480p, 15fps)</option>
-              </select>
-            </div>
-          </div>
-
-          <div
-            style={{
-              padding: '12px 14px',
-              backgroundColor: 'var(--canvas)',
-              borderRadius: '8px',
-              border: '1px solid var(--border)',
-            }}
-          >
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-              Account Switches
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              The tunnel runs in the Swiss daemon, not inside Antigravity. It stays up while Antigravity restarts for a Google account switch.
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
-            <button
-              onClick={handleSaveConfig}
-              disabled={loading}
-              className="btn-pill-primary"
-            >
-              Save Settings
-            </button>
-            {saveSuccess && (
-              <span style={{ fontSize: '12px', color: 'var(--green)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                <Check size={14} /> Settings saved successfully
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* 5. Step-by-Step Guidance */}
+      {/* 3. Architecture & Guidance */}
       <div className="google-card">
         <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
           Architecture & Guidance
@@ -601,7 +505,7 @@ export const RemoteControlPage: React.FC = () => {
               Zero Invalidation on Account Switch
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              Antigravity factory remote session disconnects when switching accounts because the host Google access token expires. The Swiss Knife wrapper isolates the CDP WebSocket pipe from account tokens, keeping your web session persistent across account swaps.
+              The tunnel runs in the Swiss daemon, not inside Antigravity. It stays up while Antigravity restarts for a Google account switch, keeping your remote web session persistent across account swaps.
             </div>
           </div>
 
