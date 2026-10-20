@@ -879,7 +879,7 @@ func GenerateGitHubExtensionScript() string {
       // whether it is still displayed: after a native split the document holds a
       // second, visible conversation view (the new pane) which must not close the
       // stage, and within the split guard the re-render itself is not a close signal.
-      const stageContainer = document.getElementById("swiss-main-stage-container");
+      const stageContainer = document.getElementById("swiss-main-stage-container") || document.getElementById("swiss-main-stage");
       const hostConvoView = (stageHostConvoView && isNodeConnected(stageHostConvoView)) ? stageHostConvoView : null;
       const hostConvoViewVisible = Boolean(hostConvoView && hostConvoView.style.display !== "none");
       const isStageDisplayed = Boolean(
@@ -900,9 +900,11 @@ func GenerateGitHubExtensionScript() string {
         if (document.querySelector('[data-swiss-hidden-stage-child="true"]')) {
           restoreHiddenStageChildren(stageContainer);
         }
+        restoreOverviewPanelFromMainStage();
         clearStageHost();
       } else if (activeMainStageExt) {
         hideNativeBreadcrumbBar();
+        hideOverviewPanelForMainStage();
         // Self-heal after the IDE re-rendered the hosting pane (native split):
         // re-attach the stage container and re-hide that pane's conversation view
         // without touching the conversation view of the new pane.
@@ -928,6 +930,7 @@ func GenerateGitHubExtensionScript() string {
 
       // Active state isolation: suppress native factory tabs/rows when Swiss stage is active, restore when closed
       if (isStageDisplayed) {
+        hideOverviewPanelForMainStage();
         if (document.body) {
           document.body.setAttribute("data-swiss-stage-active", activeMainStageExt || "true");
         }
@@ -1006,6 +1009,7 @@ func GenerateGitHubExtensionScript() string {
           });
         }
       } else {
+        restoreOverviewPanelFromMainStage();
         if (document.body) {
           document.body.removeAttribute("data-swiss-stage-active");
         }
@@ -2169,10 +2173,171 @@ func GenerateGitHubExtensionScript() string {
     return Date.now() < (window.__swissSplitGuardUntil || 0);
   }
 
+  function isMainStageActive() {
+    if (typeof window !== "undefined") {
+      if (typeof window.isMainStageActive === "function" && window.isMainStageActive !== isMainStageActive) {
+        try { return Boolean(window.isMainStageActive()); } catch (_) {}
+      }
+      if (typeof window.isSwissMainStageActive === "function" && window.isSwissMainStageActive !== isMainStageActive) {
+        try { return Boolean(window.isSwissMainStageActive()); } catch (_) {}
+      }
+    }
+    const stage = document.getElementById("swiss-main-stage") || document.getElementById("swiss-main-stage-container");
+    if (stage) {
+      if (stage.style && stage.style.display === "none") return false;
+      if (stage.style && stage.style.display && stage.style.display !== "none") return true;
+      if (typeof window !== "undefined" && window.getComputedStyle) {
+        const cs = window.getComputedStyle(stage);
+        if (cs && cs.display === "none") return false;
+        if (cs && cs.display) return true;
+      }
+      return Boolean(stage.offsetParent !== null || (stage.offsetWidth || 0) > 0 || (stage.offsetHeight || 0) > 0);
+    }
+    if (document.body) {
+      const stageAttr = document.body.getAttribute("data-swiss-stage-active");
+      if (stageAttr && stageAttr !== "false") return true;
+    }
+    if (activeMainStageExt || (typeof window !== "undefined" && window.__swissActiveMainStageExt)) return true;
+    return false;
+  }
+
   function isMainStageOpen() {
-    const stageContainer = document.getElementById("swiss-main-stage-container");
-    return Boolean(activeMainStageExt || window.__swissActiveMainStageExt ||
-      (stageContainer && isNodeConnected(stageContainer) && stageContainer.style.display === "flex"));
+    return isMainStageActive();
+  }
+
+  function findOverviewPanelElements(root) {
+    const doc = root || (typeof document !== "undefined" ? document : null);
+    if (!doc || !doc.querySelectorAll) return [];
+    const results = [];
+    const seen = new Set();
+    function add(el) {
+      if (!el || seen.has(el)) return;
+      if (el.id === "swiss-main-stage" || el.id === "swiss-main-stage-container" || el.id === "swiss-left-nav-group") return;
+      if (el.closest && el.closest("#swiss-main-stage, #swiss-main-stage-container, #swiss-left-nav-group")) return;
+      seen.add(el);
+      results.push(el);
+    }
+
+    const directSelectors = [
+      "[data-swiss-overview-panel]",
+      "[data-testid=\"overview-panel-host-overlay\"]",
+      "[data-testid=\"overview-panel-overlay-backdrop\"]",
+      "[data-testid=\"overview-panel\"]",
+      "[data-testid=\"auxiliary-panel\"]",
+      "[data-swiss-aux-panel]",
+      ".part.auxiliarybar"
+    ];
+    directSelectors.forEach(sel => {
+      try {
+        doc.querySelectorAll(sel).forEach(add);
+      } catch (_) {}
+    });
+
+    const candidateSelectors = [
+      "dialog",
+      "[role=\"dialog\"]",
+      "[role=\"complementary\"]",
+      "aside",
+      "[class*=\"overview-panel\"]",
+      ".animate-overview-panel",
+      ".shadow-xl"
+    ];
+    candidateSelectors.forEach(sel => {
+      try {
+        doc.querySelectorAll(sel).forEach(el => {
+          const text = el.textContent || "";
+          const ariaLabel = (el.getAttribute && el.getAttribute("aria-label")) || "";
+          const testId = (el.getAttribute && el.getAttribute("data-testid")) || "";
+          const isOverviewAria = ariaLabel.toLowerCase().includes("overview");
+          const isOverviewTestId = testId.toLowerCase().includes("overview");
+          const hasOverviewTabs = text.includes("Overview") &&
+            (text.includes("Review") || text.includes("Files") || text.includes("Terminal") || text.includes("Plugins"));
+          if (isOverviewAria || isOverviewTestId || hasOverviewTabs) {
+            add(el);
+          }
+        });
+      } catch (_) {}
+    });
+
+    try {
+      const rowIndicators = doc.querySelectorAll("[data-testid*=\"overview-panel-row\"], button[data-testid*=\"overview-panel\"]");
+      rowIndicators.forEach(row => {
+        const container = (row.closest && row.closest("[role=\"dialog\"], [data-testid*=\"overview-panel\"], aside, [data-swiss-overview-panel], .shadow-xl")) ||
+                          row.parentElement;
+        if (container) add(container);
+      });
+    } catch (_) {}
+
+    try {
+      const allTabs = Array.from(doc.querySelectorAll("button, [role=\"tab\"], span, div")).filter(n => {
+        const t = (n.textContent || "").trim();
+        return t === "Overview" || t === "Review" || t === "Terminal" || t === "Files" || t === "Plugins";
+      });
+      if (allTabs.length >= 3) {
+        const container = (allTabs[0].closest && allTabs[0].closest("[role=\"dialog\"], aside, [class*=\"card\"], [class*=\"popover\"], div.shadow-xl, div[class*=\"border\"]")) ||
+                          (allTabs[0].parentElement && allTabs[0].parentElement.parentElement);
+        if (container) add(container);
+      }
+    } catch (_) {}
+
+    return results;
+  }
+
+  function findOverviewPanel(root) {
+    const els = findOverviewPanelElements(root);
+    return els.length > 0 ? els[0] : null;
+  }
+
+  function hideOverviewPanelForMainStage() {
+    const elements = findOverviewPanelElements();
+    elements.forEach(el => {
+      if (!el) return;
+      if (el.getAttribute("data-swiss-hidden-by-main-stage") !== "true") {
+        el.setAttribute("data-swiss-hidden-by-main-stage", "true");
+        if (el.__swissPrevDisplay === undefined) {
+          el.__swissPrevDisplay = (el.style && el.style.display) ? el.style.display : "";
+        }
+        if (el.style && typeof el.style.setProperty === "function") {
+          el.style.setProperty("display", "none", "important");
+        } else if (el.style) {
+          el.style.display = "none";
+        }
+      }
+    });
+  }
+
+  function restoreOverviewPanelFromMainStage() {
+    const hiddenEls = (typeof document !== "undefined" && document.querySelectorAll)
+      ? Array.from(document.querySelectorAll("[data-swiss-hidden-by-main-stage=\"true\"]"))
+      : [];
+    hiddenEls.forEach(el => {
+      if (!el) return;
+      el.removeAttribute("data-swiss-hidden-by-main-stage");
+      if (el.__swissPrevDisplay !== undefined) {
+        if (el.__swissPrevDisplay && el.__swissPrevDisplay !== "none") {
+          if (el.style && typeof el.style.setProperty === "function") {
+            el.style.setProperty("display", el.__swissPrevDisplay);
+          } else if (el.style) {
+            el.style.display = el.__swissPrevDisplay;
+          }
+        } else {
+          if (el.style && typeof el.style.removeProperty === "function") {
+            el.style.removeProperty("display");
+          }
+          if (el.style) {
+            el.style.display = "";
+          }
+        }
+        delete el.__swissPrevDisplay;
+      } else {
+        if (el.style && typeof el.style.removeProperty === "function") {
+          el.style.removeProperty("display");
+        }
+        if (el.style) {
+          el.style.display = "";
+        }
+      }
+    });
   }
 
   function hideNativeBreadcrumbBar() {
@@ -2316,6 +2481,7 @@ func GenerateGitHubExtensionScript() string {
 
     applyMainStageLayout();
     renderMainStageUI();
+    hideOverviewPanelForMainStage();
     setupLeftNavTabs();
     fetchAvailableProjects().then(() => {
       if (activeMainStageExt) updateScopePickerDOM();
@@ -2325,11 +2491,12 @@ func GenerateGitHubExtensionScript() string {
   function closeMainStage() {
     activeMainStageExt = null;
     window.__swissActiveMainStageExt = null;
-    const stageContainer = document.getElementById("swiss-main-stage-container");
+    const stageContainer = document.getElementById("swiss-main-stage-container") || document.getElementById("swiss-main-stage");
     if (stageContainer) stageContainer.style.display = "none";
 
     restoreNativeBreadcrumbBar();
     restoreHiddenStageChildren(stageContainer);
+    restoreOverviewPanelFromMainStage();
 
     if (document.body) {
       document.body.removeAttribute("data-swiss-stage-active");
@@ -2371,10 +2538,17 @@ func GenerateGitHubExtensionScript() string {
     }
     clearStageHost();
     setupLeftNavTabs();
+    restoreOverviewPanelFromMainStage();
   }
 
   window.closeMainStage = closeMainStage;
   window.openSwissMainStage = openMainStage;
+  window.isMainStageActive = isMainStageActive;
+  window.isSwissMainStageActive = isMainStageActive;
+  window.findOverviewPanel = findOverviewPanel;
+  window.findOverviewPanelElements = findOverviewPanelElements;
+  window.hideOverviewPanelForMainStage = hideOverviewPanelForMainStage;
+  window.restoreOverviewPanelFromMainStage = restoreOverviewPanelFromMainStage;
 
   function applyMainStageLayout() {
     const stageContainer = document.getElementById("swiss-main-stage-container");
@@ -2384,6 +2558,7 @@ func GenerateGitHubExtensionScript() string {
     captureStageHost(target);
 
     hideNativeBreadcrumbBar();
+    hideOverviewPanelForMainStage();
 
     // The IDE may have re-rendered the hosting pane (native split / conversation
     // switch) and dropped the injected container: put it back into its own pane
@@ -2623,8 +2798,9 @@ func GenerateGitHubExtensionScript() string {
   }
 
   function renderMainStageUI() {
-    const container = document.getElementById("swiss-main-stage-container");
+    const container = document.getElementById("swiss-main-stage-container") || document.getElementById("swiss-main-stage");
     if (!container) return;
+    hideOverviewPanelForMainStage();
 
     if (activeMainStageExt === "github" && currentScope === "GLOBAL") {
       const fallbackProject = lastInteractedProject || (availableProjects.length > 0 ? availableProjects[0] : "");
