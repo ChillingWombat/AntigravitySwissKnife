@@ -887,3 +887,81 @@ func TestRemoteManager_ProxiesLiveAntigravityWebApp(t *testing.T) {
 		t.Fatalf("expected proxy to rewrite x-codeium-csrf-token to fresh-ls-csrf-token-999, got %q", gotCSRF)
 	}
 }
+
+func TestTunnelManager_FourMinuteKeepAlive_AndAutoStopOnInvalidTunnel(t *testing.T) {
+	if DefaultKeepAliveInterval != 4*time.Minute {
+		t.Fatalf("expected DefaultKeepAliveInterval to be 4m, got %v", DefaultKeepAliveInterval)
+	}
+
+	var statusCodeMu sync.Mutex
+	mockStatusCode := http.StatusOK
+	var pingCount int
+
+	remoteOrigin := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		statusCodeMu.Lock()
+		code := mockStatusCode
+		pingCount++
+		statusCodeMu.Unlock()
+		w.WriteHeader(code)
+		_, _ = w.Write([]byte("pong"))
+	}))
+	defer remoteOrigin.Close()
+
+	rm := NewRemoteManager(filepath.Join(t.TempDir(), "remote_control.json"))
+	defer rm.StopTunnel()
+
+	// Route keep-alive probes for https://keepalive.example.com/remote to our TLS test server
+	rm.tunnelMgr.SetHTTPClient(&http.Client{
+		Timeout: 2 * time.Second,
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			u, _ := url.Parse(remoteOrigin.URL)
+			req.URL.Scheme = u.Scheme
+			req.URL.Host = u.Host
+			return remoteOrigin.Client().Transport.RoundTrip(req)
+		}),
+	})
+
+	st, err := rm.StartTunnel("custom", "https://keepalive.example.com")
+	if err != nil {
+		t.Fatalf("StartTunnel failed: %v", err)
+	}
+	if !st.Active || !rm.GetConfig().Enabled {
+		t.Fatalf("expected active tunnel and enabled config")
+	}
+
+	// 1. Healthy keep-alive probe keeps the tunnel active
+	if ok := rm.tunnelMgr.ProbeAndKeepAlive(); !ok {
+		t.Fatalf("expected ProbeAndKeepAlive to succeed when tunnel returns 200 OK")
+	}
+	statusCodeMu.Lock()
+	gotPings := pingCount
+	statusCodeMu.Unlock()
+	if gotPings != 1 {
+		t.Fatalf("expected 1 keep-alive ping, got %d", gotPings)
+	}
+	if !rm.GetTunnelStatus().Active || !rm.GetConfig().Enabled {
+		t.Fatalf("healthy keep-alive ping must keep tunnel active and config enabled")
+	}
+
+	// 2. Simulate Cloudflare / tunnel expiration returning 530 (or 502 Bad Gateway)
+	statusCodeMu.Lock()
+	mockStatusCode = 530
+	statusCodeMu.Unlock()
+
+	rm.tunnelMgr.SetKeepAliveInterval(25 * time.Millisecond)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && rm.GetTunnelStatus().Active {
+		time.Sleep(15 * time.Millisecond)
+	}
+
+	afterSt := rm.GetTunnelStatus()
+	if afterSt.Active {
+		t.Fatalf("expected invalid tunnel (HTTP 530) to be automatically stopped")
+	}
+	if afterSt.Type != "" || afterSt.GatewayURL != "" {
+		t.Fatalf("expected stopped tunnel type and gateway URL to be cleared, got type=%q url=%q", afterSt.Type, afterSt.GatewayURL)
+	}
+	if rm.GetConfig().Enabled || rm.GetConfig().TunnelType != "" || rm.GetConfig().TunnelURL != "" {
+		t.Fatalf("expected RemoteManager config to auto-reset to disabled when tunnel becomes invalid, got %+v", rm.GetConfig())
+	}
+}

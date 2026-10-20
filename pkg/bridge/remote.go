@@ -109,6 +109,15 @@ func NewRemoteManager(configPath string) *RemoteManager {
 		port = 8766
 	}
 	rm.tunnelMgr = NewTunnelManager(port, "/remote")
+	rm.tunnelMgr.SetOnAutoStop(func() {
+		rm.stopHTTPServer()
+		rm.mu.Lock()
+		rm.config.Enabled = false
+		rm.config.TunnelType = ""
+		rm.config.TunnelURL = ""
+		_ = rm.save()
+		rm.mu.Unlock()
+	})
 	if !gui.IsTestExecution() && rm.config.Enabled {
 		_ = rm.EnsureServerRunning()
 		if rm.config.TunnelType != "" && rm.config.TunnelType != "loopback" {

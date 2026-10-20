@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -19,6 +20,9 @@ import (
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
+
+// DefaultKeepAliveInterval is the interval between background keep-alive and validity probes (4 minutes).
+const DefaultKeepAliveInterval = 4 * time.Minute
 
 // TunnelStatus represents current remote connectivity state.
 type TunnelStatus struct {
@@ -33,14 +37,18 @@ type TunnelStatus struct {
 
 // TunnelManager coordinates zero-configuration remote access for Gemini Bridge and Remote Control.
 type TunnelManager struct {
-	mu           sync.RWMutex
-	logsMu       sync.Mutex
-	status       TunnelStatus
-	cmd          *exec.Cmd
-	cancelFunc   context.CancelFunc
-	localPort    int
-	endpointPath string
-	logs         []string
+	mu                sync.RWMutex
+	logsMu            sync.Mutex
+	status            TunnelStatus
+	cmd               *exec.Cmd
+	cancelFunc        context.CancelFunc
+	keepAliveCancel   context.CancelFunc
+	keepAliveInterval time.Duration
+	httpClient        *http.Client
+	onAutoStop        func()
+	localPort         int
+	endpointPath      string
+	logs              []string
 }
 
 // NewTunnelManager initializes a tunnel manager bound to the local daemon port and endpoint path.
@@ -56,8 +64,12 @@ func NewTunnelManager(port int, endpointPath ...string) *TunnelManager {
 		path = "/" + path
 	}
 	return &TunnelManager{
-		localPort:    port,
-		endpointPath: path,
+		localPort:         port,
+		endpointPath:      path,
+		keepAliveInterval: DefaultKeepAliveInterval,
+		httpClient: &http.Client{
+			Timeout: 8 * time.Second,
+		},
 		status: TunnelStatus{
 			// Issue #120: there is no loopback fallback endpoint. The bridge is simply
 			// "not exposed" until a real tunnel provides an external URL.
@@ -66,6 +78,149 @@ func NewTunnelManager(port int, endpointPath ...string) *TunnelManager {
 		},
 		logs: make([]string, 0),
 	}
+}
+
+// SetKeepAliveInterval overrides the keep-alive and health probe interval.
+func (tm *TunnelManager) SetKeepAliveInterval(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	tm.mu.Lock()
+	tm.keepAliveInterval = d
+	if tm.status.Active {
+		tm.startKeepAliveLoopLocked()
+	}
+	tm.mu.Unlock()
+}
+
+// SetHTTPClient overrides the HTTP client used for keep-alive and health probes.
+func (tm *TunnelManager) SetHTTPClient(client *http.Client) {
+	if client == nil {
+		return
+	}
+	tm.mu.Lock()
+	tm.httpClient = client
+	tm.mu.Unlock()
+}
+
+// SetOnAutoStop registers a callback invoked whenever an active tunnel is invalidated and stopped automatically.
+func (tm *TunnelManager) SetOnAutoStop(fn func()) {
+	tm.mu.Lock()
+	tm.onAutoStop = fn
+	tm.mu.Unlock()
+}
+
+func (tm *TunnelManager) startKeepAliveLoopLocked() {
+	if tm.keepAliveCancel != nil {
+		tm.keepAliveCancel()
+		tm.keepAliveCancel = nil
+	}
+	interval := tm.keepAliveInterval
+	if interval <= 0 {
+		interval = DefaultKeepAliveInterval
+	}
+	kaCtx, kaCancel := context.WithCancel(context.Background())
+	tm.keepAliveCancel = kaCancel
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-kaCtx.Done():
+				return
+			case <-ticker.C:
+				tm.ProbeAndKeepAlive()
+			}
+		}
+	}()
+}
+
+func (tm *TunnelManager) invalidateTunnel(reason string) {
+	tm.mu.Lock()
+	if !tm.status.Active {
+		tm.mu.Unlock()
+		return
+	}
+	if tm.keepAliveCancel != nil {
+		tm.keepAliveCancel()
+		tm.keepAliveCancel = nil
+	}
+	if tm.cancelFunc != nil {
+		tm.cancelFunc()
+		tm.cancelFunc = nil
+	}
+	if tm.cmd != nil && tm.cmd.Process != nil {
+		_ = tm.cmd.Process.Kill()
+		tm.cmd = nil
+	}
+	tm.status.Active = false
+	tm.status.Type = ""
+	tm.status.GatewayURL = ""
+	tm.status.PublicURL = ""
+	tm.status.Error = reason
+	autoStop := tm.onAutoStop
+	tm.mu.Unlock()
+
+	tm.appendLog(fmt.Sprintf("Tunnel invalidated and stopped automatically: %s", reason))
+	if autoStop != nil {
+		autoStop()
+	}
+}
+
+// ProbeAndKeepAlive sends a lightweight HTTP request through the active tunnel to prevent
+// Cloudflare 5-minute idle expiration and verifies the tunnel is still valid. If the tunnel
+// is dead or unreachable, it automatically stops remote access.
+func (tm *TunnelManager) ProbeAndKeepAlive() bool {
+	tm.mu.RLock()
+	active := tm.status.Active
+	tType := tm.status.Type
+	probeURL := tm.status.GatewayURL
+	if probeURL == "" {
+		probeURL = tm.status.PublicURL
+	}
+	cmd := tm.cmd
+	client := tm.httpClient
+	tm.mu.RUnlock()
+
+	if !active || probeURL == "" {
+		return false
+	}
+
+	if tType == "quick" && cmd != nil && cmd.Process != nil {
+		if err := cmd.Process.Signal(syscall.Signal(0)); err != nil {
+			tm.invalidateTunnel("Quick tunnel process exited")
+			return false
+		}
+	}
+
+	if client == nil {
+		client = &http.Client{Timeout: 8 * time.Second}
+	}
+
+	req, err := http.NewRequest(http.MethodGet, probeURL, nil)
+	if err != nil {
+		tm.invalidateTunnel(fmt.Sprintf("Invalid tunnel URL: %v", err))
+		return false
+	}
+	req.Header.Set("User-Agent", "Antigravity-Swiss-Knife-KeepAlive/1.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		tm.invalidateTunnel(fmt.Sprintf("Tunnel endpoint unreachable: %v", err))
+		return false
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	_ = resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout, 521, 522, 523, 524, 530:
+		tm.invalidateTunnel(fmt.Sprintf("Tunnel endpoint returned HTTP %d", resp.StatusCode))
+		return false
+	}
+
+	tm.appendLog(fmt.Sprintf("Keep-alive ping succeeded (HTTP %d)", resp.StatusCode))
+	return true
 }
 
 // SetPort updates the target loopback port for subsequent or active tunnels.
@@ -193,6 +348,7 @@ func (tm *TunnelManager) Start(tunnelType string, customURL string) (TunnelStatu
 			GatewayURL: customURL,
 			StartedAt:  time.Now(),
 		})
+		tm.startKeepAliveLoopLocked()
 		st := tm.status
 		tm.mu.Unlock()
 		tm.appendLog(fmt.Sprintf("Custom remote endpoint configured: %s", customURL))
@@ -283,10 +439,20 @@ func (tm *TunnelManager) startQuickTunnel() (TunnelStatus, error) {
 	go scannerFunc(stderr)
 
 	go func() {
-		if waitErr := cmd.Wait(); waitErr != nil && ctx.Err() == nil {
+		waitErr := cmd.Wait()
+		if ctx.Err() == nil {
+			if waitErr == nil {
+				waitErr = fmt.Errorf("cloudflared exited")
+			}
 			select {
 			case errChan <- waitErr:
 			default:
+			}
+			tm.mu.RLock()
+			isCurrentActive := tm.cmd == cmd && tm.status.Active
+			tm.mu.RUnlock()
+			if isCurrentActive {
+				tm.invalidateTunnel(fmt.Sprintf("Quick tunnel process terminated: %v", waitErr))
 			}
 		}
 	}()
@@ -318,6 +484,7 @@ func (tm *TunnelManager) startQuickTunnel() (TunnelStatus, error) {
 		tm.status.PublicURL = sanitizeEndpointURL(discoveredURL)
 		tm.status.GatewayURL = sanitizeEndpointURL(gatewayURL)
 		tm.status.Error = ""
+		tm.startKeepAliveLoopLocked()
 		st := tm.status
 		tm.mu.Unlock()
 
@@ -352,6 +519,7 @@ func (tm *TunnelManager) startQuickTunnel() (TunnelStatus, error) {
 				tm.status.PublicURL = sanitizeEndpointURL(match)
 				tm.status.GatewayURL = sanitizeEndpointURL(gatewayURL)
 				tm.status.Error = ""
+				tm.startKeepAliveLoopLocked()
 				st := tm.status
 				tm.mu.Unlock()
 				return st, nil
@@ -453,6 +621,7 @@ func (tm *TunnelManager) startTailscaleTunnel() (TunnelStatus, error) {
 		GatewayURL: gatewayURL,
 		StartedAt:  time.Now(),
 	})
+	tm.startKeepAliveLoopLocked()
 	st := tm.status
 	tm.mu.Unlock()
 
@@ -463,6 +632,10 @@ func (tm *TunnelManager) startTailscaleTunnel() (TunnelStatus, error) {
 // Stop cleanly terminates any running tunnel subprocess.
 func (tm *TunnelManager) Stop() {
 	tm.mu.Lock()
+	if tm.keepAliveCancel != nil {
+		tm.keepAliveCancel()
+		tm.keepAliveCancel = nil
+	}
 	if tm.cancelFunc != nil {
 		tm.cancelFunc()
 		tm.cancelFunc = nil
