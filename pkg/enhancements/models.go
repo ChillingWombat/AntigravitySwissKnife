@@ -39,6 +39,40 @@ type ExtensionVisibility struct {
 	MainPage bool `json:"main_page"`
 }
 
+// CommunityExtension defines a user-created or imported extension gadget
+// mounted in the IDE auxiliary panel or main stage.
+type CommunityExtension struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	Author      string    `json:"author,omitempty"`
+	Version     string    `json:"version,omitempty"`
+	Icon        string    `json:"icon,omitempty"`        // Lucide icon key: "blocks", "globe", "code", "terminal", "database", "bot", "wrench", "book-open", "layers", "cpu"
+	SourceType  string    `json:"source_type"`           // "url" or "html"
+	URL         string    `json:"url,omitempty"`         // Target URL when SourceType == "url"
+	HTML        string    `json:"html,omitempty"`        // Markup when SourceType == "html"
+	CSS         string    `json:"css,omitempty"`         // Styles when SourceType == "html"
+	JS          string    `json:"js,omitempty"`          // Script when SourceType == "html"
+	Enabled     bool      `json:"enabled"`
+	AuxPanel    bool      `json:"aux_panel"`
+	MainPage    bool      `json:"main_page"`
+	CreatedAt   time.Time `json:"created_at,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at,omitempty"`
+}
+
+// IsBuiltinExtensionID reports whether id belongs to a factory extension or the Swiss Knife launcher.
+func IsBuiltinExtensionID(id string) bool {
+	if id == "swiss-knife" {
+		return true
+	}
+	for _, extID := range ExtensionIDs {
+		if extID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // Extension IDs tracked by the visibility map (IDE-real extensions plus facades).
 var ExtensionIDs = []string{"browser", "files", "memos", "github", "mobile", "computer_use"}
 
@@ -64,6 +98,7 @@ type EnhancementsConfig struct {
 	LeftPanelExtensionsMode    string              `json:"left_panel_extensions_mode"`    // "single" (single Swiss Knife button) or "individual" (default: "single")
 	MainSectionExtensionsEnabled bool              `json:"main_section_extensions_enabled"` // Toggle to use extension in main section vs auxiliary panel (default: true)
 	Extensions                 map[string]ExtensionVisibility `json:"extensions,omitempty"` // Per-extension aux-panel/main-page visibility switches
+	CommunityExtensions        []CommunityExtension           `json:"community_extensions,omitempty"` // User-installed community extension gadgets
 	DefaultNewProject          string              `json:"default_new_project"`           // "auto" (default: latest active) or predefined project name
 	ScrollToBottom             bool                `json:"scroll_to_bottom"`
 	TurnCounter                bool                `json:"turn_counter"`
@@ -104,6 +139,7 @@ func DefaultConfig() *EnhancementsConfig {
 		LeftPanelExtensionsMode:    "single",
 		MainSectionExtensionsEnabled: true,
 		Extensions:                 DefaultExtensionVisibility(),
+		CommunityExtensions:        []CommunityExtension{},
 		DefaultNewProject:          "auto",
 		ScrollToBottom:             true,
 		TurnCounter:                true,
