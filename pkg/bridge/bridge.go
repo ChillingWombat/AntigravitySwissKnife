@@ -142,6 +142,7 @@ func NewService(configPath string) (*Service, error) {
 		remoteMgr:   NewRemoteManager(""),
 		channelsMgr: NewChannelsManager(""),
 	}
+	s.remoteMgr.SetLeadHandler(s.leadHdl)
 	_ = s.loadConfig()
 
 	s.tunnelMgr = NewTunnelManager(s.config.Port, "/api/bridge/mcp")
@@ -189,6 +190,11 @@ func (s *Service) UpdateRemoteConfig(cfg RemoteControlConfig) error {
 // RotateRemotePIN generates a fresh PIN for remote access.
 func (s *Service) RotateRemotePIN() (string, error) {
 	return s.remoteMgr.RotatePIN()
+}
+
+// ServeRemoteHTTP delegates /remote HTTP requests to the RemoteManager web console.
+func (s *Service) ServeRemoteHTTP(w http.ResponseWriter, r *http.Request) {
+	s.remoteMgr.ServeHTTP(w, r)
 }
 
 // GetChannelsStatus returns operational status for WhatsApp, Telegram, Discord.
@@ -255,6 +261,9 @@ func (s *Service) loadConfig() error {
 	}
 	if c.OperatingMode == "" {
 		c.OperatingMode = "hybrid"
+	}
+	if c.Port <= 0 {
+		c.Port = 8765
 	}
 	if c.AuthToken == "" {
 		c.AuthToken = GenerateSecureToken()
@@ -449,7 +458,7 @@ func (s *Service) GetStatus() BridgeStatus {
 		GatewayURL:        gatewayURL,
 		TunnelType:        tunnelStatus.Type,
 		TunnelOnline:      tunnelStatus.Active,
-		AuthToken:         maskToken(s.authMgr.GetToken()),
+		AuthToken:         s.authMgr.GetToken(),
 		PairingPIN:        s.authMgr.GetPIN(),
 		Surfaces:          surfaces,
 		Tunnel:            tunnelStatus,

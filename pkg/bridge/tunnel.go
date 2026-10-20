@@ -68,6 +68,16 @@ func NewTunnelManager(port int, endpointPath ...string) *TunnelManager {
 	}
 }
 
+// SetPort updates the target loopback port for subsequent or active tunnels.
+func (tm *TunnelManager) SetPort(port int) {
+	if port <= 0 {
+		return
+	}
+	tm.mu.Lock()
+	tm.localPort = port
+	tm.mu.Unlock()
+}
+
 // LocateCloudflared finds an available cloudflared binary on the host.
 func LocateCloudflared() string {
 	candidates := []string{
@@ -203,7 +213,7 @@ func (tm *TunnelManager) startQuickTunnel() (TunnelStatus, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	cmd := exec.CommandContext(ctx, bin, "tunnel", "--url", fmt.Sprintf("http://127.0.0.1:%d", tm.localPort))
+	cmd := exec.CommandContext(ctx, bin, "tunnel", "--no-autoupdate", "--url", fmt.Sprintf("http://127.0.0.1:%d", tm.localPort))
 	core.SetHiddenConsole(cmd) // long-lived console app — keep its window hidden
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -245,6 +255,7 @@ func (tm *TunnelManager) startQuickTunnel() (TunnelStatus, error) {
 
 	urlChan := make(chan string, 1)
 	errChan := make(chan error, 1)
+	registeredChan := make(chan struct{}, 1)
 
 	urlRegex := regexp.MustCompile(`https://[a-zA-Z0-9-]+\.trycloudflare\.com`)
 
@@ -253,6 +264,12 @@ func (tm *TunnelManager) startQuickTunnel() (TunnelStatus, error) {
 		for scanner.Scan() {
 			line := scanner.Text()
 			tm.appendLog(line)
+			if strings.Contains(line, "Registered tunnel connection") {
+				select {
+				case registeredChan <- struct{}{}:
+				default:
+				}
+			}
 			if match := urlRegex.FindString(line); match != "" {
 				select {
 				case urlChan <- match:
@@ -284,6 +301,12 @@ func (tm *TunnelManager) startQuickTunnel() (TunnelStatus, error) {
 		tm.mu.Unlock()
 		return st, ctx.Err()
 	case discoveredURL := <-urlChan:
+		select {
+		case <-registeredChan:
+		case <-time.After(2500 * time.Millisecond):
+		case <-ctx.Done():
+		}
+
 		path := tm.endpointPath
 		if !strings.HasPrefix(path, "/") {
 			path = "/" + path
