@@ -766,6 +766,18 @@ new vm.Script(src, { filename: "remoteHTML.js" });
 		strings.Contains(remoteHTML, `id="authView" style="display:none"`) {
 		t.Fatalf("remoteHTML must not hide #authView by default; initial paint must show the PIN unlock card")
 	}
+
+	// 3. #authError must not carry the active .error class when empty on initial paint
+	if strings.Contains(remoteHTML, `id="authError" class="msg-banner error"`) {
+		t.Fatalf("remoteHTML must not attach .error class to empty #authError on initial paint")
+	}
+
+	// 4. Verify Antigravity 2.0 entrance design tokens and logo SVG
+	for _, required := range []string{"Welcome to Antigravity", "clip0_6153_71", "entrance-auth-panel", "logoEntrance"} {
+		if !strings.Contains(remoteHTML, required) {
+			t.Fatalf("expected remoteHTML to include Antigravity 2.0 entrance design element %q", required)
+		}
+	}
 }
 
 func TestRemoteManager_ProxiesLiveAntigravityWebApp(t *testing.T) {
