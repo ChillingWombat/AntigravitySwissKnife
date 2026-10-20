@@ -352,11 +352,14 @@ func TestChallengerBridge_WebGUI_RemoteConsoleRouteAndAuth(t *testing.T) {
 		t.Errorf("expected /api/bridge/channels/webhook to be whitelisted in isPublicPath")
 	}
 
-	// When ServeRemoteHTTP is not yet available, returns 503
+	// ServeRemoteHTTP delegates to RemoteManager and serves the Remote Control console
 	req := httptest.NewRequest(http.MethodGet, "/remote", nil)
 	w := httptest.NewRecorder()
 	server.handleBridgeRemoteConsole(w, req)
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503 when ServeRemoteHTTP is not implemented, got: %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 OK from handleBridgeRemoteConsole, got: %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Antigravity Remote Control") {
+		t.Errorf("expected Remote Control console HTML in response body")
 	}
 }
