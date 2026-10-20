@@ -23,6 +23,11 @@ The Chat View category refines the main conversation interface:
 - **Live TPS Streaming Indicator**: Displays real-time generation speed (tokens per second) in the message header while the model streams output.
 - **Thought Block Auto-Collapse**: Automatically folds lengthy internal reasoning traces into compact headers, keeping the active chat clean while preserving one-click expansion.
 - **Enhanced Code Copy & Diff Highlights**: One-click copy buttons for code blocks with language indicators, plus inline side-by-side or unified diff rendering for suggested file changes.
+- **Click-to-Compact Context Window Ring**:
+  - **Context & Flag Override**: Enables Antigravity's native `/compact` slash command by setting `"enable-compact-slash-command": true` in `localStorage` flag overrides (`jetski.developer.customFlagOverrides`).
+  - **Interactive Progress Ring**: The context window progress ring (`#swiss-context-window-ring` in the main composer and `.swiss-context-window-ring-sub` in subagent inputs) acts as an interactive button (`role="button"`, `cursor: pointer`, Enter/Space keyboard support) displaying tooltip usage with a `" — Click to compact"` prompt when idle.
+  - **Direct `/compact` Invocation**: Traverses the React Fiber tree of `[data-testid="agent-input-box"]` (`S4b` / `AgentInputBox`) to locate `handleSubmit` and `lexicalRef`. It constructs a Lexical editor state with a native `/compact` `contextScopeItemMention` node and sends it immediately via `handleSubmit(editor, 1)` with `MessageDeliveryStrategy.NEXT_INVOCATION = 1` (bypassing the queued `WHEN_IDLE = 2` strategy). If React Fiber props are missing, it falls back to populating the composer's editable element (`[contenteditable="true"]` or `textarea`) with `/compact` and dispatching send.
+  - **Continuous Rotation & Completion Polling**: Sets `data-swiss-compacting="true"`, updating the tooltip to `"Compacting context window..."` and animating the SVG ring with `@keyframes swiss-context-ring-spin` (0.8s linear cycle). The ring rotates for at least 1 full 360-degree cycle (minimum 850ms) and continues rotating until background compaction finishes (`[data-testid="agent-loading"]` with "Compacting" or active cancel/stop state clears). Once finished, `data-swiss-compacting` is removed, token metrics are force-refreshed, and the ring returns to idle context display.
 
 ---
 
