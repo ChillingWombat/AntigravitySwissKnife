@@ -237,10 +237,18 @@ export const CustomModelsPage: React.FC = () => {
     setGcpBudgetCapType((model.budget_cap_type as 'none' | 'dollar' | 'percentage' | 'tokens') || 'none')
     setGcpBudgetCapValue(model.budget_cap_value !== undefined && model.budget_cap_value !== null ? model.budget_cap_value : null)
 
-    if (model.gcp_service_account_key && model.gcp_service_account_key !== '[REDACTED]') {
-      setGcpJsonContent(model.gcp_service_account_key)
+    let initialBalance = model.balance_value || ''
+    if (!initialBalance && model.prepaid_balance > 0) {
+      initialBalance = `$${model.prepaid_balance.toFixed(2)}`
+    }
+    setGcpBalanceValue(initialBalance)
+
+    const inlineKey = model.gcp_service_account_key
+    if (inlineKey && inlineKey !== '[REDACTED]') {
+      let formattedKey = inlineKey
       try {
-        const parsed = JSON.parse(model.gcp_service_account_key)
+        const parsed = JSON.parse(inlineKey)
+        formattedKey = JSON.stringify(parsed, null, 2)
         if (parsed.type === 'service_account') {
           setGcpParsedKey(parsed)
           if (parsed.client_email) setGcpClientEmail(parsed.client_email)
@@ -248,6 +256,7 @@ export const CustomModelsPage: React.FC = () => {
       } catch {
         setGcpParsedKey(null)
       }
+      setGcpJsonContent(formattedKey)
     } else {
       setGcpJsonContent('')
       const extractedEmail = model.notes?.match(/via\s+([^\s]+)/)?.[1] || 'Saved Service Account'
@@ -260,6 +269,21 @@ export const CustomModelsPage: React.FC = () => {
         client_id: '',
       })
       setGcpClientEmail(extractedEmail)
+      api.getCustomModelKey(model.id)
+        .then((res) => {
+          if (res?.gcp_service_account_key && res.gcp_service_account_key !== '[REDACTED]') {
+            let formatted = res.gcp_service_account_key
+            try {
+              const parsed = JSON.parse(res.gcp_service_account_key)
+              formatted = JSON.stringify(parsed, null, 2)
+              setGcpParsedKey(parsed)
+              if (parsed.client_email) setGcpClientEmail(parsed.client_email)
+              if (parsed.project_id && !projectId) setGcpProjectId(parsed.project_id)
+            } catch {}
+            setGcpJsonContent(formatted)
+          }
+        })
+        .catch(() => {})
     }
     setIsGcpModalOpen(true)
   }
@@ -421,8 +445,27 @@ export const CustomModelsPage: React.FC = () => {
     // GCP models are manual-entry only for balance/budget: no automatic quota probing.
     // quota_manual_override=true keeps the store's GCP auto-migration from overwriting the values.
     const manualBalance = gcpBalanceValue.trim()
-    const effectiveBalance = manualBalance || (isEdit ? (gcpEditingModel?.balance_value || '') : '') || 'Active (GCP Billing)'
-    const effectiveQuota = manualBalance || (isEdit ? (gcpEditingModel?.quota_value || '') : '') || effectiveBalance
+    const cleanNumeric = manualBalance.replace(/[^0-9.]/g, '')
+    const parsedAmount = cleanNumeric ? parseFloat(cleanNumeric) : NaN
+    const hasNumericBalance = !isNaN(parsedAmount) && parsedAmount > 0
+
+    let effPrepaid = isEdit ? (gcpEditingModel?.prepaid_balance || 0) : 0
+    let effBudget = isEdit ? (gcpEditingModel?.total_budget || 0) : 0
+    let effFraction = isEdit ? (gcpEditingModel?.quota_fraction ?? null) : null
+
+    if (hasNumericBalance) {
+      const isBalanceChanged = !isEdit || effBudget <= 0 || Math.abs(parsedAmount - effBudget) > 0.01
+      if (isBalanceChanged) {
+        effBudget = parsedAmount
+        effPrepaid = parsedAmount
+        effFraction = 1.0
+      }
+    }
+
+    const effectiveBalance = hasNumericBalance
+      ? `$${effPrepaid.toFixed(2)}`
+      : (manualBalance || (isEdit ? (gcpEditingModel?.balance_value || '') : '') || 'Active (GCP Billing)')
+    const effectiveQuota = effectiveBalance
     // A cap type without a value would store `dollar` + null and never render on the model card;
     // normalize it back to "none" so the UI and stored state stay consistent.
     const gcpHasBudgetCap = gcpBudgetCapType !== 'none' && gcpBudgetCapValue !== null && gcpBudgetCapValue !== undefined
@@ -441,9 +484,9 @@ export const CustomModelsPage: React.FC = () => {
       quota_manual_override: true,
       quota_value: effectiveQuota,
       balance_value: effectiveBalance,
-      prepaid_balance: isEdit ? (gcpEditingModel?.prepaid_balance || 0) : 0,
-      total_budget: isEdit ? (gcpEditingModel?.total_budget || 0) : 0,
-      quota_fraction: isEdit ? (gcpEditingModel?.quota_fraction ?? null) : null,
+      prepaid_balance: effPrepaid,
+      total_budget: effBudget,
+      quota_fraction: effFraction,
       budget_cap_type: gcpHasBudgetCap ? gcpBudgetCapType : 'none',
       budget_cap_value: gcpHasBudgetCap ? gcpBudgetCapValue : null,
       is_default: gcpIsDefault,
@@ -988,6 +1031,23 @@ export const CustomModelsPage: React.FC = () => {
 
     const effectiveProvider = providerType || inferProviderType(baseUrl.trim()) || 'custom'
 
+    const cleanGenericNumeric = (balanceValue || '').replace(/[^0-9.]/g, '')
+    const parsedGenericAmount = cleanGenericNumeric ? parseFloat(cleanGenericNumeric) : NaN
+    const hasGenericNumericBalance = quotaType === 'balance' && !isNaN(parsedGenericAmount) && parsedGenericAmount > 0
+
+    let effGenPrepaid = editingModel?.prepaid_balance || 0
+    let effGenBudget = editingModel?.total_budget || 0
+    let effGenFraction = quotaType === 'na' ? null : quotaFraction
+
+    if (hasGenericNumericBalance) {
+      const isBalanceChanged = !editingModel || effGenBudget <= 0 || Math.abs(parsedGenericAmount - effGenBudget) > 0.01
+      if (isBalanceChanged) {
+        effGenBudget = parsedGenericAmount
+        effGenPrepaid = parsedGenericAmount
+        effGenFraction = 1.0
+      }
+    }
+
     const modelToSave: CustomModel = {
       id:
         editingModel?.id ||
@@ -1007,9 +1067,9 @@ export const CustomModelsPage: React.FC = () => {
       quota_manual_override: quotaManualOverride,
       balance_value: quotaType === 'balance' ? (balanceValue.trim() || undefined) : undefined,
       quota_value: quotaType === 'quota' ? (quotaValue.trim() || undefined) : undefined,
-      prepaid_balance: editingModel?.prepaid_balance || 0,
-      total_budget: editingModel?.total_budget || 0,
-      quota_fraction: quotaType === 'na' ? null : quotaFraction,
+      prepaid_balance: effGenPrepaid,
+      total_budget: effGenBudget,
+      quota_fraction: effGenFraction,
       budget_cap_type: budgetCapType,
       budget_cap_value: budgetCapValue,
       input_price_per_m: inputPricePerM,
@@ -1347,15 +1407,26 @@ export const CustomModelsPage: React.FC = () => {
             if (qType === 'balance' || qType === 'cost_based') {
               if (m.quota_fraction !== null && m.quota_fraction !== undefined) {
                 gaugePct = Math.max(0, Math.min(100, Math.round(m.quota_fraction * 100)))
-                gaugeTitle = m.balance_value && m.balance_value.trim() ? `Balance: ${m.balance_value}` : 'Balance'
-              } else if (m.total_budget > 0 && m.prepaid_balance > 0) {
+                gaugeTitle = m.balance_value && m.balance_value.trim() ? (m.balance_value.startsWith('Balance:') ? m.balance_value : `Balance: ${m.balance_value}`) : 'Balance'
+              } else if (m.total_budget > 0) {
                 gaugePct = Math.max(0, Math.min(100, Math.round((m.prepaid_balance / m.total_budget) * 100)))
                 gaugeTitle = m.balance_value && m.balance_value.trim()
-                  ? `Balance: ${m.balance_value}`
+                  ? (m.balance_value.startsWith('Balance:') ? m.balance_value : `Balance: ${m.balance_value}`)
+                  : `Balance: $${m.prepaid_balance.toFixed(2)}`
+              } else if (m.prepaid_balance > 0) {
+                gaugePct = 100
+                gaugeTitle = m.balance_value && m.balance_value.trim()
+                  ? (m.balance_value.startsWith('Balance:') ? m.balance_value : `Balance: ${m.balance_value}`)
                   : `Balance: $${m.prepaid_balance.toFixed(2)}`
               } else if (m.balance_value && m.balance_value.trim()) {
-                gaugePct = null
-                gaugeTitle = `Balance: ${m.balance_value}`
+                const parsedVal = parseFloat(m.balance_value.replace(/[^0-9.]/g, ''))
+                if (!isNaN(parsedVal) && parsedVal > 0) {
+                  gaugePct = 100
+                  gaugeTitle = m.balance_value.startsWith('Balance:') ? m.balance_value : `Balance: ${m.balance_value}`
+                } else {
+                  gaugePct = null
+                  gaugeTitle = m.balance_value.startsWith('Balance:') ? m.balance_value : `Balance: ${m.balance_value}`
+                }
               } else {
                 gaugePct = null
                 gaugeTitle = 'N/A'

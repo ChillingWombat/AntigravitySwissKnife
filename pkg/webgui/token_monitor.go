@@ -2183,3 +2183,169 @@ ORDER BY cs.last_modified_time DESC LIMIT 1`
 	}
 	writeJSON(w, res)
 }
+
+
+// computeModelLifetimeCosts computes total USD cost incurred by each model across all transcripts.
+func (s *Server) computeModelLifetimeCosts(ctx context.Context) map[string]float64 {
+	costs := make(map[string]float64)
+	store := s.getCustomModelsStore()
+	if store == nil {
+		return costs
+	}
+
+	catalogModels := s.fetchAvailableCatalogModels(false)
+	pricingRecords := store.SyncPricingWithCatalog(ctx, catalogModels, false)
+	customModelsList := store.ListModels()
+
+	pricingByModel := make(map[string]custommodels.ModelPricingRecord, len(pricingRecords))
+	for _, rec := range pricingRecords {
+		pricingByModel[strings.ToLower(rec.ModelID)] = rec
+	}
+	for _, cm := range customModelsList {
+		if cm.InputPricePerM != nil || cm.OutputPricePerM != nil {
+			rec := custommodels.ModelPricingRecord{
+				ModelID:              cm.ID,
+				Name:                 cm.Name,
+				Provider:             string(cm.ProviderType),
+				InputPricePerM:       cm.InputPricePerM,
+				CachedInputPricePerM: cm.CachedInputPricePerM,
+				OutputPricePerM:      cm.OutputPricePerM,
+			}
+			pricingByModel[strings.ToLower(cm.ID)] = rec
+			pricingByModel[strings.ToLower(cm.Name)] = rec
+		}
+	}
+
+	dataDir := s.getAntigravityDataDir()
+	brainDir := filepath.Join(dataDir, "brain")
+	convDir := filepath.Join(dataDir, "conversations")
+	summariesDB := filepath.Join(dataDir, "conversation_summaries.db")
+	metaMap := readConversationMetadataMap(summariesDB)
+
+	entries, err := os.ReadDir(brainDir)
+	if err != nil {
+		return costs
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		convID := entry.Name()
+		tPath := filepath.Join(brainDir, convID, ".system_generated", "logs", "transcript.jsonl")
+		info, err := os.Stat(tPath)
+		if err != nil || info.IsDir() {
+			continue
+		}
+
+		tStats := parseTranscriptFile(tPath, info)
+		if tStats.requests == 0 || (tStats.freshInput == 0 && tStats.cachedInput == 0 && tStats.outputTokens == 0) {
+			continue
+		}
+
+		meta := metaMap[convID]
+		projName, _ := resolveProjectFromURI(meta.workspaceURIs)
+
+		convDBPath := filepath.Join(convDir, convID+".db")
+		mID, mDisplayName, _ := detectConversationModelWithTranscript(tPath, convDBPath, customModelsList, catalogModels)
+		if mID == "" {
+			if bound := store.GetModelForProject(projName); bound != nil {
+				mID = bound.Name
+				mDisplayName = bound.DisplayName
+			}
+		}
+		if mID == "" {
+			continue
+		}
+
+		pRec, hasRec := pricingByModel[strings.ToLower(mID)]
+		if !hasRec {
+			pRec, hasRec = pricingByModel[strings.ToLower(mDisplayName)]
+		}
+		if !hasRec || pRec.InputPricePerM == nil || pRec.OutputPricePerM == nil {
+			continue
+		}
+
+		inRate := *pRec.InputPricePerM
+		cacheRate := inRate * 0.25
+		if pRec.CachedInputPricePerM != nil {
+			cacheRate = *pRec.CachedInputPricePerM
+		}
+		outRate := *pRec.OutputPricePerM
+
+		cost := (float64(tStats.freshInput)*inRate + float64(tStats.cachedInput)*cacheRate + float64(tStats.outputTokens)*outRate) / 1_000_000.0
+		costs[strings.ToLower(mID)] += cost
+		if mDisplayName != "" && strings.ToLower(mDisplayName) != strings.ToLower(mID) {
+			costs[strings.ToLower(mDisplayName)] += cost
+		}
+	}
+
+	return costs
+}
+
+// reconcileCustomModelBalances reconciles prepaid balances against cumulative token usage.
+func (s *Server) reconcileCustomModelBalances(ctx context.Context) {
+	store := s.getCustomModelsStore()
+	if store == nil {
+		return
+	}
+	cfg := store.GetConfig()
+	hasBudget := false
+	for i := range cfg.Models {
+		m := &cfg.Models[i]
+		if m.TotalBudget > 0 || m.PrepaidBalance > 0 {
+			hasBudget = true
+			break
+		}
+		if m.BalanceValue != "" {
+			clean := strings.TrimLeft(strings.TrimSpace(m.BalanceValue), "$¥€£")
+			if val, err := strconv.ParseFloat(clean, 64); err == nil && val > 0 {
+				m.TotalBudget = val
+				m.PrepaidBalance = val
+				frac := 1.0
+				m.QuotaFraction = &frac
+				hasBudget = true
+			}
+		}
+	}
+	if !hasBudget {
+		return
+	}
+
+	costs := s.computeModelLifetimeCosts(ctx)
+	for i := range cfg.Models {
+		m := &cfg.Models[i]
+		if m.TotalBudget <= 0 && m.PrepaidBalance > 0 {
+			m.TotalBudget = m.PrepaidBalance
+		}
+		if m.TotalBudget <= 0 && m.BalanceValue != "" {
+			clean := strings.TrimLeft(strings.TrimSpace(m.BalanceValue), "$¥€£")
+			if val, err := strconv.ParseFloat(clean, 64); err == nil && val > 0 {
+				m.TotalBudget = val
+				m.PrepaidBalance = val
+			}
+		}
+		if m.TotalBudget > 0 {
+			cost := costs[strings.ToLower(m.ID)]
+			if nameCost, ok := costs[strings.ToLower(m.Name)]; ok && nameCost > cost {
+				cost = nameCost
+			}
+			remaining := m.TotalBudget - cost
+			if remaining < 0 {
+				remaining = 0
+			}
+			m.PrepaidBalance = remaining
+			frac := remaining / m.TotalBudget
+			if frac < 0 {
+				frac = 0
+			}
+			if frac > 1 {
+				frac = 1
+			}
+			m.QuotaFraction = &frac
+			m.BalanceValue = fmt.Sprintf("$%.2f", remaining)
+			m.QuotaValue = m.BalanceValue
+			_ = store.SaveModel(*m)
+		}
+	}
+}
