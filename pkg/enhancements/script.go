@@ -70,6 +70,50 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           }
         }
       } catch (_) {}
+      try {
+        if (!window.__swissUserStatusSyncInterval) {
+          const syncHostUserStatus = async () => {
+            try {
+              const root = document.getElementById("root");
+              if (!root) return;
+              const key = Object.keys(root).find(k => k.startsWith("__reactContainer") || k.startsWith("__reactFiber"));
+              let curr = key ? root[key] : null;
+              if (curr && curr.current) curr = curr.current;
+              const queue = [curr];
+              const visited = new Set();
+              let store = null, resolver = null;
+              while (queue.length > 0 && visited.size < 3500) {
+                const node = queue.shift();
+                if (!node || visited.has(node)) continue;
+                visited.add(node);
+                const mp = node.memoizedProps;
+                if (mp) {
+                  if (!store && mp.store && typeof mp.store.getState === "function") store = mp.store;
+                  if (!resolver && typeof mp.agentServiceResolver === "function") resolver = mp.agentServiceResolver;
+                }
+                if (store && resolver) break;
+                if (node.child) queue.push(node.child);
+                if (node.sibling) queue.push(node.sibling);
+              }
+              if (store && resolver) {
+                const svc = resolver();
+                if (svc && typeof svc.getUserStatus === "function") {
+                  const res = await svc.getUserStatus();
+                  const next = res && res.userStatus;
+                  if (next && next.email) {
+                    const cur = store.getState()?.userStatus;
+                    if (!cur || cur.email !== next.email || cur.name !== next.name) {
+                      store.dispatch({ type: "userStatus/setUserStatus", payload: next });
+                    }
+                  }
+                }
+              }
+            } catch (_) {}
+          };
+          window.__swissUserStatusSyncInterval = setInterval(syncHostUserStatus, 3000);
+          setTimeout(syncHostUserStatus, 800);
+        }
+      } catch (_) {}
     }
 
     let projectColors = {};

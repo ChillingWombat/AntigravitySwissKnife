@@ -447,22 +447,48 @@ const RefreshUserStatusScript = `(async () => {
 
 		const queue = [curr];
 		const visited = new Set();
-		let usp = null, modelCtx = null;
+		let usp = null, modelCtx = null, store = null, resolver = null;
 		let count = 0;
 		while (queue.length > 0 && count < 6000) {
 			const node = queue.shift();
 			count++;
 			if (!node || visited.has(node)) continue;
 			visited.add(node);
+			if (!store && node.memoizedProps?.store && typeof node.memoizedProps.store.getState === "function") {
+				store = node.memoizedProps.store;
+			}
+			if (!resolver && typeof node.memoizedProps?.agentServiceResolver === "function") {
+				resolver = node.memoizedProps.agentServiceResolver;
+			}
 			if (!usp && node.memoizedProps?.value?.userStatusProvider) {
 				usp = node.memoizedProps.value.userStatusProvider;
 			}
 			if (!modelCtx && node.memoizedProps?.value?.refreshModels) {
 				modelCtx = node.memoizedProps.value;
 			}
-			if (usp && modelCtx) break;
+			if ((usp && modelCtx) || (store && resolver)) break;
 			if (node.child) queue.push(node.child);
 			if (node.sibling) queue.push(node.sibling);
+		}
+
+		if (store && resolver) {
+			const svc = resolver();
+			if (svc && typeof svc.getUserStatus === "function") {
+				const resp = await svc.getUserStatus();
+				if (resp && resp.userStatus) {
+					store.dispatch({ type: "userStatus/setUserStatus", payload: resp.userStatus });
+					const email = String(resp.userStatus.email || "");
+					if (modelCtx && typeof modelCtx.refreshModels === "function") {
+						try { await modelCtx.refreshModels(); } catch(_) {}
+					}
+					return {
+						success: true,
+						fiber_refreshed: true,
+						email: email,
+						nodes_visited: count
+					};
+				}
+			}
 		}
 
 		// Validate USP interface
@@ -579,6 +605,10 @@ func (inj *Injector) GetLiveEmail() string {
 				count++;
 				if (!node || visited.has(node)) continue;
 				visited.add(node);
+				if (node.memoizedProps?.store && typeof node.memoizedProps.store.getState === "function") {
+					const stEmail = node.memoizedProps.store.getState()?.userStatus?.email;
+					if (stEmail) return String(stEmail);
+				}
 				const val = node.memoizedProps?.value;
 				if (val?.userStatusProvider?.userStatus?.email) {
 					return String(val.userStatusProvider.userStatus.email);

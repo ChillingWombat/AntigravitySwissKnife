@@ -1,10 +1,12 @@
 package bridge
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -12,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -67,6 +70,8 @@ type RemoteManager struct {
 	webPathOverride   string
 	lastWebOrigin     string
 	lastWebPath       string
+	lastCSRFOrigin    string
+	lastCSRFToken     string
 }
 
 // DefaultRemoteConfig returns standard default remote control settings.
@@ -189,12 +194,103 @@ func (rm *RemoteManager) findAntigravityWebOrigin() (string, string) {
 	return "", ""
 }
 
+var csrfTokenRegex = regexp.MustCompile(`"csrfToken"\s*:\s*"([^"]+)"`)
+
+const remoteLiveAccountSyncScript = `<script id="swiss-remote-account-sync">
+(() => {
+  async function syncAntigravityUserStatus() {
+    try {
+      const root = document.getElementById("root");
+      if (!root) return;
+      const key = Object.keys(root).find(k => k.startsWith("__reactContainer") || k.startsWith("__reactFiber"));
+      let curr = key ? root[key] : null;
+      if (curr && curr.current) curr = curr.current;
+      const queue = [curr];
+      const visited = new Set();
+      let store = null, resolver = null, usp = null;
+      while (queue.length > 0 && visited.size < 3500) {
+        const node = queue.shift();
+        if (!node || visited.has(node)) continue;
+        visited.add(node);
+        const mp = node.memoizedProps;
+        if (mp) {
+          if (!store && mp.store && typeof mp.store.getState === "function") store = mp.store;
+          if (!resolver && typeof mp.agentServiceResolver === "function") resolver = mp.agentServiceResolver;
+          if (!usp && mp.value?.userStatusProvider) usp = mp.value.userStatusProvider;
+        }
+        if (store && resolver) break;
+        if (node.child) queue.push(node.child);
+        if (node.sibling) queue.push(node.sibling);
+      }
+      if (store && resolver) {
+        const svc = resolver();
+        if (svc && typeof svc.getUserStatus === "function") {
+          const res = await svc.getUserStatus();
+          const next = res && res.userStatus;
+          if (next && next.email) {
+            const cur = store.getState()?.userStatus;
+            if (!cur || cur.email !== next.email || cur.name !== next.name) {
+              store.dispatch({ type: "userStatus/setUserStatus", payload: next });
+            }
+          }
+        }
+      } else if (usp && typeof usp.pushUpdate === "function" && usp.lsClient?.getUserStatus) {
+        const res = await usp.lsClient.getUserStatus({ metadata: usp.metadata });
+        if (res && res.userStatus) usp.pushUpdate(res.userStatus);
+      }
+    } catch (_) {}
+  }
+  setInterval(syncAntigravityUserStatus, 2500);
+  window.addEventListener("focus", syncAntigravityUserStatus);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) syncAntigravityUserStatus();
+  });
+  setTimeout(syncAntigravityUserStatus, 800);
+})();
+</script>`
+
+func (rm *RemoteManager) resolveUpstreamCSRF(origin string) string {
+	rm.webOriginMu.RLock()
+	if rm.lastCSRFOrigin == origin && rm.lastCSRFToken != "" {
+		tok := rm.lastCSRFToken
+		rm.webOriginMu.RUnlock()
+		return tok
+	}
+	rm.webOriginMu.RUnlock()
+
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+	resp, err := client.Get(strings.TrimRight(origin, "/") + "/")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
+	if err != nil {
+		return ""
+	}
+	if m := csrfTokenRegex.FindStringSubmatch(string(body)); len(m) == 2 && m[1] != "" {
+		rm.webOriginMu.Lock()
+		rm.lastCSRFOrigin = origin
+		rm.lastCSRFToken = m[1]
+		rm.webOriginMu.Unlock()
+		return m[1]
+	}
+	return ""
+}
+
 func (rm *RemoteManager) proxyToAntigravityWebApp(w http.ResponseWriter, r *http.Request, origin string) {
 	targetURL, err := url.Parse(origin)
 	if err != nil || targetURL.Host == "" {
 		http.Error(w, "invalid Antigravity web app origin", http.StatusBadGateway)
 		return
 	}
+
+	upstreamCSRF := rm.resolveUpstreamCSRF(origin)
 
 	proxy := &httputil.ReverseProxy{
 		FlushInterval: -1,
@@ -207,12 +303,42 @@ func (rm *RemoteManager) proxyToAntigravityWebApp(w http.ResponseWriter, r *http
 			req.Host = targetURL.Host
 			req.Header.Set("Origin", targetURL.Scheme+"://"+targetURL.Host)
 			req.Header.Set("Referer", targetURL.Scheme+"://"+targetURL.Host+"/")
+			if upstreamCSRF != "" {
+				req.Header.Set("x-codeium-csrf-token", upstreamCSRF)
+			}
+			if req.Method == http.MethodGet && (req.URL.Path == "/" || req.URL.Path == "/index.html" || strings.HasPrefix(req.URL.Path, "/c/")) {
+				req.Header.Del("Accept-Encoding")
+			}
 		},
 		ModifyResponse: func(resp *http.Response) error {
 			resp.Header.Del("Content-Security-Policy")
 			resp.Header.Del("Content-Security-Policy-Report-Only")
 			resp.Header.Del("Cross-Origin-Opener-Policy")
 			resp.Header.Del("X-Frame-Options")
+			if resp.StatusCode == http.StatusOK && strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/html") && resp.Header.Get("Content-Encoding") == "" {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+				if err == nil {
+					htmlStr := string(bodyBytes)
+					if m := csrfTokenRegex.FindStringSubmatch(htmlStr); len(m) == 2 && m[1] != "" {
+						rm.webOriginMu.Lock()
+						rm.lastCSRFOrigin = origin
+						rm.lastCSRFToken = m[1]
+						rm.webOriginMu.Unlock()
+					}
+					if !strings.Contains(htmlStr, "swiss-remote-account-sync") {
+						if idx := strings.LastIndex(strings.ToLower(htmlStr), "</body>"); idx != -1 {
+							htmlStr = htmlStr[:idx] + remoteLiveAccountSyncScript + htmlStr[idx:]
+						} else {
+							htmlStr += remoteLiveAccountSyncScript
+						}
+					}
+					modified := []byte(htmlStr)
+					resp.Body = io.NopCloser(bytes.NewReader(modified))
+					resp.ContentLength = int64(len(modified))
+					resp.Header.Set("Content-Length", strconv.Itoa(len(modified)))
+				}
+			}
 			return nil
 		},
 	}
