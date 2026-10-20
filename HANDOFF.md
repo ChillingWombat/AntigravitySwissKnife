@@ -119,7 +119,6 @@ live CDP fiber → jetski token → `app_storage.json`。vault 的 `active_accou
 - **Redaction sentinel 永不落盘**：`[REDACTED]`/`******` 是显示占位。PR #84/#91 后所有 keyring 写路径都忽略 sentinel；新增账户写路径必须带同样守卫（这类 bug 曾一次性抹掉全部 refresh token）。
 - **IPC 停机语义（PR #82）**：`ipc.Server.Stop()` 先强制关闭 tracked 连接再 `wg.Wait()`。未来任何等待 handler goroutine 的改动若不关连接会重新挂死 daemon 停机。
 - **凭据恢复途径**：Electron HTTP cache（`%APPDATA%\antigravity-swiss-knife\Cache\Cache_Data\data_2`）可能留有未脱敏 `/api/accounts` 响应；JSON 扫描 + `RefreshGoogleTokenFull` 验证可恢复。恢复 vault 时必须同时 heal keyring `gemini:antigravity`（`WriteWindowsKeyringToken`），否则应用起来是登出态。
-- **CLAUDE.md 是 AGENTS.md 的符号链接**；本 checkout `core.symlinks=false`，git 永远显示它 binary "modified"（IntxLNK 仿真）。提交时排除：`git add -A ':!CLAUDE.md'`；不要 checkout/重建它。
 
 ### 3.20 备忘（Quick Memos）体系（2026-10-19）
 - **提取端点** `POST /api/memos/extract` `{memo_id}`（可选 `?workspace_path=`）：用配置的 GCP 自定义模型调 Vertex `generateContent`，媒体以 inline base64 传入，mime 由 magic bytes 判定。
