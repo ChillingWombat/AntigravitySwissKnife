@@ -8,7 +8,6 @@ import {
   Square,
   Network,
 } from 'lucide-react'
-import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api, isAbortError } from '../api'
 
 export const RemoteControlPage: React.FC = () => {
@@ -69,18 +68,6 @@ export const RemoteControlPage: React.FC = () => {
     navigator.clipboard.writeText(text)
     setCopied(key)
     setTimeout(() => setCopied(null), 2000)
-  }
-
-  const handleToggleEnable = async () => {
-    const nextEnabled = !config.enabled
-    const newConfig = { ...config, enabled: nextEnabled }
-    setConfig(newConfig)
-    try {
-      await api.updateRemoteControlConfig(newConfig)
-      await fetchStatusAndConfig()
-    } catch (err) {
-      console.error('Failed to update remote config:', err)
-    }
   }
 
   const handleRotatePIN = async () => {
@@ -168,16 +155,6 @@ export const RemoteControlPage: React.FC = () => {
             <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
               Wraps Antigravity remote control with persistent session re-binding across Google account switches for out-of-home access.
             </p>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
-              <span style={{ whiteSpace: 'nowrap' }}>Enable Remote</span>
-              <ToggleSwitch
-                checked={Boolean(config.enabled)}
-                onChange={handleToggleEnable}
-              />
-            </label>
           </div>
         </div>
 
@@ -492,30 +469,20 @@ export const RemoteControlPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Account Resilience Toggle (Label Left, Switch Right) */}
           <div
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
               padding: '12px 14px',
               backgroundColor: 'var(--canvas)',
               borderRadius: '8px',
               border: '1px solid var(--border)',
             }}
           >
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                Account-Switch Resilience Mode
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Automatically retains connected clients and re-attaches CDP session when local Google accounts rotate.
-              </div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+              Account Switches
             </div>
-            <ToggleSwitch
-              checked={Boolean(config.account_resilience)}
-              onChange={() => setConfig({ ...config, account_resilience: !config.account_resilience })}
-            />
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              The tunnel runs in the Swiss daemon, not inside Antigravity. It stays up while Antigravity restarts for a Google account switch.
+            </div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>

@@ -147,21 +147,27 @@ func (rm *RemoteManager) UpdateConfig(c RemoteControlConfig) error {
 // StartTunnel initiates tunneling for remote control.
 func (rm *RemoteManager) StartTunnel(tType, customURL string) (TunnelStatus, error) {
 	st, err := rm.tunnelMgr.Start(tType, customURL)
+	if err != nil {
+		return st, err
+	}
 	rm.mu.Lock()
+	rm.config.Enabled = true
 	rm.config.TunnelType = st.Type
 	if st.GatewayURL != "" {
 		rm.config.TunnelURL = st.GatewayURL
 	}
 	_ = rm.save()
 	rm.mu.Unlock()
-	return st, err
+	return st, nil
 }
 
 // StopTunnel terminates tunneling for remote control.
 func (rm *RemoteManager) StopTunnel() {
 	rm.tunnelMgr.Stop()
 	rm.mu.Lock()
+	rm.config.Enabled = false
 	rm.config.TunnelType = ""
+	rm.config.TunnelURL = ""
 	_ = rm.save()
 	rm.mu.Unlock()
 }
