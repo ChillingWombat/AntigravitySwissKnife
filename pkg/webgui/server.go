@@ -4852,12 +4852,12 @@ func ensureNotSensitiveLocation(cleaned, evalPath string) error {
 // validateDeletablePath strictly validates paths requested for deletion.
 // There is no directory whitelist (issue #157); instead it prevents destructive
 // wipes by:
-// 1. Explicitly rejecting "", "~", ".", "/", "\", and tilde root shortcuts.
-// 2. Explicitly rejecting any candidate containing ".." parent directory traversal.
-// 3. Rejecting Windows drive roots (e.g. C:\, D:\, C:) and filesystem roots.
-// 4. Rejecting system and credential-store directories (via validateDestructivePath).
-// 5. Prohibiting deletion of the current working directory, config directory,
-//    user home directory, or any of their parent/ancestor directories.
+//  1. Explicitly rejecting "", "~", ".", "/", "\", and tilde root shortcuts.
+//  2. Explicitly rejecting any candidate containing ".." parent directory traversal.
+//  3. Rejecting Windows drive roots (e.g. C:\, D:\, C:) and filesystem roots.
+//  4. Rejecting system and credential-store directories (via validateDestructivePath).
+//  5. Prohibiting deletion of the current working directory, config directory,
+//     user home directory, or any of their parent/ancestor directories.
 func validateDeletablePath(target string) (string, error) {
 	trimmed := strings.TrimSpace(target)
 	trimmed = strings.Trim(trimmed, "\"'`")
@@ -6490,7 +6490,7 @@ func (s *Server) handleBridgeRemoteStatus(w http.ResponseWriter, r *http.Request
 	writeJSON(w, map[string]interface{}{
 		"success": true,
 		"status":  st,
-		"config":  bridgeSvc.GetRemoteConfigRedacted(),
+		"config":  bridgeSvc.GetRemoteConfig(),
 	})
 }
 
@@ -6499,7 +6499,7 @@ func (s *Server) handleBridgeRemoteConfig(w http.ResponseWriter, r *http.Request
 	if r.Method == http.MethodGet {
 		writeJSON(w, map[string]interface{}{
 			"success": true,
-			"config":  bridgeSvc.GetRemoteConfigRedacted(),
+			"config":  bridgeSvc.GetRemoteConfig(),
 		})
 		return
 	}
@@ -6518,7 +6518,7 @@ func (s *Server) handleBridgeRemoteConfig(w http.ResponseWriter, r *http.Request
 	}
 	writeJSON(w, map[string]interface{}{
 		"success": true,
-		"config":  bridgeSvc.GetRemoteConfigRedacted(),
+		"config":  bridgeSvc.GetRemoteConfig(),
 	})
 }
 
@@ -6538,7 +6538,7 @@ func (s *Server) handleBridgeRemotePINRotate(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, map[string]interface{}{
 		"success":      true,
 		"security_pin": pin,
-		"config":       s.bridgeService.GetRemoteConfigRedacted(),
+		"config":       s.bridgeService.GetRemoteConfig(),
 	})
 }
 
@@ -6581,7 +6581,7 @@ func (s *Server) handleBridgeRemoteTunnelStart(w http.ResponseWriter, r *http.Re
 		"success": true,
 		"tunnel":  st,
 		"status":  bridgeSvc.GetRemoteStatus(activeEmail, pid),
-		"config":  bridgeSvc.GetRemoteConfigRedacted(),
+		"config":  bridgeSvc.GetRemoteConfig(),
 	})
 }
 
@@ -6607,7 +6607,7 @@ func (s *Server) handleBridgeRemoteTunnelStop(w http.ResponseWriter, r *http.Req
 		"success": true,
 		"tunnel":  bridgeSvc.GetRemoteTunnelStatus(),
 		"status":  bridgeSvc.GetRemoteStatus(activeEmail, pid),
-		"config":  bridgeSvc.GetRemoteConfigRedacted(),
+		"config":  bridgeSvc.GetRemoteConfig(),
 	})
 }
 

@@ -41,8 +41,11 @@ func TestBridge_LifecycleAndMCP(t *testing.T) {
 	if st.AuthToken == "" {
 		t.Errorf("expected non-empty auth token")
 	}
-	if st.PairingPIN != "******" {
-		t.Errorf("expected redacted pairing PIN '******', got %s", st.PairingPIN)
+	if st.PairingPIN == "" || st.PairingPIN == "******" {
+		t.Errorf("expected visible pairing PIN, got %q", st.PairingPIN)
+	}
+	if st.PairingPIN != svc.authMgr.GetPIN() {
+		t.Errorf("pairing PIN mismatch: status=%q actual=%q", st.PairingPIN, svc.authMgr.GetPIN())
 	}
 
 	// 2. Test MCP initialize
@@ -151,10 +154,10 @@ func TestBridge_LifecycleAndMCP(t *testing.T) {
 		t.Errorf("expected pairing PIN authentication granted")
 	}
 
-	reqMasked := httptest.NewRequest(http.MethodPost, "/api/bridge/mcp?pin="+st.PairingPIN, nil)
+	reqMasked := httptest.NewRequest(http.MethodPost, "/api/bridge/mcp?pin=******", nil)
 	grantedMasked, _ := svc.ValidateRequest(reqMasked)
 	if grantedMasked {
-		t.Errorf("expected masked PIN %q to be rejected", st.PairingPIN)
+		t.Errorf("expected masked PIN to be rejected")
 	}
 
 	reqBad := httptest.NewRequest(http.MethodPost, "/api/bridge/mcp", nil)
@@ -505,5 +508,3 @@ func TestBridge_FindMostRecentConversationID(t *testing.T) {
 		}
 	}
 }
-
-

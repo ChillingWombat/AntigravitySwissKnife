@@ -21,7 +21,6 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
   it('exclusively utilizes Lucide icons for UI symbols', () => {
     assert.ok(content.includes("from 'lucide-react'"))
     assert.ok(content.includes('<Radio'))
-    assert.ok(content.includes('<Network'))
     assert.ok(content.includes('<KeyRound'))
     assert.ok(content.includes('<Bot'))
     assert.ok(content.includes('<Layers'))
@@ -31,10 +30,12 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
   it('implements zero-setup remote tunneling controls without decorative tags', () => {
     assert.ok(content.includes('api.startBridgeTunnel'))
     assert.ok(content.includes('api.stopBridgeTunnel'))
-    assert.ok(content.includes('Quick Tunnel'))
-    assert.ok(content.includes('Tailscale Network'))
-    assert.ok(content.includes('Custom HTTPS Tunnel'))
+    assert.ok(content.includes('Cloudflare Quick Tunnel'))
+    assert.ok(content.includes('Tailscale Funnel'))
+    assert.ok(content.includes('Custom Domain'))
     assert.strictEqual(content.includes('Quick Tunnel (Recommended)'), false)
+    assert.strictEqual(content.includes('Tailscale Network'), false)
+    assert.strictEqual(content.includes('Custom HTTPS Tunnel'), false)
     assert.strictEqual(content.includes('Zero Signup'), false)
     assert.strictEqual(content.includes('badge-chip badge-blue'), false)
     assert.strictEqual(content.includes('Reverse Proxy'), false)
