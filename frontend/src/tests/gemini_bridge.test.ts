@@ -71,6 +71,14 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
     assert.ok(content.includes('status?.auth_token'))
   })
 
+  it('renders OAuth 2.0 guidance and OAuth Client ID credentials', () => {
+    assert.ok(content.includes('OAuth Client ID'))
+    assert.ok(content.includes('antigravity-gemini-bridge'))
+    assert.ok(content.includes('OAuth 2.0'))
+    assert.ok(content.includes('status?.oauth_client_id'))
+    assert.ok(content.includes('Copy Client ID'))
+  })
+
   it('provides mode switching between Hybrid, Lead/Messenger, and Direct Actuator', () => {
     assert.ok(content.includes('api.setBridgeMode'))
     assert.ok(content.includes('Hybrid Mode (Recommended)'))

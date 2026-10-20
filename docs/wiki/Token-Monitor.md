@@ -25,9 +25,17 @@ The telemetry engine records seven primary metrics:
 
 Developers can inspect telemetry across two visual units:
 - **USD Valuation Mode**: Displays financial spend and prompt cache savings in US Dollars.
-- **Token Volume Mode**: Displays raw token numbers formatted with standard SI suffixes (`k`, `M`).
+- **Token Volume Mode**: Displays raw token numbers formatted with standard SI suffixes (`k`, `M`, and `B`).
 
 Both modes support filtering across four time horizons: 24 Hours, 7 Days, 30 Days, and All Time.
+
+### Billions (B) Token Unit Formatting
+
+When cumulative context volume or transaction counts reach or exceed `1,000M` (`1,000,000,000` or `1e9` tokens), the Token Monitor automatically switches units from millions (`M`) to billions (`B`) to maintain clean tabular density:
+- **Summary Cards**: Header KPI cards (`Total Tokens`, `Input Tokens`, `Cached Tokens`, `Output Tokens`) format through `formatTokensHelper` using two decimal places (e.g., `1.00B`, `1.25B`).
+- **Model & Project Breakdowns**: Aggregated usage rows and model share charts promote from `M` to `B` once volume crosses `1e9`.
+- **Telemetry Logs**: Tabular event streams render billion-scale records with two decimal places (e.g., `1.00B in / 1.00B cache / 1.00B out`).
+- **Usage Trend Y-Axis Ticks**: Chart axis values formatted by `formatYAxisTick` display single-decimal precision (e.g., `1.0B`, `1.5B`, `2.0B`), preserving compact label widths alongside chart margins.
 
 ---
 

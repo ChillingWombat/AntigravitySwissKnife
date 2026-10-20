@@ -29,6 +29,8 @@ interface BridgeStatusData {
   tunnel_online: boolean
   auth_token: string
   pairing_pin: string
+  oauth_client_id?: string
+  oauth_client_secret?: string
   use_app_password?: boolean
   app_password_enabled?: boolean
   surfaces: {
@@ -85,6 +87,7 @@ export const GeminiBridgePage: React.FC = () => {
   const [copiedUrl, setCopiedUrl] = useState<boolean>(false)
   const [copiedConfig, setCopiedConfig] = useState<boolean>(false)
   const [copiedToken, setCopiedToken] = useState<boolean>(false)
+  const [copiedClientId, setCopiedClientId] = useState<boolean>(false)
 
   // Tunnel controls
   const [tunnelType, setTunnelType] = useState<string>('quick')
@@ -243,7 +246,7 @@ export const GeminiBridgePage: React.FC = () => {
     try {
       setPinModeLoading(true)
       setActionFeedback(null)
-      const res = await api.setBridgeUseAppPassword(useAppPassword)
+      const res = await (api as any).setBridgeUseAppPassword?.(useAppPassword)
       if (res?.status) {
         setStatus(res.status)
       } else {
@@ -618,7 +621,7 @@ export const GeminiBridgePage: React.FC = () => {
               Authentication & Pairing Credentials
             </div>
             <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
-              Authenticate remote Gemini MCP requests using either your 8-character alphanumeric Pairing PIN (or App Access Password when toggled) or the Bearer API token.
+              Gemini Bridge includes a built-in OAuth 2.0 / 2.1 Authorization Server: Google Gemini discovers OAuth endpoints automatically and prompts for your 8-character Pairing PIN (or App Access Password when toggled) during authorization, or you can paste the <strong>OAuth Client ID</strong> and <strong>OAuth Client Secret</strong> into Gemini's <em>Additional settings</em>.
             </p>
           </div>
 
@@ -723,6 +726,40 @@ export const GeminiBridgePage: React.FC = () => {
             </p>
           </div>
 
+          {/* OAuth Client ID */}
+          <div
+            style={{
+              padding: '14px',
+              backgroundColor: 'var(--canvas)',
+              borderRadius: '8px',
+              border: '1px solid var(--border)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              gap: '8px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                OAuth Client ID
+              </span>
+              <button
+                onClick={() => copyToClipboard(status?.oauth_client_id || 'antigravity-gemini-bridge', setCopiedClientId)}
+                className="btn-pill-tonal"
+                style={{ padding: '3px 8px', fontSize: '11px', cursor: 'pointer' }}
+              >
+                {copiedClientId ? <CheckCircle2 size={12} color="var(--green)" /> : <Copy size={12} />}
+                <span>{copiedClientId ? 'Copied' : 'Copy Client ID'}</span>
+              </button>
+            </div>
+            <code style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', wordBreak: 'break-all' }}>
+              {status?.oauth_client_id || 'antigravity-gemini-bridge'}
+            </code>
+            <p style={{ margin: '6px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
+              Used with the Client Secret / Bearer Token in Gemini's OAuth <em>Additional settings</em>.
+            </p>
+          </div>
+
           {/* Bearer Token */}
           <div
             style={{
@@ -734,23 +771,23 @@ export const GeminiBridgePage: React.FC = () => {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
               <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
-                Bearer Token (API Key)
+                OAuth Client Secret / Bearer Token
               </span>
               <button
-                onClick={() => copyToClipboard(status?.auth_token || '', setCopiedToken)}
-                disabled={!status?.auth_token}
+                onClick={() => copyToClipboard(status?.oauth_client_secret || status?.auth_token || '', setCopiedToken)}
+                disabled={!status?.auth_token && !status?.oauth_client_secret}
                 className="btn-pill-tonal"
-                style={{ padding: '3px 8px', fontSize: '11px', opacity: status?.auth_token ? 1 : 0.5, cursor: status?.auth_token ? 'pointer' : 'not-allowed' }}
+                style={{ padding: '3px 8px', fontSize: '11px', opacity: status?.auth_token || status?.oauth_client_secret ? 1 : 0.5, cursor: status?.auth_token || status?.oauth_client_secret ? 'pointer' : 'not-allowed' }}
               >
                 {copiedToken ? <CheckCircle2 size={12} color="var(--green)" /> : <Copy size={12} />}
                 <span>{copiedToken ? 'Copied' : 'Copy Token'}</span>
               </button>
             </div>
             <code style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', wordBreak: 'break-all' }}>
-              {status?.auth_token || 'Unavailable'}
+              {status?.oauth_client_secret || status?.auth_token || 'Unavailable'}
             </code>
             <p style={{ margin: '6px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
-              Configured via standard <code>Authorization: Bearer &lt;token&gt;</code> HTTP header.
+              Configured via standard <code>Authorization: Bearer &lt;token&gt;</code> HTTP header or as Client Secret in Gemini OAuth <em>Additional settings</em>.
             </p>
           </div>
         </div>

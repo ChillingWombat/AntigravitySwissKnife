@@ -33,6 +33,27 @@ Please feel free to raise issues, report bugs, or suggest feature ideas in our G
   <img src="./images/key_features.png" alt="Antigravity Swiss Knife Key Features" width="100%" />
 </p>
 
+### Remote Connect & Multi-Channel Agent Bridges
+- **Remote Control (`/remote`)**: Reverse proxies the real Antigravity 2.0 Web App (`language_server` discovered via Chrome DevTools Protocol), presenting an official entrance screen, replacing upstream internal gift favicons with the official Google Antigravity multi-color delta SVG icon (`/favicon.svg` and `/favicon.ico`), with live CSRF token re-binding across `language_server` restarts and live Redux `userStatus/setUserStatus` account identity synchronization across account switches.
+- **4 Remote Tunnel Modes**: Zero-config `Cloudflare Quick Tunnel` (`quick`), `Tailscale Funnel` (`tailscale`, public `*.ts.net`), `Tailscale Private Tailnet` (`tailnet`, private `100.x.y.z` / MagicDNS TCP forwarder), and `Custom Domain` (`custom`), alongside 3 public HTTPS tunnel modes in **Gemini Bridge**.
+- **4-Minute Keep-Alive & Auto-Stop**: Automated background probe (`X-Swiss-KeepAlive: 1`) every 4 minutes prevents Cloudflare 5-minute idle expirations, while automatically shutting down remote access if any tunnel returns 502/503/504/521-524/530 or becomes unreachable.
+- **Security PIN & Master App Password**: Cryptographic 8-character alphanumeric PIN generation (`GeneratePairingPIN`), instant session revocation via `Rotate PIN`, brute-force lockout defense (5 failed attempts within 5 minutes locks IP for 15 minutes), and a `Use App Password` toggle allowing authentication via the master Application Access Password.
+- **Built-in OAuth 2.0 / 2.1 MCP Authorization Server**: RFC 9728 protected resource discovery, RFC 8414 server metadata, RFC 7591 dynamic client registration, and PKCE (`S256`/`plain`) for Google Gemini MCP connections. Unauthenticated `/api/bridge/mcp` requests return `401` with `WWW-Authenticate` pointing to resource metadata. Supports interactive authorization consent (`/oauth/authorize`) verified by the 8-character Pairing PIN or App Access Password, token exchange (`/oauth/token` for `authorization_code`, `refresh_token`, and `client_credentials`), and surfaces explicit OAuth Client ID (`antigravity-gemini-bridge`) and Client Secret in the UI for Gemini *Additional settings*.
+- **Multi-Channel Agent Bridges**: Two-way streamable HTTP MCP bridge for Gemini Web/Advanced (`/api/bridge/mcp` across hybrid, lead, and direct execution modes), plus dedicated chat agent connectors for WhatsApp, Telegram, and Discord.
+
+### Custom Models & GCP Vertex AI
+- **Zero-Proxy Model Routing**: Bring-Your-Own-Key integration for Anthropic, OpenAI, Google AI Studio, DeepSeek, GCP Vertex AI, and local Ollama runtimes.
+- **In-Selector Thinking Level Submenu**: In-selector flyout submenu for reasoning models (`Low`, `Medium`, `High`) rendered inside the model selector menu with factory Antigravity SVG checkmark and chevron icons.
+- **6-Probe Security Suite**: Automated verification of TLS enforcement, query parameter hygiene, authorization headers, CORS posture, payload sanitization, and token log masking before activation.
+
+### Extensions & Main Stage Overview Suppression
+- **Segmented Tool Switcher**: Top header segmented switcher dividing tools into `Built-in` (Preview Browser, File Explorer, Quick Memos, Mobile Simulator, GitHub Workspace) and `Community` (custom iframe and sandboxed HTML/JS extensions) views.
+- **Overview Panel Auto-Hide**: Automatically collapses Antigravity's floating right-hand Overview and auxiliary inspection panel (`Overview`, `Review`, `Files`, `Terminal`, `Plugins`) while on the Swiss Knife main stage, and restores prior visibility states when exiting.
+
+### Token Monitor & Fleet Observability
+- **Real-Time Telemetry**: Real-time context tracking, input/cache/output accounting, tokens-per-second velocity, and dollar valuation calculators.
+- **Billions (`B`) Unit Formatting**: Automatic `B` unit notation for token counts `>= 1,000M` (`1,000,000,000`), keeping metric headers and chart axes readable at high context volumes.
+
 ## Quick Start
 
 ### Installation
@@ -116,7 +137,8 @@ To run only the headless companion daemon:
 
 Comprehensive architecture specs, multi-app fleet guides, and developer workflows are documented in the [GitHub Wiki](https://github.com/ChillingWombat/AntigravitySwissKnife/wiki):
 
-- [Features Index](https://github.com/ChillingWombat/AntigravitySwissKnife/wiki/Features): Dedicated guides for all 12 navigation sections.
+- [Features Index](https://github.com/ChillingWombat/AntigravitySwissKnife/wiki/Features): Dedicated guides for all 13 navigation sections.
+- [Remote Connect & Bridge](https://github.com/ChillingWombat/AntigravitySwissKnife/wiki/Remote-Connect-and-Bridge): Reverse proxy for remote control, official Antigravity favicon replacement, 4 tunnel modes, OAuth 2.0/2.1 authorization server with PKCE, live CSRF and Redux sync, and multi-channel chat bridges.
 - [Architecture & Multi-Process Daemon](https://github.com/ChillingWombat/AntigravitySwissKnife/wiki/Architecture-and-Multi-Process-Daemon): Inter-process communication, SQLite WAL protection, and CDP runtime injection.
 - [Multi-App Fleet Sync & Account Switching](https://github.com/ChillingWombat/AntigravitySwissKnife/wiki/Multi-App-Fleet-Sync-and-Account-Switching): Fleet modes, standby quota rotation, OS keyrings, and hardware fingerprint virtualization.
 - [Active Conversation Continuation & Subagent Revival](https://github.com/ChillingWombat/AntigravitySwissKnife/wiki/Active-Conversation-Continuation-and-Subagent-Revival): Session detection, intent store, layout pinning, and automated CDP continuation.

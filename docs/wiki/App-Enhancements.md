@@ -41,3 +41,13 @@ The Auxiliary Panel category configures the right-hand inspection dock in Antigr
 - **Modular Docking**: Controls which extension gadgets (GitHub Workspace, Quick Memos, Preview Browser, File Explorer) appear in the auxiliary dock.
 - **Dock Pinning & Auto-Collapse**: Allows developers to keep auxiliary tools permanently visible side-by-side with chat or collapse them into a slim 48px navigation strip.
 - **Responsive Width Splitting**: Configures default docking widths, allowing wide Kanban boards or preview viewports to expand without clipping conversation text.
+
+---
+
+## 5. Automation & Sidecar Enhancements
+
+The Automation & Sidecar category enhances Antigravity 2.0 task automation workflows:
+- **Target Project Selector**:
+  - **Context & Flag Override**: Antigravity's `jetski-sidecar-declared-permissions` feature flag normally suppresses the project selection dropdown in the New Automation modal (`tec`), forcing `ManageSidecar` creation calls (`action: 5`, `SIDECAR_ACTION_CREATE`) to pass an empty project ID and isolate automations into dedicated scratch workspaces. Swiss Knife overrides `jetski-sidecar-declared-permissions` to `false` in `localStorage` flag configuration (`jetski.developer.customFlagOverrides`) so the native selector condition evaluates to true.
+  - **Live DOM Selector Injection**: When the New Automation modal opens without a native project selector, Swiss Knife injects `#swiss-automation-project-field` with a `<select id="swiss-automation-project-select">` right below the automation name field. Projects are extracted live by inspecting the `#root` React Fiber tree for `sidebarSectionsProvider` project sections, falling back to modal fiber props and left sidebar DOM rows. The first existing workspace is selected by default, alongside an explicit "Create New Dedicated Project" option.
+  - **ConnectRPC `ManageSidecar` Interception**: Swiss Knife intercepts renderer requests to `/exa.language_server_pb.LanguageServerService/ManageSidecar`. On creation (`action: 5`), it binds `projectId` to the selected existing workspace before dispatch. When the server returns `sidecarId`, Swiss Knife automatically issues a follow-up `ManageSidecar` request (`action: 6`, `SIDECAR_ACTION_SET_PROJECT`) to guarantee project binding even if the initial creation ignored the project field.

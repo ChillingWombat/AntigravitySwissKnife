@@ -54,3 +54,28 @@ Developers can designate specific custom models to handle autonomous subagent ru
 - Primary pair-programming prompts continue using high-capability Gemini models via official quotas.
 - Resource-intensive background subagents (such as unit test generators, codebase indexers, or documentation writers) are delegated to fast, cost-effective custom endpoints (such as DeepSeek V3 or local Ollama instances).
 - Prevents subagent background loops from exhausting main account 5-hour burst quotas.
+
+---
+
+## 5. In-Selector Thinking Level Flyout Submenu
+
+Custom Models and GCP Vertex AI models supporting extended reasoning (such as `Gemini 4 Argon`, `Claude Opus 5.5`, and `DeepSeek Flash`) configure thinking budgets directly inside Antigravity's native model selector dropdown menu, eliminating the need for detached external composer pills.
+
+### Flyout Menu Architecture
+- **In-Selector Attachment**: When hovering over a custom or Vertex AI model row supporting reasoning, the injected runtime mounts `#swiss-custom-thinking-submenu` adjacent to Antigravity's native dropdown (`[role="menu"]:not(#swiss-custom-thinking-submenu)`).
+- **Thinking Levels**: Renders radio options (`data-testid="model-selector-effort-option"`) for supported levels (`Low`, `Medium`, `High`, `Extra`, `Max`). Selecting a level dispatches an asynchronous update to `/api/custom_models/thinking_level` and binds the model configuration to the active project via `/api/custom_models/bind`.
+- **Factory Asset Parity**: Submenu rows and parent indicators render with Antigravity 2.0's exact factory vector assets:
+  - `CheckIcon`: Factory SVG (`viewBox="0 -960 960 960"`) indicating the active thinking level.
+  - `ChevronRightIcon`: Factory SVG path indicating nested submenu availability on compatible models.
+
+### Trigger Label Formatting
+When a custom model with an active thinking level is selected, the model selector trigger button updates its label to match native Gemini formatting:
+```html
+<span class="opacity-70"> High</span>
+```
+The resulting trigger displays `<Model Name> <Level>` (for example, `Gemini 4 Argon High` or `DeepSeek Flash Medium`), maintaining consistent visual hierarchy across native and external providers.
+
+### Navigation Protection & Lifecycle Cleanup
+- **Hover-Tunnel Protection**: A 120ms debounce timer prevents premature submenu destruction when the pointer traverses the boundary between the parent model row and the flyout container.
+- **Viewport Collision Flipping**: If the parent menu sits near the right edge of the screen (`menuRect.right + 165 > window.innerWidth`), the flyout automatically flips to render on the left side (`menuRect.left - 162`), preventing off-screen overflow.
+- **Event Cleanup**: The submenu closes immediately when the user presses `Escape`, clicks outside the menu popover, selects a native Gemini model, or unmounts the model selector dropdown.

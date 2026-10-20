@@ -486,6 +486,17 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/bridge/test", s.handleBridgeTest)
 	mux.HandleFunc("/api/bridge/mcp", s.handleBridgeMCP)
 	mux.HandleFunc("/mcp", s.handleBridgeMCP)
+	mux.HandleFunc("/.well-known/oauth-protected-resource", s.handleBridgeOAuthProtectedResource)
+	mux.HandleFunc("/.well-known/oauth-protected-resource/", s.handleBridgeOAuthProtectedResource)
+	mux.HandleFunc("/.well-known/oauth-authorization-server", s.handleBridgeOAuthMetadata)
+	mux.HandleFunc("/.well-known/oauth-authorization-server/", s.handleBridgeOAuthMetadata)
+	mux.HandleFunc("/.well-known/openid-configuration", s.handleBridgeOAuthMetadata)
+	mux.HandleFunc("/oauth/register", s.handleBridgeOAuthRegister)
+	mux.HandleFunc("/oauth/authorize", s.handleBridgeOAuthAuthorize)
+	mux.HandleFunc("/oauth/token", s.handleBridgeOAuthToken)
+	mux.HandleFunc("/api/bridge/oauth/register", s.handleBridgeOAuthRegister)
+	mux.HandleFunc("/api/bridge/oauth/authorize", s.handleBridgeOAuthAuthorize)
+	mux.HandleFunc("/api/bridge/oauth/token", s.handleBridgeOAuthToken)
 	mux.HandleFunc("/api/bridge/tunnel/start", s.handleBridgeTunnelStart)
 	mux.HandleFunc("/api/bridge/tunnel/stop", s.handleBridgeTunnelStop)
 	mux.HandleFunc("/api/bridge/token/rotate", s.handleBridgeTokenRotate)
@@ -6550,6 +6561,7 @@ func (s *Server) handleBridgeMCP(w http.ResponseWriter, r *http.Request) {
 	// Validate Authentication: Bearer token, Pairing PIN, or query parameters
 	granted, reason := bridgeSvc.ValidateRequest(r)
 	if !granted {
+		w.Header().Set("WWW-Authenticate", fmt.Sprintf("Bearer realm=\"Antigravity Swiss Knife MCP\", resource_metadata=\"%s/.well-known/oauth-protected-resource\"", bridge.ResolveExternalBaseURL(r, bridgeSvc.GetStatus().GatewayURL)))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -6939,6 +6951,46 @@ func (s *Server) handleBridgeRemoteConsole(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	http.Error(w, "remote console not initialized", http.StatusServiceUnavailable)
+}
+
+func (s *Server) handleBridgeOAuthProtectedResource(w http.ResponseWriter, r *http.Request) {
+	s.getBridgeService().ServeOAuthProtectedResource(w, r)
+}
+
+func (s *Server) handleBridgeOAuthMetadata(w http.ResponseWriter, r *http.Request) {
+	s.getBridgeService().ServeOAuthMetadata(w, r)
+}
+
+func (s *Server) handleBridgeOAuthRegister(w http.ResponseWriter, r *http.Request) {
+	s.getBridgeService().ServeOAuthRegister(w, r)
+}
+
+func (s *Server) handleBridgeOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
+	s.getBridgeService().ServeOAuthAuthorize(w, r)
+}
+
+func (s *Server) handleBridgeOAuthToken(w http.ResponseWriter, r *http.Request) {
+	s.getBridgeService().ServeOAuthToken(w, r)
+}
+
+func (s *Server) handleOAuthProtectedResource(w http.ResponseWriter, r *http.Request) {
+	s.handleBridgeOAuthProtectedResource(w, r)
+}
+
+func (s *Server) handleOAuthMetadata(w http.ResponseWriter, r *http.Request) {
+	s.handleBridgeOAuthMetadata(w, r)
+}
+
+func (s *Server) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
+	s.handleBridgeOAuthRegister(w, r)
+}
+
+func (s *Server) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
+	s.handleBridgeOAuthAuthorize(w, r)
+}
+
+func (s *Server) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
+	s.handleBridgeOAuthToken(w, r)
 }
 
 func (s *Server) handleBridgeChannelsWebhook(w http.ResponseWriter, r *http.Request) {

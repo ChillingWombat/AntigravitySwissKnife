@@ -106,6 +106,16 @@ func isPublicPath(p string) bool {
 	if clean == "/api/bridge/channels/webhook" || strings.HasPrefix(clean, "/api/bridge/channels/webhook/") {
 		return true
 	}
+	// 7. OAuth 2.0 / 2.1 RFC metadata and endpoints for Gemini MCP integration
+	if strings.HasPrefix(clean, "/.well-known/") {
+		return true
+	}
+	if clean == "/oauth" || strings.HasPrefix(clean, "/oauth/") {
+		return true
+	}
+	if strings.HasPrefix(clean, "/api/bridge/oauth/") {
+		return true
+	}
 	return false
 }
 

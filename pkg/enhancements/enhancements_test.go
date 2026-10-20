@@ -1420,6 +1420,7 @@ class MockElement {
   closest() { return this.parentElement; }
 }
 const document = {
+  head: new MockElement("head"),
   body: new MockElement("body"),
   createElement: (tag) => new MockElement(tag),
   getElementById: (id) => {
@@ -1510,5 +1511,534 @@ func TestChatNavigatorPanel_EscapesPromptTextInTooltip(t *testing.T) {
 		if !strings.Contains(script, entity) {
 			t.Errorf("escape table missing %s", entity)
 		}
+	}
+}
+
+func TestAutomationTargetProjectSelector_FlagOverride(t *testing.T) {
+	script := GenerateEnhancementsScript(DefaultConfig())
+
+	if !strings.Contains(script, "jetski-sidecar-declared-permissions") {
+		t.Errorf("expected script to contain jetski-sidecar-declared-permissions flag override")
+	}
+	if !strings.Contains(script, `parsedFlags["jetski-sidecar-declared-permissions"] = false;`) {
+		t.Errorf("expected script to set jetski-sidecar-declared-permissions to false")
+	}
+
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available")
+	}
+
+	driver := `
+const assert = require("assert");
+
+const storage = {
+  "jetski.developer.customFlagOverrides": JSON.stringify({
+    "some-other-flag": true,
+    "jetski-sidecar-declared-permissions": true
+  })
+};
+
+const localStorage = {
+  getItem: (k) => storage[k] || null,
+  setItem: (k, v) => { storage[k] = v; }
+};
+
+let dispatched = null;
+const window = {
+  localStorage,
+  dispatchEvent: (e) => { dispatched = e; }
+};
+function StorageEvent(type, dict) { Object.assign(this, dict); }
+
+// Simulate the flag override logic from the script
+const rawFlags = localStorage.getItem("jetski.developer.customFlagOverrides") || "{}";
+const parsedFlags = JSON.parse(rawFlags);
+if (parsedFlags && typeof parsedFlags === "object" && !Array.isArray(parsedFlags) && (parsedFlags["remote-control-setting-enabled"] !== true || parsedFlags["jetski-sidecar-declared-permissions"] !== false)) {
+  parsedFlags["remote-control-setting-enabled"] = true;
+  parsedFlags["jetski-sidecar-declared-permissions"] = false;
+  const nextFlags = JSON.stringify(parsedFlags);
+  localStorage.setItem("jetski.developer.customFlagOverrides", nextFlags);
+}
+
+const saved = JSON.parse(localStorage.getItem("jetski.developer.customFlagOverrides"));
+assert.strictEqual(saved["remote-control-setting-enabled"], true);
+assert.strictEqual(saved["jetski-sidecar-declared-permissions"], false);
+assert.strictEqual(saved["some-other-flag"], true);
+
+console.log("flag override OK");
+`
+	cmd := exec.Command(nodePath, "-")
+	cmd.Stdin = strings.NewReader(driver)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node execution failed: %v\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "flag override OK") {
+		t.Fatalf("unexpected output: %s", string(out))
+	}
+}
+
+func TestAutomationTargetProjectSelector_DOMInjection(t *testing.T) {
+	script := GenerateEnhancementsScript(DefaultConfig())
+
+	for _, token := range []string{
+		"extractExistingAntigravityProjects",
+		"applyAutomationTargetProjectSelector",
+		"swiss-automation-project-field",
+		"swiss-automation-project-select",
+		"Target Project",
+		"__new_dedicated__",
+		"Create New Dedicated Project",
+	} {
+		if !strings.Contains(script, token) {
+			t.Errorf("expected script to contain %q", token)
+		}
+	}
+
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available")
+	}
+
+	driver := `
+const assert = require("assert");
+
+class MockElement {
+  constructor(tagName, id = "", className = "") {
+    this.tagName = tagName.toUpperCase();
+    this.id = id;
+    this.className = className;
+    this.style = {};
+    this.children = [];
+    this.parentElement = null;
+    this.nextSibling = null;
+    this.attributes = {};
+    this.value = "";
+    this.textContent = "";
+    this._listeners = {};
+    this.memoizedProps = null;
+  }
+  setAttribute(k, v) { this.attributes[k] = v; }
+  getAttribute(k) { return this.attributes[k] || null; }
+  removeAttribute(k) { delete this.attributes[k]; }
+  appendChild(c) {
+    if (c.parentElement) c.parentElement.removeChild(c);
+    c.parentElement = this;
+    c.parentNode = this;
+    if (this.children.length > 0) {
+      this.children[this.children.length - 1].nextSibling = c;
+    }
+    c.nextSibling = null;
+    this.children.push(c);
+    return c;
+  }
+  removeChild(c) {
+    const idx = this.children.indexOf(c);
+    if (idx !== -1) {
+      this.children.splice(idx, 1);
+      c.parentElement = null;
+      c.parentNode = null;
+      for (let i = 0; i < this.children.length; i++) {
+        this.children[i].nextSibling = (i + 1 < this.children.length) ? this.children[i + 1] : null;
+      }
+    }
+  }
+  insertBefore(newNode, refNode) {
+    if (newNode.parentElement) newNode.parentElement.removeChild(newNode);
+    newNode.parentElement = this;
+    newNode.parentNode = this;
+    const idx = refNode ? this.children.indexOf(refNode) : -1;
+    if (idx === -1) {
+      if (this.children.length > 0) {
+        this.children[this.children.length - 1].nextSibling = newNode;
+      }
+      newNode.nextSibling = null;
+      this.children.push(newNode);
+    } else {
+      this.children.splice(idx, 0, newNode);
+      newNode.nextSibling = refNode;
+      if (idx > 0) {
+        this.children[idx - 1].nextSibling = newNode;
+      }
+    }
+    return newNode;
+  }
+  addEventListener(event, fn) {
+    if (!this._listeners[event]) this._listeners[event] = [];
+    this._listeners[event].push(fn);
+  }
+  dispatchEvent(event) {
+    const list = this._listeners[event.type] || [];
+    list.forEach(fn => fn(event));
+  }
+  closest(selector) {
+    let curr = this;
+    while (curr) {
+      if (curr.id && selector.includes("#" + curr.id)) return curr;
+      if (selector.includes("[role=\"dialog\"]") && curr.getAttribute && curr.getAttribute("role") === "dialog") return curr;
+      if (selector.includes(".flex.flex-col.gap-1") && curr.className && curr.className.includes("flex flex-col gap-1")) return curr;
+      if (selector.includes(".tec") && curr.className && curr.className.includes("tec")) return curr;
+      if (selector.includes("form") && curr.tagName === "FORM") return curr;
+      curr = curr.parentElement;
+    }
+    return null;
+  }
+  querySelector(sel) {
+    return this.querySelectorAll(sel)[0] || null;
+  }
+  querySelectorAll(sel) {
+    const results = [];
+    function scan(node) {
+      for (const c of node.children) {
+        let match = false;
+        if (sel === "label" && c.tagName === "LABEL") match = true;
+        if (sel.includes("label") && c.tagName === "LABEL") match = true;
+        if (sel.includes(".text-sm") && c.className && c.className.includes("text-sm")) match = true;
+        if (sel.includes("[data-testid=\"new-sidecar-name\"]") && c.getAttribute && c.getAttribute("data-testid") === "new-sidecar-name") match = true;
+        if (sel.includes("[data-testid=\"swiss-automation-project-select\"]") && c.getAttribute && c.getAttribute("data-testid") === "swiss-automation-project-select") match = true;
+        if (sel.includes("a[aria-label=\"New Conversation in Project\"]") && c.tagName === "A" && c.getAttribute && c.getAttribute("aria-label") === "New Conversation in Project") match = true;
+        if (sel.includes("[data-swiss-project]") && c.getAttribute && c.getAttribute("data-swiss-project")) match = true;
+        if (match) results.push(c);
+        scan(c);
+      }
+    }
+    scan(this);
+    return results;
+  }
+}
+
+const head = new MockElement("head");
+const document = {
+  head: head,
+  documentElement: { classList: { contains: () => true } },
+  body: new MockElement("body"),
+  createElement: (tag) => new MockElement(tag),
+  getElementById: (id) => {
+    function find(node) {
+      if (!node) return null;
+      if (node.id === id) return node;
+      for (const c of (node.children || [])) {
+        const found = find(c);
+        if (found) return found;
+      }
+      return null;
+    }
+    return find(document.head) || find(document.body);
+  },
+  querySelector: (sel) => document.body.querySelector(sel),
+  querySelectorAll: (sel) => document.body.querySelectorAll(sel)
+};
+
+const storage = {};
+const localStorage = {
+  getItem: (k) => storage[k] || null,
+  setItem: (k, v) => { storage[k] = v; }
+};
+const sessionStorage = {
+  getItem: (k) => storage[k] || null,
+  setItem: (k, v) => { storage[k] = v; }
+};
+class MutationObserver {
+  constructor(cb) { this.cb = cb; }
+  observe(target, options) {}
+  disconnect() {}
+}
+function requestAnimationFrame(cb) { return setTimeout(cb, 0); }
+function cancelAnimationFrame(id) { clearTimeout(id); }
+
+// Create root with React Fiber
+const root = new MockElement("div", "root");
+document.body.appendChild(root);
+root.__reactFiber$test = {
+  memoizedProps: {
+    value: {
+      sidebarSectionsProvider: {
+        sidebarSections: [
+          { sectionKind: { case: "projectSection" }, uri: "proj-alpha", label: "Alpha Project" },
+          { sectionKind: { case: "projectSection" }, uri: "proj-beta", label: "Beta Project" },
+          { sectionKind: { case: "projectSection" }, uri: "outside-of-project", label: "Outside" }
+        ]
+      }
+    }
+  }
+};
+
+// Create modal with name field
+const modal = new MockElement("div", "modal-dialog", "tec");
+modal.setAttribute("role", "dialog");
+const nameContainer = new MockElement("div", "", "flex flex-col gap-1");
+const nameLabel = new MockElement("label", "", "text-sm font-medium");
+nameLabel.textContent = "Name";
+nameContainer.appendChild(nameLabel);
+const nameInput = new MockElement("input");
+nameInput.setAttribute("data-testid", "new-sidecar-name");
+nameContainer.appendChild(nameInput);
+modal.appendChild(nameContainer);
+
+const otherContainer = new MockElement("div", "", "flex flex-col gap-1");
+modal.appendChild(otherContainer);
+document.body.appendChild(modal);
+
+const window = {
+  document,
+  localStorage,
+  sessionStorage,
+  getComputedStyle: () => ({ backgroundColor: "rgb(30, 30, 30)" }),
+  location: { pathname: "/c/11111111-2222-3333-4444-555555555555", search: "" },
+  addEventListener: () => {},
+  removeEventListener: () => {}
+};
+
+` + script + `
+
+// Test 1: extractExistingAntigravityProjects
+const projects = window.extractExistingAntigravityProjects();
+assert.strictEqual(projects.length, 2, "must extract 2 projects ignoring outside-of-project");
+assert.strictEqual(projects[0].id, "proj-alpha");
+assert.strictEqual(projects[0].label, "Alpha Project");
+assert.strictEqual(projects[1].id, "proj-beta");
+assert.strictEqual(projects[1].label, "Beta Project");
+
+// Test 2: applyAutomationTargetProjectSelector
+window.applyAutomationTargetProjectSelector();
+
+const field = document.getElementById("swiss-automation-project-field");
+assert.ok(field, "#swiss-automation-project-field must be injected");
+assert.strictEqual(field.parentElement, modal, "field must be inside modal");
+assert.strictEqual(nameContainer.nextSibling, field, "field must be inserted right after nameContainer");
+
+const label = field.children[0];
+assert.strictEqual(label.textContent, "Target Project");
+
+const select = document.getElementById("swiss-automation-project-select");
+assert.ok(select, "#swiss-automation-project-select must exist");
+assert.strictEqual(select.children.length, 3, "must have 2 projects + __new_dedicated__ option");
+assert.strictEqual(select.children[0].value, "proj-alpha");
+assert.strictEqual(select.children[0].textContent, "Alpha Project");
+assert.strictEqual(select.children[1].value, "proj-beta");
+assert.strictEqual(select.children[2].value, "__new_dedicated__");
+assert.strictEqual(select.children[2].textContent, "Create New Dedicated Project");
+
+// Verify default selection and window variable
+assert.strictEqual(window.__swissSelectedAutomationProjectId, "proj-alpha");
+
+// Test 3: Change event
+select.value = "proj-beta";
+select.dispatchEvent({ type: "change", target: select });
+assert.strictEqual(window.__swissSelectedAutomationProjectId, "proj-beta");
+
+select.value = "__new_dedicated__";
+select.dispatchEvent({ type: "change", target: select });
+assert.strictEqual(window.__swissSelectedAutomationProjectId, "", "dedicated project option must reset selected project ID to empty string");
+
+// Test 4: Idempotency (calling again must not inject duplicate)
+window.applyAutomationTargetProjectSelector();
+assert.strictEqual(modal.children.filter(c => c.id === "swiss-automation-project-field").length, 1);
+
+// Test 5: Native project selector suppression
+field.parentElement.removeChild(field);
+const nativeLabel = new MockElement("label", "", "text-sm font-medium");
+nativeLabel.textContent = "Project";
+modal.insertBefore(nativeLabel, nameContainer);
+window.applyAutomationTargetProjectSelector();
+assert.strictEqual(document.getElementById("swiss-automation-project-field"), null, "must not inject if native Project label already present");
+
+console.log("dom injection OK");
+process.exit(0);
+`
+
+	cmd := exec.Command(nodePath, "-")
+	cmd.Stdin = strings.NewReader(driver)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node execution failed: %v\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "dom injection OK") {
+		t.Fatalf("unexpected output: %s", string(out))
+	}
+}
+
+func TestAutomationTargetProjectSelector_ManageSidecarInterceptor(t *testing.T) {
+	script := GenerateEnhancementsScript(DefaultConfig())
+
+	for _, token := range []string{
+		"/exa.language_server_pb.LanguageServerService/ManageSidecar",
+		"action === 5",
+		"body.projectId = chosenProj",
+		"action: 6",
+		"sidecarId:",
+		"projectId: chosenProj",
+	} {
+		if !strings.Contains(script, token) {
+			t.Errorf("expected script to contain %q", token)
+		}
+	}
+
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available")
+	}
+
+	driver := `
+const assert = require("assert");
+
+const fetchCalls = [];
+async function mockFetch(input, init) {
+  fetchCalls.push({ input, init });
+  return {
+    ok: true,
+    status: 200,
+    clone() {
+      return {
+        async json() {
+          return { sidecarId: "sidecar-xyz-123" };
+        }
+      };
+    },
+    async json() {
+      return { sidecarId: "sidecar-xyz-123" };
+    }
+  };
+}
+
+const window = {
+  fetch: mockFetch,
+  __swissSelectedAutomationProjectId: "proj-alpha",
+  addEventListener: () => {}
+};
+
+const storage2 = {};
+const localStorage = {
+  getItem: (k) => storage2[k] || null,
+  setItem: (k, v) => { storage2[k] = v; }
+};
+const sessionStorage = {
+  getItem: (k) => storage2[k] || null,
+  setItem: (k, v) => { storage2[k] = v; }
+};
+class MockElement2 {
+  constructor(tagName, id = "", className = "") {
+    this.tagName = tagName.toUpperCase();
+    this.id = id;
+    this.className = className;
+    this.style = {};
+    this.children = [];
+    this.parentElement = null;
+    this.attributes = {};
+    this.value = "";
+    this.textContent = "";
+  }
+  setAttribute(k, v) { this.attributes[k] = v; if (k === "id") this.id = v; }
+  getAttribute(k) { return this.attributes[k] || null; }
+  appendChild(c) { c.parentElement = this; this.children.push(c); return c; }
+  querySelector() { return null; }
+  querySelectorAll() { return []; }
+}
+class MutationObserver {
+  constructor(cb) { this.cb = cb; }
+  observe(target, options) {}
+  disconnect() {}
+}
+function requestAnimationFrame(cb) { return setTimeout(cb, 0); }
+function cancelAnimationFrame(id) { clearTimeout(id); }
+window.localStorage = localStorage;
+window.sessionStorage = sessionStorage;
+window.location = { pathname: "/c/11111111-2222-3333-4444-555555555555", search: "" };
+window.getComputedStyle = () => ({ backgroundColor: "rgb(30, 30, 30)" });
+
+const head2 = new MockElement2("head");
+const document = {
+  head: head2,
+  documentElement: { classList: { contains: () => true } },
+  body: new MockElement2("body"),
+  createElement: (tag) => new MockElement2(tag),
+  getElementById: (id) => {
+    if (id === "swiss-automation-project-select") {
+      return { value: window.__swissSelectedAutomationProjectId || "proj-alpha" };
+    }
+    if (id === "swiss-enhancements-dynamic-styles") return head2;
+    return null;
+  },
+  querySelector: () => null,
+  querySelectorAll: () => []
+};
+window.document = document;
+
+` + script + `
+
+(async () => {
+  // Test Case 1: action: 5 with no projectId
+  fetchCalls.length = 0;
+  window.__swissSelectedAutomationProjectId = "proj-alpha";
+
+  await window.fetch("/exa.language_server_pb.LanguageServerService/ManageSidecar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: 5, name: "Backup Task" })
+  });
+
+  assert.strictEqual(fetchCalls.length, 2, "must have made create call + action 6 follow-up call");
+
+  // Verify first call has projectId injected
+  const firstReq = JSON.parse(fetchCalls[0].init.body);
+  assert.strictEqual(firstReq.action, 5);
+  assert.strictEqual(firstReq.name, "Backup Task");
+  assert.strictEqual(firstReq.projectId, "proj-alpha", "action 5 request body must have projectId injected");
+
+  // Verify follow-up call
+  assert.strictEqual(fetchCalls[1].input, "/exa.language_server_pb.LanguageServerService/ManageSidecar");
+  const followUpReq = JSON.parse(fetchCalls[1].init.body);
+  assert.strictEqual(followUpReq.sidecarId, "sidecar-xyz-123");
+  assert.strictEqual(followUpReq.action, 6);
+  assert.strictEqual(followUpReq.projectId, "proj-alpha");
+
+  // Test Case 2: action: 5 with existing projectId (must preserve existing)
+  fetchCalls.length = 0;
+  await window.fetch("/exa.language_server_pb.LanguageServerService/ManageSidecar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: 5, name: "Custom", projectId: "pre-existing-proj" })
+  });
+  const existingReq = JSON.parse(fetchCalls[0].init.body);
+  assert.strictEqual(existingReq.projectId, "pre-existing-proj", "must preserve existing projectId");
+
+  // Test Case 3: Dedicated project selected (__new_dedicated__)
+  fetchCalls.length = 0;
+  window.__swissSelectedAutomationProjectId = "__new_dedicated__";
+  document.getElementById = () => ({ value: "__new_dedicated__" });
+
+  await window.fetch("/exa.language_server_pb.LanguageServerService/ManageSidecar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: 5, name: "Dedicated Task" })
+  });
+
+  assert.strictEqual(fetchCalls.length, 1, "must not execute follow-up call for __new_dedicated__");
+  const dedicatedReq = JSON.parse(fetchCalls[0].init.body);
+  assert.strictEqual(dedicatedReq.projectId, undefined, "must not inject projectId when dedicated project is chosen");
+
+  // Test Case 4: Other endpoints must not be touched
+  fetchCalls.length = 0;
+  await window.fetch("/api/some/other/endpoint", {
+    method: "POST",
+    body: JSON.stringify({ action: 5 })
+  });
+  assert.strictEqual(fetchCalls.length, 1);
+  assert.strictEqual(fetchCalls[0].input, "/api/some/other/endpoint");
+
+  console.log("interceptor OK");
+  process.exit(0);
+})();
+`
+
+	cmd := exec.Command(nodePath, "-")
+	cmd.Stdin = strings.NewReader(driver)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node execution failed: %v\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "interceptor OK") {
+		t.Fatalf("unexpected output: %s", string(out))
 	}
 }
