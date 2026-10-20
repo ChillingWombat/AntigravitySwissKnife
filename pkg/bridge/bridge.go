@@ -146,6 +146,14 @@ func NewService(configPath string) (*Service, error) {
 	_ = s.loadConfig()
 
 	s.tunnelMgr = NewTunnelManager(s.config.Port, "/api/bridge/mcp")
+	s.tunnelMgr.SetOnAutoStop(func() {
+		s.mu.Lock()
+		s.config.Enabled = false
+		s.config.TunnelType = ""
+		s.config.TunnelURL = ""
+		_ = s.saveConfig()
+		s.mu.Unlock()
+	})
 	s.authMgr = NewAuthManager(s.config.AuthToken, s.config.PairingPIN, func(token, pin string) error {
 		s.mu.Lock()
 		s.config.AuthToken = token
