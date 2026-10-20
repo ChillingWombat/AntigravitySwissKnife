@@ -458,6 +458,12 @@ func (rm *RemoteManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Conversation status / transcript tail
+	if path == "/remote/api/conversation/status" || path == "/api/conversation/status" {
+		rm.handleConversationStatus(w, r)
+		return
+	}
+
 	// Remote Control Web Console HTML
 	if path == "/" || path == "/remote" || path == "/remote/" || path == "/index.html" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -749,6 +755,55 @@ func (rm *RemoteManager) handleConversationMessage(w http.ResponseWriter, r *htt
 	})
 }
 
+func (rm *RemoteManager) handleConversationStatus(w http.ResponseWriter, r *http.Request) {
+	if !rm.isPINAuthorized(r) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Unauthorized",
+		})
+		return
+	}
+
+	convID := strings.TrimSpace(r.URL.Query().Get("conversation_id"))
+	rm.mu.RLock()
+	lh := rm.leadHdl
+	rm.mu.RUnlock()
+
+	if lh == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Lead handler is not configured",
+		})
+		return
+	}
+
+	rawJSON, err := lh.GetStatus(map[string]interface{}{"conversation_id": convID})
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":         false,
+			"conversation_id": convID,
+			"error":           err.Error(),
+		})
+		return
+	}
+
+	var detail map[string]interface{}
+	_ = json.Unmarshal([]byte(rawJSON), &detail)
+	if detail == nil {
+		detail = map[string]interface{}{}
+	}
+	detail["success"] = true
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(detail)
+}
+
 const remoteHTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -757,16 +812,16 @@ const remoteHTML = `<!DOCTYPE html>
 <title>Antigravity Remote Control</title>
 <style>
 :root {
-  --bg: #0b0f19;
-  --surface: #131b2e;
-  --surface-alt: #1a243b;
-  --border: #23304d;
-  --text-main: #f1f5f9;
-  --text-sub: #94a3b8;
-  --primary: #3b82f6;
-  --primary-hover: #2563eb;
-  --emerald: #10b981;
-  --red: #ef4444;
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-alt: #f1f5f9;
+  --border: #e2e8f0;
+  --text-main: #0f172a;
+  --text-sub: #64748b;
+  --primary: #1a73e8;
+  --primary-hover: #1557b0;
+  --emerald: #059669;
+  --red: #dc2626;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -1069,7 +1124,7 @@ body {
 </head>
 <body>
 
-<div id="authView" class="auth-wrapper" style="display:none;">
+<div id="authView" class="auth-wrapper">
   <div class="auth-card">
     <div class="auth-icon-circle">
       <svg class="icon" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -1079,7 +1134,7 @@ body {
     <div id="authError" class="msg-banner error"></div>
     <form id="authForm" onsubmit="handleAuthSubmit(event)">
       <div class="input-group">
-        <input type="password" id="pinInput" class="input-text pin-input" maxlength="6" pattern="[0-9]*" placeholder="••••••" autofocus required>
+        <input type="password" id="pinInput" class="input-text pin-input" inputmode="numeric" maxlength="6" pattern="[0-9]*" placeholder="••••••" autofocus required>
       </div>
       <div style="margin-top:14px;">
         <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;">Unlock Console</button>
@@ -1172,6 +1227,7 @@ body {
           <div id="convsList" class="convs-container">
             <div class="viewport-empty">Loading conversations...</div>
           </div>
+          <div id="convDetailBox" style="display:none;margin-top:8px;padding:10px 12px;border-radius:6px;background:var(--surface-alt);border:1px solid var(--border);font-size:12px;line-height:1.45;white-space:pre-wrap;color:var(--text-main);"></div>
         </section>
       </div>
     </div>
@@ -1181,10 +1237,20 @@ body {
 <script>
 var basePath = window.location.pathname.indexOf('/remote') === 0 ? '/remote' : '';
 var autoRefreshInterval = null;
+var activePin = '';
+try { activePin = sessionStorage.getItem('swiss_remote_pin') || ''; } catch (e) {}
+
+function getHeaders(extra) {
+  var h = extra ? Object.assign({}, extra) : {};
+  if (activePin) {
+    h['X-Remote-PIN'] = activePin;
+  }
+  return h;
+}
 
 async function checkAuthAndInit() {
   try {
-    var res = await fetch(basePath + '/api/status');
+    var res = await fetch(basePath + '/api/status', { headers: getHeaders() });
     if (res.status === 401) {
       showAuth();
       return;
@@ -1229,6 +1295,8 @@ async function handleAuthSubmit(e) {
     });
     var data = await res.json();
     if (res.ok && data.success) {
+      activePin = pin;
+      try { sessionStorage.setItem('swiss_remote_pin', pin); } catch (e) {}
       checkAuthAndInit();
     } else {
       errEl.textContent = data.error || 'Invalid 6-digit Security PIN';
@@ -1241,6 +1309,8 @@ async function handleAuthSubmit(e) {
 }
 
 async function handleLogout() {
+  activePin = '';
+  try { sessionStorage.removeItem('swiss_remote_pin'); } catch (e) {}
   try {
     await fetch(basePath + '/api/logout', { method: 'POST' });
   } catch (e) {}
@@ -1251,7 +1321,8 @@ function refreshScreenshot() {
   var img = document.getElementById('viewportImg');
   var fallback = document.getElementById('viewportFallback');
   var testImg = new Image();
-  var src = basePath + '/api/screenshot?t=' + Date.now();
+  var pinParam = activePin ? ('&pin=' + encodeURIComponent(activePin)) : '';
+  var src = basePath + '/api/screenshot?t=' + Date.now() + pinParam;
   testImg.onload = function() {
     img.src = src;
     img.style.display = 'block';
@@ -1281,7 +1352,7 @@ function stopAutoRefresh() {
 
 async function loadStatus() {
   try {
-    var res = await fetch(basePath + '/api/status');
+    var res = await fetch(basePath + '/api/status', { headers: getHeaders() });
     if (res.status === 401) {
       showAuth();
       return;
@@ -1317,17 +1388,37 @@ function renderStatus(data) {
   data.conversations.forEach(function(c) {
     var id = c.id || '';
     var title = c.title || id.substring(0, 8);
-    var status = c.status || 'active';
-    html += '<div class="conv-item" onclick="selectConversation('' + escapeHTML(id) + '')">' +
+    var meta = c.last_active || c.status || 'active';
+    html += '<div class="conv-item" data-conv-id="' + escapeHTML(id) + '" onclick="selectConversation(this.dataset.convId)">' +
       '<div class="conv-title">' + escapeHTML(title) + '</div>' +
-      '<div class="conv-meta">' + escapeHTML(status) + '</div>' +
+      '<div class="conv-meta">' + escapeHTML(meta) + '</div>' +
     '</div>';
   });
   listEl.innerHTML = html;
 }
 
-function selectConversation(id) {
+async function selectConversation(id) {
+  if (!id) return;
   document.getElementById('targetConvInput').value = id;
+  var detailBox = document.getElementById('convDetailBox');
+  if (!detailBox) return;
+  detailBox.style.display = 'block';
+  detailBox.textContent = 'Loading conversation ' + id.substring(0, 8) + '...';
+  try {
+    var res = await fetch(basePath + '/api/conversation/status?conversation_id=' + encodeURIComponent(id), {
+      headers: getHeaders()
+    });
+    if (res.ok) {
+      var d = await res.json();
+      if (d && d.success) {
+        detailBox.textContent = 'Conversation: ' + id + '\nStatus: ' + (d.status || 'unknown') + ' (Step ' + (d.latest_step || 0) + ')\n\n' + (d.preview || 'No transcript preview available.');
+      } else {
+        detailBox.textContent = 'Conversation: ' + id + '\n' + (d.error || 'No transcript available.');
+      }
+    }
+  } catch (e) {
+    detailBox.textContent = 'Selected conversation: ' + id;
+  }
 }
 
 function escapeHTML(s) {
@@ -1349,7 +1440,7 @@ async function handleNewConversation() {
   try {
     var res = await fetch(basePath + '/api/conversation/new', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ prompt: prompt, title: title })
     });
     var data = await res.json();
@@ -1384,7 +1475,7 @@ async function handleSendMessage() {
   try {
     var res = await fetch(basePath + '/api/conversation/message', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ conversation_id: convId, message: message })
     });
     var data = await res.json();

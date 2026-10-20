@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -730,5 +731,38 @@ func TestRemoteManager_LocalHTTPServer_AndPINAuth(t *testing.T) {
 	defer respNewAuth.Body.Close()
 	if respNewAuth.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 OK for new PIN, got %d", respNewAuth.StatusCode)
+	}
+}
+
+func TestRemoteConsoleHTML_NoJSSyntaxErrorAndDefaultVisibleAuth(t *testing.T) {
+	// 1. Extract <script> block and verify zero JS syntax errors via Node vm.Script
+	startIdx := strings.Index(remoteHTML, "<script>")
+	endIdx := strings.LastIndex(remoteHTML, "</script>")
+	if startIdx == -1 || endIdx == -1 || endIdx <= startIdx {
+		t.Fatalf("expected <script>...</script> block in remoteHTML")
+	}
+	scriptBody := remoteHTML[startIdx+len("<script>") : endIdx]
+
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not found on PATH")
+	}
+
+	cmd := exec.Command(nodePath, "-e", `
+const fs = require("fs");
+const vm = require("vm");
+const src = fs.readFileSync(0, "utf8");
+new vm.Script(src, { filename: "remoteHTML.js" });
+`)
+	cmd.Stdin = strings.NewReader(scriptBody)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("remoteHTML <script> contains a JavaScript syntax error: %v\n%s", err, string(out))
+	}
+
+	// 2. #authView must be visible on initial paint (never display:none by default)
+	if strings.Contains(remoteHTML, `id="authView" class="auth-wrapper" style="display:none;"`) ||
+		strings.Contains(remoteHTML, `id="authView" style="display:none"`) {
+		t.Fatalf("remoteHTML must not hide #authView by default; initial paint must show the PIN unlock card")
 	}
 }
