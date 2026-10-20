@@ -156,7 +156,7 @@ export const RemoteControlPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* 1. Header & Live Status Bar */}
+      {/* 1. Remote Control Wrapper, Status, Endpoint & Pairing Security */}
       <div className="google-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
           <div>
@@ -181,20 +181,8 @@ export const RemoteControlPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Status Metrics Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
-              Account Resilience
-            </div>
-            <div style={{ fontSize: '16px', fontWeight: 700, color: config.account_resilience ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
-              {config.account_resilience ? 'Auto-Rebind Active' : 'Disabled'}
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Survives account rotations
-            </div>
-          </div>
-
+        {/* Status Metrics Grid: 3 balanced cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '12px' }}>
           <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
               Remote Internet Pipe
@@ -209,30 +197,6 @@ export const RemoteControlPage: React.FC = () => {
 
           <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
-              DevTools Port
-            </div>
-            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
-              {status.devtools_port > 0 ? status.devtools_port : 'Idle (Auto)'}
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              CDP DevTools Port
-            </div>
-          </div>
-
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
-              Host Antigravity PID
-            </div>
-            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
-              {status.current_antigravity_pid > 0 ? status.current_antigravity_pid : 'Idle'}
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Host process monitored
-            </div>
-          </div>
-
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
               Active Google Account
             </div>
             <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -242,16 +206,22 @@ export const RemoteControlPage: React.FC = () => {
               Syncs without dropped viewer
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* 2. Connection Endpoint & Security Card */}
-      <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
-          Remote Access Endpoint & Pairing Security
+          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              DevTools Port
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
+              {status.devtools_port > 0 ? status.devtools_port : 'Idle (Auto)'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              CDP DevTools Port
+            </div>
+          </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
+        {/* Remote Access Endpoint & Pairing Security */}
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
           {/* Endpoint URL */}
           <div
             style={{
@@ -361,7 +331,7 @@ export const RemoteControlPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. Out-of-Home Remote Internet Access (Tunneling) */}
+      {/* 2. Out-of-Home Remote Internet Access (Tunneling) */}
       <div className="google-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
           <div>
