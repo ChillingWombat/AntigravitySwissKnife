@@ -498,6 +498,9 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/bridge/channels/status", s.handleBridgeChannelsStatus)
 	mux.HandleFunc("/api/bridge/channels/config", s.handleBridgeChannelsConfig)
 	mux.HandleFunc("/api/bridge/channels/test", s.handleBridgeChannelsTest)
+	mux.HandleFunc("/api/bridge/channels/webhook", s.handleBridgeChannelsWebhook)
+	mux.HandleFunc("/remote", s.handleBridgeRemoteConsole)
+	mux.HandleFunc("/remote/", s.handleBridgeRemoteConsole)
 
 	// Quick Memos API
 	mux.HandleFunc("/api/memos", s.handleMemos)
@@ -6458,9 +6461,7 @@ func (s *Server) handleBridgeDispatch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.bridgeService == nil {
-		s.bridgeService, _ = bridge.NewService("")
-	}
+	bridgeSvc := s.getBridgeService()
 	var p struct {
 		Prompt string `json:"prompt"`
 		Target string `json:"target"`
@@ -6469,10 +6470,23 @@ func (s *Server) handleBridgeDispatch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	res, err := s.bridgeService.CallTool("antigravity_dispatch_task", map[string]interface{}{
+	toolName := "antigravity_dispatch_task"
+	toolArgs := map[string]interface{}{
 		"prompt": p.Prompt,
 		"target": p.Target,
-	})
+	}
+	switch strings.TrimSpace(p.Target) {
+	case "local_run_command":
+		toolName = "local_run_command"
+		toolArgs = map[string]interface{}{"command": p.Prompt}
+	case "antigravity_lead_send_message":
+		toolName = "antigravity_lead_send_message"
+		toolArgs = map[string]interface{}{"message": p.Prompt}
+	case "antigravity_lead_create_conversation":
+		toolName = "antigravity_lead_create_conversation"
+		toolArgs = map[string]interface{}{"prompt": p.Prompt}
+	}
+	res, err := bridgeSvc.CallTool(toolName, toolArgs)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -6546,7 +6560,14 @@ func (s *Server) handleBridgeMCP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Connection", "keep-alive")
 		flusher, ok := w.(http.Flusher)
 		if ok {
-			endpointURL := fmt.Sprintf("/api/bridge/mcp?session=%d", time.Now().UnixNano())
+			q := url.Values{}
+			q.Set("session", fmt.Sprintf("%d", time.Now().UnixNano()))
+			for _, k := range []string{"pin", "token", "auth"} {
+				if v := strings.TrimSpace(r.URL.Query().Get(k)); v != "" {
+					q.Set(k, v)
+				}
+			}
+			endpointURL := "/api/bridge/mcp?" + q.Encode()
 			fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", endpointURL)
 			flusher.Flush()
 		}
@@ -6559,7 +6580,7 @@ func (s *Server) handleBridgeMCP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "read error", http.StatusBadRequest)
 			return
 		}
-		resp, mErr := s.bridgeService.HandleMCPRequest(body)
+		resp, mErr := bridgeSvc.HandleMCPRequest(body)
 		if mErr != nil {
 			http.Error(w, mErr.Error(), http.StatusBadRequest)
 			return
@@ -6809,10 +6830,8 @@ func (s *Server) handleBridgeRemoteTunnelStop(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) handleBridgeChannelsStatus(w http.ResponseWriter, r *http.Request) {
-	if s.bridgeService == nil {
-		s.bridgeService, _ = bridge.NewService("")
-	}
-	st := s.bridgeService.GetChannelsStatus()
+	bridgeSvc := s.getBridgeService()
+	st := bridgeSvc.GetChannelsStatus()
 	writeJSON(w, map[string]interface{}{
 		"success": true,
 		"status":  st,
@@ -6820,13 +6839,15 @@ func (s *Server) handleBridgeChannelsStatus(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleBridgeChannelsConfig(w http.ResponseWriter, r *http.Request) {
-	if s.bridgeService == nil {
-		s.bridgeService, _ = bridge.NewService("")
-	}
+	bridgeSvc := s.getBridgeService()
 	if r.Method == http.MethodGet {
+		cfg := bridgeSvc.GetChannelsConfigRedacted()
+		if r.URL.Query().Get("unredacted") == "true" {
+			cfg = bridgeSvc.GetChannelsConfig()
+		}
 		writeJSON(w, map[string]interface{}{
 			"success": true,
-			"config":  s.bridgeService.GetChannelsConfigRedacted(),
+			"config":  cfg,
 		})
 		return
 	}
@@ -6839,14 +6860,14 @@ func (s *Server) handleBridgeChannelsConfig(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	if err := s.bridgeService.UpdateChannelsConfig(cfg); err != nil {
+	if err := bridgeSvc.UpdateChannelsConfig(cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, map[string]interface{}{
 		"success": true,
-		"config":  s.bridgeService.GetChannelsConfigRedacted(),
-		"status":  s.bridgeService.GetChannelsStatus(),
+		"config":  bridgeSvc.GetChannelsConfigRedacted(),
+		"status":  bridgeSvc.GetChannelsStatus(),
 	})
 }
 
@@ -6855,9 +6876,7 @@ func (s *Server) handleBridgeChannelsTest(w http.ResponseWriter, r *http.Request
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.bridgeService == nil {
-		s.bridgeService, _ = bridge.NewService("")
-	}
+	bridgeSvc := s.getBridgeService()
 	var req struct {
 		Channel string `json:"channel"`
 	}
@@ -6865,7 +6884,7 @@ func (s *Server) handleBridgeChannelsTest(w http.ResponseWriter, r *http.Request
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	msg, err := s.bridgeService.TestChannel(req.Channel)
+	msg, err := bridgeSvc.TestChannel(req.Channel)
 	if err != nil {
 		writeJSON(w, map[string]interface{}{
 			"success": false,
@@ -6876,8 +6895,64 @@ func (s *Server) handleBridgeChannelsTest(w http.ResponseWriter, r *http.Request
 	writeJSON(w, map[string]interface{}{
 		"success": true,
 		"message": msg,
-		"status":  s.bridgeService.GetChannelsStatus(),
+		"status":  bridgeSvc.GetChannelsStatus(),
 	})
+}
+
+func (s *Server) handleBridgeRemoteConsole(w http.ResponseWriter, r *http.Request) {
+	bridgeSvc := s.getBridgeService()
+	if rh, ok := any(bridgeSvc).(interface {
+		ServeRemoteHTTP(http.ResponseWriter, *http.Request)
+	}); ok {
+		rh.ServeRemoteHTTP(w, r)
+		return
+	}
+	http.Error(w, "remote console not initialized", http.StatusServiceUnavailable)
+}
+
+func (s *Server) handleBridgeChannelsWebhook(w http.ResponseWriter, r *http.Request) {
+	bridgeSvc := s.getBridgeService()
+	cfg := bridgeSvc.GetChannelsConfig()
+	expectedToken := strings.TrimSpace(cfg.WhatsApp.VerifyToken)
+
+	switch r.Method {
+	case http.MethodGet:
+		mode := r.URL.Query().Get("hub.mode")
+		token := r.URL.Query().Get("hub.verify_token")
+		challenge := r.URL.Query().Get("hub.challenge")
+
+		if mode == "subscribe" && expectedToken != "" && token == expectedToken {
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(challenge))
+			return
+		}
+		http.Error(w, "verification failed", http.StatusForbidden)
+		return
+
+	case http.MethodPost:
+		if expectedToken != "" {
+			token := strings.TrimSpace(r.Header.Get("X-Verify-Token"))
+			if token == "" {
+				token = strings.TrimSpace(r.URL.Query().Get("verify_token"))
+			}
+			if token == "" {
+				token = strings.TrimSpace(r.URL.Query().Get("hub.verify_token"))
+			}
+			if token != expectedToken {
+				http.Error(w, "invalid verify token", http.StatusForbidden)
+				return
+			}
+		}
+
+		writeJSON(w, map[string]interface{}{
+			"success": true,
+		})
+		return
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {

@@ -166,3 +166,84 @@ type roundTripFunc func(req *http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
+
+func TestChannelsManager_WhatsAppWebhookAndRecordActivity(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "chat_channels.json")
+	cm := NewChannelsManager(cfgPath)
+
+	// 1. Initial LastMessageAt should be empty for all channels
+	initStatus := cm.GetStatus()
+	if initStatus.WhatsApp.LastMessageAt != "" || initStatus.Telegram.LastMessageAt != "" || initStatus.Discord.LastMessageAt != "" {
+		t.Errorf("expected empty LastMessageAt initially, got wa=%q tg=%q dc=%q",
+			initStatus.WhatsApp.LastMessageAt, initStatus.Telegram.LastMessageAt, initStatus.Discord.LastMessageAt)
+	}
+
+	// 2. Enable WhatsApp in webhook mode
+	cm.config.WhatsApp.Enabled = true
+	cm.config.WhatsApp.Mode = "webhook"
+	cm.config.WhatsApp.VerifyToken = ""
+
+	// Missing verify token -> error
+	_, err := cm.TestChannel("whatsapp")
+	if err == nil || !strings.Contains(err.Error(), "verify token required") {
+		t.Fatalf("expected verify token required error, got: %v", err)
+	}
+
+	// [REDACTED] verify token -> error
+	cm.config.WhatsApp.VerifyToken = "[REDACTED]"
+	_, err = cm.TestChannel("whatsapp")
+	if err == nil || !strings.Contains(err.Error(), "verify token required") {
+		t.Fatalf("expected verify token required error for [REDACTED], got: %v", err)
+	}
+
+	// Valid verify token -> success + verified identity "WhatsApp Webhook Gateway"
+	cm.config.WhatsApp.VerifyToken = "super-secret-verify-token"
+	msg, err := cm.TestChannel("whatsapp")
+	if err != nil {
+		t.Fatalf("expected WhatsApp webhook test to succeed, got: %v", err)
+	}
+	if !strings.Contains(msg, "WhatsApp custom webhook bridge verified") {
+		t.Errorf("expected success message containing verification confirmation, got: %s", msg)
+	}
+
+	st := cm.GetStatus()
+	if !st.WhatsApp.Connected {
+		t.Errorf("expected WhatsApp connected=true")
+	}
+	if st.WhatsApp.Identity != "WhatsApp Webhook Gateway" {
+		t.Errorf("expected WhatsApp identity 'WhatsApp Webhook Gateway', got: %q", st.WhatsApp.Identity)
+	}
+	if !strings.Contains(st.WhatsApp.StatusText, "Verified") {
+		t.Errorf("expected StatusText to contain 'Verified', got: %q", st.WhatsApp.StatusText)
+	}
+
+	// Ensure mode: webhook takes precedence even if AccessToken is populated
+	cm.config.WhatsApp.AccessToken = "old-legacy-token"
+	msgWithToken, err := cm.TestChannel("whatsapp")
+	if err != nil || !strings.Contains(msgWithToken, "WhatsApp custom webhook bridge verified") {
+		t.Errorf("expected webhook mode to take precedence when AccessToken exists, got err=%v msg=%s", err, msgWithToken)
+	}
+
+	// 3. Test RecordActivity populates LastMessageAt in GetStatus()
+	cm.RecordActivity("whatsapp")
+	stPostWa := cm.GetStatus()
+	if stPostWa.WhatsApp.LastMessageAt == "" {
+		t.Errorf("expected non-empty WhatsApp LastMessageAt after RecordActivity")
+	}
+	if cm.GetLastMessageAt("whatsapp") != stPostWa.WhatsApp.LastMessageAt {
+		t.Errorf("expected GetLastMessageAt to match LastMessageAt in status, got %q vs %q",
+			cm.GetLastMessageAt("whatsapp"), stPostWa.WhatsApp.LastMessageAt)
+	}
+
+	// Record activity for Telegram and Discord (case insensitive)
+	cm.RecordActivity("Telegram")
+	cm.RecordActivity("DISCORD")
+	stPostAll := cm.GetStatus()
+	if stPostAll.Telegram.LastMessageAt == "" {
+		t.Errorf("expected non-empty Telegram LastMessageAt after RecordActivity")
+	}
+	if stPostAll.Discord.LastMessageAt == "" {
+		t.Errorf("expected non-empty Discord LastMessageAt after RecordActivity")
+	}
+}

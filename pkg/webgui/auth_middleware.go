@@ -98,6 +98,14 @@ func isPublicPath(p string) bool {
 	if clean == "/api/bridge/mcp" || strings.HasPrefix(clean, "/api/bridge/mcp/") {
 		return true
 	}
+	// 5. Remote Control console (enforces independent 6-digit Security PIN authentication)
+	if clean == "/remote" || strings.HasPrefix(clean, "/remote/") {
+		return true
+	}
+	// 6. External channel webhooks (enforces hub.verify_token / webhook token authentication)
+	if clean == "/api/bridge/channels/webhook" || strings.HasPrefix(clean, "/api/bridge/channels/webhook/") {
+		return true
+	}
 	return false
 }
 
