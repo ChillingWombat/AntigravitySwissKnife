@@ -53,6 +53,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       localStorage.setItem("antigravity_swiss_left_panel_enabled", String(enhConfig.left_panel_extensions_enabled !== false));
       localStorage.setItem("antigravity_swiss_left_panel_mode", enhConfig.left_panel_extensions_mode || "single");
       localStorage.setItem("antigravity_swiss_main_section_enabled", String(enhConfig.main_section_extensions_enabled !== false));
+      localStorage.setItem("antigravity_swiss_community_extensions", JSON.stringify(enhConfig.community_extensions || []));
     }
 
     let projectColors = {};
@@ -85,15 +86,18 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               const prevLeftMode = localStorage.getItem("antigravity_swiss_left_panel_mode");
               const prevMainSection = localStorage.getItem("antigravity_swiss_main_section_enabled");
               const prevExtensions = localStorage.getItem("antigravity_swiss_ext_visibility");
+              const prevCommunityExts = localStorage.getItem("antigravity_swiss_community_extensions");
               const newLeftEnabled = String(loaded.left_panel_extensions_enabled !== false);
               const newLeftMode = loaded.left_panel_extensions_mode || "single";
               const newMainSection = String(loaded.main_section_extensions_enabled !== false);
               const newExtensions = JSON.stringify(loaded.extensions || null);
-              if (prevLeftEnabled !== newLeftEnabled || prevLeftMode !== newLeftMode || prevMainSection !== newMainSection || prevExtensions !== newExtensions) {
+              const newCommunityExts = JSON.stringify(loaded.community_extensions || []);
+              if (prevLeftEnabled !== newLeftEnabled || prevLeftMode !== newLeftMode || prevMainSection !== newMainSection || prevExtensions !== newExtensions || prevCommunityExts !== newCommunityExts) {
                 localStorage.setItem("antigravity_swiss_left_panel_enabled", newLeftEnabled);
                 localStorage.setItem("antigravity_swiss_left_panel_mode", newLeftMode);
                 localStorage.setItem("antigravity_swiss_main_section_enabled", newMainSection);
                 localStorage.setItem("antigravity_swiss_ext_visibility", newExtensions);
+                localStorage.setItem("antigravity_swiss_community_extensions", newCommunityExts);
                 window.dispatchEvent(new CustomEvent("swiss-left-nav-config-updated", {
                   detail: { enabled: loaded.left_panel_extensions_enabled !== false, mode: newLeftMode, main_section_enabled: loaded.main_section_extensions_enabled !== false }
                 }));

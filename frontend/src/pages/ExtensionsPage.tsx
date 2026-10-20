@@ -1,16 +1,31 @@
 import React, { useEffect, useState } from 'react'
 import {
+  Blocks,
   Globe,
-  Folder,
-  FileText,
+  Code,
+  Terminal,
+  Database,
+  Bot,
+  Wrench,
+  BookOpen,
+  Layers,
+  Cpu,
+  Plus,
+  Upload,
+  Download,
+  Trash2,
+  Edit3,
+  X,
   CheckCircle2,
   AlertTriangle,
   PanelLeft,
+  Folder,
+  FileText,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { GithubIcon } from '../components/GithubIcon'
 import { api } from '../api'
-import type { EnhancementsConfig } from '../types'
+import type { EnhancementsConfig, CommunityExtension, CommunityExtensionIcon } from '../types'
 
 const IDE_PRESETS = ['code', 'cursor', 'windsurf', 'codium', 'zed']
 
@@ -37,6 +52,52 @@ const MEMO_LANGUAGES: Array<{ code: string; label: string }> = [
   { code: 'id', label: 'Bahasa Indonesia' },
 ]
 
+const COMMUNITY_ICONS: Array<{ id: CommunityExtensionIcon; label: string }> = [
+  { id: 'blocks', label: 'Blocks' },
+  { id: 'globe', label: 'Globe' },
+  { id: 'code', label: 'Code' },
+  { id: 'terminal', label: 'Terminal' },
+  { id: 'database', label: 'Database' },
+  { id: 'bot', label: 'Bot' },
+  { id: 'wrench', label: 'Wrench' },
+  { id: 'book-open', label: 'Book' },
+  { id: 'layers', label: 'Layers' },
+  { id: 'cpu', label: 'CPU' },
+]
+
+const slugify = (text: string) =>
+  text
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+const renderCommunityIcon = (icon?: string, size = 16, color = 'var(--text-muted)') => {
+  switch (icon) {
+    case 'globe':
+      return <Globe size={size} color={color} />
+    case 'code':
+      return <Code size={size} color={color} />
+    case 'terminal':
+      return <Terminal size={size} color={color} />
+    case 'database':
+      return <Database size={size} color={color} />
+    case 'bot':
+      return <Bot size={size} color={color} />
+    case 'wrench':
+      return <Wrench size={size} color={color} />
+    case 'book-open':
+      return <BookOpen size={size} color={color} />
+    case 'layers':
+      return <Layers size={size} color={color} />
+    case 'cpu':
+      return <Cpu size={size} color={color} />
+    case 'blocks':
+    default:
+      return <Blocks size={size} color={color} />
+  }
+}
+
 type ExtensionVisibility = { aux_panel: boolean; main_page: boolean }
 const DEFAULT_EXT_VIS: ExtensionVisibility = { aux_panel: true, main_page: false }
 
@@ -48,13 +109,37 @@ export interface ExtensionsPageProps {
   fallbackProject?: string
 }
 
-export const ExtensionsPage: React.FC<ExtensionsPageProps> = () => {
+export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({ activeTab = 0 }) => {
   // --- 1. Extension Visibility Switches (daemon-persisted EnhancementsConfig) ---
   // aux_panel  = available in the IDE's right auxiliary panel
   // main_page  = openable on the main stage via a left-sidebar tab button
   const [enhConfig, setEnhConfig] = useState<EnhancementsConfig | null>(null)
   const [extVisLocal, setExtVisLocal] = useState<Record<string, ExtensionVisibility>>({})
   const [enhError, setEnhError] = useState<string | null>(null)
+
+  // --- 1b. Community Extensions State ---
+  const [communityExtensions, setCommunityExtensions] = useState<CommunityExtension[]>([])
+  const [isEditorOpen, setIsEditorOpen] = useState<boolean>(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false)
+  const [importJsonText, setImportJsonText] = useState<string>('')
+  const [importError, setImportError] = useState<string | null>(null)
+
+  // Form state for Create / Edit Community Extension
+  const [formName, setFormName] = useState<string>('')
+  const [formId, setFormId] = useState<string>('')
+  const [formIdEdited, setFormIdEdited] = useState<boolean>(false)
+  const [formVersion, setFormVersion] = useState<string>('1.0.0')
+  const [formAuthor, setFormAuthor] = useState<string>('Community')
+  const [formDescription, setFormDescription] = useState<string>('')
+  const [formIcon, setFormIcon] = useState<CommunityExtensionIcon | string>('blocks')
+  const [formSourceType, setFormSourceType] = useState<'url' | 'html'>('url')
+  const [formUrl, setFormUrl] = useState<string>('')
+  const [formHtml, setFormHtml] = useState<string>('')
+  const [formCss, setFormCss] = useState<string>('')
+  const [formJs, setFormJs] = useState<string>('')
+  const [formAuxPanel, setFormAuxPanel] = useState<boolean>(true)
+  const [formMainPage, setFormMainPage] = useState<boolean>(false)
 
   // --- 2. Extension Specific Settings State ---
   // GitHub Workspace
@@ -129,11 +214,23 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = () => {
       .getEnhancements()
       .then((cfg) => {
         setEnhConfig(cfg)
+        if (Array.isArray(cfg?.community_extensions) && cfg.community_extensions.length > 0) {
+          setCommunityExtensions((prev) => (prev.length === 0 ? cfg.community_extensions! : prev))
+        }
         setEnhError(null)
       })
       .catch(() =>
         setEnhError('Enhancements daemon unreachable — visibility switches show defaults and will not persist')
       )
+
+    api
+      .getCommunityExtensions()
+      .then((res) => {
+        if (Array.isArray(res?.extensions)) {
+          setCommunityExtensions(res.extensions)
+        }
+      })
+      .catch(() => {})
 
     api
       .getPreferredIDE()
@@ -362,6 +459,215 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = () => {
   const filesVis = visFor('files')
   const memosVis = visFor('memos')
 
+  // Community Extensions handlers
+  const openCreateForm = () => {
+    setEditingId(null)
+    setFormName('')
+    setFormId('')
+    setFormIdEdited(false)
+    setFormVersion('1.0.0')
+    setFormAuthor('Community')
+    setFormDescription('')
+    setFormIcon('blocks')
+    setFormSourceType('url')
+    setFormUrl('')
+    setFormHtml('')
+    setFormCss('')
+    setFormJs('')
+    setFormAuxPanel(true)
+    setFormMainPage(false)
+    setIsEditorOpen(true)
+  }
+
+  const openEditForm = (ext: CommunityExtension) => {
+    setEditingId(ext.id)
+    setFormName(ext.name)
+    setFormId(ext.id)
+    setFormIdEdited(true)
+    setFormVersion(ext.version || '1.0.0')
+    setFormAuthor(ext.author || 'Community')
+    setFormDescription(ext.description || '')
+    setFormIcon((ext.icon as CommunityExtensionIcon) || 'blocks')
+    setFormSourceType(ext.source_type || 'url')
+    setFormUrl(ext.url || '')
+    setFormHtml(ext.html || '')
+    setFormCss(ext.css || '')
+    setFormJs(ext.js || '')
+    setFormAuxPanel(ext.aux_panel !== false)
+    setFormMainPage(ext.main_page === true)
+    setIsEditorOpen(true)
+  }
+
+  const handleSaveExtension = async () => {
+    const trimmedName = formName.trim()
+    if (!trimmedName) {
+      showFeedback('Extension name is required')
+      return
+    }
+    const targetId = formId.trim() || slugify(trimmedName)
+    if (!targetId) {
+      showFeedback('Extension ID is required')
+      return
+    }
+
+    const payload: Partial<CommunityExtension> = {
+      id: targetId,
+      name: trimmedName,
+      description: formDescription.trim(),
+      author: formAuthor.trim() || 'Community',
+      version: formVersion.trim() || '1.0.0',
+      icon: formIcon,
+      source_type: formSourceType,
+      url: formSourceType === 'url' ? formUrl.trim() : undefined,
+      html: formSourceType === 'html' ? formHtml : undefined,
+      css: formSourceType === 'html' ? formCss : undefined,
+      js: formSourceType === 'html' ? formJs : undefined,
+      enabled: true,
+      aux_panel: formAuxPanel,
+      main_page: formMainPage,
+    }
+
+    try {
+      const res = await api.saveCommunityExtension(payload)
+      if (Array.isArray(res?.extensions)) {
+        setCommunityExtensions(res.extensions)
+      } else if (res?.extension) {
+        setCommunityExtensions((prev) => {
+          const idx = prev.findIndex((e) => e.id === res.extension.id)
+          if (idx >= 0) {
+            const next = [...prev]
+            next[idx] = res.extension
+            return next
+          }
+          return [...prev, res.extension]
+        })
+      } else {
+        setCommunityExtensions((prev) => {
+          const saved = payload as CommunityExtension
+          const idx = prev.findIndex((e) => e.id === saved.id)
+          if (idx >= 0) {
+            const next = [...prev]
+            next[idx] = saved
+            return next
+          }
+          return [...prev, saved]
+        })
+      }
+      api.applyEnhancements().catch(() => {})
+      setIsEditorOpen(false)
+      showFeedback(editingId ? 'Extension updated' : 'Extension created')
+    } catch {
+      showFeedback('Failed to save extension')
+    }
+  }
+
+  const handleDeleteCommunityExtension = async (id: string) => {
+    try {
+      const res = await api.deleteCommunityExtension(id)
+      if (Array.isArray(res?.extensions)) {
+        setCommunityExtensions(res.extensions)
+      } else {
+        setCommunityExtensions((prev) => prev.filter((e) => e.id !== id))
+      }
+      api.applyEnhancements().catch(() => {})
+      showFeedback('Community extension deleted')
+    } catch {
+      showFeedback('Failed to delete community extension')
+    }
+  }
+
+  const handleCommunityVisChange = async (
+    ext: CommunityExtension,
+    field: 'aux_panel' | 'main_page',
+    value: boolean
+  ) => {
+    const updatedExt: CommunityExtension = {
+      ...ext,
+      [field]: value,
+    }
+    setCommunityExtensions((prev) =>
+      prev.map((e) => (e.id === ext.id ? updatedExt : e))
+    )
+    try {
+      const res = await api.saveCommunityExtension(updatedExt)
+      if (Array.isArray(res?.extensions)) {
+        setCommunityExtensions(res.extensions)
+      }
+      api.applyEnhancements().catch(() => {})
+      showFeedback('Community extension visibility updated')
+    } catch {
+      showFeedback('Failed to update community extension visibility')
+    }
+  }
+
+  const handleExportJson = (ext: CommunityExtension) => {
+    try {
+      if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+        const blob = new Blob([JSON.stringify(ext, null, 2)], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${ext.id || 'extension'}.json`
+        a.click()
+        URL.revokeObjectURL(url)
+      }
+      showFeedback(`Exported ${ext.name} to JSON`)
+    } catch {
+      showFeedback(`Exported ${ext.name}`)
+    }
+  }
+
+  const handleImportSubmit = async () => {
+    try {
+      const parsed = JSON.parse(importJsonText)
+      let items: Partial<CommunityExtension>[] = []
+      if (Array.isArray(parsed)) {
+        items = parsed
+      } else if (parsed && Array.isArray(parsed.extensions)) {
+        items = parsed.extensions
+      } else if (parsed && typeof parsed === 'object') {
+        items = [parsed]
+      } else {
+        setImportError('Invalid JSON format: expected an object or array')
+        return
+      }
+
+      if (items.length === 0) {
+        setImportError('No extensions found in JSON')
+        return
+      }
+
+      const res = await api.importCommunityExtensions(items)
+      if (Array.isArray(res?.extensions)) {
+        setCommunityExtensions(res.extensions)
+      } else {
+        setCommunityExtensions((prev) => {
+          const map = new Map(prev.map((e) => [e.id, e]))
+          for (const item of items) {
+            if (item.id) {
+              map.set(item.id, {
+                enabled: true,
+                aux_panel: true,
+                main_page: false,
+                source_type: 'url',
+                name: item.id,
+                ...item,
+              } as CommunityExtension)
+            }
+          }
+          return Array.from(map.values())
+        })
+      }
+      api.applyEnhancements().catch(() => {})
+      setIsImportModalOpen(false)
+      setImportJsonText('')
+      setImportError(null)
+      showFeedback(`Imported ${items.length} extension${items.length === 1 ? '' : 's'}`)
+    } catch (err: any) {
+      setImportError(`JSON parse error: ${err?.message || 'Invalid JSON'}`)
+    }
+  }
+
   const getIDEName = (id: string) => {
     const map: Record<string, string> = {
       code: 'VS Code',
@@ -417,7 +723,8 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = () => {
         </div>
       )}
 
-      {/* Extension Gadgets Grid */}
+      {/* Extension Gadgets Grid (Built-in Tab) */}
+      {activeTab === 0 && (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
         {/* ========================================================================= */}
@@ -958,6 +1265,753 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = () => {
         </div>
 
       </div>
+      )}
+
+      {/* Community Extensions Tab */}
+      {activeTab === 1 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Top header card */}
+          <div
+            className="google-card"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '18px 20px',
+              gap: '16px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '8px',
+                  backgroundColor: 'var(--tonal)',
+                  flexShrink: 0,
+                }}
+              >
+                <Blocks size={20} color="var(--primary)" />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
+                  Community Extensions
+                </h3>
+                <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
+                  Create, import, and manage custom web or HTML/JS extensions for the IDE auxiliary panel and main stage.
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsImportModalOpen(true)
+                  setImportError(null)
+                  setImportJsonText('')
+                }}
+                className="btn-pill-outlined"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '12px',
+                  padding: '6px 14px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <Upload size={14} />
+                <span>Import JSON</span>
+              </button>
+              <button
+                type="button"
+                onClick={openCreateForm}
+                className="btn-pill-primary"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '12px',
+                  padding: '6px 14px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <Plus size={14} />
+                <span>Create Extension</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Import Modal / Card */}
+          {isImportModalOpen && (
+            <div
+              className="google-card"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '14px',
+                padding: '18px 20px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Upload size={16} color="var(--primary)" />
+                  <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
+                    Import Community Extensions
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsImportModalOpen(false)
+                    setImportError(null)
+                  }}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    color: 'var(--text-muted)',
+                  }}
+                  aria-label="Close Import Dialog"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45 }}>
+                Paste an extension JSON object or array of extensions, or upload a JSON file.
+              </p>
+
+              {importError && (
+                <div
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    backgroundColor: 'rgba(220, 38, 38, 0.08)',
+                    border: '1px solid rgba(220, 38, 38, 0.25)',
+                    color: '#dc2626',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <AlertTriangle size={14} />
+                  <span>{importError}</span>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <label
+                  className="btn-pill-tonal"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    padding: '6px 12px',
+                  }}
+                >
+                  <Upload size={14} />
+                  <span>Choose JSON File</span>
+                  <input
+                    type="file"
+                    accept=".json,application/json"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) {
+                        const reader = new FileReader()
+                        reader.onload = (ev) => {
+                          const text = String(ev.target?.result || '')
+                          setImportJsonText(text)
+                        }
+                        reader.readAsText(file)
+                      }
+                    }}
+                  />
+                </label>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>or paste JSON below:</span>
+              </div>
+
+              <textarea
+                aria-label="Import JSON Content"
+                placeholder='{
+  "id": "my-extension",
+  "name": "My Extension",
+  "source_type": "url",
+  "url": "http://localhost:3000"
+}'
+                value={importJsonText}
+                onChange={(e) => setImportJsonText(e.target.value)}
+                rows={6}
+                style={{
+                  fontSize: '12px',
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'var(--canvas)',
+                  color: 'var(--text)',
+                  fontFamily: 'monospace',
+                  resize: 'vertical',
+                }}
+              />
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsImportModalOpen(false)
+                    setImportError(null)
+                  }}
+                  className="btn-pill-tonal"
+                  style={{ fontSize: '12px', whiteSpace: 'nowrap' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleImportSubmit}
+                  className="btn-pill-primary"
+                  style={{ fontSize: '12px', whiteSpace: 'nowrap' }}
+                >
+                  Import
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Create / Edit Extension Card */}
+          {isEditorOpen && (
+            <div
+              className="google-card"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '16px',
+                padding: '20px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {editingId ? <Edit3 size={16} color="var(--primary)" /> : <Plus size={16} color="var(--primary)" />}
+                  <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
+                    {editingId ? 'Edit Community Extension' : 'Create Community Extension'}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsEditorOpen(false)}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    color: 'var(--text-muted)',
+                  }}
+                  aria-label="Close Editor"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Form Grid */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {/* Row 1: Name and ID */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>
+                      Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      aria-label="Extension Name"
+                      placeholder="e.g. SQLite Viewer"
+                      value={formName}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setFormName(val)
+                        if (!editingId && !formIdEdited) {
+                          setFormId(slugify(val))
+                        }
+                      }}
+                      style={{
+                        fontSize: '12px',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border)',
+                        backgroundColor: 'var(--canvas)',
+                        color: 'var(--text)',
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>
+                      Extension ID *
+                    </label>
+                    <input
+                      type="text"
+                      aria-label="Extension ID"
+                      placeholder="e.g. sqlite-viewer"
+                      value={formId}
+                      onChange={(e) => {
+                        setFormIdEdited(true)
+                        setFormId(e.target.value)
+                      }}
+                      disabled={Boolean(editingId)}
+                      style={{
+                        fontSize: '12px',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border)',
+                        backgroundColor: editingId ? 'var(--tonal)' : 'var(--canvas)',
+                        color: 'var(--text)',
+                        fontFamily: 'monospace',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Row 2: Version and Author */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>
+                      Version
+                    </label>
+                    <input
+                      type="text"
+                      aria-label="Extension Version"
+                      placeholder="1.0.0"
+                      value={formVersion}
+                      onChange={(e) => setFormVersion(e.target.value)}
+                      style={{
+                        fontSize: '12px',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border)',
+                        backgroundColor: 'var(--canvas)',
+                        color: 'var(--text)',
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>
+                      Author
+                    </label>
+                    <input
+                      type="text"
+                      aria-label="Extension Author"
+                      placeholder="Community"
+                      value={formAuthor}
+                      onChange={(e) => setFormAuthor(e.target.value)}
+                      style={{
+                        fontSize: '12px',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border)',
+                        backgroundColor: 'var(--canvas)',
+                        color: 'var(--text)',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Row 3: Description */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>
+                    Description
+                  </label>
+                  <textarea
+                    aria-label="Extension Description"
+                    placeholder="Describe what this extension does..."
+                    value={formDescription}
+                    onChange={(e) => setFormDescription(e.target.value)}
+                    rows={2}
+                    style={{
+                      fontSize: '12px',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      backgroundColor: 'var(--canvas)',
+                      color: 'var(--text)',
+                      resize: 'vertical',
+                    }}
+                  />
+                </div>
+
+                {/* Row 4: Icon Selector */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>
+                    Icon
+                  </label>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {COMMUNITY_ICONS.map((item) => {
+                      const isSelected = formIcon === item.id
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setFormIcon(item.id)}
+                          aria-label={`Select icon ${item.label}`}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '6px 12px',
+                            borderRadius: '6px',
+                            border: isSelected ? '1px solid var(--primary)' : '1px solid var(--border)',
+                            backgroundColor: isSelected ? 'var(--tonal)' : 'var(--surface)',
+                            color: isSelected ? 'var(--primary)' : 'var(--text)',
+                            fontSize: '12px',
+                            fontWeight: isSelected ? 600 : 500,
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {renderCommunityIcon(item.id, 14, isSelected ? 'var(--primary)' : 'var(--text-muted)')}
+                          <span>{item.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Row 5: Source Type */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>
+                    Source Type
+                  </label>
+                  <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--tonal)', padding: '2px', borderRadius: '6px', width: 'fit-content' }}>
+                    <button
+                      type="button"
+                      onClick={() => setFormSourceType('url')}
+                      style={segBtnStyle(formSourceType === 'url')}
+                      aria-pressed={formSourceType === 'url'}
+                    >
+                      Web URL
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormSourceType('html')}
+                      style={segBtnStyle(formSourceType === 'html')}
+                      aria-pressed={formSourceType === 'html'}
+                    >
+                      Custom HTML / JS
+                    </button>
+                  </div>
+                </div>
+
+                {/* Source Inputs */}
+                {formSourceType === 'url' ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>
+                      Target URL
+                    </label>
+                    <input
+                      type="text"
+                      aria-label="Extension Target URL"
+                      placeholder="http://localhost:3000"
+                      value={formUrl}
+                      onChange={(e) => setFormUrl(e.target.value)}
+                      style={{
+                        fontSize: '12px',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border)',
+                        backgroundColor: 'var(--canvas)',
+                        color: 'var(--text)',
+                        fontFamily: 'monospace',
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>
+                        HTML Markup
+                      </label>
+                      <textarea
+                        aria-label="Extension HTML"
+                        placeholder="<div id='app'>Custom extension content</div>"
+                        value={formHtml}
+                        onChange={(e) => setFormHtml(e.target.value)}
+                        rows={4}
+                        style={{
+                          fontSize: '12px',
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border)',
+                          backgroundColor: 'var(--canvas)',
+                          color: 'var(--text)',
+                          fontFamily: 'monospace',
+                          resize: 'vertical',
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>
+                        CSS Styles
+                      </label>
+                      <textarea
+                        aria-label="Extension CSS"
+                        placeholder="body { font-family: sans-serif; }"
+                        value={formCss}
+                        onChange={(e) => setFormCss(e.target.value)}
+                        rows={3}
+                        style={{
+                          fontSize: '12px',
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border)',
+                          backgroundColor: 'var(--canvas)',
+                          color: 'var(--text)',
+                          fontFamily: 'monospace',
+                          resize: 'vertical',
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>
+                        JavaScript
+                      </label>
+                      <textarea
+                        aria-label="Extension JavaScript"
+                        placeholder="console.log('Extension ready');"
+                        value={formJs}
+                        onChange={(e) => setFormJs(e.target.value)}
+                        rows={4}
+                        style={{
+                          fontSize: '12px',
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border)',
+                          backgroundColor: 'var(--canvas)',
+                          color: 'var(--text)',
+                          fontFamily: 'monospace',
+                          resize: 'vertical',
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Placement Toggles */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap', paddingTop: '8px', borderTop: '1px solid var(--border-subtle)' }}>
+                  <span style={extSwitchLabelStyle}>
+                    Auxiliary Panel
+                    <ToggleSwitch
+                      size="sm"
+                      checked={formAuxPanel}
+                      onChange={setFormAuxPanel}
+                      ariaLabel="Extension available in auxiliary panel"
+                    />
+                  </span>
+                  <span style={extSwitchLabelStyle}>
+                    Main Page
+                    <ToggleSwitch
+                      size="sm"
+                      checked={formMainPage}
+                      onChange={setFormMainPage}
+                      ariaLabel="Extension available in main page"
+                    />
+                  </span>
+                </div>
+
+                {/* Action Buttons */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditorOpen(false)}
+                    className="btn-pill-tonal"
+                    style={{ fontSize: '12px', whiteSpace: 'nowrap' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveExtension}
+                    className="btn-pill-primary"
+                    style={{ fontSize: '12px', whiteSpace: 'nowrap' }}
+                  >
+                    Save Extension
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Community Extensions List / Empty State */}
+          {communityExtensions.length === 0 && !isEditorOpen ? (
+            <div
+              className="google-card"
+              style={{
+                padding: '36px 20px',
+                textAlign: 'center',
+                color: 'var(--text-muted)',
+                fontSize: '13px',
+                lineHeight: 1.5,
+              }}
+            >
+              No community extensions installed. Click Create Extension or Import JSON to add your first custom extension.
+            </div>
+          ) : (
+            communityExtensions.map((ext) => (
+              <div
+                key={ext.id}
+                className="google-card"
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                  padding: '18px 20px',
+                  gap: '16px',
+                  flexWrap: 'wrap',
+                }}
+              >
+                {/* Left Side */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, minWidth: '260px' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '8px',
+                        backgroundColor: 'var(--tonal)',
+                        flexShrink: 0,
+                        marginTop: '2px',
+                      }}
+                    >
+                      {renderCommunityIcon(ext.icon, 18, 'var(--primary)')}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
+                          {ext.name}
+                        </h3>
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            backgroundColor: 'var(--tonal)',
+                            color: 'var(--text-muted)',
+                            fontWeight: 600,
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          v{ext.version || '1.0.0'}
+                        </span>
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                          by {ext.author || 'Community'}
+                        </span>
+                      </div>
+                      {ext.description && (
+                        <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45 }}>
+                          {ext.description}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Source Badge */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        fontSize: '11px',
+                        fontFamily: 'monospace',
+                        padding: '3px 8px',
+                        borderRadius: '4px',
+                        backgroundColor: 'var(--tonal)',
+                        color: 'var(--text)',
+                        maxWidth: '480px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {ext.source_type === 'url' ? <Globe size={12} /> : <Code size={12} />}
+                      <span>{ext.source_type === 'url' ? ext.url : 'Custom HTML / JS'}</span>
+                    </span>
+                  </div>
+
+                  {/* Actions */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
+                    <button
+                      type="button"
+                      onClick={() => openEditForm(ext)}
+                      className="btn-pill-tonal"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 10px', fontSize: '12px', whiteSpace: 'nowrap' }}
+                    >
+                      <Edit3 size={13} />
+                      <span>Edit</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExportJson(ext)}
+                      className="btn-pill-tonal"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 10px', fontSize: '12px', whiteSpace: 'nowrap' }}
+                    >
+                      <Download size={13} />
+                      <span>Export JSON</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteCommunityExtension(ext.id)}
+                      className="btn-pill-tonal"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 10px', fontSize: '12px', whiteSpace: 'nowrap', color: '#dc2626' }}
+                    >
+                      <Trash2 size={13} />
+                      <span>Delete</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Right Side: Visibility Toggles */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', flexShrink: 0 }}>
+                  <span style={extSwitchLabelStyle} title="Available in the IDE's right auxiliary panel">
+                    Auxiliary Panel
+                    <ToggleSwitch
+                      size="sm"
+                      checked={ext.aux_panel !== false}
+                      onChange={(v) => handleCommunityVisChange(ext, 'aux_panel', v)}
+                      ariaLabel={`${ext.name} available in auxiliary panel`}
+                    />
+                  </span>
+                  <span style={extSwitchLabelStyle} title="Openable on the main stage via a left-sidebar tab button">
+                    Main Page
+                    <ToggleSwitch
+                      size="sm"
+                      checked={ext.main_page === true}
+                      onChange={(v) => handleCommunityVisChange(ext, 'main_page', v)}
+                      ariaLabel={`${ext.name} available in main page`}
+                    />
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
     </div>
   )
 }

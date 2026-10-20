@@ -6,7 +6,15 @@ The Extensions subsystem manages modular auxiliary tools embedded into Antigravi
 
 ---
 
-## 1. Extension Gadget Directory
+## Navigation & Header Tabs
+
+The Extensions page provides a top header segmented switcher with two primary views:
+- **Built-in**: Core native tools shipped with Swiss Knife (Left Panel Access Mode, GitHub Workspace, Preview Browser, Auxiliary File Explorer, Quick Memos).
+- **Community**: Custom web and HTML/JS extensions created locally or imported via JSON.
+
+---
+
+## 1. Built-in Extension Gadgets
 
 Antigravity Swiss Knife includes five integrated extension gadgets:
 
@@ -46,6 +54,56 @@ Developers can customize where each extension appears via the Extension Visibili
 
 ---
 
-## 3. Persistence & Configuration Architecture
+## 3. Community Extensions
 
-Extension states, default URLs, preferred editor binaries, and scratchpad contents persist through `pkg/enhancements` in the daemon's local SQLite store. All changes apply immediately without requiring full IDE restarts.
+The Community tab allows developers to register, import, and configure custom extensions for Antigravity's auxiliary panel and main stage.
+
+### Extension Types
+- **Web URL (`url`)**: Embeds a running web service or local dev server (for example, `http://localhost:3000`) inside Antigravity via an iframe view.
+- **Custom HTML / JS (`html`)**: Sandboxed inline frontend snippet with custom HTML markup, CSS styling, and JavaScript logic.
+
+### JSON Import & Export
+Extensions can be exported to standalone JSON files for backup or distribution, and imported in bulk or as individual objects via the Import JSON dialog.
+
+### Community Extension Schema
+
+Community extensions are defined by the following TypeScript schema:
+
+```ts
+export type CommunityExtensionIcon =
+  | 'blocks'
+  | 'globe'
+  | 'code'
+  | 'terminal'
+  | 'database'
+  | 'bot'
+  | 'wrench'
+  | 'book-open'
+  | 'layers'
+  | 'cpu'
+
+export interface CommunityExtension {
+  id: string                      // Unique kebab-case identifier
+  name: string                    // Display title
+  description?: string            // Explainer copy
+  author?: string                 // Author name (defaults to 'Community')
+  version?: string                // Semver string (defaults to '1.0.0')
+  icon?: CommunityExtensionIcon   // Lucide icon identifier
+  source_type: 'url' | 'html'     // Embedded URL or sandboxed HTML/JS
+  url?: string                    // Target URL when source_type is 'url'
+  html?: string                   // HTML markup when source_type is 'html'
+  css?: string                    // CSS styles when source_type is 'html'
+  js?: string                     // JavaScript code when source_type is 'html'
+  enabled: boolean                // Whether extension is active
+  aux_panel: boolean              // Available in right auxiliary rail
+  main_page: boolean              // Available on main stage tab
+  created_at?: string             // Creation timestamp (ISO string)
+  updated_at?: string             // Last update timestamp (ISO string)
+}
+```
+
+---
+
+## 4. Persistence & Configuration Architecture
+
+Extension states, default URLs, preferred editor binaries, and community extension definitions persist through `pkg/enhancements` in the daemon's local SQLite store. All changes apply immediately without requiring full IDE restarts.

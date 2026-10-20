@@ -732,16 +732,38 @@ func GenerateGitHubExtensionScript() string {
         }
       ];
 
+      const commExts = window.getSwissCommunityExtensions ? window.getSwissCommunityExtensions() : [];
+      commExts.forEach(cExt => {
+        individualExts.push({
+          id: cExt.id,
+          label: cExt.name || cExt.id,
+          svg: window.getSwissCommunityExtensionSvg ? window.getSwissCommunityExtensionSvg(cExt.icon, "") : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="14" y="3" rx="1"/><path d="M10 21V8a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H3"/></svg>',
+          isCommunity: true,
+          ext: cExt
+        });
+      });
+
       const panelMode = getLeftPanelMode();
       let exts = [];
       if (panelMode === "individual") {
         if (swissExtVisibility && typeof swissExtVisibility === "object") {
           exts = individualExts.filter(ext => {
             const vis = swissExtVisibility[ext.id];
-            return Boolean(vis && vis.main_page === true);
+            if (vis) {
+              return Boolean(vis && vis.main_page === true);
+            }
+            if (ext.isCommunity && ext.ext) {
+              return Boolean(ext.ext.main_page === true);
+            }
+            return false;
           });
         } else {
-          exts = individualExts.filter(ext => isExtensionEnabled(ext.id));
+          exts = individualExts.filter(ext => {
+            if (ext.isCommunity && ext.ext) {
+              return Boolean(ext.ext.main_page);
+            }
+            return isExtensionEnabled(ext.id);
+          });
         }
       } else {
         // "single" mode (default): grouped under a single unified Swiss Knife extensions launcher button
@@ -2676,6 +2698,14 @@ func GenerateGitHubExtensionScript() string {
               </svg>
               GitHub Workspace
             </button>
+            ${(window.getSwissCommunityExtensions ? window.getSwissCommunityExtensions() : [])
+              .filter(ext => ext.main_page === true || activeMainStageExt === ext.id)
+              .map(ext => ` + "`" + `
+                <button class="swiss-main-stage-tab ${activeMainStageExt === ext.id ? "active" : ""}" data-ext="${escapeHTML(ext.id)}" title="${escapeHTML(ext.name || ext.id)}">
+                  ${window.getSwissCommunityExtensionSvg ? window.getSwissCommunityExtensionSvg(ext.icon, "") : ""}
+                  ${escapeHTML(ext.name || ext.id)}
+                </button>
+              ` + "`" + `).join("")}
           </div>
         </div>
 
@@ -2802,6 +2832,12 @@ func GenerateGitHubExtensionScript() string {
         window.renderSwissMemosView(body);
       } else {
         body.innerHTML = '<iframe src="http://127.0.0.1:8765" style="width: 100%; height: 100%; border: none;"></iframe>';
+      }
+    } else {
+      const commExts = window.getSwissCommunityExtensions ? window.getSwissCommunityExtensions() : [];
+      const commExt = commExts.find(e => e.id === activeMainStageExt);
+      if (commExt && typeof window.renderSwissCommunityExtensionView === "function") {
+        window.renderSwissCommunityExtensionView(body, commExt);
       }
     }
   }

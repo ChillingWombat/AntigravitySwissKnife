@@ -222,6 +222,42 @@ div:has(> .shrink-0.flex.items-center.border-b),
   box-sizing: border-box;
 }
 
+/* Community Extension View */
+.swiss-community-ext-view {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--canvas, #ffffff);
+  color: var(--text, #1e293b);
+  box-sizing: border-box;
+}
+.swiss-community-ext-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--canvas-subtle, #f8fafc);
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  min-width: 0;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+:is(.dark, [data-theme="dark"]) .swiss-community-ext-toolbar {
+  background: #1e293b;
+  border-bottom-color: #334155;
+}
+.swiss-community-ext-frame {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #ffffff;
+  box-sizing: border-box;
+}
+
 /* Browser View */
 .swiss-browser-view {
   display: flex;
@@ -2209,6 +2245,53 @@ func GenerateAuxiliaryPluginsScript() string {
       });
     }
 
+    function getCommunityExtensions() {
+      try {
+        let list = null;
+        if (window.__SWISS_ENH_CONFIG__ && Array.isArray(window.__SWISS_ENH_CONFIG__.community_extensions)) {
+          list = window.__SWISS_ENH_CONFIG__.community_extensions;
+        } else {
+          const raw = localStorage.getItem("antigravity_swiss_community_extensions");
+          if (raw) list = JSON.parse(raw);
+        }
+        if (Array.isArray(list)) {
+          return list.filter(ext => ext && ext.id && ext.enabled !== false);
+        }
+      } catch (_) {}
+      return [];
+    }
+
+    function getCommunityExtensionSvg(icon, cls) {
+      const c = cls ? ' class="' + cls + '"' : '';
+      const key = (icon || "").toLowerCase().trim();
+      switch (key) {
+        case "globe":
+          return '<svg' + c + ' viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+        case "code":
+          return '<svg' + c + ' viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>';
+        case "terminal":
+          return '<svg' + c + ' viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>';
+        case "database":
+          return '<svg' + c + ' viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>';
+        case "bot":
+          return '<svg' + c + ' viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>';
+        case "wrench":
+          return '<svg' + c + ' viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>';
+        case "book-open":
+          return '<svg' + c + ' viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>';
+        case "layers":
+          return '<svg' + c + ' viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>';
+        case "cpu":
+          return '<svg' + c + ' viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>';
+        case "blocks":
+        default:
+          return '<svg' + c + ' viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="14" y="3" rx="1"/><path d="M10 21V8a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H3"/></svg>';
+      }
+    }
+
+    window.getSwissCommunityExtensionSvg = getCommunityExtensionSvg;
+    window.getSwissCommunityExtensions = getCommunityExtensions;
+
     // 1. Auxiliary Panel Tab Injector Engine
     function setupAuxiliaryTabs() {
       if (window.__swissDaemonOnline === false || !window.__swissDaemonOnline) {
@@ -2239,14 +2322,19 @@ func GenerateAuxiliaryPluginsScript() string {
       // Per-extension aux_panel switches (EnhancementsConfig.extensions) decide
       // which Swiss tabs appear in the auxiliary panel. Legacy localStorage
       // fallbacks apply only when no visibility map is available.
-      function isAuxExtensionVisible(id) {
+      function isAuxExtensionVisible(id, extObj) {
         try {
           const cfg = window.__SWISS_ENH_CONFIG__;
           if (cfg && cfg.extensions && typeof cfg.extensions === "object") {
             const vis = cfg.extensions[id];
-            return !vis || vis.aux_panel !== false;
+            if (vis && typeof vis.aux_panel === "boolean") {
+              return vis.aux_panel;
+            }
           }
         } catch (_) {}
+        if (extObj && extObj.isCommunity && extObj.ext) {
+          return extObj.ext.aux_panel !== false;
+        }
         try {
           const disabledExts = JSON.parse(localStorage.getItem("antigravity_swiss_disabled_extensions") || "[]");
           if (Array.isArray(disabledExts) && disabledExts.includes(id)) return false;
@@ -2283,8 +2371,20 @@ func GenerateAuxiliaryPluginsScript() string {
         },
       ];
 
+      const commExts = getCommunityExtensions();
+      commExts.forEach(ext => {
+        allTabs.push({
+          id: ext.id,
+          tabId: "swiss-" + ext.id,
+          label: ext.name || ext.id,
+          svg: getCommunityExtensionSvg(ext.icon, "swiss-aux-tab-svg"),
+          isCommunity: true,
+          ext: ext
+        });
+      });
+
       // Honor per-extension aux_panel switches; drop tabs the user disabled.
-      const tabs = allTabs.filter(t => isAuxExtensionVisible(t.id));
+      const tabs = allTabs.filter(t => isAuxExtensionVisible(t.id, t));
       if (tabs.length === 0) {
         document.querySelectorAll(".swiss-aux-btn-group, .swiss-aux-tabs-divider, .swiss-aux-tabs-divider-left, .swiss-aux-tabs-divider-right").forEach(el => el.remove());
         if (activeAuxTab !== null) {
@@ -2337,6 +2437,25 @@ func GenerateAuxiliaryPluginsScript() string {
         // Ensure left and right dividers exist even if buttons already present
         const curBtnGroup = tabHeader.querySelector('.swiss-aux-btn-group');
         if (curBtnGroup) {
+          tabs.forEach(t => {
+            if (!curBtnGroup.querySelector('[data-swiss-tab="' + t.id + '"]')) {
+              const btn = document.createElement("button");
+              btn.className = "swiss-aux-tab-btn";
+              if (t.id === "browser") btn.setAttribute("data-tab-id", "swiss-browser");
+              else if (t.id === "files") btn.setAttribute("data-tab-id", "swiss-files");
+              else if (t.id === "memos") btn.setAttribute("data-tab-id", "swiss-memos");
+              else if (t.id === "github") btn.setAttribute("data-tab-id", "swiss-github");
+              else btn.setAttribute("data-tab-id", t.tabId || ("swiss-" + t.id));
+              btn.dataset.swissTab = t.id;
+              updateTabButtonMarkup(btn, t, curFmt);
+              btn.onclick = (e) => {
+                e.stopPropagation();
+                switchAuxTab(t.tabId);
+              };
+              curBtnGroup.appendChild(btn);
+            }
+          });
+
           let dividerLeft = tabHeader.querySelector('.swiss-aux-tabs-divider-left') ||
                             tabHeader.querySelector('.swiss-aux-tabs-divider:not(.swiss-aux-tabs-divider-right)');
           if (!dividerLeft) {
@@ -2447,6 +2566,7 @@ func GenerateAuxiliaryPluginsScript() string {
           else if (t.id === "files") btn.setAttribute("data-tab-id", "swiss-files");
           else if (t.id === "memos") btn.setAttribute("data-tab-id", "swiss-memos");
           else if (t.id === "github") btn.setAttribute("data-tab-id", "swiss-github");
+          else btn.setAttribute("data-tab-id", t.tabId || ("swiss-" + t.id));
           btn.dataset.swissTab = t.id;
           updateTabButtonMarkup(btn, t, curFmt);
           const activeTabTarget = activeAuxTab || localStorage.getItem("antigravity_active_aux_tab");
@@ -2625,12 +2745,106 @@ func GenerateAuxiliaryPluginsScript() string {
         if (typeof window.renderSwissGitHubWorkspaceView === "function") {
           window.renderSwissGitHubWorkspaceView(container);
         }
+      } else {
+        const commExts = getCommunityExtensions();
+        const commExt = commExts.find(e => e.id === tabId);
+        if (commExt) {
+          renderCommunityExtensionView(container, commExt);
+        }
       }
+    }
+
+    function renderCommunityExtensionView(container, ext) {
+      if (!container || !ext) return;
+      const wrap = document.createElement("div");
+      wrap.className = "swiss-community-ext-view";
+
+      const toolbar = document.createElement("div");
+      toolbar.className = "swiss-community-ext-toolbar";
+
+      const titleGroup = document.createElement("div");
+      titleGroup.style.display = "flex";
+      titleGroup.style.alignItems = "center";
+      titleGroup.style.gap = "8px";
+      titleGroup.style.minWidth = "0";
+
+      const iconSvg = getCommunityExtensionSvg(ext.icon, "swiss-aux-tab-svg");
+      const author = ext.author ? escapeHtml(ext.author) : "Community";
+      const version = ext.version ? escapeHtml(ext.version) : "1.0.0";
+      titleGroup.innerHTML = iconSvg +
+        '<span style="font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + escapeHtml(ext.name || ext.id) + '</span>' +
+        '<span style="font-size: 11px; color: var(--text-muted, #71717a); white-space: nowrap;">v' + version + ' · ' + author + '</span>';
+      toolbar.appendChild(titleGroup);
+
+      const actionsGroup = document.createElement("div");
+      actionsGroup.style.display = "flex";
+      actionsGroup.style.alignItems = "center";
+      actionsGroup.style.gap = "6px";
+      actionsGroup.style.flexShrink = "0";
+
+      if (ext.source_type === "url" && ext.url) {
+        const urlText = document.createElement("span");
+        urlText.style.cssText = "font-size: 11px; color: var(--text-muted, #71717a); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace;";
+        urlText.textContent = ext.url;
+        actionsGroup.appendChild(urlText);
+
+        const openBtn = document.createElement("button");
+        openBtn.className = "swiss-browser-btn";
+        openBtn.type = "button";
+        openBtn.title = "Open URL in external browser";
+        openBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> Open';
+        openBtn.onclick = () => window.open(ext.url, "_blank");
+        actionsGroup.appendChild(openBtn);
+      }
+
+      const reloadBtn = document.createElement("button");
+      reloadBtn.className = "swiss-browser-btn";
+      reloadBtn.type = "button";
+      reloadBtn.title = "Reload Extension";
+      reloadBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg> Reload';
+      actionsGroup.appendChild(reloadBtn);
+
+      toolbar.appendChild(actionsGroup);
+      wrap.appendChild(toolbar);
+
+      const iframe = document.createElement("iframe");
+      iframe.className = "swiss-community-ext-frame";
+      iframe.style.cssText = "flex: 1; width: 100%; height: 100%; border: none;";
+
+      if (ext.source_type === "url") {
+        iframe.src = ext.url || "about:blank";
+        reloadBtn.onclick = () => {
+          try { iframe.src = ext.url; } catch (_) {}
+        };
+      } else {
+        iframe.setAttribute("sandbox", "allow-scripts allow-forms allow-modals");
+        const srcDocContent = '<!DOCTYPE html><html><head><meta charset="utf-8"><style>body { margin: 0; padding: 12px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1e293b; background: #ffffff; } @media (prefers-color-scheme: dark) { body { color: #f1f5f9; background: #0f172a; } } ' + (ext.css || "") + '</style></head><body>' + (ext.html || "") + '<script>' + (ext.js || "") + '<\/script></body></html>';
+        iframe.srcdoc = srcDocContent;
+        reloadBtn.onclick = () => {
+          iframe.srcdoc = srcDocContent;
+        };
+      }
+
+      const onMessage = (e) => {
+        if (e && e.data && e.data.type === "swiss-insert-chat" && typeof e.data.text === "string") {
+          if (typeof insertTextToChatInput === "function") {
+            insertTextToChatInput(e.data.text);
+          }
+        }
+      };
+      window.addEventListener("message", onMessage);
+      container.__swissTabTeardown = () => {
+        window.removeEventListener("message", onMessage);
+      };
+
+      wrap.appendChild(iframe);
+      container.appendChild(wrap);
     }
 
     window.renderSwissBrowserView = renderBrowserView;
     window.renderSwissFilesView = renderFilesView;
     window.renderSwissMemosView = renderMemosView;
+    window.renderSwissCommunityExtensionView = renderCommunityExtensionView;
 
     // ----------------------------------------------------
     // 2. LIVE BROWSER & APP PREVIEWER WITH ANNOTATIONS

@@ -1,6 +1,7 @@
 package webgui
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"embed"
@@ -434,6 +435,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/enhancements", s.handleEnhancements)
 	mux.HandleFunc("/api/enhancements/update", s.handleEnhancementsUpdate)
 	mux.HandleFunc("/api/enhancements/apply", s.handleEnhancementsApply)
+	mux.HandleFunc("/api/extensions/community", s.handleCommunityExtensions)
 
 	// Scheduled Task Templates (Automations)
 	mux.HandleFunc("/api/templates", s.handleTemplates)
@@ -3318,6 +3320,146 @@ func (s *Server) handleEnhancementsApply(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, map[string]interface{}{"success": true, "message": "Enhancements configuration updated"})
+}
+
+func (s *Server) handleCommunityExtensions(w http.ResponseWriter, r *http.Request) {
+	store := s.getEnhancementsStore()
+	if store == nil {
+		http.Error(w, "enhancements store not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, map[string]interface{}{
+			"success":    true,
+			"extensions": store.GetCommunityExtensions(),
+		})
+		return
+
+	case http.MethodPost:
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, map[string]interface{}{"success": false, "error": "failed to read request body"})
+			return
+		}
+
+		trimmed := bytes.TrimSpace(body)
+		if len(trimmed) == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, map[string]interface{}{"success": false, "error": "empty request body"})
+			return
+		}
+
+		if trimmed[0] == '[' {
+			var list []enhancements.CommunityExtension
+			if err := json.Unmarshal(trimmed, &list); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				writeJSON(w, map[string]interface{}{"success": false, "error": "invalid json array: " + err.Error()})
+				return
+			}
+			for _, ext := range list {
+				if _, err := store.SaveCommunityExtension(ext); err != nil {
+					w.WriteHeader(http.StatusBadRequest)
+					writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+					return
+				}
+			}
+			if s.guiStore != nil {
+				_, _ = s.guiStore.Apply()
+			}
+			writeJSON(w, map[string]interface{}{
+				"success":    true,
+				"extensions": store.GetCommunityExtensions(),
+			})
+			return
+		}
+
+		var envelope struct {
+			Extensions *[]enhancements.CommunityExtension `json:"extensions"`
+			Extension  *enhancements.CommunityExtension  `json:"extension"`
+		}
+		if err := json.Unmarshal(trimmed, &envelope); err == nil && (envelope.Extensions != nil || envelope.Extension != nil) {
+			if envelope.Extensions != nil {
+				for _, ext := range *envelope.Extensions {
+					if _, err := store.SaveCommunityExtension(ext); err != nil {
+						w.WriteHeader(http.StatusBadRequest)
+						writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+						return
+					}
+				}
+				if s.guiStore != nil {
+					_, _ = s.guiStore.Apply()
+				}
+				writeJSON(w, map[string]interface{}{
+					"success":    true,
+					"extensions": store.GetCommunityExtensions(),
+				})
+				return
+			}
+			if envelope.Extension != nil {
+				saved, err := store.SaveCommunityExtension(*envelope.Extension)
+				if err != nil {
+					w.WriteHeader(http.StatusBadRequest)
+					writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+					return
+				}
+				if s.guiStore != nil {
+					_, _ = s.guiStore.Apply()
+				}
+				writeJSON(w, map[string]interface{}{
+					"success":    true,
+					"extension":  saved,
+					"extensions": store.GetCommunityExtensions(),
+				})
+				return
+			}
+		}
+
+		var direct enhancements.CommunityExtension
+		if err := json.Unmarshal(trimmed, &direct); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, map[string]interface{}{"success": false, "error": "invalid request body: " + err.Error()})
+			return
+		}
+
+		saved, err := store.SaveCommunityExtension(direct)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		if s.guiStore != nil {
+			_, _ = s.guiStore.Apply()
+		}
+		writeJSON(w, map[string]interface{}{
+			"success":    true,
+			"extension":  saved,
+			"extensions": store.GetCommunityExtensions(),
+		})
+		return
+
+	case http.MethodDelete:
+		id := strings.TrimSpace(r.URL.Query().Get("id"))
+		if err := store.DeleteCommunityExtension(id); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		if s.guiStore != nil {
+			_, _ = s.guiStore.Apply()
+		}
+		writeJSON(w, map[string]interface{}{
+			"success":    true,
+			"deleted":    id,
+			"extensions": store.GetCommunityExtensions(),
+		})
+		return
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 // Scheduled Task Templates handlers
