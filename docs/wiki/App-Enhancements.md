@@ -19,7 +19,11 @@ Injection occurs via the Chrome DevTools Protocol `Page.addScriptToEvaluateOnNew
 ## 2. Chat View Enhancements
 
 The Chat View category refines the main conversation interface:
-- **Turn Jump Navigator**: Floating anchor buttons along the chat scroll track that let developers jump directly between user prompts and agent output blocks in long multi-turn sessions.
+- **Chat Navigator & Prompt Jump Rail**:
+  - **Split-Gap Hit Buffer & Rail Hover**: The prompt jump rail (`#swiss-prompt-jump-bar`) uses `gap: 0px` with `padding: 4px 6px` and `pointer-events: auto`, listening for `mouseenter` across the entire rail section between top and bottom turns. Individual prompt dashes (`.swiss-prompt-dash`) apply `padding: 3.5px 6px; box-sizing: content-box; background-clip: content-box;`, painting lines at 14px × 1.5px (or configured dimensions) while splitting the 7px inter-dash distance 50/50 with zero dead zones and a 6px horizontal buffer.
+  - **Direct Overlay Positioning**: When open, the hover panel (`#swiss-prompt-navigator-panel`) positions directly over the rail lines (`let left = rect.left;`, clamped within viewport bounds) rather than floating off to the right.
+  - **Underlying Rail Occlusion**: While the panel is displayed, the underlying rail lines are hidden via `data-swiss-panel-open="true"`, `opacity: 0`, `visibility: hidden`, and `pointer-events: none`. Closing the panel restores the rail lines to full opacity, visibility, and pointer responsiveness.
+  - **Row Dash Expansion on Hover**: Hovering any row in the navigator panel triggers a smooth width expansion of its left dash indicator (`.swiss-navigator-row-dash`) from 14px to 22px (`Math.max(22, dashWidth + 8)`) with active color highlighting and a subtle row background (`rgba(148, 163, 184, 0.12)` in dark mode, `rgba(100, 116, 139, 0.08)` in light mode).
 - **Live TPS Streaming Indicator**: Displays real-time generation speed (tokens per second) in the message header while the model streams output.
 - **Thought Block Auto-Collapse**: Automatically folds lengthy internal reasoning traces into compact headers, keeping the active chat clean while preserving one-click expansion.
 - **Enhanced Code Copy & Diff Highlights**: One-click copy buttons for code blocks with language indicators, plus inline side-by-side or unified diff rendering for suggested file changes.
