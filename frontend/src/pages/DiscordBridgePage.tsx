@@ -44,7 +44,12 @@ export const DiscordBridgePage: React.FC = () => {
       if (res && res.status) {
         setStatus(res.status)
       }
-      const cfgRes = await api.getChannelsConfig()
+      let cfgRes: any = null
+      try {
+        cfgRes = await api.getChannelsConfig(true)
+      } catch (_) {
+        cfgRes = await api.getChannelsConfig()
+      }
       if (cfgRes && cfgRes.config) {
         setConfig(cfgRes.config)
         if (cfgRes.config.discord?.allowed_channels) {
@@ -103,11 +108,15 @@ export const DiscordBridgePage: React.FC = () => {
       const res = await api.updateChannelsConfig(newConfig)
       if (res && res.success) {
         if (res.config) setConfig(res.config)
+        if (res.status) setStatus(res.status)
         setSaveSuccess(true)
         setTimeout(() => setSaveSuccess(false), 3000)
+      } else {
+        setTestResult({ success: false, error: (res as any)?.error || 'Failed to save configuration' })
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to save Discord config:', err)
+      setTestResult({ success: false, error: err?.message || 'Failed to save configuration' })
     } finally {
       setLoading(false)
     }
@@ -119,6 +128,12 @@ export const DiscordBridgePage: React.FC = () => {
     try {
       const res = await api.testChannel('discord')
       setTestResult(res)
+      if (res?.status) {
+        setStatus(res.status)
+      }
+      if (res?.success) {
+        await fetchStatusAndConfig()
+      }
     } catch (err: any) {
       setTestResult({ success: false, error: err?.message || 'Connection test failed' })
     } finally {

@@ -44,7 +44,12 @@ export const WhatsAppBridgePage: React.FC = () => {
       if (res && res.status) {
         setStatus(res.status)
       }
-      const cfgRes = await api.getChannelsConfig()
+      let cfgRes: any = null
+      try {
+        cfgRes = await api.getChannelsConfig(true)
+      } catch (_) {
+        cfgRes = await api.getChannelsConfig()
+      }
       if (cfgRes && cfgRes.config) {
         setConfig(cfgRes.config)
         if (cfgRes.config.whatsapp?.allowed_numbers) {
@@ -95,11 +100,15 @@ export const WhatsAppBridgePage: React.FC = () => {
       const res = await api.updateChannelsConfig(newConfig)
       if (res && res.success) {
         if (res.config) setConfig(res.config)
+        if (res.status) setStatus(res.status)
         setSaveSuccess(true)
         setTimeout(() => setSaveSuccess(false), 3000)
+      } else {
+        setTestResult({ success: false, error: (res as any)?.error || 'Failed to save configuration' })
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to save WhatsApp config:', err)
+      setTestResult({ success: false, error: err?.message || 'Failed to save configuration' })
     } finally {
       setLoading(false)
     }
@@ -111,6 +120,12 @@ export const WhatsAppBridgePage: React.FC = () => {
     try {
       const res = await api.testChannel('whatsapp')
       setTestResult(res)
+      if (res?.status) {
+        setStatus(res.status)
+      }
+      if (res?.success) {
+        await fetchStatusAndConfig()
+      }
     } catch (err: any) {
       setTestResult({ success: false, error: err?.message || 'Connection test failed' })
     } finally {
@@ -280,7 +295,7 @@ export const WhatsAppBridgePage: React.FC = () => {
             </div>
           </div>
 
-          {config.whatsapp.mode === 'cloud_api' && (
+          {config.whatsapp.mode === 'cloud_api' ? (
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
               <div>
                 <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
@@ -336,6 +351,26 @@ export const WhatsAppBridgePage: React.FC = () => {
                   style={{ width: '100%' }}
                 />
               </div>
+            </div>
+          ) : (
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                Webhook Verification Token
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Shared secret token used to verify inbound webhook notifications.
+              </div>
+              <input
+                type="text"
+                value={config.whatsapp.verify_token}
+                onChange={(e) =>
+                  setConfig({
+                    ...config,
+                    whatsapp: { ...config.whatsapp, verify_token: e.target.value },
+                  })
+                }
+                style={{ width: '100%' }}
+              />
             </div>
           )}
 
