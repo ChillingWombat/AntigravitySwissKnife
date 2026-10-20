@@ -42,16 +42,15 @@ func TestChallengerBridge_WebGUI_BridgeTestEndpoint(t *testing.T) {
 	if resDisabled["success"] != false {
 		t.Errorf("expected success: false for disabled bridge, got: %v", resDisabled["success"])
 	}
-	if !strings.Contains(resDisabled["message"].(string), "Gemini Bridge is currently disabled") {
+	if !strings.Contains(resDisabled["message"].(string), "Start Remote Access") {
 		t.Errorf("unexpected message for disabled bridge: %v", resDisabled["message"])
 	}
 
 	// 2. Enabled state
-	cfg := bridgeSvc.GetConfig()
-	cfg.Enabled = true
-	if err := bridgeSvc.UpdateConfig(cfg); err != nil {
-		t.Fatalf("failed to enable bridge: %v", err)
+	if _, err := bridgeSvc.StartTunnel("custom", "https://bridge.example.com"); err != nil {
+		t.Fatalf("failed to start bridge tunnel: %v", err)
 	}
+	defer bridgeSvc.StopTunnel()
 
 	wEnabled := httptest.NewRecorder()
 	server.handleBridgeTest(wEnabled, req)

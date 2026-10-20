@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestTunnelManager_InitializationAndPaths(t *testing.T) {
@@ -468,5 +469,106 @@ func TestRemoteManager_TunnelLifecycleDrivesEnabledAndClearsEndpoint(t *testing.
 	}
 	if stopped.TunnelType != "" || stopped.TunnelURL != "" {
 		t.Fatalf("stopping a tunnel must clear endpoint state: type=%q url=%q", stopped.TunnelType, stopped.TunnelURL)
+	}
+}
+
+func TestService_TunnelLifecycleDrivesEnabledAndClearsEndpoint(t *testing.T) {
+	svc, err := NewService(filepath.Join(t.TempDir(), "gemini_bridge.json"))
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+
+	if _, err := svc.StartTunnel("custom", "https://bridge.example.com"); err != nil {
+		t.Fatalf("StartTunnel failed: %v", err)
+	}
+	started := svc.GetConfig()
+	if !started.Enabled {
+		t.Fatal("starting a tunnel must mark the Gemini bridge enabled")
+	}
+	if started.TunnelType != "custom" || started.TunnelURL == "" {
+		t.Fatalf("started tunnel config incomplete: type=%q url=%q", started.TunnelType, started.TunnelURL)
+	}
+	if status := svc.GetStatus(); !status.Enabled {
+		t.Fatal("bridge status must report enabled while the tunnel is active")
+	}
+
+	svc.StopTunnel()
+	stopped := svc.GetConfig()
+	if stopped.Enabled {
+		t.Fatal("stopping a tunnel must mark the Gemini bridge disabled")
+	}
+	if stopped.TunnelType != "" || stopped.TunnelURL != "" {
+		t.Fatalf("stopping a tunnel must clear endpoint state: type=%q url=%q", stopped.TunnelType, stopped.TunnelURL)
+	}
+	if status := svc.GetStatus(); status.Enabled || status.GatewayURL != "" {
+		t.Fatalf("stopped bridge status retained enabled/endpoint state: enabled=%t url=%q", status.Enabled, status.GatewayURL)
+	}
+}
+
+func TestService_StatusRequiresActiveTunnelNotPersistedEnabledFlag(t *testing.T) {
+	svc, err := NewService(filepath.Join(t.TempDir(), "gemini_bridge.json"))
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+
+	cfg := svc.GetConfig()
+	cfg.Enabled = true
+	if err := svc.UpdateConfig(cfg); err != nil {
+		t.Fatalf("UpdateConfig failed: %v", err)
+	}
+	if status := svc.GetStatus(); status.Enabled {
+		t.Fatal("persisted enabled flag must not report an active bridge without a live tunnel")
+	}
+}
+
+func TestService_RejectedTunnelReplacementPreservesActiveSession(t *testing.T) {
+	svc, err := NewService(filepath.Join(t.TempDir(), "gemini_bridge.json"))
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+
+	if _, err := svc.StartTunnel("custom", "https://bridge.example.com"); err != nil {
+		t.Fatalf("initial StartTunnel failed: %v", err)
+	}
+	if _, err := svc.StartTunnel("custom", "https://"); err == nil {
+		t.Fatal("expected invalid replacement URL to be rejected")
+	}
+
+	cfg := svc.GetConfig()
+	if !cfg.Enabled || cfg.TunnelType != "custom" || cfg.TunnelURL == "" {
+		t.Fatalf("rejected replacement changed the active config: enabled=%t type=%q url=%q", cfg.Enabled, cfg.TunnelType, cfg.TunnelURL)
+	}
+	if status := svc.GetStatus(); !status.Enabled || !status.Tunnel.Active {
+		t.Fatalf("rejected replacement stopped the active tunnel: enabled=%t active=%t", status.Enabled, status.Tunnel.Active)
+	}
+}
+
+func TestService_AutoStartUsesTunnelLifecycle(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AutoStartTunnel = true
+	cfg.TunnelType = "custom"
+	cfg.TunnelURL = "https://auto.example.com"
+
+	configPath := filepath.Join(t.TempDir(), "gemini_bridge.json")
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	svc, err := NewService(configPath)
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+	defer svc.StopTunnel()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && !svc.GetConfig().Enabled {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !svc.GetConfig().Enabled {
+		t.Fatal("auto-start bypassed the tunnel lifecycle and left the bridge disabled")
 	}
 }

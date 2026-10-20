@@ -6295,7 +6295,7 @@ func (s *Server) handleBridgeTest(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]interface{}{
 			"success": false,
 			"status":  st,
-			"message": "Gemini Bridge is currently disabled. Enable the bridge to connect surfaces.",
+			"message": "Remote access is stopped. Start Remote Access before verifying bridge surfaces.",
 		})
 		return
 	}

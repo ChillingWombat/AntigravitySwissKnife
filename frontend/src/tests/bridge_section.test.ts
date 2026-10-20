@@ -120,8 +120,8 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.ok(geminiContent.includes('api.getBridgeStatus'))
     assert.ok(geminiContent.includes('api.testBridgeConnection'))
     assert.ok(geminiContent.includes('google-card'))
-    assert.ok(geminiContent.includes('ToggleSwitch'))
     assert.ok(geminiContent.includes('badge-chip'))
+    assert.strictEqual(geminiContent.includes('Enable Bridge'), false, 'duplicate top-level enable toggle must be removed')
   })
 
   it('all 5 bridge pages eliminate banned AI buzzwords (utilize, supercharge, paradigm shift, delve)', () => {

@@ -41,6 +41,24 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
     assert.strictEqual(content.includes('Reverse Proxy'), false)
   })
 
+  it('uses tunnel lifecycle as the only operational bridge control', () => {
+    assert.ok(content.includes('Verify Bridge'))
+    assert.ok(content.includes('Gateway Status'))
+    assert.ok(content.includes('Operating Mode'))
+    assert.ok(content.includes('Remote Internet Pipe'))
+    assert.strictEqual(content.includes('Enable Bridge'), false)
+    assert.strictEqual(content.includes('handleToggleEnable'), false)
+    assert.strictEqual(content.includes('api.updateBridgeConfig'), false)
+    assert.strictEqual(content.includes('Desktop Surface'), false)
+    assert.strictEqual(content.includes('Account Shield Active'), false)
+  })
+
+  it('reports verification failures and does not render fabricated credentials', () => {
+    assert.ok(content.includes('isError: !res?.success'))
+    assert.strictEqual(content.includes("'582914'"), false)
+    assert.strictEqual(content.includes("'swiss-gemini-auth-token'"), false)
+  })
+
   it('provides pairing PIN and Bearer token display with rotation', () => {
     assert.ok(content.includes('api.rotateBridgeToken'))
     assert.ok(content.includes('Pairing PIN'))
