@@ -430,7 +430,7 @@ export const CustomModelsPage: React.FC = () => {
 
     const isClaude = effModel.toLowerCase().includes('claude')
     const region = resolveGcpRegion(effModel, isEdit ? gcpEditingModel : null)
-    const isReasoning = /thinking|gemini-2\.0-flash-thinking|gemini-2\.5|gemini-3|gemini-4|claude-3-7|claude-4|o1|o3|r1/i.test(effModel)
+    const isReasoning = /thinking|reasoner|gemini-2\.0-flash-thinking|gemini-2\.5|gemini-3|gemini-4|claude-3-7|claude-4|claude-5|claude-opus|claude-sonnet|o1|o3|o4|r1|qwq|deepseek-flash|deepseek-v4/i.test(effModel)
 
     let ctxWindow = 1048576
     const lowerModel = effModel.toLowerCase()
@@ -495,8 +495,12 @@ export const CustomModelsPage: React.FC = () => {
       enabled: isEdit ? gcpEditingModel.enabled : true,
       context_window: isEdit && gcpEditingModel.context_window ? gcpEditingModel.context_window : ctxWindow,
       supports_thinking: isReasoning,
-      thinking_levels: isReasoning ? ['off', 'low', 'medium', 'high'] : [],
-      thinking_level: isReasoning ? 'high' : 'off',
+      thinking_levels: isReasoning ? ['low', 'medium', 'high'] : [],
+      thinking_level: isReasoning
+        ? (isEdit && gcpEditingModel?.thinking_level && gcpEditingModel.thinking_level.toLowerCase() !== 'off'
+            ? gcpEditingModel.thinking_level
+            : 'high')
+        : 'off',
       notes: `GCP Vertex AI (${region}) - Project ${project} via ${gcpClientEmail || 'Service Account'}`,
     }
 
@@ -1869,6 +1873,9 @@ export const CustomModelsPage: React.FC = () => {
                         const detected = detectThinkingLevels(val)
                         if (detected.length > 0) {
                           setThinkingLevels(detected)
+                          if (!thinkingLevel || thinkingLevel === 'off') {
+                            setThinkingLevel(detected.includes('high') ? 'high' : detected[0])
+                          }
                         }
                       }}
                       onClick={() => {

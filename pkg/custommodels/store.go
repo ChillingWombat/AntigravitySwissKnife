@@ -58,6 +58,13 @@ func (s *Store) load() error {
 	s.config = &cfg
 	migrated := false
 	for i := range s.config.Models {
+		prevSupports := s.config.Models[i].SupportsThinking
+		prevLevel := s.config.Models[i].ThinkingLevel
+		prevLevelsLen := len(s.config.Models[i].ThinkingLevels)
+		_ = s.config.Models[i].Validate()
+		if s.config.Models[i].SupportsThinking != prevSupports || s.config.Models[i].ThinkingLevel != prevLevel || len(s.config.Models[i].ThinkingLevels) != prevLevelsLen {
+			migrated = true
+		}
 		if s.config.Models[i].ProviderType == ProviderGCP && !s.config.Models[i].QuotaManualOverride {
 			if s.config.Models[i].QuotaType == "" || s.config.Models[i].QuotaType == QuotaTypeNA || s.config.Models[i].QuotaType == QuotaNone || s.config.Models[i].QuotaType == QuotaTypeQuota {
 				s.config.Models[i].QuotaType = QuotaTypeBalance

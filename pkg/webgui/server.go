@@ -6444,7 +6444,7 @@ func (s *Server) handleBridgeConfig(w http.ResponseWriter, r *http.Request) {
 	if s.bridgeService == nil {
 		s.bridgeService, _ = bridge.NewService("")
 	}
-	var cfg bridge.Config
+	cfg := s.bridgeService.GetConfig()
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
@@ -6682,14 +6682,26 @@ func (s *Server) handleBridgeMode(w http.ResponseWriter, r *http.Request) {
 	}
 	bridgeSvc := s.getBridgeService()
 	var req struct {
-		Mode string `json:"mode"`
+		Mode           string `json:"mode"`
+		UseAppPassword *bool  `json:"use_app_password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	if err := bridgeSvc.SetOperatingMode(req.Mode); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if req.UseAppPassword != nil {
+		if err := bridgeSvc.SetUseAppPassword(*req.UseAppPassword); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	if strings.TrimSpace(req.Mode) != "" {
+		if err := bridgeSvc.SetOperatingMode(req.Mode); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	} else if req.UseAppPassword == nil {
+		http.Error(w, "mode or use_app_password is required", http.StatusBadRequest)
 		return
 	}
 	writeJSON(w, map[string]interface{}{
@@ -6732,7 +6744,7 @@ func (s *Server) handleBridgeRemoteConfig(w http.ResponseWriter, r *http.Request
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var cfg bridge.RemoteControlConfig
+	cfg := bridgeSvc.GetRemoteConfig()
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
@@ -6741,9 +6753,21 @@ func (s *Server) handleBridgeRemoteConfig(w http.ResponseWriter, r *http.Request
 		http.Error(w, "failed to update remote config", http.StatusInternalServerError)
 		return
 	}
+	activeEmail := ""
+	store, _ := keyring.NewStore("")
+	if store != nil {
+		activeEmail = store.ActiveAccount()
+	}
+	shield := process.NewShield(0)
+	procs, _ := shield.FindAntigravityProcesses()
+	pid := 0
+	if len(procs) > 0 {
+		pid = procs[0].PID
+	}
 	writeJSON(w, map[string]interface{}{
 		"success": true,
 		"config":  bridgeSvc.GetRemoteConfig(),
+		"status":  bridgeSvc.GetRemoteStatus(activeEmail, pid),
 	})
 }
 

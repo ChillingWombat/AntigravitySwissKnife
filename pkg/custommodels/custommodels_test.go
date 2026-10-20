@@ -389,6 +389,83 @@ func TestGenerateCustomModelsScript_NoRedundantGeminiReasoningSelector(t *testin
 	if containsSubstring(script, `"Reasoning: "`) {
 		t.Errorf("expected script NOT to contain redundant 'Reasoning: ' dropdown")
 	}
+	// Verify thinking level selector is rendered inside the model selector flyout submenu
+	// rather than as a separate composer pill, and uses the factory Antigravity SVG tick and chevron.
+	if !containsSubstring(script, "swiss-custom-thinking-submenu") {
+		t.Errorf("expected script to contain in-selector thinking submenu 'swiss-custom-thinking-submenu'")
+	}
+	if !containsSubstring(script, `model-selector-effort-option`) {
+		t.Errorf("expected script to render 'model-selector-effort-option' items inside the model selector submenu")
+	}
+	if !containsSubstring(script, "M382-339.38L727.54-684.92") {
+		t.Errorf("expected script to use factory Antigravity CheckIcon SVG path")
+	}
+	if !containsSubstring(script, "M517.85-480l-184-184") {
+		t.Errorf("expected script to use factory Antigravity ChevronRightIcon SVG path")
+	}
+	if containsSubstring(script, "Thinking:</span>") {
+		t.Errorf("expected script NOT to create an external 'Thinking:' composer pill")
+	}
+	if containsSubstring(script, `cleanActiveName + " \u25be"`) || containsSubstring(script, `cleanDisplayName + " \u25be"`) {
+		t.Errorf("expected script NOT to append duplicate '\\u25be' triangle to trigger label")
+	}
+	// Verify popover selector excludes the thinking submenu
+	if !containsSubstring(script, `:not(#swiss-custom-thinking-submenu)`) {
+		t.Errorf("expected script to exclude #swiss-custom-thinking-submenu in popover query selector")
+	}
+	// Verify hover tunnel gap timer
+	if !containsSubstring(script, "submenuCloseTimer") {
+		t.Errorf("expected script to implement submenuCloseTimer for hover tunnel gap")
+	}
+}
+
+func TestGenerateCustomModelsScript_SubmenuEdgeCases(t *testing.T) {
+	script := GenerateCustomModelsScript(nil)
+
+	// 1. [P1] Exclude #swiss-custom-thinking-submenu in popover selectors
+	if !strings.Contains(script, `[role="menu"]:not(#swiss-custom-thinking-submenu)`) {
+		t.Errorf("expected script to contain [role=\"menu\"]:not(#swiss-custom-thinking-submenu)")
+	}
+
+	// 2. [P2] Hover tunnel gap timer
+	if !strings.Contains(script, "submenuCloseTimer") {
+		t.Errorf("expected script to define submenuCloseTimer")
+	}
+	if !strings.Contains(script, "clearSubmenuCloseTimer") {
+		t.Errorf("expected script to define clearSubmenuCloseTimer")
+	}
+
+	// 3. [P2] Viewport right-edge collision handling
+	if !strings.Contains(script, "menuRect.right + 165 > window.innerWidth") {
+		t.Errorf("expected script to compute viewport collision using window.innerWidth")
+	}
+	if !strings.Contains(script, "targetLeft") {
+		t.Errorf("expected script to compute targetLeft for submenu placement")
+	}
+
+	// 4. [P3] Trigger label re-sync on React re-render & case-insensitive project bind lookup
+	if !strings.Contains(script, `!(label.textContent || "").includes(cleanName)`) {
+		t.Errorf("expected script to re-sync trigger label if textContent does not include cleanName")
+	}
+	if !strings.Contains(script, "curProject.trim().toLowerCase()") {
+		t.Errorf("expected script to perform case-insensitive project bind lookup")
+	}
+
+	// 5. [P3] Immediate menu dismissal on selection before network fetch
+	selectFnIdx := strings.Index(script, "async function selectCustomModelWithLevel")
+	if selectFnIdx == -1 {
+		t.Fatalf("expected script to contain selectCustomModelWithLevel function")
+	}
+	selectFn := script[selectFnIdx:]
+	popoverRemoveIdx := strings.Index(selectFn, "popover.remove()")
+	fetchBindIdx := strings.Index(selectFn, "/api/custom_models/bind")
+	fetchThinkingIdx := strings.Index(selectFn, "/api/custom_models/thinking_level")
+	if popoverRemoveIdx == -1 || fetchBindIdx == -1 || fetchThinkingIdx == -1 {
+		t.Errorf("missing expected statements in selectCustomModelWithLevel")
+	}
+	if popoverRemoveIdx > fetchBindIdx || popoverRemoveIdx > fetchThinkingIdx {
+		t.Errorf("expected popover.remove() to occur before awaiting fetch calls in selectCustomModelWithLevel, got popoverRemoveIdx=%d fetchBindIdx=%d fetchThinkingIdx=%d", popoverRemoveIdx, fetchBindIdx, fetchThinkingIdx)
+	}
 }
 
 func TestResolveEndpoint_Custom(t *testing.T) {

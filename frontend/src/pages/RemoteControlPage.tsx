@@ -12,9 +12,11 @@ import {
   ChevronUp,
 } from 'lucide-react'
 import { api, isAbortError } from '../api'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 
 export const RemoteControlPage: React.FC = () => {
   const [loading, setLoading] = useState(false)
+  const [pinModeLoading, setPinModeLoading] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [tunnelType, setTunnelType] = useState<string>('quick')
   const [customTunnelURL, setCustomTunnelURL] = useState<string>('')
@@ -32,6 +34,8 @@ export const RemoteControlPage: React.FC = () => {
     active_google_account: '',
     clients_count: 0,
     last_rotated_at: '',
+    use_app_password: false,
+    app_password_enabled: false,
     tunnel: {
       active: false,
       type: '',
@@ -44,7 +48,8 @@ export const RemoteControlPage: React.FC = () => {
     enabled: false,
     bind_addr: '127.0.0.1',
     port: 8766,
-    security_pin: '849201',
+    security_pin: 'A7k9M2xP',
+    use_app_password: false,
     quality: 'high',
     frame_rate: 30,
     account_resilience: true,
@@ -108,6 +113,25 @@ export const RemoteControlPage: React.FC = () => {
     }
   }
 
+  const handleToggleUseAppPassword = async (useAppPassword: boolean) => {
+    if (!status?.app_password_enabled) return
+    setPinModeLoading(true)
+    try {
+      const res = await api.updateRemoteControlConfig({
+        ...config,
+        use_app_password: useAppPassword,
+      })
+      if (res && res.success) {
+        if (res.config) setConfig(res.config)
+        if (res.status) setStatus(res.status)
+      }
+    } catch (err) {
+      console.error('Failed to toggle remote PIN mode:', err)
+    } finally {
+      setPinModeLoading(false)
+    }
+  }
+
   const handleStartTunnel = async () => {
     try {
       setTunnelLoading(true)
@@ -150,6 +174,8 @@ export const RemoteControlPage: React.FC = () => {
   }
 
   const isTunnelActive = Boolean(status?.tunnel?.active)
+  const appPasswordEnabled = Boolean(status?.app_password_enabled)
+  const useAppPassword = Boolean(appPasswordEnabled && (config?.use_app_password || status?.use_app_password))
   // Issue #120: a loopback endpoint is never surfaced as a remote endpoint. Until an external
   // tunnel is active there is no shareable URL — the page shows guidance instead of
   // http://127.0.0.1. Externally reachable endpoints are HTTPS.
@@ -169,7 +195,7 @@ export const RemoteControlPage: React.FC = () => {
               </h2>
             </div>
             <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-              Wraps Antigravity remote control with persistent session re-binding across Google account switches for out-of-home access.
+              Streams the live Antigravity 2.0 web interface over an authenticated reverse proxy with persistent session and CSRF re-binding across Google account switches.
             </p>
           </div>
         </div>
@@ -201,10 +227,16 @@ export const RemoteControlPage: React.FC = () => {
               Remote Internet Pipe
             </div>
             <div style={{ fontSize: '16px', fontWeight: 700, color: isTunnelActive ? 'var(--primary)' : 'var(--text-muted)', marginTop: '4px' }}>
-              {isTunnelActive ? (status?.tunnel?.type || 'active').toUpperCase() : 'INACTIVE'}
+              {isTunnelActive ? (status?.tunnel?.type === 'tailnet' ? 'TAILNET' : (status?.tunnel?.type || 'active').toUpperCase()) : 'INACTIVE'}
             </div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              {isTunnelActive ? (status?.tunnel?.type === 'tailscale' ? 'Tailscale Private VPN' : 'Public HTTPS Tunnel') : 'Remote Access Off'}
+              {isTunnelActive
+                ? status?.tunnel?.type === 'tailnet'
+                  ? 'Tailscale Private Tailnet'
+                  : status?.tunnel?.type === 'tailscale'
+                    ? 'Tailscale Public Funnel'
+                    : 'Public HTTPS Tunnel'
+                : 'Remote Access Off'}
             </div>
           </div>
 
@@ -298,46 +330,70 @@ export const RemoteControlPage: React.FC = () => {
             style={{
               display: 'flex',
               flexDirection: 'column',
-              gap: '6px',
+              justifyContent: 'space-between',
+              gap: '8px',
               backgroundColor: 'var(--canvas)',
               border: '1px solid var(--border)',
               borderRadius: '8px',
               padding: '12px 14px',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
                 Security PIN
               </span>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  opacity: appPasswordEnabled ? 1 : 0.5,
+                }}
+                title={
+                  appPasswordEnabled
+                    ? 'Toggle between your 8-character Security PIN and your App Access Password'
+                    : 'Set an App Access Password in General Settings to enable this option'
+                }
+              >
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                  Use App Password
+                </span>
+                <ToggleSwitch
+                  size="sm"
+                  checked={useAppPassword}
+                  onChange={handleToggleUseAppPassword}
+                  disabled={!appPasswordEnabled || pinModeLoading}
+                  ariaLabel="Use App Password as Security PIN"
+                />
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+              <span
+                style={{
+                  fontSize: useAppPassword ? '14px' : '20px',
+                  fontWeight: 700,
+                  letterSpacing: useAppPassword ? '0.5px' : '2px',
+                  color: 'var(--primary)',
+                  fontFamily: 'monospace',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {useAppPassword ? 'App Password' : (config.security_pin || '--------')}
+              </span>
               <button
                 onClick={handleRotatePIN}
-                disabled={loading}
+                disabled={loading || useAppPassword}
                 className="btn-pill-tonal"
-                style={{ padding: '3px 8px', fontSize: '11px' }}
+                style={{
+                  marginLeft: 'auto',
+                  padding: '4px 10px',
+                  fontSize: '11px',
+                  opacity: useAppPassword ? 0.5 : 1,
+                  cursor: loading || useAppPassword ? 'not-allowed' : 'pointer',
+                }}
               >
                 <RotateCw size={12} className={loading ? 'animate-spin' : ''} />
                 <span>Rotate PIN</span>
-              </button>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span
-                style={{
-                  fontSize: '20px',
-                  fontWeight: 700,
-                  letterSpacing: '2px',
-                  color: 'var(--primary)',
-                  fontFamily: 'monospace',
-                }}
-              >
-                {config.security_pin || '------'}
-              </span>
-              <button
-                onClick={() => copyToClipboard(config.security_pin, 'pin')}
-                className="btn-pill-tonal"
-                style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: '11px' }}
-              >
-                {copied === 'pin' ? <Check size={12} color="var(--green)" /> : <Copy size={12} />}
-                <span>{copied === 'pin' ? 'Copied' : 'Copy'}</span>
               </button>
             </div>
           </div>
@@ -375,7 +431,7 @@ export const RemoteControlPage: React.FC = () => {
         </div>
 
         {/* Tunnel Options Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px', marginBottom: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px', marginBottom: '12px' }}>
           <div
             onClick={() => setTunnelType('quick')}
             style={{
@@ -392,7 +448,7 @@ export const RemoteControlPage: React.FC = () => {
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
-              Generates trusted public HTTPS URL automatically via bundled sidecar. No accounts or software installation required.
+              Spawns a temporary public HTTPS URL (*.trycloudflare.com) via the bundled cloudflared sidecar with 4-minute keep-alive probes. No account required.
             </p>
           </div>
 
@@ -412,7 +468,27 @@ export const RemoteControlPage: React.FC = () => {
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
-              Routes through your personal Tailnet or Tailscale Funnel. Ideal if your phone or tablet is connected to Tailscale.
+              Publishes a public HTTPS endpoint (*.ts.net) through Tailscale Funnel so any browser can connect without joining your tailnet.
+            </p>
+          </div>
+
+          <div
+            onClick={() => setTunnelType('tailnet')}
+            style={{
+              padding: '12px',
+              borderRadius: '8px',
+              border: tunnelType === 'tailnet' ? '2px solid var(--primary)' : '1px solid var(--border)',
+              backgroundColor: tunnelType === 'tailnet' ? 'var(--canvas)' : '#ffffff',
+              cursor: 'pointer',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
+                Tailscale Private Tailnet
+              </span>
+            </div>
+            <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
+              Binds directly to your private Tailscale network (100.x.y.z / MagicDNS). Accessible only from devices signed into your tailnet.
             </p>
           </div>
 
@@ -432,7 +508,7 @@ export const RemoteControlPage: React.FC = () => {
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
-              Self-hosted Cloudflare Tunnel, ngrok, or reverse proxy endpoint for your custom remote domain.
+              Routes through a persistent Cloudflare Named Tunnel, ngrok endpoint, or custom HTTPS reverse proxy under your own domain.
             </p>
           </div>
         </div>
@@ -511,28 +587,28 @@ export const RemoteControlPage: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
             <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
-              Zero Invalidation on Account Switch
+              Zero Invalidation & Live Account Sync
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              The tunnel runs in the Swiss daemon, not inside Antigravity. It stays up while Antigravity restarts for a Google account switch, keeping your remote web session persistent across account swaps.
+              The tunnel runs in the Swiss daemon, not inside Antigravity. It stays up while Antigravity restarts for a Google account switch, automatically re-binding the upstream port, CSRF token, and active account profile in your remote browser.
             </div>
           </div>
 
           <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
             <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
-              Out-of-Home Access from Mobile or Laptop
+              Tunnel Modes & 4-Minute Keep-Alive
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              The wrapper is strictly designed for when you are away from home and away from your PC. Start a Cloudflare Quick Tunnel (public HTTPS) or connect via Tailscale Funnel, enter your 6-digit Security PIN on your mobile device, and monitor or steer agents seamlessly.
+              Use Cloudflare Quick Tunnel or Tailscale Funnel for public HTTPS access from any device, Tailscale Private Tailnet for restricted VPN-only access, or Custom Domain for a fixed hostname. Background probes ping the active endpoint every 4 minutes to prevent idle timeouts and automatically stop Remote Access if a tunnel drops.
             </div>
           </div>
 
           <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
             <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
-              Security Protocol
+              8-Character Security PIN & App Password Mode
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              All remote view connections require matching the 6-digit Security PIN. If you need to revoke access immediately, click <em>Rotate PIN</em> to terminate existing view sessions instantly.
+              Remote sessions authenticate with an 8-character alphanumeric Security PIN by default, or with your master App Access Password when Use App Password is enabled. Click <em>Rotate PIN</em> at any time to generate a fresh 8-character code and revoke active remote browser sessions immediately.
             </div>
           </div>
         </div>

@@ -2,12 +2,10 @@ package bridge
 
 import (
 	"bytes"
-	"crypto/rand"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/big"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -30,10 +28,11 @@ type RemoteControlConfig struct {
 	BindAddr          string `json:"bind_addr"`
 	Port              int    `json:"port"`
 	SecurityPIN       string `json:"security_pin"`
+	UseAppPassword    bool   `json:"use_app_password"`
 	Quality           string `json:"quality"` // "high" | "medium" | "low"
 	FrameRate         int    `json:"frame_rate"`
 	AccountResilience bool   `json:"account_resilience"`
-	TunnelType        string `json:"tunnel_type,omitempty"` // "quick" | "tailscale" | "custom" | "" (not exposed)
+	TunnelType        string `json:"tunnel_type,omitempty"` // "quick" | "tailscale" | "tailnet" | "custom" | "" (not exposed)
 	TunnelURL         string `json:"tunnel_url,omitempty"`
 }
 
@@ -47,6 +46,8 @@ type RemoteControlStatus struct {
 	ActiveGoogleAccount   string       `json:"active_google_account"`
 	ClientsCount          int          `json:"clients_count"`
 	LastRotatedAt         string       `json:"last_rotated_at,omitempty"`
+	UseAppPassword        bool         `json:"use_app_password"`
+	AppPasswordEnabled    bool         `json:"app_password_enabled"`
 	Tunnel                TunnelStatus `json:"tunnel"`
 }
 
@@ -76,13 +77,13 @@ type RemoteManager struct {
 
 // DefaultRemoteConfig returns standard default remote control settings.
 func DefaultRemoteConfig() RemoteControlConfig {
-	pin, _ := rand.Int(rand.Reader, big.NewInt(900000))
-	pinStr := fmt.Sprintf("%06d", pin.Int64()+100000)
+	pinStr := GeneratePairingPIN()
 	return RemoteControlConfig{
 		Enabled:           false,
 		BindAddr:          "127.0.0.1",
 		Port:              8766,
 		SecurityPIN:       pinStr,
+		UseAppPassword:    false,
 		Quality:           "high",
 		FrameRate:         30,
 		AccountResilience: true,
@@ -369,10 +370,18 @@ func (rm *RemoteManager) load() error {
 	if c.Port <= 0 {
 		c.Port = 8766
 	}
+	upgradedPIN := false
+	if strings.TrimSpace(c.SecurityPIN) == "" || (!gui.IsTestExecution() && !IsAlphanumericPIN8(c.SecurityPIN)) {
+		c.SecurityPIN = GeneratePairingPIN()
+		upgradedPIN = true
+	}
 	// Issue #120 review: never carry over a stale loopback endpoint persisted by an older
 	// build — the config API must not serve one.
 	c.TunnelURL = sanitizeEndpointURL(c.TunnelURL)
 	rm.config = c
+	if upgradedPIN {
+		_ = rm.save()
+	}
 	return nil
 }
 
@@ -543,12 +552,11 @@ func (rm *RemoteManager) GetTunnelStatus() TunnelStatus {
 	return rm.tunnelMgr.GetStatus()
 }
 
-// RotatePIN generates a fresh 6-digit PIN and clears active client sessions.
+// RotatePIN generates a fresh 8-character alphanumeric PIN and clears active client sessions.
 func (rm *RemoteManager) RotatePIN() (string, error) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
-	pin, _ := rand.Int(rand.Reader, big.NewInt(900000))
-	newPIN := fmt.Sprintf("%06d", pin.Int64()+100000)
+	newPIN := GeneratePairingPIN()
 	rm.config.SecurityPIN = newPIN
 	rm.clientsMu.Lock()
 	rm.activeClients = make(map[string]time.Time)
@@ -589,6 +597,8 @@ func (rm *RemoteManager) GetStatus(activeEmail string, activePID int) RemoteCont
 	clientsCount := len(rm.activeClients)
 	rm.clientsMu.Unlock()
 
+	appPassEnabled := IsAppPasswordConfigured()
+
 	return RemoteControlStatus{
 		Active:                cfg.Enabled && cdpPort > 0,
 		EndpointURL:           endpoint,
@@ -598,6 +608,8 @@ func (rm *RemoteManager) GetStatus(activeEmail string, activePID int) RemoteCont
 		ActiveGoogleAccount:   activeEmail,
 		ClientsCount:          clientsCount,
 		LastRotatedAt:         rotatedStr,
+		UseAppPassword:        cfg.UseAppPassword && appPassEnabled,
+		AppPasswordEnabled:    appPassEnabled,
 		Tunnel:                tSt,
 	}
 }
@@ -612,9 +624,6 @@ func (rm *RemoteManager) NotifyAccountSwitch(newAccount string, newPID int) {
 func (rm *RemoteManager) isPINAuthorized(r *http.Request) bool {
 	cfg := rm.GetConfig()
 	expectedPIN := strings.TrimSpace(cfg.SecurityPIN)
-	if expectedPIN == "" {
-		return false
-	}
 
 	candidate := strings.TrimSpace(r.Header.Get("X-Remote-PIN"))
 	if candidate == "" {
@@ -631,7 +640,7 @@ func (rm *RemoteManager) isPINAuthorized(r *http.Request) bool {
 		}
 	}
 
-	if candidate == "" || candidate != expectedPIN {
+	if !VerifyCandidatePIN(candidate, expectedPIN, cfg.UseAppPassword) {
 		return false
 	}
 
@@ -703,7 +712,7 @@ func (rm *RemoteManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
-				"error":   "Unauthorized: 6-digit Security PIN required",
+				"error":   "Unauthorized: Security PIN required",
 			})
 			return
 		}
@@ -769,14 +778,15 @@ func (rm *RemoteManager) handleAuth(w http.ResponseWriter, r *http.Request) {
 	if pin == "" {
 		pin = strings.TrimSpace(r.Header.Get("X-Remote-PIN"))
 	}
-	expectedPIN := strings.TrimSpace(rm.GetConfig().SecurityPIN)
+	cfg := rm.GetConfig()
+	expectedPIN := strings.TrimSpace(cfg.SecurityPIN)
 
-	if pin == "" || expectedPIN == "" || pin != expectedPIN {
+	if !VerifyCandidatePIN(pin, expectedPIN, cfg.UseAppPassword) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
-			"error":   "Invalid 6-digit Security PIN",
+			"error":   "Invalid Security PIN",
 		})
 		return
 	}
@@ -1585,11 +1595,11 @@ body {
       </svg>
     </div>
     <div class="auth-title">Welcome to Antigravity</div>
-    <div class="auth-desc">Antigravity Remote Control — Enter your 6-digit Security PIN</div>
+    <div class="auth-desc">Antigravity Remote Control — Enter your Security PIN</div>
     <form id="authForm" class="entrance-auth-panel" onsubmit="handleAuthSubmit(event)">
       <div id="authError" class="msg-banner"></div>
       <div class="pin-field-wrap">
-        <input type="password" id="pinInput" class="input-text pin-input" inputmode="numeric" maxlength="6" pattern="[0-9]*" placeholder="••••••" autofocus required>
+        <input type="password" id="pinInput" class="input-text pin-input" autocomplete="off" placeholder="••••••••" autofocus required>
         <button type="button" id="togglePinBtn" class="pin-eye-btn" onclick="togglePinVisibility()" title="Show or hide PIN">
           <svg class="icon" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
         </button>
@@ -1772,7 +1782,7 @@ async function handleAuthSubmit(e) {
       checkAuthAndInit();
     } else {
       errEl.className = 'msg-banner error';
-      errEl.textContent = data.error || 'Invalid 6-digit Security PIN';
+      errEl.textContent = data.error || 'Invalid Security PIN';
       errEl.style.display = 'block';
     }
   } catch (err) {

@@ -19,6 +19,7 @@ import {
   ChevronUp,
 } from 'lucide-react'
 import { api, isAbortError } from '../api'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 
 interface BridgeStatusData {
   enabled: boolean
@@ -28,6 +29,8 @@ interface BridgeStatusData {
   tunnel_online: boolean
   auth_token: string
   pairing_pin: string
+  use_app_password?: boolean
+  app_password_enabled?: boolean
   surfaces: {
     desktop_app_connected: boolean
     desktop_cdp_port: number
@@ -82,7 +85,6 @@ export const GeminiBridgePage: React.FC = () => {
   const [copiedUrl, setCopiedUrl] = useState<boolean>(false)
   const [copiedConfig, setCopiedConfig] = useState<boolean>(false)
   const [copiedToken, setCopiedToken] = useState<boolean>(false)
-  const [copiedPIN, setCopiedPIN] = useState<boolean>(false)
 
   // Tunnel controls
   const [tunnelType, setTunnelType] = useState<string>('quick')
@@ -92,6 +94,7 @@ export const GeminiBridgePage: React.FC = () => {
 
   // Mode and testing
   const [modeLoading, setModeLoading] = useState<boolean>(false)
+  const [pinModeLoading, setPinModeLoading] = useState<boolean>(false)
   const [rotatingAuth, setRotatingAuth] = useState<boolean>(false)
   const [testPrompt, setTestPrompt] = useState<string>('List current project status and verify bridge connectivity')
   const [testTool, setTestTool] = useState<string>('antigravity_lead_create_conversation')
@@ -235,6 +238,24 @@ export const GeminiBridgePage: React.FC = () => {
     }
   }
 
+  const handleToggleUseAppPassword = async (useAppPassword: boolean) => {
+    if (!status?.app_password_enabled) return
+    try {
+      setPinModeLoading(true)
+      setActionFeedback(null)
+      const res = await api.setBridgeUseAppPassword(useAppPassword)
+      if (res?.status) {
+        setStatus(res.status)
+      } else {
+        loadStatus()
+      }
+    } catch (err: any) {
+      setActionFeedback({ text: `Failed to update PIN mode: ${err?.message || 'Unknown error'}`, isError: true })
+    } finally {
+      setPinModeLoading(false)
+    }
+  }
+
   const handleDispatch = async () => {
     if (!testPrompt.trim()) return
     try {
@@ -288,6 +309,8 @@ export const GeminiBridgePage: React.FC = () => {
 
   const isTunnelActive = Boolean(status?.tunnel?.active && status.tunnel.type !== 'loopback')
   const currentMode = status?.operating_mode || 'hybrid'
+  const appPasswordEnabled = Boolean(status?.app_password_enabled)
+  const useAppPassword = Boolean(appPasswordEnabled && status?.use_app_password)
   // Issue #120: loopback is never presented as an external endpoint. The MCP endpoint stays empty
   // until a tunnel exposes an HTTPS URL.
   const activeEndpoint = status?.gateway_url || ''
@@ -304,7 +327,7 @@ export const GeminiBridgePage: React.FC = () => {
               </h2>
             </div>
             <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-              Two-way agent orchestration connecting Gemini App / Web to local Antigravity surfaces across account rotations.
+              Exposes a live Streamable HTTP Model Context Protocol (MCP) gateway so Google Gemini App and Web can orchestrate your local Antigravity 2.0 Desktop, CLI, and workspace across account switches.
             </p>
           </div>
 
@@ -374,7 +397,7 @@ export const GeminiBridgePage: React.FC = () => {
               {isTunnelActive ? (status?.tunnel?.type || 'active').toUpperCase() : 'INACTIVE'}
             </div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              {isTunnelActive ? (status?.tunnel?.type === 'tailscale' ? 'Tailscale Private VPN' : 'Public HTTPS Tunnel') : 'Remote Access Off'}
+              {isTunnelActive ? (status?.tunnel?.type === 'tailscale' ? 'Tailscale Public Funnel' : 'Public HTTPS Tunnel') : 'Remote Access Off'}
             </div>
           </div>
 
@@ -428,9 +451,14 @@ export const GeminiBridgePage: React.FC = () => {
 
       {/* 2. Zero-Setup Remote Tunneling */}
       <div className="google-card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: '12px', marginBottom: '14px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-            Remote Internet Access (Zero-Setup)
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: '12px', marginBottom: '10px' }}>
+          <div>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+              Remote Internet Access (Zero-Setup)
+            </div>
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+              Publishes the local port 8765 MCP endpoint over public HTTPS so cloud-hosted Gemini sessions can connect, with 4-minute keep-alive probes and automatic shutoff on tunnel drop.
+            </p>
           </div>
 
           <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
@@ -474,7 +502,7 @@ export const GeminiBridgePage: React.FC = () => {
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
-              Generates trusted public HTTPS URL automatically via bundled sidecar. No accounts or software installation required.
+              Spawns a temporary public HTTPS MCP endpoint (*.trycloudflare.com) via the bundled cloudflared sidecar with 4-minute keep-alive probes. No account required.
             </p>
           </div>
 
@@ -494,7 +522,7 @@ export const GeminiBridgePage: React.FC = () => {
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
-              Routes through your personal Tailnet or Tailscale Funnel. Ideal if your phone or client is connected to Tailscale.
+              Publishes a public HTTPS MCP endpoint (*.ts.net) through Tailscale Funnel so Google Gemini cloud servers can reach your local bridge.
             </p>
           </div>
 
@@ -514,7 +542,7 @@ export const GeminiBridgePage: React.FC = () => {
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
-              Self-hosted Cloudflare Tunnel, ngrok, or reverse proxy endpoint for your custom remote domain.
+              Routes through a persistent Cloudflare Named Tunnel, ngrok endpoint, or custom HTTPS reverse proxy under your own domain.
             </p>
           </div>
         </div>
@@ -590,7 +618,7 @@ export const GeminiBridgePage: React.FC = () => {
               Authentication & Pairing Credentials
             </div>
             <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
-              Required when initialising or accessing the MCP on Gemini. Unauthenticated requests are rejected with 401 Unauthorized.
+              Authenticate remote Gemini MCP requests using either your 8-character alphanumeric Pairing PIN (or App Access Password when toggled) or the Bearer API token.
             </p>
           </div>
 
@@ -623,27 +651,72 @@ export const GeminiBridgePage: React.FC = () => {
               backgroundColor: 'var(--canvas)',
               borderRadius: '8px',
               border: '1px solid var(--border)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              gap: '8px',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <KeyRound size={14} color="var(--primary)" />
                 <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
                   Pairing PIN (Quick Setup)
                 </span>
               </div>
-              <button
-                onClick={() => copyToClipboard(status?.pairing_pin || '', setCopiedPIN)}
-                disabled={!status?.pairing_pin}
-                className="btn-pill-tonal"
-                style={{ padding: '3px 8px', fontSize: '11px', opacity: status?.pairing_pin ? 1 : 0.5, cursor: status?.pairing_pin ? 'pointer' : 'not-allowed' }}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  opacity: appPasswordEnabled ? 1 : 0.5,
+                }}
+                title={
+                  appPasswordEnabled
+                    ? 'Toggle between your 8-character Pairing PIN and your App Access Password'
+                    : 'Set an App Access Password in General Settings to enable this option'
+                }
               >
-                {copiedPIN ? <CheckCircle2 size={12} color="var(--green)" /> : <Copy size={12} />}
-                <span>{copiedPIN ? 'Copied' : 'Copy PIN'}</span>
-              </button>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                  Use App Password
+                </span>
+                <ToggleSwitch
+                  size="sm"
+                  checked={useAppPassword}
+                  onChange={handleToggleUseAppPassword}
+                  disabled={!appPasswordEnabled || pinModeLoading}
+                  ariaLabel="Use App Password as Pairing PIN"
+                />
+              </div>
             </div>
-            <div style={{ fontSize: '24px', letterSpacing: '4px', fontWeight: 700, color: 'var(--text)', fontFamily: 'monospace' }}>
-              {status?.pairing_pin || '------'}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+              <div
+                style={{
+                  fontSize: useAppPassword ? '16px' : '24px',
+                  letterSpacing: useAppPassword ? '0.5px' : '3px',
+                  fontWeight: 700,
+                  color: 'var(--text)',
+                  fontFamily: 'monospace',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {useAppPassword ? 'App Password' : (status?.pairing_pin || '--------')}
+              </div>
+              <button
+                onClick={handleRotateCredentials}
+                disabled={rotatingAuth || useAppPassword}
+                className="btn-pill-tonal"
+                style={{
+                  marginLeft: 'auto',
+                  padding: '4px 10px',
+                  fontSize: '11px',
+                  opacity: useAppPassword ? 0.5 : 1,
+                  cursor: rotatingAuth || useAppPassword ? 'not-allowed' : 'pointer',
+                }}
+              >
+                <RefreshCw size={12} className={rotatingAuth ? 'animate-spin' : ''} />
+                <span>Rotate PIN</span>
+              </button>
             </div>
             <p style={{ margin: '6px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
               Pass as header <code>X-Pairing-PIN</code> or URL query <code>?pin={status?.pairing_pin}</code>.

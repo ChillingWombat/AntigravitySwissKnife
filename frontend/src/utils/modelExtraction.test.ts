@@ -94,10 +94,12 @@ describe('modelExtraction utility', () => {
 
     it('infers thinking levels for reasoning model families', () => {
       assert.deepEqual(detectThinkingLevels('deepseek-r1'), ['low', 'medium', 'high'])
+      assert.deepEqual(detectThinkingLevels('deepseek-flash'), ['low', 'medium', 'high'])
       assert.deepEqual(detectThinkingLevels('o1-preview'), ['low', 'medium', 'high'])
       assert.deepEqual(detectThinkingLevels('o3-mini'), ['low', 'medium', 'high'])
       assert.deepEqual(detectThinkingLevels('claude-3-7-sonnet'), ['low', 'medium', 'high'])
       assert.deepEqual(detectThinkingLevels('claude-opus-4-6'), ['low', 'medium', 'high'])
+      assert.deepEqual(detectThinkingLevels('claude-opus-5-5'), ['low', 'medium', 'high'])
       assert.deepEqual(detectThinkingLevels('gemini-2.5-pro'), ['low', 'medium', 'high'])
       assert.deepEqual(detectThinkingLevels('gemini-3.8-flash'), ['low', 'medium', 'high'])
       assert.deepEqual(detectThinkingLevels('gemini-4-argon'), ['low', 'medium', 'high'])

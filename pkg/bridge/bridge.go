@@ -25,6 +25,7 @@ type Config struct {
 	TunnelURL       string   `json:"tunnel_url"`
 	AuthToken       string   `json:"auth_token"`
 	PairingPIN      string   `json:"pairing_pin"`
+	UseAppPassword  bool     `json:"use_app_password"`
 	AutoStartTunnel bool     `json:"auto_start_tunnel"`
 	AllowedTools    []string `json:"allowed_tools"`
 }
@@ -55,19 +56,21 @@ type Invocation struct {
 
 // BridgeStatus reports operational health and configuration to UI and clients.
 type BridgeStatus struct {
-	Enabled           bool          `json:"enabled"`
-	OperatingMode     string        `json:"operating_mode"`
-	GatewayURL        string        `json:"gateway_url"`
-	TunnelType        string        `json:"tunnel_type"`
-	TunnelOnline      bool          `json:"tunnel_online"`
-	AuthToken         string        `json:"auth_token"`
-	PairingPIN        string        `json:"pairing_pin"`
-	Surfaces          SurfaceStatus `json:"surfaces"`
-	Tunnel            TunnelStatus  `json:"tunnel"`
-	ActiveLeadSession *LeadSession  `json:"active_lead_session,omitempty"`
-	RecentAttempts    []AuthAttempt `json:"recent_attempts,omitempty"`
-	InvocationsCount  int           `json:"invocations_count"`
-	RecentInvocations []Invocation  `json:"recent_invocations"`
+	Enabled            bool          `json:"enabled"`
+	OperatingMode      string        `json:"operating_mode"`
+	GatewayURL         string        `json:"gateway_url"`
+	TunnelType         string        `json:"tunnel_type"`
+	TunnelOnline       bool          `json:"tunnel_online"`
+	AuthToken          string        `json:"auth_token"`
+	PairingPIN         string        `json:"pairing_pin"`
+	UseAppPassword     bool          `json:"use_app_password"`
+	AppPasswordEnabled bool          `json:"app_password_enabled"`
+	Surfaces           SurfaceStatus `json:"surfaces"`
+	Tunnel             TunnelStatus  `json:"tunnel"`
+	ActiveLeadSession  *LeadSession  `json:"active_lead_session,omitempty"`
+	RecentAttempts     []AuthAttempt `json:"recent_attempts,omitempty"`
+	InvocationsCount   int           `json:"invocations_count"`
+	RecentInvocations  []Invocation  `json:"recent_invocations"`
 }
 
 // Service manages two-way bridging, tunnels, authentication, and execution modes.
@@ -161,6 +164,7 @@ func NewService(configPath string) (*Service, error) {
 		s.mu.Unlock()
 		return s.saveConfig()
 	})
+	s.authMgr.SetUseAppPassword(s.config.UseAppPassword)
 
 	// Issue #120: "loopback" is no longer a valid tunnel type. Skip it (and empty) so a stale
 	// config value from an older build never triggers a failed auto-start.
@@ -289,13 +293,18 @@ func (s *Service) loadConfig() error {
 	if c.AuthToken == "" {
 		c.AuthToken = GenerateSecureToken()
 	}
-	if c.PairingPIN == "" {
+	upgradedPIN := false
+	if c.PairingPIN == "" || (!gui.IsTestExecution() && !IsAlphanumericPIN8(c.PairingPIN)) {
 		c.PairingPIN = GeneratePairingPIN()
+		upgradedPIN = true
 	}
 	// Issue #120 review: never carry over a stale loopback endpoint persisted by an older
 	// build — the config API must not serve one.
 	c.TunnelURL = sanitizeEndpointURL(c.TunnelURL)
 	s.config = c
+	if upgradedPIN {
+		_ = s.saveConfig()
+	}
 	return nil
 }
 
@@ -321,9 +330,40 @@ func (s *Service) UpdateConfig(c Config) error {
 	// before it can be persisted or echoed back to callers.
 	c.TunnelURL = sanitizeEndpointURL(c.TunnelURL)
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	if c.Port <= 0 {
+		c.Port = s.config.Port
+	}
+	if c.OperatingMode == "" {
+		c.OperatingMode = s.config.OperatingMode
+	}
+	if c.AuthToken == "" {
+		c.AuthToken = s.config.AuthToken
+	}
+	if c.PairingPIN == "" {
+		c.PairingPIN = s.config.PairingPIN
+	}
+	if len(c.AllowedTools) == 0 {
+		c.AllowedTools = s.config.AllowedTools
+	}
 	s.config = c
-	return s.saveConfig()
+	err := s.saveConfig()
+	s.mu.Unlock()
+	if s.authMgr != nil {
+		s.authMgr.SetUseAppPassword(c.UseAppPassword)
+	}
+	return err
+}
+
+// SetUseAppPassword toggles whether Gemini Bridge accepts the App Access Password in place of the simple Pairing PIN.
+func (s *Service) SetUseAppPassword(use bool) error {
+	s.mu.Lock()
+	s.config.UseAppPassword = use
+	err := s.saveConfig()
+	s.mu.Unlock()
+	if s.authMgr != nil {
+		s.authMgr.SetUseAppPassword(use)
+	}
+	return err
 }
 
 // StartTunnel initiates remote tunneling.
@@ -473,20 +513,24 @@ func (s *Service) GetStatus() BridgeStatus {
 	recent := make([]Invocation, len(s.invocations))
 	copy(recent, s.invocations)
 
+	appPassEnabled := IsAppPasswordConfigured()
+
 	return BridgeStatus{
-		Enabled:           tunnelStatus.Active,
-		OperatingMode:     s.config.OperatingMode,
-		GatewayURL:        gatewayURL,
-		TunnelType:        tunnelStatus.Type,
-		TunnelOnline:      tunnelStatus.Active,
-		AuthToken:         s.authMgr.GetToken(),
-		PairingPIN:        s.authMgr.GetPIN(),
-		Surfaces:          surfaces,
-		Tunnel:            tunnelStatus,
-		ActiveLeadSession: s.leadHdl.GetActiveSession(),
-		RecentAttempts:    s.authMgr.GetRecentAttempts(),
-		InvocationsCount:  len(s.invocations),
-		RecentInvocations: recent,
+		Enabled:            tunnelStatus.Active,
+		OperatingMode:      s.config.OperatingMode,
+		GatewayURL:         gatewayURL,
+		TunnelType:         tunnelStatus.Type,
+		TunnelOnline:       tunnelStatus.Active,
+		AuthToken:          s.authMgr.GetToken(),
+		PairingPIN:         s.authMgr.GetPIN(),
+		UseAppPassword:     s.config.UseAppPassword && appPassEnabled,
+		AppPasswordEnabled: appPassEnabled,
+		Surfaces:           surfaces,
+		Tunnel:             tunnelStatus,
+		ActiveLeadSession:  s.leadHdl.GetActiveSession(),
+		RecentAttempts:     s.authMgr.GetRecentAttempts(),
+		InvocationsCount:   len(s.invocations),
+		RecentInvocations:  recent,
 	}
 }
 

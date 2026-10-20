@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
 
 // AuthAttempt records an authentication verification event for auditing.
@@ -26,6 +28,7 @@ type AuthManager struct {
 	mu             sync.RWMutex
 	token          string
 	pin            string
+	useAppPassword bool
 	attempts       []AuthAttempt
 	onSaveCreds    func(token, pin string) error
 	failedAttempts map[string][]time.Time
@@ -39,13 +42,84 @@ func GenerateSecureToken() string {
 	return fmt.Sprintf("swiss-gemini-%s", hex.EncodeToString(b))
 }
 
-// GeneratePairingPIN produces a 6-digit numeric pairing PIN.
+const pinCharset = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+const pinDigits = "0123456789"
+const pinLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+// GeneratePairingPIN produces an 8-character alphanumeric security PIN containing letters and numbers.
 func GeneratePairingPIN() string {
-	n, err := rand.Int(rand.Reader, big.NewInt(900000))
-	if err != nil {
-		return "582914"
+	const length = 8
+	buf := make([]byte, length)
+	hasDigit := false
+	hasLetter := false
+	charsetLen := big.NewInt(int64(len(pinCharset)))
+	for i := 0; i < length; i++ {
+		n, err := rand.Int(rand.Reader, charsetLen)
+		if err != nil {
+			return "A7k9M2xP"
+		}
+		ch := pinCharset[n.Int64()]
+		buf[i] = ch
+		if ch >= '0' && ch <= '9' {
+			hasDigit = true
+		} else {
+			hasLetter = true
+		}
 	}
-	return fmt.Sprintf("%06d", n.Int64()+100000)
+	if !hasDigit {
+		if n, err := rand.Int(rand.Reader, big.NewInt(int64(len(pinDigits)))); err == nil {
+			buf[0] = pinDigits[n.Int64()]
+		} else {
+			buf[0] = '7'
+		}
+	}
+	if !hasLetter {
+		if n, err := rand.Int(rand.Reader, big.NewInt(int64(len(pinLetters)))); err == nil {
+			buf[length-1] = pinLetters[n.Int64()]
+		} else {
+			buf[length-1] = 'K'
+		}
+	}
+	return string(buf)
+}
+
+// IsAlphanumericPIN8 reports whether pin is an 8-character ASCII alphanumeric string.
+func IsAlphanumericPIN8(pin string) bool {
+	if len(pin) != 8 {
+		return false
+	}
+	for i := 0; i < len(pin); i++ {
+		c := pin[i]
+		isDigit := c >= '0' && c <= '9'
+		isUpper := c >= 'A' && c <= 'Z'
+		isLower := c >= 'a' && c <= 'z'
+		if !isDigit && !isUpper && !isLower {
+			return false
+		}
+	}
+	return true
+}
+
+// IsAppPasswordConfigured checks whether an application access password is currently enabled in General Settings.
+func IsAppPasswordConfigured() bool {
+	cfg, err := core.LoadConfig()
+	return err == nil && cfg != nil && cfg.AppPasswordEnabled && cfg.AppPasswordHash != ""
+}
+
+// VerifyCandidatePIN validates a candidate PIN against either the App Access Password (when enabled and set)
+// or the 8-character simple security PIN.
+func VerifyCandidatePIN(candidate, expectedPIN string, useAppPassword bool) bool {
+	candidate = strings.TrimSpace(candidate)
+	expectedPIN = strings.TrimSpace(expectedPIN)
+	if candidate == "" {
+		return false
+	}
+	if useAppPassword {
+		if cfg, err := core.LoadConfig(); err == nil && cfg != nil && cfg.AppPasswordEnabled && cfg.AppPasswordHash != "" {
+			return cfg.VerifyAppPassword(candidate)
+		}
+	}
+	return expectedPIN != "" && candidate == expectedPIN
 }
 
 // NewAuthManager initializes an authentication manager.
@@ -78,6 +152,20 @@ func (am *AuthManager) GetPIN() string {
 	am.mu.RLock()
 	defer am.mu.RUnlock()
 	return am.pin
+}
+
+// SetUseAppPassword configures whether PIN verification uses the App Access Password when set.
+func (am *AuthManager) SetUseAppPassword(use bool) {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+	am.useAppPassword = use
+}
+
+// GetUseAppPassword returns whether App Access Password mode is enabled on the AuthManager.
+func (am *AuthManager) GetUseAppPassword() bool {
+	am.mu.RLock()
+	defer am.mu.RUnlock()
+	return am.useAppPassword && IsAppPasswordConfigured()
 }
 
 // RotateCredentials generates a fresh token and pairing PIN and saves them.
@@ -171,6 +259,7 @@ func (am *AuthManager) ValidateRequest(r *http.Request) (bool, string) {
 
 	expectedToken := am.token
 	expectedPIN := am.pin
+	useAppPass := am.useAppPassword
 
 	// 1. Authorization header (Bearer <token>)
 	if authHeader := r.Header.Get("Authorization"); authHeader != "" {
@@ -181,7 +270,7 @@ func (am *AuthManager) ValidateRequest(r *http.Request) (bool, string) {
 				delete(am.failedAttempts, clientIP)
 				return true, "Bearer token verified"
 			}
-			if bearerToken == expectedPIN {
+			if VerifyCandidatePIN(bearerToken, expectedPIN, useAppPass) {
 				delete(am.failedAttempts, clientIP)
 				return true, "Pairing PIN verified via Bearer header"
 			}
@@ -193,7 +282,7 @@ func (am *AuthManager) ValidateRequest(r *http.Request) (bool, string) {
 		delete(am.failedAttempts, clientIP)
 		return true, "X-Bridge-Token verified"
 	}
-	if xPin := r.Header.Get("X-Pairing-PIN"); xPin != "" && xPin == expectedPIN {
+	if xPin := r.Header.Get("X-Pairing-PIN"); xPin != "" && VerifyCandidatePIN(xPin, expectedPIN, useAppPass) {
 		delete(am.failedAttempts, clientIP)
 		return true, "X-Pairing-PIN verified"
 	}
@@ -208,7 +297,7 @@ func (am *AuthManager) ValidateRequest(r *http.Request) (bool, string) {
 		delete(am.failedAttempts, clientIP)
 		return true, "Query auth verified"
 	}
-	if qPin := q.Get("pin"); qPin != "" && qPin == expectedPIN {
+	if qPin := q.Get("pin"); qPin != "" && VerifyCandidatePIN(qPin, expectedPIN, useAppPass) {
 		delete(am.failedAttempts, clientIP)
 		return true, "Query pairing PIN verified"
 	}

@@ -122,12 +122,18 @@ func detectModelMetadata(id string, displayName string, rawLimit int) (int, bool
 	// Detect reasoning / thinking models
 	if strings.Contains(lower, "o1") ||
 		strings.Contains(lower, "o3") ||
+		strings.Contains(lower, "o4") ||
 		strings.Contains(lower, "r1") ||
 		strings.Contains(lower, "reasoner") ||
 		strings.Contains(lower, "thinking") ||
 		strings.Contains(lower, "claude-3-7") ||
 		strings.Contains(lower, "claude-opus-4-6") ||
+		strings.Contains(lower, "claude-opus") ||
+		strings.Contains(lower, "claude-sonnet") ||
 		strings.Contains(lower, "claude-4-6") ||
+		strings.Contains(lower, "claude-5") ||
+		strings.Contains(lower, "deepseek-flash") ||
+		strings.Contains(lower, "deepseek-v4") ||
 		strings.Contains(lower, "qwq") ||
 		strings.Contains(lower, "gemini-4") ||
 		strings.Contains(lower, "gemini-3") ||
@@ -135,7 +141,7 @@ func detectModelMetadata(id string, displayName string, rawLimit int) (int, bool
 		strings.Contains(lower, "gemini-3.8") ||
 		strings.Contains(lower, "gemini-3.1") {
 		supportsThinking = true
-		thinkingLevels = []string{"off", "low", "medium", "high"}
+		thinkingLevels = []string{"low", "medium", "high"}
 	}
 
 	return ctx, supportsThinking, thinkingLevels
