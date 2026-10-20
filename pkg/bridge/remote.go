@@ -2,11 +2,14 @@ package bridge
 
 import (
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"math/big"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -58,6 +61,12 @@ type RemoteManager struct {
 	boundPort     int
 	clientsMu     sync.Mutex
 	activeClients map[string]time.Time
+
+	webOriginMu       sync.RWMutex
+	webOriginOverride string
+	webPathOverride   string
+	lastWebOrigin     string
+	lastWebPath       string
 }
 
 // DefaultRemoteConfig returns standard default remote control settings.
@@ -113,6 +122,101 @@ func (rm *RemoteManager) SetLeadHandler(lh *LeadHandler) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 	rm.leadHdl = lh
+}
+
+// SetWebOriginOverride configures an explicit Antigravity web app origin for testing.
+func (rm *RemoteManager) SetWebOriginOverride(origin, activePath string) {
+	rm.webOriginMu.Lock()
+	defer rm.webOriginMu.Unlock()
+	rm.webOriginOverride = strings.TrimSpace(origin)
+	rm.webPathOverride = strings.TrimSpace(activePath)
+}
+
+func (rm *RemoteManager) findAntigravityWebOrigin() (string, string) {
+	rm.webOriginMu.RLock()
+	overrideOrigin := rm.webOriginOverride
+	overridePath := rm.webPathOverride
+	rm.webOriginMu.RUnlock()
+	if overrideOrigin != "" {
+		if overridePath == "" {
+			overridePath = "/"
+		}
+		return overrideOrigin, overridePath
+	}
+
+	if port, err := rm.injector.FindDevToolsPort(); err == nil && port > 0 {
+		if pages, err := rm.injector.GetPageTargets(port); err == nil {
+			for _, p := range pages {
+				if strings.HasPrefix(p.URL, "https://127.0.0.1:") ||
+					strings.HasPrefix(p.URL, "http://127.0.0.1:") ||
+					strings.HasPrefix(p.URL, "https://localhost:") ||
+					strings.HasPrefix(p.URL, "http://localhost:") {
+					if u, err := url.Parse(p.URL); err == nil && u.Host != "" {
+						origin := u.Scheme + "://" + u.Host
+						activePath := u.Path
+						if activePath == "" {
+							activePath = "/"
+						}
+						rm.webOriginMu.Lock()
+						rm.lastWebOrigin = origin
+						rm.lastWebPath = activePath
+						rm.webOriginMu.Unlock()
+						return origin, activePath
+					}
+				}
+			}
+		}
+	}
+
+	if !gui.IsTestExecution() {
+		rm.webOriginMu.RLock()
+		cachedOrigin := rm.lastWebOrigin
+		cachedPath := rm.lastWebPath
+		rm.webOriginMu.RUnlock()
+		if cachedOrigin != "" {
+			if u, err := url.Parse(cachedOrigin); err == nil && u.Host != "" {
+				if conn, err := net.DialTimeout("tcp", u.Host, 400*time.Millisecond); err == nil {
+					_ = conn.Close()
+					if cachedPath == "" {
+						cachedPath = "/"
+					}
+					return cachedOrigin, cachedPath
+				}
+			}
+		}
+	}
+
+	return "", ""
+}
+
+func (rm *RemoteManager) proxyToAntigravityWebApp(w http.ResponseWriter, r *http.Request, origin string) {
+	targetURL, err := url.Parse(origin)
+	if err != nil || targetURL.Host == "" {
+		http.Error(w, "invalid Antigravity web app origin", http.StatusBadGateway)
+		return
+	}
+
+	proxy := &httputil.ReverseProxy{
+		FlushInterval: -1,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+		Director: func(req *http.Request) {
+			req.URL.Scheme = targetURL.Scheme
+			req.URL.Host = targetURL.Host
+			req.Host = targetURL.Host
+			req.Header.Set("Origin", targetURL.Scheme+"://"+targetURL.Host)
+			req.Header.Set("Referer", targetURL.Scheme+"://"+targetURL.Host+"/")
+		},
+		ModifyResponse: func(resp *http.Response) error {
+			resp.Header.Del("Content-Security-Policy")
+			resp.Header.Del("Content-Security-Policy-Report-Only")
+			resp.Header.Del("Cross-Origin-Opener-Policy")
+			resp.Header.Del("X-Frame-Options")
+			return nil
+		},
+	}
+	proxy.ServeHTTP(w, r)
 }
 
 func (rm *RemoteManager) load() error {
@@ -211,7 +315,7 @@ func (rm *RemoteManager) EnsureServerRunning() error {
 	server := &http.Server{
 		Handler:      rm,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: 0, // Streaming Connect-RPCs and WebSockets stay open indefinitely
 	}
 	rm.httpServer = server
 
@@ -416,12 +520,6 @@ func (rm *RemoteManager) isPINAuthorized(r *http.Request) bool {
 func (rm *RemoteManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
-	// Favicon
-	if path == "/favicon.ico" {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
 	// Auth API
 	if r.Method == http.MethodPost && (path == "/remote/api/auth" || path == "/api/auth") {
 		rm.handleAuth(w, r)
@@ -434,32 +532,82 @@ func (rm *RemoteManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Status API
-	if path == "/remote/api/status" || path == "/api/status" {
+	// Dedicated /remote/api/* endpoints
+	if path == "/remote/api/status" {
 		rm.handleStatus(w, r)
 		return
 	}
-
-	// Screenshot API
-	if path == "/remote/api/screenshot" || path == "/api/screenshot" {
+	if path == "/remote/api/screenshot" {
 		rm.handleScreenshot(w, r)
 		return
 	}
-
-	// Conversation creation
-	if r.Method == http.MethodPost && (path == "/remote/api/conversation/new" || path == "/api/conversation/new") {
+	if r.Method == http.MethodPost && path == "/remote/api/conversation/new" {
 		rm.handleConversationNew(w, r)
 		return
 	}
-
-	// Conversation send message
-	if r.Method == http.MethodPost && (path == "/remote/api/conversation/message" || path == "/api/conversation/message") {
+	if r.Method == http.MethodPost && path == "/remote/api/conversation/message" {
 		rm.handleConversationMessage(w, r)
 		return
 	}
+	if path == "/remote/api/conversation/status" {
+		rm.handleConversationStatus(w, r)
+		return
+	}
 
-	// Conversation status / transcript tail
-	if path == "/remote/api/conversation/status" || path == "/api/conversation/status" {
+	// When Antigravity Desktop's built-in language_server web app is running,
+	// reverse-proxy authenticated requests directly to the real Antigravity web app.
+	if origin, activePath := rm.findAntigravityWebOrigin(); origin != "" {
+		if !rm.isPINAuthorized(r) {
+			if r.Method == http.MethodGet && (path == "/" || path == "/remote" || path == "/remote/" || path == "/index.html" || strings.HasPrefix(path, "/c/")) {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(remoteHTML))
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   "Unauthorized: 6-digit Security PIN required",
+			})
+			return
+		}
+
+		if path == "/remote" || path == "/remote/" {
+			target := activePath
+			if target == "" {
+				target = "/"
+			}
+			http.Redirect(w, r, target, http.StatusFound)
+			return
+		}
+
+		rm.proxyToAntigravityWebApp(w, r, origin)
+		return
+	}
+
+	// Fallback console routes when Antigravity Desktop web app is not running
+	if path == "/favicon.ico" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if path == "/api/status" {
+		rm.handleStatus(w, r)
+		return
+	}
+	if path == "/api/screenshot" {
+		rm.handleScreenshot(w, r)
+		return
+	}
+	if r.Method == http.MethodPost && path == "/api/conversation/new" {
+		rm.handleConversationNew(w, r)
+		return
+	}
+	if r.Method == http.MethodPost && path == "/api/conversation/message" {
+		rm.handleConversationMessage(w, r)
+		return
+	}
+	if path == "/api/conversation/status" {
 		rm.handleConversationStatus(w, r)
 		return
 	}
@@ -518,10 +666,17 @@ func (rm *RemoteManager) handleAuth(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
+	origin, activePath := rm.findAntigravityWebOrigin()
+	redirectPath := "/"
+	if activePath != "" {
+		redirectPath = activePath
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
+		"success":           true,
+		"web_app_available": origin != "",
+		"redirect":          redirectPath,
 	})
 }
 
@@ -1297,6 +1452,10 @@ async function handleAuthSubmit(e) {
     if (res.ok && data.success) {
       activePin = pin;
       try { sessionStorage.setItem('swiss_remote_pin', pin); } catch (e) {}
+      if (data.web_app_available) {
+        window.location.href = data.redirect || '/';
+        return;
+      }
       checkAuthAndInit();
     } else {
       errEl.textContent = data.error || 'Invalid 6-digit Security PIN';

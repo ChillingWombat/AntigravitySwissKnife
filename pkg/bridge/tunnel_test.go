@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
@@ -764,5 +765,98 @@ new vm.Script(src, { filename: "remoteHTML.js" });
 	if strings.Contains(remoteHTML, `id="authView" class="auth-wrapper" style="display:none;"`) ||
 		strings.Contains(remoteHTML, `id="authView" style="display:none"`) {
 		t.Fatalf("remoteHTML must not hide #authView by default; initial paint must show the PIN unlock card")
+	}
+}
+
+func TestRemoteManager_ProxiesLiveAntigravityWebApp(t *testing.T) {
+	// Spin up a mock Antigravity language_server HTTPS web app
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'")
+		switch r.URL.Path {
+		case "/", "/c/test-conv-123":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte(`<!doctype html><html><head><title>Antigravity</title></head><body><div id="root">Live Antigravity Web App</div><script src="/main.js"></script></body></html>`))
+		case "/main.js":
+			w.Header().Set("Content-Type", "application/javascript")
+			_, _ = w.Write([]byte(`console.log("antigravity main bundle");`))
+		case "/exa.language_server_pb.LanguageServerService/GetServerConfiguration":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"config":{"standalone":true,"appDataDir":"antigravity"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	rm := NewRemoteManager(filepath.Join(t.TempDir(), "remote_control.json"))
+	defer rm.StopTunnel()
+	rm.SetWebOriginOverride(upstream.URL, "/c/test-conv-123")
+
+	if _, err := rm.StartTunnel("custom", "https://remote.example.com"); err != nil {
+		t.Fatalf("StartTunnel failed: %v", err)
+	}
+
+	rm.mu.RLock()
+	boundPort := rm.boundPort
+	rm.mu.RUnlock()
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", boundPort)
+
+	// 1. Unauthenticated GET /remote serves the PIN unlock screen
+	respUnauth, err := http.Get(baseURL + "/remote")
+	if err != nil {
+		t.Fatalf("GET /remote failed: %v", err)
+	}
+	unauthBody, _ := io.ReadAll(respUnauth.Body)
+	respUnauth.Body.Close()
+	if !strings.Contains(string(unauthBody), "Unlock Console") {
+		t.Fatalf("expected PIN unlock screen before auth, got: %s", string(unauthBody))
+	}
+
+	// 2. Authenticate with the 6-digit Security PIN
+	pin := rm.GetConfig().SecurityPIN
+	authResp, err := http.Post(baseURL+"/remote/api/auth", "application/json", strings.NewReader(fmt.Sprintf(`{"pin":%q}`, pin)))
+	if err != nil {
+		t.Fatalf("POST /remote/api/auth failed: %v", err)
+	}
+	var authJSON map[string]interface{}
+	_ = json.NewDecoder(authResp.Body).Decode(&authJSON)
+	cookies := authResp.Cookies()
+	authResp.Body.Close()
+
+	if authJSON["web_app_available"] != true || authJSON["redirect"] != "/c/test-conv-123" {
+		t.Fatalf("expected web_app_available=true and redirect=/c/test-conv-123, got: %+v", authJSON)
+	}
+
+	// 3. Authenticated GET /remote redirects to /c/test-conv-123 and serves the live Antigravity Web App
+	reqApp, _ := http.NewRequest(http.MethodGet, baseURL+"/remote", nil)
+	for _, ck := range cookies {
+		reqApp.AddCookie(ck)
+	}
+	respApp, err := http.DefaultClient.Do(reqApp)
+	if err != nil {
+		t.Fatalf("authenticated GET /remote failed: %v", err)
+	}
+	appBody, _ := io.ReadAll(respApp.Body)
+	respApp.Body.Close()
+	if !strings.Contains(string(appBody), "Live Antigravity Web App") {
+		t.Fatalf("expected proxied Antigravity Web App HTML, got: %s", string(appBody))
+	}
+	if respApp.Header.Get("Content-Security-Policy") != "" {
+		t.Fatalf("expected restrictive Content-Security-Policy header to be stripped by proxy")
+	}
+
+	// 4. Authenticated Connect-RPC call is proxied to language_server
+	reqRPC, _ := http.NewRequest(http.MethodPost, baseURL+"/exa.language_server_pb.LanguageServerService/GetServerConfiguration", strings.NewReader(`{}`))
+	for _, ck := range cookies {
+		reqRPC.AddCookie(ck)
+	}
+	respRPC, err := http.DefaultClient.Do(reqRPC)
+	if err != nil {
+		t.Fatalf("proxied RPC failed: %v", err)
+	}
+	rpcBody, _ := io.ReadAll(respRPC.Body)
+	respRPC.Body.Close()
+	if !strings.Contains(string(rpcBody), `"appDataDir":"antigravity"`) {
+		t.Fatalf("expected proxied RPC response from language_server, got: %s", string(rpcBody))
 	}
 }
