@@ -967,25 +967,57 @@ const remoteHTML = `<!DOCTYPE html>
 <title>Antigravity Remote Control</title>
 <style>
 :root {
-  --bg: #f8fafc;
-  --surface: #ffffff;
-  --surface-alt: #f1f5f9;
-  --border: #e2e8f0;
-  --text-main: #0f172a;
-  --text-sub: #64748b;
-  --primary: #1a73e8;
-  --primary-hover: #1557b0;
-  --emerald: #059669;
-  --red: #dc2626;
+  --background: #F9F9F9;
+  --foreground: #101010;
+  --muted: #ECECEC;
+  --secondary: #E2E2E2;
+  --muted-foreground: #6e6e6e;
+  --placeholder: #8a8a8a;
+  --border: #E0E0E0;
+  --card: #FFFFFF;
+  --bg: var(--background);
+  --surface: var(--card);
+  --surface-alt: var(--muted);
+  --text-main: var(--foreground);
+  --text-sub: var(--muted-foreground);
+  --primary: #3186FF;
+  --primary-hover: #1a73e8;
+  --emerald: #58983f;
+  --red: #de5555;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #101010;
+    --foreground: #cccccc;
+    --muted: #151515;
+    --secondary: #272727;
+    --muted-foreground: #6e6e6e;
+    --placeholder: #484848;
+    --border: #222222;
+    --card: #191919;
+    --emerald: #7aae66;
+    --red: #de5555;
+    color-scheme: dark;
+  }
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: var(--bg);
   color: var(--text-main);
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  -webkit-font-smoothing: antialiased;
+}
+@keyframes logoEntrance {
+  from { opacity: 0; transform: translateY(6px); filter: blur(4px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+@keyframes textEntrance {
+  from { opacity: 0; transform: translateY(6px); filter: blur(4px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
 }
 .icon {
   width: 16px;
@@ -1215,59 +1247,154 @@ body {
 .auth-wrapper {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 24px 20px;
+  position: relative;
+  overflow: hidden;
+  user-select: none;
 }
 .auth-card {
   width: 100%;
-  max-width: 380px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 28px;
+  max-width: 340px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  align-items: center;
   text-align: center;
+  position: relative;
+  z-index: 10;
 }
-.auth-icon-circle {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: rgba(59, 130, 246, 0.1);
-  color: var(--primary);
+.agy-logo-stage {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 28px;
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto;
+  animation: logoEntrance 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.agy-glow-backdrop {
+  position: absolute;
+  width: 280px;
+  height: 280px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.32;
+  filter: blur(28px);
 }
 .auth-title {
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 24px;
+  font-weight: 400;
+  color: var(--foreground);
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  animation: textEntrance 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.06s both;
 }
 .auth-desc {
+  margin-top: 8px;
   font-size: 13px;
-  color: var(--text-sub);
-  line-height: 1.4;
+  color: var(--muted-foreground);
+  line-height: 1.45;
+  animation: textEntrance 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
+}
+.entrance-auth-panel {
+  width: 100%;
+  margin-top: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: textEntrance 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.14s both;
+}
+.pin-field-wrap {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
 }
 .pin-input {
-  letter-spacing: 0.35em;
-  font-size: 20px;
+  width: 100%;
+  height: 40px;
+  padding: 0 38px;
+  border-radius: 8px;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  letter-spacing: 0.38em;
+  font-size: 17px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   text-align: center;
   font-weight: 600;
+  outline: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+.pin-input::placeholder {
+  color: var(--placeholder);
+  letter-spacing: 0.32em;
+}
+.pin-input:focus {
+  border-color: var(--primary);
+  background: var(--card);
+  box-shadow: 0 0 0 3px rgba(49, 134, 255, 0.15);
+}
+.pin-eye-btn {
+  position: absolute;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+}
+.pin-eye-btn:hover {
+  color: var(--foreground);
+  background: var(--secondary);
+}
+.agy-unlock-btn {
+  width: 100%;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 8px;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+.agy-unlock-btn:hover {
+  background: var(--secondary);
+  border-color: var(--muted-foreground);
 }
 .msg-banner {
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 12px;
   display: none;
 }
+.msg-banner:empty {
+  display: none !important;
+}
 .msg-banner.error {
   display: block;
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(222, 85, 85, 0.1);
   color: var(--red);
-  border: 1px solid rgba(239, 68, 68, 0.25);
+  border: 1px solid rgba(222, 85, 85, 0.28);
 }
 .msg-banner.success {
   display: block;
@@ -1281,19 +1408,61 @@ body {
 
 <div id="authView" class="auth-wrapper">
   <div class="auth-card">
-    <div class="auth-icon-circle">
-      <svg class="icon" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    <div class="agy-logo-stage">
+      <svg class="agy-glow-backdrop" viewBox="0 0 255 266" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="96" cy="98" r="42" fill="#FFEE48" />
+        <circle cx="168" cy="96" r="48" fill="#FC413D" />
+        <circle cx="88" cy="142" r="48" fill="#00B95C" />
+        <circle cx="152" cy="158" r="54" fill="#3186FF" />
+      </svg>
+      <svg width="64" height="64" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg" style="position:relative;z-index:2;">
+        <g clip-path="url(#clip0_6153_71)">
+          <path d="M85.9734 89.3438C91.2234 93.2812 99.0984 90.6562 91.8796 83.4375C70.2234 62.4375 74.8171 4.6875 47.9109 4.6875C21.0046 4.6875 25.5984 62.4375 3.94213 83.4375C-3.93287 91.3125 4.59838 93.2812 9.84838 89.3438C30.1921 75.5625 28.8796 51.2812 47.9109 51.2812C66.9421 51.2812 65.6296 75.5625 85.9734 89.3438Z" fill="#3186FF"/>
+          <mask id="mask0_6153_71" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="0" y="4" width="95" height="88">
+            <path d="M85.9734 89.3438C91.2234 93.2812 99.0984 90.6562 91.8796 83.4375C70.2234 62.4375 74.8171 4.6875 47.9109 4.6875C21.0046 4.6875 25.5984 62.4375 3.94213 83.4375C-3.93287 91.3125 4.59838 93.2812 9.84838 89.3438C30.1921 75.5625 28.8796 51.2812 47.9109 51.2812C66.9421 51.2812 65.6296 75.5625 85.9734 89.3438Z" fill="black"/>
+          </mask>
+          <g mask="url(#mask0_6153_71)">
+            <g filter="url(#filter0_f_6153_71)"><ellipse cx="25.6357" cy="30.161" rx="25.6357" ry="30.161" transform="matrix(-0.112784 0.99362 -0.99362 -0.112781 59.5896 -33.5392)" fill="#FFE432"/></g>
+            <g filter="url(#filter1_f_6153_71)"><ellipse cx="93.6143" cy="23.4505" rx="33.1883" ry="33.9179" transform="rotate(76.9243 93.6143 23.4505)" fill="#FC413D"/></g>
+            <g filter="url(#filter2_f_6153_71)"><ellipse cx="-4.78051" cy="30.8098" rx="34.686" ry="44.9344" transform="rotate(74.1257 -4.78051 30.8098)" fill="#00B95C"/></g>
+            <g filter="url(#filter4_f_6153_71)"><ellipse cx="-2.31406" cy="32.1899" rx="33.9975" ry="37.4282" transform="rotate(45.6065 -2.31406 32.1899)" fill="#00B95C"/></g>
+            <g filter="url(#filter5_f_6153_71)"><ellipse cx="70.2862" cy="101.861" rx="32.6449" ry="31.4359" transform="rotate(76.9243 70.2862 101.861)" fill="#3186FF"/></g>
+            <g filter="url(#filter6_f_6153_71)"><ellipse cx="37.7619" cy="39.8298" rx="37.7619" ry="39.8298" transform="matrix(-0.409539 0.912293 -0.912294 -0.409537 98.9683 -33.1266)" fill="#FBBC04"/></g>
+            <g filter="url(#filter7_f_6153_71)"><path d="M-12.0493 152.344C-32.7264 144.227 2.61016 77.4428 11.3972 55.0598C20.1841 32.6769 44.0695 21.1122 64.7466 29.2295C85.4236 37.3467 109.932 82.0552 101.145 104.438C92.3577 126.8 8.6 160.461 -12.0493 152.344Z" fill="#3186FF"/></g>
+            <g filter="url(#filter8_f_6153_71)"><path d="M113.238 69.2209C107.702 75.6818 93.256 72.3872 80.9716 61.8621C68.6872 51.337 63.2163 37.567 68.752 31.1061C74.2876 24.6451 88.7336 27.9398 101.018 38.4649C113.302 48.99 118.773 62.7599 113.238 69.2209Z" fill="#749BFF"/></g>
+            <g filter="url(#filter9_f_6153_71)"><ellipse cx="89.2491" cy="10.7078" rx="49.7713" ry="30.9393" transform="rotate(34.0763 89.2491 10.7078)" fill="#FC413D"/></g>
+            <g filter="url(#filter10_f_6153_71)"><ellipse cx="11.4944" cy="17.2241" rx="26.6705" ry="15.5102" transform="rotate(112.516 11.4944 17.2241)" fill="#FFEE48"/></g>
+          </g>
+        </g>
+        <defs>
+          <clipPath id="clip0_6153_71"><rect width="96" height="96" fill="white"/></clipPath>
+          <filter id="filter0_f_6153_71" x="-12.13" y="-45.92" width="77.73" height="68.91" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="4.38"/></filter>
+          <filter id="filter1_f_6153_71" x="17.41" y="-52.10" width="152.41" height="151.10" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="21.16"/></filter>
+          <filter id="filter2_f_6153_71" x="-85.01" y="-40.73" width="160.47" height="143.08" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="17.99"/></filter>
+          <filter id="filter4_f_6153_71" x="-74.08" y="-39.50" width="143.53" height="143.38" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="17.99"/></filter>
+          <filter id="filter5_f_6153_71" x="4.59" y="35.08" width="131.38" height="133.55" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="17.09"/></filter>
+          <filter id="filter6_f_6153_71" x="-23.32" y="-84.10" width="140.97" height="138.22" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="15.49"/></filter>
+          <filter id="filter7_f_6153_71" x="-46.11" y="-1.03" width="176.76" height="182.28" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="13.83"/></filter>
+          <filter id="filter8_f_6153_71" x="41.83" y="3.04" width="98.32" height="94.25" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="12.38"/></filter>
+          <filter id="filter9_f_6153_71" x="23.60" y="-48.08" width="131.29" height="117.57" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="10.46"/></filter>
+          <filter id="filter10_f_6153_71" x="-31.98" y="-34.01" width="86.96" height="102.46" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="12.94"/></filter>
+        </defs>
+      </svg>
     </div>
-    <div class="auth-title">Antigravity Remote Control</div>
-    <div class="auth-desc">Enter your 6-digit Security PIN to access remote control console.</div>
-    <div id="authError" class="msg-banner error"></div>
-    <form id="authForm" onsubmit="handleAuthSubmit(event)">
-      <div class="input-group">
+    <div class="auth-title">Welcome to Antigravity</div>
+    <div class="auth-desc">Antigravity Remote Control — Enter your 6-digit Security PIN</div>
+    <form id="authForm" class="entrance-auth-panel" onsubmit="handleAuthSubmit(event)">
+      <div id="authError" class="msg-banner"></div>
+      <div class="pin-field-wrap">
         <input type="password" id="pinInput" class="input-text pin-input" inputmode="numeric" maxlength="6" pattern="[0-9]*" placeholder="••••••" autofocus required>
+        <button type="button" id="togglePinBtn" class="pin-eye-btn" onclick="togglePinVisibility()" title="Show or hide PIN">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
       </div>
-      <div style="margin-top:14px;">
-        <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;">Unlock Console</button>
-      </div>
+      <button type="submit" class="agy-unlock-btn">
+        <svg class="icon" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        <span>Unlock Console</span>
+      </button>
     </form>
   </div>
 </div>
@@ -1428,6 +1597,13 @@ function showAuth() {
   pinInput.focus();
 }
 
+function togglePinVisibility() {
+  var pinInput = document.getElementById('pinInput');
+  if (!pinInput) return;
+  pinInput.type = pinInput.type === 'password' ? 'text' : 'password';
+  pinInput.focus();
+}
+
 function showConsole(data) {
   document.getElementById('authView').style.display = 'none';
   document.getElementById('consoleView').style.display = 'flex';
@@ -1440,6 +1616,8 @@ async function handleAuthSubmit(e) {
   e.preventDefault();
   var pin = document.getElementById('pinInput').value.trim();
   var errEl = document.getElementById('authError');
+  errEl.className = 'msg-banner';
+  errEl.textContent = '';
   errEl.style.display = 'none';
 
   try {
@@ -1458,10 +1636,12 @@ async function handleAuthSubmit(e) {
       }
       checkAuthAndInit();
     } else {
+      errEl.className = 'msg-banner error';
       errEl.textContent = data.error || 'Invalid 6-digit Security PIN';
       errEl.style.display = 'block';
     }
   } catch (err) {
+    errEl.className = 'msg-banner error';
     errEl.textContent = 'Connection error: ' + err.message;
     errEl.style.display = 'block';
   }
