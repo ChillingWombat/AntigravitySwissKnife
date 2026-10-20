@@ -73,6 +73,7 @@ type ChannelsManager struct {
 	configPath         string
 	HTTPClient         *http.Client
 	verifiedIdentities map[string]string
+	lastMessageAt      map[string]string
 }
 
 // DefaultChannelsConfig provides safe defaults.
@@ -112,6 +113,7 @@ func NewChannelsManager(configPath string) *ChannelsManager {
 		config:             DefaultChannelsConfig(),
 		configPath:         configPath,
 		verifiedIdentities: make(map[string]string),
+		lastMessageAt:      make(map[string]string),
 	}
 	_ = cm.load()
 	return cm
@@ -208,9 +210,10 @@ func (cm *ChannelsManager) GetStatus() ChannelsStatus {
 	waVerified := cm.verifiedIdentities != nil && cm.verifiedIdentities["whatsapp"] != ""
 	waConfigured := strings.TrimSpace(cm.config.WhatsApp.AccessToken) != "" || strings.TrimSpace(cm.config.WhatsApp.PhoneNumberID) != ""
 	waState := ChannelState{
-		Enabled:   cm.config.WhatsApp.Enabled,
-		Connected: cm.config.WhatsApp.Enabled && waVerified,
-		Identity:  cm.getVerifiedIdentity("whatsapp"),
+		Enabled:       cm.config.WhatsApp.Enabled,
+		Connected:     cm.config.WhatsApp.Enabled && waVerified,
+		Identity:      cm.getVerifiedIdentity("whatsapp"),
+		LastMessageAt: cm.getLastMessageAt("whatsapp"),
 	}
 	if !waState.Enabled {
 		waState.StatusText = "Disabled"
@@ -226,9 +229,10 @@ func (cm *ChannelsManager) GetStatus() ChannelsStatus {
 	tgVerified := cm.verifiedIdentities != nil && cm.verifiedIdentities["telegram"] != ""
 	tgConfigured := strings.TrimSpace(cm.config.Telegram.BotToken) != ""
 	tgState := ChannelState{
-		Enabled:   cm.config.Telegram.Enabled,
-		Connected: cm.config.Telegram.Enabled && tgVerified,
-		Identity:  cm.getVerifiedIdentity("telegram"),
+		Enabled:       cm.config.Telegram.Enabled,
+		Connected:     cm.config.Telegram.Enabled && tgVerified,
+		Identity:      cm.getVerifiedIdentity("telegram"),
+		LastMessageAt: cm.getLastMessageAt("telegram"),
 	}
 	if !tgState.Enabled {
 		tgState.StatusText = "Disabled"
@@ -244,9 +248,10 @@ func (cm *ChannelsManager) GetStatus() ChannelsStatus {
 	dcVerified := cm.verifiedIdentities != nil && cm.verifiedIdentities["discord"] != ""
 	dcConfigured := strings.TrimSpace(cm.config.Discord.BotToken) != ""
 	dcState := ChannelState{
-		Enabled:   cm.config.Discord.Enabled,
-		Connected: cm.config.Discord.Enabled && dcVerified,
-		Identity:  cm.getVerifiedIdentity("discord"),
+		Enabled:       cm.config.Discord.Enabled,
+		Connected:     cm.config.Discord.Enabled && dcVerified,
+		Identity:      cm.getVerifiedIdentity("discord"),
+		LastMessageAt: cm.getLastMessageAt("discord"),
 	}
 	if !dcState.Enabled {
 		dcState.StatusText = "Disabled"
@@ -272,6 +277,30 @@ func (cm *ChannelsManager) getVerifiedIdentity(channel string) string {
 	return cm.verifiedIdentities[channel]
 }
 
+// RecordActivity records the latest interaction timestamp for a given channel.
+func (cm *ChannelsManager) RecordActivity(channel string) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if cm.lastMessageAt == nil {
+		cm.lastMessageAt = make(map[string]string)
+	}
+	cm.lastMessageAt[strings.ToLower(channel)] = time.Now().Format("2006-01-02 15:04:05")
+}
+
+func (cm *ChannelsManager) getLastMessageAt(channel string) string {
+	if cm.lastMessageAt == nil {
+		return ""
+	}
+	return cm.lastMessageAt[strings.ToLower(channel)]
+}
+
+// GetLastMessageAt returns the last interaction timestamp for a given channel.
+func (cm *ChannelsManager) GetLastMessageAt(channel string) string {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return cm.getLastMessageAt(channel)
+}
+
 // TestChannel executes genuine connectivity check for a given channel.
 func (cm *ChannelsManager) TestChannel(channel string) (string, error) {
 	cm.mu.RLock()
@@ -288,7 +317,7 @@ func (cm *ChannelsManager) TestChannel(channel string) (string, error) {
 		if !cfg.WhatsApp.Enabled {
 			return "", fmt.Errorf("WhatsApp bridge is disabled")
 		}
-		if cfg.WhatsApp.Mode == "cloud_api" || cfg.WhatsApp.AccessToken != "" {
+		if cfg.WhatsApp.Mode == "cloud_api" || (cfg.WhatsApp.Mode == "" && cfg.WhatsApp.AccessToken != "") {
 			token := strings.TrimSpace(cfg.WhatsApp.AccessToken)
 			if token == "" || token == "[REDACTED]" {
 				return "", fmt.Errorf("WhatsApp bridge is not configured: access token is required")
@@ -339,6 +368,19 @@ func (cm *ChannelsManager) TestChannel(channel string) (string, error) {
 			cm.verifiedIdentities["whatsapp"] = "WhatsApp MCP Gateway"
 			cm.mu.Unlock()
 			return "WhatsApp MCP bridge verified. Token configured for webhook handshakes.", nil
+		}
+		if cfg.WhatsApp.Mode == "webhook" {
+			verifyToken := strings.TrimSpace(cfg.WhatsApp.VerifyToken)
+			if verifyToken == "" || verifyToken == "[REDACTED]" {
+				return "", fmt.Errorf("WhatsApp webhook bridge is not configured: verify token required")
+			}
+			cm.mu.Lock()
+			if cm.verifiedIdentities == nil {
+				cm.verifiedIdentities = make(map[string]string)
+			}
+			cm.verifiedIdentities["whatsapp"] = "WhatsApp Webhook Gateway"
+			cm.mu.Unlock()
+			return "WhatsApp custom webhook bridge verified. Verify token ready for inbound events.", nil
 		}
 		return "", fmt.Errorf("WhatsApp bridge mode %q is not configured", cfg.WhatsApp.Mode)
 
