@@ -2,6 +2,9 @@ package bridge
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -570,5 +573,162 @@ func TestService_AutoStartUsesTunnelLifecycle(t *testing.T) {
 	}
 	if !svc.GetConfig().Enabled {
 		t.Fatal("auto-start bypassed the tunnel lifecycle and left the bridge disabled")
+	}
+}
+
+
+func TestTunnelManager_SetPort(t *testing.T) {
+	tm := NewTunnelManager(8765, "/api/bridge/mcp")
+	if tm.localPort != 8765 {
+		t.Fatalf("expected 8765, got %d", tm.localPort)
+	}
+	tm.SetPort(9999)
+	if tm.localPort != 9999 {
+		t.Fatalf("expected 9999, got %d", tm.localPort)
+	}
+	tm.SetPort(-1)
+	if tm.localPort != 9999 {
+		t.Fatalf("expected 9999 after non-positive SetPort, got %d", tm.localPort)
+	}
+}
+
+func TestRemoteManager_LocalHTTPServer_AndPINAuth(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "remote_control.json")
+
+	rm := NewRemoteManager(cfgPath)
+	defer rm.StopTunnel()
+
+	// 1. Verify StartTunnel starts real local HTTP server on boundPort
+	st, err := rm.StartTunnel("custom", "https://remote.example.com")
+	if err != nil {
+		t.Fatalf("StartTunnel failed: %v", err)
+	}
+	if !st.Active {
+		t.Fatalf("expected active tunnel status")
+	}
+
+	boundPort := rm.boundPort
+	if boundPort <= 0 {
+		t.Fatalf("expected positive boundPort, got %d", boundPort)
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	// GET http://127.0.0.1:<boundPort>/remote
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/remote", boundPort))
+	if err != nil {
+		t.Fatalf("GET /remote failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK from /remote, got %d", resp.StatusCode)
+	}
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read /remote body failed: %v", err)
+	}
+	if !strings.Contains(string(bodyBytes), "Antigravity Remote Control") {
+		t.Fatalf("expected /remote HTML to contain 'Antigravity Remote Control', got:\n%s", string(bodyBytes))
+	}
+
+	// 2. POST /remote/api/auth rejects wrong PIN with 401
+	badAuthBody := strings.NewReader(`{"pin":"000000"}`)
+	respBad, err := client.Post(fmt.Sprintf("http://127.0.0.1:%d/remote/api/auth", boundPort), "application/json", badAuthBody)
+	if err != nil {
+		t.Fatalf("POST bad PIN failed: %v", err)
+	}
+	defer respBad.Body.Close()
+	if respBad.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for wrong PIN, got %d", respBad.StatusCode)
+	}
+
+	// POST /remote/api/auth accepts rm.GetConfig().SecurityPIN with 200 OK
+	curPIN := rm.GetConfig().SecurityPIN
+	goodAuthBody := strings.NewReader(fmt.Sprintf(`{"pin":%q}`, curPIN))
+	respGood, err := client.Post(fmt.Sprintf("http://127.0.0.1:%d/remote/api/auth", boundPort), "application/json", goodAuthBody)
+	if err != nil {
+		t.Fatalf("POST valid PIN failed: %v", err)
+	}
+	defer respGood.Body.Close()
+	if respGood.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for valid PIN, got %d", respGood.StatusCode)
+	}
+
+	var authResult map[string]interface{}
+	if err := json.NewDecoder(respGood.Body).Decode(&authResult); err != nil {
+		t.Fatalf("decode auth response failed: %v", err)
+	}
+	if authResult["success"] != true {
+		t.Fatalf("expected success: true, got %v", authResult)
+	}
+
+	// Verify cookie was set
+	cookies := respGood.Cookies()
+	var authCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == "swiss_remote_pin" {
+			authCookie = c
+			break
+		}
+	}
+	if authCookie == nil || authCookie.Value != curPIN {
+		t.Fatalf("expected swiss_remote_pin cookie with valid PIN, got %v", authCookie)
+	}
+
+	// Status endpoint with cookie succeeds
+	reqStatus, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/remote/api/status", boundPort), nil)
+	reqStatus.AddCookie(authCookie)
+	respStatus, err := client.Do(reqStatus)
+	if err != nil {
+		t.Fatalf("GET /remote/api/status with cookie failed: %v", err)
+	}
+	defer respStatus.Body.Close()
+	if respStatus.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK from status with cookie, got %d", respStatus.StatusCode)
+	}
+
+	// 3. rm.RotatePIN() immediately revokes previous PIN (401)
+	newPIN, err := rm.RotatePIN()
+	if err != nil {
+		t.Fatalf("RotatePIN failed: %v", err)
+	}
+	if newPIN == curPIN {
+		t.Fatalf("expected new PIN after rotation, got same %s", newPIN)
+	}
+
+	// Request with old cookie is now 401 Unauthorized
+	reqOldCookie, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/remote/api/status", boundPort), nil)
+	reqOldCookie.AddCookie(authCookie)
+	respRevoked, err := client.Do(reqOldCookie)
+	if err != nil {
+		t.Fatalf("GET /remote/api/status after rotate failed: %v", err)
+	}
+	defer respRevoked.Body.Close()
+	if respRevoked.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized after PIN rotation, got %d", respRevoked.StatusCode)
+	}
+
+	// Old PIN auth attempt is also 401 Unauthorized
+	oldAuthBody := strings.NewReader(fmt.Sprintf(`{"pin":%q}`, curPIN))
+	respOldAuth, err := client.Post(fmt.Sprintf("http://127.0.0.1:%d/remote/api/auth", boundPort), "application/json", oldAuthBody)
+	if err != nil {
+		t.Fatalf("POST old PIN failed: %v", err)
+	}
+	defer respOldAuth.Body.Close()
+	if respOldAuth.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for rotated old PIN, got %d", respOldAuth.StatusCode)
+	}
+
+	// New PIN auth succeeds
+	newAuthBody := strings.NewReader(fmt.Sprintf(`{"pin":%q}`, newPIN))
+	respNewAuth, err := client.Post(fmt.Sprintf("http://127.0.0.1:%d/remote/api/auth", boundPort), "application/json", newAuthBody)
+	if err != nil {
+		t.Fatalf("POST new PIN failed: %v", err)
+	}
+	defer respNewAuth.Body.Close()
+	if respNewAuth.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for new PIN, got %d", respNewAuth.StatusCode)
 	}
 }
