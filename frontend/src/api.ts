@@ -16,6 +16,7 @@ import type {
   SystemStatus,
   TestResult,
   EnhancementsConfig,
+  CommunityExtension,
   ArchivedProjectItem,
   ScheduledTemplate,
   DeployTaskRequest,
@@ -711,6 +712,35 @@ export const api = {
     request<{ success: boolean; message: string }>('/api/enhancements/apply', {
       method: 'POST',
     }),
+
+  // Community Extensions
+  getCommunityExtensions: () =>
+    request<{ success: boolean; extensions: CommunityExtension[] }>('/api/extensions/community'),
+
+  saveCommunityExtension: (ext: Partial<CommunityExtension>) =>
+    request<{ success: boolean; extension: CommunityExtension; extensions: CommunityExtension[] }>(
+      '/api/extensions/community',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ext),
+      }
+    ),
+
+  importCommunityExtensions: (extensions: Partial<CommunityExtension>[]) =>
+    request<{ success: boolean; extensions: CommunityExtension[] }>('/api/extensions/community', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ extensions }),
+    }),
+
+  deleteCommunityExtension: (id: string) =>
+    request<{ success: boolean; deleted: string; extensions: CommunityExtension[] }>(
+      `/api/extensions/community?id=${encodeURIComponent(id)}`,
+      {
+        method: 'DELETE',
+      }
+    ),
 
   // Project Archiving & GUI Improvements
   getArchivedProjects: () => request<ArchivedProjectItem[]>('/api/gui/projects/archived'),
