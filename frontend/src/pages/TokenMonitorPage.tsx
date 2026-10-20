@@ -38,6 +38,58 @@ export {
   sortPricingModels,
 }
 
+// Format Helper exported for external testing and consumers
+export const formatTokensHelper = (num: number | null | undefined): string => {
+  const n = num ?? 0
+  if (n >= 1000000000) return `${(n / 1000000000).toFixed(2)}B`
+  if (n >= 1000000) return `${(n / 1000000).toFixed(2)}M`
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
+  return n.toLocaleString()
+}
+
+// 2-decimal metric formatter shared by the Models / Projects breakdowns exported for external testing
+export const formatMetricValueHelper = (
+  value: number | null | undefined,
+  unitMode: "usd" | "tokens" | "requests"
+): string => {
+  if (unitMode === "usd" && (value === null || value === undefined)) {
+    return "Unpriced (null)"
+  }
+  const v = value ?? 0
+  if (unitMode === "usd") return `$${v.toFixed(2)}`
+  if (unitMode === "requests") return `${Math.round(v).toLocaleString()} req`
+  return v >= 1000000000
+    ? `${(v / 1000000000).toFixed(2)}B`
+    : v >= 1000000
+    ? `${(v / 1000000).toFixed(2)}M`
+    : v >= 1000
+    ? `${(v / 1000).toFixed(2)}k`
+    : v.toFixed(0)
+}
+
+// Chart Y-axis tick formatter exported for external testing
+export const formatTrendYTickHelper = (
+  v: number,
+  unitMode: "usd" | "tokens" | "requests"
+): string => {
+  if (unitMode === "usd") {
+    if (v === 0) return "$0"
+    return v >= 10 ? `$${v.toFixed(0)}` : `$${v.toFixed(2)}`
+  }
+  if (unitMode === "requests") return v === 0 ? "0" : Math.round(v).toString()
+  if (v === 0) return "0"
+  if (v >= 1000000000) return `${(v / 1000000000).toFixed(1)}B`
+  if (v >= 1000000) return `${(v / 1000000).toFixed(1)}M`
+  if (v >= 1000) return `${Math.round(v / 1000)}k`
+  return Math.round(v).toString()
+}
+
+export {
+  formatTokensHelper as formatTokens,
+  formatMetricValueHelper as formatMetricValue,
+  formatTrendYTickHelper as formatTrendYTick,
+}
+
 interface TokenMonitorPageProps {
   onRefresh?: () => void
   activeTab?: number
@@ -271,12 +323,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   }
 
   // Format Helper
-  const formatTokens = (num: number | null | undefined) => {
-    const n = num ?? 0
-    if (n >= 1000000) return `${(n / 1000000).toFixed(2)}M`
-    if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
-    return n.toLocaleString()
-  }
+  const formatTokens = (num: number | null | undefined) => formatTokensHelper(num)
 
   const formatCost = (usd: number | null | undefined) =>
     usd === null || usd === undefined ? '—' : `$${usd.toFixed(4)}`
