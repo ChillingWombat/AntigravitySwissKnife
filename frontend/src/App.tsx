@@ -24,6 +24,7 @@ export const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<number>(0) // 0: Dashboard, 1: FP, 2: Rules
   const [systemSettingsTab, setSystemSettingsTab] = useState<number>(0) // 0: General, 1: Path & Storage, 2: Error & Privacy, 3: About
   const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Auxiliary Panel
+  const [extensionsTab, setExtensionsTab] = useState<number>(0) // 0: Built-in, 1: Community
   const [availableProjects, setAvailableProjects] = useState<Array<{ name: string; color: string; order: number; is_archived: boolean }>>([])
   const [utilitiesTab, setUtilitiesTab] = useState<number>(0) // 0: Storage Manager, 1: ACP Agent Mesh, 2: Chat & Project Importer
   const [bridgeTab, setBridgeTab] = useState<number>(0) // 0: Remote, 1: Gemini, 2: WhatsApp, 3: Telegram, 4: Discord
@@ -199,7 +200,7 @@ export const App: React.FC = () => {
             onSelectTab={setCurrentTab}
             activeAccount={status?.active_account || fleet?.active_account || null}
           />
-        ) : (currentTool !== 5 && currentTool !== 6 && currentTool !== 7) ? (
+        ) : (currentTool !== 5 && currentTool !== 6) ? (
           <header
             style={{
               height: '72px',
@@ -231,6 +232,44 @@ export const App: React.FC = () => {
                       <button
                         key={tab}
                         onClick={() => setEnhancementTab(idx)}
+                        style={{
+                          borderRadius: '6px',
+                          padding: '6px 16px',
+                          fontSize: '12px',
+                          fontWeight: isActive ? 600 : 500,
+                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+                          backgroundColor: isActive ? 'var(--surface)' : 'transparent',
+                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {tab}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {currentTool === 7 && (
+                /* Extensions Segmented Tabs */
+                <div
+                  style={{
+                    display: 'flex',
+                    backgroundColor: 'var(--tonal)',
+                    borderRadius: '8px',
+                    padding: '3px',
+                    gap: '2px',
+                  }}
+                >
+                  {['Built-in', 'Community'].map((tab, idx) => {
+                    const isActive = extensionsTab === idx
+                    return (
+                      <button
+                        key={tab}
+                        onClick={() => setExtensionsTab(idx)}
                         style={{
                           borderRadius: '6px',
                           padding: '6px 16px',
@@ -479,6 +518,8 @@ export const App: React.FC = () => {
             {Boolean(status?.daemon_running) && currentTool === 7 && (
               <ErrorBoundary>
                 <ExtensionsPage
+                  activeTab={extensionsTab}
+                  onTabChange={setExtensionsTab}
                   fallbackProject={availableProjects[0]?.name}
                 />
               </ErrorBoundary>
