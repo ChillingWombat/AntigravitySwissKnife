@@ -94,4 +94,59 @@ When Antigravity starts with remote debugging enabled (`--remote-debugging-port`
 - Locates the active IDE workbench and agent webview target IDs.
 - Injects runtime script modifications into the page context via `Runtime.evaluate`.
 - Inspects React Fiber nodes to read conversation identifiers and turn execution states without invasive disk polling.
-- Enables seamless subagent continuation and context injection without restarting the entire desktop application when hot-swapping credentials.
+- Enables direct subagent continuation and context injection without restarting the entire desktop application when hot-swapping credentials.
+
+---
+
+## 5. Remote Control & Tunneling Architecture
+
+Antigravity Swiss Knife provides an out-of-home remote control wrapper (`pkg/bridge/remote.go` and `pkg/bridge/tunnel.go`) that exposes Antigravity's interface across local networks, private Tailnets, and public HTTPS tunnels with persistent session re-binding across Google account rotations.
+
+### 5.1 Remote Control Reverse Proxy (`127.0.0.1:8766` & `/remote`)
+- **Loopback Service Binding**: The daemon starts a dedicated HTTP and WebSocket reverse proxy listener on `127.0.0.1:8766`.
+- **Route Handling**:
+  - `/remote/api/auth`: Validates the Security PIN and issues a session cookie (`swiss_remote_pin`).
+  - `/remote/api/status`: Returns current CDP connection status, active Google account, connected clients, and tunnel diagnostics.
+  - `/remote/api/screenshot`: Captures live viewport screenshots from Antigravity via CDP.
+  - `/remote/api/conversation/*`: Dispatches new tasks or appends instructions to active sessions.
+  - `/remote` & `/`: Renders the mobile-responsive entrance and console interface, or redirects authenticated clients to the active web app path.
+- **Antigravity Web App Proxying**: When Antigravity Desktop's built-in `language_server` web application is running, authenticated incoming requests are reverse-proxied directly to the upstream IDE web origin, preserving streaming Connect-RPC calls, WebSockets, and terminal channels.
+- **Live Account Synchronization**: The proxy injects a background script (`#swiss-remote-account-sync`) into the HTML response body before `</body>`. This client script queries Redux stores and `agentServiceResolver` every 2.5 seconds to reconcile active user email and name states when account switches occur on the host machine.
+
+### 5.2 Dynamic CDP `language_server` Origin & CSRF Discovery
+- **Dynamic Origin Resolution**: Antigravity's internal language server binds to an ephemeral loopback port using either HTTP or self-signed HTTPS. The daemon queries Chromium DevTools targets (`injector.FindDevToolsPort()` and `injector.GetPageTargets()`) via CDP to discover the active loopback origin (e.g., `https://127.0.0.1:<port>`) and current URL path.
+- **CSRF Token Extraction**: Upstream RPC requests require a valid CSRF token header (`x-codeium-csrf-token`). The daemon fetches the root HTML of the detected language server origin and extracts the active token using regular expressions (`"csrfToken"\s*:\s*"([^"]+)"`).
+- **Header Rewriting**: The reverse proxy `Director` updates the `Origin` and `Referer` headers to match the upstream language server origin and sets `x-codeium-csrf-token` on outgoing requests. Downstream response headers that would prevent framing or remote display (`Content-Security-Policy`, `Content-Security-Policy-Report-Only`, `Cross-Origin-Opener-Policy`, `X-Frame-Options`) are stripped automatically.
+
+### 5.3 4-Minute Tunnel Keep-Alive Probes & Health Invalidation
+- **Periodic Probing**: `TunnelManager` runs a background keep-alive loop with a 4-minute cadence (`DefaultKeepAliveInterval = 4 * time.Minute`).
+- **Idle Timeout Prevention**: Probes dispatch lightweight HTTP GET requests through the public gateway URL with custom headers:
+  ```http
+  User-Agent: Antigravity-Swiss-Knife-KeepAlive/1.0
+  X-Swiss-KeepAlive: 1
+  ```
+  This traffic prevents Cloudflare Quick Tunnel (TryCloudflare) sessions from terminating due to Cloudflare's 5-minute idle expiration window.
+- **Health Invalidation & Auto-Stop**: If a keep-alive probe returns gateway or upstream error codes (HTTP 502, 503, 504, 521, 522, 523, 524, 530) or fails network dispatch, `invalidateTunnel` immediately kills the underlying tunnel process, clears public endpoint URLs from memory and configuration, transitions status to inactive, and triggers the `onAutoStop` handler to shut down the proxy listener.
+
+### 5.4 Tailscale Funnel vs. Private Tailnet TCP Forwarder
+The system supports two distinct network topologies when using Tailscale:
+- **Private Tailnet TCP Forwarder**:
+  - The daemon detects the local Tailscale binary (`LocateTailscale`), runs `tailscale ip -4`, and parses `tailscale status --json` for MagicDNS names.
+  - Binds a dedicated TCP forwarder listener to the node's Tailscale IP address (`<tailscale-ip>:<forwardPort> -> 127.0.0.1:<localPort>`).
+  - Allows authenticated devices on the operator's private Tailnet (such as mobile phones and remote laptops) to access the console via MagicDNS (`http://<magicdns>:<port>/remote`) or Tailscale IP (`http://<tailscale-ip>:<port>/remote`) with zero public internet exposure.
+- **Tailscale Funnel**:
+  - When operator permissions and node configurations permit, the daemon initiates background publishing via `tailscale funnel --bg` or `tailscale serve --bg`.
+  - Routes inbound traffic through Tailscale's edge infrastructure to provide an encrypted public HTTPS endpoint (`https://<magicdns>/remote`).
+  - If Funnel activation fails or node permissions are restricted, the manager falls back to the private Tailnet TCP forwarder.
+
+### 5.5 Security PIN & App Access Password Verification
+Two distinct cryptographic barriers guard remote and local operations:
+- **Remote Control Security PIN**:
+  - Remote HTTP and WebSocket endpoints verify incoming requests against the daemon's configured Security PIN (supporting 6-digit to 8-character verification tokens).
+  - Clients can supply the PIN via the `X-Remote-PIN` header, `Authorization: Bearer <pin>`, the `?pin=` query parameter, or the `swiss_remote_pin` HTTP-only cookie.
+  - Failed authentication attempts return `401 Unauthorized`.
+  - Supports instant on-demand PIN rotation: generating a fresh PIN immediately clears all active client sessions and revokes existing authentication cookies.
+- **App Access Password**:
+  - Protects the desktop application GUI and prevents unauthorized local access on shared workstations.
+  - Implements RFC 2898 PBKDF2-HMAC-SHA256 with 100,000 iterations and a cryptographically random 16-byte salt (`pbkdf2:sha256:100000:<salt>:<hash>`).
+  - Enforces a minimum length of 6 characters and gates all sensitive UI surfaces, including account switching, keyring token exports, and configuration editing, behind a master lock screen.

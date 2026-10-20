@@ -26,6 +26,7 @@ type Config struct {
 	AuthToken       string   `json:"auth_token"`
 	PairingPIN      string   `json:"pairing_pin"`
 	UseAppPassword  bool     `json:"use_app_password"`
+	OAuthClientID   string   `json:"oauth_client_id"`
 	AutoStartTunnel bool     `json:"auto_start_tunnel"`
 	AllowedTools    []string `json:"allowed_tools"`
 }
@@ -65,6 +66,8 @@ type BridgeStatus struct {
 	PairingPIN         string        `json:"pairing_pin"`
 	UseAppPassword     bool          `json:"use_app_password"`
 	AppPasswordEnabled bool          `json:"app_password_enabled"`
+	OAuthClientID      string        `json:"oauth_client_id"`
+	OAuthClientSecret  string        `json:"oauth_client_secret"`
 	Surfaces           SurfaceStatus `json:"surfaces"`
 	Tunnel             TunnelStatus  `json:"tunnel"`
 	ActiveLeadSession  *LeadSession  `json:"active_lead_session,omitempty"`
@@ -77,6 +80,8 @@ type BridgeStatus struct {
 type Service struct {
 	mu          sync.RWMutex
 	tunnelMu    sync.Mutex
+	oauthMu     sync.Mutex
+	authCodes   map[string]authCodeEntry
 	config      Config
 	configPath  string
 	invocations []Invocation
@@ -100,6 +105,7 @@ func DefaultConfig() Config {
 		TunnelURL:       "",
 		AuthToken:       GenerateSecureToken(),
 		PairingPIN:      GeneratePairingPIN(),
+		OAuthClientID:   "antigravity-gemini-bridge",
 		AutoStartTunnel: false,
 		AllowedTools: []string{
 			"antigravity_bridge_set_mode",
@@ -139,6 +145,7 @@ func NewService(configPath string) (*Service, error) {
 		configPath:  configPath,
 		config:      DefaultConfig(),
 		invocations: make([]Invocation, 0),
+		authCodes:   make(map[string]authCodeEntry),
 		injector:    gui.NewInjector(0),
 		directHdl:   NewDirectHandler(),
 		leadHdl:     NewLeadHandler(""),
@@ -257,6 +264,20 @@ func (s *Service) GetRawPairingPIN() string {
 	return s.authMgr.GetPIN()
 }
 
+// GetOAuthClientID returns the configured OAuth client ID.
+func (s *Service) GetOAuthClientID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.getOAuthClientID()
+}
+
+func (s *Service) getOAuthClientID() string {
+	if s.config.OAuthClientID != "" {
+		return s.config.OAuthClientID
+	}
+	return "antigravity-gemini-bridge"
+}
+
 func (s *Service) loadConfig() error {
 	data, err := os.ReadFile(s.configPath)
 	if err != nil {
@@ -297,6 +318,9 @@ func (s *Service) loadConfig() error {
 	if c.PairingPIN == "" || (!gui.IsTestExecution() && !IsAlphanumericPIN8(c.PairingPIN)) {
 		c.PairingPIN = GeneratePairingPIN()
 		upgradedPIN = true
+	}
+	if c.OAuthClientID == "" {
+		c.OAuthClientID = "antigravity-gemini-bridge"
 	}
 	// Issue #120 review: never carry over a stale loopback endpoint persisted by an older
 	// build — the config API must not serve one.
@@ -344,6 +368,9 @@ func (s *Service) UpdateConfig(c Config) error {
 	}
 	if len(c.AllowedTools) == 0 {
 		c.AllowedTools = s.config.AllowedTools
+	}
+	if c.OAuthClientID == "" {
+		c.OAuthClientID = "antigravity-gemini-bridge"
 	}
 	s.config = c
 	err := s.saveConfig()
@@ -525,6 +552,8 @@ func (s *Service) GetStatus() BridgeStatus {
 		PairingPIN:         s.authMgr.GetPIN(),
 		UseAppPassword:     s.config.UseAppPassword && appPassEnabled,
 		AppPasswordEnabled: appPassEnabled,
+		OAuthClientID:      s.getOAuthClientID(),
+		OAuthClientSecret:  s.authMgr.GetToken(),
 		Surfaces:           surfaces,
 		Tunnel:             tunnelStatus,
 		ActiveLeadSession:  s.leadHdl.GetActiveSession(),
@@ -958,8 +987,12 @@ func (s *Service) HandleMCPRequest(reqBytes []byte) ([]byte, error) {
 
 	switch r.Method {
 	case "initialize":
+		protoVer := "2024-11-05"
+		if reqVer, ok := r.Params["protocolVersion"].(string); ok && reqVer == "2025-03-26" {
+			protoVer = "2025-03-26"
+		}
 		response["result"] = map[string]interface{}{
-			"protocolVersion": "2024-11-05",
+			"protocolVersion": protoVer,
 			"capabilities": map[string]interface{}{
 				"tools": map[string]interface{}{},
 			},

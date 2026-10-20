@@ -7,12 +7,27 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
+
+func init() {
+	if core.IsRunningTests() {
+		cfgPath := filepath.Join(os.TempDir(), "antigravity-swiss-test-config", "config.json")
+		if cfg, err := core.LoadConfig(); err == nil && cfg != nil {
+			cfg.AppPasswordEnabled = false
+			cfg.AppPasswordHash = ""
+			_ = cfg.Save()
+		} else {
+			_ = os.Remove(cfgPath)
+		}
+	}
+}
 
 // AuthAttempt records an authentication verification event for auditing.
 type AuthAttempt struct {

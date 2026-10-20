@@ -8,20 +8,21 @@ This wiki provides architectural references, subsystem specifications, protocol 
 
 ## Features Index
 
-Antigravity Swiss Knife organizes its capabilities into 12 core functional subsystems under the [Features Overview](Features.md) parent guide:
+Antigravity Swiss Knife organizes its capabilities into 13 core functional subsystems under the [Features Overview](Features.md) parent guide:
 
 1. [Quota Dashboard](Quota-Dashboard.md): Real-time 5-hour and weekly quota telemetry, circular gauge meters, and autonomous standby account rotation.
 2. [Accounts & MFA Vault](Accounts-and-MFA-Vault.md): AES-256-GCM encrypted credential vault, Google OAuth loopback extractor, and client-side RFC 6238 TOTP generation.
 3. [Device Fingerprints](Device-Fingerprints.md): Virtualization and per-account isolation of machine IDs, installation UUIDs, and hardware telemetry tokens.
 4. [Brain Cache Manager](Brain-Cache-Manager.md): Filesystem inspection, TTL retention policies, and storage pruning across local session directories.
 5. [Switcher Settings](Switcher-Settings.md): Quota switch thresholds, rotation algorithms, polling intervals, standby jitter, and 1-token keep-alive warmups.
-6. [Custom Models](Custom-Models.md): Zero-proxy Bring-Your-Own-Key gateway for Anthropic, OpenAI, AI Studio, DeepSeek, and local Ollama runtimes with 6-probe security auditing.
-7. [Extensions](Extensions.md): Embedded IDE gadgets including Preview Browser, File Explorer, Quick Memos, and Mobile Simulator viewports.
-8. [Token Monitor](Token-Monitor.md): Context accounting, tokens-per-second velocity, cost tracking, and multi-agent token simulation.
-9. [App Enhancements](App-Enhancements.md): Chrome DevTools Protocol runtime DOM injection for turn navigators, live TPS indicators, and project color tags.
-10. [Utilities](Utilities.md): Cross-agent conversation importer, ACP agent mesh inspector, and Wayland/PipeWire display grounding for visual agents.
-11. [GitHub Workspace](GitHub-Workspace.md): Embedded Kanban task board, issue and pull request management, and live subagent execution tracking.
-12. [System Settings](System-Settings.md): PBKDF2-HMAC-SHA256 password protection, runtime mode switching, binary paths, and diagnostic log exports.
+6. [Custom Models](Custom-Models.md): Zero-proxy Bring-Your-Own-Key gateway for Anthropic, OpenAI, AI Studio, DeepSeek, GCP Vertex AI, and local Ollama runtimes with 6-probe security auditing and in-selector thinking level flyout submenus (Low, Medium, High).
+7. [Remote Connect & Bridge](Remote-Connect-and-Bridge.md): Web app reverse proxy for remote control, official entrance screen, live CSRF and Redux userStatus re-binding, 4 tunnel modes, and multi-channel agent bridges for Gemini, WhatsApp, Telegram, and Discord.
+8. [Extensions](Extensions.md): Top segmented switcher (Built-in and Community tabs), embedded IDE gadgets, and automatic hiding of Antigravity's floating Overview panel while on the Swiss Knife main stage.
+9. [Token Monitor](Token-Monitor.md): Context accounting, tokens-per-second velocity, cost tracking, multi-agent token simulation, and B (billions) unit formatting for token counts >= 1,000M (1,000,000,000).
+10. [App Enhancements](App-Enhancements.md): Chrome DevTools Protocol runtime DOM injection for turn navigators, live TPS indicators, and project color tags.
+11. [Utilities](Utilities.md): Cross-agent conversation importer, ACP agent mesh inspector, and Wayland/PipeWire display grounding for visual agents.
+12. [GitHub Workspace](GitHub-Workspace.md): Embedded Kanban task board, issue and pull request management, and live subagent execution tracking.
+13. [System Settings](System-Settings.md): PBKDF2-HMAC-SHA256 password protection, runtime mode switching, binary paths, and diagnostic log exports.
 
 ---
 

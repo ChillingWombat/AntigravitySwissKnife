@@ -204,11 +204,81 @@ func (rm *RemoteManager) findAntigravityWebOrigin() (string, string) {
 	return "", ""
 }
 
-var csrfTokenRegex = regexp.MustCompile(`"csrfToken"\s*:\s*"([^"]+)"`)
+// Official Google Antigravity 2.0 multi-color delta vector mark (96x96).
+const antigravityFaviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none">
+  <g clip-path="url(#clip0_6153_71)">
+    <path d="M85.9734 89.3438C91.2234 93.2812 99.0984 90.6562 91.8796 83.4375C70.2234 62.4375 74.8171 4.6875 47.9109 4.6875C21.0046 4.6875 25.5984 62.4375 3.94213 83.4375C-3.93287 91.3125 4.59838 93.2812 9.84838 89.3438C30.1921 75.5625 28.8796 51.2812 47.9109 51.2812C66.9421 51.2812 65.6296 75.5625 85.9734 89.3438Z" fill="#3186FF"/>
+    <mask id="mask0_6153_71" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="0" y="4" width="95" height="88">
+      <path d="M85.9734 89.3438C91.2234 93.2812 99.0984 90.6562 91.8796 83.4375C70.2234 62.4375 74.8171 4.6875 47.9109 4.6875C21.0046 4.6875 25.5984 62.4375 3.94213 83.4375C-3.93287 91.3125 4.59838 93.2812 9.84838 89.3438C30.1921 75.5625 28.8796 51.2812 47.9109 51.2812C66.9421 51.2812 65.6296 75.5625 85.9734 89.3438Z" fill="black"/>
+    </mask>
+    <g mask="url(#mask0_6153_71)">
+      <g filter="url(#filter0_f_6153_71)"><ellipse cx="25.6357" cy="30.161" rx="25.6357" ry="30.161" transform="matrix(-0.112784 0.99362 -0.99362 -0.112781 59.5896 -33.5392)" fill="#FFE432"/></g>
+      <g filter="url(#filter1_f_6153_71)"><ellipse cx="93.6143" cy="23.4505" rx="33.1883" ry="33.9179" transform="rotate(76.9243 93.6143 23.4505)" fill="#FC413D"/></g>
+      <g filter="url(#filter2_f_6153_71)"><ellipse cx="-4.78051" cy="30.8098" rx="34.686" ry="44.9344" transform="rotate(74.1257 -4.78051 30.8098)" fill="#00B95C"/></g>
+      <g filter="url(#filter4_f_6153_71)"><ellipse cx="-2.31406" cy="32.1899" rx="33.9975" ry="37.4282" transform="rotate(45.6065 -2.31406 32.1899)" fill="#00B95C"/></g>
+      <g filter="url(#filter5_f_6153_71)"><ellipse cx="70.2862" cy="101.861" rx="32.6449" ry="31.4359" transform="rotate(76.9243 70.2862 101.861)" fill="#3186FF"/></g>
+      <g filter="url(#filter6_f_6153_71)"><ellipse cx="37.7619" cy="39.8298" rx="37.7619" ry="39.8298" transform="matrix(-0.409539 0.912293 -0.912294 -0.409537 98.9683 -33.1266)" fill="#FBBC04"/></g>
+      <g filter="url(#filter7_f_6153_71)"><path d="M-12.0493 152.344C-32.7264 144.227 2.61016 77.4428 11.3972 55.0598C20.1841 32.6769 44.0695 21.1122 64.7466 29.2295C85.4236 37.3467 109.932 82.0552 101.145 104.438C92.3577 126.8 8.6 160.461 -12.0493 152.344Z" fill="#3186FF"/></g>
+      <g filter="url(#filter8_f_6153_71)"><path d="M113.238 69.2209C107.702 75.6818 93.256 72.3872 80.9716 61.8621C68.6872 51.337 63.2163 37.567 68.752 31.1061C74.2876 24.6451 88.7336 27.9398 101.018 38.4649C113.302 48.99 118.773 62.7599 113.238 69.2209Z" fill="#749BFF"/></g>
+      <g filter="url(#filter9_f_6153_71)"><ellipse cx="89.2491" cy="10.7078" rx="49.7713" ry="30.9393" transform="rotate(34.0763 89.2491 10.7078)" fill="#FC413D"/></g>
+      <g filter="url(#filter10_f_6153_71)"><ellipse cx="11.4944" cy="17.2241" rx="26.6705" ry="15.5102" transform="rotate(112.516 11.4944 17.2241)" fill="#FFEE48"/></g>
+    </g>
+  </g>
+  <defs>
+    <clipPath id="clip0_6153_71"><rect width="96" height="96" fill="white"/></clipPath>
+    <filter id="filter0_f_6153_71" x="-12.13" y="-45.92" width="77.73" height="68.91" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="4.38"/></filter>
+    <filter id="filter1_f_6153_71" x="17.41" y="-52.10" width="152.41" height="151.10" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="21.16"/></filter>
+    <filter id="filter2_f_6153_71" x="-85.01" y="-40.73" width="160.47" height="143.08" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="17.99"/></filter>
+    <filter id="filter4_f_6153_71" x="-74.08" y="-39.50" width="143.53" height="143.38" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="17.99"/></filter>
+    <filter id="filter5_f_6153_71" x="4.59" y="35.08" width="131.38" height="133.55" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="17.09"/></filter>
+    <filter id="filter6_f_6153_71" x="-23.32" y="-84.10" width="140.97" height="138.22" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="15.49"/></filter>
+    <filter id="filter7_f_6153_71" x="-46.11" y="-1.03" width="176.76" height="182.28" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="13.83"/></filter>
+    <filter id="filter8_f_6153_71" x="41.83" y="3.04" width="98.32" height="94.25" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="12.38"/></filter>
+    <filter id="filter9_f_6153_71" x="23.60" y="-48.08" width="131.29" height="117.57" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="10.46"/></filter>
+    <filter id="filter10_f_6153_71" x="-31.98" y="-34.01" width="86.96" height="102.46" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="12.94"/></filter>
+  </defs>
+</svg>`
+
+const antigravityFaviconDataURI = "data:image/svg+xml," + antigravityFaviconSVG
+const antigravityFaviconLink = `<link rel="icon" type="image/svg+xml" href="/favicon.svg">`
+
+var (
+	csrfTokenRegex    = regexp.MustCompile(`"csrfToken"\s*:\s*"([^"]+)"`)
+	upstreamIconRegex = regexp.MustCompile(`(?is)<link\b(?:[^>"']|"[^"]*"|'[^']*')*\brel=["']?\s*(?:shortcut\s+icon|icon\s+shortcut|icon)\s*["']?(?:[^>"']|"[^"]*"|'[^']*')*>\n?`)
+	headTagRegex      = regexp.MustCompile(`(?i)<head(?:\s+[^>]*)?>`)
+)
 
 const remoteLiveAccountSyncScript = `<script id="swiss-remote-account-sync">
 (() => {
+  function enforceAntigravityFavicon() {
+    try {
+      const targetHref = "/favicon.svg";
+      let hasIcon = false;
+      document.querySelectorAll('link[rel*="icon"]').forEach((link) => {
+        hasIcon = true;
+        if (link.getAttribute("href") !== targetHref || link.getAttribute("type") !== "image/svg+xml") {
+          link.setAttribute("type", "image/svg+xml");
+          link.setAttribute("href", targetHref);
+        }
+      });
+      if (!hasIcon && (document.head || document.documentElement)) {
+        const link = document.createElement("link");
+        link.rel = "icon";
+        link.type = "image/svg+xml";
+        link.href = targetHref;
+        (document.head || document.documentElement).appendChild(link);
+      }
+    } catch (_) {}
+  }
+  enforceAntigravityFavicon();
+  try {
+    const observer = new MutationObserver(() => enforceAntigravityFavicon());
+    const target = document.head || document.documentElement;
+    if (target) observer.observe(target, { childList: true, attributes: true, subtree: true });
+  } catch (_) {}
+
   async function syncAntigravityUserStatus() {
+    enforceAntigravityFavicon();
     try {
       const root = document.getElementById("root");
       if (!root) return;
@@ -335,6 +405,17 @@ func (rm *RemoteManager) proxyToAntigravityWebApp(w http.ResponseWriter, r *http
 						rm.lastCSRFOrigin = origin
 						rm.lastCSRFToken = m[1]
 						rm.webOriginMu.Unlock()
+					}
+					// Strip upstream icon link tags and inject Antigravity favicon
+					htmlStr = upstreamIconRegex.ReplaceAllString(htmlStr, "")
+					if !strings.Contains(htmlStr, `href="/favicon.svg"`) {
+						if loc := headTagRegex.FindStringIndex(htmlStr); loc != nil {
+							htmlStr = htmlStr[:loc[1]] + "\n" + antigravityFaviconLink + htmlStr[loc[1]:]
+						} else if idx := strings.Index(strings.ToLower(htmlStr), "</head>"); idx != -1 {
+							htmlStr = htmlStr[:idx] + antigravityFaviconLink + "\n" + htmlStr[idx:]
+						} else {
+							htmlStr = antigravityFaviconLink + "\n" + htmlStr
+						}
 					}
 					if !strings.Contains(htmlStr, "swiss-remote-account-sync") {
 						if idx := strings.LastIndex(strings.ToLower(htmlStr), "</body>"); idx != -1 {
@@ -664,6 +745,15 @@ func (rm *RemoteManager) isPINAuthorized(r *http.Request) bool {
 func (rm *RemoteManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
+	// Favicon (official Google Antigravity 2.0 multi-color delta icon)
+	if path == "/favicon.ico" || path == "/favicon.svg" || path == "/remote/favicon.ico" || path == "/remote/favicon.svg" {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(antigravityFaviconSVG))
+		return
+	}
+
 	// Auth API
 	if r.Method == http.MethodPost && (path == "/remote/api/auth" || path == "/api/auth") {
 		rm.handleAuth(w, r)
@@ -731,10 +821,6 @@ func (rm *RemoteManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fallback console routes when Antigravity Desktop web app is not running
-	if path == "/favicon.ico" {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
 	if path == "/api/status" {
 		rm.handleStatus(w, r)
 		return
@@ -1110,6 +1196,7 @@ const remoteHTML = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Antigravity Remote Control</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>
 :root {
   --background: #F9F9F9;

@@ -6,6 +6,7 @@
   - [Brain Cache Manager](Brain-Cache-Manager.md)
   - [Switcher Settings](Switcher-Settings.md)
   - [Custom Models](Custom-Models.md)
+  - [Remote Connect & Bridge](Remote-Connect-and-Bridge.md)
   - [Extensions](Extensions.md)
   - [Token Monitor](Token-Monitor.md)
   - [App Enhancements](App-Enhancements.md)

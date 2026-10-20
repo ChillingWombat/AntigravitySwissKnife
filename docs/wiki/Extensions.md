@@ -9,8 +9,8 @@ The Extensions subsystem manages modular auxiliary tools embedded into Antigravi
 ## Navigation & Header Tabs
 
 The Extensions page provides a top header segmented switcher with two primary views:
-- **Built-in**: Core native tools shipped with Swiss Knife (Left Panel Access Mode, GitHub Workspace, Preview Browser, Auxiliary File Explorer, Quick Memos).
-- **Community**: Custom web and HTML/JS extensions created locally or imported via JSON.
+- **Built-in**: Core native tools integrated directly into Antigravity's interface (Left Panel Access Mode, GitHub Workspace, Preview Browser, File Explorer, Quick Memos, Mobile Simulator). These tools execute within the IDE window or communicate directly with the local companion daemon.
+- **Community**: Custom web and sandboxed frontend extensions. Supports external web services embedded via iframes and inline HTML/CSS/JavaScript components imported through JSON manifests.
 
 ---
 
@@ -107,3 +107,29 @@ export interface CommunityExtension {
 ## 4. Persistence & Configuration Architecture
 
 Extension states, default URLs, preferred editor binaries, and community extension definitions persist through `pkg/enhancements` in the daemon's local SQLite store. All changes apply immediately without requiring full IDE restarts.
+
+---
+
+## 5. Main Stage Overview Panel Auto-Hide
+
+When the Swiss Knife extension stage (`#swiss-main-stage` or `#swiss-main-stage-container`) is opened on the central workspace, Antigravity's floating right-hand Overview and auxiliary inspection panel (`Overview`, `Review`, `Files`, `Terminal`, `Plugins`) can overlap primary stage controls, including the `Board` switcher and header actions.
+
+The injected enhancement runtime automatically suppresses this panel while the main stage is active:
+
+### Automatic Suppression
+- The runtime monitors main stage activation (`isMainStageActive`).
+- When the container adopts `display: flex`, the runtime scans the DOM for the Overview auxiliary container identified by its tab cluster (`Overview`, `Review`, `Files`, `Terminal`, `Plugins`).
+- Matching containers receive the attribute marker:
+  ```html
+  data-swiss-hidden-by-main-stage="true"
+  ```
+- Injected runtime CSS enforces complete hiding:
+  ```css
+  [data-swiss-hidden-by-main-stage="true"] {
+    display: none !important;
+  }
+  ```
+
+### Viewport Restoration
+- When leaving the extension stage to return to conversation or project views, the runtime queries all elements marked with `data-swiss-hidden-by-main-stage="true"`.
+- The marker attribute is removed, and prior display styles (`__swissPrevDisplay`) are restored immediately, returning the floating Overview panel to view without reloading the workbench.

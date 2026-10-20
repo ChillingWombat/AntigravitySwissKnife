@@ -57,8 +57,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       try {
         const rawFlags = localStorage.getItem("jetski.developer.customFlagOverrides") || "{}";
         const parsedFlags = JSON.parse(rawFlags);
-        if (parsedFlags && typeof parsedFlags === "object" && !Array.isArray(parsedFlags) && parsedFlags["remote-control-setting-enabled"] !== true) {
+        if (parsedFlags && typeof parsedFlags === "object" && !Array.isArray(parsedFlags) && (parsedFlags["remote-control-setting-enabled"] !== true || parsedFlags["jetski-sidecar-declared-permissions"] !== false)) {
           parsedFlags["remote-control-setting-enabled"] = true;
+          parsedFlags["jetski-sidecar-declared-permissions"] = false;
           const nextFlags = JSON.stringify(parsedFlags);
           localStorage.setItem("jetski.developer.customFlagOverrides", nextFlags);
           if (typeof StorageEvent === "function") {
@@ -70,6 +71,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           }
         }
       } catch (_) {}
+      installManageSidecarInterceptor();
       try {
         if (!window.__swissUserStatusSyncInterval) {
           const syncHostUserStatus = async () => {
@@ -1497,6 +1499,320 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           }
         }
       }
+    }
+
+    function installManageSidecarInterceptor() {
+      if (typeof window === "undefined" || !window.fetch || window.__swissManageSidecarPatched) return;
+      window.__swissManageSidecarPatched = true;
+      const origFetch = window.fetch.bind(window);
+      window.fetch = async function(input, init) {
+        try {
+          let url = "";
+          if (typeof input === "string") {
+            url = input;
+          } else if (input && typeof input.url === "string") {
+            url = input.url;
+          }
+          if (url && url.includes("/exa.language_server_pb.LanguageServerService/ManageSidecar")) {
+            let body = null;
+            if (init && init.body) {
+              if (typeof init.body === "string") {
+                try { body = JSON.parse(init.body); } catch (_) {}
+              } else if (typeof init.body === "object") {
+                body = init.body;
+              }
+            } else if (input && typeof input.clone === "function") {
+              try { body = await input.clone().json(); } catch (_) {}
+            }
+            if (body && (body.action === 5 || body.action === "SIDECAR_ACTION_CREATE" || body.action === "5")) {
+              const chosenProj = document.getElementById("swiss-automation-project-select")?.value || window.__swissSelectedAutomationProjectId || "";
+              if (chosenProj && chosenProj !== "__new_dedicated__" && !body.projectId) {
+                body.projectId = chosenProj;
+                init = init || {};
+                init.body = JSON.stringify(body);
+              }
+              const response = await origFetch(input, init);
+              if (response && (response.ok || response.status === 200) && chosenProj && chosenProj !== "__new_dedicated__") {
+                try {
+                  let resBody = null;
+                  try {
+                    if (typeof response.clone === "function") {
+                      resBody = await response.clone().json();
+                    } else if (typeof response.json === "function") {
+                      resBody = await response.json();
+                    }
+                  } catch (_) {}
+                  const sidecarId = (resBody && (resBody.sidecarId || (resBody.sidecar && resBody.sidecar.id) || resBody.id)) || body.sidecarId;
+                  if (sidecarId) {
+                    let followUpHeaders = { "Content-Type": "application/json" };
+                    if (init && init.headers) {
+                      if (typeof Headers !== "undefined" && init.headers instanceof Headers) {
+                        followUpHeaders = new Headers(init.headers);
+                        if (!followUpHeaders.has("Content-Type")) followUpHeaders.set("Content-Type", "application/json");
+                      } else if (typeof init.headers === "object") {
+                        followUpHeaders = Object.assign({}, init.headers, { "Content-Type": "application/json" });
+                      }
+                    }
+                    const targetUrl = (typeof input === "string") ? input : (input && input.url) ? input.url : "/exa.language_server_pb.LanguageServerService/ManageSidecar";
+                    await origFetch(targetUrl, {
+                      method: "POST",
+                      headers: followUpHeaders,
+                      body: JSON.stringify({
+                        sidecarId: sidecarId,
+                        action: 6,
+                        projectId: chosenProj
+                      })
+                    });
+                  }
+                } catch (_) {}
+              }
+              return response;
+            }
+          }
+        } catch (_) {}
+        return origFetch.apply(window, arguments);
+      };
+    }
+
+    function extractExistingAntigravityProjects() {
+      const projects = [];
+      const seen = new Set();
+      function add(id, label) {
+        if (!id || typeof id !== "string") return;
+        const cleanId = id.trim();
+        if (!cleanId || cleanId === "outside-of-project" || seen.has(cleanId)) return;
+        seen.add(cleanId);
+        projects.push({
+          id: cleanId,
+          label: (label && typeof label === "string" && label.trim()) ? label.trim() : cleanId
+        });
+      }
+
+      // Method 1: React Fiber tree from #root for sidebarSectionsProvider or sidebarSections
+      try {
+        const root = document.getElementById("root");
+        if (root) {
+          const key = Object.keys(root).find(k => k.startsWith("__reactContainer") || k.startsWith("__reactFiber"));
+          let curr = key ? root[key] : null;
+          if (curr && curr.current) curr = curr.current;
+          const queue = [curr];
+          const visited = new Set();
+          while (queue.length > 0 && visited.size < 3500) {
+            const node = queue.shift();
+            if (!node || visited.has(node)) continue;
+            visited.add(node);
+            const mp = node.memoizedProps;
+            if (mp) {
+              const provider = mp.value?.sidebarSectionsProvider || mp.sidebarSectionsProvider;
+              const candidate = (provider && (provider.sidebarSections || provider)) ||
+                                mp.value?.sidebarSections ||
+                                mp.sidebarSections;
+              const sections = Array.isArray(candidate) ? candidate : (candidate && Array.isArray(candidate.sidebarSections) ? candidate.sidebarSections : null);
+              if (Array.isArray(sections) && sections.length > 0) {
+                for (const s of sections) {
+                  if (s && s.sectionKind && s.sectionKind.case === "projectSection" && s.uri && s.uri !== "outside-of-project") {
+                    add(s.uri, s.label || s.uri);
+                  }
+                }
+                if (projects.length > 0) return projects;
+              }
+            }
+            if (node.child) queue.push(node.child);
+            if (node.sibling) queue.push(node.sibling);
+          }
+        }
+      } catch (_) {}
+
+      // Method 2: Fallback to tec modal fiber memoizedProps?.projects
+      try {
+        const nameInput = document.querySelector('[data-testid="new-sidecar-name"]');
+        if (nameInput) {
+          let currEl = nameInput;
+          while (currEl && currEl !== document.body) {
+            const key = Object.keys(currEl).find(k => k.startsWith("__reactFiber"));
+            let fiber = key ? currEl[key] : null;
+            let depth = 0;
+            while (fiber && depth < 20) {
+              const mp = fiber.memoizedProps;
+              if (mp && mp.projects && Array.isArray(mp.projects)) {
+                for (const p of mp.projects) {
+                  if (p) {
+                    const id = p.id || p.uri || p.projectId || p.name;
+                    const label = p.label || p.name || p.title || id;
+                    if (id) add(id, label);
+                  }
+                }
+                if (projects.length > 0) return projects;
+              }
+              fiber = fiber.return;
+              depth++;
+            }
+            currEl = currEl.parentElement;
+          }
+        }
+      } catch (_) {}
+
+      // Method 3: Fallback to scanning project items in left sidebar DOM (Projects section rows)
+      try {
+        const links = document.querySelectorAll('a[aria-label="New Conversation in Project"]');
+        for (const l of links) {
+          const href = l.getAttribute("href") || "";
+          const m = href.match(/section=([a-zA-Z0-9_-]+)/);
+          const sectionId = m ? m[1] : "";
+          const header = l.closest ? l.closest('.group\\/header, [data-project-card], [data-index]') : null;
+          const label = header ? (header.textContent || "").replace(/New Conversation.*/i, "").trim() : "";
+          if (sectionId && sectionId !== "outside-of-project") {
+            add(sectionId, label || sectionId);
+          }
+        }
+
+        const rows = document.querySelectorAll('[data-testid="conversation-list-sidebar"] [data-project-card], [data-testid="conversation-list-sidebar"] .group\\/header');
+        for (const r of rows) {
+          const pid = r.getAttribute("data-project-id") || r.getAttribute("data-uri");
+          const label = (r.textContent || "").replace(/New Conversation.*/i, "").trim();
+          if (pid) add(pid, label || pid);
+        }
+
+        const swissEls = document.querySelectorAll('[data-swiss-project]');
+        for (const el of swissEls) {
+          const p = el.getAttribute("data-swiss-project");
+          if (p) add(p, p);
+        }
+      } catch (_) {}
+
+      return projects;
+    }
+
+    function applyAutomationTargetProjectSelector() {
+      if (typeof document === "undefined") return;
+      const nameInput = document.querySelector('[data-testid="new-sidecar-name"]');
+      if (!nameInput) return;
+
+      const modal = (nameInput.closest && (nameInput.closest('[role="dialog"]') || nameInput.closest('.tec') || nameInput.closest('form'))) ||
+                    (nameInput.parentElement && nameInput.parentElement.parentElement);
+
+      if (modal && modal.querySelectorAll) {
+        const labels = Array.from(modal.querySelectorAll("label, .text-sm, [class*='label']"));
+        const hasNativeProject = labels.some(el => {
+          if (el.id === "swiss-automation-project-field" || (el.closest && el.closest("#swiss-automation-project-field"))) return false;
+          const text = (el.textContent || "").trim();
+          return text === "Project" || text === "Project:" || (text.includes("Project") && !text.includes("Target Project"));
+        });
+        if (hasNativeProject) return;
+      }
+
+      if (document.getElementById("swiss-automation-project-field")) return;
+
+      const nameContainer = (nameInput.closest && nameInput.closest('.flex.flex-col.gap-1')) || nameInput.parentElement;
+      const parent = nameContainer && (nameContainer.parentNode || nameContainer.parentElement);
+      if (!nameContainer || !parent) return;
+
+      const projects = extractExistingAntigravityProjects();
+
+      const fieldDiv = document.createElement("div");
+      fieldDiv.id = "swiss-automation-project-field";
+      fieldDiv.className = "flex flex-col gap-1";
+
+      const labelEl = document.createElement("label");
+      labelEl.className = "text-sm font-medium select-none text-left";
+      labelEl.textContent = "Target Project";
+      fieldDiv.appendChild(labelEl);
+
+      const selectEl = document.createElement("select");
+      selectEl.id = "swiss-automation-project-select";
+      selectEl.setAttribute("data-testid", "swiss-automation-project-select");
+      selectEl.className = "w-full rounded-lg border border-border bg-transparent px-2.5 h-8 text-sm text-foreground cursor-pointer";
+
+      if (projects.length > 0) {
+        projects.forEach((proj, idx) => {
+          const opt = document.createElement("option");
+          opt.value = proj.id;
+          opt.textContent = proj.label || proj.id;
+          if (idx === 0) {
+            opt.selected = true;
+            selectEl.value = proj.id;
+          }
+          selectEl.appendChild(opt);
+        });
+      } else {
+        selectEl.value = "__new_dedicated__";
+      }
+
+      const newDedicatedOpt = document.createElement("option");
+      newDedicatedOpt.value = "__new_dedicated__";
+      newDedicatedOpt.textContent = "Create New Dedicated Project";
+      if (projects.length === 0) {
+        newDedicatedOpt.selected = true;
+      }
+      selectEl.appendChild(newDedicatedOpt);
+      fieldDiv.appendChild(selectEl);
+
+      const initialVal = selectEl.value;
+      if (typeof window !== "undefined") {
+        window.__swissSelectedAutomationProjectId = (initialVal && initialVal !== "__new_dedicated__") ? initialVal : "";
+      }
+
+      function syncModalFiber(val) {
+        try {
+          const targetVal = (val === "__new_dedicated__") ? "" : val;
+          let curr = nameInput;
+          while (curr && curr !== document.body) {
+            const key = Object.keys(curr).find(k => k.startsWith("__reactFiber"));
+            let fiber = key ? curr[key] : null;
+            let depth = 0;
+            while (fiber && depth < 25) {
+              const mp = fiber.memoizedProps;
+              if (mp) {
+                if (typeof mp.onProjectIdChange === "function") {
+                  try { mp.onProjectIdChange(targetVal); } catch (_) {}
+                }
+                if (typeof mp.setProjectId === "function") {
+                  try { mp.setProjectId(targetVal); } catch (_) {}
+                }
+                if (typeof mp.onChangeProjectId === "function") {
+                  try { mp.onChangeProjectId(targetVal); } catch (_) {}
+                }
+              }
+              let hook = fiber.memoizedState;
+              while (hook) {
+                if (hook.queue && typeof hook.queue.dispatch === "function" && hook.memoizedState !== undefined) {
+                  if (typeof hook.memoizedState === "string" && (hook.memoizedState === "" || projects.some(p => p.id === hook.memoizedState))) {
+                    try { hook.queue.dispatch(targetVal); } catch (_) {}
+                  }
+                }
+                hook = hook.next;
+              }
+              fiber = fiber.return;
+              depth++;
+            }
+            curr = curr.parentElement;
+          }
+        } catch (_) {}
+      }
+
+      syncModalFiber(initialVal);
+
+      selectEl.addEventListener("change", (e) => {
+        const val = e.target.value;
+        if (typeof window !== "undefined") {
+          window.__swissSelectedAutomationProjectId = (val && val !== "__new_dedicated__") ? val : "";
+        }
+        syncModalFiber(val);
+      });
+
+      if (typeof nameContainer.insertAdjacentElement === "function") {
+        nameContainer.insertAdjacentElement("afterend", fieldDiv);
+      } else if (nameContainer.nextSibling) {
+        parent.insertBefore(fieldDiv, nameContainer.nextSibling);
+      } else {
+        parent.appendChild(fieldDiv);
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      window.extractExistingAntigravityProjects = extractExistingAntigravityProjects;
+      window.applyAutomationTargetProjectSelector = applyAutomationTargetProjectSelector;
+      window.installManageSidecarInterceptor = installManageSidecarInterceptor;
     }
 
     function isMainStageActive() {
@@ -2979,6 +3295,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         renderPromptJumpBar();
 
         applyDefaultProjectHandler();
+        applyAutomationTargetProjectSelector();
         renderContextWindowProgressRing();
         isEnhancingOverview = true;
         try {
@@ -2995,6 +3312,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     renderPromptJumpBar();
     renderContextWindowProgressRing();
     applyDefaultProjectHandler();
+    applyAutomationTargetProjectSelector();
+    installManageSidecarInterceptor();
     isEnhancingOverview = true;
     try {
       applyOverviewPanelEnhancements();

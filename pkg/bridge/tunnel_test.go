@@ -578,7 +578,6 @@ func TestService_AutoStartUsesTunnelLifecycle(t *testing.T) {
 	}
 }
 
-
 func TestTunnelManager_SetPort(t *testing.T) {
 	tm := NewTunnelManager(8765, "/api/bridge/mcp")
 	if tm.localPort != 8765 {
@@ -1016,5 +1015,134 @@ func TestTunnelManager_FourMinuteKeepAlive_AndAutoStopOnInvalidTunnel(t *testing
 	}
 	if svc.GetStatus().Enabled || svc.GetStatus().Tunnel.Active || svc.GetConfig().Enabled {
 		t.Fatalf("expected Gemini Bridge to auto-stop and reset Enabled=false when tunnel returns 502")
+	}
+}
+
+func TestRemoteFavicon_EndpointsAndProxiedReplacement(t *testing.T) {
+	// 1. Direct favicon endpoints on RemoteManager (standalone / unauthenticated)
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "remote_control.json")
+	rm := NewRemoteManager(cfgPath)
+	defer rm.StopTunnel()
+
+	paths := []string{"/favicon.ico", "/favicon.svg", "/remote/favicon.ico", "/remote/favicon.svg"}
+	for _, p := range paths {
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		rec := httptest.NewRecorder()
+		rm.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("expected 200 OK for %s, got %d", p, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "image/svg+xml" {
+			t.Errorf("expected Content-Type: image/svg+xml for %s, got %q", p, ct)
+		}
+		if cc := rec.Header().Get("Cache-Control"); cc != "public, max-age=86400" {
+			t.Errorf("expected Cache-Control: public, max-age=86400 for %s, got %q", p, cc)
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, `viewBox="0 0 96 96"`) || !strings.Contains(body, "#3186FF") {
+			t.Errorf("expected Antigravity delta SVG in response for %s", p)
+		}
+	}
+
+	// 2. Direct favicon endpoints when upstream Antigravity web app is active:
+	// Favicon requests must NEVER be proxied upstream (so upstream gift icon is never returned).
+	upstreamFaviconHit := false
+	var upstreamMu sync.Mutex
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/favicon.ico", "/favicon.svg":
+			upstreamMu.Lock()
+			upstreamFaviconHit = true
+			upstreamMu.Unlock()
+			w.Header().Set("Content-Type", "image/svg+xml")
+			_, _ = w.Write([]byte(`<svg>upstream-gift-icon-🎁</svg>`))
+		case "/c/test-favicon-conv":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			// Simulate language_server index.html setting a gift emoji favicon
+			_, _ = w.Write([]byte(`<!doctype html><html><head><title>Antigravity</title><link rel="icon" href="data:image/svg+xml,<svg>🎁</svg>"><link rel="shortcut icon" href="/favicon.ico"></head><body><div id="root">Live Antigravity</div></body></html>`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	rm.SetWebOriginOverride(upstream.URL, "/c/test-favicon-conv")
+
+	for _, p := range []string{"/favicon.ico", "/favicon.svg"} {
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		rec := httptest.NewRecorder()
+		rm.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("expected 200 OK for %s with active upstream, got %d", p, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "image/svg+xml" {
+			t.Errorf("expected image/svg+xml for %s with active upstream, got %q", p, ct)
+		}
+		body := rec.Body.String()
+		if strings.Contains(body, "upstream-gift-icon") || strings.Contains(body, "🎁") {
+			t.Errorf("expected upstream gift icon to NEVER be returned, got: %s", body)
+		}
+		if !strings.Contains(body, `viewBox="0 0 96 96"`) {
+			t.Errorf("expected Antigravity SVG favicon for %s", p)
+		}
+	}
+	upstreamMu.Lock()
+	hit := upstreamFaviconHit
+	upstreamMu.Unlock()
+	if hit {
+		t.Errorf("expected upstream favicon endpoint to NEVER be called")
+	}
+
+	// 3. Proxied HTML response replaces any upstream gift favicon with the Antigravity icon
+	if _, err := rm.StartTunnel("custom", "https://remote.example.com"); err != nil {
+		t.Fatalf("StartTunnel failed: %v", err)
+	}
+	rm.mu.RLock()
+	boundPort := rm.boundPort
+	rm.mu.RUnlock()
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", boundPort)
+
+	// Authenticate PIN
+	pin := rm.GetConfig().SecurityPIN
+	authResp, err := http.Post(baseURL+"/remote/api/auth", "application/json", strings.NewReader(fmt.Sprintf(`{"pin":%q}`, pin)))
+	if err != nil {
+		t.Fatalf("POST /remote/api/auth failed: %v", err)
+	}
+	cookies := authResp.Cookies()
+	authResp.Body.Close()
+
+	reqApp, _ := http.NewRequest(http.MethodGet, baseURL+"/c/test-favicon-conv", nil)
+	for _, ck := range cookies {
+		reqApp.AddCookie(ck)
+	}
+	respApp, err := http.DefaultClient.Do(reqApp)
+	if err != nil {
+		t.Fatalf("GET /c/test-favicon-conv failed: %v", err)
+	}
+	appBodyBytes, _ := io.ReadAll(respApp.Body)
+	respApp.Body.Close()
+	appBody := string(appBodyBytes)
+
+	// Check upstream gift icon is stripped
+	if strings.Contains(appBody, "🎁") {
+		t.Errorf("expected upstream gift emoji favicon to be stripped from HTML, got: %s", appBody)
+	}
+	if strings.Contains(appBody, `rel="shortcut icon"`) {
+		t.Errorf("expected upstream shortcut icon to be stripped from HTML, got: %s", appBody)
+	}
+	if !strings.Contains(appBody, `<link rel="icon" type="image/svg+xml" href="/favicon.svg">`) {
+		t.Errorf("expected Antigravity favicon link injected into <head>, got: %s", appBody)
+	}
+	// Check dynamic DOM enforcement script is present in remoteLiveAccountSyncScript
+	if !strings.Contains(appBody, `document.querySelectorAll('link[rel*="icon"]')`) {
+		t.Errorf("expected dynamic DOM favicon enforcement in injected script, got: %s", appBody)
+	}
+
+	// 4. Also verify remoteHTML includes the SVG favicon link
+	if !strings.Contains(remoteHTML, `<link rel="icon" type="image/svg+xml" href="/favicon.svg">`) {
+		t.Errorf("expected remoteHTML to contain Antigravity favicon link")
 	}
 }
