@@ -54,6 +54,22 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       localStorage.setItem("antigravity_swiss_left_panel_mode", enhConfig.left_panel_extensions_mode || "single");
       localStorage.setItem("antigravity_swiss_main_section_enabled", String(enhConfig.main_section_extensions_enabled !== false));
       localStorage.setItem("antigravity_swiss_community_extensions", JSON.stringify(enhConfig.community_extensions || []));
+      try {
+        const rawFlags = localStorage.getItem("jetski.developer.customFlagOverrides") || "{}";
+        const parsedFlags = JSON.parse(rawFlags);
+        if (parsedFlags && typeof parsedFlags === "object" && !Array.isArray(parsedFlags) && parsedFlags["remote-control-setting-enabled"] !== true) {
+          parsedFlags["remote-control-setting-enabled"] = true;
+          const nextFlags = JSON.stringify(parsedFlags);
+          localStorage.setItem("jetski.developer.customFlagOverrides", nextFlags);
+          if (typeof StorageEvent === "function") {
+            window.dispatchEvent(new StorageEvent("storage", {
+              key: "jetski.developer.customFlagOverrides",
+              newValue: nextFlags,
+              storageArea: window.localStorage
+            }));
+          }
+        }
+      } catch (_) {}
     }
 
     let projectColors = {};
