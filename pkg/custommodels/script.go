@@ -95,15 +95,115 @@ func GenerateCustomModelsScript(cfg *Config) string {
       );
     }
 
+    // Factory Antigravity 2.0 SVG icons (CheckIcon and ChevronRightIcon from workbench main.js)
+    const FACTORY_CHECK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 -960 960 960" fill="currentColor" class="shrink-0" data-testid="menu-item-check" style="flex-shrink: 0;"><path d="M382-339.38L727.54-684.92q8.92-8.92 20.88-9.12t21.27,9.12T779-663.54t-9.31,21.38l-362.38,363Q396.46-268.31 382-268.31t-25.31-10.85l-167-167q-8.92-8.92-8.81-21.19t9.42-21.58t21.38-9.31t21.38,9.31L382-339.38Z"/></svg>';
+    const FACTORY_CHEVRON_RIGHT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 -960 960 960" fill="currentColor" class="shrink-0" style="flex-shrink: 0;"><path d="M517.85-480l-184-184L376-706.15L602.15-480L376-253.85L333.85-296l184-184Z"/></svg>';
+
+    const EFFORT_LABELS = {
+      low: "Low",
+      medium: "Medium",
+      high: "High",
+      xhigh: "Extra",
+      max: "Max"
+    };
+
+    function formatEffortLabel(lvl) {
+      if (!lvl) return "";
+      const key = String(lvl).trim().toLowerCase();
+      if (EFFORT_LABELS[key]) return EFFORT_LABELS[key];
+      return key.charAt(0).toUpperCase() + key.slice(1);
+    }
+
+    function cleanModelDisplayName(raw) {
+      return (raw || "")
+        .replace(/\s*\((Anthropic|OpenAI|GCP Vertex|GCP|Google Cloud)\)/gi, "")
+        .replace(/^(OpenAI|Anthropic|Google Cloud|GCP)\s+/gi, "")
+        .trim();
+    }
+
+    function getModelThinkingLevels(m) {
+      if (!m) return [];
+      const rawLevels = Array.isArray(m.thinking_levels)
+        ? m.thinking_levels.map(l => String(l).trim().toLowerCase()).filter(l => l && l !== "off")
+        : [];
+      const idAndName = ((m.name || "") + " " + (m.display_name || "")).toLowerCase();
+      const inferredThinking = /thinking|reasoner|gemini-2\.5|gemini-3|gemini-4|claude-3-7|claude-4|claude-5|claude-opus|claude-sonnet|o1|o3|o4|r1|qwq|deepseek-flash|deepseek-v4/i.test(idAndName);
+      const hasThinking = Boolean(
+        m.supports_thinking ||
+        rawLevels.length > 0 ||
+        (m.thinking_level && String(m.thinking_level).toLowerCase() !== "off") ||
+        (m.provider_type === "gcp" && inferredThinking)
+      );
+      if (!hasThinking) return [];
+      if (rawLevels.length >= 2) return rawLevels;
+      const base = ["low", "medium", "high"];
+      const cur = (m.thinking_level || "").trim().toLowerCase();
+      if (cur && cur !== "off" && !base.includes(cur)) {
+        base.push(cur);
+      }
+      return base;
+    }
+
+    function getActiveThinkingLevel(m, levels) {
+      const lvls = levels || getModelThinkingLevels(m);
+      if (!lvls || lvls.length === 0) return "";
+      const cur = (m && m.thinking_level ? String(m.thinking_level) : "").trim().toLowerCase();
+      if (cur && cur !== "off" && lvls.includes(cur)) return cur;
+      return lvls.includes("high") ? "high" : lvls[lvls.length - 1];
+    }
+
+    function renderTriggerModelLabel(trigger, modelObj) {
+      if (!trigger || !modelObj) return;
+      const label = trigger.querySelector("span") || trigger;
+      const cleanName = cleanModelDisplayName(modelObj.display_name || modelObj.name);
+      const levels = getModelThinkingLevels(modelObj);
+      const activeLvl = getActiveThinkingLevel(modelObj, levels);
+      const effortText = activeLvl ? formatEffortLabel(activeLvl) : "";
+      const sig = modelObj.id + ":" + activeLvl;
+      if (trigger.getAttribute("data-swiss-custom-bound") !== sig || !(label.textContent || "").includes(cleanName)) {
+        trigger.setAttribute("data-swiss-custom-bound", sig);
+        label.textContent = cleanName;
+        if (effortText) {
+          const effortSpan = document.createElement("span");
+          effortSpan.className = "opacity-70";
+          effortSpan.textContent = " " + effortText;
+          label.appendChild(effortSpan);
+        }
+      }
+    }
+
+    let submenuCloseTimer = null;
+
+    function clearSubmenuCloseTimer() {
+      if (submenuCloseTimer) {
+        clearTimeout(submenuCloseTimer);
+        submenuCloseTimer = null;
+      }
+    }
+
+    function removeCustomThinkingSubmenu() {
+      clearSubmenuCloseTimer();
+      const existing = document.getElementById("swiss-custom-thinking-submenu");
+      if (existing) existing.remove();
+      document.querySelectorAll('[data-testid="model-selector-custom-item"]').forEach(el => {
+        if (el.__swissSyncHoverState) el.__swissSyncHoverState(false);
+      });
+    }
+
     // 1. Hook Model Selector Trigger Pill & Dropdown
     function updateModelSelector() {
       const trigger = document.querySelector('[data-testid="model-selector-trigger"]');
       const curProject = getActiveProjectName();
 
+      // Always remove any legacy external thinking pill in the composer bar
+      const legacyThinkingPill = document.querySelector("#swiss-thinking-level-pill");
+      if (legacyThinkingPill) legacyThinkingPill.remove();
+
       // Custom model options must only be displayed in the UI if custom model inference is
       // actively supported and functional. If inference is not implemented/working, or if our app
       // is not running, the model selector must remain in its clean native state.
       if (!isCustomModelInferenceAvailable()) {
+        removeCustomThinkingSubmenu();
         if (trigger && trigger.hasAttribute("data-swiss-custom-bound")) {
           trigger.removeAttribute("data-swiss-custom-bound");
           trigger.removeAttribute("data-swiss-native-label");
@@ -125,10 +225,8 @@ func GenerateCustomModelsScript(cfg *Config) string {
             }
           } catch (_) {}
         }
-        const thinkingPill = document.querySelector("#swiss-thinking-level-pill");
-        if (thinkingPill) thinkingPill.remove();
 
-        const popover = document.querySelector('[role="menu"], [data-radix-popper-content-wrapper], .model-dropdown-menu');
+        const popover = document.querySelector('[role="menu"]:not(#swiss-custom-thinking-submenu), [data-radix-popper-content-wrapper], .model-dropdown-menu');
         if (popover) {
           const customGrp = popover.querySelector(".swiss-custom-models-menu-group");
           if (customGrp) customGrp.remove();
@@ -142,8 +240,13 @@ func GenerateCustomModelsScript(cfg *Config) string {
         return;
       }
 
-      // Check if a custom model is explicitly bound to this project
-      const boundModelId = customConfig?.project_binds?.[curProject];
+      // Check if a custom model is explicitly bound to this project (case-insensitive lookup)
+      let boundModelId = customConfig?.project_binds?.[curProject];
+      if (!boundModelId && curProject && customConfig?.project_binds) {
+        const curLower = curProject.trim().toLowerCase();
+        const matchedKey = Object.keys(customConfig.project_binds).find(k => k.trim().toLowerCase() === curLower);
+        if (matchedKey) boundModelId = customConfig.project_binds[matchedKey];
+      }
       let activeCustomModel = null;
       if (boundModelId && boundModelId !== "native") {
         activeCustomModel = (customConfig?.models || []).find(m => m.id === boundModelId && m.enabled) || null;
@@ -153,14 +256,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
       if (trigger) {
         const label = trigger.querySelector("span") || trigger;
         if (activeCustomModel) {
-          if (trigger.getAttribute("data-swiss-custom-bound") !== activeCustomModel.id) {
-            trigger.setAttribute("data-swiss-custom-bound", activeCustomModel.id);
-            const cleanActiveName = (activeCustomModel.display_name || "")
-              .replace(/\s*\((Anthropic|OpenAI|GCP Vertex|GCP|Google Cloud)\)/gi, "")
-              .replace(/^(OpenAI|Anthropic|Google Cloud|GCP)\s+/gi, "")
-              .trim();
-            label.textContent = cleanActiveName + " \u25be";
-          }
+          renderTriggerModelLabel(trigger, activeCustomModel);
         } else if (trigger.hasAttribute("data-swiss-custom-bound")) {
           trigger.removeAttribute("data-swiss-custom-bound");
           trigger.removeAttribute("data-swiss-native-label");
@@ -187,57 +283,17 @@ func GenerateCustomModelsScript(cfg *Config) string {
         if (staleGeminiSelector) {
           staleGeminiSelector.remove();
         }
-
-        // Render / update thinking level switcher pill if custom model supports thinking
-        let thinkingPill = document.querySelector("#swiss-thinking-level-pill");
-        if (activeCustomModel && activeCustomModel.supports_thinking) {
-          const curLevel = activeCustomModel.thinking_level || "high";
-          const levels = (activeCustomModel.thinking_levels && activeCustomModel.thinking_levels.length > 0)
-            ? activeCustomModel.thinking_levels
-            : ["off", "low", "medium", "high"];
-          const displayLevel = curLevel.charAt(0).toUpperCase() + curLevel.slice(1);
-
-          if (!thinkingPill) {
-            thinkingPill = document.createElement("button");
-            thinkingPill.id = "swiss-thinking-level-pill";
-            thinkingPill.setAttribute("type", "button");
-            thinkingPill.style.cssText = "display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 2px 9px; font-size: 11px; font-weight: 500; border-radius: 9999px; border: 1px solid var(--border, rgba(0,0,0,0.12)); background: var(--secondary, rgba(0,0,0,0.04)); color: var(--foreground, #101010); cursor: pointer; user-select: none; transition: all 0.15s ease; height: 22px; vertical-align: middle;";
-
-            thinkingPill.onclick = (e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              const activeMod = (customConfig?.models || []).find(m => m.id === activeCustomModel.id);
-              const cLevel = activeMod?.thinking_level || "high";
-              const idx = levels.indexOf(cLevel);
-              const nextIdx = (idx + 1) %% levels.length;
-              const nextLevel = levels[nextIdx];
-              if (activeMod) activeMod.thinking_level = nextLevel;
-              activeCustomModel.thinking_level = nextLevel;
-              const nextDisplay = nextLevel.charAt(0).toUpperCase() + nextLevel.slice(1);
-              thinkingPill.innerHTML = '<span style="opacity: 0.8;">Thinking:</span> <b>' + nextDisplay + '</b> <span style="font-size: 9px; opacity: 0.6;">\\u25be</span>';
-              fetch("http://127.0.0.1:8765/api/custom_models/thinking_level", {
-                method: "POST",
-                headers: getSwissAuthHeaders(),
-                body: JSON.stringify({ model_id: activeCustomModel.id, level: nextLevel })
-              }).catch(() => {});
-            };
-
-            if (trigger.nextSibling) {
-              trigger.parentNode.insertBefore(thinkingPill, trigger.nextSibling);
-            } else {
-              trigger.parentNode.appendChild(thinkingPill);
-            }
-          }
-          thinkingPill.innerHTML = '<span style="opacity: 0.8;">Thinking:</span> <b>' + displayLevel + '</b> <span style="font-size: 9px; opacity: 0.6;">\\u25be</span>';
-          thinkingPill.title = "Click to switch thinking level (" + levels.join(" \\u2192 ") + ")";
-        } else if (thinkingPill) {
-          thinkingPill.remove();
-        }
       }
 
       // Detect open dropdown menu
-      const popover = document.querySelector('[role="menu"], [data-radix-popper-content-wrapper], .model-dropdown-menu');
-      if (!popover || popover.__swissCustomGrouped) return;
+      const panel = document.querySelector('[data-testid="model-selector-panel"]');
+      const popover = (panel && panel.closest('[role="menu"]:not(#swiss-custom-thinking-submenu), [data-radix-popper-content-wrapper], .model-dropdown-menu, .bg-card')) ||
+        document.querySelector('[role="menu"]:not(#swiss-custom-thinking-submenu), [data-radix-popper-content-wrapper], .model-dropdown-menu');
+      if (!popover) {
+        removeCustomThinkingSubmenu();
+        return;
+      }
+      if (popover.__swissCustomGrouped) return;
 
       const menuItems = Array.from(popover.querySelectorAll('[role="menuitem"], button, .menu-item'));
       if (menuItems.length === 0) return;
@@ -286,17 +342,28 @@ func GenerateCustomModelsScript(cfg *Config) string {
 
       // Hook native items to unbind custom model when native model is chosen
       menuItems.forEach(it => {
+        const nativeCheck = it.querySelector('[data-testid="menu-item-check"]');
+        if (nativeCheck) {
+          nativeCheck.style.display = activeCustomModel ? "none" : "";
+        }
         if (!it.__swissNativeBound) {
           it.__swissNativeBound = true;
+          it.addEventListener("mouseenter", () => {
+            removeCustomThinkingSubmenu();
+          });
           it.addEventListener("click", async () => {
             if (!customConfig.project_binds) customConfig.project_binds = {};
+            const curLower = curProject.trim().toLowerCase();
+            const matchedKey = Object.keys(customConfig.project_binds).find(k => k.trim().toLowerCase() === curLower);
+            if (matchedKey && matchedKey !== curProject) {
+              delete customConfig.project_binds[matchedKey];
+            }
             customConfig.project_binds[curProject] = "native";
             if (trigger) {
               trigger.removeAttribute("data-swiss-custom-bound");
               trigger.removeAttribute("data-swiss-native-label");
             }
-            const tp = document.querySelector("#swiss-thinking-level-pill");
-            if (tp) tp.remove();
+            removeCustomThinkingSubmenu();
             try {
               await fetch("http://127.0.0.1:8765/api/custom_models/bind", {
                 method: "POST",
@@ -338,25 +405,24 @@ func GenerateCustomModelsScript(cfg *Config) string {
           customHeader.className = "text-xs px-2 pt-1 pb-1 text-muted-foreground font-medium select-none";
           customHeader.textContent = "Custom Model";
           customHeader.style.cssText = "padding: 3px 8px 3px 8px; font-size: 12px; font-weight: 500; color: var(--muted-foreground, #71717a); user-select: none;";
+          customHeader.addEventListener("mouseenter", () => {
+            removeCustomThinkingSubmenu();
+          });
           customContainer.appendChild(customHeader);
 
           customModels.forEach(m => {
             const isCurrentlyActive = (activeCustomModel && activeCustomModel.id === m.id);
+            const levels = getModelThinkingLevels(m);
+            const supportsThinking = levels.length > 0;
+            const curLevel = getActiveThinkingLevel(m, levels);
+            const curLevelLabel = formatEffortLabel(curLevel);
+
             const itemEl = document.createElement("div");
             itemEl.setAttribute("role", "menuitem");
             itemEl.setAttribute("tabindex", "-1");
             itemEl.setAttribute("data-testid", "model-selector-custom-item");
             itemEl.className = "w-full pr-2 pl-2 text-left text-[13px] cursor-pointer outline-none no-focus-ring transition-colors select-none flex items-center rounded-md py-1 gap-1.5 text-secondary-foreground justify-between";
             itemEl.style.cssText = "padding: 4px 8px; font-size: 13px; font-family: inherit; cursor: pointer; display: flex; align-items: center; justify-content: space-between; border-radius: 6px; height: 26px; box-sizing: border-box; transition: background 0.1s, color 0.1s; color: var(--secondary-foreground, #334155); background: " + (isCurrentlyActive ? "var(--secondary, rgba(0,0,0,0.06))" : "transparent") + ";";
-
-            itemEl.onmouseenter = () => {
-              itemEl.style.backgroundColor = "var(--secondary, rgba(0, 0, 0, 0.06))";
-              itemEl.style.color = "var(--foreground, #101010)";
-            };
-            itemEl.onmouseleave = () => {
-              itemEl.style.backgroundColor = isCurrentlyActive ? "var(--secondary, rgba(0, 0, 0, 0.06))" : "transparent";
-              itemEl.style.color = isCurrentlyActive ? "var(--foreground, #101010)" : "var(--secondary-foreground, #334155)";
-            };
 
             let quotaText = "";
             const qType = (m.quota_type || "").toLowerCase();
@@ -375,23 +441,54 @@ func GenerateCustomModelsScript(cfg *Config) string {
               }
             }
 
-            const providerLabel = formatProvider(m.provider_type);
+            const cleanDisplayName = cleanModelDisplayName(m.display_name || m.name);
 
-            const cleanDisplayName = (m.display_name || "")
-              .replace(/\s*\((Anthropic|OpenAI|GCP Vertex|GCP|Google Cloud)\)/gi, "")
-              .replace(/^(OpenAI|Anthropic|Google Cloud|GCP)\s+/gi, "")
-              .trim();
+            let trailingIconHTML = "";
+            if (supportsThinking) {
+              if (isCurrentlyActive) {
+                trailingIconHTML =
+                  '<span class="swiss-custom-check-wrap" style="display: flex; align-items: center; justify-content: center; width: 14px; height: 14px;">' + FACTORY_CHECK_SVG + '</span>' +
+                  '<span class="swiss-custom-chevron-wrap" style="display: none; align-items: center; justify-content: center; width: 14px; height: 14px; opacity: 0.5;">' + FACTORY_CHEVRON_RIGHT_SVG + '</span>';
+              } else {
+                trailingIconHTML =
+                  '<span class="swiss-custom-chevron-wrap" style="display: flex; align-items: center; justify-content: center; width: 14px; height: 14px; opacity: 0.5;">' + FACTORY_CHEVRON_RIGHT_SVG + '</span>';
+              }
+            } else if (isCurrentlyActive) {
+              trailingIconHTML =
+                '<span class="swiss-custom-check-wrap" style="display: flex; align-items: center; justify-content: center; width: 14px; height: 14px;">' + FACTORY_CHECK_SVG + '</span>';
+            }
 
             itemEl.innerHTML = '<span class="flex items-center gap-1.5 min-w-0 flex-1 truncate" style="display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow: hidden;">' +
               '<span class="truncate text-xs text-left" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 400; color: inherit;">' + cleanDisplayName + '</span>' +
+              (supportsThinking ? '<span class="shrink-0 opacity-70 text-xs" data-testid="custom-model-effort-label" style="flex-shrink: 0; opacity: 0.7; font-size: 12px;">' + curLevelLabel + '</span>' : '') +
               '</span>' +
-              '<span style="display: flex; align-items: center; gap: 4px; flex-shrink: 0; padding-left: 8px;">' +
+              '<span style="display: flex; align-items: center; gap: 6px; flex-shrink: 0; padding-left: 8px; margin-left: auto;">' +
               (quotaText ? '<span style="font-size: 11px; color: var(--muted-foreground, #64748b); opacity: 0.75; font-weight: 400; white-space: nowrap;">' + quotaText + '</span>' : '') +
-              (isCurrentlyActive ? '<span style="font-size: 12px; font-weight: 600; color: var(--foreground, #101010); margin-left: 2px;">\u2713</span>' : '') +
+              trailingIconHTML +
               '</span>';
 
-            itemEl.onclick = async () => {
+            function syncHoverState(hovered) {
+              itemEl.style.backgroundColor = (hovered || isCurrentlyActive) ? "var(--secondary, rgba(0, 0, 0, 0.06))" : "transparent";
+              itemEl.style.color = (hovered || isCurrentlyActive) ? "var(--foreground, #101010)" : "var(--secondary-foreground, #334155)";
+              if (supportsThinking && isCurrentlyActive) {
+                const chk = itemEl.querySelector(".swiss-custom-check-wrap");
+                const chv = itemEl.querySelector(".swiss-custom-chevron-wrap");
+                if (chk) chk.style.display = hovered ? "none" : "flex";
+                if (chv) chv.style.display = hovered ? "flex" : "none";
+              }
+            }
+            itemEl.__swissSyncHoverState = syncHoverState;
+
+            async function selectCustomModelWithLevel(chosenLevel) {
+              if (chosenLevel) {
+                m.thinking_level = chosenLevel;
+              }
               if (!customConfig.project_binds) customConfig.project_binds = {};
+              const curLower = curProject.trim().toLowerCase();
+              const matchedKey = Object.keys(customConfig.project_binds).find(k => k.trim().toLowerCase() === curLower);
+              if (matchedKey && matchedKey !== curProject) {
+                delete customConfig.project_binds[matchedKey];
+              }
               customConfig.project_binds[curProject] = m.id;
 
               if (trigger) {
@@ -399,17 +496,117 @@ func GenerateCustomModelsScript(cfg *Config) string {
                 if (!trigger.getAttribute("data-swiss-native-label")) {
                   trigger.setAttribute("data-swiss-native-label", label.textContent.trim());
                 }
-                label.textContent = cleanDisplayName + " \u25be";
-                trigger.setAttribute("data-swiss-custom-bound", m.id);
+                renderTriggerModelLabel(trigger, m);
               }
+              removeCustomThinkingSubmenu();
+              document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+              popover.remove();
+
               try {
+                if (chosenLevel) {
+                  await fetch("http://127.0.0.1:8765/api/custom_models/thinking_level", {
+                    method: "POST",
+                    headers: getSwissAuthHeaders(),
+                    body: JSON.stringify({ model_id: m.id, level: chosenLevel })
+                  });
+                }
                 await fetch("http://127.0.0.1:8765/api/custom_models/bind", {
                   method: "POST",
                   headers: getSwissAuthHeaders(),
                   body: JSON.stringify({ project: curProject, model_id: m.id })
                 });
               } catch (_) {}
-              popover.remove();
+            }
+
+            function openThinkingSubmenu() {
+              clearSubmenuCloseTimer();
+              removeCustomThinkingSubmenu();
+              syncHoverState(true);
+              const submenu = document.createElement("div");
+              submenu.id = "swiss-custom-thinking-submenu";
+              submenu.__sourceItem = itemEl;
+              submenu.setAttribute("role", "menu");
+              submenu.className = "bg-card text-foreground rounded-[10px] border border-border shadow-md outline-none no-focus-ring min-w-40 scrollbar-none flex flex-col p-1 gap-px";
+              const menuCard = (panel && panel.parentElement) ? panel.parentElement : popover;
+              const menuRect = menuCard.getBoundingClientRect();
+              const itemRect = itemEl.getBoundingClientRect();
+              const targetLeft = (menuRect.right + 165 > window.innerWidth) ? Math.max(4, Math.round(menuRect.left - 162)) : Math.round(menuRect.right);
+              submenu.style.cssText = "position: fixed; z-index: 6001; min-width: 160px; padding: 4px; gap: 1px; display: flex; flex-direction: column; border-radius: 10px; border: 1px solid var(--border, rgba(0,0,0,0.08)); background: var(--card, #ffffff); color: var(--foreground, #101010); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1); left: " + targetLeft + "px; top: " + Math.round(itemRect.top - 5) + "px;";
+
+              levels.forEach(lvl => {
+                const isSelectedLvl = (getActiveThinkingLevel(m, levels) === lvl);
+                const optEl = document.createElement("div");
+                optEl.setAttribute("role", "menuitemradio");
+                optEl.setAttribute("aria-checked", isSelectedLvl ? "true" : "false");
+                optEl.setAttribute("data-testid", "model-selector-effort-option");
+                optEl.setAttribute("data-effort", lvl);
+                optEl.className = "group w-full pr-2 pl-2 text-left text-[13px] cursor-pointer outline-none no-focus-ring transition-colors select-none flex items-center justify-between rounded-md py-1 gap-1.5";
+                optEl.style.cssText = "padding: 4px 8px; font-size: 13px; font-family: inherit; cursor: pointer; display: flex; align-items: center; justify-content: space-between; border-radius: 6px; height: 26px; box-sizing: border-box; transition: background 0.1s, color 0.1s; color: " + (isSelectedLvl ? "var(--foreground, #101010)" : "var(--secondary-foreground, #334155)") + "; background: transparent;";
+                optEl.innerHTML =
+                  '<span class="min-w-0 truncate">' + formatEffortLabel(lvl) + '</span>' +
+                  '<span style="width: 14px; height: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">' +
+                  (isSelectedLvl ? FACTORY_CHECK_SVG : '') +
+                  '</span>';
+                optEl.onmouseenter = () => {
+                  optEl.style.backgroundColor = "var(--secondary, rgba(0, 0, 0, 0.06))";
+                  optEl.style.color = "var(--foreground, #101010)";
+                };
+                optEl.onmouseleave = () => {
+                  optEl.style.backgroundColor = "transparent";
+                  optEl.style.color = isSelectedLvl ? "var(--foreground, #101010)" : "var(--secondary-foreground, #334155)";
+                };
+                optEl.onclick = (e) => {
+                  e.stopPropagation();
+                  selectCustomModelWithLevel(lvl);
+                };
+                submenu.appendChild(optEl);
+              });
+
+              submenu.onmouseenter = () => {
+                clearSubmenuCloseTimer();
+                syncHoverState(true);
+              };
+              submenu.onmouseleave = (e) => {
+                if (e.relatedTarget && itemEl.contains(e.relatedTarget)) return;
+                clearSubmenuCloseTimer();
+                submenuCloseTimer = setTimeout(() => {
+                  removeCustomThinkingSubmenu();
+                }, 120);
+              };
+              document.body.appendChild(submenu);
+            }
+
+            itemEl.onmouseenter = () => {
+              clearSubmenuCloseTimer();
+              if (supportsThinking) {
+                const curSubmenu = document.getElementById("swiss-custom-thinking-submenu");
+                if (curSubmenu && curSubmenu.__sourceItem === itemEl) {
+                  syncHoverState(true);
+                  return;
+                }
+                openThinkingSubmenu();
+              } else {
+                removeCustomThinkingSubmenu();
+                syncHoverState(true);
+              }
+            };
+            itemEl.onmouseleave = (e) => {
+              const curSubmenu = document.getElementById("swiss-custom-thinking-submenu");
+              if (curSubmenu && e.relatedTarget && curSubmenu.contains(e.relatedTarget)) {
+                return;
+              }
+              if (supportsThinking) {
+                clearSubmenuCloseTimer();
+                submenuCloseTimer = setTimeout(() => {
+                  removeCustomThinkingSubmenu();
+                }, 120);
+              } else {
+                syncHoverState(false);
+              }
+            };
+
+            itemEl.onclick = async () => {
+              await selectCustomModelWithLevel(supportsThinking ? curLevel : "");
             };
 
             customContainer.appendChild(itemEl);

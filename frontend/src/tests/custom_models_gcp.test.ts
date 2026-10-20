@@ -296,4 +296,21 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
       'Model card must compute progress percentage from prepaid_balance / total_budget'
     )
   })
+
+  it('configures thinking_levels [low, medium, high] for reasoning GCP models', () => {
+    assert.ok(
+      pageContent.includes("thinking_levels: isReasoning ? ['low', 'medium', 'high'] : []"),
+      'GCP model payload must configure thinking_levels as [low, medium, high]'
+    )
+    assert.ok(
+      pageContent.includes('supports_thinking: isReasoning'),
+      'GCP model payload must set supports_thinking based on isReasoning'
+    )
+    const isReasoningMatch = pageContent.match(/const isReasoning = ([^\n]+)/)
+    assert.ok(isReasoningMatch, 'isReasoning definition must exist')
+    const regexStr = isReasoningMatch[1]
+    assert.ok(regexStr.includes('gemini-4'), 'isReasoning must cover gemini-4')
+    assert.ok(regexStr.includes('claude-opus'), 'isReasoning must cover claude-opus')
+    assert.ok(regexStr.includes('deepseek-flash'), 'isReasoning must cover deepseek-flash')
+  })
 })

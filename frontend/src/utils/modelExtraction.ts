@@ -113,17 +113,22 @@ export function detectThinkingLevels(modelId: string, modelObj?: any): string[] 
   if (
     lower.includes('o1') ||
     lower.includes('o3') ||
+    lower.includes('o4') ||
     lower.includes('r1') ||
     lower.includes('reasoner') ||
     lower.includes('thinking') ||
     lower.includes('claude-3-7') ||
-    lower.includes('claude-opus-4-6') ||
-    lower.includes('claude-4-6') ||
+    lower.includes('claude-opus') ||
+    lower.includes('claude-sonnet') ||
+    lower.includes('claude-4') ||
+    lower.includes('claude-5') ||
     lower.includes('gemini-4') ||
     lower.includes('gemini-3') ||
     lower.includes('gemini-2.5') ||
     lower.includes('gemini-3.8') ||
     lower.includes('gemini-3.1') ||
+    lower.includes('deepseek-flash') ||
+    lower.includes('deepseek-v4') ||
     lower.includes('qwq')
   ) {
     return ['low', 'medium', 'high']

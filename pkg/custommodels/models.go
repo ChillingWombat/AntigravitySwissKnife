@@ -170,17 +170,42 @@ func (m *CustomModel) Validate() error {
 	if len(m.ProjectMappings) == 0 {
 		m.ProjectMappings = []string{"*"}
 	}
-	if strings.EqualFold(m.ThinkingLevel, "off") {
+	var cleanLevels []string
+	for _, l := range m.ThinkingLevels {
+		trimmed := strings.ToLower(strings.TrimSpace(l))
+		if trimmed != "" && trimmed != "off" {
+			cleanLevels = append(cleanLevels, trimmed)
+		}
+	}
+	if m.ProviderType == ProviderGCP {
+		if _, detectedThinking, _ := detectModelMetadata(m.Name, m.DisplayName, m.ContextWindow); detectedThinking {
+			m.SupportsThinking = true
+		}
+	}
+	if m.SupportsThinking || len(cleanLevels) > 0 || (strings.TrimSpace(m.ThinkingLevel) != "" && !strings.EqualFold(m.ThinkingLevel, "off")) {
+		m.SupportsThinking = true
+		if strings.TrimSpace(m.ThinkingLevel) == "" || strings.EqualFold(m.ThinkingLevel, "off") {
+			m.ThinkingLevel = "high"
+		} else {
+			m.ThinkingLevel = strings.ToLower(strings.TrimSpace(m.ThinkingLevel))
+		}
+		if len(cleanLevels) < 2 {
+			cleanLevels = []string{"low", "medium", "high"}
+		}
+		hasActive := false
+		for _, l := range cleanLevels {
+			if l == m.ThinkingLevel {
+				hasActive = true
+				break
+			}
+		}
+		if !hasActive && m.ThinkingLevel != "" {
+			cleanLevels = append(cleanLevels, m.ThinkingLevel)
+		}
+		m.ThinkingLevels = cleanLevels
+	} else if strings.EqualFold(m.ThinkingLevel, "off") {
 		m.SupportsThinking = false
 		m.ThinkingLevel = "off"
-	} else if m.SupportsThinking || (strings.TrimSpace(m.ThinkingLevel) != "" && !strings.EqualFold(m.ThinkingLevel, "off")) {
-		m.SupportsThinking = true
-		if strings.TrimSpace(m.ThinkingLevel) == "" {
-			m.ThinkingLevel = "high"
-		}
-		if len(m.ThinkingLevels) == 0 {
-			m.ThinkingLevels = []string{"off", "low", "medium", "high"}
-		}
 	}
 	return nil
 }
