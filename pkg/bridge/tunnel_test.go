@@ -964,4 +964,57 @@ func TestTunnelManager_FourMinuteKeepAlive_AndAutoStopOnInvalidTunnel(t *testing
 	if rm.GetConfig().Enabled || rm.GetConfig().TunnelType != "" || rm.GetConfig().TunnelURL != "" {
 		t.Fatalf("expected RemoteManager config to auto-reset to disabled when tunnel becomes invalid, got %+v", rm.GetConfig())
 	}
+
+	// 3. Verify Gemini Bridge Service also auto-stops and resets Enabled=false when its tunnel becomes invalid
+	svc, err := NewService(filepath.Join(t.TempDir(), "gemini_bridge.json"))
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+	defer svc.StopTunnel()
+
+	var lastKeepAliveHeader string
+	statusCodeMu.Lock()
+	mockStatusCode = http.StatusOK
+	statusCodeMu.Unlock()
+
+	svc.tunnelMgr.SetHTTPClient(&http.Client{
+		Timeout: 2 * time.Second,
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			statusCodeMu.Lock()
+			lastKeepAliveHeader = req.Header.Get("X-Swiss-KeepAlive")
+			statusCodeMu.Unlock()
+			u, _ := url.Parse(remoteOrigin.URL)
+			req.URL.Scheme = u.Scheme
+			req.URL.Host = u.Host
+			return remoteOrigin.Client().Transport.RoundTrip(req)
+		}),
+	})
+
+	if _, err := svc.StartTunnel("custom", "https://bridge-keepalive.example.com"); err != nil {
+		t.Fatalf("svc.StartTunnel failed: %v", err)
+	}
+	if !svc.GetStatus().Enabled || !svc.GetConfig().Enabled {
+		t.Fatalf("expected Gemini Bridge enabled after StartTunnel")
+	}
+
+	if ok := svc.tunnelMgr.ProbeAndKeepAlive(); !ok {
+		t.Fatalf("expected Gemini Bridge ProbeAndKeepAlive to succeed on 200 OK")
+	}
+	statusCodeMu.Lock()
+	gotKAHeader := lastKeepAliveHeader
+	statusCodeMu.Unlock()
+	if gotKAHeader != "1" {
+		t.Fatalf("expected X-Swiss-KeepAlive: 1 header on keep-alive probe, got %q", gotKAHeader)
+	}
+
+	statusCodeMu.Lock()
+	mockStatusCode = http.StatusBadGateway
+	statusCodeMu.Unlock()
+
+	if ok := svc.tunnelMgr.ProbeAndKeepAlive(); ok {
+		t.Fatalf("expected Gemini Bridge ProbeAndKeepAlive to return false on 502 Bad Gateway")
+	}
+	if svc.GetStatus().Enabled || svc.GetStatus().Tunnel.Active || svc.GetConfig().Enabled {
+		t.Fatalf("expected Gemini Bridge to auto-stop and reset Enabled=false when tunnel returns 502")
+	}
 }

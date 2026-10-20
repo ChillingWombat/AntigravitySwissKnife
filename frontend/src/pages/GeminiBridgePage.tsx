@@ -98,10 +98,19 @@ export const GeminiBridgePage: React.FC = () => {
   const [dispatching, setDispatching] = useState<boolean>(false)
   const [dispatchResult, setDispatchResult] = useState<string | null>(null)
   const [testingConnection, setTestingConnection] = useState<boolean>(false)
+  const wasTunnelActiveRef = React.useRef<boolean>(false)
 
   const loadStatus = async () => {
     try {
       const res = await api.getBridgeStatus()
+      const nowActive = Boolean(res?.tunnel?.active && res?.tunnel?.type !== 'loopback')
+      if (wasTunnelActiveRef.current && !nowActive && res?.tunnel?.error) {
+        setActionFeedback({
+          text: `Tunnel stopped automatically: ${res.tunnel.error}`,
+          isError: true,
+        })
+      }
+      wasTunnelActiveRef.current = nowActive
       setStatus(res)
       if (res?.tunnel?.type) {
         setTunnelType(res.tunnel.type)

@@ -204,6 +204,7 @@ func (tm *TunnelManager) ProbeAndKeepAlive() bool {
 		return false
 	}
 	req.Header.Set("User-Agent", "Antigravity-Swiss-Knife-KeepAlive/1.0")
+	req.Header.Set("X-Swiss-KeepAlive", "1")
 
 	resp, err := client.Do(req)
 	if err != nil {

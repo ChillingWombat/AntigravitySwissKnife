@@ -6540,6 +6540,13 @@ func (s *Server) handleBridgeMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.Header.Get("X-Swiss-KeepAlive") == "1" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"alive"}`))
+		return
+	}
+
 	// Validate Authentication: Bearer token, Pairing PIN, or query parameters
 	granted, reason := bridgeSvc.ValidateRequest(r)
 	if !granted {
