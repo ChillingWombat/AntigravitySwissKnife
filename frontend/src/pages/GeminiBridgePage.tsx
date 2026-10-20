@@ -106,6 +106,9 @@ export const GeminiBridgePage: React.FC = () => {
       if (res?.tunnel?.type) {
         setTunnelType(res.tunnel.type)
       }
+      if (res?.tunnel?.type === 'custom' && res?.tunnel?.gateway_url) {
+        setCustomTunnelURL((prev) => prev || res.tunnel.gateway_url)
+      }
     } catch (err) {
       if (isAbortError(err)) return
       console.error('Failed to load bridge status:', err)
@@ -187,8 +190,14 @@ export const GeminiBridgePage: React.FC = () => {
       setRotatingAuth(true)
       setActionFeedback(null)
       const res = await api.rotateBridgeToken()
-      if (res?.status) {
-        setStatus(res.status)
+      if (res && (res.status || res.auth_token || res.pairing_pin)) {
+        const authToken = res.auth_token || res.status?.auth_token
+        const pairingPin = res.pairing_pin || res.status?.pairing_pin
+        setStatus((prev: any) => ({
+          ...(res.status || prev || {}),
+          ...(authToken ? { auth_token: authToken } : {}),
+          ...(pairingPin ? { pairing_pin: pairingPin } : {}),
+        }))
       } else {
         loadStatus()
       }
