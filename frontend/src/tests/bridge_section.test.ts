@@ -66,7 +66,8 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.ok(remoteContent.includes('DevTools Port'))
     assert.ok(remoteContent.includes('google-card'))
     assert.ok(remoteContent.includes('ToggleSwitch'))
-    assert.ok(remoteContent.includes('badge-chip'))
+    assert.strictEqual(remoteContent.includes('badge-chip'), false, 'RemoteControlPage tunnel cards must not contain badge tags')
+    assert.strictEqual(remoteContent.includes('(Recommended)'), false, 'RemoteControlPage must not contain (Recommended) text')
   })
 
   it('WhatsAppBridgePage enforces David-Design and functional settings', () => {
