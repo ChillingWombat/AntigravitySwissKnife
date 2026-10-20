@@ -33,6 +33,7 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
     assert.ok(content.includes('Cloudflare Quick Tunnel'))
     assert.ok(content.includes('Tailscale Funnel'))
     assert.ok(content.includes('Custom Domain'))
+    assert.strictEqual(content.includes('Tailscale Private Tailnet'), false)
     assert.strictEqual(content.includes('Quick Tunnel (Recommended)'), false)
     assert.strictEqual(content.includes('Tailscale Network'), false)
     assert.strictEqual(content.includes('Custom HTTPS Tunnel'), false)
@@ -62,6 +63,10 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
   it('provides pairing PIN and Bearer token display with rotation', () => {
     assert.ok(content.includes('api.rotateBridgeToken'))
     assert.ok(content.includes('Pairing PIN'))
+    assert.ok(content.includes('Use App Password'))
+    assert.ok(content.includes('ToggleSwitch'))
+    assert.ok(content.includes('Rotate PIN'))
+    assert.strictEqual(content.includes('Copy PIN'), false, 'Copy PIN button must be removed from Pairing PIN gadget')
     assert.ok(content.includes('status?.pairing_pin'))
     assert.ok(content.includes('status?.auth_token'))
   })

@@ -27,7 +27,7 @@ const DefaultKeepAliveInterval = 4 * time.Minute
 // TunnelStatus represents current remote connectivity state.
 type TunnelStatus struct {
 	Active     bool      `json:"active"`
-	Type       string    `json:"type"` // "quick" | "tailscale" | "custom" | "" (not exposed)
+	Type       string    `json:"type"` // "quick" | "tailscale" | "tailnet" | "custom" | "" (not exposed)
 	PublicURL  string    `json:"public_url,omitempty"`
 	GatewayURL string    `json:"gateway_url"`
 	Error      string    `json:"error,omitempty"`
@@ -302,7 +302,7 @@ func (tm *TunnelManager) Start(tunnelType string, customURL string) (TunnelStatu
 	// Issue #120: validate the request before touching any live tunnel, so a rejected
 	// request never tears down a working remote access session.
 	switch tunnelType {
-	case "quick", "tailscale":
+	case "quick", "tailscale", "tailnet":
 		// No extra inputs required.
 	case "custom":
 		// Issue #120 review: a custom endpoint must be a well-formed absolute https:// URL
@@ -338,6 +338,8 @@ func (tm *TunnelManager) Start(tunnelType string, customURL string) (TunnelStatu
 		return tm.startQuickTunnel()
 	case "tailscale":
 		return tm.startTailscaleTunnel()
+	case "tailnet":
+		return tm.startTailscaleTailnet()
 	default: // "custom" — URL validated above
 		path := tm.endpointPath
 		if !strings.HasPrefix(path, "/") {
@@ -556,6 +558,14 @@ func killAndReap(cmd *exec.Cmd) {
 }
 
 func (tm *TunnelManager) startTailscaleTunnel() (TunnelStatus, error) {
+	return tm.startTailscaleMode("tailscale", true)
+}
+
+func (tm *TunnelManager) startTailscaleTailnet() (TunnelStatus, error) {
+	return tm.startTailscaleMode("tailnet", false)
+}
+
+func (tm *TunnelManager) startTailscaleMode(modeType string, enableFunnel bool) (TunnelStatus, error) {
 	tsBin := LocateTailscale()
 	if tsBin == "" {
 		err := fmt.Errorf("tailscale binary not found on PATH or standard locations")
@@ -645,16 +655,14 @@ func (tm *TunnelManager) startTailscaleTunnel() (TunnelStatus, error) {
 		}(ln, targetLoopback)
 	}
 
-	// Also attempt `tailscale funnel --bg` / `tailscale serve --bg` if operator mode is enabled
 	usedHTTPSServe := false
-	if magicDNS != "" {
-		for _, subcmd := range []string{"funnel", "serve"} {
-			c := exec.Command(tsBin, subcmd, "--bg", fmt.Sprintf("http://127.0.0.1:%d", tm.localPort))
-			core.SetHiddenConsole(c)
-			if err := c.Run(); err == nil {
-				usedHTTPSServe = true
-				break
-			}
+	if enableFunnel && magicDNS != "" {
+		c := exec.Command(tsBin, "funnel", "--bg", fmt.Sprintf("http://127.0.0.1:%d", tm.localPort))
+		core.SetHiddenConsole(c)
+		if outBytes, err := c.CombinedOutput(); err == nil {
+			usedHTTPSServe = true
+		} else if len(outBytes) > 0 {
+			tm.appendLog(fmt.Sprintf("tailscale funnel note: %s", strings.TrimSpace(string(outBytes))))
 		}
 	}
 
@@ -674,7 +682,7 @@ func (tm *TunnelManager) startTailscaleTunnel() (TunnelStatus, error) {
 	tm.mu.Lock()
 	tm.status = sanitizeTunnelStatus(TunnelStatus{
 		Active:     true,
-		Type:       "tailscale",
+		Type:       modeType,
 		PublicURL:  publicURL,
 		GatewayURL: gatewayURL,
 		StartedAt:  time.Now(),
@@ -683,7 +691,11 @@ func (tm *TunnelManager) startTailscaleTunnel() (TunnelStatus, error) {
 	st := tm.status
 	tm.mu.Unlock()
 
-	tm.appendLog(fmt.Sprintf("Tailscale network gateway active: %s", gatewayURL))
+	if enableFunnel {
+		tm.appendLog(fmt.Sprintf("Tailscale Funnel gateway active: %s", gatewayURL))
+	} else {
+		tm.appendLog(fmt.Sprintf("Tailscale Private Tailnet gateway active: %s", gatewayURL))
+	}
 	return st, nil
 }
 

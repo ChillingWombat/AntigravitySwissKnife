@@ -1244,6 +1244,13 @@ export const api = {
       body: JSON.stringify({ mode }),
     }),
 
+  setBridgeUseAppPassword: (use_app_password: boolean) =>
+    request<{ success: boolean; status?: any }>('/api/bridge/mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ use_app_password }),
+    }),
+
   // Remote Control Wrapper API (Account-Resilient Antigravity Remote Access)
   getRemoteControlStatus: () =>
     request<{ success: boolean; status: any; config: any }>('/api/bridge/remote/status'),
@@ -1252,7 +1259,7 @@ export const api = {
     request<{ success: boolean; config: any }>('/api/bridge/remote/config'),
 
   updateRemoteControlConfig: (config: any) =>
-    request<{ success: boolean; config: any }>('/api/bridge/remote/config', {
+    request<{ success: boolean; config: any; status?: any }>('/api/bridge/remote/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(config),
