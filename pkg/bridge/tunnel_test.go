@@ -782,16 +782,21 @@ new vm.Script(src, { filename: "remoteHTML.js" });
 
 func TestRemoteManager_ProxiesLiveAntigravityWebApp(t *testing.T) {
 	// Spin up a mock Antigravity language_server HTTPS web app
+	var lastReceivedCSRF string
+	var csrfMu sync.Mutex
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'")
 		switch r.URL.Path {
 		case "/", "/c/test-conv-123":
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = w.Write([]byte(`<!doctype html><html><head><title>Antigravity</title></head><body><div id="root">Live Antigravity Web App</div><script src="/main.js"></script></body></html>`))
+			_, _ = w.Write([]byte(`<!doctype html><html><head><script>window.__APP_CONFIG__ = {"csrfToken":"fresh-ls-csrf-token-999"};</script><title>Antigravity</title></head><body><div id="root">Live Antigravity Web App</div><script src="/main.js"></script></body></html>`))
 		case "/main.js":
 			w.Header().Set("Content-Type", "application/javascript")
 			_, _ = w.Write([]byte(`console.log("antigravity main bundle");`))
 		case "/exa.language_server_pb.LanguageServerService/GetServerConfiguration":
+			csrfMu.Lock()
+			lastReceivedCSRF = r.Header.Get("x-codeium-csrf-token")
+			csrfMu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"config":{"standalone":true,"appDataDir":"antigravity"}}`))
 		default:
@@ -853,12 +858,16 @@ func TestRemoteManager_ProxiesLiveAntigravityWebApp(t *testing.T) {
 	if !strings.Contains(string(appBody), "Live Antigravity Web App") {
 		t.Fatalf("expected proxied Antigravity Web App HTML, got: %s", string(appBody))
 	}
+	if !strings.Contains(string(appBody), "swiss-remote-account-sync") || !strings.Contains(string(appBody), "userStatus/setUserStatus") {
+		t.Fatalf("expected proxied HTML to include injected live account sync script")
+	}
 	if respApp.Header.Get("Content-Security-Policy") != "" {
 		t.Fatalf("expected restrictive Content-Security-Policy header to be stripped by proxy")
 	}
 
-	// 4. Authenticated Connect-RPC call is proxied to language_server
+	// 4. Authenticated Connect-RPC call with stale client CSRF token is rewritten to fresh language_server CSRF token
 	reqRPC, _ := http.NewRequest(http.MethodPost, baseURL+"/exa.language_server_pb.LanguageServerService/GetServerConfiguration", strings.NewReader(`{}`))
+	reqRPC.Header.Set("x-codeium-csrf-token", "stale-old-csrf-token-000")
 	for _, ck := range cookies {
 		reqRPC.AddCookie(ck)
 	}
@@ -870,5 +879,11 @@ func TestRemoteManager_ProxiesLiveAntigravityWebApp(t *testing.T) {
 	respRPC.Body.Close()
 	if !strings.Contains(string(rpcBody), `"appDataDir":"antigravity"`) {
 		t.Fatalf("expected proxied RPC response from language_server, got: %s", string(rpcBody))
+	}
+	csrfMu.Lock()
+	gotCSRF := lastReceivedCSRF
+	csrfMu.Unlock()
+	if gotCSRF != "fresh-ls-csrf-token-999" {
+		t.Fatalf("expected proxy to rewrite x-codeium-csrf-token to fresh-ls-csrf-token-999, got %q", gotCSRF)
 	}
 }
