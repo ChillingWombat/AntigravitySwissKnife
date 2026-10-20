@@ -692,6 +692,37 @@ export interface OverviewPanelConfig {
   aux_tabs_format?: 'icon' | 'icon_and_name'
 }
 
+export type CommunityExtensionIcon =
+  | 'blocks'
+  | 'globe'
+  | 'code'
+  | 'terminal'
+  | 'database'
+  | 'bot'
+  | 'wrench'
+  | 'book-open'
+  | 'layers'
+  | 'cpu'
+
+export interface CommunityExtension {
+  id: string
+  name: string
+  description?: string
+  author?: string
+  version?: string
+  icon?: CommunityExtensionIcon | string
+  source_type: 'url' | 'html'
+  url?: string
+  html?: string
+  css?: string
+  js?: string
+  enabled: boolean
+  aux_panel: boolean
+  main_page: boolean
+  created_at?: string
+  updated_at?: string
+}
+
 export interface EnhancementsConfig {
   version: string
   enabled: boolean
@@ -702,6 +733,7 @@ export interface EnhancementsConfig {
   left_panel_extensions_enabled?: boolean
   left_panel_extensions_mode?: 'single' | 'individual'
   main_section_extensions_enabled?: boolean
+  community_extensions?: CommunityExtension[]
   extensions?: Record<string, { aux_panel: boolean; main_page: boolean }>
   scroll_to_bottom: boolean
   turn_counter: boolean
