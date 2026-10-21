@@ -687,7 +687,7 @@ func isExternalOriginAllowedPath(p string) bool {
 	if clean == "/remote" || strings.HasPrefix(clean, "/remote/") {
 		return true
 	}
-	if clean == "/favicon.ico" || clean == "/favicon.svg" {
+	if isPublicIconPath(clean) {
 		return true
 	}
 	if clean == "/api/bridge/channels/webhook" || strings.HasPrefix(clean, "/api/bridge/channels/webhook/") {
@@ -6591,7 +6591,7 @@ func (s *Server) handleBridgeMCP(w http.ResponseWriter, r *http.Request) {
 	// Validate Authentication: Bearer token, Pairing PIN, or query parameters
 	granted, reason := bridgeSvc.ValidateRequest(r)
 	if !granted {
-		w.Header().Set("WWW-Authenticate", fmt.Sprintf("Bearer realm=\"Antigravity Swiss Knife MCP\", resource_metadata=\"%s/.well-known/oauth-protected-resource\"", bridge.ResolveExternalBaseURL(r, bridgeSvc.GetStatus().GatewayURL)))
+		w.Header().Set("WWW-Authenticate", fmt.Sprintf("Bearer realm=\"AGY Bridge\", resource_metadata=\"%s/.well-known/oauth-protected-resource\"", bridge.ResolveExternalBaseURL(r, bridgeSvc.GetStatus().GatewayURL)))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{

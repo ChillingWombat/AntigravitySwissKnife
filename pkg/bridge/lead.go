@@ -622,6 +622,278 @@ func (lh *LeadHandler) ListConversations(args map[string]interface{}) (string, e
 	return string(data), nil
 }
 
+// CompactConversation invokes Antigravity's native /compact command in the active conversation.
+func (lh *LeadHandler) CompactConversation(args map[string]interface{}) (string, error) {
+	convID := lh.resolveConversationID(args)
+	target, err := lh.activePage()
+	if err != nil {
+		return "", err
+	}
+
+	convJSON, _ := json.Marshal(convID)
+	script := fmt.Sprintf(`(async () => {
+		const targetConv = %s;
+		if (targetConv) {
+			const targetPath = "/c/" + targetConv;
+			if (!(window.location.pathname || "").startsWith(targetPath)) {
+				const navLink = document.querySelector('a[href*="' + targetConv + '"]');
+				if (navLink) {
+					navLink.click();
+				} else {
+					window.location.assign(targetPath);
+				}
+				await new Promise(r => setTimeout(r, 250));
+			}
+		}
+
+		const contextRing = document.getElementById("swiss-context-window-ring") ||
+			document.querySelector(".swiss-context-window-ring");
+		if (contextRing) {
+			["pointerdown", "mousedown", "pointerup", "mouseup"].forEach(type => {
+				try {
+					contextRing.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+				} catch (_) {}
+			});
+			contextRing.click();
+			await new Promise(r => setTimeout(r, 80));
+			return { success: true, action: "context_ring_click", conversation_id: targetConv || null };
+		}
+
+		let inputBox = null;
+		for (let i = 0; i < 20; i++) {
+			inputBox = document.querySelector('[data-testid="agent-input-box"]');
+			if (inputBox) break;
+			await new Promise(r => setTimeout(r, 100));
+		}
+		if (!inputBox) {
+			return { success: false, reason: "agent_input_not_found" };
+		}
+		function findInputBoxFiberProps(box) {
+			if (!box) return null;
+			if (box.memoizedProps && typeof box.memoizedProps.handleSubmit === "function") {
+				return box.memoizedProps;
+			}
+			let fiberKey = Object.keys(box).find(k => k.startsWith("__reactFiber"));
+			let startNode = fiberKey ? box[fiberKey] : null;
+			if (!startNode && box.querySelector) {
+				const inner = box.querySelector('[contenteditable="true"]') || box.querySelector("textarea");
+				if (inner) {
+					if (inner.memoizedProps) return inner.memoizedProps;
+					fiberKey = Object.keys(inner).find(k => k.startsWith("__reactFiber"));
+					if (fiberKey) startNode = inner[fiberKey];
+				}
+			}
+			if (!startNode) return null;
+			let bestProps = null;
+			let node = startNode;
+			while (node) {
+				const props = node.memoizedProps;
+				if (props && typeof props.handleSubmit === "function") {
+					if (props.lexicalRef && props.lexicalRef.current) return props;
+					if (!bestProps) bestProps = props;
+				}
+				node = node.return;
+			}
+			const queue = [startNode];
+			const visited = new Set();
+			while (queue.length > 0 && visited.size < 300) {
+				node = queue.shift();
+				if (!node || visited.has(node)) continue;
+				visited.add(node);
+				const props = node.memoizedProps;
+				if (props && typeof props.handleSubmit === "function") {
+					if (props.lexicalRef && props.lexicalRef.current) return props;
+					if (!bestProps) bestProps = props;
+				}
+				if (node.child) queue.push(node.child);
+				if (node.sibling) queue.push(node.sibling);
+			}
+			return bestProps;
+		}
+		const props = findInputBoxFiberProps(inputBox);
+		if (!props || typeof props.handleSubmit !== "function") {
+			return { success: false, reason: "native_submit_handler_not_found" };
+		}
+		const editor = (props.lexicalRef && props.lexicalRef.current) ||
+			inputBox.querySelector('[contenteditable="true"]') ||
+			inputBox.querySelector('[data-lexical-editor="true"]');
+		if (!editor) {
+			return { success: false, reason: "editor_not_found" };
+		}
+		let compactInfo = null;
+		if (Array.isArray(props.slashCommandItems)) {
+			compactInfo = props.slashCommandItems.find(item => item && (item.name === "compact" || (item.slashCommand && item.slashCommand.name === "compact")));
+		}
+		if (!compactInfo) {
+			compactInfo = { $typeName: "exa.codeium_common_pb.SlashCommandInfo", name: "compact", type: 1 };
+		}
+		const state = {
+			root: {
+				children: [{
+					children: [{
+						type: "contextScopeItemMention",
+						version: 1,
+						detail: compactInfo,
+						slashCommandInfo: compactInfo,
+						text: "/compact",
+						value: "/compact"
+					}],
+					direction: "ltr",
+					format: "",
+					indent: 0,
+					type: "paragraph",
+					version: 1
+				}],
+				direction: "ltr",
+				format: "",
+				indent: 0,
+				type: "root",
+				version: 1
+			}
+		};
+		let stateApplied = false;
+		if (typeof editor.setEditorState === "function") {
+			try {
+				if (typeof editor.parseEditorState === "function") {
+					const parsed = editor.parseEditorState(JSON.stringify(state));
+					if (!parsed) throw new Error("empty editor state");
+					editor.setEditorState(parsed);
+				} else {
+					editor.setEditorState(state);
+				}
+				stateApplied = true;
+			} catch (_) {}
+		}
+		if (!stateApplied) {
+			if (editor.isContentEditable) {
+				editor.focus();
+				editor.innerText = "/compact";
+				editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "/compact" }));
+			} else {
+				editor.value = "/compact";
+				editor.dispatchEvent(new Event("input", { bubbles: true }));
+			}
+		}
+		await props.handleSubmit(editor, 1);
+		return { success: true, action: "native_compact_submit", conversation_id: targetConv || null };
+	})()`, string(convJSON))
+
+	response, err := lh.injector.ExecuteScript(target.WebSocketDebuggerURL, script)
+	if err != nil {
+		return "", fmt.Errorf("compact conversation CDP failed: %w", err)
+	}
+	if success, ok := response["success"].(bool); ok && !success {
+		reason, _ := response["reason"].(string)
+		if reason == "" {
+			reason = "native compact command was not dispatched"
+		}
+		return "", fmt.Errorf("%s", reason)
+	}
+
+	result := map[string]interface{}{
+		"status":          "compact_requested",
+		"conversation_id": convID,
+		"message":         "Native /compact command dispatched to Antigravity.",
+	}
+	data, _ := json.MarshalIndent(result, "", "  ")
+	return string(data), nil
+}
+
+// StopConversation clicks Antigravity's active cancel/stop control when a turn is running.
+func (lh *LeadHandler) StopConversation(args map[string]interface{}) (string, error) {
+	convID := lh.resolveConversationID(args)
+	target, err := lh.activePage()
+	if err != nil {
+		return "", err
+	}
+	convJSON, _ := json.Marshal(convID)
+	script := fmt.Sprintf(`(async () => {
+		const targetConv = %s;
+		if (targetConv) {
+			const targetPath = "/c/" + targetConv;
+			if (!(window.location.pathname || "").startsWith(targetPath)) {
+				const navLink = document.querySelector('a[href*="' + targetConv + '"]');
+				if (navLink) {
+					navLink.click();
+				} else {
+					window.location.assign(targetPath);
+				}
+				await new Promise(r => setTimeout(r, 250));
+			}
+		}
+		let cancel = null;
+		for (let i = 0; i < 20; i++) {
+			cancel = document.querySelector('[data-tooltip-id="input-send-button-cancel-tooltip"]') ||
+				document.querySelector('[data-tooltip-id*="cancel-tooltip"]') ||
+				document.querySelector('button[aria-label*="Cancel" i]') ||
+				document.querySelector('button[aria-label*="Stop" i]') ||
+				document.querySelector('[data-testid="stop-button"]');
+			if (cancel) break;
+			await new Promise(r => setTimeout(r, 100));
+		}
+		if (!cancel) {
+			return { success: false, reason: "not_running" };
+		}
+		cancel.click();
+		return { success: true, action: "cancel_click", conversation_id: targetConv || null };
+	})()`, string(convJSON))
+	response, err := lh.injector.ExecuteScript(target.WebSocketDebuggerURL, script)
+	if err != nil {
+		return "", fmt.Errorf("stop conversation CDP failed: %w", err)
+	}
+	if success, ok := response["success"].(bool); ok && !success {
+		return "", fmt.Errorf("no in-progress generation found for conversation %s", convID)
+	}
+	result := map[string]interface{}{
+		"status":          "stopped",
+		"conversation_id": convID,
+		"message":         "Cancel request sent to Antigravity.",
+	}
+	data, _ := json.MarshalIndent(result, "", "  ")
+	return string(data), nil
+}
+
+func (lh *LeadHandler) resolveConversationID(args map[string]interface{}) string {
+	convID, _ := args["conversation_id"].(string)
+	convID = strings.TrimSpace(convID)
+	if convID == "" {
+		lh.mu.RLock()
+		if lh.activeSession != nil {
+			convID = lh.activeSession.ConversationID
+		}
+		lh.mu.RUnlock()
+	}
+	if convID == "" {
+		convID = lh.findMostRecentConversationID()
+	}
+	return convID
+}
+
+func (lh *LeadHandler) activePage() (gui.DevToolsTarget, error) {
+	port, err := lh.injector.FindDevToolsPort()
+	if err != nil {
+		return gui.DevToolsTarget{}, fmt.Errorf("Antigravity 2.0 Desktop not reachable: %w", err)
+	}
+	if port <= 0 {
+		return gui.DevToolsTarget{}, fmt.Errorf("Antigravity 2.0 Desktop not reachable: invalid DevTools port")
+	}
+	pages, err := lh.injector.GetPageTargets(port)
+	if err != nil {
+		return gui.DevToolsTarget{}, fmt.Errorf("no Antigravity 2.0 window target found: %w", err)
+	}
+	if len(pages) == 0 {
+		return gui.DevToolsTarget{}, fmt.Errorf("no Antigravity 2.0 window target found")
+	}
+	target := pages[0]
+	for _, p := range pages {
+		if strings.Contains(p.URL, "127.0.0.1") || strings.Contains(p.URL, "localhost") {
+			target = p
+			break
+		}
+	}
+	return target, nil
+}
+
 func (lh *LeadHandler) findMostRecentConversationID() string {
 	if topLevel := gui.QueryLatestTopLevelConversationPath(); gui.IsValidConversationPath(topLevel) {
 		return strings.TrimPrefix(topLevel, "/c/")

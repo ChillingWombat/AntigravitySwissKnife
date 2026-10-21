@@ -14,6 +14,8 @@ import (
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
 )
 
 // Config holds persistent settings for Gemini Bridge.
@@ -115,10 +117,15 @@ func DefaultConfig() Config {
 			"antigravity_lead_get_status",
 			"antigravity_lead_await_response",
 			"antigravity_lead_list_conversations",
+			"antigravity_lead_compact_conversation",
+			"antigravity_lead_stop_conversation",
+			"antigravity_fleet_get_quota",
+			"antigravity_fleet_switch_account",
 			"local_run_command",
 			"local_read_file",
 			"local_write_file",
 			"local_list_directory",
+			"local_search_files",
 			"local_system_info",
 			"local_computer_use",
 		},
@@ -322,11 +329,13 @@ func (s *Service) loadConfig() error {
 	if c.OAuthClientID == "" {
 		c.OAuthClientID = "antigravity-gemini-bridge"
 	}
+	allowedToolsBeforeMerge := len(c.AllowedTools)
+	c.AllowedTools = mergeDefaultAllowedTools(c.AllowedTools)
 	// Issue #120 review: never carry over a stale loopback endpoint persisted by an older
 	// build — the config API must not serve one.
 	c.TunnelURL = sanitizeEndpointURL(c.TunnelURL)
 	s.config = c
-	if upgradedPIN {
+	if upgradedPIN || len(c.AllowedTools) > allowedToolsBeforeMerge {
 		_ = s.saveConfig()
 	}
 	return nil
@@ -368,6 +377,8 @@ func (s *Service) UpdateConfig(c Config) error {
 	}
 	if len(c.AllowedTools) == 0 {
 		c.AllowedTools = s.config.AllowedTools
+	} else {
+		c.AllowedTools = mergeDefaultAllowedTools(c.AllowedTools)
 	}
 	if c.OAuthClientID == "" {
 		c.OAuthClientID = "antigravity-gemini-bridge"
@@ -624,6 +635,15 @@ func (s *Service) ToolManifest() []map[string]interface{} {
 		},
 	)
 
+	// Fleet tools are available in every operating mode.
+	tools = append(tools,
+		map[string]interface{}{
+			"name":        "antigravity_fleet_get_quota",
+			"description": "Returns live quota health, 5-hour and weekly remaining percentages, and active Google account status across the Antigravity account fleet.",
+			"inputSchema": map[string]interface{}{},
+		},
+	)
+
 	// Lead / Messenger tools
 	if mode == "hybrid" || mode == "lead" {
 		tools = append(tools,
@@ -709,6 +729,45 @@ func (s *Service) ToolManifest() []map[string]interface{} {
 					},
 				},
 			},
+			map[string]interface{}{
+				"name":        "antigravity_lead_compact_conversation",
+				"description": "Directly invokes the native /compact command in the active Antigravity 2.0 conversation to summarize history and compress the context window.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"conversation_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Target conversation ID (optional, defaults to active session).",
+						},
+					},
+				},
+			},
+			map[string]interface{}{
+				"name":        "antigravity_lead_stop_conversation",
+				"description": "Stops or cancels an in-progress agent generation turn in the active Antigravity 2.0 conversation.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"conversation_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Target conversation ID (optional, defaults to active session).",
+						},
+					},
+				},
+			},
+			map[string]interface{}{
+				"name":        "antigravity_fleet_switch_account",
+				"description": "Switches the active Google account in Antigravity to a specified email or rotates to the next healthy standby account.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"email": map[string]interface{}{
+							"type":        "string",
+							"description": "Target account email to activate (omit to pick the top standby account).",
+						},
+					},
+				},
+			},
 		)
 	}
 
@@ -788,6 +847,30 @@ func (s *Service) ToolManifest() []map[string]interface{} {
 							"default":     ".",
 						},
 					},
+				},
+			},
+			map[string]interface{}{
+				"name":        "local_search_files",
+				"description": "Searches files in a local directory for a text or regex pattern and returns matching file paths, line numbers, and snippets.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"pattern": map[string]interface{}{
+							"type":        "string",
+							"description": "Text or regular expression to search for.",
+						},
+						"path": map[string]interface{}{
+							"type":        "string",
+							"description": "Directory to search (default: current directory).",
+							"default":     ".",
+						},
+						"max_results": map[string]interface{}{
+							"type":        "integer",
+							"description": "Maximum number of matches to return (default: 50).",
+							"default":     50,
+						},
+					},
+					"required": []string{"pattern"},
 				},
 			},
 			map[string]interface{}{
@@ -876,7 +959,7 @@ func (s *Service) CallTool(name string, args map[string]interface{}) (string, er
 
 	// Mode compatibility enforcement
 	isDirect := strings.HasPrefix(name, "local_") || name == "antigravity_inspect_workspace" || name == "antigravity_system_info" || name == "antigravity_computer_use"
-	isLead := strings.HasPrefix(name, "antigravity_lead_") || name == "antigravity_dispatch_task" || name == "antigravity_list_sessions"
+	isLead := strings.HasPrefix(name, "antigravity_lead_") || name == "antigravity_dispatch_task" || name == "antigravity_list_sessions" || name == "antigravity_fleet_switch_account"
 	if currentMode == "lead" && isDirect {
 		return "", fmt.Errorf("tool %q is disabled in %q operational mode", name, currentMode)
 	}
@@ -900,6 +983,14 @@ func (s *Service) CallTool(name string, args map[string]interface{}) (string, er
 		result = string(data)
 		opMode = "control"
 
+	case "antigravity_fleet_get_quota":
+		result, err = s.getFleetQuota()
+		opMode = "fleet"
+
+	case "antigravity_fleet_switch_account":
+		result, err = s.switchFleetAccount(args)
+		opMode = "fleet"
+
 	// Lead / Messenger tools
 	case "antigravity_lead_create_conversation", "antigravity_dispatch_task":
 		result, err = s.leadHdl.CreateConversation(args)
@@ -921,6 +1012,14 @@ func (s *Service) CallTool(name string, args map[string]interface{}) (string, er
 		result, err = s.leadHdl.ListConversations(args)
 		opMode = "lead"
 
+	case "antigravity_lead_compact_conversation":
+		result, err = s.leadHdl.CompactConversation(args)
+		opMode = "lead"
+
+	case "antigravity_lead_stop_conversation":
+		result, err = s.leadHdl.StopConversation(args)
+		opMode = "lead"
+
 	// Direct Mode tools
 	case "local_run_command":
 		result, err = s.directHdl.RunCommand(args)
@@ -936,6 +1035,10 @@ func (s *Service) CallTool(name string, args map[string]interface{}) (string, er
 
 	case "local_list_directory", "antigravity_inspect_workspace":
 		result, err = s.directHdl.ListDirectory(args)
+		opMode = "direct"
+
+	case "local_search_files":
+		result, err = s.directHdl.SearchFiles(args)
 		opMode = "direct"
 
 	case "local_system_info", "antigravity_system_info":
@@ -997,10 +1100,16 @@ func (s *Service) HandleMCPRequest(reqBytes []byte) ([]byte, error) {
 				"tools": map[string]interface{}{},
 			},
 			"serverInfo": map[string]interface{}{
-				"name":    "antigravity-gemini-bridge",
+				"name":    "AGY Bridge",
+				"title":   "AGY Bridge",
 				"version": "1.6.0",
+				"icon":    "/logo.png",
+				"icons": []map[string]interface{}{
+					{"src": "/logo.png", "mimeType": "image/png", "sizes": []string{"256x256"}},
+					{"src": "/favicon.ico", "mimeType": "image/x-icon", "sizes": []string{"48x48", "32x32", "16x16"}},
+				},
 			},
-			"instructions": "Gemini Bridge connects you to the user's local PC and Google Antigravity 2.0 app. You have two modes: 1. Direct Mode: work on the local PC directly using local_* tools (run_command, read_file, write_file). 2. Lead/Messenger Mode: act as a lead/coordinator passing tasks to Google Antigravity 2.0 (antigravity_lead_create_conversation, antigravity_lead_send_message, antigravity_lead_await_response), and forward Antigravity's completed responses and artifacts to the user in this chat. Ask the user which mode they prefer if unclear.",
+			"instructions": "AGY Bridge connects you to the user's local PC and Google Antigravity 2.0 app. You have two modes: 1. Direct Mode: work on the local PC directly using local_* tools (run_command, read_file, write_file). 2. Lead/Messenger Mode: act as a lead/coordinator passing tasks to Google Antigravity 2.0 (antigravity_lead_create_conversation, antigravity_lead_send_message, antigravity_lead_await_response), and forward Antigravity's completed responses and artifacts to the user in this chat. Ask the user which mode they prefer if unclear.",
 		}
 	case "notifications/initialized":
 		return nil, nil
@@ -1035,4 +1144,193 @@ func (s *Service) HandleMCPRequest(reqBytes []byte) ([]byte, error) {
 	}
 
 	return json.Marshal(response)
+}
+
+type fleetAccountSummary struct {
+	Email              string  `json:"email"`
+	Label              string  `json:"label,omitempty"`
+	PlanTier           string  `json:"plan_tier,omitempty"`
+	Status             string  `json:"status"`
+	Priority           string  `json:"priority,omitempty"`
+	IsActive           bool    `json:"is_active"`
+	Quota5hPercent     float64 `json:"quota_5h_remaining_percent"`
+	QuotaWeeklyPercent float64 `json:"quota_weekly_remaining_percent"`
+	Health             string  `json:"health"`
+	Reset5h            string  `json:"reset_5h,omitempty"`
+	ResetWeekly        string  `json:"reset_weekly,omitempty"`
+}
+
+func (s *Service) getFleetQuota() (string, error) {
+	store, err := keyring.NewStore("")
+	if err != nil {
+		return "", fmt.Errorf("load account fleet: %w", err)
+	}
+	accounts := store.ListAccounts()
+	active := store.ActiveAccount()
+	cfg, _ := core.LoadConfig()
+	threshold5h := core.DefaultAutoSwitchThresholdFraction
+	thresholdWeekly := core.DefaultAutoSwitchWeeklyThresholdFraction
+	allowNonGemini := false
+	if cfg != nil {
+		if cfg.AutoSwitchThreshold > 0 {
+			threshold5h = cfg.AutoSwitchThreshold
+		}
+		if cfg.AutoSwitchWeeklyThreshold > 0 {
+			thresholdWeekly = cfg.AutoSwitchWeeklyThreshold
+		}
+		allowNonGemini = cfg.AllowNonGeminiNativeModels
+	}
+	states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, quota.LoadQuotaCache(), threshold5h, thresholdWeekly, allowNonGemini)
+	states = quota.SortAccountQuotaStatesWithThresholds(states, active, threshold5h, thresholdWeekly, "auto", core.DefaultSwitchMode, allowNonGemini)
+
+	fleetAccounts := make([]fleetAccountSummary, 0, len(states))
+	for _, state := range states {
+		health := quota.ComputeHealth(state.Quota5hAvailable)
+		if strings.EqualFold(state.Status, "ERROR") || strings.EqualFold(state.Status, "BANNED") {
+			health = core.StatusExhausted
+		}
+		fleetAccounts = append(fleetAccounts, fleetAccountSummary{
+			Email:              state.Email,
+			Label:              state.Label,
+			PlanTier:           state.PlanTier,
+			Status:             state.Status,
+			Priority:           state.Priority,
+			IsActive:           strings.EqualFold(state.Email, active),
+			Quota5hPercent:     state.Quota5hCurrent * 100,
+			QuotaWeeklyPercent: state.QuotaWeekly * 100,
+			Health:             health,
+			Reset5h:            state.ResetHorizonText,
+			ResetWeekly:        state.ResetHorizonWeeklyText,
+		})
+	}
+
+	res := map[string]interface{}{
+		"active_account": active,
+		"total_accounts": len(fleetAccounts),
+		"accounts":       fleetAccounts,
+		"cached_at":      time.Now().Format(time.RFC3339),
+	}
+	data, err := json.MarshalIndent(res, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func (s *Service) switchFleetAccount(args map[string]interface{}) (string, error) {
+	store, err := keyring.NewStore("")
+	if err != nil {
+		return "", fmt.Errorf("load account fleet: %w", err)
+	}
+	target := strings.TrimSpace(stringValue(args["email"]))
+	current := store.ActiveAccount()
+	previousStatus := ""
+	if current != "" {
+		if acc, getErr := store.GetAccount(current); getErr == nil {
+			previousStatus = acc.Status
+		}
+	}
+
+	if target == "" {
+		cached := quota.LoadQuotaCache()
+		cfg, _ := core.LoadConfig()
+		threshold5h := core.DefaultAutoSwitchThresholdFraction
+		thresholdWeekly := core.DefaultAutoSwitchWeeklyThresholdFraction
+		allowNonGemini := false
+		if cfg != nil {
+			if cfg.AutoSwitchThreshold > 0 {
+				threshold5h = cfg.AutoSwitchThreshold
+			}
+			if cfg.AutoSwitchWeeklyThreshold > 0 {
+				thresholdWeekly = cfg.AutoSwitchWeeklyThreshold
+			}
+			allowNonGemini = cfg.AllowNonGeminiNativeModels
+		}
+		states := quota.BuildAccountQuotaStatesFromMapWithThresholds(store.ListAccounts(), cached, threshold5h, thresholdWeekly, allowNonGemini)
+		ranked := quota.RankStandbyAccountsWithThresholds(states, threshold5h, thresholdWeekly, core.DefaultSwitchMode, allowNonGemini)
+		if len(ranked) == 0 {
+			states = quota.SortAccountQuotaStatesWithThresholds(states, store.ActiveAccount(), threshold5h, thresholdWeekly, "auto", core.DefaultSwitchMode, allowNonGemini)
+			for _, state := range states {
+				if state.IsActive || !strings.EqualFold(state.Status, core.AccountStatusStandby) {
+					continue
+				}
+				acc, getErr := store.GetAccount(state.Email)
+				if getErr != nil || (strings.TrimSpace(acc.RefreshToken) == "" && !core.IsRunningTests()) {
+					continue
+				}
+				target = acc.Email
+				break
+			}
+			if target == "" {
+				return "", fmt.Errorf("no healthy standby account found")
+			}
+		} else {
+			target = ranked[0].Email
+		}
+	}
+
+	account, err := store.GetAccount(target)
+	if err != nil {
+		return "", err
+	}
+	if err := store.SetActiveAccount(account.Email); err != nil {
+		return "", err
+	}
+	account.IsActive = true
+	account.Status = "ACTIVE"
+	cfg, cfgErr := core.LoadConfig()
+	if cfgErr == nil {
+		cfgErr = cfg.SetActiveAppAccount(core.TargetAppAll, account.Email)
+	}
+	var emails []string
+	for _, acc := range store.ListAccounts() {
+		emails = append(emails, acc.Email)
+	}
+	syncErr := keyring.SyncAllSurfaces(account, emails, nil)
+
+	result := map[string]interface{}{
+		"status":            "switched",
+		"previous_account":  current,
+		"active_account":    account.Email,
+		"label":             account.Label,
+		"plan_tier":         account.PlanTier,
+		"previous_status":   previousStatus,
+		"account_status":    account.Status,
+		"relaunch_required": syncErr == nil,
+		"surfaces_synced":   syncErr == nil,
+	}
+	if cfgErr != nil {
+		result["status"] = "switched_with_warnings"
+		result["config_error"] = cfgErr.Error()
+	}
+	if syncErr != nil {
+		result["status"] = "switched_with_warnings"
+		result["surface_sync_error"] = syncErr.Error()
+	}
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func stringValue(v interface{}) string {
+	s, _ := v.(string)
+	return strings.TrimSpace(s)
+}
+
+func mergeDefaultAllowedTools(configured []string) []string {
+	defaults := DefaultConfig().AllowedTools
+	allowedSet := make(map[string]bool, len(configured)+len(defaults))
+	merged := append([]string(nil), configured...)
+	for _, tool := range merged {
+		allowedSet[tool] = true
+	}
+	for _, tool := range defaults {
+		if !allowedSet[tool] {
+			merged = append(merged, tool)
+			allowedSet[tool] = true
+		}
+	}
+	return merged
 }

@@ -4,8 +4,6 @@ import {
   Copy,
   Check,
   ExternalLink,
-  Play,
-  Square,
   AlertCircle,
   CheckCircle2,
   ChevronDown,
@@ -123,7 +121,7 @@ export const RemoteControlPage: React.FC = () => {
       })
       if (res && res.success) {
         if (res.config) setConfig(res.config)
-        if (res.status) setStatus(res.status)
+        await fetchStatusAndConfig()
       }
     } catch (err) {
       console.error('Failed to toggle remote PIN mode:', err)
@@ -187,7 +185,7 @@ export const RemoteControlPage: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* 1. Remote Control Wrapper, Status, Endpoint & Pairing Security */}
       <div className="google-card">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
@@ -198,6 +196,19 @@ export const RemoteControlPage: React.FC = () => {
               Streams the live Antigravity 2.0 web interface over an authenticated reverse proxy with persistent session and CSRF re-binding across Google account switches.
             </p>
           </div>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
+            <span style={{ whiteSpace: 'nowrap' }}>Enable Remote Access</span>
+            <ToggleSwitch
+              checked={isTunnelActive}
+              onChange={(checked) => {
+                if (checked) handleStartTunnel()
+                else handleStopTunnel()
+              }}
+              disabled={tunnelLoading}
+              ariaLabel="Enable Remote Access"
+            />
+          </label>
         </div>
 
         {actionFeedback && (
@@ -220,26 +231,8 @@ export const RemoteControlPage: React.FC = () => {
           </div>
         )}
 
-        {/* Status Metrics Grid: 3 balanced cards */}
+        {/* Status Metrics Grid: 2 balanced cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '12px' }}>
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
-              Remote Internet Pipe
-            </div>
-            <div style={{ fontSize: '16px', fontWeight: 700, color: isTunnelActive ? 'var(--primary)' : 'var(--text-muted)', marginTop: '4px' }}>
-              {isTunnelActive ? (status?.tunnel?.type === 'tailnet' ? 'TAILNET' : (status?.tunnel?.type || 'active').toUpperCase()) : 'INACTIVE'}
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              {isTunnelActive
-                ? status?.tunnel?.type === 'tailnet'
-                  ? 'Tailscale Private Tailnet'
-                  : status?.tunnel?.type === 'tailscale'
-                    ? 'Tailscale Public Funnel'
-                    : 'Public HTTPS Tunnel'
-                : 'Remote Access Off'}
-            </div>
-          </div>
-
           <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
               Active Google Account
@@ -402,32 +395,8 @@ export const RemoteControlPage: React.FC = () => {
 
       {/* 2. Out-of-Home Remote Internet Access (Tunneling) */}
       <div className="google-card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: '12px', marginBottom: '14px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-            Remote Internet Access (Out-of-Home Access)
-          </div>
-
-          <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-            {isTunnelActive ? (
-              <button
-                onClick={handleStopTunnel}
-                disabled={tunnelLoading}
-                className="btn-pill-danger"
-              >
-                <Square size={13} />
-                <span>{tunnelLoading ? 'Stopping...' : 'Stop Remote Access'}</span>
-              </button>
-            ) : (
-              <button
-                onClick={handleStartTunnel}
-                disabled={tunnelLoading}
-                className="btn-pill-primary"
-              >
-                <Play size={13} />
-                <span>{tunnelLoading ? 'Connecting...' : 'Start Remote Access'}</span>
-              </button>
-            )}
-          </div>
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
+          Remote Internet Access (Out-of-Home Access)
         </div>
 
         {/* Tunnel Options Grid */}

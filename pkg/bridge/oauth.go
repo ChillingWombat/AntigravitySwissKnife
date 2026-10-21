@@ -147,6 +147,9 @@ func (s *Service) ServeOAuthProtectedResource(w http.ResponseWriter, r *http.Req
 	baseURL := ResolveExternalBaseURL(r, s.GetStatus().GatewayURL)
 	metadata := map[string]interface{}{
 		"resource":                 fmt.Sprintf("%s/api/bridge/mcp", baseURL),
+		"resource_name":            "AGY Bridge",
+		"logo_uri":                 baseURL + "/logo.png",
+		"icon_uri":                 baseURL + "/favicon.ico",
 		"authorization_servers":    []string{baseURL},
 		"bearer_methods_supported": []string{"header", "body", "query"},
 		"scopes_supported":         []string{"mcp", "gemini", "claudeai", "openid", "profile"},
@@ -175,6 +178,9 @@ func (s *Service) ServeOAuthMetadata(w http.ResponseWriter, r *http.Request) {
 	baseURL := ResolveExternalBaseURL(r, s.GetStatus().GatewayURL)
 	metadata := map[string]interface{}{
 		"issuer":                                baseURL,
+		"service_name":                          "AGY Bridge",
+		"logo_uri":                              baseURL + "/logo.png",
+		"icon_uri":                              baseURL + "/favicon.ico",
 		"authorization_endpoint":                fmt.Sprintf("%s/oauth/authorize", baseURL),
 		"token_endpoint":                        fmt.Sprintf("%s/oauth/token", baseURL),
 		"registration_endpoint":                 fmt.Sprintf("%s/oauth/register", baseURL),
@@ -217,10 +223,17 @@ func (s *Service) ServeOAuthRegister(w http.ResponseWriter, r *http.Request) {
 	if redirectURIs == nil {
 		redirectURIs = []string{}
 	}
+	clientName := strings.TrimSpace(regReq.ClientName)
+	if clientName == "" {
+		clientName = "AGY Bridge"
+	}
+	baseURL := ResolveExternalBaseURL(r, s.GetStatus().GatewayURL)
 
 	resp := map[string]interface{}{
 		"client_id":                  s.GetOAuthClientID(),
+		"client_name":                clientName,
 		"client_secret":              s.GetRawAuthToken(),
+		"logo_uri":                   baseURL + "/logo.png",
 		"redirect_uris":              redirectURIs,
 		"grant_types":                []string{"authorization_code", "refresh_token", "client_credentials"},
 		"response_types":             []string{"code"},

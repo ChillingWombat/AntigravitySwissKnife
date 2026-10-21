@@ -7,7 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -152,6 +155,129 @@ func (dh *DirectHandler) ListDirectory(args map[string]interface{}) (string, err
 	return string(data), nil
 }
 
+// SearchFiles searches a directory with ripgrep when available and falls back to a Go walk.
+func (dh *DirectHandler) SearchFiles(args map[string]interface{}) (string, error) {
+	pattern, _ := args["pattern"].(string)
+	if strings.TrimSpace(pattern) == "" {
+		return "", fmt.Errorf("pattern is required")
+	}
+	root, _ := args["path"].(string)
+	if strings.TrimSpace(root) == "" {
+		root = "."
+	}
+	maxResults := intArgument(args["max_results"], 50)
+	searchPattern, err := regexp.Compile(pattern)
+	if err != nil {
+		return "", fmt.Errorf("invalid search pattern: %w", err)
+	}
+
+	type Match struct {
+		Path    string `json:"path"`
+		Line    int    `json:"line"`
+		Content string `json:"content"`
+	}
+	matches := make([]Match, 0)
+	if rgPath, lookErr := exec.LookPath("rg"); lookErr == nil {
+		cmdArgs := []string{"-n", "--no-heading", "--color", "never", "--null", "--glob", "!.git/**", "--glob", "!node_modules/**", "--", pattern, root}
+		cmd := exec.Command(rgPath, cmdArgs...)
+		out, runErr := cmd.Output()
+		if runErr != nil {
+			if exitErr, ok := runErr.(*exec.ExitError); !ok || exitErr.ExitCode() != 1 {
+				return "", fmt.Errorf("rg search failed: %w", runErr)
+			}
+		}
+		for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+			if line == "" {
+				continue
+			}
+			nul := strings.IndexByte(line, 0)
+			if nul < 0 {
+				continue
+			}
+			parts := strings.SplitN(line[nul+1:], ":", 2)
+			if len(parts) < 2 {
+				continue
+			}
+			lineNo, convErr := strconv.Atoi(parts[0])
+			if convErr != nil {
+				continue
+			}
+			matches = append(matches, Match{Path: line[:nul], Line: lineNo, Content: parts[1]})
+			if len(matches) >= maxResults {
+				break
+			}
+		}
+	} else {
+		absRoot, absErr := filepath.Abs(root)
+		if absErr != nil {
+			return "", fmt.Errorf("resolve search path: %w", absErr)
+		}
+		walkErr := filepath.Walk(absRoot, func(filePath string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			name := info.Name()
+			if info.IsDir() && (name == ".git" || name == "node_modules") {
+				return filepath.SkipDir
+			}
+			if info.IsDir() {
+				return nil
+			}
+			data, readErr := os.ReadFile(filePath)
+			if readErr != nil {
+				return nil
+			}
+			for i, text := range strings.Split(string(data), "\n") {
+				if searchPattern.MatchString(text) {
+					relPath, relErr := filepath.Rel(root, filePath)
+					if relErr != nil {
+						relPath = filePath
+					}
+					matches = append(matches, Match{Path: relPath, Line: i + 1, Content: text})
+					if len(matches) >= maxResults {
+						return filepath.SkipAll
+					}
+				}
+			}
+			return nil
+		})
+		if walkErr != nil && walkErr != filepath.SkipAll {
+			return "", fmt.Errorf("search files: %w", walkErr)
+		}
+	}
+
+	sort.SliceStable(matches, func(i, j int) bool {
+		if matches[i].Path == matches[j].Path {
+			return matches[i].Line < matches[j].Line
+		}
+		return matches[i].Path < matches[j].Path
+	})
+	data, _ := json.MarshalIndent(matches, "", "  ")
+	return string(data), nil
+}
+
+func intArgument(value interface{}, fallback int) int {
+	switch v := value.(type) {
+	case float64:
+		if int(v) > 0 {
+			return int(v)
+		}
+	case int:
+		if v > 0 {
+			return v
+		}
+	case int64:
+		if v > 0 {
+			return int(v)
+		}
+	case json.Number:
+		if parsed, err := strconv.Atoi(v.String()); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return fallback
+}
+
 // SystemInfo gathers system metrics and environment info.
 func (dh *DirectHandler) SystemInfo() (string, error) {
 	hostname, _ := os.Hostname()
@@ -242,4 +368,3 @@ func (dh *DirectHandler) ComputerUse(args map[string]interface{}) (string, error
 		return "", fmt.Errorf("unsupported computer use action: %s", action)
 	}
 }
-

@@ -88,6 +88,9 @@ func TestOAuthProtectedResource_Metadata(t *testing.T) {
 
 	var meta struct {
 		Resource               string   `json:"resource"`
+		ResourceName           string   `json:"resource_name"`
+		LogoURI                string   `json:"logo_uri"`
+		IconURI                string   `json:"icon_uri"`
 		AuthorizationServers   []string `json:"authorization_servers"`
 		BearerMethodsSupported []string `json:"bearer_methods_supported"`
 		ScopesSupported        []string `json:"scopes_supported"`
@@ -99,6 +102,15 @@ func TestOAuthProtectedResource_Metadata(t *testing.T) {
 	expectedResource := "https://gemini-mcp.trycloudflare.com/api/bridge/mcp"
 	if meta.Resource != expectedResource {
 		t.Errorf("expected resource %q, got %q", expectedResource, meta.Resource)
+	}
+	if meta.ResourceName != "AGY Bridge" {
+		t.Errorf("expected resource_name AGY Bridge, got %q", meta.ResourceName)
+	}
+	if meta.LogoURI != "https://gemini-mcp.trycloudflare.com/logo.png" {
+		t.Errorf("unexpected logo_uri: %q", meta.LogoURI)
+	}
+	if meta.IconURI != "https://gemini-mcp.trycloudflare.com/favicon.ico" {
+		t.Errorf("unexpected icon_uri: %q", meta.IconURI)
 	}
 	if len(meta.AuthorizationServers) == 0 || meta.AuthorizationServers[0] != "https://gemini-mcp.trycloudflare.com" {
 		t.Errorf("expected auth server https://gemini-mcp.trycloudflare.com, got %v", meta.AuthorizationServers)
@@ -123,6 +135,9 @@ func TestOAuthMetadata_AuthorizationServerAndOpenID(t *testing.T) {
 
 	var meta struct {
 		Issuer                            string   `json:"issuer"`
+		ServiceName                       string   `json:"service_name"`
+		LogoURI                           string   `json:"logo_uri"`
+		IconURI                           string   `json:"icon_uri"`
 		AuthorizationEndpoint             string   `json:"authorization_endpoint"`
 		TokenEndpoint                     string   `json:"token_endpoint"`
 		RegistrationEndpoint              string   `json:"registration_endpoint"`
@@ -138,6 +153,15 @@ func TestOAuthMetadata_AuthorizationServerAndOpenID(t *testing.T) {
 
 	if meta.Issuer != "https://gemini-mcp.trycloudflare.com" {
 		t.Errorf("unexpected issuer: %q", meta.Issuer)
+	}
+	if meta.ServiceName != "AGY Bridge" {
+		t.Errorf("expected service_name AGY Bridge, got %q", meta.ServiceName)
+	}
+	if meta.LogoURI != "https://gemini-mcp.trycloudflare.com/logo.png" {
+		t.Errorf("unexpected logo_uri: %q", meta.LogoURI)
+	}
+	if meta.IconURI != "https://gemini-mcp.trycloudflare.com/favicon.ico" {
+		t.Errorf("unexpected icon_uri: %q", meta.IconURI)
 	}
 	if meta.AuthorizationEndpoint != "https://gemini-mcp.trycloudflare.com/oauth/authorize" {
 		t.Errorf("unexpected authorization_endpoint: %q", meta.AuthorizationEndpoint)
@@ -171,6 +195,7 @@ func TestOAuthRegister_DynamicClientRegistration(t *testing.T) {
 	bodyBytes, _ := json.Marshal(regBody)
 
 	req := httptest.NewRequest("POST", "/oauth/register", bytes.NewReader(bodyBytes))
+	req.Host = "gemini-mcp.trycloudflare.com"
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -182,7 +207,9 @@ func TestOAuthRegister_DynamicClientRegistration(t *testing.T) {
 
 	var resp struct {
 		ClientID                string   `json:"client_id"`
+		ClientName              string   `json:"client_name"`
 		ClientSecret            string   `json:"client_secret"`
+		LogoURI                 string   `json:"logo_uri"`
 		RedirectURIs            []string `json:"redirect_uris"`
 		GrantTypes              []string `json:"grant_types"`
 		ResponseTypes           []string `json:"response_types"`
@@ -195,14 +222,38 @@ func TestOAuthRegister_DynamicClientRegistration(t *testing.T) {
 	if resp.ClientID != svc.GetOAuthClientID() {
 		t.Errorf("expected client_id %q, got %q", svc.GetOAuthClientID(), resp.ClientID)
 	}
+	if resp.ClientName != "Google Gemini Client" {
+		t.Errorf("expected supplied client_name, got %q", resp.ClientName)
+	}
 	if resp.ClientSecret != svc.GetRawAuthToken() {
 		t.Errorf("expected client_secret matching raw auth token, got %q", resp.ClientSecret)
+	}
+	if resp.LogoURI != "https://gemini-mcp.trycloudflare.com/logo.png" {
+		t.Errorf("unexpected logo_uri: %q", resp.LogoURI)
 	}
 	if len(resp.RedirectURIs) != 1 || resp.RedirectURIs[0] != "https://gemini.google.com/auth/callback" {
 		t.Errorf("unexpected redirect_uris: %v", resp.RedirectURIs)
 	}
 	if resp.TokenEndpointAuthMethod != "client_secret_post" {
 		t.Errorf("expected client_secret_post, got %q", resp.TokenEndpointAuthMethod)
+	}
+
+	defaultReq := httptest.NewRequest("POST", "/oauth/register", strings.NewReader(`{}`))
+	defaultReq.Host = "gemini-mcp.trycloudflare.com"
+	defaultReq.Header.Set("Content-Type", "application/json")
+	defaultW := httptest.NewRecorder()
+	svc.ServeOAuthRegister(defaultW, defaultReq)
+	if defaultW.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created for default registration, got %d", defaultW.Code)
+	}
+	var defaultResp struct {
+		ClientName string `json:"client_name"`
+	}
+	if err := json.Unmarshal(defaultW.Body.Bytes(), &defaultResp); err != nil {
+		t.Fatalf("failed to decode default register response: %v", err)
+	}
+	if defaultResp.ClientName != "AGY Bridge" {
+		t.Errorf("expected default client_name AGY Bridge, got %q", defaultResp.ClientName)
 	}
 }
 
